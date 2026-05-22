@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest  # noqa: F401  # used in slice-2 (#2769) test additions below
+
 # Add orchestrator to path
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -933,3 +935,420 @@ class TestCheckConsensusMessageBusFallback:
             assert result["fallback"] == "message_bus"
         finally:
             remove_peer_consensus_tracker("KORE-1234")
+
+
+# =============================================================================
+# Per-agent model wiring — slice-2 of issue #2769 (TASK-2-4 / TASK-2-7)
+# =============================================================================
+#
+# Slice 2 threads ``resolve_agent_model(role, pipeline.config, pipeline.repo)``
+# through the spawn path so:
+#
+# - ``build_consensus_wrapped_command`` receives the resolved
+#   Claude-Code-facing alias as ``model=`` (e.g. always ``"opus"`` on
+#   LiteLLM-routed agents, per cq-5).
+# - ``spawn_fn`` (which dispatches to ``KubernetesSpawner.spawn_agent``
+#   → ``GatewayClient.register_session``) receives ``upstream=`` and
+#   ``upstream_model=`` so the gateway session is registered with the
+#   right per-agent routing decision.
+#
+# Default-config pipelines (``agent_models == {}``) MUST still hit the
+# old call shape — no new register_session kwargs, no change to the
+# ``--model`` flag.  That's the slice-2 no-op invariant.
+# =============================================================================
+
+
+def _kubernetes_spawn_result(role_value: str = "coder"):
+    """Build a minimal ``SpawnedContainer`` so ``_spawn_agent`` is happy."""
+    from kubernetes_spawner import SpawnedContainer
+    from models import ContainerInfo, ContainerStatus
+
+    info = ContainerInfo(
+        container_id=f"uid-{role_value}",
+        container_name=f"issue-999-{role_value}",
+        status=ContainerStatus.PENDING,
+        namespace="egg-sandbox",
+        job_name=f"issue-999-{role_value}",
+    )
+    return SpawnedContainer(
+        container_info=info,
+        session_info=None,
+        agent_role=None,
+        pipeline_id="issue-999",
+        environment={},
+    )
+
+
+def _slice_2_available() -> bool:
+    """Return True if the slice-2 resolver has landed.
+
+    Tests below skip when False — the coder hasn't pushed yet.
+    """
+    try:
+        import agent_model_resolution  # type: ignore[import-not-found]  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+class TestSpawnDefaultAgentModelPath:
+    """Regression guard: default-config pipelines spawn EXACTLY as
+    before slice-2 — same ``build_consensus_wrapped_command`` args, no
+    new ``register_session`` kwargs."""
+
+    def test_default_config_passes_opus_to_consensus_wrapper(self):
+        """``agent_models == {}`` → coder spawn passes ``model="opus"``
+        (or whatever today's built-in default is) to
+        ``build_consensus_wrapped_command``.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        # No agent_models, no repo default → built-in path.
+        captured: dict[str, object] = {}
+
+        def _capture_command(prompt_text, **kwargs):
+            captured["prompt_text"] = prompt_text
+            captured["model"] = kwargs.get("model", "opus")
+            return ["bash", "-c", "true"]
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            side_effect=_capture_command,
+        ):
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        assert captured.get("model") == "opus", (
+            f"Default-config spawn MUST pass model='opus' to the "
+            f"consensus wrapper; got {captured.get('model')!r}"
+        )
+
+    def test_default_config_omits_upstream_kwargs_on_spawn_fn(self):
+        """The spawn_fn must NOT receive upstream/upstream_model kwargs
+        when ``agent_models == {}`` — that would be a wire-shape change
+        on the default Claude path (regression guard).
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            return_value=["bash", "-c", "true"],
+        ):
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        # spawn_fn was called once
+        assert mock_spawn.call_count == 1, mock_spawn.call_args_list
+        _args, kwargs = mock_spawn.call_args
+
+        # Slice-2 invariant: when no override is configured, the
+        # default-Anthropic case omits the new kwargs entirely OR
+        # passes them as None — either is acceptable wire-shape;
+        # what's NOT acceptable is sending ``upstream="litellm"`` or
+        # a non-None ``upstream_model``.
+        assert kwargs.get("upstream") in (None, "anthropic"), (
+            f"Default config should not send upstream='litellm'; got {kwargs.get('upstream')!r}"
+        )
+        assert kwargs.get("upstream_model") is None, (
+            f"Default config MUST NOT send upstream_model; got {kwargs.get('upstream_model')!r}"
+        )
+
+
+class TestSpawnLiteLLMConfiguredPath:
+    """``agent_models={"refiner": "qwen3-coder-30b"}`` MUST:
+
+    - Pass ``model="opus"`` (cq-5 mitigation) to the consensus wrapper.
+    - Pass ``upstream="litellm"`` and
+      ``upstream_model="qwen3-coder-30b"`` to the spawn_fn.
+
+    Other roles (e.g. coder) in the same pipeline MUST keep the
+    default Anthropic shape — the override is per-role.
+    """
+
+    def test_refiner_override_passes_opus_to_consensus_wrapper(self):
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        try:
+            pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
+        except AttributeError, ValueError:
+            pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
+
+        captured: dict[str, object] = {}
+
+        def _capture_command(prompt_text, **kwargs):
+            captured["model"] = kwargs.get("model")
+            return ["bash", "-c", "true"]
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("refiner"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            side_effect=_capture_command,
+        ):
+            executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
+
+        # cq-5: Claude Code's ``--model`` flag MUST be a recognized
+        # Claude alias, NEVER the LiteLLM-side upstream model name.
+        assert captured.get("model") == "opus", (
+            f"LiteLLM-routed refiner MUST present model='opus' to "
+            f"Claude Code (cq-5); got {captured.get('model')!r}"
+        )
+
+    def test_refiner_override_passes_upstream_to_spawn_fn(self):
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        try:
+            pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
+        except AttributeError, ValueError:
+            pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("refiner"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            return_value=["bash", "-c", "true"],
+        ):
+            executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
+
+        _args, kwargs = mock_spawn.call_args
+        assert kwargs.get("upstream") == "litellm", (
+            f"refiner spawn_fn MUST receive upstream='litellm'; got {kwargs.get('upstream')!r}"
+        )
+        assert kwargs.get("upstream_model") == "qwen3-coder-30b", (
+            f"refiner spawn_fn MUST receive upstream_model='qwen3-coder-30b'; "
+            f"got {kwargs.get('upstream_model')!r}"
+        )
+
+    def test_refiner_override_does_not_affect_coder_spawn(self):
+        """Per-role override — coder spawn MUST stay on the default
+        Anthropic shape even when refiner is overridden.
+        """
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        try:
+            pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
+        except AttributeError, ValueError:
+            pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
+
+        captured: dict[str, object] = {}
+
+        def _capture_command(prompt_text, **kwargs):
+            captured["model"] = kwargs.get("model")
+            return ["bash", "-c", "true"]
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("coder"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            side_effect=_capture_command,
+        ):
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        # Coder is not overridden → built-in default → "opus" alias
+        # to Anthropic.
+        assert captured.get("model") == "opus"
+        _args, kwargs = mock_spawn.call_args
+        assert kwargs.get("upstream") in (None, "anthropic"), (
+            f"Coder spawn_fn must not carry upstream='litellm' when "
+            f"only refiner is overridden; got {kwargs.get('upstream')!r}"
+        )
+        assert kwargs.get("upstream_model") is None, (
+            f"Coder spawn_fn must have upstream_model=None when only "
+            f"refiner is overridden; got {kwargs.get('upstream_model')!r}"
+        )
+
+
+class TestSpawnClaudeAliasOverride:
+    """Override to a different Claude alias (e.g. ``"sonnet"``) — the
+    upstream stays Anthropic but ``--model`` gets the new alias.
+    """
+
+    def test_sonnet_override_passes_sonnet_to_consensus_wrapper(self):
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        try:
+            pipeline.config.agent_models = {"coder": "sonnet"}
+        except AttributeError, ValueError:
+            pipeline.config.__dict__["agent_models"] = {"coder": "sonnet"}
+
+        captured: dict[str, object] = {}
+
+        def _capture_command(prompt_text, **kwargs):
+            captured["model"] = kwargs.get("model")
+            return ["bash", "-c", "true"]
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("coder"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            side_effect=_capture_command,
+        ):
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        # Anthropic-classified — alias passes through as-is.
+        assert captured.get("model") == "sonnet"
+        _args, kwargs = mock_spawn.call_args
+        # Upstream is Anthropic → no LiteLLM routing decision.
+        assert kwargs.get("upstream") in (None, "anthropic")
+        assert kwargs.get("upstream_model") is None
+
+
+class TestSpawnResolverFailureFallback:
+    """If ``resolve_agent_model`` ever raises at spawn time, the spawner
+    MUST degrade to the built-in opus / anthropic default instead of
+    bringing down the pipeline (defensive guard added in slice-2 v2).
+
+    Mirrors the existing restart-path fallback at
+    ``routes/pipelines.py:2683-2699``.
+    """
+
+    def test_resolver_exception_falls_back_to_opus_anthropic(self):
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        captured: dict[str, object] = {}
+
+        def _capture_command(prompt_text, **kwargs):
+            captured["model"] = kwargs.get("model")
+            return ["bash", "-c", "true"]
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("coder"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        # Force the resolver to raise.  The spawner's defensive wrap
+        # MUST catch this and fall back to the built-in opus default.
+        with (
+            patch(
+                "concurrent_executor.resolve_agent_model",
+                side_effect=RuntimeError("simulated resolver bug"),
+            ),
+            patch(
+                "concurrent_executor.build_consensus_wrapped_command",
+                side_effect=_capture_command,
+            ),
+        ):
+            # MUST NOT raise — the defensive guard catches and falls back.
+            execution = executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        # Spawn completed → execution returned.
+        assert execution is not None
+        # Fallback decision is built-in opus / anthropic; no kwargs added.
+        assert captured.get("model") == "opus", (
+            f"Resolver-failure fallback MUST pass model='opus' to the "
+            f"consensus wrapper; got {captured.get('model')!r}"
+        )
+        _args, kwargs = mock_spawn.call_args
+        # No new wire kwargs on the fallback path — preserves the
+        # pre-#2769 spawn_fn signature for legacy spawners.
+        assert kwargs.get("upstream") in (None, "anthropic"), (
+            f"Resolver-failure fallback added upstream='{kwargs.get('upstream')!r}' "
+            f"to spawn_fn — must omit on the default-Anthropic path"
+        )
+        assert kwargs.get("upstream_model") is None
+
+    def test_resolver_exception_still_calls_spawn_fn(self):
+        """Defensive guard MUST NOT short-circuit the spawn — the
+        agent's container/job must still come up on the built-in
+        default. (Adversarial probe: a broken `except Exception: raise`
+        path here would silently break every spawn.)
+        """
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("coder"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with (
+            patch(
+                "concurrent_executor.resolve_agent_model",
+                side_effect=ImportError("simulated lazy-import bug"),
+            ),
+            patch(
+                "concurrent_executor.build_consensus_wrapped_command",
+                return_value=["bash", "-c", "true"],
+            ),
+        ):
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        assert mock_spawn.call_count == 1, (
+            f"Resolver failure MUST NOT short-circuit spawn; spawn_fn "
+            f"called {mock_spawn.call_count} times (expected 1)"
+        )
+
+
+class TestResolverMissingRepoConfigDoesNotCrash:
+    """Adversarial probe: the v1 NACK called out a FileNotFoundError
+    leak when ``repositories.yaml`` is absent.  v2 ``get_default_agent_model``
+    catches that and returns ``None`` so default pipelines still spawn.
+
+    This test exercises the path end-to-end via ``_spawn_agent`` with
+    a test pipeline that has a non-None ``repo`` (the v1 trigger
+    condition) and confirms no exception propagates.
+    """
+
+    def test_spawn_with_missing_repositories_yaml_does_not_raise(self):
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        # ``test/repo`` is the _make_pipeline default; the resolver
+        # would call get_default_agent_model("test/repo") which used
+        # to raise.  After v2 the helper returns None on FileNotFoundError.
+        assert pipeline.repo == "test/repo"
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("coder"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            return_value=["bash", "-c", "true"],
+        ):
+            # MUST NOT raise FileNotFoundError — the v2 fix in
+            # config.repo_config.get_default_agent_model catches it.
+            executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
+
+        assert mock_spawn.call_count == 1
