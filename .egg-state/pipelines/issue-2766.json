@@ -417,10 +417,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "The framework spec defines a `## Impact & Risk` section as the `ExpectedImpact` from the Impact Analysis Framework — risk level, maturity, product areas, scope estimate, constraints, coordination requirements. What is the authoritative enum set egg should reuse (risk levels, maturity values, product-area taxonomy)? Without access to the spec or the JSON Schema, we can't pin these in the analysis. Paste the enums or point at where they live.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Per the spec, every `AC` must be referenced by some slice's `Satisfies`. Today's egg contract has top-level `acceptance_criteria` (rarely populated) AND per-task `acceptance_criteria` strings. When AC records become a typed list with refs from slices, what happens to the per-task `acceptance_criteria` strings — do they stay (as in-task detail under `**Acceptance**`), get rolled up into AC-<n>, or both with a forced reference (task `Satisfies: AC-1`)?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "The framework spec calls out `required human-review reasons present` as a validation rule. What counts as a 'human-review reason' in the egg context — the existing HITL decision-point mechanism (`egg-contract add-decision`), the new `OQ-<n>` records, the conditional-ACK `pre_merge_condition` (#1998), or a new field?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "The framework spec calls out `## Blockers` records with categories `dependency` / `decision` / `external` / `infra` / `data`. Does egg's existing notion of pre-merge obligations (#1998 conditional ACKs, `deferred_actions` on the PR contract) fit any of these categories, or are they orthogonal? If orthogonal, do they need to be raised as a new category upstream?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "The implement phase's BRC review criteria (`shared/prompts/code-review-*-criteria.md`) compare implementation against the plan. With the new grammar, should reviewers in the implement phase verify every changed file is covered by some task's `Files` field and every AC referenced by the slice is touched by the diff? This would be a real conformance check, but it's not in the issue scope.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.331672Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.293772Z",
+  "updated_at": "2026-05-22T01:00:37.344346Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -433,7 +473,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
