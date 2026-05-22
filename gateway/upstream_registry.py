@@ -4,8 +4,8 @@ Upstream Registry for Gateway LLM Proxy.
 Provides a per-upstream registry pairing an httpx.Client (base_url, timeout,
 connection limits) with a credential resolver. Used by the
 ``/v1/messages`` and ``/v1/messages/count_tokens`` proxy routes to select
-between today's Anthropic upstream (``api.anthropic.com``) and a future
-LiteLLM-translation proxy in ``egg-system``.
+between today's Anthropic upstream and a future LiteLLM-translation proxy
+in ``egg-system``.
 
 The registry is the gateway-side trust boundary for upstream selection:
 the orchestrator declares the per-agent upstream at session-create time
@@ -59,11 +59,16 @@ logger = get_logger("gateway.upstream-registry")
 
 
 # Anthropic upstream base URL — matches today's hard-wired client.
-ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"  # noqa: EGG200 - proxy target URL, not a direct LLM call
 
 # LiteLLM proxy Service DNS — overridable via env var so operators can
 # point at a different proxy without rebuilding the gateway image.
 LITELLM_BASE_URL_DEFAULT = "http://litellm.egg-system.svc.cluster.local:4000"
+
+# The upstream names this registry serves. Single source of truth for
+# ``get`` / ``is_known`` / ``known_upstreams``; adding a fourth upstream
+# means adding a name here and an ``_ensure_<name>`` constructor in ``get``.
+KNOWN_UPSTREAMS: tuple[str, ...] = ("anthropic", "litellm")
 
 
 # Type alias for the credential resolver shape — both anthropic and litellm
@@ -126,23 +131,23 @@ class UpstreamRegistry:
         upstreams (``anthropic`` and ``litellm``) — both share construction
         semantics with today's ``get_anthropic_client()``.
         """
+        if upstream not in KNOWN_UPSTREAMS:
+            raise UnknownUpstreamError(upstream)
         with self._lock:
             if upstream == "anthropic":
                 self._ensure_anthropic()
             elif upstream == "litellm":
                 self._ensure_litellm()
-            else:
-                raise UnknownUpstreamError(upstream)
 
             return self._clients[upstream], self._resolvers[upstream]
 
     def is_known(self, upstream: str) -> bool:
         """Return True if ``upstream`` is a name the registry will serve."""
-        return upstream in ("anthropic", "litellm")
+        return upstream in KNOWN_UPSTREAMS
 
     def known_upstreams(self) -> tuple[str, ...]:
         """Return the canonical upstream names the registry will serve."""
-        return ("anthropic", "litellm")
+        return KNOWN_UPSTREAMS
 
     def close(self) -> None:
         """Close all open httpx clients. For tests / teardown."""
@@ -185,6 +190,7 @@ def reset_upstream_registry() -> None:
 
 __all__ = [
     "ANTHROPIC_BASE_URL",
+    "KNOWN_UPSTREAMS",
     "LITELLM_BASE_URL_DEFAULT",
     "CredentialResolver",
     "LiteLLMCredentialsManager",

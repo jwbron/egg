@@ -9406,6 +9406,9 @@ def _inject_upstream_credentials(
     path) and has no client-supplied-auth fall-through because Claude Code
     never carries a LiteLLM master key.
 
+    An upstream the registry does not serve is rejected with a 502 — it
+    is never silently treated as Anthropic.
+
     Args:
         headers: Mutable header dict — credential is appended in place.
         upstream: ``"anthropic"`` (default — back-compat) or ``"litellm"``.
@@ -9414,6 +9417,29 @@ def _inject_upstream_credentials(
         (headers, None) on success
         (headers, error_response_tuple) on failure - caller should return this
     """
+    # Refuse to silently treat an unknown upstream as Anthropic. Falling
+    # through to the Anthropic branch produced an observable error-code
+    # inconsistency — 401 vs 502 for the same invalid input depending on
+    # unrelated Anthropic-credential state. An unregistered upstream now
+    # fails closed with a 502, matching the proxy routes' own
+    # UnknownUpstreamError handling (issue #2769 review).
+    if not get_upstream_registry().is_known(upstream):
+        logger.warning(
+            "Unknown upstream for credential injection, refusing request",
+            upstream=upstream,
+        )
+        return headers, (
+            jsonify(
+                {
+                    "error": {
+                        "type": "api_error",
+                        "message": f"Unknown upstream '{upstream}'",
+                    }
+                }
+            ),
+            502,
+        )
+
     if upstream == "litellm":
         cred = get_litellm_credentials_manager().get_credential()
         if cred:
@@ -10164,34 +10190,34 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             )
 
     except httpx.ConnectError as e:
-        logger.error("Anthropic API connection failed", error=str(e))
+        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to Anthropic API: {e}",
+                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Anthropic API request timed out", error=str(e))
+        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API request timed out: {e}",
+                    "message": f"{upstream_name} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Anthropic API proxy error")
+        logger.exception("Upstream proxy error", upstream=upstream_name)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API proxy error: {e}",
+                    "message": f"{upstream_name} upstream proxy error: {e}",
                 }
             }
         ), 502
@@ -10259,34 +10285,34 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         )
 
     except httpx.ConnectError as e:
-        logger.error("Anthropic API connection failed", error=str(e))
+        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to Anthropic API: {e}",
+                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Anthropic API request timed out", error=str(e))
+        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API request timed out: {e}",
+                    "message": f"{upstream_name} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Anthropic API proxy error")
+        logger.exception("Upstream proxy error", upstream=upstream_name)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API proxy error: {e}",
+                    "message": f"{upstream_name} upstream proxy error: {e}",
                 }
             }
         ), 502

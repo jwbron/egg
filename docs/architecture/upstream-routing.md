@@ -377,7 +377,7 @@ one does not silently activate the LiteLLM path.
 
 ## HITL decisions that shape this design
 
-The `#2769` refine phase resolved eleven `cq-*` decisions. The five
+The `#2769` refine phase resolved eleven `cq-*` decisions. The six
 that directly shape the slice-1 architecture:
 
 | Decision | Resolution | Effect on this seam |
@@ -387,6 +387,7 @@ that directly shape the slice-1 architecture:
 | `cq-5` | Keep Claude Code harness for non-Claude models; present recognized alias | Compaction-math mitigation; body rewrite lives in slice 2 |
 | `cq-7` | Gateway holds `LITELLM_MASTER_KEY` in `secrets.env`; injects per-request | Credentials section above — mirrors today's Anthropic injection |
 | `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Failure policy section above |
+| `cq-9` | Keep the private-mode WebSearch / WebFetch strip on every upstream | Proxy-routes section — `_filter_blocked_tools` runs identically regardless of upstream |
 
 The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/contracts/issue-2769.json).
 

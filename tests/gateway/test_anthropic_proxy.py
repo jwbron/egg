@@ -1459,11 +1459,6 @@ class TestUpstreamRoutingMessages:
         """
         from httpx import Headers
 
-        try:
-            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
-        except ImportError:
-            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
-
         litellm_client = MagicMock()
         mock_response = MagicMock()
         mock_response.content = json.dumps({"content": "ok"}).encode()
@@ -1533,11 +1528,6 @@ class TestUpstreamRoutingMessages:
         versa).
         """
         from httpx import Headers
-
-        try:
-            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
-        except ImportError:
-            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
 
         captured_headers: dict[str, str] = {}
 
@@ -1653,11 +1643,6 @@ class TestUpstreamRoutingCountTokens:
     def test_litellm_session_count_tokens_uses_litellm_upstream(self, client):
         from httpx import Headers
 
-        try:
-            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
-        except ImportError:
-            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
-
         litellm_client = MagicMock()
         mock_response = MagicMock()
         mock_response.content = json.dumps({"input_tokens": 7}).encode()
@@ -1728,13 +1713,10 @@ class TestInjectUpstreamCredentials:
 
     @pytest.fixture
     def _inject_fn(self):
-        """Return the upstream-aware injector if present, else skip."""
-        try:
-            from gateway.gateway import _inject_upstream_credentials  # type: ignore[attr-defined]
+        """Return the upstream-aware credential injector."""
+        from gateway.gateway import _inject_upstream_credentials
 
-            return _inject_upstream_credentials
-        except ImportError:
-            pytest.skip("_inject_upstream_credentials not yet implemented")
+        return _inject_upstream_credentials
 
     def test_anthropic_dispatch_matches_legacy_helper(self, _inject_fn):
         """For ``upstream="anthropic"``, the new helper behaves
@@ -1771,41 +1753,55 @@ class TestInjectUpstreamCredentials:
         # path.
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get,
+            patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get,
         ):
             # Make Anthropic resolver explosive — if it's called, the
             # test fails loudly.
             mock_anthropic_get.return_value.get_credential.side_effect = AssertionError(
                 "Anthropic resolver consulted on LiteLLM-routed request"
             )
-            try:
-                with patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get:
-                    mock_litellm_get.return_value.get_credential.return_value = MagicMock(
-                        header_name="x-api-key",
-                        header_value="litellm-master-key-1234567890",
-                    )
-                    headers, error = _inject_fn({"Content-Type": "application/json"}, "litellm")
-                    assert error is None
-                    assert headers["x-api-key"] == "litellm-master-key-1234567890"
-            except AttributeError:
-                pytest.skip("gateway.gateway.get_litellm_credentials_manager not yet exported")
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key",
+                header_value="litellm-master-key-1234567890",
+            )
+            headers, error = _inject_fn({"Content-Type": "application/json"}, "litellm")
+            assert error is None
+            assert headers["x-api-key"] == "litellm-master-key-1234567890"
 
     def test_litellm_no_credential_returns_401(self, _inject_fn):
         """Same 401 shape as today's Anthropic-no-credential path."""
         from gateway.gateway import app
 
-        with patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get:
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get,
+            patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get,
+        ):
             mock_anthropic_get.return_value.get_credential.return_value = None
-            try:
-                with patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get:
-                    mock_litellm_get.return_value.get_credential.return_value = None
-                    with app.app_context():
-                        _headers, error = _inject_fn(
-                            {"Content-Type": "application/json"}, "litellm"
-                        )
-                    assert error is not None
-                    assert error[1] == 401
-            except AttributeError:
-                pytest.skip("gateway.gateway.get_litellm_credentials_manager not yet exported")
+            mock_litellm_get.return_value.get_credential.return_value = None
+            with app.app_context():
+                _headers, error = _inject_fn({"Content-Type": "application/json"}, "litellm")
+            assert error is not None
+            assert error[1] == 401
+
+    def test_unknown_upstream_returns_502_without_anthropic_fallthrough(self, _inject_fn):
+        """An upstream the registry does not serve must fail closed with a
+        502 — never silently treated as Anthropic. Regression guard for
+        the pre-review behavior where an unknown upstream's error code
+        depended on unrelated Anthropic-credential state (401 vs 502).
+        """
+        from gateway.gateway import app
+
+        with patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get:
+            # No Anthropic credential configured — the old fall-through
+            # would have produced a 401 here instead of a 502.
+            mock_anthropic_get.return_value.get_credential.return_value = None
+            with app.app_context():
+                _headers, error = _inject_fn({"Content-Type": "application/json"}, "bogus_upstream")
+        assert error is not None
+        assert error[1] == 502, (
+            f"Unknown upstream must fail closed with 502 regardless of "
+            f"Anthropic-credential state; got {error[1]}"
+        )
 
 
 # =============================================================================
@@ -1848,16 +1844,13 @@ class TestUnknownUpstreamDefense:
         upstream (e.g. corrupted persistence, manual edit), the proxy
         MUST fail closed — never silently fall back to Anthropic.
 
-        The coder's defensive handler maps ``UnknownUpstreamError`` to a
-        502.  We accept any 5xx here because the dual-import test setup
-        (``gateway/tests/conftest.py`` loads modules with a custom
-        loader, while ``tests/gateway/`` uses ``sys.path`` insertion)
-        can cause two distinct ``UnknownUpstreamError`` class identities
-        to coexist in the test session, leaving the exception un-caught
-        and producing a 500.  In production there is only one module
-        load, so the 502 path is the only one that fires — and the
-        important assertion is "fail closed", not the specific 5xx
-        code.
+        ``_inject_upstream_credentials`` checks ``UpstreamRegistry.is_known``
+        before any per-upstream branch, so an unregistered upstream is
+        rejected with a deterministic 502 ahead of the client-resolution
+        block (the ``except UnknownUpstreamError`` there is now unreachable
+        defensive code).  We still assert on the 5xx range rather than the
+        exact 502 because the fail-closed contract — not the specific
+        code — is what this test guards.
         """
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
@@ -1917,11 +1910,6 @@ class TestRoutingConsistencyAcrossProxyRoutes:
         session is upstream=='litellm'.
         """
         from httpx import Headers
-
-        try:
-            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
-        except ImportError:
-            pytest.skip("upstream_registry not yet implemented")
 
         litellm_client = MagicMock()
         mock_response = MagicMock()
@@ -2071,7 +2059,14 @@ class TestLiteLLMNoFallbackToClientAuth:
 class TestSessionCreateUpstreamValidation:
     """Slice-1 session-create endpoint MUST reject unknown ``upstream``
     values with 400 (TASK-1-5 AC).
+
+    These patch ``get_launcher_secret`` directly and send the matching
+    bearer token, so the validation branch is exercised deterministically
+    — they do not depend on ``EGG_LAUNCHER_SECRET`` being set in the
+    environment.
     """
+
+    _SECRET = "test-launcher-secret-upstream-validation"
 
     @pytest.fixture
     def client(self):
@@ -2081,39 +2076,29 @@ class TestSessionCreateUpstreamValidation:
         with app.test_client() as client:
             yield client
 
-    def _launcher_auth(self):
-        """Return the Authorization header used by session-create."""
-        import os
-
-        return {"Authorization": f"Bearer {os.environ.get('EGG_LAUNCHER_SECRET', '')}"}
+    def _auth(self):
+        return {"Authorization": f"Bearer {self._SECRET}"}
 
     def test_bogus_upstream_returns_400(self, client):
-        """POST /api/v1/sessions/create with ``upstream='bogus'``
-        returns a 400 with a descriptive error.
+        """POST /api/v1/sessions/create with ``upstream='bogus'`` returns
+        a 400 with a descriptive error. The upstream check fires before
+        any worktree/session work, so patching launcher auth is the only
+        stub the rejection path needs.
         """
-        response = client.post(
-            "/api/v1/sessions/create",
-            data=json.dumps(
-                {
-                    "container_id": "test-container",
-                    "container_ip": "172.18.0.5",
-                    "mode": "private",
-                    "pipeline_id": "test-pipeline",
-                    "upstream": "bogus_upstream_name",
-                }
-            ),
-            content_type="application/json",
-            headers=self._launcher_auth(),
-        )
-
-        # The endpoint requires launcher auth; if our secret isn't set
-        # the response is 401 or a 500 LauncherSecretNotConfiguredError.
-        # Either way the test would not actually exercise the upstream
-        # validation path, so skip rather than report a false negative.
-        if response.status_code in (401, 500):
-            pytest.skip(
-                "session-create requires launcher auth; EGG_LAUNCHER_SECRET "
-                "not configured in this test env"
+        with patch("gateway.gateway.get_launcher_secret", return_value=self._SECRET):
+            response = client.post(
+                "/api/v1/sessions/create",
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "pipeline_id": "test-pipeline",
+                        "upstream": "bogus_upstream_name",
+                    }
+                ),
+                content_type="application/json",
+                headers=self._auth(),
             )
 
         assert response.status_code == 400, (
@@ -2125,37 +2110,39 @@ class TestSessionCreateUpstreamValidation:
         msg = body.get("message", body.get("error", {}).get("message", ""))
         assert "upstream" in str(msg).lower() or "bogus_upstream_name" in str(body)
 
-    def test_anthropic_and_litellm_upstreams_are_valid(self, client):
-        """Sanity check: the registry's two known upstreams pass
-        session-create validation.
+    def test_known_upstreams_pass_validation(self, client, tmp_path):
+        """The registry's two known upstreams pass session-create
+        validation and reach a clean 200. A real SessionManager is wired
+        in so ``register_session`` actually runs; ``repos`` is omitted so
+        no worktree machinery is touched.
         """
-        for upstream in ("anthropic", "litellm"):
-            response = client.post(
-                "/api/v1/sessions/create",
-                data=json.dumps(
-                    {
-                        "container_id": f"test-{upstream}",
-                        "container_ip": "172.18.0.5",
-                        "mode": "private",
-                        "pipeline_id": f"test-pipeline-{upstream}",
-                        "upstream": upstream,
-                    }
-                ),
-                content_type="application/json",
-                headers=self._launcher_auth(),
-            )
+        from session_manager import SessionManager
 
-            if response.status_code in (401, 500):
-                pytest.skip(
-                    "session-create requires launcher auth; "
-                    "EGG_LAUNCHER_SECRET not configured in this test env"
+        for upstream in ("anthropic", "litellm"):
+            manager = SessionManager(persistence_file=tmp_path / f"sessions-{upstream}.json")
+            with (
+                patch("gateway.gateway.get_launcher_secret", return_value=self._SECRET),
+                patch("gateway.gateway.get_session_manager", return_value=manager),
+            ):
+                response = client.post(
+                    "/api/v1/sessions/create",
+                    data=json.dumps(
+                        {
+                            "container_id": f"test-{upstream}",
+                            "container_ip": "172.18.0.5",
+                            "mode": "private",
+                            "pipeline_id": f"test-pipeline-{upstream}",
+                            "upstream": upstream,
+                        }
+                    ),
+                    content_type="application/json",
+                    headers=self._auth(),
                 )
 
-            # Should NOT be 400 (validation success).  Other failures
-            # (e.g. worktree creation) are out of scope for this test.
-            assert response.status_code != 400 or (
-                "upstream" not in str(json.loads(response.data))
-            ), f"Valid upstream '{upstream}' was rejected: {response.data!r}"
+            assert response.status_code == 200, (
+                f"Valid upstream '{upstream}' was rejected: "
+                f"{response.status_code} ({response.data!r})"
+            )
 
 
 # =============================================================================

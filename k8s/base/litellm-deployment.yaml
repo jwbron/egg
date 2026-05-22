@@ -52,6 +52,13 @@ spec:
               containerPort: 4000
               protocol: TCP
           env:
+            # readOnlyRootFilesystem is true and only /tmp is writable.
+            # Point HOME at the writable tmpfs so any home-relative path
+            # LiteLLM touches at startup (cache / config dirs, and the
+            # XDG_* defaults that derive from $HOME) lands somewhere
+            # writable instead of failing against the read-only root.
+            - name: HOME
+              value: /tmp
             # LiteLLM master key — clients (the gateway) inject this as
             # ``x-api-key`` on every request. Issue #2769 cq-7. Operators
             # populate the matching value in

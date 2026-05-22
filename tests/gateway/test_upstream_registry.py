@@ -42,14 +42,12 @@ def _reset_upstream_registry(monkeypatch):
     """Reset the global registry between tests so env-var-driven config
     changes (LITELLM_BASE_URL) are observed.
 
-    The registry is expected to expose ``reset_upstream_registry()`` for
-    test isolation, mirroring ``reset_credentials_manager()`` at
+    The registry exposes ``reset_upstream_registry()`` for test
+    isolation, mirroring ``reset_credentials_manager()`` at
     ``gateway/anthropic_credentials.py:226``.
     """
-    try:
-        from upstream_registry import reset_upstream_registry
-    except ImportError:  # pragma: no cover — coder will land the module
-        pytest.skip("upstream_registry not yet implemented (waiting on coder commit)")
+    from upstream_registry import reset_upstream_registry
+
     reset_upstream_registry()
     yield
     reset_upstream_registry()

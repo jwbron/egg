@@ -57,12 +57,27 @@ while :; do
     exit 0
   fi
 
-  # Fast-fail: a pod can't pull its image. Almost always tag drift —
-  # HEAD moved since the last build+import, so `make deploy` references
-  # egg-*:$TAG which was never imported into k3s.
-  if kubectl -n "$NS" get pods \
-      -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
-      2>/dev/null | grep -qE 'ImagePullBackOff|ErrImagePull'; then
+  # Fast-fail: an egg-owned pod can't pull its image. Almost always tag
+  # drift — HEAD moved since the last build+import, so `make deploy`
+  # references egg-*:$TAG which was never imported into k3s.
+  #
+  # The scan is scoped by label to egg's own deployments
+  # (orchestrator/gateway) — those images are egg-built and tag-rewritten
+  # by `make deploy`. Third-party pods in egg-system (e.g. the LiteLLM
+  # proxy, whose image is pulled from an external registry) have nothing
+  # to do with EGG_IMAGE_TAG: their ImagePullBackOff must not abort the
+  # deploy or mis-blame egg's tag.
+  egg_image_pull_failed=0
+  for d in "${DEPLOYMENTS[@]}"; do
+    if kubectl -n "$NS" get pods \
+        -l "app.kubernetes.io/component=$d" \
+        -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
+        2>/dev/null | grep -qE 'ImagePullBackOff|ErrImagePull'; then
+      egg_image_pull_failed=1
+      break
+    fi
+  done
+  if [ "$egg_image_pull_failed" -eq 1 ]; then
     echo "ERROR: egg-system pods cannot pull image tag '${TAG}' — it is not in k3s." >&2
     echo "       A commit, pull, or rebase since your last build moved EGG_IMAGE_TAG." >&2
     echo "       'make deploy' alone only deploys; run 'make redeploy' to rebuild +" >&2

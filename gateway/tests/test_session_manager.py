@@ -2237,11 +2237,11 @@ class TestSessionUpstreamFields:
         """Mirroring the existing pattern (synthetic etc.), the default
         ``upstream='anthropic'`` should not bloat the persisted dict.
 
-        This is a defensive guard — if the coder lands the field as
-        always-emitted that's not wrong but the test surface should
-        flag the divergence so the reviewer notices the on-disk shape
-        change.  Marked xfail-strict-false: an always-emitted field
-        is acceptable as long as the back-compat read still works.
+        This is a lenient guard: the conditional asserts below accept
+        either an omitted field (preferred) or one present at its
+        default value — an always-emitted default is acceptable as long
+        as the back-compat read still works. The test fails only if a
+        non-default value is persisted unexpectedly.
         """
         session = self._make_session()
         d = session.to_dict_for_persistence()
@@ -2274,29 +2274,65 @@ class TestSessionManagerRegisterUpstream:
 
     def test_register_with_litellm_upstream_stores_both_fields(self, manager):
         """Explicit LiteLLM registration stores both fields on the Session."""
-        try:
-            _token, session = manager.register_session(
-                container_id="qwen-agent",
-                container_ip="172.18.0.7",
-                mode="private",
-                upstream="litellm",
-                upstream_model="qwen3-coder-30b",
-            )
-        except TypeError as e:
-            pytest.skip(f"register_session does not yet accept upstream kwargs: {e}")
+        _token, session = manager.register_session(
+            container_id="qwen-agent",
+            container_ip="172.18.0.7",
+            mode="private",
+            upstream="litellm",
+            upstream_model="qwen3-coder-30b",
+        )
         assert session.upstream == "litellm"
         assert session.upstream_model == "qwen3-coder-30b"
 
     def test_register_with_anthropic_upstream_explicit(self, manager):
         """Explicit ``upstream='anthropic'`` is a valid no-op."""
-        try:
-            _token, session = manager.register_session(
-                container_id="explicit-anthropic-agent",
-                container_ip="172.18.0.8",
-                mode="private",
-                upstream="anthropic",
-            )
-        except TypeError as e:
-            pytest.skip(f"register_session does not yet accept upstream kwargs: {e}")
+        _token, session = manager.register_session(
+            container_id="explicit-anthropic-agent",
+            container_ip="172.18.0.8",
+            mode="private",
+            upstream="anthropic",
+        )
         assert session.upstream == "anthropic"
         assert session.upstream_model is None
+
+    def test_register_with_unknown_upstream_raises(self, manager):
+        """An upstream the gateway cannot serve is rejected at registration
+        (issue #2769 review) — a direct caller must not be able to create
+        a bogus-upstream session that bypasses the session-create route's
+        validation.
+        """
+        with pytest.raises(ValueError, match="Unknown upstream"):
+            manager.register_session(
+                container_id="bogus-agent",
+                container_ip="172.18.0.9",
+                mode="private",
+                upstream="bogus_upstream_name",
+            )
+
+    def test_register_with_empty_upstream_model_raises(self, manager):
+        """An empty ``upstream_model`` is rejected at registration, mirroring
+        the session-create route's validation (issue #2769 review) — a
+        direct caller must not be able to store a malformed model name.
+        """
+        with pytest.raises(ValueError, match="upstream_model must be non-empty"):
+            manager.register_session(
+                container_id="empty-model-agent",
+                container_ip="172.18.0.10",
+                mode="private",
+                upstream="litellm",
+                upstream_model="",
+            )
+
+    def test_register_with_oversized_upstream_model_raises(self, manager):
+        """An ``upstream_model`` over 256 characters is rejected at
+        registration, mirroring the session-create route (issue #2769
+        review).
+        """
+        with pytest.raises(ValueError, match="256 characters or fewer"):
+            manager.register_session(
+                container_id="long-model-agent",
+                container_ip="172.18.0.11",
+                mode="private",
+                upstream="litellm",
+                upstream_model="x" * 257,
+            )

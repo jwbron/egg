@@ -598,14 +598,42 @@ class SessionManager:
                 traffic for this session (issue #2769). Defaults to
                 ``"anthropic"`` so all pre-#2769 callers keep byte-identical
                 behavior; pass ``"litellm"`` to route through the LiteLLM
-                proxy in egg-system.
+                proxy in egg-system. Validated against ``UpstreamRegistry``.
             upstream_model: Optional upstream-side model name used by the
                 slice-2 body-rewrite path. ``None`` (default) leaves the
                 incoming request body's ``model`` field unchanged.
 
         Returns:
             Tuple of (session_token, Session)
+
+        Raises:
+            ValueError: If ``upstream`` is not a name the gateway's
+                ``UpstreamRegistry`` serves, or if ``upstream_model`` is
+                given but is not a non-empty string of ≤256 characters.
         """
+        # Validate the upstream against the registry (issue #2769). The
+        # /api/v1/sessions/create route validates too, but guard here so a
+        # direct caller (the slice-2 spawner, tests) cannot register a
+        # session whose upstream the gateway will not serve — that would
+        # land in the proxy routes' inconsistent unknown-upstream path.
+        from upstream_registry import get_upstream_registry  # type: ignore[import-untyped]
+
+        registry = get_upstream_registry()
+        if not registry.is_known(upstream):
+            known = ", ".join(sorted(registry.known_upstreams()))
+            raise ValueError(f"Unknown upstream '{upstream}'. Must be one of: {known}")
+
+        # Mirror the /api/v1/sessions/create route's upstream_model checks
+        # (issue #2769) so a direct caller cannot store a malformed model
+        # name that would only surface in the slice-2 body-rewrite path.
+        if upstream_model is not None:
+            if not isinstance(upstream_model, str):
+                raise ValueError("upstream_model must be a string")
+            if not upstream_model:
+                raise ValueError("upstream_model must be non-empty if provided")
+            if len(upstream_model) > 256:
+                raise ValueError("upstream_model must be 256 characters or fewer")
+
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         token_hash = _hash_token(token)

@@ -649,7 +649,12 @@ class GatewayClient:
                 (default behavior when omitted) or ``"litellm"`` to route the
                 session's ``/v1/messages`` traffic through the LiteLLM proxy
                 in egg-system (issue #2769). Omitted callers produce a
-                request body byte-identical to today.
+                request body byte-identical to today. The gateway is
+                authoritative: it validates this against its
+                ``UpstreamRegistry`` and rejects an unknown value with
+                HTTP 400, so a slice-2 resolution bug fails fast at
+                session-create rather than producing a bogus-upstream
+                session.
             upstream_model: Optional upstream-side model name used by the
                 slice-2 body-rewrite path on the gateway. Only meaningful
                 when ``upstream="litellm"``; the gateway leaves the request

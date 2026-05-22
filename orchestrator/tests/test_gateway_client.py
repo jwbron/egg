@@ -2097,17 +2097,12 @@ class TestRegisterSessionUpstreamKwargs:
             }
 
         with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
-            try:
-                gateway_client.register_session(
-                    container_id="qwen-agent",
-                    mode="private",
-                    upstream="litellm",
-                    upstream_model="qwen3-coder-30b",
-                )
-            except TypeError as e:
-                pytest.skip(
-                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
-                )
+            gateway_client.register_session(
+                container_id="qwen-agent",
+                mode="private",
+                upstream="litellm",
+                upstream_model="qwen3-coder-30b",
+            )
 
         assert captured["data"].get("upstream") == "litellm"
         assert captured["data"].get("upstream_model") == "qwen3-coder-30b"
@@ -2131,16 +2126,11 @@ class TestRegisterSessionUpstreamKwargs:
             }
 
         with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
-            try:
-                gateway_client.register_session(
-                    container_id="explicit-anthropic-agent",
-                    mode="private",
-                    upstream="anthropic",
-                )
-            except TypeError as e:
-                pytest.skip(
-                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
-                )
+            gateway_client.register_session(
+                container_id="explicit-anthropic-agent",
+                mode="private",
+                upstream="anthropic",
+            )
 
         assert captured["data"].get("upstream") == "anthropic"
         # ``upstream_model`` not provided — should be omitted.
@@ -2165,16 +2155,11 @@ class TestRegisterSessionUpstreamKwargs:
             }
 
         with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
-            try:
-                gateway_client.register_session(
-                    container_id="litellm-default-agent",
-                    mode="private",
-                    upstream="litellm",
-                )
-            except TypeError as e:
-                pytest.skip(
-                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
-                )
+            gateway_client.register_session(
+                container_id="litellm-default-agent",
+                mode="private",
+                upstream="litellm",
+            )
 
         assert captured["data"].get("upstream") == "litellm"
         assert "upstream_model" not in captured["data"]
