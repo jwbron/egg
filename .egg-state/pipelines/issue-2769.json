@@ -209,10 +209,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the gateway decide which upstream (`api.anthropic.com` vs LiteLLM) to use for a given `/v1/messages` request?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Per-agent session metadata: orchestrator declares the model+upstream when it spawns the agent (session lookup by IP, same path used today for `session_mode`) — model name in the body is informational only",
+        "Custom HTTP header from the sandbox (e.g. `X-Egg-Upstream: litellm`) injected at agent startup — gateway reads the header and routes accordingly",
+        "Model name in the request body (any non-Claude model name → LiteLLM) — simplest but conflicts with the issue's compaction-mitigation note about presenting a recognized alias to Claude Code",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:48.731158Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:48.695862Z",
+  "updated_at": "2026-05-22T03:01:48.743630Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -225,7 +244,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
