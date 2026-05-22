@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Separate Deployment+Service in egg-system namespace (1 LiteLLM pod, gateway calls it over the cluster Service DNS)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:07:58.264414Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-agent session metadata: orchestrator declares the model+upstream when it spawns the agent (session lookup by IP, same path used today for `session_mode`) \u2014 model name in the body is informational only\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:07:58.283828Z",
       "debounce_until": null
     },
     {
@@ -108,10 +108,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-role PipelineConfig field, plus a 'default model' definition settable in repositories.yaml. The default model is currently opus[1m] in effect \u2014 the per-role field overrides it for individual agents, the repositories.yaml default applies to any role without an explicit override.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:07:58.291768Z",
       "debounce_until": null
     },
     {
@@ -146,10 +146,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Empirical validation cannot occur inside this pipeline \u2014 there is no configured access to non-Claude models in the pipeline environment. The operator will validate separately via a full pipeline run with all agents switched to non-Claude models. This pipeline therefore delivers only the buildable, no-op-by-default integration; no single-agent acceptance-test flip is in scope.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:08:44.866338Z",
       "debounce_until": null
     },
     {
@@ -179,10 +179,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep the Claude Code harness for non-Claude models too \u2014 use the recognized-alias mitigation so compaction math stays sane; minimum disruption to the spawning + entrypoint code\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:10:34.935140Z",
       "debounce_until": null
     },
     {
@@ -212,10 +212,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"A hosted Qwen-compatible provider (e.g. Together, Fireworks, DeepInfra, OpenRouter) \u2014 fastest path to a live endpoint; defers the self-hosting work but adds a third-party dependency and a new credential to hold\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:10:34.949959Z",
       "debounce_until": null
     },
     {
@@ -245,10 +245,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway holds a LiteLLM master key in `secrets.env` and injects it on every LiteLLM-bound request (mirrors today's `ANTHROPIC_API_KEY` injection pattern) \u2014 LiteLLM holds the real per-backend keys\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:10:34.969361Z",
       "debounce_until": null
     },
     {
@@ -278,10 +278,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Fail closed (502 to the agent, no fallback) \u2014 same policy as today's Claude upstream errors; surfaces the misconfig immediately\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:11:21.520734Z",
       "debounce_until": null
     },
     {
@@ -311,10 +311,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep the same tool-strip in private mode regardless of upstream \u2014 conservative; the agent simply cannot call these tools whether or not they would exfiltrate\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:16:24.174976Z",
       "debounce_until": null
     },
     {
@@ -349,10 +349,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer slice decomposition to the plan phase \u2014 the planner should determine the actual slice DAG. The likely shape is two dependent slices: [gateway upstream router + LiteLLM topology, no-op by default] -> [per-agent model config + consensus_wrapper plumbing]. The acceptance-test agent flip is out of scope per cq-4. The planner owns the final decomposition.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:16:24.209196Z",
       "debounce_until": null
     },
     {
@@ -382,10 +382,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Leave it: Claude defaults keep `opus[1m]`; only non-Claude paths use a different model string. The `[1m]` is harmless on the Claude path \u2014 zero risk to existing behavior\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:16:24.226176Z",
       "debounce_until": null
     }
   ],
@@ -938,32 +938,32 @@
       {
         "id": "Q1",
         "question": "For self-hosted Qwen specifically, are there hardware/budget constraints already settled (which GPU, how many, vLLM vs SGLang) that the plan should anchor on, or is the validation expected to use a hosted Qwen provider first regardless of the long-term self-hosted target?",
-        "answer": null
+        "answer": "Hosted Qwen provider first; no settled self-hosted hardware/budget yet \u2014 the plan should anchor on a hosted provider, not a specific GPU/vLLM/SGLang setup. Self-hosted vLLM is a later target."
       },
       {
         "id": "Q2",
         "question": "Is there a target list of agent roles you eventually want on non-Claude models (e.g. all reviewers, only refiner+tester, everything except coder), or is this open-ended and the first flip just proves the seam?",
-        "answer": null
+        "answer": "Open-ended \u2014 no fixed target list of roles. The integration just needs to make any agent role independently selectable; which roles move to non-Claude is decided later. The first flip proves the seam."
       },
       {
         "id": "Q3",
         "question": "The issue notes LiteLLM was chosen over claude-code-router, but does the design need to keep a clean swap-out point (e.g. an `UpstreamRouter` interface) in case LiteLLM hits a similar maintenance/supply-chain problem (the March 2026 PyPI incident is recent), or is hard-wiring LiteLLM acceptable for the first cut?",
-        "answer": null
+        "answer": "Keep a clean swap-out point \u2014 design a thin UpstreamRouter/Registry abstraction so LiteLLM can be replaced if it hits a maintenance/supply-chain problem (the March 2026 PyPI incident is recent)."
       },
       {
         "id": "Q4",
         "question": "The existing `max_llm_cost_per_hour` envelope assumes Anthropic-priced tokens. Should the implementation budget include extending cost tracking to LiteLLM/Qwen tokens in this issue, or defer to a follow-up?",
-        "answer": null
+        "answer": "Defer to a follow-up \u2014 do not extend max_llm_cost_per_hour cost tracking to LiteLLM/Qwen token pricing in this issue."
       },
       {
         "id": "Q5",
         "question": "Are there any compliance / data-residency constraints (e.g. egg's source code or transcripts cannot transit a third-party Qwen hosting provider) that should rule out option B on the backend question (hosted Qwen) up front?",
-        "answer": null
+        "answer": "No blocking compliance/data-residency constraint \u2014 code and transcripts may transit a hosted Qwen provider. The cq-6 hosted-provider choice stands."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-22T03:17:54.498829Z",
     "comment_id": null,
     "debounce_until": null
   },
