@@ -18951,6 +18951,13 @@ def _queue_and_await_contract_decisions(
     them as a single batch.  Callers can then prompt for up to 4 at a time
     and submit answers in parallel, collapsing what was previously N prompts
     and N polling cycles into ~⌈N/4⌉ prompts and one cycle (issue #1956).
+
+    Once the batch is queued, a single ``decision.created`` event is
+    published to the EventBus so event-driven watchers (the ``wait-status``
+    monitor long-polling ``/status/wait``) wake immediately.
+    ``DecisionQueue.queue_decision`` itself emits no event, so without this
+    the bridged decisions are created silently and the operator only
+    discovers them via a manual ``get_status`` (issue #2770).
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -19049,6 +19056,19 @@ def _queue_and_await_contract_decisions(
             decision_type="feedback",
             questions=questions_payload,
             phase=phase,
+        )
+
+    # Surface the freshly-queued batch to event-driven watchers before
+    # blocking on resolution. ``DecisionQueue.queue_decision`` emits no
+    # EventBus event, so without this the bridged decisions are created
+    # silently — the operator's ``wait-status`` monitor never wakes and
+    # only finds them via a manual ``get_status`` (#2770). The phase_gate
+    # decision emits ``decision.created`` the same way.
+    if _emit_event is not None:
+        _emit_event(
+            EventType.DECISION_CREATED,
+            pipeline_id,
+            data={"phase": phase_value},
         )
 
     # Pass 2: wait for each to resolve and persist back to the contract.

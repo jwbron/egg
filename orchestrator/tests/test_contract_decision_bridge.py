@@ -368,15 +368,30 @@ class _OrderTrackingQueue(_FakeQueue):
         return super().wait_for_decision(decision_id)
 
 
-def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
+def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path, monkeypatch: Any) -> None:
     """All queue_decision calls must precede the first wait_for_decision.
 
     Regression test for #1956: previously the bridge queued and waited on
     decisions one at a time, so ``get_status`` only ever surfaced a single
     pending decision even when the contract had many. The fix batches the
     queue pass so the skill can prompt for up to 4 decisions at once.
+
+    Also pins the #2770 contract for a *mixed* batch: a contract carrying
+    both choice decisions and a feedback entry must still emit exactly one
+    ``decision.created`` event for the whole batch.
     """
+    import routes.pipelines as rp
+    from events import EventType
     from routes.pipelines import _queue_and_await_contract_decisions
+
+    captured: list[tuple[Any, str, Any]] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            (event_type, pipeline_id, data)
+        ),
+    )
 
     identifier = "issue-42"
     _make_contract_file(
@@ -450,3 +465,169 @@ def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
     fb = data["feedback"]
     assert fb["submitted"] is True
     assert fb["questions"][0]["answer"] == "ok"
+
+    # A mixed decisions+feedback batch still emits exactly one event (#2770).
+    decision_events = [e for e in captured if e[0] == EventType.DECISION_CREATED]
+    assert len(decision_events) == 1, f"expected exactly one event, got {decision_events}"
+    assert decision_events[0][1] == "pipeline-id"
+    assert decision_events[0][2] == {"phase": "refine"}
+
+
+def test_bridge_emits_decision_created_event(tmp_path: Path, monkeypatch: Any) -> None:
+    """The bridged batch must emit exactly one ``decision.created`` event.
+
+    ``DecisionQueue.queue_decision`` emits no event, so without an explicit
+    emission the operator's ``wait-status`` monitor never wakes on the
+    bridged decisions and only finds them via a manual ``get_status``
+    (regression test for #2770). A single event covers the whole batch —
+    one watcher wake re-fetches ``get_status`` and surfaces every queued
+    decision — and the payload carries the gate phase.
+    """
+    import routes.pipelines as rp
+    from events import EventType
+
+    captured: list[tuple[Any, str, Any]] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            (event_type, pipeline_id, data)
+        ),
+    )
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": f"decision-{i}",
+                "question": "Which database?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [{"id": "opt-1", "label": "Postgres", "description": None}],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+            for i in range(1, 3)
+        ],
+    )
+    dq = _FakeQueue(resolutions=["Postgres", "Postgres"])
+
+    rp._queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    decision_events = [e for e in captured if e[0] == EventType.DECISION_CREATED]
+    # One event for the whole batch — not one per queued decision.
+    assert len(decision_events) == 1, f"expected exactly one event, got {decision_events}"
+    _event_type, event_pipeline_id, event_data = decision_events[0]
+    assert event_pipeline_id == "pipeline-id"
+    assert event_data == {"phase": "refine"}
+
+
+def test_bridge_emits_no_event_when_nothing_queued(tmp_path: Path, monkeypatch: Any) -> None:
+    """No ``decision.created`` event fires when there is nothing to bridge."""
+    import routes.pipelines as rp
+    from events import EventType
+
+    captured: list[Any] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            event_type
+        ),
+    )
+
+    identifier = "issue-42"
+    # A plan-scoped decision — nothing to bridge at the refine gate.
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": "decision-1",
+                "question": "For plan phase only",
+                "type": "hitl",
+                "phase": "plan",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+        ],
+    )
+    dq = _FakeQueue(resolutions=[])
+
+    rp._queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    assert EventType.DECISION_CREATED not in captured
+
+
+def test_bridge_emits_decision_created_event_for_feedback_only(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A feedback-only batch (no choice decisions) still emits the event.
+
+    The emit fires once Pass 1 has queued *something* — a contract with
+    only a pending feedback entry and no decisions still bridges, so the
+    ``wait-status`` watcher must wake for it too (#2770).
+    """
+    import routes.pipelines as rp
+    from events import EventType
+
+    captured: list[tuple[Any, str, Any]] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            (event_type, pipeline_id, data)
+        ),
+    )
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        feedback={
+            "id": "feedback-1",
+            "phase": "refine",
+            "questions": [{"id": "Q1", "question": "Notes?", "answer": None}],
+            "submitted": False,
+            "submitted_by": None,
+            "submitted_at": None,
+            "comment_id": None,
+            "debounce_until": None,
+        },
+    )
+    dq = _FakeQueue(
+        resolutions=[json.dumps({"action": "submit_feedback", "answers": {"Q1": "ok"}})]
+    )
+
+    rp._queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    decision_events = [e for e in captured if e[0] == EventType.DECISION_CREATED]
+    assert len(decision_events) == 1, f"expected exactly one event, got {decision_events}"
+    assert decision_events[0][2] == {"phase": "refine"}
