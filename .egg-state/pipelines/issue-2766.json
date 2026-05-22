@@ -302,10 +302,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Should the new per-slice `### Validation` block (`Automated checks` / `Manual verification` / `Pre-merge steps` / `Post-merge steps`) replace or extend the existing per-PR `pr.test_plan` + `pr.manual_steps` fields and the top-level acceptance-criteria rollup, given there's a 1:1 slice↔PR mapping?",
+      "context": "Open contract question cq-7, registered by an agent during the refine phase.",
+      "options": [
+        "Replace: drop `pr.test_plan` and `pr.manual_steps` entirely; the PR body is composed from the slice’s `### Validation` subsection. `pr.title` and `pr.description` remain (they’re per-PR concerns).",
+        "Extend: keep `pr.test_plan` / `pr.manual_steps` as a slice-level rollup the PR-body composer reads; `### Validation` is structured detail under it. Less churn for the PR composer but two places to write tests.",
+        "Replace `pr.test_plan` / `pr.manual_steps`, but also auto-render the `### Validation` block into the PR body verbatim so reviewers see structured checks (no separate composer logic needed)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.097240Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.064898Z",
+  "updated_at": "2026-05-22T01:00:37.103464Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -318,7 +337,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
