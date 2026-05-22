@@ -1317,6 +1317,7 @@ per-phase overrides unless that uniform behaviour is intended.
 | `spawn_retry_initial_backoff_seconds` | float | `2.0` | Initial backoff between spawn retries. Subsequent attempts scale by 2.5× (e.g. 2 s, 5 s, 12.5 s). |
 | `phase_spawn_max_retries` | int | `2` | Max phase-level retry attempts when one or more roles fail with a transient spawn error (e.g. gateway cold start). Total phase-level attempts = `phase_spawn_max_retries + 1`. Only failed roles are respawned; survivors continue running. Per-role retries (`spawn_max_retries`) run first; this outer budget covers longer outages (~30 s+). Set to `0` to disable. |
 | `phase_spawn_retry_initial_backoff_seconds` | float | `30.0` | Initial backoff before the first phase-level spawn retry. Subsequent attempts scale by 3× (e.g. 30 s, 90 s). |
+| `agent_models` | dict[str, str] | `{}` | Per-role model overrides keyed by AgentRole value (e.g. `{"refiner": "qwen3-coder-30b"}`). A Claude alias (`opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku`, `claude-*`) routes through the Anthropic upstream; any other string routes through the in-cluster LiteLLM proxy. Keys must be SDLC phase producer/reviewer roles — utility roles (overseer, autofixer) are rejected at construction time. See [Per-Agent Models](per-agent-models.md) and [#2769](https://github.com/jwbron/egg/issues/2769). |
 
 All phases use concurrent BRC execution by default.
 
