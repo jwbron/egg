@@ -321,10 +321,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Should the new schema replace today's `.egg/schemas/yaml-tasks.schema.json` and `.egg/schemas/contract.schema.json`, vend the framework's `plan-contract-1.0.json` alongside them, or roll up into a single egg-owned schema that imports the framework schema as a `$ref`?",
+      "context": "Open contract question cq-8, registered by an agent during the refine phase.",
+      "options": [
+        "Vendor `plan-contract-1.0.json` into `.egg/schemas/` as a frozen copy pinned to a schema version; delete `yaml-tasks.schema.json`; update `contract.schema.json` to `$ref` the new plan-contract schema for its plan-shaped subtree",
+        "Vendor the schema and also keep a separate `egg-contract-extensions.schema.json` for egg-specific fields (cq-4 option A); `contract.schema.json` references both via `allOf`",
+        "Replace `yaml-tasks.schema.json` and `contract.schema.json` with a single `egg-plan-contract.schema.json` that fully owns the shape (the framework spec is the design source, but egg owns the schema file so we can evolve it independently)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.127552Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.103464Z",
+  "updated_at": "2026-05-22T01:00:37.132759Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -337,7 +356,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
