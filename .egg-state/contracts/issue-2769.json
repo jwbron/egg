@@ -9,15 +9,964 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Where should the LiteLLM proxy run, topologically?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Separate Deployment+Service in egg-system namespace (1 LiteLLM pod, gateway calls it over the cluster Service DNS)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Sidecar container in the gateway pod (same pod, localhost call, shares lifecycle)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Separate namespace `egg-llm` with its own NetworkPolicy (stronger isolation, more ops surface)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "How should the gateway decide which upstream (`api.anthropic.com` vs LiteLLM) to use for a given `/v1/messages` request?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-agent session metadata: orchestrator declares the model+upstream when it spawns the agent (session lookup by IP, same path used today for `session_mode`) \u2014 model name in the body is informational only",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Custom HTTP header from the sandbox (e.g. `X-Egg-Upstream: litellm`) injected at agent startup \u2014 gateway reads the header and routes accordingly",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Model name in the request body (any non-Claude model name \u2192 LiteLLM) \u2014 simplest but conflicts with the issue's compaction-mitigation note about presenting a recognized alias to Claude Code",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "How should per-agent model selection be configured (i.e. where does an operator say 'run the refiner on Qwen, leave the coder on Claude')?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "New per-role field on `PipelineConfig` (alongside `overseer_decision_maker_model` / `overseer_advisor_model`) \u2014 e.g. `agent_models: {refiner: 'qwen3-coder', coder: 'opus'}`",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Repository-level YAML config (`config/repositories.yaml` or similar) \u2014 operator edits once, applies to every pipeline on that repo",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Per-pipeline override only (CLI flag / API payload on submit_task) \u2014 no persistent per-role default, the operator names the override at submission time",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "All of the above stacked, with precedence: CLI > pipeline config > repo config > built-in default 'opus'",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "Which agent role should be the first to be flipped to a non-Claude model for the empirical compatibility validation that the issue calls out as the acceptance test?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A reviewer role (e.g. `reviewer_refine`) \u2014 reviewers do less tool-heavy work and have shorter sessions, so this is the lowest-risk first cut",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "The `refiner` (this role) \u2014 produces analysis docs, modest tool use, easy to compare output against the Claude baseline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "The `coder` \u2014 most tool-heavy and longest-running role, so it stresses the auto-compaction edge case the issue flags as the primary risk",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "An overseer tier (decision-maker or advisor) \u2014 already model-configurable today, so the plumbing is smaller, but it's less representative of the main SDLC loop",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "For the first non-Claude target, should agents continue to run inside the Claude Code harness (relying on the LiteLLM Anthropic-translation seam) or switch to the egg_agent SDK path?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep the Claude Code harness for non-Claude models too \u2014 use the recognized-alias mitigation so compaction math stays sane; minimum disruption to the spawning + entrypoint code",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Route non-Claude agents through the `egg_agent` SDK path (which already supports `--model`) and bypass Claude Code entirely \u2014 sidesteps the auto-compaction risk, but the SDK path has fewer integrations (statusline, settings.json rules) than the CLI",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both: leave the harness choice as a per-role/per-model config knob \u2014 maximally flexible, but doubles the test surface for the first cut",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "What should the first acceptance-test backend be for the non-Claude path?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Self-hosted Qwen on vLLM/SGLang (matches the long-term cost goal and is the primary stated target) \u2014 requires standing up a vLLM Deployment + model weights as part of validation",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "A hosted Qwen-compatible provider (e.g. Together, Fireworks, DeepInfra, OpenRouter) \u2014 fastest path to a live endpoint; defers the self-hosting work but adds a third-party dependency and a new credential to hold",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "An OpenAI/other already-trusted backend behind LiteLLM as the literal first smoke test, with Qwen as the second cut \u2014 lowest validation risk; lets us decouple 'gateway routing works' from 'Qwen tool-calling works'",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "How should the gateway handle credentials for the LiteLLM upstream?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Gateway holds a LiteLLM master key in `secrets.env` and injects it on every LiteLLM-bound request (mirrors today's `ANTHROPIC_API_KEY` injection pattern) \u2014 LiteLLM holds the real per-backend keys",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "LiteLLM runs with no auth, network-isolated to the gateway (NetworkPolicy or shared pod) and the gateway passes raw upstream credentials per-request \u2014 fewer secrets to hold, but pushes per-backend key management into the gateway",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway holds nothing for LiteLLM; the sandbox sets its own per-agent API key via `extra_env` (e.g. operator-supplied) \u2014 inverts today's zero-credential sandbox invariant, so probably a non-starter",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-8",
+      "question": "When the LiteLLM proxy is unreachable / errors for a non-Claude agent, what is the failure policy?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fail closed (502 to the agent, no fallback) \u2014 same policy as today's Claude upstream errors; surfaces the misconfig immediately",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Fall back to Claude on transient LiteLLM failures only \u2014 keeps the pipeline progressing but produces a quietly-mixed transcript and erodes the cost goal",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Fail closed but auto-escalate to a HITL decision when a non-Claude agent fails to spawn or stalls \u2014 best operator UX, most code to write",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-9",
+      "question": "In private mode (PR #686 / #702), the gateway strips `WebSearch` / `WebFetch` tools from outbound requests because those route through Anthropic's infrastructure and bypass container network controls. What should the equivalent policy be when the upstream is LiteLLM \u2192 self-hosted Qwen on vLLM (no Anthropic-side tool processing)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep the same tool-strip in private mode regardless of upstream \u2014 conservative; the agent simply cannot call these tools whether or not they would exfiltrate",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Strip only when upstream is Anthropic; allow these tools when upstream is fully self-hosted (no external request hop) \u2014 unblocks the tools but adds upstream-aware logic to the filter",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep the strip but document that the rationale only applies to Anthropic upstreams \u2014 defer the per-upstream rule to a future issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-10",
+      "question": "How should this work be decomposed into slices?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Single slice: gateway router + LiteLLM topology + per-agent model config + acceptance-test agent flip, all together (1 PR)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Two slices in parallel: [gateway upstream router + LiteLLM topology, no-op by default] || [per-agent model config + consensus_wrapper plumbing] (2 PRs) \u2014 acceptance-test agent flip becomes a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Two slices with dependency: [gateway router + LiteLLM topology, no-op] \u2192 [per-agent model config + acceptance-test agent flip on top] (2 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Three slices with dependency: [gateway router + LiteLLM topology, no-op] \u2192 [per-agent model config plumbing] \u2192 [acceptance-test agent flip + validation] (3 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-11",
+      "question": "Should the `[1m]` Claude-only context-window syntax baked into the existing defaults (`shared/egg_agent/client.py:62`, `shared/egg_agent/__main__.py:35`, `sandbox/llm/runner.py:49`) be addressed in this change?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Leave it: Claude defaults keep `opus[1m]`; only non-Claude paths use a different model string. The `[1m]` is harmless on the Claude path \u2014 zero risk to existing behavior",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Refactor: hoist the model string into a single config helper that strips `[1m]` when the resolved upstream is non-Claude \u2014 cleaner, but more churn outside the issue's scope",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Deprecate `opus[1m]` and adopt plain `opus` everywhere \u2014 lose the 1M context window for current Claude agents to keep model strings backend-agnostic",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-22T01:26:01.312976Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Where should the LiteLLM proxy run, topologically?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Separate Deployment+Service in egg-system namespace (1 LiteLLM pod, gateway calls it over the cluster Service DNS)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Sidecar container in the gateway pod (same pod, localhost call, shares lifecycle)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Separate namespace `egg-llm` with its own NetworkPolicy (stronger isolation, more ops surface)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the LiteLLM proxy run, topologically?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:01.356914Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "How should the gateway decide which upstream (`api.anthropic.com` vs LiteLLM) to use for a given `/v1/messages` request?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-agent session metadata: orchestrator declares the model+upstream when it spawns the agent (session lookup by IP, same path used today for `session_mode`) \u2014 model name in the body is informational only",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Custom HTTP header from the sandbox (e.g. `X-Egg-Upstream: litellm`) injected at agent startup \u2014 gateway reads the header and routes accordingly",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Model name in the request body (any non-Claude model name \u2192 LiteLLM) \u2014 simplest but conflicts with the issue's compaction-mitigation note about presenting a recognized alias to Claude Code",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the gateway decide which upstream (`api...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:01.392718Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "How should per-agent model selection be configured (i.e. where does an operator say 'run the refiner on Qwen, leave the coder on Claude')?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "New per-role field on `PipelineConfig` (alongside `overseer_decision_maker_model` / `overseer_advisor_model`) \u2014 e.g. `agent_models: {refiner: 'qwen3-coder', coder: 'opus'}`",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Repository-level YAML config (`config/repositories.yaml` or similar) \u2014 operator edits once, applies to every pipeline on that repo",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Per-pipeline override only (CLI flag / API payload on submit_task) \u2014 no persistent per-role default, the operator names the override at submission time",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "All of the above stacked, with precedence: CLI > pipeline config > repo config > built-in default 'opus'",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should per-agent model selection be configured...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:01.422663Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "Which agent role should be the first to be flipped to a non-Claude model for the empirical compatibility validation that the issue calls out as the acceptance test?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A reviewer role (e.g. `reviewer_refine`) \u2014 reviewers do less tool-heavy work and have shorter sessions, so this is the lowest-risk first cut",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "The `refiner` (this role) \u2014 produces analysis docs, modest tool use, easy to compare output against the Claude baseline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "The `coder` \u2014 most tool-heavy and longest-running role, so it stresses the auto-compaction edge case the issue flags as the primary risk",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "An overseer tier (decision-maker or advisor) \u2014 already model-configurable today, so the plumbing is smaller, but it's less representative of the main SDLC loop",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which agent role should be the first to be flipped...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:28.809710Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "For the first non-Claude target, should agents continue to run inside the Claude Code harness (relying on the LiteLLM Anthropic-translation seam) or switch to the egg_agent SDK path?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep the Claude Code harness for non-Claude models too \u2014 use the recognized-alias mitigation so compaction math stays sane; minimum disruption to the spawning + entrypoint code",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Route non-Claude agents through the `egg_agent` SDK path (which already supports `--model`) and bypass Claude Code entirely \u2014 sidesteps the auto-compaction risk, but the SDK path has fewer integrations (statusline, settings.json rules) than the CLI",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both: leave the harness choice as a per-role/per-model config knob \u2014 maximally flexible, but doubles the test surface for the first cut",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: For the first non-Claude target, should agents con...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:28.854437Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "What should the first acceptance-test backend be for the non-Claude path?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Self-hosted Qwen on vLLM/SGLang (matches the long-term cost goal and is the primary stated target) \u2014 requires standing up a vLLM Deployment + model weights as part of validation",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "A hosted Qwen-compatible provider (e.g. Together, Fireworks, DeepInfra, OpenRouter) \u2014 fastest path to a live endpoint; defers the self-hosting work but adds a third-party dependency and a new credential to hold",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "An OpenAI/other already-trusted backend behind LiteLLM as the literal first smoke test, with Qwen as the second cut \u2014 lowest validation risk; lets us decouple 'gateway routing works' from 'Qwen tool-calling works'",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What should the first acceptance-test backend be f...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:28.889158Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "How should the gateway handle credentials for the LiteLLM upstream?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Gateway holds a LiteLLM master key in `secrets.env` and injects it on every LiteLLM-bound request (mirrors today's `ANTHROPIC_API_KEY` injection pattern) \u2014 LiteLLM holds the real per-backend keys",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "LiteLLM runs with no auth, network-isolated to the gateway (NetworkPolicy or shared pod) and the gateway passes raw upstream credentials per-request \u2014 fewer secrets to hold, but pushes per-backend key management into the gateway",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Gateway holds nothing for LiteLLM; the sandbox sets its own per-agent API key via `extra_env` (e.g. operator-supplied) \u2014 inverts today's zero-credential sandbox invariant, so probably a non-starter",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the gateway handle credentials for the ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:28.929847Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-8",
+        "question": "When the LiteLLM proxy is unreachable / errors for a non-Claude agent, what is the failure policy?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Fail closed (502 to the agent, no fallback) \u2014 same policy as today's Claude upstream errors; surfaces the misconfig immediately",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Fall back to Claude on transient LiteLLM failures only \u2014 keeps the pipeline progressing but produces a quietly-mixed transcript and erodes the cost goal",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Fail closed but auto-escalate to a HITL decision when a non-Claude agent fails to spawn or stalls \u2014 best operator UX, most code to write",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When the LiteLLM proxy is unreachable / errors for...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:54.840125Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-9",
+        "question": "In private mode (PR #686 / #702), the gateway strips `WebSearch` / `WebFetch` tools from outbound requests because those route through Anthropic's infrastructure and bypass container network controls. What should the equivalent policy be when the upstream is LiteLLM \u2192 self-hosted Qwen on vLLM (no Anthropic-side tool processing)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep the same tool-strip in private mode regardless of upstream \u2014 conservative; the agent simply cannot call these tools whether or not they would exfiltrate",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Strip only when upstream is Anthropic; allow these tools when upstream is fully self-hosted (no external request hop) \u2014 unblocks the tools but adds upstream-aware logic to the filter",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep the strip but document that the rationale only applies to Anthropic upstreams \u2014 defer the per-upstream rule to a future issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: In private mode (PR #686 / #702), the gateway stri...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:54.879471Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-10",
+        "question": "How should this work be decomposed into slices?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Single slice: gateway router + LiteLLM topology + per-agent model config + acceptance-test agent flip, all together (1 PR)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Two slices in parallel: [gateway upstream router + LiteLLM topology, no-op by default] || [per-agent model config + consensus_wrapper plumbing] (2 PRs) \u2014 acceptance-test agent flip becomes a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Two slices with dependency: [gateway router + LiteLLM topology, no-op] \u2192 [per-agent model config + acceptance-test agent flip on top] (2 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Three slices with dependency: [gateway router + LiteLLM topology, no-op] \u2192 [per-agent model config plumbing] \u2192 [acceptance-test agent flip + validation] (3 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this work be decomposed into slices?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:54.914295Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-11",
+        "question": "Should the `[1m]` Claude-only context-window syntax baked into the existing defaults (`shared/egg_agent/client.py:62`, `shared/egg_agent/__main__.py:35`, `sandbox/llm/runner.py:49`) be addressed in this change?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Leave it: Claude defaults keep `opus[1m]`; only non-Claude paths use a different model string. The `[1m]` is harmless on the Claude path \u2014 zero risk to existing behavior",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Refactor: hoist the model string into a single config helper that strips `[1m]` when the resolved upstream is non-Claude \u2014 cleaner, but more churn outside the issue's scope",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Deprecate `opus[1m]` and adopt plain `opus` everywhere \u2014 lose the 1M context window for current Claude agents to keep model strings backend-agnostic",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the `[1m]` Claude-only context-window synta...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T01:26:54.947689Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "For self-hosted Qwen specifically, are there hardware/budget constraints already settled (which GPU, how many, vLLM vs SGLang) that the plan should anchor on, or is the validation expected to use a hosted Qwen provider first regardless of the long-term self-hosted target?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Is there a target list of agent roles you eventually want on non-Claude models (e.g. all reviewers, only refiner+tester, everything except coder), or is this open-ended and the first flip just proves the seam?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "The issue notes LiteLLM was chosen over claude-code-router, but does the design need to keep a clean swap-out point (e.g. an `UpstreamRouter` interface) in case LiteLLM hits a similar maintenance/supply-chain problem (the March 2026 PyPI incident is recent), or is hard-wiring LiteLLM acceptable for the first cut?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "The existing `max_llm_cost_per_hour` envelope assumes Anthropic-priced tokens. Should the implementation budget include extending cost tracking to LiteLLM/Qwen tokens in this issue, or defer to a follow-up?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Are there any compliance / data-residency constraints (e.g. egg's source code or transcripts cannot transit a third-party Qwen hosting provider) that should rule out option B on the backend question (hosted Qwen) up front?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "For self-hosted Qwen specifically, are there hardware/budget constraints already settled (which GPU, how many, vLLM vs SGLang) that the plan should anchor on, or is the validation expected to use a hosted Qwen provider first regardless of the long-term self-hosted target?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Is there a target list of agent roles you eventually want on non-Claude models (e.g. all reviewers, only refiner+tester, everything except coder), or is this open-ended and the first flip just proves the seam?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "The issue notes LiteLLM was chosen over claude-code-router, but does the design need to keep a clean swap-out point (e.g. an `UpstreamRouter` interface) in case LiteLLM hits a similar maintenance/supply-chain problem (the March 2026 PyPI incident is recent), or is hard-wiring LiteLLM acceptable for the first cut?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "The existing `max_llm_cost_per_hour` envelope assumes Anthropic-priced tokens. Should the implementation budget include extending cost tracking to LiteLLM/Qwen tokens in this issue, or defer to a follow-up?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Are there any compliance / data-residency constraints (e.g. egg's source code or transcripts cannot transit a third-party Qwen hosting provider) that should rule out option B on the backend question (hosted Qwen) up front?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
