@@ -190,10 +190,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Where should the LiteLLM proxy run, topologically?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Separate Deployment+Service in egg-system namespace (1 LiteLLM pod, gateway calls it over the cluster Service DNS)",
+        "Sidecar container in the gateway pod (same pod, localhost call, shares lifecycle)",
+        "Separate namespace `egg-llm` with its own NetworkPolicy (stronger isolation, more ops surface)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:48.685515Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:44.965582Z",
+  "updated_at": "2026-05-22T03:01:48.695862Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -206,7 +225,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
