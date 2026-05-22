@@ -65,7 +65,7 @@
         },
         "dependencies": {
           "type": "string",
-          "description": "What must be completed before this phase"
+          "description": "The single parent slice this phase depends on, written as a 'slice-<N>' id (e.g. 'slice-1'). The slice DAG is a forest, so a slice has at most one parent — this is one id, not a list."
         },
         "exit_criteria": {
           "type": "string",

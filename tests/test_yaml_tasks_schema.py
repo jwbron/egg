@@ -1,11 +1,12 @@
 """
-Tests for the yaml-tasks JSON Schema — specifically the new optional 'role' field.
+Tests for the yaml-tasks JSON Schema.
 
 Covers:
 - Tasks with valid role values (coder, tester, documenter) pass validation
 - Tasks without role field pass validation (backward compatibility)
 - Tasks with invalid role values are rejected by schema enum constraint
 - additionalProperties enforcement still works with role field
+- The canonical 'slice-<N>' string shape for a phase's dependencies field
 """
 
 import json
@@ -131,5 +132,42 @@ class TestYamlTasksSchemaRoleField:
         """Additional unknown properties should still be rejected."""
         schema = _load_schema()
         doc = _minimal_doc(role="coder", unknown_field="bad")
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(doc, schema)
+
+
+def _doc_with_phase_dependencies(dependencies):
+    """Create a minimal yaml-tasks document whose second phase carries a dependencies value."""
+    return {
+        "phases": [
+            {
+                "id": 1,
+                "name": "First phase",
+                "tasks": [_minimal_task("TASK-1-1")],
+            },
+            {
+                "id": 2,
+                "name": "Second phase",
+                "dependencies": dependencies,
+                "tasks": [_minimal_task("TASK-2-1")],
+            },
+        ]
+    }
+
+
+@pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
+class TestYamlTasksSchemaDependenciesField:
+    """Tests for the canonical dependencies field shape in the yaml-tasks schema."""
+
+    def test_dependencies_slice_string_is_valid(self):
+        """A phase with dependencies='slice-1' (the canonical shape) should validate."""
+        schema = _load_schema()
+        doc = _doc_with_phase_dependencies("slice-1")
+        jsonschema.validate(doc, schema)
+
+    def test_dependencies_int_array_is_rejected(self):
+        """A phase with dependencies=[1] (non-canonical array form) should be rejected."""
+        schema = _load_schema()
+        doc = _doc_with_phase_dependencies([1])
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(doc, schema)

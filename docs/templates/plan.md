@@ -111,7 +111,7 @@ slices:
       [Phase Name]
     goal: |-
       [What this phase achieves]
-    dependencies: [1]
+    dependencies: "slice-1"
     tasks:
       - id: TASK-2-1
         description: |-
