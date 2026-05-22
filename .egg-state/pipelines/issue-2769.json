@@ -402,10 +402,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "For self-hosted Qwen specifically, are there hardware/budget constraints already settled (which GPU, how many, vLLM vs SGLang) that the plan should anchor on, or is the validation expected to use a hosted Qwen provider first regardless of the long-term self-hosted target?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Is there a target list of agent roles you eventually want on non-Claude models (e.g. all reviewers, only refiner+tester, everything except coder), or is this open-ended and the first flip just proves the seam?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "The issue notes LiteLLM was chosen over claude-code-router, but does the design need to keep a clean swap-out point (e.g. an `UpstreamRouter` interface) in case LiteLLM hits a similar maintenance/supply-chain problem (the March 2026 PyPI incident is recent), or is hard-wiring LiteLLM acceptable for the first cut?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "The existing `max_llm_cost_per_hour` envelope assumes Anthropic-priced tokens. Should the implementation budget include extending cost tracking to LiteLLM/Qwen tokens in this issue, or defer to a follow-up?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Are there any compliance / data-residency constraints (e.g. egg's source code or transcripts cannot transit a third-party Qwen hosting provider) that should rule out option B on the backend question (hosted Qwen) up front?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:49.185743Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:49.153346Z",
+  "updated_at": "2026-05-22T03:01:49.193564Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -418,7 +458,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
