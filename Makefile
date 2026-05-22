@@ -504,10 +504,20 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
 	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
+	@# LiteLLM master key (issue #2769): the in-cluster LiteLLM
+	@# Deployment expects ``gateway-secrets.litellm-master-key`` so the
+	@# gateway's injected x-api-key matches LiteLLM's master_key. The
+	@# value lives in ``secrets.env`` as ``LITELLM_MASTER_KEY=...``;
+	@# extract it and surface it as a discrete literal key so both
+	@# sides of the wire share one source of truth. Empty value is the
+	@# no-op default (the manifest reads the Secret with
+	@# ``optional: true``).
+	@LITELLM_KEY="$$(grep -E '^[[:space:]]*LITELLM_MASTER_KEY[[:space:]]*=' "$$HOME/.config/egg/secrets.env" 2>/dev/null | tail -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//' -e 's/^"//' -e 's/"$$//' -e "s/^'//" -e "s/'$$//")"; \
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	kubectl apply -f k8s/base/namespaces.yaml && \
 	kubectl -n egg-system create secret generic gateway-secrets \
 		--from-file=$$HOME/.config/egg/ \
+		--from-literal=litellm-master-key="$$LITELLM_KEY" \
 		--dry-run=client -o yaml | kubectl apply -f -
 
 deploy: k3s-secrets  ## Deploy egg to k3s
