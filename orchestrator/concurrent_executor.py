@@ -28,8 +28,10 @@ except ImportError:
 
 
 from agent_model_resolution import (
+    DEFAULT_AGENT_MODEL,
     UPSTREAM_ANTHROPIC,
     AgentModelDecision,
+    classify_model,
     resolve_agent_model,
 )
 from consensus_wrapper import build_consensus_wrapped_command
@@ -459,11 +461,28 @@ class ConcurrentPhaseExecutor:
         # override is configured the resolver returns the built-in
         # ``opus`` Anthropic decision so the wire shape stays identical
         # to the pre-#2769 path.
-        decision: AgentModelDecision = resolve_agent_model(
-            role=role,
-            pipeline_config=self.pipeline.config,
-            repo=self.pipeline.repo,
-        )
+        #
+        # Defensive wrap: a future regression in the resolver (e.g. a
+        # broken lazy import for the repo-default tier) would otherwise
+        # bring down agent spawn for every pipeline. Mirror the restart
+        # path's ``classify_model(DEFAULT_AGENT_MODEL)`` fallback at
+        # ``routes/pipelines.py:2683-2699`` so spawn degrades to the
+        # built-in opus / anthropic decision and logs the resolver
+        # failure rather than crashing.
+        try:
+            decision: AgentModelDecision = resolve_agent_model(
+                role=role,
+                pipeline_config=self.pipeline.config,
+                repo=self.pipeline.repo,
+            )
+        except Exception as resolve_err:
+            logger.warning(
+                "Failed to resolve per-agent model decision for spawn, "
+                "falling back to built-in opus / anthropic default",
+                role=role,
+                error=str(resolve_err),
+            )
+            decision = classify_model(DEFAULT_AGENT_MODEL)
 
         command: list[str] | None = None
         if prompt_text:
