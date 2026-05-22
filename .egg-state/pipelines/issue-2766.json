@@ -378,10 +378,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "How aggressively should `plan_parser.py` change shape? Today's `ParsedPhase`, `ParsedTask`, `ParseResult`, `parse_plan_file`, `validate_forest`, `validate_task_role_alignment` are exported as part of the public API in `shared/egg_contracts/__init__.py` and consumed by the orchestrator and the `refine-plan` plugin's `validate-yaml-tasks` / `emit-contract` scripts.",
+      "context": "Open contract question cq-11, registered by an agent during the refine phase.",
+      "options": [
+        "Rewrite in place: keep the same module + function names; rewrite the parser internals; ParseResult grows new fields (acceptance_criteria, blockers, open_questions, impact); ParsedPhase keeps its name but its semantics shift to spec-conformant slices",
+        "New module + dataprep migration: introduce `shared/egg_contracts/plan_parser_v2.py` with new types; keep `plan_parser.py` as a deprecated shim that delegates; orchestrator and plugin callers cut over piecemeal",
+        "Aggressive rename + breakage: rename the module to `plan_contract.py`, drop the `ParsedPhase` alias, and force every caller to update. Cleanest but biggest blast radius in one slice",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.241410Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.205308Z",
+  "updated_at": "2026-05-22T01:00:37.252211Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -394,7 +413,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
