@@ -109,6 +109,17 @@ readable_repos:
 #     **/*_test.go in tests_globs). Security-relevant blocklists
 #     (.egg-state/contracts/, .github/) are hard-coded and cannot be
 #     relaxed. See docs/guides/sdlc-pipeline.md#per-repository-role-patterns.
+#   - default_agent_model: Repository-level default for the per-agent
+#     model knob added in #2769. Used by every agent role unless the
+#     pipeline submission overrides it via ``agent_models``. A recognised
+#     Claude alias (opus, opus[1m], sonnet, sonnet[1m], haiku, claude-*)
+#     routes through the Anthropic upstream; anything else routes through the
+#     in-cluster LiteLLM proxy with the recognised alias "opus" presented
+#     to Claude Code (cq-5 mitigation). Precedence:
+#       PipelineConfig.agent_models[role]
+#         > this default_agent_model
+#           > built-in "opus" default
+#     Default: not set (every role runs on built-in "opus").
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
@@ -190,6 +201,13 @@ repo_settings:
   #     tests_globs: ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"]
   #     code_globs:  ["**/*.ts", "**/*.tsx", "**/*.js"]
   #     docs_globs:  ["**/*.md", "docs/"]
+  #
+  # # Per-agent model example (#2769): route every role on this repo through
+  # # the LiteLLM proxy by default, picking up the hosted-Qwen model entry
+  # # populated in the LiteLLM ConfigMap. The pipeline-level ``agent_models``
+  # # field still wins when set.
+  # YOUR_USERNAME/qwen-pilot:
+  #   default_agent_model: qwen3-coder-30b
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

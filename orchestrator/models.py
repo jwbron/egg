@@ -754,6 +754,56 @@ class PipelineConfig(BaseModel):
             "Subsequent attempts scale by 3x (e.g. 30s, 90s). See #1879."
         ),
     )
+    agent_models: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-role model overrides keyed by AgentRole value (e.g. "
+            "{'refiner': 'qwen3-coder-30b'}). Keys are restricted to the "
+            "SDLC phase producer and reviewer roles the resolver honors "
+            "(agent_roles.MODEL_OVERRIDE_ROLES) — utility/interface roles "
+            "such as overseer or autofixer are rejected at construction "
+            "time because their spawn paths never consult the resolver. "
+            "The value is the upstream-side model name: a Claude alias "
+            "(opus / opus[1m] / sonnet / sonnet[1m] / haiku / claude-*) "
+            "routes through the Anthropic upstream, anything else routes "
+            "through the in-cluster LiteLLM proxy with the recognised "
+            "alias 'opus' presented to Claude Code (cq-5 mitigation). When a "
+            "role is absent from this mapping the resolver falls back to the "
+            "repository-level default_agent_model setting and then to the "
+            "built-in 'opus' default. See #2769."
+        ),
+    )
+
+    @field_validator("agent_models")
+    @classmethod
+    def _validate_agent_models_roles(cls, v: dict[str, str]) -> dict[str, str]:
+        """Reject ``agent_models`` keys the per-agent model resolver never honors.
+
+        ``resolve_agent_model`` is consulted only by the spawn/restart
+        paths that cover the SDLC phase producers and reviewers
+        (``MODEL_OVERRIDE_ROLES``). Utility roles (autofixer,
+        conflict_resolver) and interface roles (overseer, inspector) spawn
+        through paths that never call the resolver, so an override naming
+        one of them would be silently dropped at spawn. Rejecting both
+        typos and these unhonored-but-real roles at PipelineConfig
+        construction time surfaces the misconfiguration immediately
+        instead of letting it silently no-op. See #2769 task-2-1.
+        """
+        if not v:
+            return v
+        # Lazy import to avoid a circular dependency with shared.egg_contracts
+        # when PipelineConfig is imported during package init.
+        from egg_contracts.agent_roles import MODEL_OVERRIDE_ROLES
+
+        valid = {role.value for role in MODEL_OVERRIDE_ROLES}
+        invalid = sorted(role for role in v if role not in valid)
+        if invalid:
+            raise ValueError(
+                f"Invalid agent_models role keys: {invalid}. agent_models is "
+                f"honored only for SDLC phase producer and reviewer roles: "
+                f"{sorted(valid)}"
+            )
+        return v
 
     @model_validator(mode="after")
     def _validate_post_consensus_budgets(self) -> PipelineConfig:

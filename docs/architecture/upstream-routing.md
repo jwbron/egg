@@ -11,10 +11,15 @@ when LiteLLM is not configured.
 
 Status: this seam lands in two stacked changes for [#2769](https://github.com/jwbron/egg/issues/2769). Slice 1 — described here — is the
 **gateway router + LiteLLM Deployment**, no-op by default. Slice 2
-(per-agent model config) adds the orchestrator-side resolution and the
-body-rewrite that connects an agent role to a concrete upstream model;
-it ships the operator guide at `docs/guides/per-agent-models.md` (that
-file does not exist until slice 2 lands).
+adds the orchestrator-side resolution (`PipelineConfig.agent_models`,
+`default_agent_model`, `resolve_agent_model`) and the gateway-side
+body rewrite (`_rewrite_upstream_model`) that together connect an
+agent role to a concrete upstream model. Operators looking to actually
+flip a role to a non-Claude backend should start at the
+[Per-Agent Models guide](../guides/per-agent-models.md) — it walks
+through the two configuration knobs, the precedence chain, the cq-5
+recognized-alias mitigation, and the cq-4 operator smoke test
+end-to-end.
 
 ## Why a router, not a hard-wired second client
 
@@ -414,9 +419,12 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
 - [Orchestrator Architecture](orchestrator.md) — Spawner and
   session-creation context for slice 2's per-agent model
   resolution
-- Per-Agent Models Guide — `docs/guides/per-agent-models.md`, added in
-  slice 2 (not present yet) — how an operator actually flips an agent
-  role to a non-Claude model end-to-end
+- [Per-Agent Models Guide](../guides/per-agent-models.md) — Operator
+  walkthrough for the slice-2 configuration plumbing
+  (`PipelineConfig.agent_models`, repo-level `default_agent_model`,
+  the `resolve_agent_model` precedence + classifier, the gateway-side
+  `_rewrite_upstream_model` helper, the cq-5 recognized-alias
+  mitigation, and the cq-4 hosted-Qwen smoke test)
 - [Network Isolation](network-isolation.md) — Cluster network
   posture; LiteLLM is gateway-only and NetworkPolicy is unchanged
 - Issue [#2769](https://github.com/jwbron/egg/issues/2769) — Original

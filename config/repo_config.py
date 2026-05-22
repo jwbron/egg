@@ -307,6 +307,56 @@ def should_disable_auto_fix(repo: str) -> bool:
     return cast(bool, get_repo_setting(repo, "disable_auto_fix", False))
 
 
+def get_default_agent_model(repo: str) -> str | None:
+    """Return the repository-level default agent model, or ``None`` when unset.
+
+    This is the second tier of the per-agent model resolution precedence
+    (see ``orchestrator/agent_model_resolution.py``):
+
+    1. ``PipelineConfig.agent_models[role]`` (per-pipeline override)
+    2. ``repositories.yaml`` ``default_agent_model`` (this helper)
+    3. Built-in ``"opus"`` default
+
+    The value follows the same classifier as ``agent_models``: a recognised
+    Claude alias (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``,
+    ``haiku``, ``claude-*``) routes through the Anthropic upstream, anything
+    else routes through the in-cluster LiteLLM proxy with the alias
+    ``"opus"`` presented to Claude Code (cq-5 mitigation).
+
+    Args:
+        repo: Repository in "owner/repo" format
+
+    Returns:
+        The configured model string, or ``None`` when the repo has no
+        per-repo entry, the entry omits ``default_agent_model``, or the
+        ``repositories.yaml`` file is absent (a missing config file is the
+        same observable as a missing entry — preserves the
+        no-op-by-default invariant for callers like ``resolve_agent_model``
+        that run inside spawn paths where the config file may not be
+        present, e.g. unit tests and ephemeral CI environments).
+
+    Raises:
+        ValueError: When ``default_agent_model`` is set to a non-string
+            YAML value (e.g. ``default_agent_model: 4``). Surfacing the
+            misconfiguration loudly here keeps it out of ``classify_model``,
+            where a non-string would otherwise raise an opaque ``TypeError``
+            from the regex internals.
+    """
+    try:
+        value = get_repo_setting(repo, "default_agent_model", None)
+    except FileNotFoundError:
+        return None
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(
+            f"default_agent_model for {repo!r} must be a string, got "
+            f"{type(value).__name__}: {value!r}. Set it to a recognised "
+            f"Claude alias (opus, sonnet, …) or a LiteLLM model name."
+        )
+    return value
+
+
 try:
     from egg_config.validators import validate_checks
 except ImportError:

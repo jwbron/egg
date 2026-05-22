@@ -2143,3 +2143,608 @@ class TestSessionCreateUpstreamValidation:
                 f"Valid upstream '{upstream}' was rejected: "
                 f"{response.status_code} ({response.data!r})"
             )
+
+
+# =============================================================================
+# Upstream body rewrite — slice-2 of issue #2769 (TASK-2-6 / TASK-2-8)
+# =============================================================================
+#
+# Slice 2 adds ``_rewrite_upstream_model(request_body, upstream_model)``
+# next to ``_filter_blocked_tools`` in gateway.py.  On LiteLLM-routed
+# requests with ``session.upstream_model`` set, the helper REPLACES the
+# top-level ``"model"`` field in the JSON body with the upstream-side
+# model name (e.g. ``"qwen3-coder-30b"``).  This is the cq-5 mitigation
+# on the wire: Claude Code is presented a recognized Claude alias
+# (``"opus"``) as ``--model``, so its compaction math stays sane; the
+# gateway rewrites the body just before forwarding to LiteLLM so the
+# upstream actually receives the right model name.
+#
+# Invariants:
+#
+# - ``upstream == "anthropic"``  → body is byte-identical (regression).
+# - ``upstream == "litellm"`` and ``upstream_model is None``  → body
+#   unchanged (slice-1 no-op state).
+# - ``upstream == "litellm"`` and ``upstream_model="qwen3-coder-30b"``
+#   → forwarded body has ``"model": "qwen3-coder-30b"`` regardless of
+#   incoming ``"model"`` value.
+# - Invalid JSON  → original body returned unchanged (proxy MUST NOT
+#   crash on a malformed body — slice-1 ``_filter_blocked_tools``
+#   matches this contract).
+# - The rewrite happens AFTER ``_filter_blocked_tools`` and BEFORE the
+#   upstream request is built, so blocked-tool stripping in private
+#   mode still works.
+# =============================================================================
+
+
+def _capture_upstream_body(captured_holder: dict, status: int = 200, response_body: bytes = b"{}"):
+    """Build an httpx-mock side_effect that captures the body forwarded
+    to the upstream client.  Stores under ``captured_holder["body"]``.
+    Mirrors the slice-1 ``_post_capture`` helper used by the
+    credential-leak tests.
+    """
+    from httpx import Headers
+
+    def _capture(*args, **kwargs):
+        # The proxy builds requests one of two ways depending on
+        # streaming: ``client.post(url, content=request_body, ...)`` or
+        # ``client.build_request("POST", url, content=request_body, ...)``.
+        # Both routes feed ``request_body`` via the ``content`` kwarg.
+        body = kwargs.get("content")
+        if body is None:
+            # Fall back to positional inspection for safety.
+            for arg in args:
+                if isinstance(arg, (bytes, bytearray, str)):
+                    body = arg
+                    break
+        captured_holder["body"] = body
+
+        mock_response = MagicMock()
+        mock_response.content = response_body
+        mock_response.status_code = status
+        mock_response.headers = Headers([("content-type", "application/json")])
+        return mock_response
+
+    return _capture
+
+
+class TestRewriteUpstreamModelHelper:
+    """Direct unit tests on the ``_rewrite_upstream_model`` helper.
+
+    Skips when the helper has not landed yet (waiting on coder).
+    """
+
+    @pytest.fixture
+    def _rewrite_fn(self):
+        try:
+            from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]
+
+            return _rewrite_upstream_model
+        except ImportError:
+            pytest.skip("_rewrite_upstream_model not yet implemented (waiting on coder)")
+
+    def test_no_op_when_upstream_model_is_none(self, _rewrite_fn):
+        body = json.dumps({"model": "opus", "messages": []}).encode()
+        out = _rewrite_fn(body, None)
+        # Byte-identical when no rewrite is requested.
+        assert out == body
+
+    def test_rewrites_top_level_model_field(self, _rewrite_fn):
+        body = json.dumps({"model": "opus", "messages": []}).encode()
+        out = _rewrite_fn(body, "qwen3-coder-30b")
+        parsed = json.loads(out)
+        assert parsed["model"] == "qwen3-coder-30b"
+        # Other fields preserved.
+        assert parsed["messages"] == []
+
+    def test_preserves_other_top_level_keys(self, _rewrite_fn):
+        """The rewrite must not drop other body fields — system prompt,
+        tools, max_tokens, etc.  If it does, Claude Code's request
+        shape silently changes shape across the gateway.
+        """
+        body = json.dumps(
+            {
+                "model": "opus",
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 4096,
+                "system": "You are a helpful assistant.",
+                "tools": [{"name": "bash"}],
+                "stream": True,
+            }
+        ).encode()
+        out = _rewrite_fn(body, "qwen3-coder-30b")
+        parsed = json.loads(out)
+        assert parsed["model"] == "qwen3-coder-30b"
+        assert parsed["max_tokens"] == 4096
+        assert parsed["system"] == "You are a helpful assistant."
+        assert parsed["tools"] == [{"name": "bash"}]
+        assert parsed["stream"] is True
+        assert parsed["messages"] == [{"role": "user", "content": "hi"}]
+
+    def test_invalid_json_returns_original_body(self, _rewrite_fn):
+        """Slice-1 ``_filter_blocked_tools`` matches this contract —
+        on JSONDecodeError the helper returns the input unchanged so
+        the proxy doesn't crash on a malformed body.  Slice-2 must do
+        the same.
+        """
+        body = b"not valid json {{"
+        out = _rewrite_fn(body, "qwen3-coder-30b")
+        assert out == body
+
+    def test_empty_body_returns_unchanged(self, _rewrite_fn):
+        body = b""
+        out = _rewrite_fn(body, "qwen3-coder-30b")
+        # Either byte-identical or a degenerate ``{}``-rewrite is
+        # acceptable; what's not acceptable is a crash.
+        assert isinstance(out, (bytes, bytearray))
+
+    def test_body_without_model_key_is_handled(self, _rewrite_fn):
+        """Adversarial: incoming body has no ``model`` key.  The helper
+        either inserts the upstream model (so LiteLLM still gets the
+        right model name) or returns the body unchanged — what MUST
+        NOT happen is a KeyError crash.
+        """
+        body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
+        out = _rewrite_fn(body, "qwen3-coder-30b")
+        # Should not raise, and should not corrupt the rest of the body.
+        # If the implementation chooses to inject the model field, the
+        # result MUST be valid JSON with ``messages`` preserved.
+        try:
+            parsed = json.loads(out)
+            assert parsed.get("messages") == [{"role": "user", "content": "hi"}]
+        except json.JSONDecodeError:
+            # Returning the body unchanged is also acceptable.
+            assert out == body
+
+    def test_unicode_model_name_round_trips(self, _rewrite_fn):
+        """The helper must not break on non-ASCII model names — even
+        though LiteLLM model names are ASCII in practice, the helper
+        shouldn't impose a stricter encoding constraint than the
+        original body parser.
+        """
+        body = json.dumps({"model": "opus", "messages": []}).encode()
+        out = _rewrite_fn(body, "qwen-✨-30b")
+        parsed = json.loads(out)
+        assert parsed["model"] == "qwen-✨-30b"
+
+
+def _rewrite_helper_exists() -> bool:
+    """Return True if slice-2's ``_rewrite_upstream_model`` has landed
+    on the gateway side.  Tests below skip when False.
+    """
+    try:
+        # noqa: F401 — import is for existence check, the symbol is unused.
+        from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]  # noqa: F401, I001
+
+        return True
+    except ImportError:
+        return False
+
+
+class TestRewriteUpstreamModelOnProxyRoute:
+    """End-to-end: ``proxy_anthropic_messages`` with a LiteLLM session
+    forwards the rewritten body to the LiteLLM upstream.
+
+    These tests drive the Flask app like slice-1's
+    ``TestUpstreamRoutingMessages`` and assert on the body forwarded
+    to the LiteLLM-side httpx client.
+    """
+
+    @pytest.fixture
+    def client(self):
+        from gateway.gateway import app
+
+        app.config["TESTING"] = True
+        with app.test_client() as client:
+            yield client
+
+    def _build_full_registry_patch(self, captured_body_holder):
+        """Build the registry / credential patches used by the
+        body-rewrite tests.  Returns a list of context managers ready
+        to ``with ... :``.
+        """
+        try:
+            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError:
+            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
+
+        litellm_client = MagicMock()
+        litellm_client.post.side_effect = _capture_upstream_body(captured_body_holder)
+        # Also wire build_request → send → iter_bytes for the streaming
+        # path.  Slice-2 tests target the non-streaming path, but we set
+        # up both to avoid spurious AttributeErrors.
+        litellm_client.build_request.return_value = MagicMock()
+
+        anthropic_client = MagicMock()
+        anthropic_client.post.side_effect = AssertionError(
+            "Anthropic client must not be invoked for a LiteLLM-routed request"
+        )
+
+        def _registry_get(upstream):
+            if upstream == "anthropic":
+                return (
+                    anthropic_client,
+                    lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-test"),
+                )
+            if upstream == "litellm":
+                return (
+                    litellm_client,
+                    lambda: MagicMock(header_name="x-api-key", header_value="litellm-key"),
+                )
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+        return fake_registry, litellm_client, anthropic_client
+
+    def test_litellm_session_with_upstream_model_rewrites_body(self, client):
+        """With ``upstream="litellm"`` and
+        ``upstream_model="qwen3-coder-30b"``, the body forwarded to the
+        LiteLLM client has ``"model": "qwen3-coder-30b"`` regardless of
+        what Claude Code sent (it sends ``"opus"`` per the cq-5
+        mitigation).
+        """
+        if not _rewrite_helper_exists():
+            pytest.skip("_rewrite_upstream_model not yet implemented")
+        captured: dict = {}
+        fake_registry, litellm_client, _ = self._build_full_registry_patch(captured)
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+                create=True,
+            ),
+            patch("gateway.gateway.get_anthropic_client") as mock_anthropic_get,
+            patch(
+                "gateway.gateway.get_litellm_credentials_manager", create=True
+            ) as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+            # ``get_anthropic_client`` is also called in the no-session
+            # path; wire it to a harmless mock to be safe.
+            mock_anthropic_get.return_value = MagicMock()
+
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages",
+                # Claude Code presents 'opus' on the wire (cq-5).
+                data=json.dumps({"model": "opus", "messages": []}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            body = captured.get("body")
+            assert body is not None, "LiteLLM client was not called with a body to capture"
+            parsed = json.loads(body) if isinstance(body, (bytes, bytearray)) else json.loads(body)
+            assert parsed["model"] == "qwen3-coder-30b", (
+                f"LiteLLM-routed body MUST have model='qwen3-coder-30b' "
+                f"(rewritten from incoming 'opus'); got {parsed.get('model')!r}"
+            )
+
+    def test_litellm_session_without_upstream_model_preserves_body_model(self, client):
+        """Slice-1 no-op state: a LiteLLM session with
+        ``upstream_model=None`` MUST NOT rewrite the body — the proxy
+        passes whatever model name the client sent.
+        """
+        captured: dict = {}
+        fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+                create=True,
+            ),
+            patch("gateway.gateway.get_anthropic_client"),
+            patch(
+                "gateway.gateway.get_litellm_credentials_manager", create=True
+            ) as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model=None
+            )
+            mock_sm_get.return_value = sm
+
+            client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "opus", "messages": []}),
+                content_type="application/json",
+            )
+
+            body = captured.get("body")
+            assert body is not None
+            parsed = json.loads(body)
+            assert parsed["model"] == "opus", (
+                f"upstream_model=None must NOT rewrite the body; got model={parsed.get('model')!r}"
+            )
+
+    def test_anthropic_session_body_is_byte_identical(self, client):
+        """Regression guard for the Anthropic path — with no session,
+        or ``upstream="anthropic"``, the body forwarded to Anthropic is
+        BYTE-identical to the body the client sent.  This is the
+        slice-2 no-op invariant.
+        """
+        from httpx import Headers
+
+        captured: dict = {}
+
+        def _post_capture(*args, **kwargs):
+            captured["body"] = kwargs.get("content") or (args[1] if len(args) > 1 else None)
+            mock_response = MagicMock()
+            mock_response.content = b'{"ok": true}'
+            mock_response.status_code = 200
+            mock_response.headers = Headers([("content-type", "application/json")])
+            return mock_response
+
+        mock_anthropic_client = MagicMock()
+        mock_anthropic_client.post.side_effect = _post_capture
+
+        # Build a registry where 'anthropic' returns our client — and
+        # 'litellm' is never expected to be called on this test.  Use
+        # ``get_anthropic_client`` so the proxy's fast path picks up
+        # the mock (the slice-1 code shape calls that directly for the
+        # anthropic upstream).
+        original_body = json.dumps({"model": "claude-3-5-sonnet-20241022", "messages": []})
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_anthropic_client", return_value=mock_anthropic_client),
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(upstream="anthropic")
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages",
+                data=original_body,
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            body = captured.get("body")
+            # Byte-identical regression guard: Anthropic path MUST NOT
+            # rewrite anything. The incoming model name (a full
+            # ``claude-3-5-sonnet-...`` alias) must survive verbatim.
+            assert body == original_body.encode(), (
+                f"Anthropic path body MUST be byte-identical "
+                f"(regression guard for slice-2); incoming "
+                f"{original_body!r}, forwarded {body!r}"
+            )
+
+    def test_litellm_count_tokens_rewrites_body(self, client):
+        """The body-rewrite must mirror across BOTH proxy routes —
+        otherwise Claude Code's token accounting for a LiteLLM-routed
+        agent silently drifts from the actual upstream model.
+        """
+        if not _rewrite_helper_exists():
+            pytest.skip("_rewrite_upstream_model not yet implemented")
+        captured: dict = {}
+        fake_registry, litellm_client, _ = self._build_full_registry_patch(captured)
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+                create=True,
+            ),
+            patch("gateway.gateway.get_anthropic_client"),
+            patch(
+                "gateway.gateway.get_litellm_credentials_manager", create=True
+            ) as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages/count_tokens",
+                data=json.dumps({"model": "opus", "messages": []}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            body = captured.get("body")
+            assert body is not None
+            parsed = json.loads(body)
+            assert parsed["model"] == "qwen3-coder-30b", (
+                f"count_tokens body rewrite missing on LiteLLM route; got "
+                f"{parsed.get('model')!r} — Claude Code token accounting "
+                f"will drift from the upstream model on the next request"
+            )
+
+    def test_rewrite_runs_after_tool_filtering(self, client):
+        """``_rewrite_upstream_model`` MUST run AFTER
+        ``_filter_blocked_tools`` per the plan — if it runs before, a
+        body that gets re-serialized by the rewrite changes the byte
+        shape the tool-filter sees, which would silently break the
+        private-mode tool strip.
+
+        Probe: send a private-mode session with a blocked tool AND a
+        LiteLLM upstream.  Assert both the tool was stripped AND the
+        model was rewritten in the forwarded body.
+        """
+        if not _rewrite_helper_exists():
+            pytest.skip("_rewrite_upstream_model not yet implemented")
+        captured: dict = {}
+        fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+                create=True,
+            ),
+            patch("gateway.gateway.get_anthropic_client"),
+            patch(
+                "gateway.gateway.get_litellm_credentials_manager", create=True
+            ) as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+
+            session = _build_mock_session(upstream="litellm", upstream_model="qwen3-coder-30b")
+            session.mode = "private"  # trigger tool-stripping
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = session
+            mock_sm_get.return_value = sm
+
+            client.post(
+                "/v1/messages",
+                data=json.dumps(
+                    {
+                        "model": "opus",
+                        "messages": [],
+                        # WebSearch is blocked in private mode per
+                        # BLOCKED_TOOLS_PRIVATE_MODE — if rewrite runs
+                        # before filter, this tool may survive into
+                        # the forwarded body.
+                        "tools": [
+                            {"name": "WebSearch"},
+                            {"name": "Read"},
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            body = captured.get("body")
+            assert body is not None
+            parsed = json.loads(body)
+            # Model was rewritten:
+            assert parsed["model"] == "qwen3-coder-30b"
+            # Blocked tool was stripped (tool-filter ran):
+            tool_names = {t.get("name") for t in parsed.get("tools", [])}
+            assert "WebSearch" not in tool_names, (
+                f"Blocked tool 'WebSearch' survived in private mode + "
+                f"LiteLLM upstream — tool-filter / rewrite ordering "
+                f"may be broken.  Forwarded tools: {tool_names}"
+            )
+            assert "Read" in tool_names, (
+                f"Tool-filter stripped a non-blocked tool ('Read') — got {tool_names}"
+            )
+
+
+class TestRewriteUpstreamModelMalformedBodyResilience:
+    """Adversarial probes: the body-rewrite helper MUST NOT crash the
+    proxy on adversarial inputs (matches the slice-1
+    ``_filter_blocked_tools`` resilience contract).
+    """
+
+    @pytest.fixture
+    def client(self):
+        from gateway.gateway import app
+
+        app.config["TESTING"] = True
+        with app.test_client() as client:
+            yield client
+
+    def test_invalid_json_request_does_not_crash_proxy(self, client):
+        """A LiteLLM session with an invalid-JSON body MUST NOT crash
+        the proxy — the helper returns the body unchanged and the
+        upstream gets the malformed body, mirroring today's
+        Anthropic-route behavior.
+        """
+        try:
+            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError:
+            pytest.skip("upstream_registry not yet implemented")
+
+        captured: dict = {}
+        litellm_client = MagicMock()
+        litellm_client.post.side_effect = _capture_upstream_body(captured)
+        litellm_client.build_request.return_value = MagicMock()
+        anthropic_client = MagicMock()
+
+        def _registry_get(upstream):
+            if upstream == "anthropic":
+                return (anthropic_client, lambda: MagicMock())
+            if upstream == "litellm":
+                return (litellm_client, lambda: MagicMock())
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+                create=True,
+            ),
+            patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
+            patch(
+                "gateway.gateway.get_litellm_credentials_manager", create=True
+            ) as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            # Malformed JSON body — proxy should pass it through
+            # unchanged, and we should NOT see a 500.
+            response = client.post(
+                "/v1/messages",
+                data=b"not valid json {{",
+                content_type="application/json",
+            )
+
+            # Either the proxy forwarded the malformed body (200 from
+            # the mock) or returned a structured error — what MUST NOT
+            # happen is a 500 / unhandled exception.
+            assert response.status_code != 500, (
+                f"Malformed JSON crashed the LiteLLM-routed proxy "
+                f"(should pass through unchanged like the Anthropic "
+                f"path); got 500 with {response.data!r}"
+            )

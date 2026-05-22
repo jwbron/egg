@@ -9571,6 +9571,63 @@ def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> byte
     return request_body
 
 
+def _rewrite_upstream_model(request_body: bytes, upstream_model: str | None) -> bytes:
+    """
+    Rewrite the request body's top-level ``"model"`` field to *upstream_model*.
+
+    This is the gateway-side half of the cq-5 mitigation for per-agent
+    non-Claude routing (#2769 task-2-6). Claude Code is handed a recognised
+    Claude alias (``"opus"``) so its compaction heuristics stay calibrated
+    against a known family, but LiteLLM has no ``"opus"`` entry in its
+    ``model_list`` — it routes on whatever model name appears in the request
+    body. The orchestrator threads the upstream-side model name onto the
+    session at spawn time (``Session.upstream_model``); this helper swaps it
+    into the body before the gateway forwards to the non-Anthropic upstream.
+
+    Mirrors ``_filter_blocked_tools``'s bytes-in / bytes-out contract: parse
+    failures and a ``None`` *upstream_model* both return the original bytes
+    unchanged so the regression guard on the Anthropic path is byte-identical
+    and a malformed body never escapes as a 500. Callers MUST guard with
+    ``if upstream_name != "anthropic"`` so the helper is only invoked on the
+    LiteLLM-routed path; on Anthropic, the body must be forwarded verbatim.
+
+    Args:
+        request_body: Raw JSON request body.
+        upstream_model: Upstream-side model name to substitute, or ``None``
+            (no-op — body returned unchanged).
+
+    Returns:
+        Modified request body with ``"model"`` set to *upstream_model* (if
+        rewriting was applied) or the original body unchanged.
+    """
+    if upstream_model is None:
+        return request_body
+
+    try:
+        body = json.loads(request_body)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(
+            "Failed to parse request body for upstream-model rewrite",
+            error=str(e),
+        )
+        return request_body
+
+    if not isinstance(body, dict):
+        return request_body
+
+    original = body.get("model")
+    if original == upstream_model:
+        return request_body
+
+    body["model"] = upstream_model
+    logger.info(
+        "Rewrote upstream model in request body",
+        original_model=original,
+        upstream_model=upstream_model,
+    )
+    return json.dumps(body).encode()
+
+
 def _is_streaming_request(request_body: bytes) -> bool:
     """
     Check if request body indicates streaming mode.
@@ -9896,6 +9953,15 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
+    # cq-5 mitigation (#2769 task-2-6): on the LiteLLM-routed path, swap
+    # the cq-5 alias ("opus") that Claude Code was handed for the
+    # upstream-side model name LiteLLM's model_list keys on. The
+    # Anthropic path keeps the original body byte-identical so today's
+    # wire shape is preserved.
+    if upstream_name != "anthropic":
+        request_body = _rewrite_upstream_model(
+            request_body, session.upstream_model if session else None
+        )
     is_streaming = _is_streaming_request(request_body)
 
     # Parse request body for transcript capture
@@ -10196,11 +10262,21 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
                 }
             ), 502
 
+    # cq-5 mitigation (#2769 task-2-6): mirror proxy_anthropic_messages —
+    # the LiteLLM-routed path must have the cq-5 alias swapped for the
+    # upstream-side model name LiteLLM keys on, while the Anthropic path
+    # forwards bytes verbatim so the regression guard stays intact.
+    count_tokens_body = request.get_data()
+    if upstream_name != "anthropic":
+        count_tokens_body = _rewrite_upstream_model(
+            count_tokens_body, session.upstream_model if session else None
+        )
+
     try:
         response = client.post(
             "/v1/messages/count_tokens",
             headers=headers,
-            content=request.get_data(),
+            content=count_tokens_body,
         )
         return Response(
             response.content,
