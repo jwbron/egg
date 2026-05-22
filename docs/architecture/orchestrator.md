@@ -259,9 +259,9 @@ with byte-identical gateway behavior.
 
 See [Upstream Routing](upstream-routing.md) for the gateway-side
 seam (registry, credential layout, request lifecycle, failure
-policy, and the no-op-by-default invariant) and the
-[Per-Agent Models Guide](../guides/per-agent-models.md) for the
-operator-facing setup.
+policy, and the no-op-by-default invariant). The operator-facing
+setup ships in slice 2 as `docs/guides/per-agent-models.md` (that
+file does not exist until slice 2 lands).
 
 ## Network Mode
 

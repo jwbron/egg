@@ -220,60 +220,24 @@ class TestAnthropicCredentialsManager:
 # returns ``None`` (no-op default — matches today's behavior when no
 # Anthropic credentials are configured).
 #
-# Implementation detail: the coder may either (a) extend
-# ``AnthropicCredentialsManager`` with a sibling LiteLLM method or
-# (b) introduce a parallel ``LiteLLMCredentialsManager`` class.  The
-# tests below tolerate both by importing through the public symbol
-# the coder lands and skipping the suite if neither is present yet.
-
-
-def _import_litellm_resolver():
-    """Best-effort import of the LiteLLM credential resolver primitive.
-
-    Returns a tuple ``(manager_class, helper_callable)`` where exactly
-    one of the two is non-None.  The tests use whichever surface the
-    coder exposes.
-    """
-    try:
-        # Preferred shape — a parallel CredentialsManager class.
-        from anthropic_credentials import LiteLLMCredentialsManager  # type: ignore[attr-defined]
-
-        return LiteLLMCredentialsManager, None
-    except ImportError:
-        pass
-    try:
-        # Alternative shape — a module-level helper that takes a path.
-        from anthropic_credentials import (  # type: ignore[attr-defined]
-            get_litellm_credential,
-        )
-
-        return None, get_litellm_credential
-    except ImportError:
-        return None, None
+# The resolver is the parallel ``LiteLLMCredentialsManager`` class in
+# ``anthropic_credentials`` — same secrets.env file, same
+# ``parse_env_file`` helper, and same mtime-invalidated cache as the
+# Anthropic manager.
 
 
 class TestLiteLLMCredentialResolver:
     """Tests for the LiteLLM master-key resolver (TASK-1-2)."""
 
-    @pytest.fixture(autouse=True)
-    def _skip_if_unimplemented(self):
-        manager_cls, helper = _import_litellm_resolver()
-        if manager_cls is None and helper is None:
-            pytest.skip("LiteLLM credential resolver not yet implemented")
-
     @pytest.fixture
-    def _resolve(self, tmp_path):
-        """Return a function ``resolve(secrets_path)`` that yields the
-        ``AnthropicCredential | None`` produced by whichever resolver
-        shape the coder lands.
+    def _resolve(self):
+        """Return ``resolve(secrets_path)`` yielding the
+        ``AnthropicCredential | None`` produced by ``LiteLLMCredentialsManager``.
         """
-        manager_cls, helper = _import_litellm_resolver()
+        from anthropic_credentials import LiteLLMCredentialsManager
 
         def _do(secrets_path: Path):
-            if manager_cls is not None:
-                return manager_cls(secrets_path=secrets_path).get_credential()
-            assert helper is not None
-            return helper(secrets_path)
+            return LiteLLMCredentialsManager(secrets_path=secrets_path).get_credential()
 
         return _do
 
@@ -332,15 +296,6 @@ class TestLiteLLMResolverCachingBehavior:
     """Cache invalidation: changing the file mtime invalidates the cache,
     matching ``AnthropicCredentialsManager``'s contract (TASK-1-2 AC).
     """
-
-    @pytest.fixture(autouse=True)
-    def _skip_if_no_manager_class(self):
-        manager_cls, _ = _import_litellm_resolver()
-        if manager_cls is None:
-            pytest.skip(
-                "LiteLLM credential resolver does not expose a manager class; "
-                "mtime-cache test only applies to the manager shape"
-            )
 
     def test_mtime_change_invalidates_cache(self, tmp_path):
         import time

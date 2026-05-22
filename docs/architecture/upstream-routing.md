@@ -11,9 +11,10 @@ when LiteLLM is not configured.
 
 Status: this seam lands in two stacked changes for [#2769](https://github.com/jwbron/egg/issues/2769). Slice 1 — described here — is the
 **gateway router + LiteLLM Deployment**, no-op by default. Slice 2
-([per-agent model config](../guides/per-agent-models.md)) adds the
-orchestrator-side resolution and the body-rewrite that connects an
-agent role to a concrete upstream model.
+(per-agent model config) adds the orchestrator-side resolution and the
+body-rewrite that connects an agent role to a concrete upstream model;
+it ships the operator guide at `docs/guides/per-agent-models.md` (that
+file does not exist until slice 2 lands).
 
 ## Why a router, not a hard-wired second client
 
@@ -371,7 +372,7 @@ one does not silently activate the LiteLLM path.
 
 ## HITL decisions that shape this design
 
-The `#2769` refine phase resolved eleven `cq-*` decisions. The five
+The `#2769` refine phase resolved eleven `cq-*` decisions. The six
 that directly shape the slice-1 architecture:
 
 | Decision | Resolution | Effect on this seam |
@@ -381,6 +382,7 @@ that directly shape the slice-1 architecture:
 | `cq-5` | Keep Claude Code harness for non-Claude models; present recognized alias | Compaction-math mitigation; body rewrite lives in slice 2 |
 | `cq-7` | Gateway holds `LITELLM_MASTER_KEY` in `secrets.env`; injects per-request | Credentials section above — mirrors today's Anthropic injection |
 | `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Failure policy section above |
+| `cq-9` | Keep the private-mode WebSearch / WebFetch strip on every upstream | Proxy-routes section — `_filter_blocked_tools` runs identically regardless of upstream |
 
 The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/contracts/issue-2769.json).
 
@@ -412,9 +414,9 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
 - [Orchestrator Architecture](orchestrator.md) — Spawner and
   session-creation context for slice 2's per-agent model
   resolution
-- [Per-Agent Models Guide](../guides/per-agent-models.md) *(slice 2)*
-  — How an operator actually flips an agent role to a non-Claude
-  model end-to-end
+- Per-Agent Models Guide — `docs/guides/per-agent-models.md`, added in
+  slice 2 (not present yet) — how an operator actually flips an agent
+  role to a non-Claude model end-to-end
 - [Network Isolation](network-isolation.md) — Cluster network
   posture; LiteLLM is gateway-only and NetworkPolicy is unchanged
 - Issue [#2769](https://github.com/jwbron/egg/issues/2769) — Original

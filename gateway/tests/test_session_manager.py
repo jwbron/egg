@@ -2274,29 +2274,37 @@ class TestSessionManagerRegisterUpstream:
 
     def test_register_with_litellm_upstream_stores_both_fields(self, manager):
         """Explicit LiteLLM registration stores both fields on the Session."""
-        try:
-            _token, session = manager.register_session(
-                container_id="qwen-agent",
-                container_ip="172.18.0.7",
-                mode="private",
-                upstream="litellm",
-                upstream_model="qwen3-coder-30b",
-            )
-        except TypeError as e:
-            pytest.skip(f"register_session does not yet accept upstream kwargs: {e}")
+        _token, session = manager.register_session(
+            container_id="qwen-agent",
+            container_ip="172.18.0.7",
+            mode="private",
+            upstream="litellm",
+            upstream_model="qwen3-coder-30b",
+        )
         assert session.upstream == "litellm"
         assert session.upstream_model == "qwen3-coder-30b"
 
     def test_register_with_anthropic_upstream_explicit(self, manager):
         """Explicit ``upstream='anthropic'`` is a valid no-op."""
-        try:
-            _token, session = manager.register_session(
-                container_id="explicit-anthropic-agent",
-                container_ip="172.18.0.8",
-                mode="private",
-                upstream="anthropic",
-            )
-        except TypeError as e:
-            pytest.skip(f"register_session does not yet accept upstream kwargs: {e}")
+        _token, session = manager.register_session(
+            container_id="explicit-anthropic-agent",
+            container_ip="172.18.0.8",
+            mode="private",
+            upstream="anthropic",
+        )
         assert session.upstream == "anthropic"
         assert session.upstream_model is None
+
+    def test_register_with_unknown_upstream_raises(self, manager):
+        """An upstream the gateway cannot serve is rejected at registration
+        (issue #2769 review) — a direct caller must not be able to create
+        a bogus-upstream session that bypasses the session-create route's
+        validation.
+        """
+        with pytest.raises(ValueError, match="Unknown upstream"):
+            manager.register_session(
+                container_id="bogus-agent",
+                container_ip="172.18.0.9",
+                mode="private",
+                upstream="bogus_upstream_name",
+            )
