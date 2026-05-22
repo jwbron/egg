@@ -1,4 +1,4 @@
-"""  # noqa: EGG200 - module docstring names api.anthropic.com as the proxy target URL, not a direct LLM call
+"""# noqa: EGG200 - module docstring names api.anthropic.com as the proxy target URL, not a direct LLM call
 Upstream Registry for Gateway LLM Proxy.
 
 Provides a per-upstream registry pairing an httpx.Client (base_url, timeout,
