@@ -436,16 +436,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-22T03:01:49.185743Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-22T03:17:51.422450Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Hosted Qwen provider first; no settled self-hosted hardware/budget yet — the plan should anchor on a hosted provider, not a specific GPU/vLLM/SGLang setup. Self-hosted vLLM is a later target.\", \"Q2\": \"Open-ended — no fixed target list of roles. The integration just needs to make any agent role independently selectable; which roles move to non-Claude is decided later. The first flip proves the seam.\", \"Q3\": \"Keep a clean swap-out point — design a thin UpstreamRouter/Registry abstraction so LiteLLM can be replaced if it hits a maintenance/supply-chain problem (the March 2026 PyPI incident is recent).\", \"Q4\": \"Defer to a follow-up — do not extend max_llm_cost_per_hour cost tracking to LiteLLM/Qwen token pricing in this issue.\", \"Q5\": \"No blocking compliance/data-residency constraint — code and transcripts may transit a hosted Qwen provider. The cq-6 hosted-provider choice stands.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:15:59.529830Z",
+  "updated_at": "2026-05-22T03:17:51.430276Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -458,7 +458,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36,
+  "version": 37,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
