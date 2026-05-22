@@ -422,6 +422,76 @@ class TestAgentModelsValidation:
 # =============================================================================
 
 
+class TestDualImportRepoConfig:
+    """Regression for the prod-container import topology (slice-2 v2).
+
+    `orchestrator/Dockerfile:66` flattens ``config/repo_config.py`` to
+    ``/app/repo_config.py`` (no ``/app/config/`` package).  The resolver
+    must therefore fall back to a top-level ``repo_config`` import when
+    the ``config.`` package is unavailable.  This regression test asserts
+    the fallback works — without it, every Anthropic-default spawn in
+    production would have raised ``ModuleNotFoundError`` on the first
+    pipeline submit.
+
+    Mirrors the dual-import pattern already used at
+    ``shared/egg_restrictions/patterns.py:913-916`` and
+    ``orchestrator/routes/signals.py:961-964``.
+    """
+
+    def test_top_level_repo_config_fallback_resolves(self, monkeypatch):
+        """Simulate the prod-container layout: ``config`` package absent,
+        ``repo_config`` available at the top level.  The resolver MUST
+        still produce the built-in opus / anthropic decision instead of
+        propagating ``ModuleNotFoundError``.
+        """
+        if not _agent_models_field_exists():
+            pytest.skip("PipelineConfig.agent_models not yet implemented")
+
+        import types
+
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config()
+
+        # Build a top-level ``repo_config`` shim whose
+        # ``get_default_agent_model`` returns None (no override).
+        repo_config_shim = types.ModuleType("repo_config")
+        repo_config_shim.get_default_agent_model = lambda repo: None  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "repo_config", repo_config_shim)
+
+        # Remove the ``config.repo_config`` module so the primary import
+        # raises ImportError and the fallback fires.  Need to remove
+        # ``config`` itself too so ``from config.repo_config import ...``
+        # actually raises rather than re-importing the existing module.
+        for name in ("config.repo_config", "config"):
+            sys.modules.pop(name, None)
+
+        # Block import of the ``config`` package by inserting a meta-path
+        # finder that raises ImportError specifically for it — leaves
+        # other imports alone.
+        import importlib.abc
+        import importlib.machinery
+
+        class _BlockConfigFinder(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path, target=None):
+                if fullname == "config" or fullname.startswith("config."):
+                    raise ImportError(f"Simulating prod-container layout: {fullname} unavailable")
+                return None
+
+        finder = _BlockConfigFinder()
+        sys.meta_path.insert(0, finder)
+        try:
+            d = resolve_agent_model(AgentRole.CODER, config, "owner/repo")
+        finally:
+            sys.meta_path.remove(finder)
+
+        # Built-in opus / anthropic falls through.  The shim returned None
+        # so neither pipeline override (empty) nor repo default fired.
+        assert d.claude_code_alias == "opus"
+        assert d.upstream == "anthropic"
+        assert d.upstream_model is None
+
+
 class TestDefaultPathRegression:
     """With ``agent_models={}`` and no repo default, EVERY role resolves
     to the Anthropic default — this is the slice-2 no-op invariant.
