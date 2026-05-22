@@ -9,15 +9,1008 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "The issue references `docs/design/planning-contract-framework.md` as the in-repo working copy of the spec, but no such file exists (no git history under `docs/design/`). Where should plan/refine teams source the canonical grammar, JSON Schema (`plan-contract-1.0.json`), and Appendix C field crosswalk?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Land the spec + review notes into docs/design/ as a prerequisite slice before any parser/template work (recommended \u2014 gives plan/implement agents an in-repo source of truth and pins the schema version egg conforms to)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pull the spec from Khan/actionable-plans on demand each cycle (no in-repo copy; depends on Khan repo access \u2014 currently private per gh)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Embed the relevant grammar + JSON Schema verbatim into this issue's body / the analysis document so downstream phases have local context",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "How should the cutover handle in-flight pipelines and pre-existing contracts (the legacy `slice-N` / `task-N-M` ID shape, the `# yaml-tasks` YAML appendix, and existing `.egg-state/contracts/*.json` files)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hard cutover: new pipelines only use the new grammar; in-flight pipelines finish on the legacy parser; old contracts remain in their legacy shape and aren\u2019t migrated",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Dual-parse transition window: parser accepts both grammars for one egg release, with a deprecation warning on the YAML appendix; existing contracts continue to work",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Big-bang migration: write a one-shot migrator that rewrites every `.egg-state/contracts/*.json` and in-flight pipeline state to the new shape on upgrade",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer the decision to plan phase: refine just flags the migration concern; plan decides between hard cutover vs. transition based on slice decomposition",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "What is the conformance bar for the new grammar's strict-parse stance? The spec says \"a plan that does not parse is 'not executable', reported with a structured error rather than silently degraded\".",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hard fail on any deviation: parser raises a structured error; no markdown-regex fallback; no \"placeholder task\" fill-in for empty slices; reviewer NACKs the planner",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Hard fail on schema deviations, warn on style/order: structural rules (missing required field-headers, unresolved refs, duplicate ids) are errors; field-order and casing drift surface as warnings",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Warn-and-emit-best-effort: keep today\u2019s posture of best-effort extraction with `warnings[]` so a malformed plan still produces a partial contract reviewers can fix incrementally",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "How should egg-specific contract fields that have no counterpart in the framework's JSON Schema be handled (e.g. `serialized_chain_order`, `pr.context_title`, `pr.context_description`, `pr.context_branch`, `pr.context_pr_number`, `jira_key`, `jira_action`, `jira_action_status`)? These are load-bearing for #2137 (forest serialization), #2548 (context PRs), and #1557 (Jira-epic SDLC).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep them as egg-specific extensions outside the framework-conformant region: the framework section of the contract validates against `plan-contract-1.0.json`; egg-specific fields live in a sibling `egg_extensions:` block so the conformance bot can still validate the conformant part",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Subsume them into the framework grammar: write spec-conformant analogues (e.g. `serialized_chain_order` becomes a `Coordination` block on the slice; Jira-mode tasks use the spec\u2019s `Decision`/`External` blocker types) and drop the egg-specific names",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Propose upstream additions to the framework spec for fields that have legitimate cross-tool value (e.g. `serialized_chain_order` for forest-DAG planners); keep narrow egg-internal fields as extensions",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Drop the features that have no spec home: gate #1557/#2137/#2548 work on either upstreaming or losing the feature \u2014 not a real option for #1557 since it\u2019s shipped, surfaced for completeness",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "The issue says egg \"already produces `ExpectedImpact` JSON via the `/impact-analysis` skill \u2014 conformance should align the two and reuse the enum set, not reinvent it.\" A repo search finds no `impact-analysis` skill, no `ExpectedImpact` type, no producer of impact JSON. Where does this artifact actually come from today?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "Where should AC, BL, OQ, and R records live relative to the slice/task scope? The spec describes them as top-level `##` sections, but egg today also surfaces (a) refine-phase Open Questions registered with `egg-contract add-decision` / `add-feedback` and (b) plan-phase risk_analyst output as a sibling JSON.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "The plan document\u2019s `## Acceptance Criteria` / `## Blockers` / `## Open Questions` are the single source of truth for the plan phase; refine-phase HITL decisions feed into them but are not the same records, and `risk_analyst-output.json` is rolled up into `## Impact & Risk` `R-<n>` records by `task_planner`",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Carry refine-phase HITL decisions forward as OQ records on the plan document (with their resolution status), so the operator sees pending refine decisions on the plan-HITL gate too",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep records strictly in the plan document and drop the sibling JSON artifacts (`risk_analyst-output.json`, `egg-contract` decisions in refine) once the plan is produced",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Mirror records bidirectionally between the plan markdown and the contract JSON; the JSON is the authority for downstream consumers",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "Should the new per-slice `### Validation` block (`Automated checks` / `Manual verification` / `Pre-merge steps` / `Post-merge steps`) replace or extend the existing per-PR `pr.test_plan` + `pr.manual_steps` fields and the top-level acceptance-criteria rollup, given there's a 1:1 slice\u2194PR mapping?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Replace: drop `pr.test_plan` and `pr.manual_steps` entirely; the PR body is composed from the slice\u2019s `### Validation` subsection. `pr.title` and `pr.description` remain (they\u2019re per-PR concerns).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Extend: keep `pr.test_plan` / `pr.manual_steps` as a slice-level rollup the PR-body composer reads; `### Validation` is structured detail under it. Less churn for the PR composer but two places to write tests.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Replace `pr.test_plan` / `pr.manual_steps`, but also auto-render the `### Validation` block into the PR body verbatim so reviewers see structured checks (no separate composer logic needed)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-8",
+      "question": "Should the new schema replace today's `.egg/schemas/yaml-tasks.schema.json` and `.egg/schemas/contract.schema.json`, vend the framework's `plan-contract-1.0.json` alongside them, or roll up into a single egg-owned schema that imports the framework schema as a `$ref`?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Vendor `plan-contract-1.0.json` into `.egg/schemas/` as a frozen copy pinned to a schema version; delete `yaml-tasks.schema.json`; update `contract.schema.json` to `$ref` the new plan-contract schema for its plan-shaped subtree",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Vendor the schema and also keep a separate `egg-contract-extensions.schema.json` for egg-specific fields (cq-4 option A); `contract.schema.json` references both via `allOf`",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Replace `yaml-tasks.schema.json` and `contract.schema.json` with a single `egg-plan-contract.schema.json` that fully owns the shape (the framework spec is the design source, but egg owns the schema file so we can evolve it independently)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-9",
+      "question": "The id format shifts from `slice-N` / `TASK-N-M` (egg-canonical, lowercased on the contract) to `S-<n>` / `S-<n>-T-<m>`. Should the contract `Slice.id` / `Task.id` strings change, or only the in-document display form?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Update `Slice.id` to `S-<n>` and `Task.id` to `S-<n>-T-<m>` so the contract and the document use one id everywhere; pydantic validators, audit-log strings, message bodies, and the orchestrator state-machine all flip together",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Only change the document\u2019s display form; the contract continues to use `slice-N` / `task-N-M` internally; the parser maps `S-<n>` \u2194 `slice-N` on read/write \u2014 a thin shim that minimises orchestrator churn but reintroduces a parser-only translation that\u2019s exactly what the spec wants to eliminate",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Update both, but lowercase the contract ids to `s-<n>` / `s-<n>-t-<m>` so the existing pydantic patterns (`^task-\u2026` etc.) just need a single-letter prefix flip",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-10",
+      "question": "Cross-field validation timing: where do the new spec validators run \u2014 at plan ingestion only, or also at PR / implement-time so a slice that drifts from the plan during implementation is caught before merge?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Plan-time only: validators run when the planner proposes; the existing reviewer NACK loop catches misses. PR-time conformance is the framework's Plan Conformance Bot job (out of scope per the issue)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Plan-time + PR-time on the egg side: validators run again on every BRC propose during implement and pr phases so reviewers see drift early; egg's NACK loop catches drift even without the framework's conformance bot",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Plan-time + implement-time pre-flight only: validators run on plan ingestion AND when the orchestrator spawns each slice's agent team (so a stale plan that has lost its AC reference doesn't even start work)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-11",
+      "question": "How aggressively should `plan_parser.py` change shape? Today's `ParsedPhase`, `ParsedTask`, `ParseResult`, `parse_plan_file`, `validate_forest`, `validate_task_role_alignment` are exported as part of the public API in `shared/egg_contracts/__init__.py` and consumed by the orchestrator and the `refine-plan` plugin's `validate-yaml-tasks` / `emit-contract` scripts.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Rewrite in place: keep the same module + function names; rewrite the parser internals; ParseResult grows new fields (acceptance_criteria, blockers, open_questions, impact); ParsedPhase keeps its name but its semantics shift to spec-conformant slices",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New module + dataprep migration: introduce `shared/egg_contracts/plan_parser_v2.py` with new types; keep `plan_parser.py` as a deprecated shim that delegates; orchestrator and plugin callers cut over piecemeal",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Aggressive rename + breakage: rename the module to `plan_contract.py`, drop the `ParsedPhase` alias, and force every caller to update. Cleanest but biggest blast radius in one slice",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-12",
+      "question": "How should this work be decomposed into slices for the plan phase to consider? (Refine is only flagging shape options; plan owns the final DAG.) Conformance touches: the spec landing, the schema, the parser, the contract model, the planner prompt, the plan-template, the plan-time validators, the orchestrator ingestion, the slice scheduler, the PR-body composer, and the `refine-plan` plugin's emit-contract/validate-yaml-tasks scripts.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Two slices in parallel: [land the spec + freeze the JSON Schema] || [stub the new contract model with no consumers yet] (2 PRs), followed by serialised waves the plan phase shapes once cq-1\u2026cq-11 are resolved",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Three slices with dependency: [land the spec + schema] -> [new parser + contract model + plan template, all wired together] -> [migrate downstream consumers: orchestrator ingestion, PR-body composer, plugin scripts, planner prompt] (3 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Four slices: [spec + schema] -> [new parser + model] || [new template + planner prompt] -> [downstream consumers] (4 PRs) \u2014 the parser and the template can\u2019t merge in parallel because the planner prompt has to learn the new grammar at the same time",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Single slice: ship everything together to avoid a half-conformant transition window (1 PR) \u2014 large blast radius but no intermediate state where the parser accepts a grammar no template emits",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-22T00:23:09.412842Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "The issue references `docs/design/planning-contract-framework.md` as the in-repo working copy of the spec, but no such file exists (no git history under `docs/design/`). Where should plan/refine teams source the canonical grammar, JSON Schema (`plan-contract-1.0.json`), and Appendix C field crosswalk?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Land the spec + review notes into docs/design/ as a prerequisite slice before any parser/template work (recommended \u2014 gives plan/implement agents an in-repo source of truth and pins the schema version egg conforms to)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pull the spec from Khan/actionable-plans on demand each cycle (no in-repo copy; depends on Khan repo access \u2014 currently private per gh)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Embed the relevant grammar + JSON Schema verbatim into this issue's body / the analysis document so downstream phases have local context",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The issue references `docs/design/planning-contrac...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:23:17.076023Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "How should the cutover handle in-flight pipelines and pre-existing contracts (the legacy `slice-N` / `task-N-M` ID shape, the `# yaml-tasks` YAML appendix, and existing `.egg-state/contracts/*.json` files)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hard cutover: new pipelines only use the new grammar; in-flight pipelines finish on the legacy parser; old contracts remain in their legacy shape and aren\u2019t migrated",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Dual-parse transition window: parser accepts both grammars for one egg release, with a deprecation warning on the YAML appendix; existing contracts continue to work",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Big-bang migration: write a one-shot migrator that rewrites every `.egg-state/contracts/*.json` and in-flight pipeline state to the new shape on upgrade",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer the decision to plan phase: refine just flags the migration concern; plan decides between hard cutover vs. transition based on slice decomposition",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the cutover handle in-flight pipelines ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:23:27.400186Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "What is the conformance bar for the new grammar's strict-parse stance? The spec says \"a plan that does not parse is 'not executable', reported with a structured error rather than silently degraded\".",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hard fail on any deviation: parser raises a structured error; no markdown-regex fallback; no \"placeholder task\" fill-in for empty slices; reviewer NACKs the planner",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Hard fail on schema deviations, warn on style/order: structural rules (missing required field-headers, unresolved refs, duplicate ids) are errors; field-order and casing drift surface as warnings",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Warn-and-emit-best-effort: keep today\u2019s posture of best-effort extraction with `warnings[]` so a malformed plan still produces a partial contract reviewers can fix incrementally",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the conformance bar for the new grammar's ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:23:41.022517Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "How should egg-specific contract fields that have no counterpart in the framework's JSON Schema be handled (e.g. `serialized_chain_order`, `pr.context_title`, `pr.context_description`, `pr.context_branch`, `pr.context_pr_number`, `jira_key`, `jira_action`, `jira_action_status`)? These are load-bearing for #2137 (forest serialization), #2548 (context PRs), and #1557 (Jira-epic SDLC).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep them as egg-specific extensions outside the framework-conformant region: the framework section of the contract validates against `plan-contract-1.0.json`; egg-specific fields live in a sibling `egg_extensions:` block so the conformance bot can still validate the conformant part",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Subsume them into the framework grammar: write spec-conformant analogues (e.g. `serialized_chain_order` becomes a `Coordination` block on the slice; Jira-mode tasks use the spec\u2019s `Decision`/`External` blocker types) and drop the egg-specific names",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Propose upstream additions to the framework spec for fields that have legitimate cross-tool value (e.g. `serialized_chain_order` for forest-DAG planners); keep narrow egg-internal fields as extensions",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Drop the features that have no spec home: gate #1557/#2137/#2548 work on either upstreaming or losing the feature \u2014 not a real option for #1557 since it\u2019s shipped, surfaced for completeness",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should egg-specific contract fields that have ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:23:46.988303Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "The issue says egg \"already produces `ExpectedImpact` JSON via the `/impact-analysis` skill \u2014 conformance should align the two and reuse the enum set, not reinvent it.\" A repo search finds no `impact-analysis` skill, no `ExpectedImpact` type, no producer of impact JSON. Where does this artifact actually come from today?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The issue says egg \"already produces `ExpectedImpa...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:23:56.341206Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "Where should AC, BL, OQ, and R records live relative to the slice/task scope? The spec describes them as top-level `##` sections, but egg today also surfaces (a) refine-phase Open Questions registered with `egg-contract add-decision` / `add-feedback` and (b) plan-phase risk_analyst output as a sibling JSON.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "The plan document\u2019s `## Acceptance Criteria` / `## Blockers` / `## Open Questions` are the single source of truth for the plan phase; refine-phase HITL decisions feed into them but are not the same records, and `risk_analyst-output.json` is rolled up into `## Impact & Risk` `R-<n>` records by `task_planner`",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Carry refine-phase HITL decisions forward as OQ records on the plan document (with their resolution status), so the operator sees pending refine decisions on the plan-HITL gate too",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep records strictly in the plan document and drop the sibling JSON artifacts (`risk_analyst-output.json`, `egg-contract` decisions in refine) once the plan is produced",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Mirror records bidirectionally between the plan markdown and the contract JSON; the JSON is the authority for downstream consumers",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should AC, BL, OQ, and R records live relati...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:05.866098Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "Should the new per-slice `### Validation` block (`Automated checks` / `Manual verification` / `Pre-merge steps` / `Post-merge steps`) replace or extend the existing per-PR `pr.test_plan` + `pr.manual_steps` fields and the top-level acceptance-criteria rollup, given there's a 1:1 slice\u2194PR mapping?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Replace: drop `pr.test_plan` and `pr.manual_steps` entirely; the PR body is composed from the slice\u2019s `### Validation` subsection. `pr.title` and `pr.description` remain (they\u2019re per-PR concerns).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Extend: keep `pr.test_plan` / `pr.manual_steps` as a slice-level rollup the PR-body composer reads; `### Validation` is structured detail under it. Less churn for the PR composer but two places to write tests.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Replace `pr.test_plan` / `pr.manual_steps`, but also auto-render the `### Validation` block into the PR body verbatim so reviewers see structured checks (no separate composer logic needed)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the new per-slice `### Validation` block (`...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:13.770749Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-8",
+        "question": "Should the new schema replace today's `.egg/schemas/yaml-tasks.schema.json` and `.egg/schemas/contract.schema.json`, vend the framework's `plan-contract-1.0.json` alongside them, or roll up into a single egg-owned schema that imports the framework schema as a `$ref`?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Vendor `plan-contract-1.0.json` into `.egg/schemas/` as a frozen copy pinned to a schema version; delete `yaml-tasks.schema.json`; update `contract.schema.json` to `$ref` the new plan-contract schema for its plan-shaped subtree",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Vendor the schema and also keep a separate `egg-contract-extensions.schema.json` for egg-specific fields (cq-4 option A); `contract.schema.json` references both via `allOf`",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Replace `yaml-tasks.schema.json` and `contract.schema.json` with a single `egg-plan-contract.schema.json` that fully owns the shape (the framework spec is the design source, but egg owns the schema file so we can evolve it independently)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the new schema replace today's `.egg/schema...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:22.823183Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-9",
+        "question": "The id format shifts from `slice-N` / `TASK-N-M` (egg-canonical, lowercased on the contract) to `S-<n>` / `S-<n>-T-<m>`. Should the contract `Slice.id` / `Task.id` strings change, or only the in-document display form?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Update `Slice.id` to `S-<n>` and `Task.id` to `S-<n>-T-<m>` so the contract and the document use one id everywhere; pydantic validators, audit-log strings, message bodies, and the orchestrator state-machine all flip together",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Only change the document\u2019s display form; the contract continues to use `slice-N` / `task-N-M` internally; the parser maps `S-<n>` \u2194 `slice-N` on read/write \u2014 a thin shim that minimises orchestrator churn but reintroduces a parser-only translation that\u2019s exactly what the spec wants to eliminate",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Update both, but lowercase the contract ids to `s-<n>` / `s-<n>-t-<m>` so the existing pydantic patterns (`^task-\u2026` etc.) just need a single-letter prefix flip",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The id format shifts from `slice-N` / `TASK-N-M` (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:37.497078Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-10",
+        "question": "Cross-field validation timing: where do the new spec validators run \u2014 at plan ingestion only, or also at PR / implement-time so a slice that drifts from the plan during implementation is caught before merge?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Plan-time only: validators run when the planner proposes; the existing reviewer NACK loop catches misses. PR-time conformance is the framework's Plan Conformance Bot job (out of scope per the issue)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Plan-time + PR-time on the egg side: validators run again on every BRC propose during implement and pr phases so reviewers see drift early; egg's NACK loop catches drift even without the framework's conformance bot",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Plan-time + implement-time pre-flight only: validators run on plan ingestion AND when the orchestrator spawns each slice's agent team (so a stale plan that has lost its AC reference doesn't even start work)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Cross-field validation timing: where do the new sp...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:45.873115Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-11",
+        "question": "How aggressively should `plan_parser.py` change shape? Today's `ParsedPhase`, `ParsedTask`, `ParseResult`, `parse_plan_file`, `validate_forest`, `validate_task_role_alignment` are exported as part of the public API in `shared/egg_contracts/__init__.py` and consumed by the orchestrator and the `refine-plan` plugin's `validate-yaml-tasks` / `emit-contract` scripts.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Rewrite in place: keep the same module + function names; rewrite the parser internals; ParseResult grows new fields (acceptance_criteria, blockers, open_questions, impact); ParsedPhase keeps its name but its semantics shift to spec-conformant slices",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "New module + dataprep migration: introduce `shared/egg_contracts/plan_parser_v2.py` with new types; keep `plan_parser.py` as a deprecated shim that delegates; orchestrator and plugin callers cut over piecemeal",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Aggressive rename + breakage: rename the module to `plan_contract.py`, drop the `ParsedPhase` alias, and force every caller to update. Cleanest but biggest blast radius in one slice",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How aggressively should `plan_parser.py` change sh...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:24:57.257723Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-12",
+        "question": "How should this work be decomposed into slices for the plan phase to consider? (Refine is only flagging shape options; plan owns the final DAG.) Conformance touches: the spec landing, the schema, the parser, the contract model, the planner prompt, the plan-template, the plan-time validators, the orchestrator ingestion, the slice scheduler, the PR-body composer, and the `refine-plan` plugin's emit-contract/validate-yaml-tasks scripts.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Two slices in parallel: [land the spec + freeze the JSON Schema] || [stub the new contract model with no consumers yet] (2 PRs), followed by serialised waves the plan phase shapes once cq-1\u2026cq-11 are resolved",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Three slices with dependency: [land the spec + schema] -> [new parser + contract model + plan template, all wired together] -> [migrate downstream consumers: orchestrator ingestion, PR-body composer, plugin scripts, planner prompt] (3 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Four slices: [spec + schema] -> [new parser + model] || [new template + planner prompt] -> [downstream consumers] (4 PRs) \u2014 the parser and the template can\u2019t merge in parallel because the planner prompt has to learn the new grammar at the same time",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Single slice: ship everything together to avoid a half-conformant transition window (1 PR) \u2014 large blast radius but no intermediate state where the parser accepts a grammar no template emits",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this work be decomposed into slices for...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-22T00:25:12.982220Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "The framework spec defines a `## Impact & Risk` section as the `ExpectedImpact` from the Impact Analysis Framework \u2014 risk level, maturity, product areas, scope estimate, constraints, coordination requirements. What is the authoritative enum set egg should reuse (risk levels, maturity values, product-area taxonomy)? Without access to the spec or the JSON Schema, we can't pin these in the analysis. Paste the enums or point at where they live.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Per the spec, every `AC` must be referenced by some slice's `Satisfies`. Today's egg contract has top-level `acceptance_criteria` (rarely populated) AND per-task `acceptance_criteria` strings. When AC records become a typed list with refs from slices, what happens to the per-task `acceptance_criteria` strings \u2014 do they stay (as in-task detail under `**Acceptance**`), get rolled up into AC-<n>, or both with a forced reference (task `Satisfies: AC-1`)?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "The framework spec calls out `required human-review reasons present` as a validation rule. What counts as a 'human-review reason' in the egg context \u2014 the existing HITL decision-point mechanism (`egg-contract add-decision`), the new `OQ-<n>` records, the conditional-ACK `pre_merge_condition` (#1998), or a new field?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "The framework spec calls out `## Blockers` records with categories `dependency` / `decision` / `external` / `infra` / `data`. Does egg's existing notion of pre-merge obligations (#1998 conditional ACKs, `deferred_actions` on the PR contract) fit any of these categories, or are they orthogonal? If orthogonal, do they need to be raised as a new category upstream?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "The implement phase's BRC review criteria (`shared/prompts/code-review-*-criteria.md`) compare implementation against the plan. With the new grammar, should reviewers in the implement phase verify every changed file is covered by some task's `Files` field and every AC referenced by the slice is touched by the diff? This would be a real conformance check, but it's not in the issue scope.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "The framework spec defines a `## Impact & Risk` section as the `ExpectedImpact` from the Impact Analysis Framework \u2014 risk level, maturity, product areas, scope estimate, constraints, coordination requirements. What is the authoritative enum set egg should reuse (risk levels, maturity values, product-area taxonomy)? Without access to the spec or the JSON Schema, we can't pin these in the analysis. Paste the enums or point at where they live.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Per the spec, every `AC` must be referenced by some slice's `Satisfies`. Today's egg contract has top-level `acceptance_criteria` (rarely populated) AND per-task `acceptance_criteria` strings. When AC records become a typed list with refs from slices, what happens to the per-task `acceptance_criteria` strings \u2014 do they stay (as in-task detail under `**Acceptance**`), get rolled up into AC-<n>, or both with a forced reference (task `Satisfies: AC-1`)?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "The framework spec calls out `required human-review reasons present` as a validation rule. What counts as a 'human-review reason' in the egg context \u2014 the existing HITL decision-point mechanism (`egg-contract add-decision`), the new `OQ-<n>` records, the conditional-ACK `pre_merge_condition` (#1998), or a new field?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "The framework spec calls out `## Blockers` records with categories `dependency` / `decision` / `external` / `infra` / `data`. Does egg's existing notion of pre-merge obligations (#1998 conditional ACKs, `deferred_actions` on the PR contract) fit any of these categories, or are they orthogonal? If orthogonal, do they need to be raised as a new category upstream?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "The implement phase's BRC review criteria (`shared/prompts/code-review-*-criteria.md`) compare implementation against the plan. With the new grammar, should reviewers in the implement phase verify every changed file is covered by some task's `Files` field and every AC referenced by the slice is touched by the diff? This would be a real conformance check, but it's not in the issue scope.",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
