@@ -2106,8 +2106,7 @@ class TestRegisterSessionUpstreamKwargs:
                 )
             except TypeError as e:
                 pytest.skip(
-                    f"GatewayClient.register_session does not yet accept "
-                    f"upstream kwargs: {e}"
+                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
                 )
 
         assert captured["data"].get("upstream") == "litellm"
@@ -2140,8 +2139,7 @@ class TestRegisterSessionUpstreamKwargs:
                 )
             except TypeError as e:
                 pytest.skip(
-                    f"GatewayClient.register_session does not yet accept "
-                    f"upstream kwargs: {e}"
+                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
                 )
 
         assert captured["data"].get("upstream") == "anthropic"
@@ -2175,8 +2173,7 @@ class TestRegisterSessionUpstreamKwargs:
                 )
             except TypeError as e:
                 pytest.skip(
-                    f"GatewayClient.register_session does not yet accept "
-                    f"upstream kwargs: {e}"
+                    f"GatewayClient.register_session does not yet accept upstream kwargs: {e}"
                 )
 
         assert captured["data"].get("upstream") == "litellm"

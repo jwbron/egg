@@ -343,9 +343,9 @@ class TestLiteLLMResolverCachingBehavior:
             )
 
     def test_mtime_change_invalidates_cache(self, tmp_path):
-        from anthropic_credentials import LiteLLMCredentialsManager  # type: ignore[attr-defined]
-
         import time
+
+        from anthropic_credentials import LiteLLMCredentialsManager  # type: ignore[attr-defined]
 
         secrets_file = tmp_path / "secrets.env"
         secrets_file.write_text('LITELLM_MASTER_KEY="initial-key-1234567890"')

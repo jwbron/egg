@@ -83,8 +83,7 @@ class TestUpstreamRegistryAnthropic:
         # untouched.
         manager = getattr(credential_resolver, "__self__", None)
         assert manager is None or isinstance(manager, AnthropicCredentialsManager), (
-            "Anthropic upstream credential resolver must be backed by "
-            "AnthropicCredentialsManager"
+            "Anthropic upstream credential resolver must be backed by AnthropicCredentialsManager"
         )
 
 
@@ -133,8 +132,7 @@ class TestUpstreamRegistryLiteLLM:
         _client, credential_resolver = registry.get("litellm")
         manager = getattr(credential_resolver, "__self__", None)
         assert manager is None or not isinstance(manager, AnthropicCredentialsManager), (
-            "LiteLLM upstream credential resolver must NOT be the "
-            "AnthropicCredentialsManager"
+            "LiteLLM upstream credential resolver must NOT be the AnthropicCredentialsManager"
         )
 
 
