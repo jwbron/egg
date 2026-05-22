@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: litellm
+    app.kubernetes.io/part-of: egg
+data:
+  config.yaml: |
+    # LiteLLM Proxy configuration (issue #2769).
+    #
+    # This ConfigMap ships with an EMPTY ``model_list`` so the Deployment
+    # comes up healthy but serves NO models until an operator populates
+    # entries here and overrides this ConfigMap via a kustomize overlay or
+    # ``kubectl apply``.  Without entries, no agent request can route to
+    # LiteLLM (the gateway only forwards when a session's ``upstream`` is
+    # explicitly set to ``"litellm"``).
+    #
+    # Operators add backends per LiteLLM's documented format, e.g. for a
+    # hosted Qwen provider (cq-6):
+    #
+    #   model_list:
+    #     - model_name: qwen3-coder-30b
+    #       litellm_params:
+    #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
+    #         api_key: os.environ/TOGETHER_API_KEY
+    #
+    # The matching provider-side API key (e.g. ``TOGETHER_API_KEY``) is
+    # set via LiteLLM's standard env-var convention.  It is NOT stored
+    # in gateway secrets.env — only the LiteLLM master key crosses that
+    # boundary (cq-7).
+    model_list: []
+
+    # Health-check config — used by the kubelet readiness/liveness
+    # probes on the Deployment. The Deployment probes /health/readiness
+    # and /health/liveliness; both pass with an empty model_list because
+    # LiteLLM treats "no models registered" as a healthy idle state.
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY

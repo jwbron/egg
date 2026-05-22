@@ -187,6 +187,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - [Gateway Auto-Filter](gateway-auto-filter.md) - Restricted-path rejection on push and the commit-authorship registry that backs attribution
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
+- [Upstream Routing](upstream-routing.md) - `UpstreamRegistry` seam, LiteLLM topology, per-session routing decision, and no-op-by-default invariant for non-Claude agent backends ([#2769](https://github.com/jwbron/egg/issues/2769))
 - [SDLC Pipeline](sdlc-pipeline.md) - Structurally enforced agent checkpoints
 - [Declarative Setup](declarative-setup.md) - Python-based setup
 - [Logging](logging.md) - Structured JSON logging
