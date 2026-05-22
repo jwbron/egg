@@ -43,7 +43,7 @@ k3s Cluster
 ├── Namespace: egg-system
 │   ├── Deployment: orchestrator (+ Service :9849)
 │   ├── Deployment: gateway (+ Service :9848, :3129, :9851)
-│   └── Deployment: litellm (+ Service :4000)  # optional; non-Claude model proxy (#2769)
+│   └── Deployment: litellm (+ Service :4000)  # non-Claude model proxy; no-op until model_list populated (#2769)
 │
 ├── Namespace: egg-agents
 │   ├── Job: agent-coder-{pipeline-id}

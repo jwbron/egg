@@ -1,6 +1,6 @@
 # Pod resource sizing
 
-Resource requests and limits for the three pod types in the egg stack, with the observed telemetry they were tuned against. See #1888 / #1895 for the right-sizing initiative.
+Resource requests and limits for the four pod types in the egg stack. The `gateway`, `orchestrator`, and `egg-sandbox-*` allocations were tuned against the observed telemetry below; the `litellm` row was sized from `k8s/base/litellm-deployment.yaml` (it postdates the snapshots, so no telemetry exists for it yet). See #1888 / #1895 for the right-sizing initiative.
 
 ## Current allocations
 
@@ -42,7 +42,7 @@ The sandbox tester peaks at 566Mi mem / 189m CPU — well inside the 2Gi / 2-cor
 
 ## QoS rationale
 
-All three pod types are **Burstable** (`request < limit`). On a single-node k3s cluster, the ratio of idle:spike is wide enough that Guaranteed QoS (`request == limit`) would force large reservations that sit idle most of the time. Burstable lets the scheduler pack more pods per node while still giving each a guaranteed floor.
+All four pod types are **Burstable** (`request < limit`). On a single-node k3s cluster, the ratio of idle:spike is wide enough that Guaranteed QoS (`request == limit`) would force large reservations that sit idle most of the time. Burstable lets the scheduler pack more pods per node while still giving each a guaranteed floor.
 
 ## Changes in this round
 
