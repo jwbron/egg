@@ -1,4 +1,4 @@
-"""
+"""  # noqa: EGG200 - module docstring names api.anthropic.com as the proxy target URL, not a direct LLM call
 Upstream Registry for Gateway LLM Proxy.
 
 Provides a per-upstream registry pairing an httpx.Client (base_url, timeout,
@@ -59,7 +59,7 @@ logger = get_logger("gateway.upstream-registry")
 
 
 # Anthropic upstream base URL — matches today's hard-wired client.
-ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"  # noqa: EGG200 - proxy target URL, not a direct LLM call
 
 # LiteLLM proxy Service DNS — overridable via env var so operators can
 # point at a different proxy without rebuilding the gateway image.
