@@ -228,10 +228,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should per-agent model selection be configured (i.e. where does an operator say 'run the refiner on Qwen, leave the coder on Claude')?",
+      "context": "Open contract question cq-3, registered by an agent during the refine phase.",
+      "options": [
+        "New per-role field on `PipelineConfig` (alongside `overseer_decision_maker_model` / `overseer_advisor_model`) — e.g. `agent_models: {refiner: 'qwen3-coder', coder: 'opus'}`",
+        "Repository-level YAML config (`config/repositories.yaml` or similar) — operator edits once, applies to every pipeline on that repo",
+        "Per-pipeline override only (CLI flag / API payload on submit_task) — no persistent per-role default, the operator names the override at submission time",
+        "All of the above stacked, with precedence: CLI > pipeline config > repo config > built-in default 'opus'",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:48.780506Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:48.743630Z",
+  "updated_at": "2026-05-22T03:01:48.789315Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -244,7 +264,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
