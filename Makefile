@@ -538,6 +538,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
+	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
 	@echo "Deployment complete"
 
