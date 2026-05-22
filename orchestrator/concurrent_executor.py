@@ -27,6 +27,11 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from agent_model_resolution import (
+    UPSTREAM_ANTHROPIC,
+    AgentModelDecision,
+    resolve_agent_model,
+)
 from consensus_wrapper import build_consensus_wrapped_command
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
@@ -449,16 +454,36 @@ class ConcurrentPhaseExecutor:
         branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
+        # Per-agent model resolution (#2769 slice-2). The decision is a
+        # pure function over (role, pipeline_config, repo); when no
+        # override is configured the resolver returns the built-in
+        # ``opus`` Anthropic decision so the wire shape stays identical
+        # to the pre-#2769 path.
+        decision: AgentModelDecision = resolve_agent_model(
+            role=role,
+            pipeline_config=self.pipeline.config,
+            repo=self.pipeline.repo,
+        )
+
         command: list[str] | None = None
         if prompt_text:
-            command = build_consensus_wrapped_command(prompt_text)
+            command = build_consensus_wrapped_command(prompt_text, model=decision.claude_code_alias)
 
-        result = self.spawn_fn(
-            role=role,
-            branch=branch,
-            extra_env=env,
-            command=command,
-        )
+        # Forward the upstream/upstream_model kwargs to the spawner only
+        # when they would change behavior — the default Anthropic decision
+        # is omitted so test mocks and legacy spawn paths see the same
+        # call signature they did before #2769 slice-2 (#2769 task-2-4).
+        spawn_kwargs: dict[str, Any] = {
+            "role": role,
+            "branch": branch,
+            "extra_env": env,
+            "command": command,
+        }
+        if decision.upstream != UPSTREAM_ANTHROPIC or decision.upstream_model is not None:
+            spawn_kwargs["upstream"] = decision.upstream
+            spawn_kwargs["upstream_model"] = decision.upstream_model
+
+        result = self.spawn_fn(**spawn_kwargs)
 
         # container_id works for both Docker containers and k8s Jobs/pods.
         # The KubernetesClient returns the Job UID as container_id.
