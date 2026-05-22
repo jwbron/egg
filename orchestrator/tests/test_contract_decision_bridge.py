@@ -368,15 +368,32 @@ class _OrderTrackingQueue(_FakeQueue):
         return super().wait_for_decision(decision_id)
 
 
-def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
+def test_bridge_queues_all_decisions_before_waiting(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     """All queue_decision calls must precede the first wait_for_decision.
 
     Regression test for #1956: previously the bridge queued and waited on
     decisions one at a time, so ``get_status`` only ever surfaced a single
     pending decision even when the contract had many. The fix batches the
     queue pass so the skill can prompt for up to 4 decisions at once.
+
+    Also pins the #2770 contract for a *mixed* batch: a contract carrying
+    both choice decisions and a feedback entry must still emit exactly one
+    ``decision.created`` event for the whole batch.
     """
+    import routes.pipelines as rp
+    from events import EventType
     from routes.pipelines import _queue_and_await_contract_decisions
+
+    captured: list[tuple[Any, str, Any]] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            (event_type, pipeline_id, data)
+        ),
+    )
 
     identifier = "issue-42"
     _make_contract_file(
@@ -450,6 +467,12 @@ def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
     fb = data["feedback"]
     assert fb["submitted"] is True
     assert fb["questions"][0]["answer"] == "ok"
+
+    # A mixed decisions+feedback batch still emits exactly one event (#2770).
+    decision_events = [e for e in captured if e[0] == EventType.DECISION_CREATED]
+    assert len(decision_events) == 1, f"expected exactly one event, got {decision_events}"
+    assert decision_events[0][1] == "pipeline-id"
+    assert decision_events[0][2] == {"phase": "refine"}
 
 
 def test_bridge_emits_decision_created_event(tmp_path: Path, monkeypatch: Any) -> None:
