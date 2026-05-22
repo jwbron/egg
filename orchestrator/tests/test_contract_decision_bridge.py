@@ -450,3 +450,102 @@ def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
     fb = data["feedback"]
     assert fb["submitted"] is True
     assert fb["questions"][0]["answer"] == "ok"
+
+
+def test_bridge_emits_decision_created_event(tmp_path: Path, monkeypatch: Any) -> None:
+    """The bridged batch must emit a ``decision.created`` EventBus event.
+
+    ``DecisionQueue.queue_decision`` emits no event, so without an explicit
+    emission the operator's ``wait-status`` monitor never wakes on the
+    bridged decisions and only finds them via a manual ``get_status``
+    (regression test for #2770).
+    """
+    import routes.pipelines as rp
+    from events import EventType
+
+    captured: list[tuple[Any, str]] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            (event_type, pipeline_id)
+        ),
+    )
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": "decision-1",
+                "question": "Which database?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [{"id": "opt-1", "label": "Postgres", "description": None}],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            },
+        ],
+    )
+    dq = _FakeQueue(resolutions=["Postgres"])
+
+    rp._queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    assert (EventType.DECISION_CREATED, "pipeline-id") in captured
+
+
+def test_bridge_emits_no_event_when_nothing_queued(tmp_path: Path, monkeypatch: Any) -> None:
+    """No ``decision.created`` event fires when there is nothing to bridge."""
+    import routes.pipelines as rp
+    from events import EventType
+
+    captured: list[Any] = []
+    monkeypatch.setattr(
+        rp,
+        "_emit_event",
+        lambda event_type, pipeline_id, data=None, source="orchestrator": captured.append(
+            event_type
+        ),
+    )
+
+    identifier = "issue-42"
+    # A plan-scoped decision — nothing to bridge at the refine gate.
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": "decision-1",
+                "question": "For plan phase only",
+                "type": "hitl",
+                "phase": "plan",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+        ],
+    )
+    dq = _FakeQueue(resolutions=[])
+
+    rp._queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    assert EventType.DECISION_CREATED not in captured
