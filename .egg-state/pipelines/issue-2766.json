@@ -359,10 +359,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Cross-field validation timing: where do the new spec validators run — at plan ingestion only, or also at PR / implement-time so a slice that drifts from the plan during implementation is caught before merge?",
+      "context": "Open contract question cq-10, registered by an agent during the refine phase.",
+      "options": [
+        "Plan-time only: validators run when the planner proposes; the existing reviewer NACK loop catches misses. PR-time conformance is the framework's Plan Conformance Bot job (out of scope per the issue)",
+        "Plan-time + PR-time on the egg side: validators run again on every BRC propose during implement and pr phases so reviewers see drift early; egg's NACK loop catches drift even without the framework's conformance bot",
+        "Plan-time + implement-time pre-flight only: validators run on plan ingestion AND when the orchestrator spawns each slice's agent team (so a stale plan that has lost its AC reference doesn't even start work)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.198112Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.167254Z",
+  "updated_at": "2026-05-22T01:00:37.205308Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -375,7 +394,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
