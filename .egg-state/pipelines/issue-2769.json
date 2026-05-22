@@ -248,10 +248,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Which agent role should be the first to be flipped to a non-Claude model for the empirical compatibility validation that the issue calls out as the acceptance test?",
+      "context": "Open contract question cq-4, registered by an agent during the refine phase.",
+      "options": [
+        "A reviewer role (e.g. `reviewer_refine`) — reviewers do less tool-heavy work and have shorter sessions, so this is the lowest-risk first cut",
+        "The `refiner` (this role) — produces analysis docs, modest tool use, easy to compare output against the Claude baseline",
+        "The `coder` — most tool-heavy and longest-running role, so it stresses the auto-compaction edge case the issue flags as the primary risk",
+        "An overseer tier (decision-maker or advisor) — already model-configurable today, so the plumbing is smaller, but it's less representative of the main SDLC loop",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:48.827439Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:48.789315Z",
+  "updated_at": "2026-05-22T03:01:48.835501Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -264,7 +284,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
