@@ -4,14 +4,25 @@
   "title": "YAML Tasks Schema",
   "description": "Schema for the structured yaml-tasks appendix in plan documents. This schema defines the machine-readable format that accompanies human-readable plan prose.",
   "type": "object",
-  "required": ["phases"],
+  "anyOf": [
+    { "required": ["slices"] },
+    { "required": ["phases"] }
+  ],
   "properties": {
-    "phases": {
+    "slices": {
       "type": "array",
-      "description": "Implementation phases with their tasks",
+      "description": "Implementation slices with their tasks. Canonical top-level key (post-#2137); each slice is independently implementable and gets its own integration branch, agent team, BRC consensus, and PR.",
       "minItems": 1,
       "items": {
-        "$ref": "#/$defs/phase"
+        "$ref": "#/$defs/slice"
+      }
+    },
+    "phases": {
+      "type": "array",
+      "description": "Legacy alias for 'slices' (pre-#2137). Accepted for backward compatibility; new plans should emit 'slices'. When both keys are present, 'slices' wins.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/slice"
       }
     },
     "pr": {
@@ -27,6 +38,22 @@
         "description": {
           "type": "string",
           "description": "PR description/body explaining the context and changes"
+        },
+        "test_plan": {
+          "type": "string",
+          "description": "Test plan for the PR — which automated tests cover the changes and the manual steps a reviewer takes to verify them. Strongly recommended."
+        },
+        "manual_steps": {
+          "type": "string",
+          "description": "Manual steps required before merge (e.g. migrations, config changes) or after merge (e.g. deployments, cache invalidation)."
+        },
+        "context_title": {
+          "type": "string",
+          "description": "Optional title for the dedicated context PR (#2548). When omitted, the context PR reuses 'pr.title'."
+        },
+        "context_description": {
+          "type": "string",
+          "description": "Optional description for the dedicated context PR (#2548). When omitted, the context PR reuses 'pr.description'."
         }
       },
       "additionalProperties": false
@@ -34,9 +61,9 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "phase": {
+    "slice": {
       "type": "object",
-      "description": "An implementation phase containing tasks",
+      "description": "An implementation slice containing tasks. Each slice is independently implementable with its own integration branch, agent team, BRC consensus, and PR.",
       "required": ["id", "name", "tasks"],
       "properties": {
         "id": {
@@ -44,36 +71,36 @@
             {
               "type": "integer",
               "minimum": 1,
-              "description": "Phase number (e.g., 1, 2, 3)"
+              "description": "Slice number (e.g., 1, 2, 3)"
             },
             {
               "type": "string",
-              "pattern": "^(phase-)?[0-9]+$",
-              "description": "Phase identifier (e.g., '1' or 'phase-1')"
+              "pattern": "^(slice-|phase-)?[0-9]+$",
+              "description": "Slice identifier (e.g., '1', 'slice-1', or 'phase-1')"
             }
           ],
-          "description": "Unique phase identifier"
+          "description": "Unique slice identifier"
         },
         "name": {
           "type": "string",
-          "description": "Human-readable phase name",
+          "description": "Human-readable slice name",
           "minLength": 1
         },
         "goal": {
           "type": "string",
-          "description": "What this phase achieves"
+          "description": "What this slice achieves"
         },
         "dependencies": {
           "type": "string",
-          "description": "The single parent slice this phase depends on, written as a 'slice-<N>' id (e.g. 'slice-1'). The slice DAG is a forest, so a slice has at most one parent — this is one id, not a list."
+          "description": "The single parent slice this slice depends on, written as a 'slice-<N>' id (e.g. 'slice-1'). The slice DAG is a forest, so a slice has at most one parent — this is one id, not a list."
         },
         "exit_criteria": {
           "type": "string",
-          "description": "How we know this phase is complete"
+          "description": "How we know this slice is complete"
         },
         "tasks": {
           "type": "array",
-          "description": "Tasks in this phase",
+          "description": "Tasks in this slice",
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/task"
@@ -84,12 +111,12 @@
     },
     "task": {
       "type": "object",
-      "description": "A task within a phase",
+      "description": "A task within a slice",
       "required": ["id", "description", "acceptance"],
       "properties": {
         "id": {
           "type": "string",
-          "description": "Task identifier in TASK-{phase}-{number} format",
+          "description": "Task identifier in TASK-{slice}-{number} format",
           "pattern": "^[Tt][Aa][Ss][Kk]-[0-9]+-[0-9]+$"
         },
         "description": {
