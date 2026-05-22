@@ -1844,16 +1844,13 @@ class TestUnknownUpstreamDefense:
         upstream (e.g. corrupted persistence, manual edit), the proxy
         MUST fail closed — never silently fall back to Anthropic.
 
-        The coder's defensive handler maps ``UnknownUpstreamError`` to a
-        502.  We accept any 5xx here because the dual-import test setup
-        (``gateway/tests/conftest.py`` loads modules with a custom
-        loader, while ``tests/gateway/`` uses ``sys.path`` insertion)
-        can cause two distinct ``UnknownUpstreamError`` class identities
-        to coexist in the test session, leaving the exception un-caught
-        and producing a 500.  In production there is only one module
-        load, so the 502 path is the only one that fires — and the
-        important assertion is "fail closed", not the specific 5xx
-        code.
+        ``_inject_upstream_credentials`` checks ``UpstreamRegistry.is_known``
+        before any per-upstream branch, so an unregistered upstream is
+        rejected with a deterministic 502 ahead of the client-resolution
+        block (the ``except UnknownUpstreamError`` there is now unreachable
+        defensive code).  We still assert on the 5xx range rather than the
+        exact 502 because the fail-closed contract — not the specific
+        code — is what this test guards.
         """
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,

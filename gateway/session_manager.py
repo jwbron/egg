@@ -608,7 +608,8 @@ class SessionManager:
 
         Raises:
             ValueError: If ``upstream`` is not a name the gateway's
-                ``UpstreamRegistry`` serves.
+                ``UpstreamRegistry`` serves, or if ``upstream_model`` is
+                given but is not a non-empty string of ≤256 characters.
         """
         # Validate the upstream against the registry (issue #2769). The
         # /api/v1/sessions/create route validates too, but guard here so a
@@ -621,6 +622,17 @@ class SessionManager:
         if not registry.is_known(upstream):
             known = ", ".join(sorted(registry.known_upstreams()))
             raise ValueError(f"Unknown upstream '{upstream}'. Must be one of: {known}")
+
+        # Mirror the /api/v1/sessions/create route's upstream_model checks
+        # (issue #2769) so a direct caller cannot store a malformed model
+        # name that would only surface in the slice-2 body-rewrite path.
+        if upstream_model is not None:
+            if not isinstance(upstream_model, str):
+                raise ValueError("upstream_model must be a string")
+            if not upstream_model:
+                raise ValueError("upstream_model must be non-empty if provided")
+            if len(upstream_model) > 256:
+                raise ValueError("upstream_model must be 256 characters or fewer")
 
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)

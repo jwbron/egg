@@ -2237,11 +2237,11 @@ class TestSessionUpstreamFields:
         """Mirroring the existing pattern (synthetic etc.), the default
         ``upstream='anthropic'`` should not bloat the persisted dict.
 
-        This is a defensive guard — if the coder lands the field as
-        always-emitted that's not wrong but the test surface should
-        flag the divergence so the reviewer notices the on-disk shape
-        change.  Marked xfail-strict-false: an always-emitted field
-        is acceptable as long as the back-compat read still works.
+        This is a lenient guard: the conditional asserts below accept
+        either an omitted field (preferred) or one present at its
+        default value — an always-emitted default is acceptable as long
+        as the back-compat read still works. The test fails only if a
+        non-default value is persisted unexpectedly.
         """
         session = self._make_session()
         d = session.to_dict_for_persistence()
@@ -2307,4 +2307,32 @@ class TestSessionManagerRegisterUpstream:
                 container_ip="172.18.0.9",
                 mode="private",
                 upstream="bogus_upstream_name",
+            )
+
+    def test_register_with_empty_upstream_model_raises(self, manager):
+        """An empty ``upstream_model`` is rejected at registration, mirroring
+        the session-create route's validation (issue #2769 review) — a
+        direct caller must not be able to store a malformed model name.
+        """
+        with pytest.raises(ValueError, match="upstream_model must be non-empty"):
+            manager.register_session(
+                container_id="empty-model-agent",
+                container_ip="172.18.0.10",
+                mode="private",
+                upstream="litellm",
+                upstream_model="",
+            )
+
+    def test_register_with_oversized_upstream_model_raises(self, manager):
+        """An ``upstream_model`` over 256 characters is rejected at
+        registration, mirroring the session-create route (issue #2769
+        review).
+        """
+        with pytest.raises(ValueError, match="256 characters or fewer"):
+            manager.register_session(
+                container_id="long-model-agent",
+                container_ip="172.18.0.11",
+                mode="private",
+                upstream="litellm",
+                upstream_model="x" * 257,
             )
