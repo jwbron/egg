@@ -268,10 +268,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "For the first non-Claude target, should agents continue to run inside the Claude Code harness (relying on the LiteLLM Anthropic-translation seam) or switch to the egg_agent SDK path?",
+      "context": "Open contract question cq-5, registered by an agent during the refine phase.",
+      "options": [
+        "Keep the Claude Code harness for non-Claude models too — use the recognized-alias mitigation so compaction math stays sane; minimum disruption to the spawning + entrypoint code",
+        "Route non-Claude agents through the `egg_agent` SDK path (which already supports `--model`) and bypass Claude Code entirely — sidesteps the auto-compaction risk, but the SDK path has fewer integrations (statusline, settings.json rules) than the CLI",
+        "Both: leave the harness choice as a per-role/per-model config knob — maximally flexible, but doubles the test surface for the first cut",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:48.867960Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:48.835501Z",
+  "updated_at": "2026-05-22T03:01:48.877101Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -284,7 +303,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
