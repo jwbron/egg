@@ -22155,10 +22155,9 @@ def _run_pipeline(
             # branches, and the work commit picks up only the
             # unattributed sibling plus whatever aggregate the writer
             # still emits — refine/plan/pr aggregates, and the
-            # non-slice-implement aggregate that babysit_pr (and any
-            # other implement-phase run without slice scope) lands on
-            # work via the ``not buckets`` branch — before we wipe the
-            # message store here.
+            # non-slice-implement aggregate that any implement-phase
+            # run without slice scope lands on work via the ``not
+            # buckets`` branch — before we wipe the message store here.
             from routes.phases import _clear_concurrent_state
 
             _clear_concurrent_state(pipeline_id)
