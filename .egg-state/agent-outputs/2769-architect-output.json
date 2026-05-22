@@ -1,0 +1,427 @@
+{
+  "issue": 2769,
+  "phase": "plan",
+  "role": "architect",
+  "schema_version": "1",
+  "title": "Architecture: non-Claude models per agent via LiteLLM proxy",
+  "summary": "Design for an additive gateway-side upstream router that lets each agent run on either Anthropic (existing path, untouched) or a LiteLLM proxy that translates to OpenAI-compatible backends (hosted Qwen first per cq-6). Per-agent selection is driven by per-agent session metadata recorded at spawn time (cq-2). Configuration is per-role on PipelineConfig with a repositories.yaml default (cq-3). LiteLLM lives as a separate Deployment+Service in egg-system (cq-1). Failure policy is fail-closed (cq-8). Tool-strip in private mode stays uniform regardless of upstream (cq-9). The opus[1m] Claude defaults are left alone (cq-11). The work decomposes into two dependent slices (refine cq-10 deferred to planner; this analysis recommends the shape) and ships no-op-by-default so it is buildable, lintable, and reviewable without a live non-Claude endpoint (operator validates separately per cq-4).",
+  "recommended_approach": {
+    "option_id": "A",
+    "name": "Gateway-side UpstreamRegistry keyed by per-agent session metadata; LiteLLM as a sibling Deployment in egg-system",
+    "summary": "Decompose get_anthropic_client() into a tiny UpstreamRegistry with two named upstreams ('anthropic', 'litellm'). proxy_anthropic_messages() and proxy_count_tokens() resolve the upstream per request via the existing IP-keyed session lookup. The orchestrator records the per-agent upstream + LiteLLM-side model name on register_session (mirroring how it already records phase, agent_role, mode). _inject_anthropic_credentials becomes upstream-aware: LiteLLM-bound requests get the LiteLLM master key (from secrets.env, mirroring the existing ANTHROPIC_API_KEY pattern) instead of the Anthropic OAuth/API credential. SSE accumulator, stream-resilience retries, and tool-strip are upstream-agnostic and untouched. LiteLLM runs as a separate Deployment+Service (egg-system namespace), reached over cluster DNS at http://litellm.egg-system.svc.cluster.local:<port>; agent pods cannot reach it directly (squid allowlist excludes it; only the gateway calls it).",
+    "why_recommended": [
+      "Satisfies the issue's hard constraint that the Claude path must not regress: anthropic upstream is the existing singleton client with the existing base_url, existing credential injection, existing SSE accumulator, existing retry policy. Routing is additive.",
+      "Inert-by-default: no agent is configured for LiteLLM in shipping defaults, so no LiteLLM request ever fires until an operator opts a role in via PipelineConfig.agent_models or repositories.yaml.",
+      "Decouples 'model name Claude Code sees' (recognized alias, keeps compaction math sane per the issue's primary risk note) from 'upstream the gateway picks' (per-session metadata). Option C (route on body) cannot do this; option B (LiteLLM-fronts-everything) adds the LiteLLM blast-radius to the Claude path and is forbidden by cq-1/refine.",
+      "Per-agent granularity falls out naturally: the gateway already keys per-request policy by IP-based session lookup (session_mode is the existing precedent — gateway/gateway.py:9775). Adding upstream + litellm_model fields to the same Session and the existing /api/v1/sessions/create payload is a single additive change.",
+      "Matches the existing operational grain: gateway is already the per-request policy point; a sibling Deployment in egg-system is the standard pattern (gateway, orchestrator); secrets.env is the existing credential-mount pattern."
+    ],
+    "rejected_options_summary": {
+      "B_litellm_fronts_everything": "Forces all Claude traffic through LiteLLM. Adds a hop + supply-chain blast radius + restart-cycle dependency to every existing Claude request. Violates cq-1 (refine) and the issue's no-regression-on-Claude constraint.",
+      "C_route_on_request_body_model": "Smallest gateway change, but directly conflicts with the compaction-math mitigation: Claude Code must see a recognized Claude alias even when the backend is Qwen, so model-in-body cannot be the routing key. Also couples upstream selection to model-name conventions (silent break if Anthropic ships a non-claude-* model or LiteLLM exposes a claude-aliased Qwen).",
+      "D_egg_agent_sdk_path_for_non_claude": "Sidesteps Claude Code's compaction math by bypassing Claude Code entirely. Forbidden by cq-5 (refine) — operator chose 'keep Claude Code harness for non-Claude models too'."
+    }
+  },
+  "component_breakdown": {
+    "slices": [
+      {
+        "id": "slice-1",
+        "name": "Gateway upstream router + LiteLLM topology (no-op by default)",
+        "depends_on": [],
+        "summary": "Ship the gateway-side abstraction and the LiteLLM Deployment+Service. Claude path unchanged. With no agent configured for LiteLLM, the LiteLLM upstream is reachable from the gateway but no agent traffic ever reaches it. Buildable, lintable, unit-testable without a live LiteLLM endpoint.",
+        "components": [
+          {
+            "name": "UpstreamRegistry (new gateway module)",
+            "where": "gateway/_upstream_registry.py (new file, picked up by gateway.py's barrel via the slice-14 decomposition pattern; until slice-14 lands, may live inline in gateway/gateway.py near get_anthropic_client at line 9320 — planner to pick)",
+            "responsibility": "Holds a dict of upstream name -> (base_url, httpx.Client singleton, credential-resolution policy). Two upstreams at landing: 'anthropic' (preserves today's https://api.anthropic.com client, preserving timeouts/limits exactly) and 'litellm' (base_url from env LITELLM_BASE_URL, default http://litellm.egg-system.svc.cluster.local:4000). Exposes get_client(upstream_name) -> httpx.Client. Designed so a future swap-out of LiteLLM is one new upstream entry (refine feedback Q3).",
+            "evidence": "gateway/gateway.py:9316-9329 (current singleton); gateway/gateway.py:9789 (sole call site in proxy_anthropic_messages); gateway/gateway.py:10032 (sole call site in proxy_count_tokens). Both call sites are replaced with get_client(resolved_upstream)."
+          },
+          {
+            "name": "Session-driven upstream resolver (new helper, gateway-side)",
+            "where": "gateway/gateway.py near proxy_anthropic_messages (current line 9752) — small inline helper or a sibling _resolve_upstream(session) -> str",
+            "responsibility": "Given the IP-resolved Session (already fetched at gateway/gateway.py:9775 for session_mode), return the upstream name. Today's session attributes drive policy (session.mode → tool-strip); the new attribute session.agent_upstream / session.agent_model_litellm drives upstream selection. Default = 'anthropic' (no-op for Claude agents).",
+            "evidence": "gateway/gateway.py:9775 calls session_manager.get_session_by_ip(); the resolver is the same lookup with one extra attribute read."
+          },
+          {
+            "name": "Upstream-aware credential injection",
+            "where": "gateway/gateway.py:9355 (_inject_anthropic_credentials) — extend with upstream parameter",
+            "responsibility": "Today the function calls credentials_manager.get_credential() unconditionally. New behavior: when upstream=='litellm', read LITELLM_MASTER_KEY from the AnthropicCredentialsManager / a sibling LiteLLMCredentialsManager (planner to decide whether to widen AnthropicCredentialsManager or add a sibling — both are minimally invasive; the cleaner cut is a sibling LiteLLMCredentialsManager keyed on the secrets.env LITELLM_MASTER_KEY var) and inject as 'Authorization: Bearer <key>'. Claude path unchanged.",
+            "evidence": "gateway/anthropic_credentials.py:36-49 (AnthropicCredential.header_name/header_value already accommodates both x-api-key and Authorization-Bearer shapes); gateway/anthropic_credentials.py:94-226 (existing manager pattern is the template for a sibling)."
+          },
+          {
+            "name": "Session-storage extensions for per-agent upstream/model",
+            "where": "gateway/session_manager.py:288-328 (Session dataclass) + register_session signature (gateway/session_manager.py:548) + /api/v1/sessions/create payload acceptance (gateway/gateway.py:8560-8575)",
+            "responsibility": "Add two optional Session fields: agent_upstream: Literal['anthropic','litellm']|None and agent_model_litellm: str|None (e.g. 'qwen-2.5-coder' — the model alias LiteLLM's model_list will map). Persisted in to_dict_for_persistence/from_persistence (gateway/session_manager.py:338-405). Backward-compat: missing fields default to None → 'anthropic'.",
+            "evidence": "Session dataclass at gateway/session_manager.py:288; the agent_role field landed via the same pattern (gateway/session_manager.py:314)."
+          },
+          {
+            "name": "Orchestrator → gateway session-create payload extension",
+            "where": "orchestrator/gateway_client.py:602 (register_session) — add agent_upstream/agent_model_litellm params; orchestrator/kubernetes_spawner.py:735 (call site)",
+            "responsibility": "Plumb new optional fields through gateway_client and into the spawn-time session_info = self.gateway.register_session(...) call at kubernetes_spawner.py:735. The spawner derives the values from a new helper on PipelineConfig (see slice-2).",
+            "evidence": "Existing pattern: claude_code_version threads from kubernetes_spawner.py:747 through gateway_client.register_session at gateway_client.py:616 through the gateway session_create handler. The new fields follow the same shape."
+          },
+          {
+            "name": "LiteLLM Deployment + Service + secret + NetworkPolicy",
+            "where": "k8s/base/litellm-deployment.yaml (new), k8s/base/litellm-service.yaml (new), k8s/base/kustomization.yaml (add resources), k8s/base/network-policies.yaml (add ingress allowing only gateway, egress to allowlisted backend hosts)",
+            "responsibility": "Deploy LiteLLM with a config that exposes ONE provider for the first cut (hosted Qwen per cq-6): a model_list entry mapping a Claude alias the gateway requests ('qwen-2.5-coder' or whatever the model_list key resolves to) to the chosen hosted provider. Master key lives in a k8s Secret. Image is pinned to a digest (refine feedback Q3 — supply-chain mitigation). Replicas=1 for first cut; not on the critical path of Claude traffic. Service exposes port 4000 (LiteLLM default).",
+            "evidence": "k8s/base/gateway-deployment.yaml (existing pattern: Deployment + secret mounts + EGG_SECRETS_PATH=/secrets/secrets.env at lines 71-118); k8s/base/gateway-service.yaml (existing Service pattern); k8s/base/network-policies.yaml (existing namespace-scoped policies)."
+          },
+          {
+            "name": "secrets.env LITELLM_MASTER_KEY entry",
+            "where": "k8s/base/gateway-deployment.yaml — gateway already mounts /secrets/secrets.env; the new key is read by the new credential manager. Also: documentation in the gateway README on what secret to add.",
+            "responsibility": "Mirror today's ANTHROPIC_* injection pattern. Holding the key in the gateway pod, not the LiteLLM pod, is what cq-7 picked: 'Gateway holds a LiteLLM master key and injects it on every LiteLLM-bound request'."
+          },
+          {
+            "name": "Slice-1 tests (gateway-side, in-cluster trivially testable)",
+            "where": "gateway/tests/test_upstream_router.py (new)",
+            "responsibility": "Unit tests with httpx mocking: (a) Claude path: agent_upstream=None → request lands at api.anthropic.com client (verify base_url and that anthropic credential injection ran). (b) LiteLLM path: agent_upstream='litellm' → request lands at the litellm client (verify base_url and Authorization: Bearer <master_key>). (c) Upstream resolution failure (unknown upstream name) → 502, no leak of Anthropic credential. (d) Tool-strip in private mode applies regardless of upstream (cq-9). (e) SSE accumulator and stream-resilience retry path runs against both upstreams with synthetic SSE bytes — proves the SSE plumbing is upstream-agnostic. Tests are pure unit tests (httpx.MockTransport); no live LiteLLM needed."
+          }
+        ]
+      },
+      {
+        "id": "slice-2",
+        "name": "Per-agent model config + consensus_wrapper plumbing",
+        "depends_on": ["slice-1"],
+        "summary": "Add the PipelineConfig.agent_models per-role field and the repositories.yaml default_model knob (cq-3). Thread the resolved per-role model into both the consensus wrapper's --model flag (so Claude Code sees the recognized alias) AND the gateway session registration (so the gateway routes to LiteLLM for non-Claude roles). Both source-of-truth pointers derive from the SAME PipelineConfig lookup, eliminating drift (the cons of Option A in refine).",
+        "components": [
+          {
+            "name": "PipelineConfig.agent_models",
+            "where": "orchestrator/models.py near overseer_decision_maker_model (current line 546) and overseer_advisor_model (current line 620)",
+            "responsibility": "New Pydantic field: agent_models: dict[str, str] = Field(default_factory=dict, description='Per-role model alias override. Keys are agent role names (e.g. \"refiner\", \"coder\"); values are model aliases (e.g. \"opus\", \"qwen-2.5-coder\"). Roles not present fall back to the repositories.yaml default_model, then to \"opus\".').",
+            "evidence": "Existing field pattern: orchestrator/models.py:546 (overseer_decision_maker_model: str), :620 (overseer_advisor_model: str). agent_models is a dict, but the same Pydantic conventions apply."
+          },
+          {
+            "name": "repositories.yaml default_model",
+            "where": "config/repositories.yaml (operator-supplied); read via config/repo_config.py — add a get_default_model(repo: str) helper",
+            "responsibility": "Operator can set a repo-level default_model (e.g. 'opus' or 'qwen-2.5-coder') that applies to every role not explicitly overridden. Resolution precedence (per cq-3): PipelineConfig.agent_models[role] > repositories.yaml default_model > built-in 'opus'.",
+            "evidence": "config/repo_config.py:248 (get_repo_setting): existing helper for per-repo settings; the new get_default_model(repo) is a one-line wrapper on top."
+          },
+          {
+            "name": "Model resolver helper",
+            "where": "orchestrator/concurrent_executor.py (best fit, near get_agent_env at line 288) OR a new orchestrator/model_resolver.py (planner to pick — concurrent_executor.py is already importing PipelineConfig and AgentRole)",
+            "responsibility": "Single function resolve_model_for_role(pipeline_config, repo, role) -> tuple[str, str|None] returning (claude_code_model_alias, litellm_model_or_None). For Claude roles, returns ('opus', None) — Claude Code sees 'opus' and the gateway routes to anthropic. For non-Claude roles, returns ('opus', 'qwen-2.5-coder') — Claude Code STILL sees 'opus' (so its compaction math stays sane, per the issue's primary risk note), but the second tuple element drives the gateway's session.agent_model_litellm and session.agent_upstream='litellm'. This single function is the only source of truth; both the consensus_wrapper and the gateway session-create call read from it."
+          },
+          {
+            "name": "Plumb resolved model into consensus_wrapper",
+            "where": "orchestrator/consensus_wrapper.py:620 (build_consensus_wrapped_command, model='opus' default) + call sites at orchestrator/concurrent_executor.py:454 (no model arg today) and orchestrator/routes/pipelines.py:2704 (same)",
+            "responsibility": "Both call sites already have access to role and PipelineConfig. Compute (claude_code_model_alias, _) = resolve_model_for_role(...) and pass claude_code_model_alias as the model arg. Functionally: Claude roles get 'opus' (today's behavior); non-Claude roles get 'opus' (the recognized alias the issue's mitigation requires) — they DO NOT pass the litellm model string here, so Claude Code's compaction math is unaffected."
+          },
+          {
+            "name": "Plumb resolved litellm_model + upstream into spawn-time session registration",
+            "where": "orchestrator/kubernetes_spawner.py:735 (the register_session call) — accept new optional agent_upstream/agent_model_litellm args, set from resolve_model_for_role's second return value. Default behavior preserved: for Claude roles the second return value is None, the session has agent_upstream=None, and the gateway defaults to 'anthropic'.",
+            "responsibility": "This is where the per-agent upstream metadata is recorded. The spawn site has all the inputs: pipeline_config (passed in via spawn_agent_job's call chain), repo (first repo in repos), agent_role.value."
+          },
+          {
+            "name": "Slice-2 tests",
+            "where": "orchestrator/tests/test_model_resolver.py (new) + extensions to orchestrator/tests/test_concurrent_executor.py and orchestrator/tests/test_kubernetes_spawner.py",
+            "responsibility": "Unit tests for the resolver: (a) no override → ('opus', None); (b) PipelineConfig override → ('opus', '<litellm-model>'); (c) repositories.yaml default → ('opus', '<litellm-model>'); (d) precedence: pipeline config overrides repo default; (e) repo default 'opus' (Claude) → ('opus', None) — no LiteLLM routing. Integration tests assert the spawn-time register_session call passes the right agent_upstream/agent_model_litellm values for representative configs. No live LiteLLM needed."
+          }
+        ]
+      }
+    ]
+  },
+  "key_files_changed": {
+    "production_code_slice_1": [
+      "gateway/gateway.py (router + credential-injection extension + proxy call sites at lines 9320, 9355, 9752, 9789, 10019, 10032 — exact patches per the plan)",
+      "gateway/session_manager.py (Session dataclass + register_session signature, lines 288-405 + 548-617)",
+      "gateway/anthropic_credentials.py OR new gateway/litellm_credentials.py (sibling manager for LITELLM_MASTER_KEY, modeled on existing manager at lines 94-226)",
+      "k8s/base/litellm-deployment.yaml (new)",
+      "k8s/base/litellm-service.yaml (new)",
+      "k8s/base/kustomization.yaml (register new resources)",
+      "k8s/base/network-policies.yaml (allow gateway→litellm ingress; egress to backend host(s) only)",
+      "orchestrator/gateway_client.py:602 (register_session signature)",
+      "orchestrator/kubernetes_spawner.py:735 (spawn-time session_info call)"
+    ],
+    "tests_slice_1": [
+      "gateway/tests/test_upstream_router.py (new — httpx.MockTransport-driven, no live endpoint needed)",
+      "gateway/tests/test_session_manager.py (extend for new Session fields)"
+    ],
+    "production_code_slice_2": [
+      "orchestrator/models.py:546-630 (PipelineConfig.agent_models)",
+      "config/repo_config.py:248 (new get_default_model helper)",
+      "orchestrator/concurrent_executor.py:288-454 (get_agent_env + _spawn_agent + new model-resolver call site)",
+      "orchestrator/routes/pipelines.py:2702-2704 (restart call site)",
+      "orchestrator/consensus_wrapper.py:620 (build_consensus_wrapped_command — already takes model, just needs the new caller to pass it)",
+      "orchestrator/kubernetes_spawner.py:735 (plumb upstream + litellm_model into register_session)"
+    ],
+    "tests_slice_2": [
+      "orchestrator/tests/test_model_resolver.py (new)",
+      "orchestrator/tests/test_concurrent_executor.py (extend with model-resolver assertions)",
+      "orchestrator/tests/test_kubernetes_spawner.py (extend with upstream-field plumbing assertions)"
+    ],
+    "docs_followup_not_in_scope_for_architect_files": [
+      "docs/architecture/network-isolation.md (LiteLLM topology + traffic flow diagram)",
+      "docs/guides/agent-models.md (operator guide — how to set per-role models)",
+      "gateway/README.md (LITELLM_BASE_URL/LITELLM_MASTER_KEY config), orchestrator/README.md (agent_models)"
+    ]
+  },
+  "runtime_primitives_with_evidence_2594": [
+    {
+      "primitive": "_anthropic_client singleton + get_anthropic_client()",
+      "where": "gateway/gateway.py:9316-9329",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway in egg-system)",
+      "consumers": "proxy_anthropic_messages (gateway/gateway.py:9789), proxy_count_tokens (gateway/gateway.py:10032)",
+      "plan_action": "Replaced by UpstreamRegistry.get_client(upstream_name). The 'anthropic' entry preserves base_url, timeout, connection-pool limits exactly."
+    },
+    {
+      "primitive": "proxy_anthropic_messages() Flask route at POST /v1/messages",
+      "where": "gateway/gateway.py:9752",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway), reached by in-sandbox-agent via ANTHROPIC_BASE_URL",
+      "consumers": "Every sandbox agent (Claude Code or egg_agent) — ANTHROPIC_BASE_URL=GATEWAY_K8S_URL is set unconditionally at orchestrator/kubernetes_spawner.py:807",
+      "plan_action": "One new line near 9775: resolve upstream from the session already fetched there. The streaming branch (9792+) uses the resolved client; credential injection at 9767 becomes upstream-aware."
+    },
+    {
+      "primitive": "proxy_count_tokens() Flask route at POST /v1/messages/count_tokens",
+      "where": "gateway/gateway.py:10019",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "Claude Code's compaction logic and the SDK token counters — invoked from any agent the gateway is fronting",
+      "plan_action": "Mirror of proxy_anthropic_messages: resolve upstream from the IP-keyed session (this route currently does NOT look up the session — slice-1 adds the same lookup it does in proxy_anthropic_messages; this is a small additive change), use that client, upstream-aware credential injection."
+    },
+    {
+      "primitive": "_inject_anthropic_credentials(headers)",
+      "where": "gateway/gateway.py:9355",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "proxy_anthropic_messages (9767), proxy_count_tokens (10028)",
+      "plan_action": "Extended signature to accept upstream parameter. Anthropic path unchanged. New 'litellm' branch reads LITELLM_MASTER_KEY via a new LiteLLMCredentialsManager (or extended AnthropicCredentialsManager) and sets Authorization: Bearer <key>. Failure to find the key returns 502 (cq-8 fail-closed)."
+    },
+    {
+      "primitive": "AnthropicCredential dataclass (header_name='x-api-key' or 'Authorization', header_value)",
+      "where": "gateway/anthropic_credentials.py:36-49",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "_inject_anthropic_credentials at gateway/gateway.py:9371",
+      "plan_action": "Shape already accommodates Authorization: Bearer. A sibling LiteLLMCredential or a generalization is purely additive. Planner to choose the cleaner refactor — recommendation: sibling LiteLLMCredentialsManager so the supply-chain blast radius of LiteLLM key handling is in its own module and pytest target."
+    },
+    {
+      "primitive": "_filter_blocked_tools(request_body, session_mode)",
+      "where": "gateway/gateway.py:9410",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "proxy_anthropic_messages (9778)",
+      "plan_action": "UNCHANGED. cq-9 chose the conservative policy: tool-strip applies in private mode regardless of upstream. The filter doesn't need to know which upstream the request goes to."
+    },
+    {
+      "primitive": "_SSEAccumulator (incremental SSE parser, MAX_CAPTURE_SIZE budget)",
+      "where": "gateway/gateway.py:9552",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "proxy_anthropic_messages streaming branch (9881)",
+      "plan_action": "UNCHANGED. LiteLLM emits Anthropic-shaped SSE (it's an Anthropic /v1/messages translator). Verified upstream-agnostic in the slice-1 unit tests."
+    },
+    {
+      "primitive": "Pre-stream retry + mid-stream synthetic SSE error frame (stream-resilience #1907)",
+      "where": "gateway/gateway.py:9811-9920",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "proxy_anthropic_messages streaming branch",
+      "plan_action": "UNCHANGED. Both retry branches use the resolved client.send(http_req, stream=True). Works identically against LiteLLM. Tested in slice-1."
+    },
+    {
+      "primitive": "get_session_manager().get_session_by_ip(request.remote_addr)",
+      "where": "gateway/session_manager.py:741 (definition), gateway/gateway.py:9775 (call site in proxy_anthropic_messages)",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "proxy_anthropic_messages — drives session_mode for the tool-strip; we extend it to drive the upstream resolution",
+      "plan_action": "Same lookup, same call site. proxy_count_tokens GAINS this lookup as part of slice-1 (it currently lacks it; adding it is a small additive change with no behavioral risk for Claude — the lookup is by IP and pure-read)."
+    },
+    {
+      "primitive": "Session dataclass (mode, agent_role, phase, pipeline_id, etc.)",
+      "where": "gateway/session_manager.py:288-405",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "All session-bound routes (gateway-wide)",
+      "plan_action": "Add two optional fields: agent_upstream: Literal['anthropic','litellm']|None, agent_model_litellm: str|None. Update to_dict_for_persistence/from_persistence at lines 338-405. Backward-compat: missing fields are None → default to 'anthropic'."
+    },
+    {
+      "primitive": "session_manager.register_session(...) + /api/v1/sessions/create payload",
+      "where": "gateway/session_manager.py:548 (Python helper), gateway/gateway.py:8560-8575 (HTTP payload acceptance), gateway/gateway.py:8846 (call site)",
+      "purpose": "production code (gateway pod)",
+      "execution_context": "deployed-pod (gateway) — invoked over HTTP by orchestrator's gateway_client",
+      "consumers": "Orchestrator at orchestrator/kubernetes_spawner.py:735 via orchestrator/gateway_client.py:602",
+      "plan_action": "Add new optional fields (agent_upstream, agent_model_litellm) to the Python signature, HTTP payload acceptance, and the gateway_client.register_session API. All optional → backward-compatible."
+    },
+    {
+      "primitive": "build_consensus_wrapped_command(prompt_text, model='opus', ...)",
+      "where": "orchestrator/consensus_wrapper.py:620",
+      "purpose": "production code (trusted CI runner / orchestrator pod)",
+      "execution_context": "trusted-CI-runner / orchestrator pod — builds the bash script the agent Job runs",
+      "consumers": "orchestrator/concurrent_executor.py:454 (spawn), orchestrator/routes/pipelines.py:2704 (restart)",
+      "plan_action": "Signature already takes model. Both callers gain a one-line model resolution (resolve_model_for_role(pipeline_config, repo, role.value)[0]) before the call. The wrapper itself is unchanged."
+    },
+    {
+      "primitive": "PipelineConfig.overseer_decision_maker_model, .overseer_advisor_model",
+      "where": "orchestrator/models.py:546, :620",
+      "purpose": "production code (orchestrator pod)",
+      "execution_context": "trusted-CI-runner / orchestrator pod",
+      "consumers": "Overseer spawn (orchestrator/kubernetes_spawner.py:1596), overseer monitor (orchestrator/overseer/monitor.py:259)",
+      "plan_action": "UNCHANGED. The new agent_models field sits alongside as a sibling. Overseer model selection is orthogonal."
+    },
+    {
+      "primitive": "ANTHROPIC_BASE_URL=GATEWAY_K8S_URL injection",
+      "where": "orchestrator/kubernetes_spawner.py:807; consumed at sandbox/entrypoint.py:737-738 (setup_anthropic_api)",
+      "purpose": "production code (spawner writes, sandbox consumes)",
+      "execution_context": "trusted-CI-runner sets the env, in-sandbox-agent reads it — agent pods route all /v1/messages traffic to the gateway pod regardless of upstream",
+      "consumers": "Every spawned agent pod",
+      "plan_action": "UNCHANGED. The gateway is still the single point of egress for /v1/messages. The upstream is decided gateway-side, never sandbox-side. This is what preserves the zero-credential sandbox invariant."
+    },
+    {
+      "primitive": "DEFAULT_MODEL = 'opus[1m]' (egg_agent client) and '--model' default 'opus[1m]' (egg_agent CLI)",
+      "where": "shared/egg_agent/client.py:62, shared/egg_agent/__main__.py:35",
+      "purpose": "production code (in-sandbox agent)",
+      "execution_context": "in-sandbox-agent",
+      "consumers": "python3 -m egg_agent invocations",
+      "plan_action": "UNCHANGED per cq-11. The Claude path keeps opus[1m]; non-Claude roles call build_consensus_wrapped_command with the recognized alias ('opus' without [1m]) per the recognized-alias mitigation."
+    },
+    {
+      "primitive": "['--model', 'opus[1m]'] in legacy interactive sandbox/llm/runner.py:49",
+      "where": "sandbox/llm/runner.py:49",
+      "purpose": "production code (in-sandbox legacy CLI runner)",
+      "execution_context": "in-sandbox-agent (legacy path, may already be inert for the BRC flow)",
+      "consumers": "Legacy interactive runner only",
+      "plan_action": "UNCHANGED per cq-11. Planner to verify whether this path is exercised by any BRC role today; if not, leave it alone."
+    },
+    {
+      "primitive": "_PROTECTED_ENV_KEYS in spawner",
+      "where": "orchestrator/kubernetes_spawner.py:138",
+      "purpose": "production code (orchestrator pod)",
+      "execution_context": "trusted-CI-runner",
+      "consumers": "spawn_agent_job at orchestrator/kubernetes_spawner.py:886-892",
+      "plan_action": "No change required for the recommended option (upstream is decided gateway-side from session metadata, not via env var). If the planner chooses to expose a debug/diagnostic env var to the agent pod for observability (e.g. EGG_AGENT_UPSTREAM=litellm — purely informational), that key should be added here so it cannot be tampered with by extra_env callers."
+    },
+    {
+      "primitive": "Squid allowlist (gateway/allowed_domains.txt) — api.anthropic.com intentionally excluded",
+      "where": "gateway/allowed_domains.txt:9-15 (documented rationale), gateway/squid.conf",
+      "purpose": "production code (gateway pod's squid sidecar)",
+      "execution_context": "deployed-pod — outbound sandbox HTTPS",
+      "consumers": "Every outbound HTTP request from a sandbox agent",
+      "plan_action": "LiteLLM is reached only by the gateway pod, not by sandbox pods. The allowlist stays exactly as-is: LiteLLM host is NOT added to allowed_domains.txt (sandbox cannot reach LiteLLM directly, which is the same invariant as api.anthropic.com). The LiteLLM Service's network reachability is governed by a Kubernetes NetworkPolicy (gateway → litellm only), not Squid."
+    },
+    {
+      "primitive": "k8s/base/gateway-deployment.yaml secrets.env mount at /secrets",
+      "where": "k8s/base/gateway-deployment.yaml:71-118",
+      "purpose": "production deployment",
+      "execution_context": "deployed-pod (gateway)",
+      "consumers": "Gateway credential managers (gateway/anthropic_credentials.py, gateway/jira_credentials.py, etc.)",
+      "plan_action": "Reuse the existing /secrets/secrets.env mount for the LITELLM_MASTER_KEY entry. No new mount; mirror the existing ANTHROPIC_API_KEY pattern."
+    },
+    {
+      "primitive": "GATEWAY_K8S_URL — http://gateway.egg-system.svc.cluster.local:9848",
+      "where": "orchestrator/kubernetes_spawner.py:124-132",
+      "purpose": "production code (orchestrator pod, also referenced sandbox-side)",
+      "execution_context": "trusted-CI-runner sets ANTHROPIC_BASE_URL to this; sandbox uses it",
+      "consumers": "Every agent pod",
+      "plan_action": "UNCHANGED. The gateway URL the sandbox sees is constant; the gateway internally fans out to anthropic-or-litellm. Decoupling the sandbox from upstream identity preserves the zero-credential and audit invariants."
+    },
+    {
+      "primitive": "max_llm_cost_per_hour envelope (Anthropic-priced tokens)",
+      "where": "orchestrator/overseer/self_monitor.py:30-130; PipelineConfig comment refers to it at orchestrator/models.py:627",
+      "purpose": "production code (orchestrator overseer)",
+      "execution_context": "trusted-CI-runner",
+      "consumers": "Overseer self-monitor",
+      "plan_action": "OUT OF SCOPE per refine feedback Q4. The plan does NOT extend cost tracking to LiteLLM/Qwen pricing in this issue. Slice-1 + slice-2 land buildable but cost-tracking-unaware; a follow-up issue covers token-price extension."
+    },
+    {
+      "primitive": "config/repo_config.py — get_repo_setting(repo, setting, default)",
+      "where": "config/repo_config.py:248",
+      "purpose": "production code (orchestrator + gateway)",
+      "execution_context": "trusted-CI-runner (orchestrator). Note: gateway also reads repositories.yaml via the EGG_REPO_CONFIG/EGG_SECRETS_PATH config mount.",
+      "consumers": "Various per-repo settings (restrict_to_configured_users, disable_auto_fix, etc.)",
+      "plan_action": "Add get_default_model(repo) wrapper that calls get_repo_setting(repo, 'default_model', None). Pure additive."
+    }
+  ],
+  "key_constraints_carried_from_refine": {
+    "no_regression_on_claude_path": "Anthropic upstream is byte-for-byte identical: same base_url, same timeouts/limits, same credential injection, same SSE accumulator, same retry policy, same tool-strip. The only structural change to the Claude path is that get_anthropic_client() becomes UpstreamRegistry.get_client('anthropic') under the hood — and the slice-1 tests assert this is a no-op.",
+    "zero_credential_sandbox": "Sandbox pods continue to set ANTHROPIC_BASE_URL=GATEWAY_K8S_URL with the placeholder OAuth token. Credentials (Anthropic and LiteLLM master key) live ONLY in the gateway pod's /secrets mount. Sandbox cannot reach LiteLLM directly (squid allowlist excludes it; only the gateway pod's NetworkPolicy lets it talk to LiteLLM).",
+    "gateway_mediated_visibility": "All non-Claude /v1/messages traffic continues to flow through the gateway pod, which keeps the existing audit-logging, transcript capture (_SSEAccumulator-based), and tool-strip uniform across upstreams.",
+    "compaction_math_mitigation": "Claude Code's --model flag stays a recognized Claude alias (e.g. 'opus' — without [1m]) even when the actual backend is Qwen. The gateway uses session.agent_model_litellm as the model string it forwards to LiteLLM. This is the cq-2-resolved approach: route on session metadata, not on the body. The body's model name is informational only.",
+    "fail_closed_on_litellm_errors": "cq-8 chose fail-closed. UpstreamRegistry returns 502 if LITELLM_MASTER_KEY is missing or the LiteLLM upstream returns a connection error / timeout. No fallback to Claude. This matches today's Claude-side fail-closed behavior at gateway/gateway.py:9989-10016.",
+    "tool_strip_unchanged_in_private_mode": "cq-9 chose to keep the same tool-strip regardless of upstream. _filter_blocked_tools is upstream-agnostic and untouched.",
+    "litellm_swap_out_seam": "Refine feedback Q3 said the design must keep LiteLLM swap-out-able if it hits a supply-chain incident (March 2026 PyPI). UpstreamRegistry is the seam: replacing LiteLLM with a different Anthropic-translator is one new registry entry + one secret rename + a k8s manifest swap. No call-site changes anywhere.",
+    "no_in_pipeline_validation": "cq-4 took empirical acceptance-test agent flipping OUT OF SCOPE for this pipeline. Slice-1 + slice-2 ship the seam and the config; the operator validates the end-to-end behavior in a separate pipeline run with a configured non-Claude backend. The plan/implement phases of THIS issue must not depend on a live LiteLLM endpoint being reachable.",
+    "build_now_validate_later": "Both slices must lint, type-check, and unit-test green on the CI runner WITHOUT a live LiteLLM endpoint. All slice-1 and slice-2 tests are pure unit tests (httpx.MockTransport in the gateway tests; standard mocks in orchestrator tests). No integration test in this scope requires a live non-Claude backend."
+  },
+  "open_risks_for_risk_analyst": [
+    {
+      "id": "R1",
+      "title": "session_manager Session-field migration on existing persisted sessions",
+      "summary": "Adding agent_upstream/agent_model_litellm to the Session dataclass needs forward-compatible from_persistence/to_dict_for_persistence. If a gateway restart hits a pre-existing on-disk session file written by the old code, the new code must fall back to None for both. The existing pattern at gateway/session_manager.py:380-405 already handles this with .get(key) — extending it is safe, but the test plan must include a 'load a pre-existing session file' regression test."
+    },
+    {
+      "id": "R2",
+      "title": "proxy_count_tokens currently has no session lookup",
+      "summary": "Slice-1 adds the IP-keyed session lookup to proxy_count_tokens (gateway/gateway.py:10019) so it can pick the right upstream. The lookup is pure-read, but it's a behavioral change. Risk surface: ANY edge case (no session, expired session, stale-IP session) needs to default to 'anthropic' so the existing token-counting traffic is unaffected. The slice-1 tests must cover the 'no-session-for-this-IP' path explicitly and assert default-to-anthropic."
+    },
+    {
+      "id": "R3",
+      "title": "Drift between Claude Code's --model and gateway's session.agent_model_litellm",
+      "summary": "The whole compaction-math mitigation depends on Claude Code seeing a recognized alias while the gateway routes elsewhere. If the two source-of-truth points (consensus_wrapper --model arg and register_session payload) ever disagree, the agent gets a wrong-backend response or a request that fails token-counting. Mitigation: resolve_model_for_role is the SINGLE function that both callers consume. The slice-2 test plan must include an end-to-end test asserting the spawn-time tuple from resolve_model_for_role flows identically to both consensus_wrapper and register_session — no parallel computation."
+    },
+    {
+      "id": "R4",
+      "title": "LiteLLM container supply-chain risk",
+      "summary": "Refine feedback Q3 raised the March 2026 PyPI incident. UpstreamRegistry provides the swap-out seam, but the LiteLLM image used in k8s/base/litellm-deployment.yaml must be pinned to a digest (not a floating tag) so a compromised tag push doesn't auto-roll to the gateway. The k8s manifest must specify image: ghcr.io/berriai/litellm@sha256:... — not :latest, not :stable."
+    },
+    {
+      "id": "R5",
+      "title": "Stream-resilience retry assumption against LiteLLM",
+      "summary": "The pre-stream retry at gateway/gateway.py:9850 catches httpx.ReadError and httpx.RemoteProtocolError and retries once. Verified to behave identically against any backend exposing /v1/messages; risk is that LiteLLM's HTTP/2 stack or its provider-side connection-pool behavior triggers different exception classes. The slice-1 mock-transport tests assert the retry path with synthetic ReadError, but a real integration test (out-of-scope here per cq-4) is the only true validation. Documented as a known followup."
+    },
+    {
+      "id": "R6",
+      "title": "LITELLM_MASTER_KEY rotation",
+      "summary": "Today the AnthropicCredentialsManager uses mtime-based cache invalidation (gateway/anthropic_credentials.py:126). The LiteLLM manager must follow the same pattern so the master key can be rotated by editing secrets.env without a gateway restart. Risk: if planner picks the 'extend AnthropicCredentialsManager' route instead of a sibling, the mtime invalidation already exists; if they pick a sibling, the new manager must replicate the mtime pattern."
+    },
+    {
+      "id": "R7",
+      "title": "Backward compat with no-op default",
+      "summary": "Slice-1 must default agent_upstream to 'anthropic' for any session missing the field — including sessions registered by an older orchestrator against a new gateway (rollout ordering risk during k8s rolling update). The default-to-anthropic resolver covers this, but the rollout plan must spell out: deploy gateway first (additive; default-to-anthropic preserves old orchestrator behavior), then deploy orchestrator. Reverse order is also safe (new orchestrator + old gateway: new orchestrator omits the new fields, old gateway ignores them, no LiteLLM routing occurs)."
+    }
+  ],
+  "task_planner_inputs": {
+    "slice_count": 2,
+    "slice_dependency": "slice-2 depends on slice-1 (the gateway-side router + Session fields must land first so slice-2's per-agent model config has somewhere to be recorded)",
+    "ordering_rationale": "cq-10 deferred slice decomposition to the planner. Of the four cq-10 options, the recommended shape is option 3 ([gateway router + LiteLLM topology, no-op] → [per-agent model config + consensus_wrapper plumbing]) because: (a) slice-1 lands all the gateway-side work as a behavior-preserving no-op — easy to review, easy to unit-test without live infra, no functional change visible to any current pipeline; (b) slice-2 layers the operator-facing per-role config on top of a known-good seam — easy to reason about because the gateway side is already proven by slice-1's tests; (c) splitting them into two PRs keeps each PR within typical reviewer-attention bounds (gateway changes ~few hundred lines; orchestrator changes ~few hundred lines).",
+    "acceptance_criteria_seeds": [
+      "AC-1: All existing Claude pipeline tests pass with no change (gateway-side and orchestrator-side suites).",
+      "AC-2: Slice-1 unit tests prove (a) Anthropic-upstream session → request lands at api.anthropic.com client, (b) LiteLLM-upstream session → request lands at LiteLLM client with Bearer-token credential, (c) tool-strip in private mode applies to both upstreams, (d) SSE accumulator + retry path runs against both upstreams.",
+      "AC-3: Slice-1 unit tests prove session_manager from_persistence is backward-compatible: loading an on-disk session file written by the pre-slice-1 code yields agent_upstream=None and the upstream resolver defaults to 'anthropic'.",
+      "AC-4: Slice-2 resolves PipelineConfig.agent_models[role] > repositories.yaml default_model > 'opus' precedence correctly; both consensus_wrapper --model and register_session agent_model_litellm/agent_upstream derive from the SAME resolve_model_for_role call.",
+      "AC-5: With no PipelineConfig.agent_models set and no repositories.yaml default_model, every existing pipeline spawns identically to today (Claude path, --model opus, no LiteLLM traffic).",
+      "AC-6: Configuring PipelineConfig.agent_models={'refiner': 'qwen-2.5-coder'} for a test pipeline produces (a) consensus_wrapper --model 'opus' (recognized alias), and (b) gateway session with agent_upstream='litellm', agent_model_litellm='qwen-2.5-coder'. The unit test does not require a live LiteLLM — it asserts the recorded session metadata and the resolved command.",
+      "AC-7: LiteLLM Deployment manifest passes kubeval/kustomize-build; image is pinned to a digest; secret manifest references a Kubernetes Secret (not inline value); NetworkPolicy restricts inbound to the gateway pod's labels.",
+      "AC-8: Missing LITELLM_MASTER_KEY in secrets.env when a session declares agent_upstream='litellm' returns 502 to the agent (fail-closed per cq-8) and emits a logger.warning with no-key=True.",
+      "AC-9: ANTHROPIC_BASE_URL sandbox env continues to point at the gateway service; sandbox pods cannot reach the LiteLLM Service directly (verified by a NetworkPolicy assertion or a documentation cross-link to allowed_domains.txt)."
+    ],
+    "out_of_scope_explicitly": [
+      "Empirical acceptance-test agent flip (cq-4 deferred to operator post-merge).",
+      "Cost tracking for LiteLLM/Qwen tokens (refine feedback Q4 deferred to follow-up).",
+      "Self-hosted vLLM/SGLang topology (refine feedback Q1 — hosted Qwen first; self-hosted is a later issue).",
+      "Multiple LiteLLM model_list entries beyond the first cut (single hosted-Qwen entry is enough to prove the seam).",
+      "Refactoring opus[1m] occurrences (cq-11 chose 'leave it' — the Claude path keeps opus[1m]; only non-Claude paths use a different model string).",
+      "Per-upstream tool-strip policy (cq-9 chose uniform; documented as a future option only)."
+    ]
+  },
+  "external_research_done": [
+    "LiteLLM Anthropic /v1/messages translator: https://docs.litellm.ai/docs/anthropic_unified — confirms LiteLLM exposes /v1/messages with full streaming and SSE-event shape compatibility.",
+    "Compaction risk surface: https://platform.claude.com/docs/en/build-with-claude/compaction — confirms compaction triggers on the model name Claude Code knows; the recognized-alias mitigation is sound.",
+    "Real-world setup writeup: https://dev.to/dcruver/running-claude-code-with-local-llms-via-vllm-and-litellm-599b — independent confirmation that LiteLLM + Claude Code + vLLM/Qwen works end-to-end and that 'route on metadata, not on body' is the standard mitigation.",
+    "claude-code-router rejection rationale: https://github.com/musistudio/claude-code-router/issues (historical write-ups about streaming-tool-call corruption on Qwen thinking-mode models)."
+  ],
+  "decisions_referenced": [
+    "cq-1: Separate Deployment+Service in egg-system namespace",
+    "cq-2: Per-agent session metadata (IP-keyed lookup)",
+    "cq-3: Per-role PipelineConfig field + repositories.yaml default_model",
+    "cq-4: No empirical validation in this pipeline; operator validates post-merge",
+    "cq-5: Keep Claude Code harness for non-Claude models too",
+    "cq-6: Hosted Qwen-compatible provider for first cut",
+    "cq-7: Gateway holds LITELLM_MASTER_KEY in secrets.env",
+    "cq-8: Fail-closed on LiteLLM errors",
+    "cq-9: Uniform tool-strip in private mode regardless of upstream",
+    "cq-10: Slice decomposition deferred to planner (this analysis recommends option-3 shape)",
+    "cq-11: Leave opus[1m] in Claude defaults"
+  ]
+}
