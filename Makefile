@@ -544,13 +544,21 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 redeploy: sudo-keepalive build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
 
 # Prompt for the sudo password immediately so `make redeploy` can be left
-# unattended through the long `build` step; the background loop refreshes the
-# credential cache every 60s and exits when this make run does.
+# unattended through the long `build` step. A detached background loop refreshes
+# the credential cache every 60s; it stops within ~60s of this make run exiting,
+# and is hard-capped at 120 iterations (~2h) so a recycled make PID cannot keep
+# it alive indefinitely. Its standard streams are redirected away from make's so
+# it never holds make's output pipe open past make's own exit.
 sudo-keepalive:
 	@sudo -v
 	@make_pid=$$PPID; \
-	( while kill -0 "$$make_pid" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 60; done ) &
+	( i=0; while [ $$i -lt 120 ] && kill -0 "$$make_pid" 2>/dev/null; do \
+		sudo -n -v 2>/dev/null; sleep 60; i=$$((i + 1)); \
+	done ) >/dev/null 2>&1 </dev/null &
 
+# Run this recipe under bash: `set -o pipefail` is a bash builtin and aborts
+# immediately under dash (the default /bin/sh on Debian/Ubuntu).
+k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
 	@set -o pipefail; \
 	docker save egg-gateway:latest | sudo k3s ctr images import - && \
