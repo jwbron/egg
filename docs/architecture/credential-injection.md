@@ -1,6 +1,6 @@
 # Credential Injection
 
-The gateway sidecar injects credentials at the proxy layer, ensuring the sandbox container has zero credential access. This covers GitHub (via git wrappers), Anthropic API (via `ANTHROPIC_BASE_URL`), and Atlassian/Jira/Confluence (via the `/api/v1/jira/*` and `/api/v1/confluence/*` REST endpoints) credentials.
+The gateway sidecar injects credentials at the proxy layer, ensuring the sandbox container has zero credential access. This covers GitHub (via git wrappers), Anthropic API (via `ANTHROPIC_BASE_URL`), LiteLLM proxy (via `x-api-key` on sessions routed to the `litellm` upstream), and Atlassian/Jira/Confluence (via the `/api/v1/jira/*` and `/api/v1/confluence/*` REST endpoints) credentials.
 
 **Key properties:**
 - **Zero credential exposure**: Container never sees API keys, OAuth tokens, or GitHub tokens
@@ -147,6 +147,7 @@ Gateway enforcement cannot be bypassed because:
 |------|--------|-----------------|
 | API Key | `ANTHROPIC_API_KEY` in secrets.env | `x-api-key: <key>` |
 | OAuth Token | `ANTHROPIC_OAUTH_TOKEN` in secrets.env | `Authorization: Bearer <token>` |
+| LiteLLM Master Key | `LITELLM_MASTER_KEY` in secrets.env | `x-api-key: <key>` (LiteLLM upstream only) |
 | Atlassian / Jira | `ATLASSIAN_*` (preferred) or `JIRA_*` triple in secrets.env | `Authorization: Basic <base64(username:token)>` |
 | Atlassian / Confluence | `ATLASSIAN_*` (preferred) or `CONFLUENCE_*` triple in secrets.env | `Authorization: Basic <base64(username:token)>` |
 
@@ -222,7 +223,8 @@ This precedence (ATLASSIAN-wins, CONFLUENCE as back-compat fallback) matches the
 | File | Purpose |
 |------|---------|
 | `gateway/gateway.py` | Anthropic proxy endpoints, `/api/v1/jira/*` and `/api/v1/confluence/*` routes, credential injection, tool filtering, `_reload_all_config()` hot-reload hook |
-| `gateway/anthropic_credentials.py` | Anthropic credential loading from secrets.env |
+| `gateway/upstream_registry.py` | Per-upstream registry of `(httpx.Client, credential_resolver)` pairs; lazily initialises the Anthropic and LiteLLM clients; validates `upstream` on session-create |
+| `gateway/anthropic_credentials.py` | Anthropic credential loading from secrets.env; also provides `LiteLLMCredentialsManager` for the `LITELLM_MASTER_KEY` |
 | `gateway/jira_credentials.py` | Atlassian credential loading from secrets.env for Jira (mtime refresh, basic-auth header helper, `ATLASSIAN_*` precedence) |
 | `gateway/confluence_credentials.py` | Atlassian credential loading from secrets.env for Confluence (mtime refresh, `ATLASSIAN_*` precedence with `/wiki` derivation) |
 | `gateway/jira_client.py` | Jira REST client + `validate_jira_api_path` regex allowlist + 429 retry + 404 envelope |

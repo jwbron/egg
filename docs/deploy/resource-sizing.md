@@ -8,6 +8,7 @@ Resource requests and limits for the three pod types in the egg stack, with the 
 |---|---|---|---|---|---|
 | `gateway` (egg-system) | 200m | 2 | 2Gi | 4Gi | Burstable |
 | `orchestrator` (egg-system) | 250m | 1 | 512Mi | 1Gi | Burstable |
+| `litellm` (egg-system) | 100m | 1 | 256Mi | 1Gi | Burstable |
 | `egg-sandbox-*` (egg-agents, per-agent) | 250m | 2 | 512Mi | 2Gi | Burstable |
 
 Gateway/orchestrator values live in `k8s/base/gateway-deployment.yaml` and `k8s/base/orchestrator-deployment.yaml`. Sandbox defaults are applied programmatically in `orchestrator/kubernetes_client.py` (`create_container`); callers can override via `kwargs["resources"]`.
