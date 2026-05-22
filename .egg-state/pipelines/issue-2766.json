@@ -229,10 +229,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What is the conformance bar for the new grammar's strict-parse stance? The spec says \"a plan that does not parse is 'not executable', reported with a structured error rather than silently degraded\".",
+      "context": "Open contract question cq-3, registered by an agent during the refine phase.",
+      "options": [
+        "Hard fail on any deviation: parser raises a structured error; no markdown-regex fallback; no \"placeholder task\" fill-in for empty slices; reviewer NACKs the planner",
+        "Hard fail on schema deviations, warn on style/order: structural rules (missing required field-headers, unresolved refs, duplicate ids) are errors; field-order and casing drift surface as warnings",
+        "Warn-and-emit-best-effort: keep today’s posture of best-effort extraction with `warnings[]` so a malformed plan still produces a partial contract reviewers can fix incrementally",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:36.920940Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:36.883349Z",
+  "updated_at": "2026-05-22T01:00:36.929142Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -245,7 +264,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
