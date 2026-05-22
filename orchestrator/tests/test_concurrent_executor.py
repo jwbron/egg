@@ -1056,12 +1056,10 @@ class TestSpawnDefaultAgentModelPath:
         # what's NOT acceptable is sending ``upstream="litellm"`` or
         # a non-None ``upstream_model``.
         assert kwargs.get("upstream") in (None, "anthropic"), (
-            f"Default config should not send upstream='litellm'; got "
-            f"{kwargs.get('upstream')!r}"
+            f"Default config should not send upstream='litellm'; got {kwargs.get('upstream')!r}"
         )
         assert kwargs.get("upstream_model") is None, (
-            f"Default config MUST NOT send upstream_model; got "
-            f"{kwargs.get('upstream_model')!r}"
+            f"Default config MUST NOT send upstream_model; got {kwargs.get('upstream_model')!r}"
         )
 
 
@@ -1086,7 +1084,7 @@ class TestSpawnLiteLLMConfiguredPath:
         pipeline = _make_pipeline()
         try:
             pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
 
         captured: dict[str, object] = {}
@@ -1121,7 +1119,7 @@ class TestSpawnLiteLLMConfiguredPath:
         pipeline = _make_pipeline()
         try:
             pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
 
         mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("refiner"))
@@ -1135,8 +1133,7 @@ class TestSpawnLiteLLMConfiguredPath:
 
         _args, kwargs = mock_spawn.call_args
         assert kwargs.get("upstream") == "litellm", (
-            f"refiner spawn_fn MUST receive upstream='litellm'; got "
-            f"{kwargs.get('upstream')!r}"
+            f"refiner spawn_fn MUST receive upstream='litellm'; got {kwargs.get('upstream')!r}"
         )
         assert kwargs.get("upstream_model") == "qwen3-coder-30b", (
             f"refiner spawn_fn MUST receive upstream_model='qwen3-coder-30b'; "
@@ -1156,7 +1153,7 @@ class TestSpawnLiteLLMConfiguredPath:
         pipeline = _make_pipeline()
         try:
             pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
 
         captured: dict[str, object] = {}
@@ -1203,7 +1200,7 @@ class TestSpawnClaudeAliasOverride:
         pipeline = _make_pipeline()
         try:
             pipeline.config.agent_models = {"coder": "sonnet"}
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             pipeline.config.__dict__["agent_models"] = {"coder": "sonnet"}
 
         captured: dict[str, object] = {}

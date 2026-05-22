@@ -2233,9 +2233,7 @@ class TestRewriteUpstreamModelHelper:
 
             return _rewrite_upstream_model
         except ImportError:
-            pytest.skip(
-                "_rewrite_upstream_model not yet implemented (waiting on coder)"
-            )
+            pytest.skip("_rewrite_upstream_model not yet implemented (waiting on coder)")
 
     def test_no_op_when_upstream_model_is_none(self, _rewrite_fn):
         body = json.dumps({"model": "opus", "messages": []}).encode()
@@ -2305,9 +2303,7 @@ class TestRewriteUpstreamModelHelper:
         # result MUST be valid JSON with ``messages`` preserved.
         try:
             parsed = json.loads(out)
-            assert parsed.get("messages") == [
-                {"role": "user", "content": "hi"}
-            ]
+            assert parsed.get("messages") == [{"role": "user", "content": "hi"}]
         except json.JSONDecodeError:
             # Returning the body unchanged is also acceptable.
             assert out == body
@@ -2329,7 +2325,8 @@ def _rewrite_helper_exists() -> bool:
     on the gateway side.  Tests below skip when False.
     """
     try:
-        from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]  # noqa: F401
+        # noqa: F401 — import is for existence check, the symbol is unused.
+        from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]  # noqa: F401, I001
 
         return True
     except ImportError:
@@ -2361,9 +2358,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
         try:
             import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
         except ImportError:
-            pytest.skip(
-                "upstream_registry not yet implemented (waiting on coder)"
-            )
+            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
 
         litellm_client = MagicMock()
         litellm_client.post.side_effect = _capture_upstream_body(captured_body_holder)
@@ -2381,16 +2376,12 @@ class TestRewriteUpstreamModelOnProxyRoute:
             if upstream == "anthropic":
                 return (
                     anthropic_client,
-                    lambda: MagicMock(
-                        header_name="x-api-key", header_value="sk-ant-test"
-                    ),
+                    lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-test"),
                 )
             if upstream == "litellm":
                 return (
                     litellm_client,
-                    lambda: MagicMock(
-                        header_name="x-api-key", header_value="litellm-key"
-                    ),
+                    lambda: MagicMock(header_name="x-api-key", header_value="litellm-key"),
                 )
             raise KeyError(upstream)
 
@@ -2448,26 +2439,20 @@ class TestRewriteUpstreamModelOnProxyRoute:
 
             assert response.status_code == 200
             body = captured.get("body")
-            assert body is not None, (
-                "LiteLLM client was not called with a body to capture"
-            )
+            assert body is not None, "LiteLLM client was not called with a body to capture"
             parsed = json.loads(body) if isinstance(body, (bytes, bytearray)) else json.loads(body)
             assert parsed["model"] == "qwen3-coder-30b", (
                 f"LiteLLM-routed body MUST have model='qwen3-coder-30b' "
                 f"(rewritten from incoming 'opus'); got {parsed.get('model')!r}"
             )
 
-    def test_litellm_session_without_upstream_model_preserves_body_model(
-        self, client
-    ):
+    def test_litellm_session_without_upstream_model_preserves_body_model(self, client):
         """Slice-1 no-op state: a LiteLLM session with
         ``upstream_model=None`` MUST NOT rewrite the body — the proxy
         passes whatever model name the client sent.
         """
         captured: dict = {}
-        fake_registry, _litellm_client, _ = self._build_full_registry_patch(
-            captured
-        )
+        fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
 
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
@@ -2505,8 +2490,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
             assert body is not None
             parsed = json.loads(body)
             assert parsed["model"] == "opus", (
-                f"upstream_model=None must NOT rewrite the body; got "
-                f"model={parsed.get('model')!r}"
+                f"upstream_model=None must NOT rewrite the body; got model={parsed.get('model')!r}"
             )
 
     def test_anthropic_session_body_is_byte_identical(self, client):
@@ -2520,9 +2504,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
         captured: dict = {}
 
         def _post_capture(*args, **kwargs):
-            captured["body"] = kwargs.get("content") or (
-                args[1] if len(args) > 1 else None
-            )
+            captured["body"] = kwargs.get("content") or (args[1] if len(args) > 1 else None)
             mock_response = MagicMock()
             mock_response.content = b'{"ok": true}'
             mock_response.status_code = 200
@@ -2548,9 +2530,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
                 header_name="x-api-key", header_value="sk-ant-test"
             )
             sm = MagicMock()
-            sm.get_session_by_ip.return_value = _build_mock_session(
-                upstream="anthropic"
-            )
+            sm.get_session_by_ip.return_value = _build_mock_session(upstream="anthropic")
             mock_sm_get.return_value = sm
 
             response = client.post(
@@ -2657,9 +2637,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
                 header_name="x-api-key", header_value="litellm-key"
             )
 
-            session = _build_mock_session(
-                upstream="litellm", upstream_model="qwen3-coder-30b"
-            )
+            session = _build_mock_session(upstream="litellm", upstream_model="qwen3-coder-30b")
             session.mode = "private"  # trigger tool-stripping
             sm = MagicMock()
             sm.get_session_by_ip.return_value = session
@@ -2697,8 +2675,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
                 f"may be broken.  Forwarded tools: {tool_names}"
             )
             assert "Read" in tool_names, (
-                f"Tool-filter stripped a non-blocked tool ('Read') — "
-                f"got {tool_names}"
+                f"Tool-filter stripped a non-blocked tool ('Read') — got {tool_names}"
             )
 
 
@@ -2726,8 +2703,6 @@ class TestRewriteUpstreamModelMalformedBodyResilience:
             import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
         except ImportError:
             pytest.skip("upstream_registry not yet implemented")
-
-        from httpx import Headers
 
         captured: dict = {}
         litellm_client = MagicMock()

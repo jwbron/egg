@@ -134,7 +134,7 @@ class TestResolutionPrecedence:
         AgentRole = _agent_role()
         config = _pipeline_config()
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.claude_code_alias == "opus"
@@ -148,7 +148,7 @@ class TestResolutionPrecedence:
         config = _pipeline_config()
 
         with patch(
-            "agent_model_resolution.get_default_agent_model",
+            "config.repo_config.get_default_agent_model",
             return_value="sonnet",
         ):
             d = resolve_agent_model(AgentRole.CODER, config, "owner/repo")
@@ -164,7 +164,7 @@ class TestResolutionPrecedence:
         config = _pipeline_config(agent_models={"refiner": "qwen3-coder-30b"})
 
         with patch(
-            "agent_model_resolution.get_default_agent_model",
+            "config.repo_config.get_default_agent_model",
             return_value="sonnet",
         ):
             d = resolve_agent_model(AgentRole.REFINER, config, "owner/repo")
@@ -182,7 +182,7 @@ class TestResolutionPrecedence:
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"refiner": "qwen3-coder-30b"})
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             coder_decision = resolve_agent_model(AgentRole.CODER, config, None)
 
         # Coder is not overridden → built-in default.
@@ -202,7 +202,7 @@ class TestResolutionPrecedence:
         # the simplest correct implementation skips the call entirely when
         # ``repo is None``.  We patch defensively in either case.
         with patch(
-            "agent_model_resolution.get_default_agent_model",
+            "config.repo_config.get_default_agent_model",
             return_value=None,
         ):
             d = resolve_agent_model(AgentRole.CODER, config, None)
@@ -234,11 +234,13 @@ class TestAnthropicClassification:
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"coder": model})
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.upstream == "anthropic", f"alias {model!r} should be anthropic"
-        assert d.claude_code_alias == model, f"alias should pass through, got {d.claude_code_alias!r}"
+        assert d.claude_code_alias == model, (
+            f"alias should pass through, got {d.claude_code_alias!r}"
+        )
         assert d.upstream_model is None
 
     @pytest.mark.parametrize(
@@ -255,7 +257,7 @@ class TestAnthropicClassification:
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"coder": model})
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.upstream == "anthropic"
@@ -289,7 +291,7 @@ class TestLiteLLMClassification:
         AgentRole = _agent_role()
         config = _pipeline_config(agent_models={"coder": model})
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.upstream == "litellm", f"{model!r} should route to litellm"
@@ -313,9 +315,7 @@ class TestLiteLLMClassification:
         for tricky_model in ("opus-7b", "claude-clone-12b", "claudia-9000"):
             config = _pipeline_config(agent_models={"coder": tricky_model})
 
-            with patch(
-                "agent_model_resolution.get_default_agent_model", return_value=None
-            ):
+            with patch("config.repo_config.get_default_agent_model", return_value=None):
                 d = resolve_agent_model(AgentRole.CODER, config, None)
 
             # Either the classifier correctly routes to anthropic
@@ -432,7 +432,7 @@ class TestDefaultPathRegression:
         AgentRole = _agent_role()
         config = _pipeline_config()
 
-        with patch("agent_model_resolution.get_default_agent_model", return_value=None):
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
             for role in (
                 AgentRole.CODER,
                 AgentRole.TESTER,
