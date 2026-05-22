@@ -518,6 +518,13 @@ class KubernetesSpawner:
                 worktree-creation failures. ``0`` disables retry (#1839).
             spawn_retry_initial_backoff_seconds: Initial backoff between retries;
                 subsequent attempts scale by ``_SPAWN_RETRY_BACKOFF_MULTIPLIER``.
+            upstream: Per-agent upstream identifier (#2769 slice-2).
+                Forwarded to the gateway session-create call only when
+                set; ``None`` keeps the default Anthropic routing.
+            upstream_model: Upstream-side model name to rewrite the
+                request body's ``model`` field to (#2769 slice-2).
+                ``None`` on the Anthropic path — the body is forwarded
+                unchanged.
 
         Returns:
             SpawnedContainer with Job and session info
@@ -1295,6 +1302,15 @@ class KubernetesSpawner:
                 slice gets an independent budget.
             wait_for_gateway: Wait for gateway health before respawning.
                 Forwarded to ``spawn_agent_job``.
+            upstream: Per-agent upstream identifier (#2769 slice-2),
+                forwarded to ``spawn_agent_job`` so the restarted Job
+                registers its gateway session against the same upstream
+                as the initial spawn. ``None`` keeps the default
+                Anthropic routing.
+            upstream_model: Upstream-side model name to rewrite the
+                request body's ``model`` field to (#2769 slice-2),
+                forwarded to ``spawn_agent_job``. ``None`` on the
+                Anthropic path — the body is forwarded unchanged.
 
         Returns:
             SpawnedContainer with new Job info.

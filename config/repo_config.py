@@ -318,10 +318,10 @@ def get_default_agent_model(repo: str) -> str | None:
     3. Built-in ``"opus"`` default
 
     The value follows the same classifier as ``agent_models``: a recognised
-    Claude alias (``opus``, ``opus[1m]``, ``sonnet``, ``haiku``,
-    ``claude-*``) routes through the Anthropic upstream, anything else
-    routes through the in-cluster LiteLLM proxy with the alias ``"opus"``
-    presented to Claude Code (cq-5 mitigation).
+    Claude alias (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``,
+    ``haiku``, ``claude-*``) routes through the Anthropic upstream, anything
+    else routes through the in-cluster LiteLLM proxy with the alias
+    ``"opus"`` presented to Claude Code (cq-5 mitigation).
 
     Args:
         repo: Repository in "owner/repo" format

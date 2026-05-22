@@ -1011,7 +1011,9 @@ class TestSpawnDefaultAgentModelPath:
 
         def _capture_command(prompt_text, **kwargs):
             captured["prompt_text"] = prompt_text
-            captured["model"] = kwargs.get("model", "opus")
+            # No default — the test must distinguish "model='opus' was
+            # passed" from "model was not passed at all".
+            captured["model"] = kwargs.get("model")
             return ["bash", "-c", "true"]
 
         mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())

@@ -2694,7 +2694,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             agent_role=agent_role,
             error=str(resolve_err),
         )
-        from agent_model_resolution import UPSTREAM_ANTHROPIC, classify_model
+        try:
+            from agent_model_resolution import UPSTREAM_ANTHROPIC, classify_model
+        except ImportError:
+            from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
+                UPSTREAM_ANTHROPIC,
+                classify_model,
+            )
 
         _model_decision = classify_model("opus")
 

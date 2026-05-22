@@ -387,6 +387,24 @@ class TestAgentModelsValidation:
             f"ValidationError MUST cite the unknown role; got: {excinfo.value}"
         )
 
+    def test_unhonored_real_role_raises_validation_error(self):
+        """Roles that exist in ``AgentRole`` but are never threaded
+        through ``resolve_agent_model`` (overseer, autofixer,
+        conflict_resolver, inspector) MUST be rejected — accepting them
+        would let a deliberate override silently no-op at spawn, which is
+        exactly the silent-ignore trap the validator exists to prevent.
+        """
+        if not _agent_models_field_exists():
+            pytest.skip("PipelineConfig.agent_models not yet implemented")
+        from pydantic import ValidationError
+
+        for unhonored in ("overseer", "autofixer", "conflict_resolver", "inspector"):
+            with pytest.raises(ValidationError) as excinfo:
+                _pipeline_config(agent_models={unhonored: "qwen3-coder-30b"})
+            assert unhonored in str(excinfo.value), (
+                f"ValidationError MUST cite the unhonored role {unhonored!r}; got: {excinfo.value}"
+            )
+
     def test_multiple_known_roles_accepted(self):
         """Many roles can be overridden simultaneously."""
         if not _agent_models_field_exists():

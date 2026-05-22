@@ -14,14 +14,15 @@ Precedence (highest first), matching #2769 task-2-3:
 3. Built-in ``"opus"`` default — preserves today's Claude-only behaviour.
 
 Classifier (cq-5 mitigation): a model string matching one of the
-recognised Claude aliases (``opus``, ``opus[1m]``, ``sonnet``, ``haiku``,
-``claude-*``) routes through the Anthropic upstream and the agent's
-``--model`` flag is set to that alias verbatim. Any other string is
-treated as a LiteLLM-side model name: the upstream is ``"litellm"``,
-the upstream-side model name is preserved (the gateway rewrites the
-request body before forwarding — see ``_rewrite_upstream_model`` in
-``gateway/gateway.py``), and Claude Code is handed the recognised alias
-``"opus"`` so its compaction math stays sane.
+recognised Claude aliases (``opus``, ``opus[1m]``, ``sonnet``,
+``sonnet[1m]``, ``haiku``, ``claude-*``) routes through the Anthropic
+upstream and the agent's ``--model`` flag is set to that alias
+verbatim. Any other string is treated as a LiteLLM-side model name:
+the upstream is ``"litellm"``, the upstream-side model name is
+preserved (the gateway rewrites the request body before forwarding —
+see ``_rewrite_upstream_model`` in ``gateway/gateway.py``), and Claude
+Code is handed the recognised alias ``"opus"`` so its compaction math
+stays sane.
 
 The resolver is a pure function over its three inputs (role,
 PipelineConfig, repo) so callers can use it from spawn, restart, and

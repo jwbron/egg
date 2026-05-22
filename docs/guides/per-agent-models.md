@@ -2,11 +2,11 @@
 
 This guide walks an operator through the **slice-2** plumbing of
 [#2769](https://github.com/jwbron/egg/issues/2769): flipping any single
-SDLC agent role (refiner, coder, tester, …) to a non-Claude model via
-the gateway's LiteLLM proxy, without touching agent prompts, the
-sandbox, or source code. By the end you will have configured a
-pipeline that runs (e.g.) the refiner on hosted Qwen while every other
-role continues to run on Claude.
+SDLC phase agent role (refiner, coder, tester, a reviewer, …) to a
+non-Claude model via the gateway's LiteLLM proxy, without touching
+agent prompts, the sandbox, or source code. By the end you will have
+configured a pipeline that runs (e.g.) the refiner on hosted Qwen while
+every other role continues to run on Claude.
 
 The seam itself — the gateway-side `UpstreamRegistry`, the LiteLLM
 Deployment, the per-session routing decision — is described in
@@ -38,12 +38,18 @@ no behavioral change.
 [`PipelineConfig`](../../orchestrator/models.py) (the field lives next
 to the existing overseer-tier model fields around
 `orchestrator/models.py:405`). Keys are
-[`AgentRole`](../../shared/egg_contracts/agent_roles.py) values
-(`"coder"`, `"refiner"`, `"tester"`, … — validated against the
-canonical enum at `shared/egg_contracts/agent_roles.py:46` via a
-Pydantic validator that rejects unknown roles at construction time).
-Values are free-form model strings — interpreted by the resolver
-(below).
+[`AgentRole`](../../shared/egg_contracts/agent_roles.py) values, but
+**only the SDLC phase producer and reviewer roles** (`"coder"`,
+`"refiner"`, `"tester"`, the `"reviewer_*"` roles, …) — the roles
+spawned through the paths that consult the resolver. A Pydantic
+validator rejects both typos *and* otherwise-valid roles the resolver
+never honors — the utility roles `autofixer` / `conflict_resolver` and
+the interface roles `overseer` / `inspector` spawn through dedicated
+paths that bypass `resolve_agent_model`, so an override naming one of
+them would silently no-op at spawn. The honored set is the constant
+`agent_roles.MODEL_OVERRIDE_ROLES`; the validator surfaces a
+misconfigured key immediately at construction time. Values are
+free-form model strings — interpreted by the resolver (below).
 
 ```python
 PipelineConfig(
@@ -71,7 +77,7 @@ with an inline precedence note.
 
 ```yaml
 # ~/.config/egg/repositories.yaml
-repositories:
+repo_settings:
   acme-corp/widgets:
     # Every role defaults to Sonnet on this repo, unless a pipeline
     # passes its own agent_models entry.
@@ -102,7 +108,7 @@ The resolver's classifier divides model strings into two camps:
 
 | Model string pattern | `upstream` | `claude_code_alias` | `upstream_model` |
 |----------------------|------------|---------------------|------------------|
-| `opus`, `opus[1m]`, `sonnet`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
+| `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
 | Everything else (e.g. `qwen3-coder-30b`, `mistral-large`) | `"litellm"` | **`"opus"`** (the cq-5 mitigation — see below) | the model string verbatim |
 
@@ -122,7 +128,7 @@ command + gateway session-create call:
 | Spawn site | Threads `--model` to | Threads `upstream` / `upstream_model` to |
 |------------|----------------------|-------------------------------------------|
 | Initial spawn at `orchestrator/concurrent_executor.py:454` | `build_consensus_wrapped_command(model=decision.claude_code_alias, …)` | `GatewayClient.register_session(upstream=…, upstream_model=…)` at `orchestrator/kubernetes_spawner.py:735` (the new kwargs land on the slice-1 wire contract) |
-| Restart path at `orchestrator/routes/pipelines.py:2704` | Same `--model` resolution | Same session is reused — no second `register_session` call |
+| Restart path at `orchestrator/routes/pipelines.py:2704` | Same `--model` resolution | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
 
 When the resolved decision is the default Claude case
 (`upstream="anthropic"`, `upstream_model=None`), the new
@@ -270,7 +276,7 @@ If every role on this repo should default to the same model, edit
 `~/.config/egg/repositories.yaml`:
 
 ```yaml
-repositories:
+repo_settings:
   acme-corp/widgets:
     # Every role on this repo defaults to qwen3-coder-30b, unless a
     # pipeline passes its own agent_models entry.
@@ -411,7 +417,7 @@ misconfiguration on one does not silently activate the LiteLLM path.
 
 | Primitive | Location | Purpose |
 |-----------|----------|---------|
-| `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:405` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects unknown roles |
+| `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:405` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects keys outside the phase producer / reviewer set (`agent_roles.MODEL_OVERRIDE_ROLES`) |
 | `default_agent_model: str \| None` | `config/repositories.yaml.example` (documented schema) | Repository-level default applied when `agent_models` does not pin the role |
 | `get_default_agent_model(repo)` | `config/repo_config.py` (mirrors `get_repo_setting` at `config/repo_config.py:248`) | Reader for the repo-level default; returns `None` when absent |
 | `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` *(new module)* | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)` |

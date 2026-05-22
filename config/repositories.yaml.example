@@ -112,8 +112,8 @@ readable_repos:
 #   - default_agent_model: Repository-level default for the per-agent
 #     model knob added in #2769. Used by every agent role unless the
 #     pipeline submission overrides it via ``agent_models``. A recognised
-#     Claude alias (opus, opus[1m], sonnet, haiku, claude-*) routes
-#     through the Anthropic upstream; anything else routes through the
+#     Claude alias (opus, opus[1m], sonnet, sonnet[1m], haiku, claude-*)
+#     routes through the Anthropic upstream; anything else routes through the
 #     in-cluster LiteLLM proxy with the recognised alias "opus" presented
 #     to Claude Code (cq-5 mitigation). Precedence:
 #       PipelineConfig.agent_models[role]
