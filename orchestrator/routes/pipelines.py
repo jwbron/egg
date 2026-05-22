@@ -10935,10 +10935,12 @@ def _commit_slice_brc_history_to_integration_branch(
        messages from the message store; the staging directory is
        scoped to this hook tick so concurrent slice hooks do not
        cross-write each other (#2755).
-    2. Materialise a temporary git worktree on
+    2. Materialise a temporary **detached** git worktree on
        ``origin/<integration_branch>`` (the slice's integration branch).
-       ``-B`` re-points the local branch ref so a prior tick that
-       crashed mid-flight can re-enter cleanly.
+       A detached worktree claims no branch ref, so it never collides
+       with the slice's own agent worktrees — which hold the
+       integration branch checked out for the duration of the slice
+       run — nor with a prior tick that crashed mid-flight (#2778).
     3. Copy ONLY this slice's per-slice BRC files
        (``<identifier>-implement-<slice_id>.{json,md}``) from the
        staging directory to the integration worktree. Other slices'
@@ -11126,8 +11128,12 @@ def _commit_slice_brc_history_to_integration_branch(
                     *git_base,
                     "worktree",
                     "add",
-                    "-B",
-                    integration_branch,
+                    # Detached, not ``-B <integration_branch>``: a branch
+                    # can live in only one linked worktree, and the
+                    # slice's agent worktrees already hold it — ``-B``
+                    # lost that race with ``fatal: ... already used by
+                    # worktree`` (#2778). See Step 2 in the docstring.
+                    "--detach",
                     str(wt_path),
                     f"origin/{integration_branch}",
                 ],
@@ -15717,10 +15723,12 @@ def _run_implement_phase_slices(
                 # narrative without leaving the diff view.
                 #
                 # Best-effort: a failure here is logged and swallowed so
-                # the slice PR creation can still proceed — the BRC
-                # files remain on the work worktree as a fallback audit
-                # trail, and the next phase-boundary write will
-                # re-attempt them.  Idempotent on retry.
+                # the slice PR creation can still proceed.  There is no
+                # fallback surface — since #2758 the per-slice files
+                # live ONLY on the integration branch (committing them
+                # to ``work`` re-introduces the #2755 add/add conflict),
+                # so a failure here loses the slice's consensus
+                # transcript outright.  Idempotent on retry.
                 if pipeline.repo:
                     try:
                         _commit_slice_brc_history_to_integration_branch(
