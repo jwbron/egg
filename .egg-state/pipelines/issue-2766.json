@@ -397,10 +397,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "How should this work be decomposed into slices for the plan phase to consider? (Refine is only flagging shape options; plan owns the final DAG.) Conformance touches: the spec landing, the schema, the parser, the contract model, the planner prompt, the plan-template, the plan-time validators, the orchestrator ingestion, the slice scheduler, the PR-body composer, and the `refine-plan` plugin's emit-contract/validate-yaml-tasks scripts.",
+      "context": "Open contract question cq-12, registered by an agent during the refine phase.",
+      "options": [
+        "Two slices in parallel: [land the spec + freeze the JSON Schema] || [stub the new contract model with no consumers yet] (2 PRs), followed by serialised waves the plan phase shapes once cq-1…cq-11 are resolved",
+        "Three slices with dependency: [land the spec + schema] -> [new parser + contract model + plan template, all wired together] -> [migrate downstream consumers: orchestrator ingestion, PR-body composer, plugin scripts, planner prompt] (3 PRs)",
+        "Four slices: [spec + schema] -> [new parser + model] || [new template + planner prompt] -> [downstream consumers] (4 PRs) — the parser and the template can’t merge in parallel because the planner prompt has to learn the new grammar at the same time",
+        "Single slice: ship everything together to avoid a half-conformant transition window (1 PR) — large blast radius but no intermediate state where the parser accepts a grammar no template emits",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.285206Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.252211Z",
+  "updated_at": "2026-05-22T01:00:37.293772Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -413,7 +433,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
