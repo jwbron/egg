@@ -161,7 +161,20 @@ def resolve_agent_model(
         # call and we want to defer that until a caller actually needs
         # repo-level resolution. Also avoids pulling the config module
         # into every test that exercises the classifier directly.
-        from config.repo_config import get_default_agent_model
+        #
+        # Dual-import with fallback: the orchestrator Dockerfile flattens
+        # ``config/repo_config.py`` to ``/app/repo_config.py`` at the top
+        # level (``orchestrator/Dockerfile:66``), so the production
+        # container has no ``config/`` package — only the source-tree
+        # layout does. This mirrors the established pattern at
+        # ``shared/egg_restrictions/patterns.py:913-916`` and
+        # ``orchestrator/routes/signals.py:961-964``.
+        try:
+            from config.repo_config import get_default_agent_model
+        except ImportError:
+            from repo_config import (  # type: ignore[import-not-found, no-redef]
+                get_default_agent_model,
+            )
 
         repo_default = get_default_agent_model(repo)
         if repo_default:
