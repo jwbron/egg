@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "aefe0e1ab6bfe30613634dd7b5eaee60edc7b33e": {
+      "branch": "egg/issue-2766/work",
+      "pipeline_id": "issue-2766",
+      "registered_at": "2026-05-22T00:18:34.722671+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_refine"
+    }
+  },
+  "version": 1
+}
