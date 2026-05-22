@@ -8678,9 +8678,7 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Invalid upstream: must be a string")
     if not get_upstream_registry().is_known(upstream):
         known = ", ".join(sorted(get_upstream_registry().known_upstreams()))
-        return make_error(
-            f"Invalid upstream: '{upstream}'. Must be one of: {known}"
-        )
+        return make_error(f"Invalid upstream: '{upstream}'. Must be one of: {known}")
     if upstream_model is not None:
         if not isinstance(upstream_model, str):
             return make_error("Invalid upstream_model: must be a string")
