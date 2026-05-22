@@ -2544,9 +2544,10 @@ class TestWritePerSliceFlag:
         assert not (history_dir / "42-implement-slice-1.md").exists()
 
     def test_write_per_slice_false_non_slice_pipeline_still_writes_aggregate(self, tmp_path):
-        """Non-slice pipelines (babysit_pr, custom phases) never produce
-        per-slice files — they hit the ``not buckets`` branch and write
-        the aggregate ``{identifier}-implement.{md,json}`` file. The
+        """A non-slice implement run (an issue not decomposed into
+        slices) never produces per-slice files — it hits the ``not
+        buckets`` branch and writes the aggregate
+        ``{identifier}-implement.{md,json}`` file. The
         ``write_per_slice`` flag only gates the per-slice bucket loop,
         so the aggregate path is unaffected (#2755)."""
         from routes.pipelines import _write_brc_history
@@ -2561,7 +2562,7 @@ class TestWritePerSliceFlag:
             _write_brc_history(tmp_path, "issue-42", "implement", 42, write_per_slice=False)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        # Aggregate file MUST exist — this is the babysit_pr artifact
+        # Aggregate file MUST exist — this is the non-slice artifact
         # path and the flag does not gate it.
         assert (history_dir / "42-implement.md").exists()
         assert (history_dir / "42-implement.json").exists()
