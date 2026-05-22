@@ -344,10 +344,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "In private mode (PR #686 / #702), the gateway strips `WebSearch` / `WebFetch` tools from outbound requests because those route through Anthropic's infrastructure and bypass container network controls. What should the equivalent policy be when the upstream is LiteLLM → self-hosted Qwen on vLLM (no Anthropic-side tool processing)?",
+      "context": "Open contract question cq-9, registered by an agent during the refine phase.",
+      "options": [
+        "Keep the same tool-strip in private mode regardless of upstream — conservative; the agent simply cannot call these tools whether or not they would exfiltrate",
+        "Strip only when upstream is Anthropic; allow these tools when upstream is fully self-hosted (no external request hop) — unblocks the tools but adds upstream-aware logic to the filter",
+        "Keep the strip but document that the rationale only applies to Anthropic upstreams — defer the per-upstream rule to a future issue",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:49.058182Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:49.017943Z",
+  "updated_at": "2026-05-22T03:01:49.065872Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -360,7 +379,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
