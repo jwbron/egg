@@ -10,11 +10,11 @@ Covers:
 - The 'pr' block fields (title, description, test_plan, manual_steps,
   context_title, context_description)
 - The canonical 'slice-<N>' string shape for a slice's dependencies field
+- The 'serialized_chain_order' array field
 - The shipped plan template (docs/templates/plan.md) validates end-to-end
 """
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -25,19 +25,15 @@ except ImportError:
     jsonschema = None
 
 try:
-    import yaml
+    # Importing the production fence extractor also pulls in pyyaml (a
+    # plan_parser dependency); a missing pyyaml therefore lands here too.
+    from egg_contracts.plan_parser import parse_yaml_code_fence
 except ImportError:
-    yaml = None
+    parse_yaml_code_fence = None
 
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = REPO_ROOT / ".egg" / "schemas" / "yaml-tasks.schema.json"
 PLAN_TEMPLATE_PATH = REPO_ROOT / "docs" / "templates" / "plan.md"
-
-# Mirrors the fence parser in plan_parser.py / validate-yaml-tasks (#2743):
-# the closing ``` must start at a line boundary.
-_YAML_TASKS_FENCE_RE = re.compile(
-    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)"
-)
 
 
 def _load_schema():
@@ -243,8 +239,19 @@ class TestYamlTasksSchemaPrBlock:
             jsonschema.validate(doc, schema)
 
 
-def _doc_with_slice_dependencies(dependencies):
-    """Create a minimal yaml-tasks document whose second slice carries a dependencies value."""
+def _doc_with_slice_field(**slice2_fields):
+    """Create a minimal two-slice yaml-tasks document with extra fields on slice 2.
+
+    Slice 2 always carries id/name/tasks; ``slice2_fields`` are merged on top,
+    so a test can attach an arbitrary slice-level key (dependencies,
+    serialized_chain_order, ...) and assert how the schema treats it.
+    """
+    second_slice = {
+        "id": 2,
+        "name": "Second slice",
+        "tasks": [_minimal_task("TASK-2-1")],
+    }
+    second_slice.update(slice2_fields)
     return {
         "slices": [
             {
@@ -252,14 +259,14 @@ def _doc_with_slice_dependencies(dependencies):
                 "name": "First slice",
                 "tasks": [_minimal_task("TASK-1-1")],
             },
-            {
-                "id": 2,
-                "name": "Second slice",
-                "dependencies": dependencies,
-                "tasks": [_minimal_task("TASK-2-1")],
-            },
+            second_slice,
         ]
     }
+
+
+def _doc_with_slice_dependencies(dependencies):
+    """Create a minimal yaml-tasks document whose second slice carries a dependencies value."""
+    return _doc_with_slice_field(dependencies=dependencies)
 
 
 @pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
@@ -288,20 +295,71 @@ class TestYamlTasksSchemaDependenciesField:
             jsonschema.validate(doc, schema)
 
 
-@pytest.mark.skipif(jsonschema is None or yaml is None, reason="jsonschema/pyyaml not installed")
+@pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
+class TestYamlTasksSchemaSerializedChainOrder:
+    """Tests for the 'serialized_chain_order' slice field.
+
+    The slice DAG must be a forest, so a planner that hits a would-be
+    multi-parent slice serialises the upstream cluster into a chain and
+    records the chosen order on the downstream slice's
+    'serialized_chain_order' field (#2137). The schema prescribes the
+    canonical shape — an array of 'slice-<N>' id strings. The parser also
+    tolerates a comma-separated string, but the schema deliberately does
+    not, so a planner is taught only the canonical array form.
+    """
+
+    def test_serialized_chain_order_string_array_is_valid(self):
+        """The canonical array-of-strings shape should validate."""
+        schema = _load_schema()
+        jsonschema.validate(
+            _doc_with_slice_field(serialized_chain_order=["slice-1", "slice-2"]), schema
+        )
+
+    def test_serialized_chain_order_empty_array_is_valid(self):
+        """An empty array (the default) should validate."""
+        schema = _load_schema()
+        jsonschema.validate(_doc_with_slice_field(serialized_chain_order=[]), schema)
+
+    def test_serialized_chain_order_int_array_is_rejected(self):
+        """Non-string array items should be rejected (items: type string)."""
+        schema = _load_schema()
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(_doc_with_slice_field(serialized_chain_order=[1]), schema)
+
+    def test_serialized_chain_order_comma_string_is_rejected(self):
+        """The comma-string form the parser tolerates is rejected by the schema.
+
+        The schema is prescriptive: it teaches only the canonical array
+        shape even though the lenient parser also accepts a comma-separated
+        string.
+        """
+        schema = _load_schema()
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(
+                _doc_with_slice_field(serialized_chain_order="slice-1,slice-2"), schema
+            )
+
+
+@pytest.mark.skipif(
+    jsonschema is None or parse_yaml_code_fence is None,
+    reason="jsonschema/pyyaml not installed",
+)
 class TestPlanTemplateValidatesAgainstSchema:
     """Regression guard: the shipped plan template must satisfy the schema.
 
     PR #2779 surfaced that the schema rejected docs/templates/plan.md. This
-    test extracts the '# yaml-tasks' block from the template and validates it
-    end-to-end so the schema and the template cannot drift apart again.
+    test extracts the literal '# yaml-tasks' fenced block from the template
+    — using the production fence extractor, so it cannot drift from the real
+    parsing path — and validates it against the schema. The guarantee is
+    scoped to the literal block: fields documented only in the template
+    *prose* (e.g. 'serialized_chain_order', the 'depends_on' alias) are not
+    present in the block and are covered by the dedicated schema tests above.
     """
 
     def test_plan_template_yaml_tasks_block_validates(self):
         if not PLAN_TEMPLATE_PATH.exists():
             pytest.skip("plan template not found")
         schema = _load_schema()
-        match = _YAML_TASKS_FENCE_RE.search(PLAN_TEMPLATE_PATH.read_text())
-        assert match, "no '# yaml-tasks' fenced block found in docs/templates/plan.md"
-        doc = yaml.safe_load(match.group(1))
+        doc, _, _ = parse_yaml_code_fence(PLAN_TEMPLATE_PATH.read_text())
+        assert doc is not None, "no '# yaml-tasks' fenced block found in docs/templates/plan.md"
         jsonschema.validate(doc, schema)

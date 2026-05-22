@@ -92,7 +92,15 @@
         },
         "dependencies": {
           "type": "string",
-          "description": "The single parent slice this slice depends on, written as a 'slice-<N>' id (e.g. 'slice-1'). The slice DAG is a forest, so a slice has at most one parent — this is one id, not a list."
+          "description": "The single parent slice this slice depends on, written as a 'slice-<N>' id (e.g. 'slice-1'). The slice DAG is a forest, so a slice has at most one parent — this is one id, not a list. The parser also tolerates a 'depends_on' alias; that alias is intentionally NOT in this schema, since a prescriptive schema teaches only the canonical key."
+        },
+        "serialized_chain_order": {
+          "type": "array",
+          "description": "When a would-be multi-parent slice is serialised into a chain (the slice DAG must be a forest), the chosen upstream order recorded as 'slice-<N>' ids (#2137). The parser also tolerates a comma-separated string, but an array is the canonical shape.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         },
         "exit_criteria": {
           "type": "string",
