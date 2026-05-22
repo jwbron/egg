@@ -8,7 +8,496 @@
   "pipeline_id": "issue-2769",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Gateway upstream router + LiteLLM Deployment (no-op by default)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Introduce `gateway/upstream_registry.py` (NEW) containing\nan `UpstreamRegistry` class keyed by upstream name\n(`\"anthropic\"`, `\"litellm\"`). Each registry entry pairs a\nsingleton `httpx.Client` (`base_url`, timeout, connection\nlimits) with a credential resolver returning an\n`UpstreamCredential` (the union of today's\n`AnthropicCredential` shape and the new LiteLLM\n`x-api-key` shape). Provide `get(upstream: str)` returning\n`(client, credential_resolver)`, raising a typed\n`UnknownUpstreamError` on miss. Wire it into a\n`get_upstream_registry()` accessor that mirrors today's\n`get_anthropic_client()` lifetime semantics.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `UpstreamRegistry.get(\"anthropic\")` returns a client\n  with `base_url == \"https://api.anthropic.com\"` and the\n  existing Anthropic credential resolver (preserves the\n  `# noqa: EGG200` annotation pattern at\n  `gateway/gateway.py:9325`).\n- `UpstreamRegistry.get(\"litellm\")` returns a client whose\n  `base_url` is sourced from a new\n  `LITELLM_BASE_URL` env var (default\n  `http://litellm.egg-system.svc.cluster.local:4000`) and\n  the LiteLLM credential resolver.\n- `UpstreamRegistry.get(\"unknown\")` raises\n  `UnknownUpstreamError`.\n- Both clients share the same timeout / pooling\n  characteristics as today's `_anthropic_client`.",
+          "files_affected": [
+            "gateway/upstream_registry.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add a LiteLLM credential resolver to\n`gateway/anthropic_credentials.py` (or a sibling module if\nfile-size discipline requires it). The resolver reads\n`LITELLM_MASTER_KEY` from `secrets.env` using the existing\n`parse_env_file` helper at\n`gateway/anthropic_credentials.py:52`, caches with the\nsame mtime-invalidated pattern as\n`AnthropicCredentialsManager`, and returns a credential\nshaped `header_name=\"x-api-key\"`,\n`header_value=\"<key>\"`. Returns `None` when the key is\nabsent (no-op default \u2014 matches today's behavior when\nAnthropic credentials are absent).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- With `LITELLM_MASTER_KEY` unset, the resolver returns\n  `None` and does not warn at startup.\n- With `LITELLM_MASTER_KEY=foo`, the resolver returns a\n  credential with `header_name == \"x-api-key\"` and\n  `header_value == \"foo\"`.\n- `secrets.env` mtime change invalidates the cache the\n  same way `AnthropicCredentialsManager` does.",
+          "files_affected": [
+            "gateway/anthropic_credentials.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Make `_inject_anthropic_credentials` upstream-aware\n(rename to `_inject_upstream_credentials(headers,\nupstream)` and keep the old symbol as a back-compat alias\ncalling through with `upstream=\"anthropic\"`). Dispatch to\nthe LiteLLM credential resolver when\n`upstream == \"litellm\"`. Preserve the 401 / \"no credential\"\nerror path verbatim for both.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `_inject_upstream_credentials(headers, \"anthropic\")`\n  behaves byte-identically to today's\n  `_inject_anthropic_credentials(headers)`.\n- `_inject_upstream_credentials(headers, \"litellm\")` adds\n  `x-api-key: <LITELLM_MASTER_KEY>` when the key is set.\n- Missing credentials for either upstream return a 401\n  with the same JSON body shape as today.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add `upstream: str = \"anthropic\"` and\n`upstream_model: str | None = None` to the `Session`\ndataclass at `gateway/session_manager.py:288`. Plumb them\nthrough `Session.to_dict_for_persistence` /\n`Session.from_persistence` so existing persisted sessions\nwithout the fields still load (defaults apply). Extend\n`SessionManager.register_session` (`gateway/session_manager.py:548`)\nto accept the two new optional parameters.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A `Session` created without the new fields keeps\n  `upstream == \"anthropic\"` and `upstream_model is None`.\n- `Session.to_dict_for_persistence` /\n  `Session.from_persistence` round-trip both fields\n  losslessly and tolerate persisted dicts where the fields\n  are absent.\n- `SessionManager.register_session(upstream=\"litellm\",\n  upstream_model=\"qwen3-coder-30b\")` stores both on the\n  returned `Session`.",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-5",
+          "description": "Wire `upstream` and `upstream_model` through the\n`/api/v1/sessions/create` route handler at\n`gateway/gateway.py:8507` (parse from request body with\ntheir defaults, validate that `upstream` is one of the\nregistered names from `UpstreamRegistry`, pass through to\n`SessionManager.register_session`). Log them in the\nexisting `audit_log(\"session_created\", ...)` call so the\nper-session upstream is auditable.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- POSTing to `/api/v1/sessions/create` without the new\n  fields creates a session with\n  `upstream=\"anthropic\"` and `upstream_model is None`.\n- POSTing with `upstream=\"litellm\",\n  upstream_model=\"qwen3-coder-30b\"` creates a session\n  with those values.\n- POSTing with `upstream=\"bogus\"` returns a 400 with a\n  descriptive error.\n- `session_created` audit log includes the upstream and\n  upstream_model.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Refactor `proxy_anthropic_messages` (gateway/gateway.py:9753)\nand `proxy_count_tokens` (gateway/gateway.py:10020) to\nresolve the upstream per request: replace\n`client = get_anthropic_client()` with the registry lookup\nusing `session.upstream` (defaulting to `\"anthropic\"` when\nthere is no session \u2014 preserves today's behavior).\nReplace `_inject_anthropic_credentials(headers)` calls\nwith `_inject_upstream_credentials(headers,\nsession.upstream)`. Keep the SSE accumulator, tool-filter,\nand stream-resilience retry loop unchanged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A request whose session has `upstream == \"anthropic\"`\n  (or no session) hits the Anthropic httpx client and\n  injects the Anthropic credential \u2014 byte-identical to\n  today.\n- A request whose session has `upstream == \"litellm\"`\n  hits the LiteLLM client and injects the LiteLLM\n  credential.\n- `_filter_blocked_tools`, the `_SSEAccumulator` parse,\n  and the connection-reset retry loop are unchanged in\n  behavior and code shape (no new branches inside any of\n  them).\n- `proxy_count_tokens` mirrors the same routing change.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-7",
+          "description": "Extend `GatewayClient.register_session` at\n`orchestrator/gateway_client.py:602` with optional\n`upstream: str | None = None` and `upstream_model: str |\nNone = None` parameters. Include them in `request_data`\nonly when set (matches the existing optional-field\npattern at `gateway_client.py:653-690`). No caller in\nslice 1 passes them; this is purely the wire-shape.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `GatewayClient.register_session(...)` without the new\n  args produces the same request body as today.\n- `GatewayClient.register_session(upstream=\"litellm\",\n  upstream_model=\"qwen3-coder-30b\")` includes both keys\n  in the POSTed JSON.",
+          "files_affected": [
+            "orchestrator/gateway_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-8",
+          "description": "Add k8s manifests for the LiteLLM proxy:\n`k8s/base/litellm-deployment.yaml`,\n`k8s/base/litellm-service.yaml`, and\n`k8s/base/litellm-configmap.yaml`. Deployment runs a\npinned LiteLLM image in `egg-system`, mounts the ConfigMap\nat `/app/config.yaml`, exposes port `4000` (LiteLLM's\ndefault). Service is `ClusterIP` named `litellm`. ConfigMap\nships with an EMPTY `model_list` so the deployment comes\nup healthy but serves nothing until operators populate it.\nAdd all three to `k8s/base/kustomization.yaml`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `kubectl apply --dry-run=client -k k8s/base/` succeeds\n  with the new resources included.\n- The LiteLLM Service resolves to\n  `litellm.egg-system.svc.cluster.local:4000`, which\n  matches the default `LITELLM_BASE_URL` baked into\n  `UpstreamRegistry`.\n- No NetworkPolicy change to `egg-agents` egress \u2014\n  agents do not talk to LiteLLM directly.",
+          "files_affected": [
+            "k8s/base/litellm-deployment.yaml",
+            "k8s/base/litellm-service.yaml",
+            "k8s/base/litellm-configmap.yaml",
+            "k8s/base/kustomization.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-9",
+          "description": "Document `LITELLM_MASTER_KEY` in\n`config/secrets.template.env` (one block below the\n`ANTHROPIC_API_KEY` block, with an explicit \"leave empty\nto disable LiteLLM routing \u2014 no agent will be routed to\nLiteLLM with this unset\" comment).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `config/secrets.template.env` contains a documented\n  `LITELLM_MASTER_KEY=\"\"` entry with the disable-when-empty\n  note.",
+          "files_affected": [
+            "config/secrets.template.env"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-10",
+          "description": "Write unit tests covering the slice 1 gateway-side changes:\n`tests/gateway/test_upstream_registry.py` (new, covering\nthe three registry cases \u2014 anthropic, litellm, unknown),\nextensions to `tests/gateway/test_anthropic_credentials.py`\n(LiteLLM resolver path), and extensions to\n`tests/gateway/test_anthropic_proxy.py` (the two routing\nbranches for both proxy routes).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `make test` reaches and passes the new + extended\n  tests.\n- Coverage includes the unknown-upstream error path, the\n  \"no credential\" 401 path for both upstreams, and a\n  byte-identity check for the Anthropic-routed request\n  shape vs today.",
+          "files_affected": [
+            "tests/gateway/test_upstream_registry.py",
+            "tests/gateway/test_anthropic_proxy.py",
+            "tests/gateway/test_anthropic_credentials.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-11",
+          "description": "Write unit tests covering the slice 1 session-manager and\norchestrator-client changes: extensions to\n`gateway/tests/test_session_manager.py` (round-trip the\ntwo new fields, register_session with defaults, register\nwith explicit LiteLLM values) and to\n`orchestrator/tests/test_gateway_client.py` (omitted args\n\u2192 no new keys in body, explicit args \u2192 keys present).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All tests pass under `make test`.\n- The session-persistence test verifies a dict missing\n  the new keys still rehydrates cleanly (back-compat\n  guard).",
+          "files_affected": [
+            "gateway/tests/test_session_manager.py",
+            "orchestrator/tests/test_gateway_client.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-12",
+          "description": "Author a new architecture doc\n`docs/architecture/upstream-routing.md` describing the\n`UpstreamRegistry` seam, the LiteLLM topology, the\nper-session routing decision, the credential layout, and\nthe cq-1 / cq-2 / cq-5 / cq-7 / cq-8 resolutions that\nshape it. Cross-link from `gateway/CLAUDE.md` and\n`docs/architecture/orchestrator.md`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The doc names every primitive added in slice 1 with a\n  `file:line` cite, explains the no-op-by-default\n  invariant, and walks through the request lifecycle for\n  both upstreams.\n- `gateway/CLAUDE.md` and\n  `docs/architecture/orchestrator.md` link to it.",
+          "files_affected": [
+            "docs/architecture/upstream-routing.md",
+            "gateway/CLAUDE.md",
+            "docs/architecture/orchestrator.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Per-agent model config + spawn-side plumbing + body rewrite",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add `agent_models: dict[str, str] = Field(default_factory=dict, ...)`\nto `PipelineConfig` (orchestrator/models.py:405). Validate\nkeys against the `AgentRole` enum at\n`shared/egg_contracts/agent_roles.py:46` via a Pydantic\nvalidator: unknown roles raise a typed config error at\nconstruction time. Values are free-form strings (validated\ndownstream by the resolver in TASK-2-3).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `PipelineConfig(agent_models={\"refiner\": \"qwen3-coder-30b\"})`\n  constructs successfully.\n- `PipelineConfig(agent_models={\"bogus_role\": \"x\"})` raises\n  a Pydantic validation error citing the unknown role.\n- Default-constructed `PipelineConfig.agent_models` is an\n  empty dict (no behavioral change for existing pipelines).",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add a `default_agent_model: str | None` field to the\n`repositories.yaml` schema (documented in\n`config/repositories.yaml.example`) and expose it via a new\n`get_default_agent_model(repo)` helper in\n`config/repo_config.py` (mirroring the\n`get_repo_setting(repo, key, default)` pattern at\n`config/repo_config.py:248`).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `get_default_agent_model(\"owner/repo\")` returns the\n  configured value when set in `repositories.yaml`, or\n  `None` when absent.\n- `config/repositories.yaml.example` shows the new field\n  in context with an inline comment naming the precedence\n  rule (per-pipeline `agent_models` > this default >\n  built-in `\"opus\"`).",
+          "files_affected": [
+            "config/repo_config.py",
+            "config/repositories.yaml.example"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "New module `orchestrator/agent_model_resolution.py`\nexporting `resolve_agent_model(role: AgentRole,\npipeline_config: PipelineConfig, repo: str | None) ->\nAgentModelDecision`, where `AgentModelDecision` is a small\ndataclass with fields `(claude_code_alias: str, upstream:\nstr, upstream_model: str | None)`. Precedence:\n`pipeline_config.agent_models.get(role.value)` \u2192\n`get_default_agent_model(repo)` \u2192 built-in `\"opus\"`.\nClassifier: model strings matching `opus`, `opus[1m]`,\n`sonnet`, `haiku`, or `claude-*` map to\n`upstream=\"anthropic\"`, `claude_code_alias=<model>`,\n`upstream_model=None`. Every other string maps to\n`upstream=\"litellm\"`, `claude_code_alias=\"opus\"` (cq-5\nmitigation), `upstream_model=<model>`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `resolve_agent_model(AgentRole.CODER, default_config, None)`\n  returns\n  `(claude_code_alias=\"opus\", upstream=\"anthropic\",\n  upstream_model=None)`.\n- `resolve_agent_model(AgentRole.REFINER,\n  PipelineConfig(agent_models={\"refiner\": \"qwen3-coder-30b\"}),\n  None)` returns\n  `(claude_code_alias=\"opus\", upstream=\"litellm\",\n  upstream_model=\"qwen3-coder-30b\")`.\n- `resolve_agent_model(...)` with only\n  `default_agent_model=\"sonnet\"` set on the repo returns\n  `(claude_code_alias=\"sonnet\",\n  upstream=\"anthropic\", upstream_model=None)`.\n- Per-pipeline `agent_models` entry overrides repo-level\n  `default_agent_model`.",
+          "files_affected": [
+            "orchestrator/agent_model_resolution.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "Thread the resolved decision through the initial spawn\npath: `orchestrator/concurrent_executor.py:454` calls\n`resolve_agent_model(role, ...)` and passes\n`model=decision.claude_code_alias` to\n`build_consensus_wrapped_command`. The same site passes\n`upstream=decision.upstream` and\n`upstream_model=decision.upstream_model` to the\ndownstream spawn helper that ultimately reaches\n`GatewayClient.register_session` (the existing call at\n`orchestrator/kubernetes_spawner.py:735`). When the\ndecision is the default-Anthropic case, the new\nregister_session kwargs are omitted (no wire change vs\ntoday).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- With `PipelineConfig.agent_models == {}`, the spawn\n  path produces the same `build_consensus_wrapped_command`\n  args and the same `register_session` payload as before\n  this slice (regression guard).\n- With `agent_models={\"refiner\": \"qwen3-coder-30b\"}`,\n  the refiner spawn passes `--model opus` to the wrapper\n  and `upstream=\"litellm\",\n  upstream_model=\"qwen3-coder-30b\"` to the gateway.",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py",
+            "orchestrator/kubernetes_spawner.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-5",
+          "description": "Thread the resolved decision through the restart path at\n`orchestrator/routes/pipelines.py:2704`. Same shape as\nTASK-2-4 \u2014 resolve, pass `model=` to\n`build_consensus_wrapped_command`, ensure the surrounding\nrestart code reuses the existing session (already\nregistered with the right upstream).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Restarting an agent whose pipeline has a non-default\n  `agent_models` entry uses the resolved Claude alias for\n  the `--model` flag.\n- Restarting an agent on the default Claude path is\n  byte-identical to today.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add `_rewrite_upstream_model(request_body, upstream_model)`\nnext to `_filter_blocked_tools` in `gateway/gateway.py`.\nOn LiteLLM-routed requests with `session.upstream_model`\nset, the helper parses the JSON body, replaces the\ntop-level `\"model\"` field with `session.upstream_model`,\nand returns the re-serialized body. On parse error or\nwhen `upstream_model is None`, the body is returned\nunchanged. Call it in `proxy_anthropic_messages` and\n`proxy_count_tokens` AFTER `_filter_blocked_tools` and\nBEFORE building the upstream request.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- With `upstream == \"litellm\"` and\n  `upstream_model == \"qwen3-coder-30b\"`, the body\n  forwarded upstream has `\"model\":\n  \"qwen3-coder-30b\"` regardless of the incoming\n  `\"model\"` value.\n- With `upstream == \"anthropic\"`, the body is\n  byte-identical to the incoming body (regression\n  guard).\n- Invalid JSON returns the original body unchanged (does\n  not crash the proxy).",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-7",
+          "description": "Unit tests for the resolver and the spawn-side wiring:\n`orchestrator/tests/test_agent_model_resolution.py` (new)\ncovering precedence + classifier; extensions to the\nexisting concurrent-executor and restart-path test\nmodules (`orchestrator/tests/test_concurrent_executor.py`\nor its current equivalent, plus a new or extended\npipeline-restart test) that mock the spawner and assert\nthe resolved `--model` and the `register_session` kwargs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All new and extended tests pass under `make test`.\n- Tests assert the cq-5 mitigation explicitly: the\n  Claude-Code-facing alias for a LiteLLM-routed agent is\n  always `\"opus\"`, never the upstream model name.\n- Default-`agent_models` path is exercised as the\n  regression guard (no register_session kwargs added; no\n  `--model` change).",
+          "files_affected": [
+            "orchestrator/tests/test_agent_model_resolution.py",
+            "orchestrator/tests/test_concurrent_executor.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-8",
+          "description": "Extend `tests/gateway/test_anthropic_proxy.py` with the\nbody-rewrite branch: with a LiteLLM session whose\n`upstream_model` is set, the request body forwarded\nupstream has the rewritten `model` field; with an\nAnthropic session, the body is byte-identical. Also test\nthe invalid-JSON path through `_rewrite_upstream_model`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests pass under `make test`.\n- The byte-identical-Claude-path assertion uses a\n  non-default incoming model value (e.g.\n  `\"opus\"`) and confirms it survives unchanged when\n  `upstream == \"anthropic\"`.",
+          "files_affected": [
+            "tests/gateway/test_anthropic_proxy.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-9",
+          "description": "Write a how-to doc `docs/guides/per-agent-models.md`\ncovering: setting `agent_models` per pipeline; setting\n`default_agent_model` per repository in\n`repositories.yaml`; the precedence rule; the cq-5\nrecognised-alias presented-to-Claude-Code mitigation;\nthe operator smoke test (live LiteLLM endpoint, the\ncq-4-deferred validation). Cross-link from\n`docs/index.md` and the new\n`docs/architecture/upstream-routing.md`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The guide names every primitive added in slice 2 with\n  a `file:line` cite (resolver, config field, repo\n  helper, body-rewrite helper).\n- It walks an operator through enabling Qwen for the\n  refiner role end-to-end without modifying source code.\n- `docs/index.md` and\n  `docs/architecture/upstream-routing.md` link to it.",
+          "files_affected": [
+            "docs/guides/per-agent-models.md",
+            "docs/index.md",
+            "docs/architecture/upstream-routing.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
@@ -386,6 +875,18 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Leave it: Claude defaults keep `opus[1m]`; only non-Claude paths use a different model string. The `[1m]` is harmless on the Claude path \u2014 zero risk to existing behavior\"}",
       "resolved_by": "human",
       "resolved_at": "2026-05-22T03:16:24.226176Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Hosted Qwen provider first; no settled self-hosted hardware/budget yet \u2014 the plan should anchor on a hosted provider, not a specific GPU/vLLM/SGLang setup. Self-hosted vLLM is a later target.\", \"Q2\": \"Open-ended \u2014 no fixed target list of roles. The integration just needs to make any agent role independently selectable; which roles move to non-Claude is decided later. The first flip proves the seam.\", \"Q3\": \"Keep a clean swap-out point \u2014 design a thin UpstreamRouter/Registry abstraction so LiteLLM can be replaced if it hits a maintenance/supply-chain problem (the March 2026 PyPI incident is recent).\", \"Q4\": \"Defer to a follow-up \u2014 do not extend max_llm_cost_per_hour cost tracking to LiteLLM/Qwen token pricing in this issue.\", \"Q5\": \"No blocking compliance/data-residency constraint \u2014 code and transcripts may transit a hosted Qwen provider. The cq-6 hosted-provider choice stands.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-22T03:17:51.422450Z",
       "debounce_until": null
     }
   ],
@@ -930,7 +1431,17 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Add per-agent non-Claude model support via LiteLLM proxy",
+    "description": "Today every egg SDLC agent runs on Claude through the Claude Code\nharness, with the gateway hard-wiring `api.anthropic.com` as the\nonly `/v1/messages` upstream. The orchestrator's consensus wrapper\nhardcodes `--model opus` for every non-overseer role, so per-agent\nmodel selection does not exist. We need to let any agent run on a\nnon-Claude backend (Qwen is the first target, primarily for cost)\nwhile every Claude-bound agent stays byte-identically on the\nexisting path \u2014 and we need the integration to be safe to ship\nbefore a live non-Claude endpoint is available.\n\nThis change lands the buildable, no-op-by-default seam in two\nstacked PRs:\n\n1. **Gateway upstream router + LiteLLM Deployment (slice 1).**\n   Introduces a small `UpstreamRegistry` abstraction in the\n   gateway that keys per-request `httpx.Client` + credential by\n   upstream name, with `proxy_anthropic_messages` /\n   `proxy_count_tokens` resolving the upstream per request via\n   the existing IP-keyed session lookup that already drives\n   `session_mode`. Adds `Session.upstream` (default `\"anthropic\"`)\n   and `Session.upstream_model` (default `None`), wired through\n   `/api/v1/sessions/create`, `SessionManager.register_session`,\n   and `GatewayClient.register_session`. The LiteLLM proxy itself\n   ships as a separate Deployment + Service + ConfigMap in\n   `egg-system`, reachable only by the gateway. The Claude path\n   is structurally untouched.\n2. **Per-agent model config + spawn-side plumbing (slice 2).**\n   Adds `PipelineConfig.agent_models: dict[str, str]` and a\n   `default_agent_model` repository-level setting, plus a\n   resolution function that the orchestrator's spawner calls to\n   (a) thread the right `--model` to `build_consensus_wrapped_command`\n   and (b) tell the gateway the per-agent `upstream` and\n   `upstream_model` at session-create time. The gateway, on a\n   LiteLLM-routed request, rewrites the body's `model` field\n   from the Claude alias presented to Claude Code to the\n   upstream-side model name \u2014 keeping Claude Code's compaction\n   math sane (cq-5).\n\nWith `agent_models` empty (the default everywhere), no LiteLLM\nrequest fires. Every existing pipeline keeps running on Claude\nwith byte-identical gateway behavior. The empirical\nClaude-Code-compaction smoke test (cq-4) is an operator-driven\nfollow-up once a live non-Claude endpoint is configured; it is\nexplicitly out of scope here.",
+    "test_plan": "Automated:\n- `make test` from the repo root catches both slices' reachable\n  suites given the changeset.\n- Slice 1: `tests/gateway/test_upstream_registry.py` (new),\n  extensions to `tests/gateway/test_anthropic_proxy.py`,\n  `tests/gateway/test_anthropic_credentials.py`,\n  `gateway/tests/test_session_manager.py`,\n  `orchestrator/tests/test_gateway_client.py`.\n- Slice 2: `orchestrator/tests/test_agent_model_resolution.py`\n  (new), extensions to the concurrent-executor and\n  pipeline-spawn tests, extensions to the gateway proxy tests\n  covering the body-rewrite branch.\n\nManual (reviewer):\n- Confirm `make test` and `make lint` are green.\n- `kubectl apply --dry-run=client -k k8s/base/` succeeds with\n  the new LiteLLM manifests included.\n- Spot-check that with `agent_models={}` and no\n  `LITELLM_MASTER_KEY` in secrets, gateway request flow is\n  byte-identical to today's Claude path (no new headers, no\n  upstream change, same SSE behavior).\n\nManual (operator, post-merge \u2014 not gating merge):\n- Populate `LITELLM_MASTER_KEY` in `secrets.env`, configure\n  LiteLLM `model_list` with a hosted Qwen provider (cq-6), set\n  `agent_models={\"refiner\": \"qwen3-coder-30b\"}` on a pipeline,\n  and exercise a tool-heavy multi-turn loop plus a long session\n  crossing the auto-compaction boundary (the cq-4-deferred\n  empirical compatibility check).",
+    "manual_steps": "Pre-merge: none.\n\nPost-merge (only required when operator wants to actually run an\nagent on a non-Claude backend):\n1. Add `LITELLM_MASTER_KEY=<random>` to `~/.config/egg/secrets.env`.\n2. Populate the LiteLLM ConfigMap `model_list` with at least one\n   backend (hosted Qwen provider first, per cq-6). The\n   provider-side API key goes in LiteLLM's standard env-var slot,\n   not in `secrets.env`.\n3. Either set `default_agent_model` in\n   `~/.config/egg/repositories.yaml` for the target repo, or\n   pass `agent_models={\"<role>\": \"<model>\"}` on pipeline submit\n   to override per pipeline.",
+    "context_title": null,
+    "context_description": null,
+    "context_branch": null,
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": {
     "id": "feedback-1",
     "phase": "refine",
