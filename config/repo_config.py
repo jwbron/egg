@@ -307,6 +307,35 @@ def should_disable_auto_fix(repo: str) -> bool:
     return cast(bool, get_repo_setting(repo, "disable_auto_fix", False))
 
 
+def get_default_agent_model(repo: str) -> str | None:
+    """Return the repository-level default agent model, or ``None`` when unset.
+
+    This is the second tier of the per-agent model resolution precedence
+    (see ``orchestrator/agent_model_resolution.py``):
+
+    1. ``PipelineConfig.agent_models[role]`` (per-pipeline override)
+    2. ``repositories.yaml`` ``default_agent_model`` (this helper)
+    3. Built-in ``"opus"`` default
+
+    The value follows the same classifier as ``agent_models``: a recognised
+    Claude alias (``opus``, ``opus[1m]``, ``sonnet``, ``haiku``,
+    ``claude-*``) routes through the Anthropic upstream, anything else
+    routes through the in-cluster LiteLLM proxy with the alias ``"opus"``
+    presented to Claude Code (cq-5 mitigation).
+
+    Args:
+        repo: Repository in "owner/repo" format
+
+    Returns:
+        The configured model string, or ``None`` when the repo has no
+        per-repo entry or the entry omits ``default_agent_model``.
+    """
+    value = get_repo_setting(repo, "default_agent_model", None)
+    if value is None:
+        return None
+    return cast(str, value)
+
+
 try:
     from egg_config.validators import validate_checks
 except ImportError:

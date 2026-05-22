@@ -22,6 +22,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
+| [Upstream Routing](architecture/upstream-routing.md) | `UpstreamRegistry` gateway seam for per-agent non-Claude backends, LiteLLM topology in `egg-system`, per-session routing decision, credential layout, and the no-op-by-default invariant ([#2769](https://github.com/jwbron/egg/issues/2769)) |
 | [Kubernetes Migration](architecture/kubernetes-migration.md) | Docker to k8s (k3s) migration: architecture, network isolation, developer workflow |
 | [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 | [Slice-DAG Implement Phase](architecture/slice-dag.md) | `Phase` → `Slice` schema rename, forest validation, slice scheduler (waves, two-tier `max_cycles`, failure cascade), stacked-PR reconciler, per-slice branches and BRC trackers |
@@ -58,6 +59,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
 | [File Decomposition Pattern](guides/decomposition-pattern.md) | Canonical sub-package + explicit re-export barrel pattern for decomposing oversize Python files under the `scripts/file-size-allowlist.yaml` cap; covers conversion mechanics, method-modules-on-class shape, audit recipe, allowlist rebase, and routes-handling convention |
+| [Per-Agent Models](guides/per-agent-models.md) | Operator guide for flipping a single agent role to a non-Claude model via the LiteLLM proxy: `PipelineConfig.agent_models` + `default_agent_model` precedence, the `resolve_agent_model` classifier, the gateway-side `_rewrite_upstream_model` helper, the recognized-alias compaction mitigation (cq-5), and the end-to-end Qwen smoke test ([#2769](https://github.com/jwbron/egg/issues/2769)) |
 
 ### Deploy
 
@@ -148,6 +150,7 @@ Each major component has detailed documentation:
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
+| **Running a single agent on a non-Claude model** | [Per-Agent Models](guides/per-agent-models.md) | [Upstream Routing](architecture/upstream-routing.md), [Agent Roles](reference/agent-roles.md), `orchestrator/agent_model_resolution.py` |
 
 ## Quick Navigation
 
