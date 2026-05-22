@@ -1045,8 +1045,12 @@ class GatewayClient:
         agent-targeted pipeline-push enforcement (#2028, #2051).
 
         When ``ref`` is ``None`` (default), pushes the worktree's current
-        ``HEAD`` — used when ``repo_path`` is a worktree checked out to
-        ``branch``. On non-fast-forward rejection, performs
+        ``HEAD`` via ``HEAD:refs/heads/{branch}`` — used when ``repo_path``
+        is a dedicated pipeline worktree. The worktree's ``HEAD`` may be on
+        ``branch`` or detached (the per-slice BRC hook adds its worktree
+        with ``--detach``, #2778); the refspec names the destination
+        branch explicitly, so a branch checked out at ``repo_path`` is not
+        required. On non-fast-forward rejection, performs
         ``git fetch origin`` + ``git rebase origin/{branch}`` in the
         worktree (with ``.egg-state/agent-outputs/`` auto-resolve) and
         retries the push once.
