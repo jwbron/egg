@@ -282,10 +282,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Where should AC, BL, OQ, and R records live relative to the slice/task scope? The spec describes them as top-level `##` sections, but egg today also surfaces (a) refine-phase Open Questions registered with `egg-contract add-decision` / `add-feedback` and (b) plan-phase risk_analyst output as a sibling JSON.",
+      "context": "Open contract question cq-6, registered by an agent during the refine phase.",
+      "options": [
+        "The plan document’s `## Acceptance Criteria` / `## Blockers` / `## Open Questions` are the single source of truth for the plan phase; refine-phase HITL decisions feed into them but are not the same records, and `risk_analyst-output.json` is rolled up into `## Impact & Risk` `R-<n>` records by `task_planner`",
+        "Carry refine-phase HITL decisions forward as OQ records on the plan document (with their resolution status), so the operator sees pending refine decisions on the plan-HITL gate too",
+        "Keep records strictly in the plan document and drop the sibling JSON artifacts (`risk_analyst-output.json`, `egg-contract` decisions in refine) once the plan is produced",
+        "Mirror records bidirectionally between the plan markdown and the contract JSON; the JSON is the authority for downstream consumers",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:37.057537Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:37.018159Z",
+  "updated_at": "2026-05-22T01:00:37.064898Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -298,7 +318,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
