@@ -34,7 +34,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
+        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import sudo-keepalive
 
 # Default target
 help:
@@ -541,14 +541,31 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
 	@echo "Deployment complete"
 
-redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
+redeploy: sudo-keepalive build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
 
-k3s-import:  ## Import built images into k3s
-	docker save egg-gateway:latest | sudo k3s ctr images import -
-	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
-	docker save egg-orchestrator:latest | sudo k3s ctr images import -
-	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
-	docker save egg-sandbox:latest | sudo k3s ctr images import -
+# Prompt for the sudo password immediately so `make redeploy` can be left
+# unattended through the long `build` step. A detached background loop refreshes
+# the credential cache every 60s; it stops within ~60s of this make run exiting,
+# and is hard-capped at 120 iterations (~2h) so a recycled make PID cannot keep
+# it alive indefinitely. Its standard streams are redirected away from make's so
+# it never holds make's output pipe open past make's own exit.
+sudo-keepalive:
+	@sudo -v
+	@make_pid=$$PPID; \
+	( i=0; while [ $$i -lt 120 ] && kill -0 "$$make_pid" 2>/dev/null; do \
+		sudo -n -v 2>/dev/null; sleep 60; i=$$((i + 1)); \
+	done ) >/dev/null 2>&1 </dev/null &
+
+# Run this recipe under bash: `set -o pipefail` is a bash builtin and aborts
+# immediately under dash (the default /bin/sh on Debian/Ubuntu).
+k3s-import: SHELL := /bin/bash
+k3s-import: sudo-keepalive  ## Import built images into k3s
+	@set -o pipefail; \
+	docker save egg-gateway:latest | sudo k3s ctr images import - && \
+	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
+	docker save egg-orchestrator:latest | sudo k3s ctr images import - && \
+	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
+	docker save egg-sandbox:latest | sudo k3s ctr images import - && \
 	docker save egg-sandbox:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
 
 k3s-teardown:  ## Remove k3s
