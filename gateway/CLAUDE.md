@@ -4,6 +4,7 @@ Policy-enforcement sidecar that sits between agents and GitHub. Validates git/gh
 
 - **[README.md](README.md)** — architecture, policy rules, configuration
 - **[../docs/index.md](../docs/index.md)** — full documentation index
+- **[../docs/architecture/upstream-routing.md](../docs/architecture/upstream-routing.md)** — `UpstreamRegistry` seam, LiteLLM topology, per-session routing decision, and the no-op-by-default invariant for non-Claude agent backends ([#2769](https://github.com/jwbron/egg/issues/2769))
 
 ## Testing
 
