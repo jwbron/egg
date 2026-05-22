@@ -22,6 +22,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
+| [Upstream Routing](architecture/upstream-routing.md) | `UpstreamRegistry` gateway seam for per-agent non-Claude backends, LiteLLM topology in `egg-system`, per-session routing decision, credential layout, and the no-op-by-default invariant ([#2769](https://github.com/jwbron/egg/issues/2769)) |
 | [Kubernetes Migration](architecture/kubernetes-migration.md) | Docker to k8s (k3s) migration: architecture, network isolation, developer workflow |
 | [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 | [Slice-DAG Implement Phase](architecture/slice-dag.md) | `Phase` → `Slice` schema rename, forest validation, slice scheduler (waves, two-tier `max_cycles`, failure cascade), stacked-PR reconciler, per-slice branches and BRC trackers |
