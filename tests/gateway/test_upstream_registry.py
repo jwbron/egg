@@ -47,7 +47,7 @@ def _reset_upstream_registry(monkeypatch):
     ``gateway/anthropic_credentials.py:226``.
     """
     try:
-        from upstream_registry import reset_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import reset_upstream_registry
     except ImportError:  # pragma: no cover — coder will land the module
         pytest.skip("upstream_registry not yet implemented (waiting on coder commit)")
     reset_upstream_registry()
@@ -59,7 +59,7 @@ class TestUpstreamRegistryAnthropic:
     """``UpstreamRegistry.get("anthropic")`` keeps today's behavior."""
 
     def test_anthropic_returns_client_with_anthropic_base_url(self):
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         client, _credential_resolver = registry.get("anthropic")
@@ -72,7 +72,7 @@ class TestUpstreamRegistryAnthropic:
     def test_anthropic_credential_resolver_is_anthropic(self):
         """Anthropic upstream uses the existing AnthropicCredentialsManager."""
         from anthropic_credentials import AnthropicCredentialsManager
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         _client, credential_resolver = registry.get("anthropic")
@@ -94,7 +94,7 @@ class TestUpstreamRegistryLiteLLM:
         """When LITELLM_BASE_URL is unset, defaults to the cluster Service DNS."""
         monkeypatch.delenv("LITELLM_BASE_URL", raising=False)
         # Force re-import so the module-level default re-reads the env.
-        from upstream_registry import (  # type: ignore[import-not-found]
+        from upstream_registry import (
             get_upstream_registry,
             reset_upstream_registry,
         )
@@ -113,7 +113,7 @@ class TestUpstreamRegistryLiteLLM:
         # Re-import upstream_registry to pick up new env var
         if "upstream_registry" in sys.modules:
             importlib.reload(sys.modules["upstream_registry"])
-        from upstream_registry import (  # type: ignore[import-not-found]
+        from upstream_registry import (
             get_upstream_registry,
             reset_upstream_registry,
         )
@@ -126,7 +126,7 @@ class TestUpstreamRegistryLiteLLM:
     def test_litellm_credential_resolver_is_litellm(self):
         """LiteLLM upstream uses the LiteLLM credential resolver, not Anthropic."""
         from anthropic_credentials import AnthropicCredentialsManager
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         _client, credential_resolver = registry.get("litellm")
@@ -140,7 +140,7 @@ class TestUpstreamRegistryUnknown:
     """Unknown upstream names raise a typed error."""
 
     def test_unknown_upstream_raises_typed_error(self):
-        from upstream_registry import (  # type: ignore[import-not-found]
+        from upstream_registry import (
             UnknownUpstreamError,
             get_upstream_registry,
         )
@@ -152,7 +152,7 @@ class TestUpstreamRegistryUnknown:
     def test_unknown_upstream_error_names_the_upstream(self):
         """The error message should name the offending upstream so the
         gateway operator can debug a misconfigured session quickly."""
-        from upstream_registry import (  # type: ignore[import-not-found]
+        from upstream_registry import (
             UnknownUpstreamError,
             get_upstream_registry,
         )
@@ -174,7 +174,7 @@ class TestUpstreamRegistryClientSemantics:
         client instance — pooling / connection reuse must not be broken
         by per-request lookup.
         """
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         client_a, _ = registry.get("anthropic")
@@ -184,7 +184,7 @@ class TestUpstreamRegistryClientSemantics:
     def test_litellm_client_is_singleton(self):
         """LiteLLM client is similarly cached so the SSE retry loop's
         pool semantics match the Anthropic path."""
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         client_a, _ = registry.get("litellm")
@@ -195,7 +195,7 @@ class TestUpstreamRegistryClientSemantics:
         """The two upstreams must NOT share an httpx.Client — different
         base_url / credential semantics.
         """
-        from upstream_registry import get_upstream_registry  # type: ignore[import-not-found]
+        from upstream_registry import get_upstream_registry
 
         registry = get_upstream_registry()
         anthropic_client, _ = registry.get("anthropic")
