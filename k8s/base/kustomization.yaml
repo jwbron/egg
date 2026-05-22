@@ -8,4 +8,9 @@ resources:
   - orchestrator-service.yaml
   - gateway-deployment.yaml
   - gateway-service.yaml
+  # LiteLLM proxy (issue #2769) — no-op until operators populate the
+  # ConfigMap's ``model_list``; only the gateway pod calls into it.
+  - litellm-configmap.yaml
+  - litellm-deployment.yaml
+  - litellm-service.yaml
   - network-policies.yaml
