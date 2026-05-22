@@ -89,7 +89,7 @@ class AgentModelDecision:
     upstream_model: str | None
 
 
-def _is_claude_alias(model: str) -> bool:
+def _is_claude_alias(model: str) -> bool:  # noqa: EGG201 - docstring example shows versioned model ID format
     """Return True when *model* is a recognised Claude family alias.
 
     Matches the explicit aliases the Claude Code harness understands
