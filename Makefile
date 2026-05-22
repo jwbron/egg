@@ -544,11 +544,18 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
 
 k3s-import:  ## Import built images into k3s
-	docker save egg-gateway:latest | sudo k3s ctr images import -
-	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
-	docker save egg-orchestrator:latest | sudo k3s ctr images import -
-	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
-	docker save egg-sandbox:latest | sudo k3s ctr images import -
+	@# Prime sudo and refresh it in the background: the long docker-save
+	@# streams between calls can outlast the credential cache otherwise.
+	@sudo -v
+	@set -o pipefail; \
+	( while true; do sudo -n true; sleep 60; kill -0 "$$$$" 2>/dev/null || exit; done ) & \
+	keepalive=$$!; \
+	trap 'kill "$$keepalive" 2>/dev/null' EXIT; \
+	docker save egg-gateway:latest | sudo k3s ctr images import - && \
+	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
+	docker save egg-orchestrator:latest | sudo k3s ctr images import - && \
+	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
+	docker save egg-sandbox:latest | sudo k3s ctr images import - && \
 	docker save egg-sandbox:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
 
 k3s-teardown:  ## Remove k3s
