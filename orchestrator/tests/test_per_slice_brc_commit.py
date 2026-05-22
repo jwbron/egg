@@ -623,6 +623,57 @@ class TestFailureSemantics:
         assert ok is False
         spawner.gateway.push_worktree_branch.assert_not_called()
 
+    def test_worktree_add_is_detached_not_branch_ref(self, tmp_path, pipeline, make_spawner):
+        """Regression for #2778: the hook must add a *detached* worktree,
+        never ``-B <integration_branch>``.
+
+        The slice's own agent worktrees hold the integration branch
+        checked out for the duration of the slice run, and a branch can
+        live in only one linked worktree at a time. ``git worktree add
+        -B <branch>`` raced them and failed with ``fatal: '<branch>' is
+        already used by worktree at ...``, which the hook swallowed as a
+        best-effort no-op — silently dropping the slice PR's BRC
+        transcript. A detached worktree claims no ref, so it coexists
+        with the agent worktrees; the commit is pushed via
+        ``HEAD:refs/heads/<branch>``.
+        """
+        _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
+        spawner = make_spawner()
+        add_cmds: list[list[str]] = []
+
+        def _spy_run(cmd, **kwargs):
+            if "worktree" in cmd and "add" in cmd:
+                add_cmds.append(list(cmd))
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with (
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
+            patch("subprocess.run", _spy_run),
+        ):
+            _commit_slice_brc_history_to_integration_branch(
+                pipeline,
+                spawner,
+                tmp_path,
+                slice_id="slice-1",
+                integration_branch="egg/issue-2548/slice-1",
+            )
+
+        assert add_cmds, "the hook must run `git worktree add`"
+        for cmd in add_cmds:
+            assert "--detach" in cmd, f"worktree add must be detached (#2778); got: {cmd}"
+            assert "-B" not in cmd, (
+                "worktree add must not claim the integration branch ref with "
+                f"-B — it collides with the slice's agent worktrees (#2778); got: {cmd}"
+            )
+            assert "egg/issue-2548/slice-1" not in cmd, (
+                "the bare integration branch name must not be a `git worktree "
+                f"add` argument — only ``origin/<branch>`` as the commit-ish (#2778); got: {cmd}"
+            )
+
     def test_push_raise_returns_false(self, tmp_path, pipeline, make_spawner):
         """If ``push_worktree_branch`` itself raises, swallow + False.
         Any uncaught exception here would propagate up through
