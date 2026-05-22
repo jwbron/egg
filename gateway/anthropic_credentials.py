@@ -227,3 +227,102 @@ def reset_credentials_manager() -> None:
     """Reset the global credentials manager (for testing)."""
     global _credentials_manager
     _credentials_manager = None
+
+
+# =============================================================================
+# LiteLLM Credentials
+# =============================================================================
+# LiteLLM is an optional non-Anthropic upstream (see issue #2769 cq-7). The
+# gateway holds a single LiteLLM "master key" in the same secrets.env file as
+# ANTHROPIC_API_KEY and injects it as `x-api-key` on every LiteLLM-bound
+# request. LiteLLM itself holds the real per-backend credentials (hosted
+# provider API keys) via its own env-var slots, so a missing
+# ``LITELLM_MASTER_KEY`` here disables routing-to-LiteLLM rather than
+# silently downgrading the security boundary.
+
+
+class LiteLLMCredentialsManager:
+    """Manages the LiteLLM master key for gateway proxy injection.
+
+    Mirrors ``AnthropicCredentialsManager`` — reads
+    ``LITELLM_MASTER_KEY`` out of ``secrets.env`` with the same
+    mtime-invalidated cache, and returns an ``AnthropicCredential`` shaped
+    ``(header_name='x-api-key', header_value=<key>)``. Returns ``None`` when
+    the key is absent so the proxy route falls into the same "no credential"
+    error branch as today's Anthropic path.
+    """
+
+    def __init__(self, secrets_path: Path | None = None) -> None:
+        self._secrets_path = secrets_path or SECRETS_PATH
+        self._credential: AnthropicCredential | None = None
+        self._cached_mtime: float = 0
+        self._lock = threading.Lock()
+
+    def get_credential(self) -> AnthropicCredential | None:
+        """Return the cached LiteLLM credential, reloading on mtime change."""
+        try:
+            current_mtime = self._secrets_path.stat().st_mtime
+        except OSError:
+            with self._lock:
+                self._credential = None
+                self._cached_mtime = 0
+            return None
+
+        with self._lock:
+            if current_mtime != self._cached_mtime:
+                self._load_credential()
+                self._cached_mtime = current_mtime
+            return self._credential
+
+    def _load_credential(self) -> None:
+        if not self._secrets_path.exists():
+            # Not warning here: a missing secrets file is the default for
+            # operators who have not opted into LiteLLM routing.
+            self._credential = None
+            return
+
+        secrets = parse_env_file(self._secrets_path)
+        if not secrets:
+            # Empty/unreadable secrets.env was already warned about by the
+            # Anthropic manager; don't double-warn for the LiteLLM resolver.
+            self._credential = None
+            return
+
+        master_key = secrets.get("LITELLM_MASTER_KEY", "").strip()
+        if not master_key:
+            # Absent key is the no-op default — no warning (see docstring).
+            self._credential = None
+            return
+
+        self._credential = AnthropicCredential(
+            header_name="x-api-key",
+            header_value=master_key,
+        )
+        logger.info(
+            "LiteLLM master key loaded from secrets",
+            key_prefix=master_key[:8] + "..." if len(master_key) >= 8 else "<short>",
+        )
+
+    def reload(self) -> None:
+        """Force reload of the LiteLLM credential (for testing / config updates)."""
+        with self._lock:
+            self._cached_mtime = 0
+            self._credential = None
+
+
+# Global LiteLLM credentials manager instance.
+_litellm_credentials_manager: LiteLLMCredentialsManager | None = None
+
+
+def get_litellm_credentials_manager() -> LiteLLMCredentialsManager:
+    """Get or create the global LiteLLM credentials manager."""
+    global _litellm_credentials_manager
+    if _litellm_credentials_manager is None:
+        _litellm_credentials_manager = LiteLLMCredentialsManager()
+    return _litellm_credentials_manager
+
+
+def reset_litellm_credentials_manager() -> None:
+    """Reset the global LiteLLM credentials manager (for testing)."""
+    global _litellm_credentials_manager
+    _litellm_credentials_manager = None

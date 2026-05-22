@@ -1,0 +1,459 @@
+{
+  "issue": 2769,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Support non-Claude models per agent via a LiteLLM proxy",
+  "summary": "Technical-risk assessment for adding a LiteLLM proxy in egg-system and turning the gateway into a per-agent upstream router. Overall risk is HIGH — the Claude path can stay unchanged (no regressions for current production), but the new path crosses two recently-burned third-party surfaces (LiteLLM was supply-chain compromised in March 2026 and has active SSE-translation tool-call bugs against non-Anthropic backends, both of which directly hit egg's primary use case of Claude Code running against Qwen) and rests on Claude Code's undocumented compaction-math behavior. The integration is buildable now and no-op by default, so production stability is preserved; but the empirical compatibility validation has been deferred to the operator (cq-4) and the plan must surface the residual risks the operator must own.",
+
+  "overall_risk_level": "HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "recommendation_rationale": "The recommended option (gateway-side upstream router + per-agent session metadata + LiteLLM Deployment in egg-system) keeps the Claude path structurally unchanged, which contains blast radius. The HIGH rating is driven by external risks that the team does not fully control (LiteLLM supply-chain, LiteLLM SSE-translation bugs, Claude Code compaction math) — not by the egg-side code change itself. With the listed mitigations (pinned + sha256-verified LiteLLM image, NetworkPolicy isolation, recognized-alias mitigation, fail-closed policy already chosen in cq-8), the change ships safely as a no-op-by-default integration; the real risk crystallises at operator-driven validation time (out of scope per cq-4), where the rollback plan is to leave the per-agent model config unset.",
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "LiteLLM supply-chain compromise (March 2026 PyPI incident + downstream CVEs)",
+      "category": "security",
+      "severity": "CRITICAL",
+      "likelihood": "MEDIUM",
+      "impact": "Direct credential harvesting, Kubernetes lateral movement, and persistent backdoor RCE in the egg-system namespace; spillover risk to gateway secrets (Anthropic OAuth, GitHub tokens, Atlassian credentials in /secrets/secrets.env) and to the cluster's K8s API surface. A compromised LiteLLM pod sharing the egg-system namespace with the gateway is one ServiceAccount RBAC misconfig away from cluster-wide impact.",
+      "description": "TeamPCP published backdoored LiteLLM 1.82.7 / 1.82.8 to PyPI on 24 March 2026 by compromising the maintainer's PyPI credentials (via a prior compromise of Trivy's CI pipeline). The malicious packages ran a three-stage payload: credential harvesting, Kubernetes lateral movement, and persistent RCE. Subsequent April–May 2026 audit-disclosed CVEs include CVE-2026-42208 (CVSS 9.3, unauthenticated SQL injection via the Authorization: Bearer header to /chat/completions — exploited in the wild within 36 hours of disclosure), CVE-2026-35029 (auth-bypass + RCE via /config/update), and CVE-2026-42271 (subprocess spawning via MCP preview endpoints). All fixed in v1.83.7+. The official LiteLLM-Cloud Docker image with strict version locking was NOT affected by the March incident; pip-installed unpinned versions WERE. Cited by the operator in feedback Q3 as recent and concerning.",
+      "affected_files": [
+        "k8s/base/litellm-deployment.yaml (to be created)",
+        "k8s/base/litellm-service.yaml (to be created)",
+        "gateway/secrets.env layout (LITELLM_MASTER_KEY to be added)"
+      ],
+      "mitigation": {
+        "strategy": "Six layered controls: (1) Pin the LiteLLM image to a specific minor >= 1.83.7 with sha256 digest verification (image: ghcr.io/berriai/litellm@sha256:...) — not a floating tag. (2) Enable cosign signature verification at the imagePullPolicy layer or via a Kyverno/Cosign admission policy. (3) Run LiteLLM with a NetworkPolicy that allows ingress only from the gateway pod's ServiceAccount and egress only to the configured upstream provider domains — no general internet, no K8s API. (4) Give LiteLLM its own ServiceAccount with default (no-permission) RBAC; do NOT mount the gateway's kubeconfig or any cluster-scoped token. (5) Don't enable JWT auth (default off; CVE-2026-35030 only affects enabled deployments). (6) Document a kill-switch: if a future LiteLLM CVE drops, the operator can unset PipelineConfig.agent_models[*] cluster-wide and every agent reverts to the Claude path with no LiteLLM call sites. The cq-10 slice decomposition naturally supports this because the gateway router and the per-agent config land in dependent-but-separable slices.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — even a fully pinned image is only safe against the published CVEs; a future zero-day or repeat supply-chain incident is possible. The kill-switch and NetworkPolicy keep blast radius bounded if it happens."
+      },
+      "requires_human_review": true,
+      "review_reason": "The operator already raised LiteLLM supply-chain concerns in feedback Q3 ('March 2026 PyPI incident is recent'). The plan must record image-pin + signature + NetworkPolicy + ServiceAccount-isolation as explicit, reviewer-verifiable acceptance criteria, not as 'best-effort'."
+    },
+    {
+      "id": "R2",
+      "title": "LiteLLM /v1/messages streaming tool_use bug — drops input_json_delta for non-Anthropic backends",
+      "category": "compatibility",
+      "severity": "CRITICAL",
+      "likelihood": "HIGH",
+      "impact": "Claude Code (the chosen harness per cq-5) enters an infinite retry loop on every tool call: every tool_use block arrives with input: {}, fails Claude Code's required-field validation, and triggers an immediate retry. The agent never makes forward progress; consensus stalls; the operator sees what looks like an agent loop, not a backend bug.",
+      "description": "Multiple open GitHub issues against LiteLLM document this class of bug for the Anthropic /v1/messages streaming adapter when the upstream is non-Anthropic: issue #25561 (Gemini via vertex_ai), issue #25321 (regression in v1.82.x, works in v1.81.14), issue #24765 (GitHub Copilot path, content_block_start dropped → non-streaming fallback → output truncation → retry loop). Root cause is in LiteLLM's streaming_iterator.py: when the response transitions content blocks, processed chunks containing tool argument deltas are discarded rather than emitted as input_json_delta. Non-streaming requests for the same backend return the full arguments correctly. PR #13638 fixed an earlier instance of the same class. This is the egg-specific worst case: cq-5 chose Claude Code + LiteLLM (i.e. exactly the configuration these bugs were filed against), and the SDLC agents are tool-heavy (Bash, Read, Write, TodoWrite, MCP tools).",
+      "affected_files": [
+        "gateway/gateway.py (proxy_anthropic_messages streaming path: 9792-9960)",
+        "gateway/gateway.py (_SSEAccumulator: 9552-9700)",
+        "k8s/base/litellm-deployment.yaml (image version pin)"
+      ],
+      "mitigation": {
+        "strategy": "Four layers: (1) Pin LiteLLM to a known-good minor (>= 1.83.7 satisfies the security CVE constraint; verify in the smoke test that v1.82.x regressions are no longer present) and document the pin rationale in the deployment YAML comment. (2) The acceptance-test validation step (deferred per cq-4) MUST include a long tool-heavy multi-turn run, not just a single round-trip — the bug only surfaces on content_block transitions across tool calls. (3) The plan must list this as a known-unresolved upstream issue that the operator owns at validation time; if a flip-validation reveals the bug, the rollback is to unset PipelineConfig.agent_models[role] and the agent reverts to Claude. (4) Optional defense: an in-gateway sentinel that detects empty tool input in a content_block_stop after a tool_use start and emits a structured error / OVERSEER_ALERT, rather than letting Claude Code loop silently. Belt-and-braces; not required for the no-op-by-default cut.",
+        "effort": "LOW (for the image pin + acceptance-test note); MEDIUM (if the empty-input sentinel is added)",
+        "residual_risk": "HIGH — the bug class is well-known and recurring; a regression on the next LiteLLM minor could re-introduce it. The fail-closed policy (cq-8) at least makes the failure visible, but only at validation time, not at PR-merge time."
+      },
+      "requires_human_review": true,
+      "review_reason": "The chosen architecture (cq-5 + Claude Code + LiteLLM + non-Anthropic backend) is the exact configuration these bugs were filed against. The operator should know this is a real, recurring failure mode before approving the plan — not after discovering it at acceptance time."
+    },
+    {
+      "id": "R3",
+      "title": "Claude Code compaction math drift — unrecognized / mis-sized model alias wedges long sessions",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "On long-running agents (coder, refiner — multi-thousand-turn sessions), Claude Code auto-compacts around 95% of the model's known context window. When the alias presented to Claude Code (e.g. 'opus') has a recognised window that is LARGER than the real LiteLLM-backed model's window (e.g. Qwen3 with 128K vs opus[1m] at 1M), auto-compaction fires too late, the in-progress request exceeds the real backend's limit, the request hard-fails with model_context_window_exceeded, the agent wedges, and consensus stalls. The reverse — alias smaller than backend — wastes context but does not stall.",
+      "description": "Per the issue body and corroborated by published write-ups (okhlopkov.com, dev.to vLLM+LiteLLM guide): Claude Code derives the context window from the model name and triggers auto-compaction at ~95% of that window. The compaction control's context_token_threshold default is 100,000 tokens for unrecognised models; for recognised Claude models it uses the model's real window. The cq-2/cq-5 mitigation is correct (route on session metadata, present a recognised alias), but it depends on a constraint the issue body does NOT enforce: the alias presented to Claude Code MUST have a context window ≤ the real backend's window. If the alias is 'opus[1m]' (1M tokens) and Qwen3 is 128K, auto-compaction never fires inside Qwen's window and long sessions hard-fail. The compaction-math is internal Claude Code behavior that is not documented as a public API; it can change between Claude Code versions without notice.",
+      "affected_files": [
+        "shared/egg_agent/client.py:62 (DEFAULT_MODEL)",
+        "shared/egg_agent/__main__.py:35 (--model default)",
+        "orchestrator/consensus_wrapper.py:653-662 (model arg in agent command)",
+        ".egg-state/contracts/* (per-agent alias config landing here)"
+      ],
+      "mitigation": {
+        "strategy": "Three measures: (1) The plan must add an explicit invariant: the Claude-Code-facing alias's recognised window must be ≤ the real backend's window. Sample-coded examples in the docs: real Qwen3 128K → present 'sonnet' alias (200K) is WRONG; present a 100K-window alias (or set context_token_threshold explicitly) is RIGHT. (2) The plan must surface this as a per-(alias, real-model) pair recorded in PipelineConfig.agent_models or as a small lookup table next to it — not as 'whatever string the operator writes'. (3) Acceptance-test (deferred per cq-4) MUST include a session long enough to cross the auto-compaction boundary — otherwise the bug is undetected. The current build-now / validate-later split keeps Claude paths safe, but the validation step is non-optional and must be explicit on the plan.",
+        "effort": "LOW (invariant + doc note); MEDIUM (lookup table + validator on PipelineConfig)",
+        "residual_risk": "MEDIUM — Claude Code is closed-source and its compaction-math heuristics can change. The mitigation is good for the v4.x Claude Code branch but is not future-proof. Plan should note this as a Claude-Code-version-dependent assumption."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Qwen3 + vLLM streaming tool-call parser bugs — deferred but flagged for self-hosted target",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "If/when the operator moves from a hosted Qwen provider (cq-6) to self-hosted Qwen on vLLM (the long-term cost goal), several open vLLM bugs come back into scope: streaming + tool_choice with thinking disabled drops tool_calls (vllm issues #21565, #17655, #23992, #20611); Qwen3.5 / 3.6 emit XML tool_calls inside <think> blocks that the qwen3_coder parser does not recover (#39056). Self-hosted Qwen with current vLLM produces silently truncated or empty tool calls under load.",
+      "description": "The cq-6 decision deferred self-hosted vLLM to a future iteration; the first acceptance-test backend is a hosted Qwen provider. That means R4 is OUT OF SCOPE for this issue's deliverables but IN SCOPE for the operator's eventual validation. Documenting it here because the plan's UpstreamRegistry abstraction will outlive the hosted-provider choice and the same gateway code will be used against vLLM eventually.",
+      "affected_files": [
+        "k8s/base/litellm-config.yaml (vLLM endpoint config, when added)",
+        "future Qwen vLLM Deployment manifests"
+      ],
+      "mitigation": {
+        "strategy": "Two: (1) Document in the plan / follow-up issue that the eventual self-hosted vLLM path must validate with a streaming + tool-heavy + reasoning-enabled run; the hosted-provider validation does NOT cover this. (2) Pin vLLM to a version with #39056 / #21565 fixes landed when self-hosting (today: no single vLLM release is known-good; needs reassessment when the self-hosting work begins). Out-of-scope this issue but worth a follow-up tracker.",
+        "effort": "LOW (documentation only this issue)",
+        "residual_risk": "LOW for this issue's scope (hosted-provider only); HIGH for the eventual self-hosted-vLLM cut. The split is acceptable."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Hosted Qwen provider as a new credential + supply-chain surface",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "A new third-party credential (e.g. Together / Fireworks / DeepInfra / OpenRouter) lands in /secrets/secrets.env or in the LiteLLM config. The provider becomes a new attack surface for source-code / transcript exfiltration (per feedback Q5: no compliance constraint, but per cq-9: the WebSearch/WebFetch strip is kept regardless of upstream — partial mitigation). Provider outage, pricing change, deprecation, or rate-limit change becomes a new operational dependency.",
+      "description": "The cq-6 selection ('hosted Qwen-compatible provider — fastest path; defers self-hosting but adds a third-party dependency and a new credential to hold') is explicit about the trade-off. The risk is operational, not architectural: hosted-provider credentials need rotation, monitoring, billing alerts, and an SLA. Feedback Q5 confirmed there is no data-residency constraint that rules this out. cq-9 confirmed the WebSearch/WebFetch tool-strip stays on regardless of upstream, which limits the additional exfiltration surface to whatever the provider does with API request bodies (i.e. prompt logging, data retention).",
+      "affected_files": [
+        "gateway/secrets.env layout",
+        "k8s/base/litellm-config.yaml (provider config)"
+      ],
+      "mitigation": {
+        "strategy": "Three: (1) Choose a provider with a published data-retention policy and a 'no training, no logging' SLA option; document the chosen provider in the deployment YAML comment. (2) Per cq-7, the gateway holds a single LiteLLM master key and LiteLLM holds the real per-provider key — this contains credential blast radius (gateway never sees the provider key directly). (3) Standard secret rotation: track the provider key in secrets.env with a documented rotation cadence; surface key-not-set as a fail-closed error (cq-8) so an expired key surfaces immediately, not silently.",
+        "effort": "LOW",
+        "residual_risk": "LOW — bounded by the provider's published policies and the existing secret-management practice."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Gateway `register_session()` API surface missing upstream / model_alias fields (runtime-primitive gap per #2594)",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "The plan will assume the per-agent session metadata carries (upstream, model_alias). Today's Session schema (gateway/session_manager.py:548-563) and the orchestrator's gateway_client.register_session() (orchestrator/gateway_client.py:602-620) have no such fields. Adding them is mandatory for the recommended Option A. If the plan does not explicitly call this out as new schema, the implementer may revert to Option C (route on body model name) which conflicts with the cq-2 resolution.",
+      "description": "Per #2594 runtime-primitive flagging: the cq-2 resolution says 'orchestrator declares the model+upstream when it spawns the agent (session lookup by IP, same path used today for session_mode)'. But there is no such field today. Specifically: (a) Session dataclass (session_manager.py:287-328) has session_mode, container_id, agent_role, etc., but no upstream or model_alias. (b) register_session endpoint and the matching gateway_client method accept ~17 fields, none for upstream. (c) The gateway's proxy_anthropic_messages() looks up the session at gateway/gateway.py:9775 via get_session_by_ip() — adding session.upstream is the natural plug-in point. (d) Sessions persist to ~/.egg-state/sessions/sessions.json so the new fields must round-trip through the persistence layer.",
+      "affected_files": [
+        "gateway/session_manager.py (Session dataclass + persistence)",
+        "gateway/gateway.py (register_session endpoint at line ~8846)",
+        "orchestrator/gateway_client.py (register_session() at line ~602)",
+        "orchestrator/kubernetes_spawner.py (call site that hands the new fields to gateway_client)"
+      ],
+      "mitigation": {
+        "strategy": "Plan must include an explicit task: 'extend the gateway session schema with optional upstream and model_alias fields, round-trip through Session.to_dict_for_persistence(), thread through register_session() on both sides, and default to None on existing sessions (backward compatible).' Make this its own contract task so the reviewer can verify the schema change is in the diff. The Session schema migration is purely additive (optional fields) so existing sessions are unaffected.",
+        "effort": "LOW",
+        "residual_risk": "LOW — clear, mechanical change."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "build_consensus_wrapped_command() model arg untouched at both spawn sites (runtime-primitive gap per #2594)",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "PipelineConfig.agent_models[role] can be set in the contract / config, but if the spawn path doesn't thread it through, the agent still launches with --model opus and the gateway routes (correctly) to Anthropic — i.e. the per-agent config is silently inert. Worse: drift between the gateway's routing decision (Anthropic, because session.upstream is unset) and the agent's --model string (qwen-..., because PipelineConfig.agent_models[role] is set) → 'right' configuration produces 'wrong-backend' request.",
+      "description": "Per #2594 runtime-primitive flagging: build_consensus_wrapped_command() (orchestrator/consensus_wrapper.py:620) accepts a model arg with a hardcoded 'opus' default but BOTH callers (orchestrator/concurrent_executor.py:454 and orchestrator/routes/pipelines.py:2704) call it with prompt_text only. The default-to-opus path is invisible at the call site. The plan must thread the per-agent model into both call sites AND into the kubernetes_spawner's register_session() call so both ends agree.",
+      "affected_files": [
+        "orchestrator/concurrent_executor.py:454 (initial spawn)",
+        "orchestrator/routes/pipelines.py:2704 (restart spawn)",
+        "orchestrator/consensus_wrapper.py:620-662 (wrapper)",
+        "orchestrator/kubernetes_spawner.py (session-create call)"
+      ],
+      "mitigation": {
+        "strategy": "Plan task: 'compute the resolved model once (from PipelineConfig.agent_models[role] with default = opus) at spawn time, pass it as both (a) the --model arg to build_consensus_wrapped_command and (b) the model_alias field on register_session, so the agent CLI and the gateway routing decision are derived from the same source.' Restart path (pipelines.py:2704) re-derives from the same PipelineConfig (which is persisted in the contract / pipeline state), not from a separate code path. Add a defensive assert in the consensus wrapper that errors if model and the session's model_alias disagree.",
+        "effort": "LOW-MEDIUM",
+        "residual_risk": "LOW — single source of truth (PipelineConfig.agent_models) is the right pattern."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Claude Code harness assumption — recognised-alias mitigation rests on an undocumented internal heuristic",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "The cq-5 mitigation ('keep Claude Code harness, use a recognised alias') assumes Claude Code's compaction trigger, extended-thinking feature gating, and any other model-name-keyed feature gates will behave correctly when the alias is presented in the request body but the real backend is non-Claude. If Claude Code adds a feature that probes the model server in a way that fails on LiteLLM (e.g. capability discovery, model-specific tool descriptions), the mitigation silently breaks on a Claude Code version bump.",
+      "description": "Claude Code is closed-source. Its model-name-keyed behavior is observed empirically and documented externally (community write-ups), not by Anthropic. A Claude Code minor version bump could change the heuristic. The mitigation is correct today but not durable across Claude Code versions, and we have no way to detect a regression except by running the validation again.",
+      "affected_files": [
+        "sandbox/CLAUDE.md (records Claude Code version)",
+        "shared/egg_agent/client.py (Claude Agent SDK version)"
+      ],
+      "mitigation": {
+        "strategy": "Two: (1) Plan must record the Claude Code version that the recognised-alias mitigation was validated against; pin or bound the Claude Code version in the sandbox image (the session schema already carries claude_code_version). (2) Add a CI smoke test or scheduled job that exercises a tool-heavy multi-turn loop against the non-Claude backend (when an endpoint is available) so a Claude Code version bump that regresses the heuristic is caught. Out of scope for this issue per cq-4; record as a follow-up.",
+        "effort": "LOW (this issue: doc + version pin); MEDIUM (follow-up: CI smoke test)",
+        "residual_risk": "MEDIUM — bounded by the Claude Code release cadence and our willingness to keep the pin current."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Cost-tracking envelope (max_llm_cost_per_hour) breaks silently on the LiteLLM path",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "Per feedback Q4, cost-tracking is explicitly deferred to a follow-up. The plan must not silently regress today's behavior. Today the overseer monitor reads cost_usd from SDK results (orchestrator/overseer/self_monitor.py:123-130, ~137 _get_hourly_llm_cost). The SDK reports Anthropic-priced costs. For LiteLLM-bound agents, the SDK still reports a number, but it is either zero (if LiteLLM omits the field) or wrong (if LiteLLM passes the field through with the alias's Anthropic pricing applied to Qwen tokens). The $5/hr envelope fires on phantom data; the operator can't know real spend.",
+      "description": "Cited explicitly in the operator's feedback Q4 reply: 'Defer to a follow-up — do not extend max_llm_cost_per_hour cost tracking to LiteLLM/Qwen token pricing in this issue.' This is acknowledged technical debt, not a design defect, but the plan must document it as a known regression on the LiteLLM path so the follow-up issue is visible.",
+      "affected_files": [
+        "orchestrator/overseer/self_monitor.py:123-130",
+        "shared/egg_contracts/usage.py:171",
+        "sandbox/agent-config/rules/overseer.md:94, 314"
+      ],
+      "mitigation": {
+        "strategy": "Two: (1) The plan creates a follow-up issue 'Extend max_llm_cost_per_hour to LiteLLM-priced tokens' with the per-provider pricing table as the unit of work. (2) For this issue, the plan should document in the LiteLLM deployment README / config that cost_usd is unreliable on the LiteLLM path until the follow-up lands, so operators don't make decisions on it. No code change in this issue.",
+        "effort": "LOW (doc + follow-up issue)",
+        "residual_risk": "LOW for this issue (operator is informed); MEDIUM for the follow-up (real $$ exposure if an agent loops on the LiteLLM path without cost visibility)."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "SSE accumulator hardcoded to Anthropic event names — silent transcript corruption if LiteLLM emits foreign events",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "_SSEAccumulator (gateway/gateway.py:9552-9700) hardcodes Anthropic event names (message_start, content_block_start, content_block_delta, message_delta, error). If LiteLLM's Anthropic-translation layer mis-translates a backend response (e.g. emits an OpenAI-style 'data: {choices: ...}' line), the accumulator silently drops the event: no error log, transcript captures empty content, usage stays None, stop_reason None. Audit logs and checkpoints are quietly wrong.",
+      "description": "Per Q5 of the gateway-research probe: the accumulator parses specific Anthropic event names. LiteLLM SHOULD emit Anthropic-shaped SSE for /v1/messages — that is the whole point of the endpoint — but the documented bugs (R2 above) and the GitHub Copilot path (#24765 — content_block_start dropped) show that the translation is imperfect in real-world conditions. The failure mode is asymmetric: streaming bugs in LiteLLM tend to drop events rather than emit foreign ones, so the most likely manifestation is empty content blocks (already covered by R2), not foreign event names. Listed here as a separate risk because the fallout (silent transcript corruption, wrong audit logs) is different.",
+      "affected_files": [
+        "gateway/gateway.py (_SSEAccumulator: 9552-9700)",
+        "gateway/gateway.py (transcript capture: _capture_streaming_response, ~9942-9953)"
+      ],
+      "mitigation": {
+        "strategy": "Two: (1) Plan should add a low-cost defensive log/warning in _SSEAccumulator when an unknown event_type is seen — current code branches on known names and silently drops unknown events. A warning-level log preserves the transcript shape but surfaces the misdetection. (2) Acceptance-test (deferred) MUST diff a LiteLLM-bound transcript against a Claude-bound transcript for the same prompt to catch silent drops.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the bug surface is well-bounded; defensive logging is cheap."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "ANTHROPIC_BASE_URL not in `_PROTECTED_ENV_KEYS` — defense-in-depth gap",
+      "category": "security",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Per-agent extra_env (passed via the spawner) can mutate ANTHROPIC_BASE_URL today, redirecting agent traffic away from the gateway. Pre-LiteLLM this is theoretical (no caller sets it); post-LiteLLM, the plan may introduce a per-agent ANTHROPIC_BASE_URL or X-Egg-Upstream injection — the surface widens.",
+      "description": "_PROTECTED_ENV_KEYS in orchestrator/kubernetes_spawner.py:138 includes EGG_SESSION_TOKEN, GATEWAY_URL, http_proxy, etc., but NOT ANTHROPIC_BASE_URL. Per cq-2 the routing signal is per-agent session metadata (set by orchestrator at session-create time), not a per-agent env var, so this is not the chosen routing mechanism — but defense-in-depth says ANTHROPIC_BASE_URL should be protected regardless.",
+      "affected_files": [
+        "orchestrator/kubernetes_spawner.py:138 (_PROTECTED_ENV_KEYS)"
+      ],
+      "mitigation": {
+        "strategy": "Plan adds ANTHROPIC_BASE_URL to _PROTECTED_ENV_KEYS as a one-line defense-in-depth change alongside the upstream-router work. Optional but cheap.",
+        "effort": "LOW",
+        "residual_risk": "NEGLIGIBLE."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "max_turns hardcoded to 1000 in consensus wrapper — may not fit non-Claude models",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "consensus_wrapper.py:623 hardcodes max_turns=1000. Non-Claude models may have very different per-turn budgets (smaller context → more turns to compensate, OR longer per-turn latency → fewer turns affordable). A non-Claude agent may hit the wall earlier or waste budget vs Claude.",
+      "description": "The cq-* decisions did not surface this knob. Listed here because per-model max-turns is a likely follow-up tuning need, and the plan should not lock in 1000 as if it were universal.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py:623"
+      ],
+      "mitigation": {
+        "strategy": "Plan should make max_turns either a PipelineConfig.agent_models entry (alongside model) or note as a TODO for the follow-up validation phase. No code change required this issue if it stays a follow-up.",
+        "effort": "LOW",
+        "residual_risk": "LOW — operator-controllable knob, not a correctness issue."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R13",
+      "title": "Empirical validation deferred per cq-4 — residual integration risk lands on the operator at flip-time",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "Per the cq-4 resolution, the empirical compatibility validation cannot occur inside this pipeline (no configured access to non-Claude models). The plan ships buildable, no-op-by-default integration. ALL the compatibility risks above (R2 LiteLLM streaming bug, R3 compaction math, R8 Claude Code heuristic drift, R10 SSE accumulator drift) remain unverified until the operator flips an agent at validation time. If a validation flip exposes a bug, the rollback (unset PipelineConfig.agent_models[role]) is safe but it means the LiteLLM path was never green at PR-merge time.",
+      "description": "This is an explicit decision (cq-4) and not a defect. Recording it here because the risk profile of a 'shipped but unvalidated' integration is different from a 'shipped and validated' one — reviewers, operators, and follow-up issues need to know which class they are in.",
+      "affected_files": [
+        "(plan-phase deliverables: contract acceptance criteria)"
+      ],
+      "mitigation": {
+        "strategy": "Plan must (1) explicitly enumerate the deferred validations as known-unresolved acceptance criteria the operator will sign off on at flip-time, and (2) ensure the no-op-by-default rollback path is structurally guaranteed (i.e. with PipelineConfig.agent_models = {}, no LiteLLM bytes are sent — every code path falls back to the Claude singleton). Reviewer should verify this by inspection: searching for 'litellm' in the diff should yield only conditional / opt-in code paths.",
+        "effort": "LOW (documentation + structural guarantee)",
+        "residual_risk": "MEDIUM — bounded by the operator's diligence at flip-time."
+      },
+      "requires_human_review": true,
+      "review_reason": "The deferred validation is on the operator at flip-time; the plan reviewer must confirm the structural guarantee of the no-op-by-default rollback is real, not nominal."
+    },
+    {
+      "id": "R14",
+      "title": "UpstreamRouter abstraction needed per feedback Q3 — design choice not yet made",
+      "category": "architecture",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "Feedback Q3 explicitly requested 'a thin UpstreamRouter/Registry abstraction so LiteLLM can be replaced if it hits a maintenance/supply-chain problem'. If the plan hard-wires LiteLLM into proxy_anthropic_messages() / get_anthropic_client() instead of introducing a tiny registry, the next time we want to swap LiteLLM out (or add a parallel non-LiteLLM upstream) we pay double — once for the change and once for the abstraction. Given R1 (already-burned supply-chain risk on LiteLLM), the swap-out point is not theoretical.",
+      "description": "No UpstreamRouter / UpstreamRegistry / ModelRegistry abstraction exists in the repo today. The cleanest cut is a 1-2-class file (gateway/_upstreams.py?) that exposes (a) an enum / string set of upstream names, (b) a registry mapping name → httpx client + base_url + credential type, (c) resolve(session) → upstream. This is consistent with the in-flight gateway.py decomposition (CLAUDE.md slice-14 already pre-allocates new sub-packages).",
+      "affected_files": [
+        "gateway/_upstreams.py (to be created)",
+        "gateway/gateway.py (get_anthropic_client refactor: 9316-9329)"
+      ],
+      "mitigation": {
+        "strategy": "Plan should explicitly require an UpstreamRegistry-shaped abstraction (not a pair of if/else branches inline in proxy_anthropic_messages). Keyed by upstream name from the session metadata; Anthropic is the default entry; LiteLLM is registered when the deployment is present. Replaces today's _anthropic_client singleton with registry.get('anthropic') and adds registry.get('litellm') alongside.",
+        "effort": "LOW-MEDIUM",
+        "residual_risk": "LOW — a small abstraction, easy to verify, matches the operator's explicit request."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R15",
+      "title": "Failure-policy visibility — fail-closed (cq-8) requires operator monitoring to catch stalls",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Per cq-8 the failure policy is fail-closed (502 to agent, no fallback). This is correct, but it means a misconfigured LiteLLM upstream produces a hung agent (502 → consensus stall → eventual timeout) rather than an alert. The operator must monitor pipeline state. The recommended-option Option C variant (fail-closed + auto-HITL escalation on non-Claude spawn / stall) was explicitly NOT chosen.",
+      "description": "The cq-8 resolution chose 'fail closed (no fallback)' over 'fail closed + auto-HITL escalation'. The plan must surface that this is the chosen behavior and that operator monitoring is the detection path — not a structural alarm.",
+      "affected_files": [
+        "gateway/gateway.py (proxy_anthropic_messages error branch)"
+      ],
+      "mitigation": {
+        "strategy": "Plan should record this as a known-and-accepted trade-off referencing cq-8, not as a discoverable behavior. The follow-up Option-C-style auto-HITL escalation can be a separate issue if pipeline stalls due to LiteLLM 5xx become common.",
+        "effort": "LOW (documentation)",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "runtime_primitive_audit_per_2594": {
+    "description": "Per issue #2594 (and the recurring #2474 failure pattern), the plan must explicitly declare which runtime primitives exist today vs which are net-new. Below: primitives the plan WILL rely on, and their existence status.",
+    "primitives": [
+      {
+        "name": "get_session_by_ip().upstream / .model_alias",
+        "status": "MISSING — not in today's Session dataclass (gateway/session_manager.py:287-328). Plan must add them as optional fields with persistence.",
+        "addressed_in_risk": "R6"
+      },
+      {
+        "name": "register_session(upstream=..., model_alias=...)",
+        "status": "MISSING — neither the orchestrator client (gateway_client.py:602-620) nor the gateway endpoint accept these fields today. Plan must extend both signatures.",
+        "addressed_in_risk": "R6"
+      },
+      {
+        "name": "PipelineConfig.agent_models[role]",
+        "status": "MISSING — only overseer_decision_maker_model (models.py:546) and overseer_advisor_model (models.py:620) exist today. New optional dict field. Plan must add with a role-key validator.",
+        "addressed_in_risk": "R7"
+      },
+      {
+        "name": "build_consensus_wrapped_command(model=...)",
+        "status": "EXISTS but UNUSED — accepts a model arg with default 'opus' (consensus_wrapper.py:622) but neither caller passes it (concurrent_executor.py:454, pipelines.py:2704). Plan must thread the resolved model into both call sites.",
+        "addressed_in_risk": "R7"
+      },
+      {
+        "name": "LiteLLM Deployment + Service + LITELLM_MASTER_KEY in /secrets/secrets.env",
+        "status": "MISSING — no k8s/base/litellm-*.yaml exists; secrets.env layout (gateway-deployment.yaml:71-118) lists Anthropic / GitHub / Atlassian only. Plan must add Deployment, Service, secret entry, and document the rotation contract.",
+        "addressed_in_risk": "R1, R5"
+      },
+      {
+        "name": "Internal cluster DNS allowlisting (litellm.egg-system.svc.cluster.local)",
+        "status": "NOT NEEDED if the gateway routes to LiteLLM through its httpx client (the recommended path — same pattern as today's get_anthropic_client). gateway/allowed_domains.txt is the Squid allowlist for direct sandbox traffic; internal cluster DNS is implicit cluster-network traffic and NOT routed through Squid. Plan should NOT add svc.cluster.local entries to allowed_domains.txt — it should keep the gateway-as-proxy pattern uniform with Anthropic.",
+        "addressed_in_risk": "(no explicit risk — note in plan)"
+      },
+      {
+        "name": "AnthropicCredential extension for LiteLLM master key",
+        "status": "EXTENDABLE — gateway/anthropic_credentials.py defines a concrete AnthropicCredential dataclass with header_name + header_value, no abstract base. Plan must either (a) extend the dataclass to a third credential type with a distinct header name, or (b) introduce a sibling LiteLLMCredential type, plus a manager-level discriminator. The injection site (gateway.py:9368-9371) already does headers[cred.header_name] = cred.header_value, so it is LiteLLM-friendly today.",
+        "addressed_in_risk": "(implicit in R6 / plan structure)"
+      },
+      {
+        "name": "Claude Code's recognised-alias compaction math",
+        "status": "DOCUMENTED EXTERNALLY (community write-ups, undocumented by Anthropic) — assumed to work today against Claude 4.5+ but not version-stable. Plan must pin Claude Code version and document this as a heuristic dependency.",
+        "addressed_in_risk": "R3, R8"
+      },
+      {
+        "name": "_SSEAccumulator (Anthropic event names)",
+        "status": "EXISTS, EVENT-NAME-HARDCODED — gateway.py:9552-9700 hardcodes message_start / content_block_* / message_delta / error. LiteLLM /v1/messages SHOULD emit the same shape, but real-world LiteLLM bugs do drop / mis-translate events on non-Anthropic backends. Plan should add a defensive log on unknown event_type.",
+        "addressed_in_risk": "R10"
+      },
+      {
+        "name": "max_llm_cost_per_hour enforcement",
+        "status": "EXISTS but UNINSTRUMENTED FOR LITELLM — orchestrator/overseer/self_monitor.py:123-130 reads cost from .cost attribute (likely SDK-reported cost_usd, Anthropic-priced). Plan documents this as out-of-scope-but-known-broken per feedback Q4.",
+        "addressed_in_risk": "R9"
+      },
+      {
+        "name": "_PROTECTED_ENV_KEYS protection for ANTHROPIC_BASE_URL",
+        "status": "MISSING — orchestrator/kubernetes_spawner.py:138 doesn't list ANTHROPIC_BASE_URL today. Defense-in-depth gap noted.",
+        "addressed_in_risk": "R11"
+      },
+      {
+        "name": "max_turns per model",
+        "status": "HARDCODED — consensus_wrapper.py:623 max_turns=1000 for all roles / models. Out of scope for this issue but flagged.",
+        "addressed_in_risk": "R12"
+      }
+    ]
+  },
+
+  "trust_boundary_audit": {
+    "description": "Trust-boundary surfaces the plan crosses, per #2594.",
+    "boundaries": [
+      {
+        "name": "Sandbox → Gateway",
+        "status": "UNCHANGED — sandbox stays zero-credential, still reaches gateway via ANTHROPIC_BASE_URL=GATEWAY_K8S_URL. Plan adds no new credential to the sandbox."
+      },
+      {
+        "name": "Gateway → Anthropic",
+        "status": "UNCHANGED — same singleton client, same credential injection, same path."
+      },
+      {
+        "name": "Gateway → LiteLLM (NEW)",
+        "status": "NEW — gateway holds LITELLM_MASTER_KEY in /secrets/secrets.env; injects on every LiteLLM-bound request (cq-7). Trust boundary: gateway trusts LiteLLM with the full request body (system prompt + transcript) and tool definitions; LiteLLM holds the real per-backend keys. NetworkPolicy must restrict LiteLLM's inbound to gateway-pod only and its outbound to the configured upstream domains."
+      },
+      {
+        "name": "LiteLLM → Hosted Qwen provider (NEW)",
+        "status": "NEW — the chosen hosted-provider sees request bodies (including source code, secrets-like strings in agent transcripts, tool definitions). Per feedback Q5, no compliance constraint rules this out, BUT the cq-9 tool-strip stays on regardless of upstream (WebSearch/WebFetch) which limits the additional exfiltration surface. Plan should document this boundary explicitly so future operators don't accidentally regress cq-9."
+      },
+      {
+        "name": "Orchestrator → Gateway register_session() (NEW fields)",
+        "status": "EXTENDED — same authenticated channel as today, but now carries (upstream, model_alias) per agent. No new credential, just new fields on an existing endpoint."
+      }
+    ]
+  },
+
+  "rollback_plan": {
+    "description": "Rollback paths if the LiteLLM path goes wrong at any time (validation, post-deploy, or in response to a future LiteLLM CVE).",
+    "paths": [
+      {
+        "scenario": "Per-agent flip exposes a Claude-Code-on-Qwen tool_use drop (R2) or compaction wedge (R3)",
+        "action": "Unset PipelineConfig.agent_models[role] (or remove the role's entry from the per-pipeline config) → the spawn path falls back to 'opus' default → the gateway routes to Anthropic singleton → the agent runs Claude as before. No code rollback needed; config-only.",
+        "guarantee": "Structural — requires no_op_by_default to be true (R13). Reviewer must verify."
+      },
+      {
+        "scenario": "Future LiteLLM CVE / supply-chain incident (R1)",
+        "action": "(a) Scale LiteLLM Deployment to 0 replicas (or delete the Deployment) — every LiteLLM-bound request fails closed per cq-8 → fail-fast surfaces the misconfig. (b) Cluster-wide config: unset PipelineConfig.agent_models[*] across all pipelines → all agents revert to Claude path. (c) Roll the LITELLM_MASTER_KEY in secrets.env (rotate to defang the compromised key).",
+        "guarantee": "Operational — requires monitoring to detect, then a few minutes of config / kubectl actions."
+      },
+      {
+        "scenario": "LiteLLM pinned image (>= 1.83.7) ships a regression",
+        "action": "Re-pin to a known-good earlier image (>= 1.83.7); the deployment YAML records the previous-known-good sha256.",
+        "guarantee": "Operational — assumes the deployment YAML history is in git."
+      },
+      {
+        "scenario": "Hosted Qwen provider outage / pricing change / data-policy change",
+        "action": "Same as 'per-agent flip exposes a bug' — unset agent_models, revert to Claude. The new provider key in secrets.env can be revoked separately.",
+        "guarantee": "Structural + operational."
+      }
+    ]
+  },
+
+  "areas_requiring_human_review": [
+    "R1 (LiteLLM supply-chain controls — pinning + signature + NetworkPolicy + ServiceAccount-isolation must be explicit, reviewer-verifiable acceptance criteria)",
+    "R2 (LiteLLM SSE tool_use drop bug — operator must know this is the worst-case failure mode for the chosen architecture (cq-5 + Claude Code + LiteLLM) before approving the plan)",
+    "R13 (deferred empirical validation — the plan reviewer must confirm the no-op-by-default structural guarantee is real, not nominal; the operator owns the validation residual)"
+  ],
+
+  "open_questions_for_plan_phase": [
+    "Slice decomposition (cq-10 deferred to plan phase): the likely two-slice DAG is [gateway upstream router + LiteLLM Deployment, no-op by default] → [per-agent model config + consensus_wrapper plumbing]. The risk-analyst notes this matches the rollback structure: slice 1 is harmless if slice 2 never lands.",
+    "UpstreamRegistry interface shape (feedback Q3) — flagged as R14. The risk-analyst recommends an explicit small registry class rather than inline if/else.",
+    "ANTHROPIC_BASE_URL inclusion in _PROTECTED_ENV_KEYS (R11) — cheap defense-in-depth, plan should include or explicitly decline.",
+    "Claude Code version pin (R8) — the recognised-alias mitigation is heuristic-dependent; plan should specify the Claude Code minor that the validation will run against and bound updates.",
+    "Defensive logging in _SSEAccumulator on unknown event_type (R10) — cheap, plan should include.",
+    "max_turns per model (R12) — out of scope or in scope? Recommend follow-up if out of scope."
+  ],
+
+  "complexity_assessment": "HIGH — the change is no-op by default and the rollback is structurally clean (R13 + rollback_plan), but the risk surface (LiteLLM supply chain R1 + LiteLLM streaming bugs R2 + Claude Code compaction R3 + Claude Code heuristic drift R8) is dominated by external dependencies that egg cannot patch. The plan ships safely; the integration's correctness must be re-validated by the operator at every flip and at every Claude Code / LiteLLM version bump.",
+
+  "external_research_sources": [
+    "https://docs.litellm.ai/blog/security-update-march-2026 — March 2026 LiteLLM supply-chain incident",
+    "https://docs.litellm.ai/blog/security-hardening-april-2026 — Subsequent CVE fix release (1.83.7+)",
+    "https://www.trendmicro.com/en_us/research/26/c/inside-litellm-supply-chain-compromise.html — TeamPCP attack chain analysis",
+    "https://snyk.io/blog/poisoned-security-scanner-backdooring-litellm/ — Trivy → LiteLLM credential pivot",
+    "https://osintteam.blog/litellm-ai-gateway-exposed-to-sql-injection-flaw-cve-2026-42208-57657211230c — CVE-2026-42208 SQL injection (CVSS 9.3)",
+    "https://github.com/BerriAI/litellm/issues/25561 — /v1/messages streaming tool_use drop on vertex_ai/gemini",
+    "https://github.com/BerriAI/litellm/issues/25321 — Same bug in v1.82.x non-Anthropic models",
+    "https://github.com/BerriAI/litellm/issues/24765 — /v1/messages → GitHub Copilot content_block_start drop",
+    "https://github.com/vllm-project/vllm/issues/21565 — Qwen3 streaming + tool_choice + thinking-disabled drops tool calls",
+    "https://github.com/vllm-project/vllm/issues/17655 — Qwen3 reasoning parser bug in non-think mode",
+    "https://github.com/vllm-project/vllm/issues/39056 — Qwen3.5 / 3.6 XML tool_calls inside <think> blocks lost",
+    "https://platform.claude.com/docs/en/build-with-claude/compaction — Claude Code compaction-control SDK reference",
+    "https://okhlopkov.com/claude-code-compaction-explained/ — Claude Code auto-compaction heuristic write-up",
+    "https://dev.to/dcruver/running-claude-code-with-local-llms-via-vllm-and-litellm-599b — Recognised-alias mitigation pattern"
+  ]
+}
