@@ -15,7 +15,7 @@ kubernetes>=31.0.0,<33.0.0
 pyyaml>=6.0.0
 
 # Requests for simple HTTP calls
-requests>=2.31.0
+requests>=2.34.2
 
 # JSON Schema validation (used by egg_anchor for anchor validation)
 jsonschema>=4.20.0
