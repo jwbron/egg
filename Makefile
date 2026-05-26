@@ -557,17 +557,41 @@ sudo-keepalive:
 		sudo -n -v 2>/dev/null; sleep 60; i=$$((i + 1)); \
 	done ) >/dev/null 2>&1 </dev/null &
 
-# Run this recipe under bash: `set -o pipefail` is a bash builtin and aborts
-# immediately under dash (the default /bin/sh on Debian/Ubuntu).
+# Run this recipe under bash: the `${var//pat/repl}` parameter expansion and
+# `set -o pipefail` are bash builtins, both unsupported under dash (the default
+# /bin/sh on Debian/Ubuntu).
+#
+# Import via temp file rather than `docker save ... | sudo k3s ctr images
+# import -`. The stdin path silently drops the layer payload for some images
+# on this host (observed for orchestrator/sandbox under aarch64+16k-pages on
+# Fedora Asahi): ctr prints "saved" with the manifest digest, exits 0, and
+# the tag never appears in `ctr images list`. The same image imports cleanly
+# from a file. After each import we re-list and grep for the tag, so a
+# silent drop fails the recipe instead of poisoning the cluster with a
+# half-imported tag that surfaces hours later as ImagePullBackOff in
+# await-egg-deploy.sh. Tarballs go in /var/tmp (disk-backed) -- the sandbox
+# image is ~12 GB, so /tmp (tmpfs) would consume that much RAM.
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
-	@set -o pipefail; \
-	docker save egg-gateway:latest | sudo k3s ctr images import - && \
-	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
-	docker save egg-orchestrator:latest | sudo k3s ctr images import - && \
-	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
-	docker save egg-sandbox:latest | sudo k3s ctr images import - && \
-	docker save egg-sandbox:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
+	@set -euo pipefail; \
+	tmp=$$(mktemp -d -p /var/tmp egg-k3s-import.XXXXXX); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	tags="latest"; \
+	if [ "$(EGG_IMAGE_TAG)" != "latest" ]; then tags="$$tags $(EGG_IMAGE_TAG)"; fi; \
+	for image in egg-gateway egg-orchestrator egg-sandbox; do \
+		for tag in $$tags; do \
+			img="$$image:$$tag"; \
+			f="$$tmp/$${img//[:\/]/_}.tar"; \
+			echo ">>> importing $$img"; \
+			docker save "$$img" -o "$$f"; \
+			sudo k3s ctr images import "$$f"; \
+			rm -f "$$f"; \
+			if ! sudo k3s ctr images list -q | grep -qx "docker.io/library/$$img"; then \
+				echo "ERROR: $$img import returned 0 but tag is not present in k3s containerd" >&2; \
+				exit 1; \
+			fi; \
+		done; \
+	done
 
 k3s-teardown:  ## Remove k3s
 	/usr/local/bin/k3s-uninstall.sh || true
