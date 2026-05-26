@@ -576,18 +576,21 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 	@set -euo pipefail; \
 	tmp=$$(mktemp -d -p /var/tmp egg-k3s-import.XXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	for img in egg-gateway:latest egg-gateway:$(EGG_IMAGE_TAG) \
-	           egg-orchestrator:latest egg-orchestrator:$(EGG_IMAGE_TAG) \
-	           egg-sandbox:latest egg-sandbox:$(EGG_IMAGE_TAG); do \
-		f="$$tmp/$${img//[:\/]/_}.tar"; \
-		echo ">>> importing $$img"; \
-		docker save "$$img" -o "$$f"; \
-		sudo k3s ctr images import "$$f"; \
-		rm -f "$$f"; \
-		if ! sudo k3s ctr images list -q | grep -qx "docker.io/library/$$img"; then \
-			echo "ERROR: $$img import returned 0 but tag is not present in k3s containerd" >&2; \
-			exit 1; \
-		fi; \
+	tags="latest"; \
+	if [ "$(EGG_IMAGE_TAG)" != "latest" ]; then tags="$$tags $(EGG_IMAGE_TAG)"; fi; \
+	for image in egg-gateway egg-orchestrator egg-sandbox; do \
+		for tag in $$tags; do \
+			img="$$image:$$tag"; \
+			f="$$tmp/$${img//[:\/]/_}.tar"; \
+			echo ">>> importing $$img"; \
+			docker save "$$img" -o "$$f"; \
+			sudo k3s ctr images import "$$f"; \
+			rm -f "$$f"; \
+			if ! sudo k3s ctr images list -q | grep -qx "docker.io/library/$$img"; then \
+				echo "ERROR: $$img import returned 0 but tag is not present in k3s containerd" >&2; \
+				exit 1; \
+			fi; \
+		done; \
 	done
 
 k3s-teardown:  ## Remove k3s
