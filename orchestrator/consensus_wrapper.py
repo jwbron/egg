@@ -124,7 +124,17 @@ STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 # message-reader 1MB JSON buffer crash (issue #2804) which is
 # deterministic — retrying just hits the same overflow and burns
 # the restart budget for no gain.
-AGENT_OUTPUT_LOG="${{AGENT_OUTPUT_LOG:-/tmp/agent-output-$$.log}}"
+#
+# Use ``mktemp`` for the default path so a co-tenant on the same host
+# cannot pre-create a symlink at a predictable ``/tmp/agent-output-$$``
+# location (``tee -a`` follows symlinks). The container is single-tenant
+# in normal operation; mktemp is defense-in-depth for multi-tenant
+# sandbox setups. The fallback to ``/tmp/agent-output-$$.log`` only
+# fires if ``mktemp`` itself isn't on PATH, which would be a much
+# bigger problem.
+if [ -z "${{AGENT_OUTPUT_LOG:-}}" ]; then
+    AGENT_OUTPUT_LOG="$(mktemp -t agent-output.XXXXXX 2>/dev/null || echo "/tmp/agent-output-$$.log")"
+fi
 
 # Log wrapper messages to stderr so they never leak into agent SDK context.
 cw_log() {{
@@ -142,6 +152,16 @@ run_agent() {{
     # substitution (> >(tee ...)) backgrounds the tee subshell and
     # doesn't wait, which races with the immediate is_buffer_overflow
     # grep that follows on agent exit.
+    #
+    # Note: ``2>&1 | tee -a`` interleaves stdout and stderr in the
+    # captured log. This is intentional — the SDK overflow marker
+    # is emitted on stderr (``logger.error`` in
+    # ``claude_agent_sdk.query``), and the grep that triggers
+    # is_buffer_overflow needs to see it in the same file as
+    # stdout. Side-effect: any future log analysis that depends on
+    # stdout/stderr separation will need to capture them separately
+    # upstream (e.g. via ``script`` or a wrapper process), not from
+    # ``$AGENT_OUTPUT_LOG``.
     if [ -n "$system_prompt" ]; then
         {agent_command_prefix} --system-prompt "$system_prompt" "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
     else

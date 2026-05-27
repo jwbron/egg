@@ -132,8 +132,15 @@ async def run_agent_async(
         # caught by the existing handler below — issue #2804 relies on
         # its error message preserving the ``exceeded maximum buffer
         # size`` marker so the consensus-wrapper can short-circuit
-        # retry on this failure class. We don't import it explicitly
-        # here (the marker stability is verified by tests).
+        # retry on this failure class. Tests pin that the marker
+        # propagates into ``result.error`` once raised, and that the
+        # consensus-wrapper grep matches ``_BUFFER_OVERFLOW_MARKER``;
+        # stability of the marker against future ``claude-agent-sdk``
+        # releases is NOT verified (the SDK could change the wording
+        # at any minor bump and the wrapper would silently fall back
+        # to burning the transient-crash retry budget). See #2823 for
+        # the follow-up to pin or smoke-test the marker against the
+        # installed SDK.
     except ImportError:
         return AgentResult(
             success=False,

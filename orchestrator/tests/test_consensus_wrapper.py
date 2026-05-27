@@ -1353,6 +1353,25 @@ class TestBufferOverflowDetection:
         assert "is_buffer_overflow()" in script
         assert "exceeded maximum buffer size" in script
 
+    def test_script_marker_matches_client_constant(self):
+        """The bash grep substring must match ``_BUFFER_OVERFLOW_MARKER``
+        in ``shared/egg_agent/client.py``. Renaming the constant without
+        updating the wrapper script silently regresses the short-circuit
+        — this test pins them together. Issue #2804.
+        """
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
+        try:
+            from egg_agent.client import _BUFFER_OVERFLOW_MARKER
+        finally:
+            sys.path.pop(0)
+
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert _BUFFER_OVERFLOW_MARKER in script, (
+            f"consensus_wrapper script must grep for {_BUFFER_OVERFLOW_MARKER!r} "
+            "to match the marker emitted by run_agent_async on SDK overflow"
+        )
+
     def test_script_captures_agent_output(self):
         """Agent output must be tee'd to a log file the wrapper can grep."""
         cmd = build_consensus_wrapped_command("Prompt")

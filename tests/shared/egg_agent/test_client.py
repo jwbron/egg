@@ -9,7 +9,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from egg_agent.client import _MAX_TOOL_CONTENT_LOG_LEN, _truncate, run_agent, run_agent_async
+from egg_agent.client import (
+    _BUFFER_OVERFLOW_MARKER,
+    _MAX_TOOL_CONTENT_LOG_LEN,
+    _truncate,
+    run_agent,
+    run_agent_async,
+)
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
@@ -833,7 +839,7 @@ class TestBufferOverflowErrorHandling:
         from claude_agent_sdk import CLIJSONDecodeError
 
         mock_query.side_effect = CLIJSONDecodeError(
-            "JSON message exceeded maximum buffer size of 1048576 bytes..."
+            f"JSON message {_BUFFER_OVERFLOW_MARKER} of 1048576 bytes..."
         )
 
         result = _run_async(run_agent_async("test prompt"))
@@ -841,8 +847,10 @@ class TestBufferOverflowErrorHandling:
         assert result.success is False
         assert result.returncode == -1
         # Marker must appear verbatim in ``error`` so the wrapper's grep
-        # in is_buffer_overflow() matches.
-        assert "exceeded maximum buffer size" in result.error
+        # in is_buffer_overflow() matches. Referencing the module-level
+        # constant here means a rename in client.py drives a test
+        # failure rather than silently desyncing from the wrapper grep.
+        assert _BUFFER_OVERFLOW_MARKER in result.error
 
 
 class TestToolInterception:
