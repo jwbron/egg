@@ -34,7 +34,7 @@ spec:
           # Pinned image — bump via overlay when intentionally updating.
           # LiteLLM's Anthropic-translation interface is the contract the
           # gateway depends on; do not float ``latest`` (cq-1, feedback Q3).
-          image: ghcr.io/berriai/litellm:main-v1.55.10
+          image: ghcr.io/berriai/litellm:main-v1.86.2
           imagePullPolicy: IfNotPresent
           args:
             - --config
