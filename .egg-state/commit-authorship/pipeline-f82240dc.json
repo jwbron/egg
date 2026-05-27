@@ -1,5 +1,12 @@
 {
   "entries": {
+    "240b1890a2cb3b0f8305dcd939f4049e806d6e57": {
+      "branch": "egg/pipeline-f82240dc/work",
+      "pipeline_id": "pipeline-f82240dc",
+      "registered_at": "2026-05-27T00:26:21.233884+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
     "4b601b28987559cfb7df096bfaf2c28b0f798779": {
       "branch": "egg/pipeline-f82240dc/work",
       "pipeline_id": "pipeline-f82240dc",
