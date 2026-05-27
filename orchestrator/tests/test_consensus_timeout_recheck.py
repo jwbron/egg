@@ -629,25 +629,29 @@ class TestConsensusTimeoutRecheck:
 
         mock_monotonic.side_effect = _monotonic
 
+        # Swap which container has the non-zero exit so the producer-death
+        # short-circuit (#2806) does not preempt the step-5 NACK guard under
+        # test. Reviewer fails non-zero; coder exits clean. The NACK target
+        # ("reviewer_code" -> "coder") still encodes the consensus state the
+        # guard is meant to detect.
         executions = [
             _make_execution(AgentRole.CODER, "coder-1"),
             _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
         ]
 
-        # Both containers EXITED — coder with failure, reviewer clean
         container_infos = {
             "coder-1": ContainerInfo(
                 container_id="coder-1",
                 container_name="issue-1691-coder",
                 status=ContainerStatus.EXITED,
-                exit_code=1,
+                exit_code=0,
                 exited_at=datetime.now(UTC),
             ),
             "reviewer-1": ContainerInfo(
                 container_id="reviewer-1",
                 container_name="issue-1691-reviewer_code",
                 status=ContainerStatus.EXITED,
-                exit_code=0,
+                exit_code=1,
                 exited_at=datetime.now(UTC),
             ),
         }

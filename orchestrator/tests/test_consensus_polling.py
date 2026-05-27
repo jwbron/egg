@@ -597,12 +597,14 @@ class TestContainerExitFallback:
         """When a container exits non-zero, returns (1, ...) via fallback."""
         mock_monotonic.return_value = 0.0
 
-        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        # Failing role is a non-producer so the producer-death short-circuit
+        # (#2806) does not preempt the handle_agent_failure path under test.
+        executions = [_make_execution(AgentRole.REVIEWER_CODE, "reviewer-1")]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-999-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
                 status=ContainerStatus.FAILED,
                 exit_code=1,
                 exited_at=datetime.now(UTC),
@@ -618,7 +620,7 @@ class TestContainerExitFallback:
         mock_executor_instance.check_consensus.return_value = {
             "is_complete": False,
             "has_objections": False,
-            "blocking_agents": ["coder"],
+            "blocking_agents": ["reviewer_code"],
         }
         MockExecutor.return_value = mock_executor_instance
 
@@ -637,7 +639,7 @@ class TestContainerExitFallback:
         assert exit_code == 1
         # handle_agent_failure should have been called
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 1",
         )
 
@@ -728,15 +730,18 @@ class TestMixedScenarios:
         """When a container crashes, handle_agent_failure() is called."""
         mock_monotonic.return_value = 0.0
 
+        # Crashed container is a non-producer (reviewer_code) so the
+        # producer-death short-circuit (#2806) does not preempt the
+        # handle_agent_failure path under test.
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
             _make_execution(AgentRole.TESTER, "tester-1"),
         ]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-999-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
                 status=ContainerStatus.FAILED,
                 exit_code=137,
                 exited_at=datetime.now(UTC),
@@ -759,7 +764,7 @@ class TestMixedScenarios:
         mock_executor_instance.check_consensus.return_value = {
             "is_complete": False,
             "has_objections": False,
-            "blocking_agents": ["coder"],
+            "blocking_agents": ["reviewer_code"],
         }
         MockExecutor.return_value = mock_executor_instance
 
@@ -777,7 +782,7 @@ class TestMixedScenarios:
 
         assert exit_code == 1
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 137",
         )
 
@@ -794,6 +799,11 @@ class TestMixedScenarios:
 
         Issue #1495: consensus is the authoritative success signal — container
         failures should not override it when consensus is_complete=True.
+
+        After #2806, a non-clean exit on a *producer* hard-fails the pipeline,
+        so this test uses a non-producer (reviewer_code) for the OOM case —
+        the consensus-overrides-failure invariant still applies on the
+        reviewer-failure path that handle_agent_failure recovers.
         """
         poll_count = [0]
 
@@ -803,14 +813,14 @@ class TestMixedScenarios:
         mock_monotonic.side_effect = _monotonic
 
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
             _make_execution(AgentRole.TESTER, "tester-1"),
         ]
 
-        # Coder exits 137 (OOM kill) immediately; tester stays running
-        failed_coder = ContainerInfo(
-            container_id="coder-1",
-            container_name="issue-999-coder",
+        # Reviewer exits 137 (OOM kill) immediately; tester stays running.
+        failed_reviewer = ContainerInfo(
+            container_id="reviewer-1",
+            container_name="issue-999-reviewer_code",
             status=ContainerStatus.FAILED,
             exit_code=137,
             exited_at=datetime.now(UTC),
@@ -823,8 +833,8 @@ class TestMixedScenarios:
         )
 
         def _get_info(cid):
-            if cid == "coder-1":
-                return failed_coder
+            if cid == "reviewer-1":
+                return failed_reviewer
             return running_tester
 
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
@@ -832,7 +842,7 @@ class TestMixedScenarios:
 
         def _check_consensus():
             poll_count[0] += 1
-            # After handle_agent_failure removes coder, tester alone reaches consensus
+            # After handle_agent_failure removes reviewer, tester alone reaches consensus
             if poll_count[0] >= 2:
                 return {"is_complete": True, "has_objections": False, "blocking_agents": []}
             return {"is_complete": False, "has_objections": False, "blocking_agents": ["tester"]}
@@ -858,9 +868,9 @@ class TestMixedScenarios:
         # Even though a container failed (OOM), consensus was reached so
         # the phase should succeed (exit 0).
         assert exit_code == 0
-        # handle_agent_failure should have been called for the crashed coder
+        # handle_agent_failure should have been called for the crashed reviewer
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 137",
         )
 
