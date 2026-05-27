@@ -2653,6 +2653,54 @@ class TestSynthesizePlanDraftNamespaced:
         # No meaningful content → draft not written
         assert not draft_path.exists()
 
+    def test_includes_architect_slices_yaml_when_present(self, tmp_path):
+        """architect-slices.yaml is captured in the synthesized fallback draft (#2809).
+
+        The fallback synthesizer is the recovery path when task_planner fails
+        to write {id}-plan.md directly. The architect scaffold is the binding
+        source of slice DAG shape, so it must be visible in the synthesized
+        draft for the HITL gate to show the operator a complete plan.
+        """
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": "Architecture analysis for issue 871"})
+        )
+        scaffold_yaml = (
+            "slices:\n"
+            "  - id: 1\n"
+            "    name: |-\n"
+            "      Bootstrap\n"
+            "    goal: |-\n"
+            "      Stand up the new auth route\n"
+            "    parent_slice_id: null\n"
+        )
+        (outputs_dir / "871-architect-slices.yaml").write_text(scaffold_yaml)
+        (outputs_dir / "871-risk_analyst-output.json").write_text(
+            json.dumps({"content": "Risk assessment for issue 871"})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        # Scaffold heading and raw YAML body (YAML falls through json.loads to raw text)
+        assert "## Slice Scaffold" in content
+        assert "Bootstrap" in content
+        assert "parent_slice_id: null" in content
+        # Other agent outputs still included
+        assert "Architecture analysis for issue 871" in content
+        assert "Risk assessment for issue 871" in content
+
 
 class TestBuildReviewPrompt:
     """Tests for _build_review_prompt verdict format, conventions, and preambles."""
@@ -3326,10 +3374,11 @@ class TestPlannerPromptTreatsRefinerSlicingAsAdvisory:
     Regression for #2793: the planner used to be told that "multi-slice plans
     are required when an upstream refine-phase work-decomposition HITL
     decision selected a multi-slice shape" — a now-removed contract that
-    locked the planner to whatever shape the refiner picked. The new
-    contract: the planner picks the slice shape; the refiner's sketch is
-    advisory only; the only thing that binds is an explicit operator-side
-    slice-DAG HITL decision, which the planner may still push back on.
+    locked the planner to whatever shape the refiner picked.
+
+    The refiner's sketch is advisory only. Per #2809 the **architect** owns
+    slice composition within the plan phase (concurrent path); in the
+    sequential path the single planner agent picks the shape.
     """
 
     @staticmethod
@@ -3388,12 +3437,24 @@ class TestPlannerPromptTreatsRefinerSlicingAsAdvisory:
         assert "explicit slice-DAG HITL decision" in prompt
         assert "raise it as an open question" in prompt
 
-    def test_concurrent_planner_states_slice_shape_is_planner_call(self):
+    def test_concurrent_planner_defers_slice_shape_to_architect(self):
+        """#2809: in the concurrent plan path, slice composition is the
+        architect's job — task_planner copies the architect-emitted
+        scaffold verbatim and only enumerates ``tasks:``."""
         prompt = self._concurrent_planner_prompt()
-        assert "Slice shape is your call" in prompt
-        assert "advisory context" in prompt
-        assert "explicit slice-DAG HITL decision" in prompt
-        assert "raise it as an open question" in prompt
+        # The old "task_planner picks the shape" framing must be gone
+        # in the concurrent path (where architect now owns it).
+        assert "Slice shape is your call" not in prompt, (
+            "concurrent task_planner still claims slice-shape authority — "
+            "#2809 moved that ownership to the architect"
+        )
+        # The new contract must be explicit.
+        assert "architect-slices.yaml" in prompt
+        assert "verbatim" in prompt
+        assert "Slice composition is NOT your call" in prompt
+        # NACK pressure on architect is the documented escape valve for
+        # discovered slicing problems.
+        assert "NACK pressure" in prompt
 
 
 class TestPlannerPromptSliceDagFraming:
@@ -5212,6 +5273,20 @@ class TestDualRoleExecutionOrdering:
         preamble = _build_brc_preamble("coder", "implement")
         assert "### Dual-Role Execution Order" not in preamble
 
+    def test_dual_role_banner_present_for_risk_analyst(self):
+        """#2809 — risk_analyst is dual-role in the plan phase (mirrors
+        the implement-phase tester pattern from #2749), so its BRC
+        preamble must carry the same ordering banner."""
+        preamble = _build_brc_preamble("risk_analyst", "plan")
+        assert "### Dual-Role Execution Order" in preamble
+        # And its pre-confirm wait must include the augmented
+        # `--for CONSENSUS_PROPOSE` so peer producer (architect /
+        # task_planner) proposals wake it for review.
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "--for CONSENSUS_PROPOSE" in respond_block
+
     def test_dual_role_banner_absent_for_pure_reviewer(self):
         preamble = _build_brc_preamble("reviewer_code", "implement")
         assert "### Dual-Role Execution Order" not in preamble
@@ -5768,6 +5843,148 @@ class TestPlanProducerPromptsCitePrimitives:
         assert "#2594" in prompt
         # References the canonical #2474 failure mode.
         assert "#2474" in prompt
+
+
+class TestPlanPhaseArchitectOwnsComposition:
+    """Issue #2809 — within the concurrent plan phase, slice composition is
+    owned by ``architect`` (emits ``architect-slices.yaml`` scaffold);
+    ``task_planner`` consumes it verbatim and only enumerates ``tasks:``;
+    ``risk_analyst`` becomes a dual-role producer+reviewer; ``reviewer_plan``
+    hard-NACKs oversized slices via a new ``slice_size`` rubric."""
+
+    @staticmethod
+    def _prompt(role: str, issue_number: int = 871) -> str:
+        return _build_agent_prompt(
+            role_value=role,
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=issue_number,
+            concurrent=True,
+        )
+
+    def test_architect_prompt_grants_slice_composition_authority(self):
+        prompt = self._prompt("architect")
+        assert "Slice composition authority (#2809)" in prompt
+        assert "sole authority for slice composition" in prompt
+        # Architect must be told to treat cq-1 as a coarse hint, not a literal count.
+        assert "cq-1" in prompt
+        assert "coarse" in prompt
+        # The four dimensions of authority must be named.
+        assert "Slice count" in prompt
+        assert "Slice boundaries" in prompt
+        assert "Slice DAG shape" in prompt
+        assert "Sub-slicing" in prompt
+
+    def test_architect_prompt_emits_slice_scaffold_yaml(self):
+        prompt = self._prompt("architect", issue_number=871)
+        # Architect must be directed to write the scaffold at the
+        # issue-prefixed path.
+        assert "871-architect-slices.yaml" in prompt
+        # Scaffold schema must show parent_slice_id for forest expression.
+        assert "parent_slice_id" in prompt
+        # Architect must NOT enumerate tasks in the scaffold — that's
+        # task_planner's role.
+        scaffold_start = prompt.index("Write the slice scaffold")
+        scaffold_end = prompt.index("### File Restrictions", scaffold_start)
+        scaffold_section = prompt[scaffold_start:scaffold_end]
+        assert "Do NOT include ``tasks:``" in scaffold_section
+
+    def test_architect_file_restrictions_permit_scaffold_yaml(self):
+        prompt = self._prompt("architect", issue_number=871)
+        restrictions_start = prompt.index("### File Restrictions")
+        restrictions_section = prompt[restrictions_start:]
+        # Both artifacts must be explicitly permitted.
+        assert "871-architect-output.json" in restrictions_section
+        assert "871-architect-slices.yaml" in restrictions_section
+
+    def test_task_planner_prompt_drops_slice_shape_ownership(self):
+        prompt = self._prompt("task_planner")
+        # The old "Slice shape is your call" framing must not survive
+        # in the concurrent path.
+        assert "Slice shape is your call" not in prompt
+        # The new contract must be present.
+        assert "Slice composition is NOT your call" in prompt
+        # And reference the architect's scaffold by path.
+        assert "architect-slices.yaml" in prompt
+        # Verbatim-copy directive must be explicit.
+        assert "verbatim" in prompt
+
+    def test_task_planner_surfaces_slicing_problems_as_nack_pressure(self):
+        prompt = self._prompt("task_planner")
+        # The escape valve — task_planner discovers a slice is too big,
+        # surfaces it back as NACK pressure on architect (via the
+        # risk_analyst dual-role NACK or reviewer_plan structural NACK),
+        # NOT by silently re-shaping.
+        assert "NACK pressure" in prompt
+        assert "Do NOT silently re-shape slices" in prompt
+
+    def test_task_planner_drops_never_nacks_on_size_wording(self):
+        prompt = self._prompt("task_planner")
+        # #2809 inverts the prior contract — reviewer_plan now NACKs on
+        # size. The old "never NACKs on size" wording must not leak into
+        # the task_planner's slice-DAG block.
+        assert "never NACKs on size" not in prompt
+        assert "soft, advisory only" not in prompt
+
+    def test_risk_analyst_prompt_declares_dual_role(self):
+        prompt = self._prompt("risk_analyst")
+        # Issue reference.
+        assert "#2809" in prompt
+        # Dual-role announcement is the lede.
+        assert "dual-role (producer AND reviewer)" in prompt
+        # Pattern reference — risk_analyst mirrors tester's dual-role
+        # primitive (#2749).
+        assert "#2749" in prompt
+        # Both role sections must be present.
+        assert "## Producer role (risk register)" in prompt
+        assert "## Reviewer role (risk lens on architect + task_planner)" in prompt
+
+    def test_risk_analyst_prompt_specifies_verdict_shape(self):
+        prompt = self._prompt("risk_analyst")
+        # Verdict-shape JSON keys must be documented so reviewer-role
+        # output is uniform.
+        assert "blocking_concerns" in prompt
+        assert "top_3_risks" in prompt
+        # The verdict field has only two legal values.
+        assert '"verdict": "ACK" | "NACK"' in prompt
+
+    def test_plan_review_criteria_has_slice_size_section(self):
+        criteria = _get_plan_review_criteria()
+        # New §11 rubric on slice sizing.
+        assert "### 11." in criteria
+        assert "Slice Sizing" in criteria
+        # Hard-NACK framing (parallels §9, §10 audit framing).
+        assert "hard NACK" in criteria
+        # Issue reference.
+        assert "#2809" in criteria
+        # No fixed budget — explicitly judgment-based.
+        assert "judgment" in criteria.lower()
+        # The four canonical NACK criteria from the issue must all
+        # appear, scoped to the §11 section to prevent unrelated
+        # mentions elsewhere from masking deletion.
+        section_start = criteria.index("### 11.")
+        section = criteria[section_start:]
+        assert "file-categories" in section
+        assert "deletion-heavy" in section
+        assert "new-API" in section
+        assert "commit-propose-revise" in section
+        assert "independent task groups" in section
+
+    def test_reviewer_plan_prep_drops_advisory_only_wording(self):
+        # _build_reviewer_preparation(reviewer_plan, plan) is what
+        # the reviewer sees while waiting for proposals. The old
+        # "advisory only — never NACK" line must not survive.
+        prep = _build_reviewer_preparation(
+            role_value="reviewer_plan",
+            phase="plan",
+        )
+        assert "advisory only — never NACK" not in prep
+        assert "NEVER NACKs on size" not in prep
+        # New framing must be present.
+        assert "Slice-sizing NACK (hard, judgment-based" in prep
+        assert "#2809" in prep
 
 
 class TestRefinerOrientationSurfacesPrimitives:

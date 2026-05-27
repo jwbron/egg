@@ -4935,7 +4935,56 @@ def _get_plan_review_criteria() -> str:
         '- "task TASK-4-2 references `ScriptedProvider` from '
         "`sandbox/` (or any deployed-pod path) — it is a unit-test "
         "double under `shared/tests/`, not a runtime-injectable "
-        'provider"\n'
+        'provider"\n\n'
+        "### 11. Slice Sizing (hard NACK, judgment-based — see #2809)\n"
+        "Slice sizing is owned by the **architect**, not the "
+        "task_planner. ``reviewer_plan`` is empowered AND required to "
+        "hard-NACK the architect when a slice is oversized for one "
+        "BRC cycle. This is a separate rubric key from the slice-DAG "
+        "shape checks so the NACK is unambiguously routed to the "
+        "architect for slice re-shaping (re-spawn ``architect`` with "
+        "the subdivision feedback).\n\n"
+        "**No fixed tasks-per-slice budget.** Use judgment. NACK when "
+        "any of the following holds:\n\n"
+        "- A single slice touches **more than ~3 distinct "
+        "file-categories** (e.g. orchestrator + gateway + schema + "
+        "tests + docs all in one slice probably wants subdivision).\n"
+        "- A single slice combines **deletion-heavy work** with "
+        "**new-API-introduction work** — these usually want different "
+        "review attention and ship better as separate slices.\n"
+        "- A single slice would require the implementing producer to "
+        "**commit-propose-revise more than 3–4 times** to converge "
+        "(typical signal: many independent commit clusters with "
+        "different reviewer surfaces).\n"
+        "- A single slice contains **independent task groups with no "
+        "internal dependency** — natural seams for parallel "
+        "sub-slices.\n\n"
+        "**NACK format**: name the seam where subdivision is "
+        "appropriate so the architect's re-propose is actionable. "
+        "Examples:\n\n"
+        '- "slice-1 bundles gateway allowlist edits, orchestrator '
+        "route handlers, and shared/egg_contracts schema changes — "
+        "three distinct file-categories with different reviewer "
+        "surfaces. Subdivide along the gateway / orchestrator "
+        '/ schema seam."\n'
+        '- "slice-2 bundles ~600 LOC of removals across "'
+        "orchestrator/* with ~200 LOC of new gateway-Jira routes — "
+        "deletion-heavy + new-API in one cycle. Ship the removals "
+        'as one slice and the new routes as a downstream slice."\n'
+        '- "slice-3 contains 9 tasks across 4 independent feature '
+        "areas (search, profile, settings, notifications) with no "
+        "cross-area dependency — subdivide into one slice per "
+        'area."\n\n'
+        "The architect re-proposes with the subdivision applied (the "
+        "existing BRC re-review loop handles convergence). "
+        "task_planner re-consumes the revised "
+        "``architect-slices.yaml`` scaffold on the next BRC cycle. "
+        "**Refiner / operator can override sizing concerns** if there "
+        "is a deliberate reason to ship a large slice (e.g. atomic "
+        "schema migration that cannot be split safely) — in that "
+        "case the architect should cite the override in the analysis "
+        "and the reviewer can ACK once the rationale is on the "
+        "record.\n"
     )
 
 
@@ -12252,9 +12301,15 @@ def _build_phase_prompt(
                 "``# yaml-tasks`` block (the parser also accepts ``phases:`` for "
                 "backward compatibility). New plans should use ``slices:``.",
                 "",
-                "**Slice-sizing guidance (soft, advisory only)**: target ≤1,000 "
-                "LOC per slice where possible. The plan reviewer flags oversized "
-                "slices as advisory but does NOT reject on size.",
+                "**Slice-sizing NACK (hard, judgment-based — #2809)**: the plan "
+                "reviewer will hard-NACK an oversized slice. Use judgment when "
+                "shaping — no fixed LOC budget, but avoid bundling more than ~3 "
+                "distinct file-categories in one slice, avoid combining "
+                "deletion-heavy work with new-API-introduction work, avoid "
+                "slices that would require >3–4 commit-propose-revise cycles, "
+                "and avoid bundling independent task groups with no internal "
+                "dependency. Subdivide along those seams up front rather than "
+                "earning a NACK.",
                 "",
                 "**Forest constraint (HARD)**: every slice must have at most ONE "
                 "DAG parent — the implement-phase pipeline ships every slice as a "
@@ -13371,20 +13426,22 @@ def _build_reviewer_preparation(
                 "rejected at plan ingestion with a "
                 "``forest_violation`` log discriminator (or the contract's "
                 "``plan_review_feedback`` carries a 'Plan ingestion REJECTED' "
-                "block), NACK the planner and cite the structured errors "
-                "verbatim. Instruct the planner to re-emit the plan with "
-                "``serialized_chain_order`` populated on the downstream "
-                "slice. "
-                "(2) **Slice-sizing advisory (advisory only — never "
-                "NACK)**: for each slice whose estimated LOC "
-                "(count of ``files_affected`` × heuristic weight) is "
-                ">1,000, surface a non-blocking advisory line in your ACK "
-                "body. Tone scales with magnitude: 1,000–2,000 LOC: "
-                "'consider splitting'; >2,000 LOC: 'this slice is well "
-                "above the soft target — strongly consider splitting'. "
-                "Per HITL decision-6 opt-2 the plan reviewer NEVER NACKs "
-                "on size — the refiner/operator retains override "
-                "authority."
+                "block), NACK the architect and cite the structured errors "
+                "verbatim. Instruct the architect to re-emit the slice "
+                "scaffold with ``serialized_chain_order`` populated on the "
+                "downstream slice. "
+                "(2) **Slice-sizing NACK (hard, judgment-based — #2809)**: "
+                "slice composition is owned by the **architect**, not the "
+                "task_planner. You ARE empowered and required to hard-NACK "
+                "the architect on ``slice_size`` when a slice is oversized "
+                "for one BRC cycle. Use judgment — no fixed tasks-per-slice "
+                "or LOC budget. NACK when a slice bundles more than ~3 "
+                "distinct file-categories, combines deletion-heavy with "
+                "new-API-introduction work, would require >3–4 "
+                "commit-propose-revise cycles, or contains independent "
+                "task groups with no internal dependency. Name the seam in "
+                "your NACK so the architect's re-propose is actionable. "
+                "See criteria §11 for the full rubric and examples."
             )
     elif phase == "refine":
         if role_value in ("reviewer_refine", "reviewer_agent_design"):
@@ -14250,9 +14307,83 @@ def _build_agent_prompt(
                 "",
                 f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
+                # ----------------------------------------------------
+                # #2809 — architect owns slice composition
+                # ----------------------------------------------------
+                "## Slice composition authority (#2809)",
+                "",
+                "**You are the sole authority for slice composition in the "
+                "plan phase.** ``task_planner`` enumerates tasks within the "
+                "slices you define; ``risk_analyst`` surfaces risks that "
+                "feed your design. Neither owns slice shape — you do. "
+                "Specifically, you own:",
+                "",
+                "- **Slice count.** Treat the operator's ``cq-1`` (or "
+                "equivalent refine-phase complexity answer) as a coarse "
+                "top-level hint, not a literal slice count. Subdivide "
+                "further when the natural slice DAG calls for it.",
+                "- **Slice boundaries.** Which work goes into which slice, "
+                "anchored on design seams.",
+                "- **Slice DAG shape.** Parent/child dependencies between "
+                "slices. The forest constraint (every slice has at most "
+                "ONE DAG parent) is HARD — multi-parent slices break the "
+                "stacked-PR invariant. If a slice would naturally have >1 "
+                "parents, serialise the upstream slices into a linear "
+                "chain and record the chosen ordering on the downstream "
+                "slice's ``serialized_chain_order`` field. See "
+                "``docs/architecture/slice-dag.md``.",
+                "- **Sub-slicing.** When one slice would be too coarse, "
+                "subdivide it. Right-size slices for a single BRC cycle: "
+                "avoid bundling distinct file-category groups (e.g. "
+                "orchestrator + gateway + schema + tests + docs all in "
+                "one slice), avoid bundling deletion-heavy work with "
+                "new-API-introduction work, and avoid bundling task "
+                "groups that have no internal dependency — those are "
+                "natural seams for parallel sub-slices. If a slice would "
+                "require the implementing producer to "
+                "commit-propose-revise more than 3–4 times to converge, "
+                "subdivide it.",
+                "",
+                "Emit the slice scaffold as a YAML file alongside your "
+                "JSON analysis. ``task_planner`` will copy this scaffold "
+                "**verbatim** into the plan document's ``# yaml-tasks`` "
+                "appendix and fill in ``tasks:`` under each slice — the "
+                "scaffold is binding. If ``reviewer_plan`` NACKs on "
+                "``slice_size`` or the structural lens calls a "
+                "sub-division, you re-propose with the updated scaffold; "
+                "task_planner re-consumes the new scaffold on the next "
+                "BRC cycle.",
+                "",
+                f"Write the slice scaffold to `.egg-state/agent-outputs/{_identifier}-architect-slices.yaml`:",
+                "",
+                "```yaml",
+                "slices:",
+                "  - id: 1",
+                "    name: |-",
+                "      <slice name>",
+                "    goal: |-",
+                "      <what this slice achieves>",
+                "    parent_slice_id: null  # root",
+                "  - id: 2",
+                "    name: |-",
+                "      <slice name>",
+                "    goal: |-",
+                "      <what this slice achieves>",
+                "    parent_slice_id: 1",
+                "```",
+                "",
+                "Use ``parent_slice_id: null`` for root slices and the "
+                "parent slice's integer ``id`` otherwise. Do NOT include "
+                "``tasks:`` in the scaffold — that is task_planner's job. "
+                "Keep ``name`` and ``goal`` concise enough that "
+                "task_planner can copy them without rewording.",
+                "",
                 "### File Restrictions",
                 "",
-                f"You MUST only write to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
+                "You MUST only write to:",
+                f"- `.egg-state/agent-outputs/{_identifier}-architect-output.json`",
+                f"- `.egg-state/agent-outputs/{_identifier}-architect-slices.yaml`",
+                "",
                 "Do NOT create or modify any other files. Specifically:",
                 "- Do NOT modify analysis drafts (`.egg-state/drafts/*-analysis.md`) — "
                 "these are finalized in the refine phase and are read-only",
@@ -14264,30 +14395,43 @@ def _build_agent_prompt(
         )
     elif role_value == "task_planner":
         draft_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
+        architect_slices_path = f".egg-state/agent-outputs/{_identifier}-architect-slices.yaml"
         lines.extend(
             [
                 "Decompose the architecture analysis into a slice-DAG implementation "
                 "plan. The implement-phase pipeline ships each slice as its own "
-                "stacked PR — see the ``## Slice-DAG guidance (#2137)`` section below "
-                "for the slice-shaping rules. **Slice shape is your call.** A "
-                "single-slice plan is fine when the work is cohesive; pick a "
-                "multi-slice shape when the work has clean seams that ship "
-                "independently. If the refine analysis sketched a decomposition "
-                "(e.g. naming the components touched), treat it as **advisory "
-                "context** — you are free to slice differently if a better seam "
-                "exists. The only thing that binds your slice shape is an explicit "
-                "slice-DAG HITL decision recorded by the operator on the contract; "
-                "if you believe such a decision is wrong, raise it as an open "
-                "question in your plan rather than silently overriding.",
+                "stacked PR.",
+                "",
+                "**Slice composition is NOT your call (#2809).** ``architect`` owns "
+                "slice count, slice boundaries, slice DAG shape, and sub-slicing — "
+                f"and emits the binding scaffold at `{architect_slices_path}`. Your job "
+                "is to enumerate ``tasks:`` within those slices, **not to re-shape "
+                "them**. Copy the architect's scaffold verbatim into the "
+                "``# yaml-tasks`` appendix (preserving slice ``id``, ``name``, "
+                "``goal``, and ``parent_slice_id``) and add ``tasks:`` under each "
+                "slice with task IDs of the form ``TASK-<slice_id>-<n>``.",
+                "",
+                "If a slice has too many tasks for one BRC cycle, or you discover a "
+                "natural sub-seam the architect missed, that is a **slicing problem "
+                "the architect must fix** — surface it as NACK pressure (your peer "
+                "reviewer ``risk_analyst`` and the structural reviewer "
+                "``reviewer_plan`` will NACK ``architect`` on ``slice_size`` when "
+                "evidence supports it; you can also flag the concern in your plan "
+                "prose so the reviewers pick it up). **Do NOT silently re-shape "
+                "slices.** Re-propose against the architect's revised scaffold "
+                "once it lands.",
                 "",
                 "Steps:",
-                "1. Review the architecture analysis from the ARCHITECT agent",
-                "2. Break down the work into phases with discrete, actionable tasks",
-                "3. Define clear acceptance criteria for each task",
-                "4. Define dependency ordering between tasks",
-                "5. Identify the test strategy — what automated tests cover the changes, "
-                "and what manual verification is needed",
-                "6. Identify any manual pre-merge or post-merge steps "
+                f"1. Read the architecture analysis AND the slice scaffold at `{architect_slices_path}`",
+                "2. Copy the architect's slice scaffold verbatim into the "
+                "``# yaml-tasks`` appendix (same ``id`` / ``name`` / ``goal`` / "
+                "``parent_slice_id`` values, in the same order)",
+                "3. Enumerate ``tasks:`` under each slice — discrete, "
+                "actionable, with clear acceptance criteria and dependency ordering "
+                "between tasks",
+                "4. Identify the test strategy — what automated tests cover the "
+                "changes, and what manual verification is needed",
+                "5. Identify any manual pre-merge or post-merge steps "
                 "(migrations, config changes, deployments)",
                 "",
                 "## Output Format",
@@ -14420,26 +14564,26 @@ def _build_agent_prompt(
                 "``phases:`` for backward compatibility with already-shipped "
                 "planner prompts). New plans should use ``slices:``.",
                 "",
-                "**Slice-sizing guidance (soft, advisory only)**: target "
-                "≤1,000 LOC per slice where possible. Slices estimated above "
-                "1,000 LOC will be flagged as advisory by the plan reviewer "
-                "but are NOT rejected. There is no hard size ceiling — the "
-                "refiner/operator can override sizing concerns at any point. "
-                "The plan reviewer never NACKs on size.",
+                "**Slice sizing is the architect's call (#2809).** Slice "
+                "count, boundaries, and DAG shape come from the architect's "
+                "scaffold — copy them verbatim. ``reviewer_plan`` will hard "
+                "NACK ``architect`` on ``slice_size`` when a slice is "
+                "oversized for one BRC cycle (judgment-based — see the "
+                "reviewer's §11 rubric); do NOT silently re-shape slices "
+                "to dodge a size concern. Raise it as NACK pressure on "
+                "architect instead (see the surfacing guidance above).",
                 "",
-                "**Forest constraint (HARD)**: every slice must have at most "
-                "ONE DAG parent — the implement-phase pipeline ships every "
-                "slice as a stacked PR with exactly one base branch. "
-                "Multi-parent slices break the stacking invariant and are "
-                "rejected at plan ingestion.",
+                "**Forest constraint (HARD, enforced at plan ingestion)**: "
+                "every slice must have at most ONE DAG parent — the "
+                "implement-phase pipeline ships every slice as a stacked "
+                "PR with exactly one base branch. The architect's scaffold "
+                "encodes this via ``parent_slice_id``; preserve it.",
                 "",
-                "**Auto-serialization rule for would-be multi-parent slices**: "
-                "when you identify a slice that would naturally have >1 "
-                "parents, you MUST serialise the upstream slices into a "
-                "linear chain and record your chosen ordering on the "
-                "downstream slice's ``serialized_chain_order`` field. The "
-                "list names the upstream slice IDs in their chosen "
-                "serialization order.",
+                "**Auto-serialization for would-be multi-parent slices**: "
+                "the architect is responsible for serialising would-be "
+                "multi-parent slices and populating "
+                "``serialized_chain_order`` on the downstream slice. "
+                "Preserve that field verbatim from the scaffold.",
                 "",
                 "Worked example: if ``slice-3`` would naturally have "
                 "parents ``[slice-1, slice-2]``, instead emit:",
@@ -14482,6 +14626,17 @@ def _build_agent_prompt(
     elif role_value == "risk_analyst":
         lines.extend(
             [
+                "**You are dual-role (producer AND reviewer) in this phase "
+                "(#2809).** You produce the risk register AND you review "
+                "``architect`` and ``task_planner`` through the risk lens — "
+                "your NACK blocks plan-phase consensus until the upstream "
+                "producer re-proposes addressing the concern. This mirrors "
+                "the implement-phase ``tester`` dual-role pattern (#2749); "
+                "the *Dual-Role Execution Order* banner in your BRC "
+                "preamble is the authoritative ordering — read it first.",
+                "",
+                "## Producer role (risk register)",
+                "",
                 "Assess technical risks for the proposed implementation:",
                 "",
                 "1. Review the architecture analysis from the ARCHITECT agent",
@@ -14505,6 +14660,43 @@ def _build_agent_prompt(
                 "plan reviewer can audit them.",
                 "",
                 f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
+                "",
+                "## Reviewer role (risk lens on architect + task_planner)",
+                "",
+                "When ``architect`` or ``task_planner`` proposes (their "
+                "``CONSENSUS_PROPOSE`` will wake you via the dual-role "
+                "augmentation on your producer waits — see the banner), "
+                "review their work through the risk lens and emit ACK or "
+                "NACK. ``blocking_concerns`` are NACK-shaped: they block "
+                "plan-phase consensus and force the upstream producer to "
+                "re-propose addressing them.",
+                "",
+                "Use this verdict shape in your producer artifact "
+                "(risk-register JSON) **and** mirror the verdict / "
+                "feedback in your ``egg-orch consensus ack`` / "
+                "``egg-orch consensus nack`` ``--reason`` body so the "
+                "upstream producer can act on it:",
+                "",
+                "```json",
+                "{",
+                '  "verdict": "ACK" | "NACK",',
+                '  "risks": [...],',
+                '  "top_3_risks": [...],',
+                '  "blocking_concerns": [...],',
+                '  "feedback": "concrete revision instructions for architect / task_planner (empty on ACK)"',
+                "}",
+                "```",
+                "",
+                "NACK when a risk is severe enough that shipping the plan "
+                "as-proposed would invite a known-class failure (security "
+                "regression, data loss, compliance break, runtime-primitive "
+                "or trust-boundary mismatch that would surface as an "
+                "expensive implement-phase NACK). ACK when risks are real "
+                "but mitigated, or low enough that the plan can ship and "
+                "the risks belong in the register as forward-looking "
+                "notes. Be specific in ``feedback`` — name the file, "
+                "the slice, the missing mitigation — so the upstream "
+                "producer's re-propose is actionable.",
                 "",
             ]
         )
@@ -18658,6 +18850,7 @@ def _synthesize_plan_draft(
     sections: list[str] = []
     agent_files = [
         ("architect-output.json", "Architecture Analysis"),
+        ("architect-slices.yaml", "Slice Scaffold"),
         ("risk_analyst-output.json", "Risk Assessment"),
     ]
 
