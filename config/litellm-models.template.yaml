@@ -25,12 +25,24 @@
 #
 # The body below is a complete `config.yaml` for LiteLLM — model_list
 # plus general_settings. The patch replaces the base configmap's
-# `config.yaml` string in full, so include every setting you need.
+# `config.yaml` string in full, so include every setting you need (not
+# just model_list).
 #
 # WARNING: the `general_settings.master_key` entry MUST remain. Without
 # it, LiteLLM accepts requests with any `x-api-key` value and the
 # gateway↔LiteLLM mutual-auth invariant breaks open (any pod that can
 # reach the LiteLLM Service can call it directly).
+#
+# Per-model tuning: anything LiteLLM accepts under `litellm_params`
+# (reasoning_effort, drop_params, extra_body, temperature, top_p,
+# seed, …) works here. See
+# https://docs.litellm.ai/docs/proxy/config_settings#model_list-params
+# for the full list. For routing parity with Anthropic Opus xhigh —
+# egg's current baseline — see the qwen3-max entry below; note that
+# Qwen has no exact xhigh equivalent (fixed-depth internal CoT, not a
+# tunable budget), so per-provider reasoning behavior will differ even
+# after tuning. Leave temperature / top_p / penalties at defaults for
+# cleaner cross-provider comparisons.
 
 data:
   config.yaml: |
@@ -44,6 +56,21 @@ data:
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+          # Closest available knob to Opus xhigh. `reasoning_effort:
+          # high` opts into the deepest reasoning OpenRouter exposes
+          # for the model; `drop_params: true` silently drops
+          # Anthropic-only request fields (e.g. `thinking`) that
+          # LiteLLM can't translate for openrouter/*, preventing 400s.
+          # Recommended for the #2799 pilot — uncomment both:
+          # reasoning_effort: high
+          # drop_params: true
+          # If LiteLLM's normalized `reasoning_effort` isn't honored
+          # for this provider (check the validation run's LiteLLM
+          # logs), pass the OpenRouter-shaped reasoning map directly
+          # via extra_body — they are mutually redundant, pick one:
+          # extra_body:
+          #   reasoning:
+          #     effort: "high"
 
       # Together AI — example hosted Qwen Coder entry. NOT wired
       # end-to-end out of the box: to enable, (1) set
