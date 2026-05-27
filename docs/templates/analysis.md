@@ -53,15 +53,21 @@ or `egg-contract add-feedback` (open-ended). Paste the markdown output of each
 registration command here. Questions written as plain text will not be seen by the
 human.
 
-For **work-decomposition decisions** on multi-part tasks, frame the question on the
-slice-DAG shape, not on PR count. In egg, each slice has its own integration branch,
-agent team, BRC consensus, and PR, and sibling slices in the same wave run in parallel
-(see [Slice-DAG Implement Phase](../architecture/slice-dag.md)). Slice count = PR count
-by construction, so annotate the PR consequence in parentheses — e.g.
-`Two slices in parallel: A || B+C (2 PRs)`,
-`Two slices with dependency: A -> B (2 PRs)` — rather than registering an option
-list framed as "N PRs" or "N sequential PRs". The "sequential" wording is especially
-wrong because the slice scheduler does not require sibling slices to serialize.]
+Register questions about *what the problem is* and *what's in or out of scope* —
+facts only the operator can answer (product intent, scope boundaries, external
+commitments, user-visible behavior). Do **not** register decisions about:
+
+- **Work decomposition / slice-DAG shape / PR packaging** — these belong to the
+  plan phase. The planner owns the slice-DAG shape (see
+  [Slice-DAG Implement Phase](../architecture/slice-dag.md)) and the operator
+  approves it at the plan HITL gate. If the task spans multiple independently-
+  implementable parts, name them in `## Problem Statement` or `## Constraints`
+  as advisory context — the planner will propose a slice shape from that.
+- **Implementation strategy** the planner can derive from the analysis (migration
+  approach, fallback design, detector shape). Surface these as Options Considered
+  / Recommended Approach, not as `add-decision` items.
+- **API / schema details** the planner will work out during design. If the operator
+  must constrain the API shape, state it as a `## Constraints` entry.]
 
 ---
 
