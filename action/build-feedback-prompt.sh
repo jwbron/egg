@@ -117,7 +117,12 @@ ${filter_note}
    - Issue-level comments: \`${issue_comments_cmd}\`
 2. **Understand the current code**: Use \`gh pr diff ${PR_NUMBER}\` to see the PR changes.
 3. **Make fixes**: Address each piece of actionable feedback.
-4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
+4. **Verify**: Run \`make lint\` locally before pushing. **DO NOT run \`make test\`** — the
+   egg test suite takes 10-15 minutes and is causing this workflow to time out. If you
+   need to validate a specific change you made, run only the targeted test file/case
+   (\`.venv/bin/pytest path/to/test_x.py::TestY::test_z\`). Trust CI to run the full
+   suite after you push. This restriction is tracked for removal once #2817 lands and
+   \`make test\`'s changeset narrowing becomes tight enough.
 5. **Push**: Commit and push all fixes together.
 6. **Respond**: Post a single top-level summary comment with a per-item disposition (see contract below).
 

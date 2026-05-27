@@ -56,6 +56,19 @@ avoid the extra API call and log noise.
 - **Suggest fixes**: When possible, show what the correct code should look like.
 - **Provide context**: Explain the reasoning—link to documentation, security guidelines, or examples in the codebase.
 
+## Do NOT run the test suite
+
+**Never run `make test`** as part of your review. The egg test suite takes
+10-15 minutes and is causing this workflow to time out. CI runs the configured
+check suite on every PR HEAD — trust those results (the `wait-for-checks` step
+in the workflow gates this review on a green status), and NACK if you have
+concerns about coverage or behavior rather than re-running tests yourself.
+
+If you need to validate a specific concern about a single function, you may run
+one targeted test (`.venv/bin/pytest path/to/test_x.py::TestY::test_z`), but
+never the full `make test` suite. This restriction is tracked for removal once
+#2817 lands and `make test`'s changeset narrowing becomes tight enough.
+
 ## Signature
 
 End your review with: — Authored by egg
