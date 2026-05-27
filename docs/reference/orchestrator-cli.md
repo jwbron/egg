@@ -452,45 +452,41 @@ egg-orch consensus status --slice-id slice-7
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
-## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548))
+## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548), collapsed in [#2777](https://github.com/jwbron/egg/issues/2777))
 
-Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2548) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+Every pipeline (monolithic or slice-DAG) opens a **Context PR** at the plan→implement boundary via the orchestrator-internal helper `_open_context_pr_at_implement_start(pipeline_id)`. See [Orchestrator Architecture: Context PR](../architecture/orchestrator.md#context-pr-2548-collapsed-in-2777) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
 
 ```bash
-# Inspect the contract's pr.context_* fields. The top-level --pipeline-id flag
-# goes BEFORE the subcommand; bare `egg-contract show` works when EGG_PIPELINE_ID
-# is exported.
+# Inspect the contract's pr.context_pr_number (the only retained pr.context_* field after #2777).
+# The top-level --pipeline-id flag goes BEFORE the subcommand; bare `egg-contract show`
+# works when EGG_PIPELINE_ID is exported.
 egg-contract --pipeline-id <pipeline-id> show
-# Look for: pr.context_title, pr.context_description, pr.context_branch, pr.context_pr_number
+# Look for: pr.context_pr_number, pr.title, pr.description
 
 # Pipeline status (current_phase / pending_decisions; does not include context-PR-specific fields)
 egg-orch pipeline status <pipeline-id>
 
 # Locate the open Context PR on GitHub once contract.pr.context_pr_number is set
 gh pr view <context_pr_number>
-gh pr list --head egg/<id>/context
+gh pr list --head egg/<id>/work --base <base_branch>
 ```
 
-The four `pr.context_*` fields are added in contract schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load). The planner authors `context_title` / `context_description` during the plan phase (before plan_gate); the orchestrator populates `context_branch` and `context_pr_number` after plan_gate approval, when it creates the branch and opens the PR:
+The Context PR opens directly on the pipeline tip branch (`egg/<id>/work`), targeting the configured base branch (`pipeline.base_branch`, typically `main`). Title and body come from the regular `contract.pr.title` and `contract.pr.description` fields; the schema-1.1 `pr.context_title` / `pr.context_description` / `pr.context_branch` fields were removed in the 1.1→1.2 bump.
 
 | Field | Author | Description |
 |-------|--------|-------------|
-| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
-| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
-| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates the branch. |
-| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+| `pr.title` | Planner | PR title (used by both monolithic and program-level Context PRs). |
+| `pr.description` | Planner | PR body (program-level narrative for slice-DAG pipelines). |
+| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when `_open_context_pr_at_implement_start` succeeds. Retained from schema 1.1; the other three `pr.context_*` fields were removed. |
 
-The orchestrator manages the Context PR end-to-end (create branch, commit refine/plan artifacts + BRC history + agent transcripts, open PR via `GatewayClient.create_pr()` with `context_title` / `context_description`). There are no `egg-orch` verbs for opening or closing it manually.
+The orchestrator manages the Context PR end-to-end (idempotent `gh pr list` pre-flight, open via `GatewayClient.create_pr()` with `pr.title` / `pr.description`, write `pr.context_pr_number` back to the contract). There are no `egg-orch` verbs for opening or closing it manually.
 
-**Observability:** If the context PR hook runs but does not open a PR, the wrapper at `_maybe_open_base_pr_for_plan_to_implement` surfaces a `context_pr.failed` event (the inner hook raised) or `context_pr.skipped` event (the inner hook returned without raising, but the post-hook contract still records `contract.pr.context_pr_number = null`) on three sinks (#2611): the in-process `MessageStore` (so the event shows up as a `CONTEXT_PR_FAILED` / `CONTEXT_PR_SKIPPED` entry in `recent_messages` and `/pipelines/<id>/messages`), the `EventBus` (so `/status/wait` long-pollers wake — both event types are in `_STATUS_WAIT_EVENT_TYPES`, and the message types are in `_STATUS_WAIT_MESSAGE_TYPES`), and the legacy `StatusReporter` handler chain (no production handler is registered today, but the call is preserved for any future console/file handler). The emit branch is gated on `pipeline.repo` and `pipeline.base_branch` both being truthy; local-mode pipelines (no remote, no base branch) skip the hook silently and produce neither event (#2593).
+**Observability:** The opener emits INFO-level structured log lines on every invocation: `_open_context_pr_at_implement_start: entering`, `_open_context_pr_at_implement_start: idempotent pre-flight` (with the `gh pr list` result), `_open_context_pr_at_implement_start: opening PR`, and `_open_context_pr_at_implement_start: persisted context_pr_number` on success. On failure the helper raises the typed `ContextPrCreationError` — the orchestrator surfaces a HITL decision rather than soft-failing (the prior `context_pr.failed` / `context_pr.skipped` event-bus entries, and the `_context_pr_events_emitted` dedup set, were deleted in #2777 because the hard-required opener no longer needs them).
 
-The wrapper also writes structured log lines on every invocation: `Context PR hook entered (#2548)` on entry, followed by either a short-circuit log line from the inner hook (e.g. `Context PR hook: pipeline has no remote repo, skipping`) or the wrapper's `Context PR hook raised at plan→implement transition (continuing) (#2548)` warning when the inner hook raised. The `context_pr.skipped` case corresponds to an inner contract-side short-circuit that did not raise — for example, no `pr` block on the contract, the post-hook contract reload failed, or a late `save_contract` failure swallowed the success after the gateway already opened the PR on GitHub. A missing `WORKTREE_BASE_DIR` volume mount is another `context_pr.skipped` trigger: the hook falls back to `/tmp` (gateway-rejected path), logs `Context PR hook: WORKTREE_BASE_DIR missing — falling back to system temp (likely a broken volume mount in production…) (#2684)` at WARNING level, and the gateway silently rejects the push (#2684).
-
-In any of these cases, check `contract.pr.context_pr_number` (via `egg-contract show`) and the remote PR list before concluding the PR is missing — that last short-circuit can leave a PR open on GitHub while the contract still records `null`. **Pipeline deletion does not clean up Context PRs:** `egg-orch pipeline delete <id>` only removes the pipeline tip branch (`egg/<id>/work`) and per-container worktree branches; the Context PR branch (`egg/<id>/context`) is a sibling of the pipeline tip — same convention as the slice integration branches `egg/<id>/slice-N` — and is **not** deleted (see `_cleanup_remote_branches` in `orchestrator/routes/pipelines.py`). To remove a Context PR opened by an unwanted run the operator must close the PR and delete the branch manually:
+If the Context PR appears missing, check `contract.pr.context_pr_number` (via `egg-contract show`) and the remote PR list — the idempotent pre-flight can leave a PR open on GitHub that the contract already records. **Pipeline deletion only removes the pipeline tip branch** (`egg/<id>/work`) and per-container worktree branches; the Context PR is opened against `egg/<id>/work` itself, so closing the PR is sufficient — there is no separate `egg/<id>/context` branch to delete (that branch was removed in #2777). To remove a Context PR opened by an unwanted run the operator must close the PR manually:
 
 ```bash
 gh pr close <context_pr_number>
-git push origin --delete egg/<pipeline-id>/context  # (gateway-mediated push)
 ```
 
 Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Non-slice runs continue to emit the single aggregate `<id>-implement.{md,json}` file. See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table. If the BRC history file is absent from a slice PR's diff, check orchestrator logs for `Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling back to system temp…` — this WARNING indicates the `/home/egg/.egg-worktrees` volume is not mounted on the orchestrator pod, causing the gateway to reject the push (#2684).

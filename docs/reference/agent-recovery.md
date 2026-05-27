@@ -176,7 +176,7 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 1. The restart count is incremented **before** the spawn attempt — a failed spawn still counts toward the per-agent restart limit, preventing infinite retry loops when Docker consistently fails (e.g., out of disk)
 2. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
-4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations. If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
+4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` withdraws any proposals, ACKs, or confirmations from the BRC tracker (the only consensus path in production since #2777 deleted the deprecated `ConsensusEvaluator` READY-tallying module). If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
 5. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
 6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
 7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries

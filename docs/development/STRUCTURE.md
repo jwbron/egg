@@ -108,7 +108,6 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus.py            # Legacy READY-tallying consensus (deprecated, kept for transition)
 ├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
@@ -119,7 +118,7 @@ orchestrator/
 ├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
 ├── progress_store.py       # In-memory structured progress event store with configurable retention
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
-├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by legacy single-PR and slice-DAG umbrella PR paths)
+├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by legacy single-PR and slice-DAG merge-gate PR paths)
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health, deployment
 ├── redaction.py            # Secret redaction helpers for operator-facing diagnostic output (env vars, Bearer JWTs, API key shapes)
