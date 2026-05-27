@@ -4483,8 +4483,15 @@ def _get_refine_review_criteria() -> str:
         "- Are open questions specific enough for a human to answer?\n"
         "- Do questions address genuine ambiguities?\n"
         "- Are questions actionable?\n"
-        "- Are ALL uncertainties and assumptions surfaced? The analysis should not "
-        "proceed with unvalidated assumptions when it could ask the human instead.\n\n"
+        "- **Does each question require a human, or could the planner decide it?** "
+        "NACK questions that ask about work decomposition / slice-DAG shape / "
+        "PR packaging — those belong to the plan phase's HITL gate, not the "
+        "refine gate. NACK questions about implementation strategy "
+        "(API shape, migration approach, fallback design, detector design) "
+        "unless the answer is a fact only the operator knows (product intent, "
+        "scope boundary, external commitment, user-visible behavior). Good "
+        "refine questions are about *what the problem is* and *what's in/out "
+        "of scope*; the planner handles *how to build it*.\n\n"
         "### 6. Recommendation Quality\n"
         "- Is there a clear recommended approach?\n"
         "- Is the recommendation justified with specific reasons?\n"
@@ -11426,8 +11433,10 @@ def _build_phase_prompt(
                 "4. Identify constraints and dependencies",
                 "5. Consider multiple implementation approaches",
                 "6. Recommend an approach with justification",
-                "7. Surface **all** questions and uncertainties that need human input "
-                "(do not self-limit — raise every ambiguity)",
+                "7. Surface the questions and uncertainties that genuinely need a "
+                "human to answer — see `## How to Populate Open Questions` below for "
+                "the filter (slice/PR packaging, implementation strategy, and "
+                "API/schema details belong to the planner, not the refiner)",
                 "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
                 "or phased rollout. That is the **plan** phase's job. Stay focused on "
@@ -11498,11 +11507,38 @@ def _build_phase_prompt(
                 "subsection at the top of `## Open Questions` (one bullet per resolved "
                 "item, citing the answer). Only register questions that go beyond what "
                 "`## Additional Context` covers.\n",
-                "Surface **all** uncertainties, ambiguities, and assumptions that need "
-                "human input. Do not limit yourself to a small number — every genuine "
-                "ambiguity, missing requirement, unstated assumption, or design choice "
-                "that could go multiple ways should be raised here. It is far better to "
-                "ask too many questions than to proceed with incorrect assumptions.\n",
+                "Surface uncertainties, ambiguities, and assumptions **that genuinely "
+                "need a human to answer**. Filter ruthlessly: a good open question is "
+                "one the operator must answer because the answer changes what we're "
+                "building. A bad open question is one the planner phase will decide on "
+                "its own once it sees the analysis — those waste the operator's "
+                "attention and pre-anchor the planner. Err toward registering questions "
+                "about *what the problem actually is* and *what's in or out of scope* "
+                "rather than *how to build it*.\n",
+                "**Out of scope for refine open questions** — do NOT register decisions "
+                "about:\n"
+                "- **Work decomposition / slice-DAG shape / PR packaging** — "
+                "**Slice / PR packaging is NOT a refine-phase decision.** The "
+                "plan phase owns slice-DAG construction (see "
+                "`docs/architecture/slice-dag.md`) and the operator approves the "
+                "proposed slice shape at the plan HITL gate. Do not register "
+                "`add-decision` items asking how the work should be sliced, how "
+                "many PRs to ship, or which parts should run in parallel. If "
+                "the task obviously spans multiple parts, name them in Problem "
+                "Statement or Constraints — the planner will propose a shape "
+                "from the analysis it reads.\n"
+                "- **Implementation strategy choices** that the planner can decide "
+                'from Problem Statement + Constraints (e.g. "which migration '
+                'approach", "which fallback design", "which detector shape"). '
+                "Surface these as Options Considered / Recommended Approach in the "
+                "analysis prose, not as `add-decision` items.\n"
+                "- **API / schema details** the planner phase will work out once it "
+                "starts designing. If the operator must constrain the API shape, "
+                "frame it as a *constraint* in `## Constraints`, not an open question.\n"
+                "Register questions when the answer is a fact only the human knows "
+                "(product intent, scope boundaries, external commitments, "
+                "user-visible behavior) — not when the answer is a design call the "
+                "planner will make.\n",
                 "**Multiple-choice questions** — RUN this command for each question "
                 "where the human must pick from discrete options:",
                 "```bash",
@@ -11524,34 +11560,14 @@ def _build_phase_prompt(
                 'They edit the comment to add their responses and check "Submit '
                 'feedback" when done. The pipeline will resume with the feedback '
                 "available in the contract.\n",
-                "**Work-decomposition decisions** — when the task spans multiple "
-                "independently-implementable parts, the question to register is "
-                "**how to decompose the work into slices**, not how to package PRs. "
-                "In egg, slices are the decomposition primitive: each slice has its "
-                "own integration branch, agent team, BRC consensus, and PR, and "
-                "sibling slices in the same wave run in **parallel** "
-                "(see `docs/architecture/slice-dag.md`). Slice count = PR count by "
-                "construction, so frame the decision on the slice-DAG shape and "
-                "annotate the PR consequence in parentheses — do not frame it on "
-                "the PR count. Never offer "
-                '"N sequential PRs"-style options: that wording forces serialization '
-                "that the slice scheduler does not require and teaches the operator "
-                "the wrong mental model. Example:",
-                "```bash",
-                "egg-contract add-decision \\",
-                '  --question "How should this work be decomposed into slices?" \\',
-                "  --options \\",
-                '    "Single slice: all parts ship together (1 PR)" \\',
-                '    "Two slices in parallel: [A] || [B+C] (2 PRs)" \\',
-                '    "Two slices with dependency: [A] -> [B] (2 PRs)" \\',
-                '    "Three slices fully parallel: [A], [B], [C] (3 PRs)" \\',
-                "  --format markdown",
-                "```",
-                "Name the parts inside the brackets so the operator can see which "
-                "concrete work each slice owns. If a would-be slice has more than "
-                "one DAG parent, note it — the plan phase rejects multi-parent "
-                "slices and the planner will need to serialise the upstream cluster "
-                "into a chain.\n",
+                "**Advisory seam-listing is fine** — if the task obviously spans "
+                "independently-implementable parts, you MAY name them in Problem "
+                'Statement or Constraints (e.g. "the change touches the gateway, '
+                'the orchestrator, and the sandbox") so the planner has the seam '
+                "information. Make it **explicitly advisory**: the planner is free "
+                "to slice differently if it sees a better seam. Do not pre-number "
+                "parts as `slice-1 / slice-2`, do not draw a DAG, and do not pick "
+                "a 1-PR-vs-3-PR shape — those choices belong to the planner.\n",
                 "**DO NOT:**",
                 "- Write questions as plain markdown text without running "
                 "`egg-contract add-decision` or `egg-contract add-feedback`",
@@ -11595,9 +11611,15 @@ def _build_phase_prompt(
                 "Create a detailed implementation plan, decomposing the work into "
                 "slices per the slice-DAG guidance at the end of this section. The "
                 "implement-phase pipeline ships each slice as its own stacked PR. "
-                "A single-slice plan is fine when the work is cohesive; multi-slice "
-                "plans are required when an upstream refine-phase work-decomposition "
-                "HITL decision selected a multi-slice shape.",
+                "**Slice shape is your call.** A single-slice plan is fine when the "
+                "work is cohesive; pick a multi-slice shape when the work has clean "
+                "seams that ship independently. If the refine analysis sketched a "
+                "decomposition (e.g. naming the components touched), treat it as "
+                "**advisory context** — you are free to slice differently if a "
+                "better seam exists. The only thing that binds your slice shape is "
+                "an explicit slice-DAG HITL decision recorded by the operator on "
+                "the contract; if you believe such a decision is wrong, raise it as "
+                "an open question in your plan rather than silently overriding.",
                 "",
                 "Steps:",
                 "1. Review any prior analysis",
@@ -11665,8 +11687,8 @@ def _build_phase_prompt(
                 # ----------------------------------------------------
                 # #2137 — slice-DAG planner guidance (mirrors the
                 # concurrent task_planner block; keep the two paths
-                # aligned so a refine-phase multi-slice HITL decision
-                # is honoured regardless of which planner runs).
+                # aligned so the slice-shape rules behave the same way
+                # regardless of which planner runs).
                 # ----------------------------------------------------
                 "## Slice-DAG guidance (#2137)",
                 "",
@@ -13695,10 +13717,16 @@ def _build_agent_prompt(
                 "Decompose the architecture analysis into a slice-DAG implementation "
                 "plan. The implement-phase pipeline ships each slice as its own "
                 "stacked PR — see the ``## Slice-DAG guidance (#2137)`` section below "
-                "for the slice-shaping rules. A single-slice plan is fine when the "
-                "work is cohesive; multi-slice plans are required when an upstream "
-                "refine-phase work-decomposition HITL decision selected a "
-                "multi-slice shape.",
+                "for the slice-shaping rules. **Slice shape is your call.** A "
+                "single-slice plan is fine when the work is cohesive; pick a "
+                "multi-slice shape when the work has clean seams that ship "
+                "independently. If the refine analysis sketched a decomposition "
+                "(e.g. naming the components touched), treat it as **advisory "
+                "context** — you are free to slice differently if a better seam "
+                "exists. The only thing that binds your slice shape is an explicit "
+                "slice-DAG HITL decision recorded by the operator on the contract; "
+                "if you believe such a decision is wrong, raise it as an open "
+                "question in your plan rather than silently overriding.",
                 "",
                 "Steps:",
                 "1. Review the architecture analysis from the ARCHITECT agent",

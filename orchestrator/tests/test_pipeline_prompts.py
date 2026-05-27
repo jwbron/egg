@@ -33,6 +33,7 @@ from routes.pipelines import (
     _get_code_review_criteria,
     _get_contract_review_criteria,
     _get_plan_review_criteria,
+    _get_refine_review_criteria,
     _get_reviewer_scope_preamble,
     _read_shared_criteria,
     _read_tester_gaps,
@@ -3196,10 +3197,16 @@ class TestRefinePromptTemplateFenceSeparation:
             "egg-contract add-feedback",
             "**DO NOT:**",
             "Skip already-resolved questions",
-            "Surface **all** uncertainties",
+            "Surface uncertainties, ambiguities, and assumptions",
             "**Multiple-choice questions**",
             "**Open-ended questions**",
             "Transcribe this `## How to Populate Open Questions` section",
+            # #2793 added new meta-guidance about slice/PR packaging — these
+            # strings must also stay outside the template fence, otherwise the
+            # refiner may transcribe them into its analysis document.
+            "Out of scope for refine open questions",
+            "Slice / PR packaging is NOT a refine-phase decision",
+            "Advisory seam-listing is fine",
         ):
             assert needle not in body, (
                 f"meta-instruction {needle!r} leaked into template fence — "
@@ -3218,18 +3225,17 @@ class TestRefinePromptTemplateFenceSeparation:
         assert "How to Populate Open Questions" in body
 
 
-class TestRefinePromptSliceDagFraming:
-    """Refine prompt must frame work-decomposition decisions in slice-DAG terms.
+class TestRefinePromptDelegatesSlicingToPlanner:
+    """Refine prompt must NOT invite slice-DAG / PR-packaging decisions.
 
-    Regression for #2584: refiner used to register multi-part work-decomposition
-    decisions with options framed as PR count ("Two PRs: E first, then A+F",
-    "Three sequential PRs: E -> A -> F"). In egg, slices are the
-    work-decomposition primitive — each slice has its own branch + BRC consensus
-    + PR, and sibling slices in a wave run in parallel under the slice scheduler.
-    Slice count = PR count by construction, so the decision should name the
-    slice-DAG shape and annotate the PR consequence in parentheses; "N sequential
-    PRs" is doubly wrong because it forces serialization the scheduler does not
-    require.
+    Regression for #2793: the refiner used to register an `add-decision` item
+    asking the operator how the work should be sliced (options like "Single
+    slice", "Two slices in parallel", etc). That decision belongs to the plan
+    phase, which has its own HITL gate. Observed on pipeline `issue-2777`:
+    the refiner's draft was dominated by slice-shape options and the only
+    differences between them were decomposition flavors, pre-empting and
+    biasing the planner. Supersedes #2584's regression suite, which had
+    enforced the now-removed slice-DAG-options block.
     """
 
     @staticmethod
@@ -3242,51 +3248,152 @@ class TestRefinePromptSliceDagFraming:
             issue_number=100,
         )
 
-    def test_prompt_introduces_work_decomposition_section(self):
+    def test_prompt_does_not_invite_slice_dag_decision(self):
         prompt = self._refine_prompt()
-        assert "Work-decomposition decisions" in prompt
-
-    def test_prompt_frames_decomposition_on_slices_not_pr_count(self):
-        prompt = self._refine_prompt()
-        # Slice-DAG vocabulary must appear in the work-decomposition guidance.
-        for needle in (
-            "decomposition primitive",
-            "decomposed into slices",
-            "slice-dag.md",
-            "in parallel",
-        ):
-            assert needle in prompt, f"slice-DAG framing token {needle!r} missing"
-
-    def test_prompt_provides_slice_shaped_example_options(self):
-        prompt = self._refine_prompt()
-        # The worked egg-contract add-decision example should show options
-        # framed on slice-DAG shape with the PR count as an annotation.
-        assert "Single slice: all parts ship together (1 PR)" in prompt
-        assert "Two slices in parallel: [A] || [B+C] (2 PRs)" in prompt
-        assert "Two slices with dependency: [A] -> [B] (2 PRs)" in prompt
-        assert "Three slices fully parallel: [A], [B], [C] (3 PRs)" in prompt
-
-    def test_prompt_warns_against_sequential_pr_framing(self):
-        prompt = self._refine_prompt()
-        # "N sequential PRs" framing must be explicitly called out as wrong.
-        assert '"N sequential PRs"' in prompt
-        assert "the slice scheduler does not require" in prompt
-
-    def test_decomposition_guidance_lives_outside_template_fence(self):
-        prompt = self._refine_prompt()
-        body = TestRefinePromptTemplateFenceSeparation._template_fence_body(prompt)
-        # The decomposition guidance is meta-protocol — it must not leak
-        # into the analysis-document template body that the refiner copies.
-        for needle in (
+        # The exact phrasings from the removed Work-decomposition decisions
+        # block — none of them should reappear.
+        for forbidden in (
             "Work-decomposition decisions",
-            "decomposition primitive",
+            "How should this work be decomposed into slices?",
             "Single slice: all parts ship together (1 PR)",
-            "the slice scheduler does not require",
+            "Two slices in parallel: [A] || [B+C] (2 PRs)",
+            "Three slices fully parallel: [A], [B], [C] (3 PRs)",
+            '"N sequential PRs"',
         ):
-            assert needle not in body, (
-                f"decomposition guidance {needle!r} leaked into template "
-                "fence — refiner may transcribe it into the analysis document"
+            assert forbidden not in prompt, (
+                f"refiner prompt re-introduced slice-DAG decision phrasing "
+                f"{forbidden!r}; that decision belongs to the plan phase (#2793)"
             )
+
+    def test_prompt_states_slicing_is_planner_owned(self):
+        prompt = self._refine_prompt()
+        # Positive assertion: the prompt must explicitly delegate slice/PR
+        # packaging to the planner so the refiner doesn't re-derive the
+        # behavior from training-data priors.
+        assert "Slice / PR packaging is NOT a refine-phase decision" in prompt
+        assert "plan phase owns slice-DAG construction" in prompt
+
+    def test_prompt_marks_seam_listing_as_advisory(self):
+        prompt = self._refine_prompt()
+        # Advisory seam-listing is allowed — the refiner may name the
+        # components touched so the planner has seam context — but it
+        # must be **advisory**: no pre-numbered slices, no DAG, no PR
+        # count picks. The planner is free to slice differently.
+        assert "Advisory seam-listing is fine" in prompt
+        assert "planner is free to slice differently" in prompt
+        assert "Do not pre-number" in prompt
+
+    def test_prompt_blocks_planner_shaped_open_questions(self):
+        prompt = self._refine_prompt()
+        # The Open Questions guidance must name the categories of question
+        # the refiner is NOT allowed to register.
+        assert "Out of scope for refine open questions" in prompt
+        for category in (
+            "Work decomposition / slice-DAG shape / PR packaging",
+            "Implementation strategy choices",
+            "API / schema details",
+        ):
+            assert category in prompt, (
+                f"refine open-question guardrail {category!r} missing — the "
+                "refiner needs an explicit list of question categories that "
+                "belong to the planner phase"
+            )
+
+
+class TestRefineReviewCriteriaKicksBackPlannerQuestions:
+    """Refine reviewer must NACK open questions that belong to the planner.
+
+    Regression for #2793: without this guardrail in the reviewer rubric,
+    the reviewer rubber-stamps planner-shaped open questions (slice-DAG
+    shape, implementation strategy) and the operator gets prompted for
+    decisions the planner should make.
+    """
+
+    def test_rubric_names_planner_shaped_question_categories(self):
+        criteria = _get_refine_review_criteria()
+        # The rubric must tell the reviewer to NACK these specific categories.
+        assert "work decomposition" in criteria
+        assert "slice-DAG shape" in criteria
+        assert "PR packaging" in criteria
+        # And it must give the reviewer the positive contrast — what a
+        # good refine question looks like.
+        assert "fact only the operator knows" in criteria
+
+
+class TestPlannerPromptTreatsRefinerSlicingAsAdvisory:
+    """Planner prompts must frame any refiner-side slice sketch as advisory.
+
+    Regression for #2793: the planner used to be told that "multi-slice plans
+    are required when an upstream refine-phase work-decomposition HITL
+    decision selected a multi-slice shape" — a now-removed contract that
+    locked the planner to whatever shape the refiner picked. The new
+    contract: the planner picks the slice shape; the refiner's sketch is
+    advisory only; the only thing that binds is an explicit operator-side
+    slice-DAG HITL decision, which the planner may still push back on.
+    """
+
+    @staticmethod
+    def _sequential_plan_prompt() -> str:
+        return _build_phase_prompt(
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+        )
+
+    @staticmethod
+    def _concurrent_planner_prompt() -> str:
+        return _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+            concurrent=True,
+        )
+
+    def test_sequential_planner_drops_refine_hitl_required_framing(self):
+        prompt = self._sequential_plan_prompt()
+        # The old "multi-slice plans are required when an upstream refine-phase
+        # work-decomposition HITL decision selected …" framing must be gone.
+        for forbidden in (
+            "refine-phase work-decomposition HITL decision selected",
+            "multi-slice plans are required when an upstream",
+        ):
+            assert forbidden not in prompt, (
+                f"sequential planner still carries removed framing "
+                f"{forbidden!r}; the refiner no longer registers that "
+                "decision (#2793)"
+            )
+
+    def test_concurrent_planner_drops_refine_hitl_required_framing(self):
+        prompt = self._concurrent_planner_prompt()
+        for forbidden in (
+            "refine-phase work-decomposition HITL decision selected",
+            "multi-slice plans are required when an upstream",
+        ):
+            assert forbidden not in prompt, (
+                f"concurrent planner still carries removed framing "
+                f"{forbidden!r}; the refiner no longer registers that "
+                "decision (#2793)"
+            )
+
+    def test_sequential_planner_states_slice_shape_is_planner_call(self):
+        prompt = self._sequential_plan_prompt()
+        assert "Slice shape is your call" in prompt
+        assert "advisory context" in prompt
+        # The operator-HITL escape hatch must be present with push-back rights.
+        assert "explicit slice-DAG HITL decision" in prompt
+        assert "raise it as an open question" in prompt
+
+    def test_concurrent_planner_states_slice_shape_is_planner_call(self):
+        prompt = self._concurrent_planner_prompt()
+        assert "Slice shape is your call" in prompt
+        assert "advisory context" in prompt
+        assert "explicit slice-DAG HITL decision" in prompt
+        assert "raise it as an open question" in prompt
 
 
 class TestPlannerPromptSliceDagFraming:

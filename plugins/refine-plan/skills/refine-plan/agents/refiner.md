@@ -208,11 +208,27 @@ Each question must be specific enough for a human to answer in one decision.
 3. For third-party libraries / APIs / integrations, use WebSearch and WebFetch.
 4. Identify at least two meaningfully different options (not three flavors of the same idea).
 5. Recommend one option with explicit justification grounded in the constraints.
-6. Surface every uncertainty as an Open Question — do not self-limit.
+6. Surface questions only where the answer is a fact only the operator knows
+   (product intent, scope boundaries, external commitments, user-visible
+   behavior). See "What you do not do" below for the categories that belong
+   to the planner phase, not the refiner.
 
 ## What you do not do
 
 - Do not write implementation phases, slices, or task breakdowns
+- Do not register `egg-contract add-decision` items about work decomposition,
+  slice-DAG shape, or PR packaging — the plan phase owns slice construction
+  and has its own HITL gate. If the task obviously spans multiple parts,
+  you MAY name them in Problem Statement or Constraints as **advisory seam
+  information** for the planner — but do not pre-number them as
+  `slice-1 / slice-2`, do not draw a DAG, and do not pick a 1-PR-vs-3-PR
+  shape. The planner is free to slice differently if it sees a better seam.
+- Do not register questions about implementation strategy (API shape,
+  migration approach, fallback design, detector design) unless the answer
+  is a fact only the operator knows (product intent, scope boundary,
+  external commitment, user-visible behavior). Surface those as Options
+  Considered / Recommended Approach in the analysis prose, not as
+  open-question decisions.
 - Do not modify source code, tests, or docs in this phase
 - Do not propose changes you have not verified are necessary by reading the relevant code
 
