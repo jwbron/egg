@@ -643,6 +643,179 @@ class TestContainerExitFallback:
             error="Container exited with code 1",
         )
 
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_short_circuits_phase(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Issue #2806: a producer dying after retry-budget exhaustion
+        short-circuits the phase with (1, logs) carrying the PRODUCER
+        PERMANENT DEATH marker, stops surviving containers, and skips
+        handle_agent_failure (which is the reviewer-only recovery path).
+        """
+        mock_monotonic.return_value = 0.0
+
+        # Producer (coder) dies non-zero; reviewer is still running so we
+        # exercise _stop_running_containers cleanup as well.
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.FAILED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
+                status=ContainerStatus.RUNNING,
+                exit_code=None,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        # Both the step-1 consensus check and the producer-death recheck
+        # return is_complete=False — consensus has genuinely not completed.
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1
+        assert "PRODUCER PERMANENT DEATH" in logs
+        assert "coder" in logs
+        # Surviving reviewer should have been stopped by _stop_running_containers.
+        stopped_ids = {c.args[0] for c in mock_docker.stop_container.call_args_list}
+        assert "reviewer-1" in stopped_ids
+        # Producers do NOT flow through handle_agent_failure (reviewer path).
+        mock_executor_instance.handle_agent_failure.assert_not_called()
+        # And the high-priority OVERSEER_ALERT was published.
+        assert msg_store.add_message.call_count == 1
+        alert = msg_store.add_message.call_args.args[0]
+        assert alert.subject == "producer-permanent-death: coder exit=1 [high]"
+        assert alert.metadata["priority"] == "high"
+
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_skipped_when_consensus_completes_in_race(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Race window guard (#2811 review item 4): a producer can exit
+        non-zero *after* CONFIRMED (wrapper cleanup crash). When the
+        recheck inside the producer-death branch finds consensus is
+        complete, the phase must NOT hard-fail — fall through and let
+        the next iteration succeed.
+        """
+        poll_count = [0]
+
+        def _monotonic():
+            return poll_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+        ]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        # First call (step 1) sees incomplete; recheck (inside the
+        # producer-death branch) returns complete; subsequent iteration's
+        # step 1 returns complete and exits with 0.
+        def _check_consensus():
+            poll_count[0] += 1
+            if poll_count[0] == 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "blocking_agents": ["coder"],
+                }
+            return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        # Race-window recheck found consensus complete → phase succeeds.
+        assert exit_code == 0
+        assert "PRODUCER PERMANENT DEATH" not in logs
+        # No producer-death alert was published — only the
+        # CONSENSUS_REACHED success path ran.
+        msg_store.add_message.assert_not_called()
+
 
 class TestMixedScenarios:
     """Container exits and consensus interact correctly."""

@@ -11,26 +11,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from models import (
-    Pipeline,
-    PipelineConfig,
-    PipelinePhase,
-    PipelineStatus,
-)
 from routes.pipelines import _emit_producer_death_alert
-
-
-def _make_pipeline(pipeline_id: str = "issue-2806") -> Pipeline:
-    return Pipeline(
-        id=pipeline_id,
-        issue_number=2806,
-        repo="owner/repo",
-        branch=f"egg/{pipeline_id}",
-        base_branch="main",
-        status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.IMPLEMENT,
-        config=PipelineConfig(),
-    )
 
 
 class TestEmitProducerDeathAlert:
@@ -38,13 +19,11 @@ class TestEmitProducerDeathAlert:
 
     def test_publishes_high_priority_overseer_alert(self):
         """High-priority OVERSEER_ALERT is published with role + exit code."""
-        pipeline = _make_pipeline()
         msg_store = MagicMock()
         store_factory = MagicMock(return_value=msg_store)
 
         with patch("routes.pipelines._get_message_store", return_value=store_factory):
             _emit_producer_death_alert(
-                pipeline=pipeline,
                 pipeline_id="issue-2806",
                 role="coder",
                 phase="implement",
@@ -55,7 +34,8 @@ class TestEmitProducerDeathAlert:
         assert msg_store.add_message.call_count == 1
         msg = msg_store.add_message.call_args.args[0]
         assert msg.message_type == "OVERSEER_ALERT"
-        assert msg.subject == "producer-permanent-death: coder [high]"
+        # Subject includes the exit code for at-a-glance triage (#2811 review).
+        assert msg.subject == "producer-permanent-death: coder exit=1 [high]"
         assert msg.from_role == "orchestrator"
         assert msg.to_role == "all"
         assert msg.metadata["anomaly_type"] == "producer-permanent-death"
@@ -71,13 +51,11 @@ class TestEmitProducerDeathAlert:
 
     def test_slice_id_propagates_into_metadata_and_body(self):
         """Slice-aware death surfaces the slice id so per-slice cascade is visible."""
-        pipeline = _make_pipeline()
         msg_store = MagicMock()
         store_factory = MagicMock(return_value=msg_store)
 
         with patch("routes.pipelines._get_message_store", return_value=store_factory):
             _emit_producer_death_alert(
-                pipeline=pipeline,
                 pipeline_id="issue-2806",
                 role="tester",
                 phase="implement",
@@ -89,14 +67,14 @@ class TestEmitProducerDeathAlert:
         assert msg.metadata["slice_id"] == "slice-2"
         assert "slice slice-2" in msg.body
         assert msg.metadata["exit_code"] == 137
+        # Exit code in subject reflects the alternate kill (OOM = 137).
+        assert msg.subject == "producer-permanent-death: tester exit=137 [high]"
 
     def test_swallows_message_store_unavailable(self):
         """Missing message store → log + return, no exception."""
-        pipeline = _make_pipeline()
         with patch("routes.pipelines._get_message_store", return_value=None):
             # Must not raise.
             _emit_producer_death_alert(
-                pipeline=pipeline,
                 pipeline_id="issue-2806",
                 role="coder",
                 phase="implement",
@@ -106,7 +84,6 @@ class TestEmitProducerDeathAlert:
 
     def test_swallows_message_store_exception(self):
         """add_message raising → log + return, no exception."""
-        pipeline = _make_pipeline()
         msg_store = MagicMock()
         msg_store.add_message.side_effect = RuntimeError("redis down")
         store_factory = MagicMock(return_value=msg_store)
@@ -115,7 +92,6 @@ class TestEmitProducerDeathAlert:
             # Must not raise — the polling loop has already decided to fail
             # the phase; a downstream alert failure must not derail that.
             _emit_producer_death_alert(
-                pipeline=pipeline,
                 pipeline_id="issue-2806",
                 role="coder",
                 phase="implement",

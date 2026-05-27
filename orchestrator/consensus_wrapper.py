@@ -503,7 +503,9 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     # a failed alert must not block the restart itself.
     if command -v egg-orch >/dev/null 2>&1 && [ -n "${{EGG_PIPELINE_ID:-}}" ]; then
         ALERT_ROLE="${{AGENT_ROLE:-agent}}"
-        egg-orch overseer alert "${{EGG_PIPELINE_ID}}" \
+        # ``timeout 5`` bounds wall-clock time so a stalled orchestrator
+        # cannot delay the restart itself (issue #2811 review).
+        timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID}}" \
             --role "$ALERT_ROLE" \
             --anomaly agent-restart \
             --priority medium \

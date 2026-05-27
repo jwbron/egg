@@ -220,27 +220,28 @@ class TestBuildConsensusWrappedCommand:
         assert "MAX_RESTARTS=5" in script
 
     def test_default_max_restarts(self):
-        """Default max_restarts should match module constant."""
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert f"MAX_RESTARTS={MAX_CONSENSUS_RESTARTS}" in script
+        """Default max_restarts should match module constant.
 
-    def test_default_max_restarts_value_is_three(self):
-        """Issue #2806: default cap bumped from 2 → 3 to give one extra
+        Issue #2806: default cap bumped from 2 → 3 to give one extra
         recovery attempt before the orchestrator hard-fails the pipeline
         on producer permanent death.
         """
         assert MAX_CONSENSUS_RESTARTS == 3
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert f"MAX_RESTARTS={MAX_CONSENSUS_RESTARTS}" in script
 
     def test_restart_emits_overseer_alert(self):
         """Issue #2806: each wrapper restart should publish an
         OVERSEER_ALERT so the operator sees recovery attempts in real
         time rather than only learning about a dead agent after the
-        wrapper has exhausted its retry budget.
+        wrapper has exhausted its retry budget. The call is wrapped with
+        ``timeout 5`` so a stalled orchestrator cannot delay the restart
+        loop (PR #2811 review).
         """
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "egg-orch overseer alert" in script
+        assert "timeout 5 egg-orch overseer alert" in script
         assert "agent-restart" in script
         assert "--priority medium" in script
 

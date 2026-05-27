@@ -15307,7 +15307,6 @@ def _publish_consensus_timeout_alert(
 
 def _emit_producer_death_alert(
     *,
-    pipeline: Pipeline,
     pipeline_id: str,
     role: str,
     phase: str,
@@ -15327,7 +15326,7 @@ def _emit_producer_death_alert(
     WARNING log, mirroring ``_publish_consensus_timeout_alert``.
     """
     phase_value = phase if isinstance(phase, str) else getattr(phase, "value", str(phase))
-    subject = f"producer-permanent-death: {role} [high]"
+    subject = f"producer-permanent-death: {role} exit={exit_code} [high]"
     slice_render = f" (slice {slice_id})" if slice_id else ""
     body = (
         f"Producer '{role}'{slice_render} died permanently in phase "
@@ -17869,8 +17868,38 @@ def _run_concurrent_phase(
                     # peer-review redistribution can recover them.
                     role_value = exec_info.role.value
                     if filtered_graph.is_producer(role_value):
+                        # Race window guard: a producer can legitimately
+                        # exit non-zero after CONFIRMED (wrapper cleanup
+                        # crash) — between step 1 (consensus check) and
+                        # step 4 (exit detection) the producer could have
+                        # written CONFIRMED and then died. Re-query
+                        # consensus before hard-failing; if it has
+                        # completed, fall through and let the next
+                        # iteration's step 1/2 return success.
+                        try:
+                            recheck = executor.check_consensus()
+                        except Exception as recheck_err:
+                            logger.warning(
+                                "Producer-death consensus recheck failed",
+                                pipeline_id=pipeline_id,
+                                role=role_value,
+                                error=str(recheck_err),
+                            )
+                            recheck = {"is_complete": False}
+                        if recheck.get("is_complete"):
+                            logger.info(
+                                "Producer container exited non-zero but consensus already complete — skipping hard-fail",
+                                pipeline_id=pipeline_id,
+                                role=role_value,
+                                exit_code=info.exit_code,
+                            )
+                            # Consensus completed in the race window before
+                            # the producer's wrapper-cleanup crash. The
+                            # next iteration's step 1/2 will return success;
+                            # skip handle_agent_failure (reviewer recovery
+                            # path, not applicable to producers).
+                            continue
                         _emit_producer_death_alert(
-                            pipeline=pipeline,
                             pipeline_id=pipeline_id,
                             role=role_value,
                             phase=phase_str,
@@ -17886,12 +17915,16 @@ def _run_concurrent_phase(
                             exit_code=info.exit_code,
                         )
                         _stop_running_containers()
-                        combined_logs = "\n".join(all_logs)
-                        combined_logs += (
-                            f"\n--- PRODUCER PERMANENT DEATH ---\n"
-                            f"Producer '{role_value}' container exited with code "
-                            f"{info.exit_code} after the consensus-wrapper exhausted "
-                            f"its retry budget. Pipeline failing (issue #2806)."
+                        combined_logs = "\n".join(
+                            all_logs
+                            + [
+                                "--- PRODUCER PERMANENT DEATH ---",
+                                (
+                                    f"Producer '{role_value}' container exited with code "
+                                    f"{info.exit_code} after the consensus-wrapper exhausted "
+                                    f"its retry budget. Pipeline failing (issue #2806)."
+                                ),
+                            ]
                         )
                         return 1, combined_logs
                     try:
