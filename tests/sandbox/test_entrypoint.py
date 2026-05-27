@@ -1355,6 +1355,26 @@ class TestSetupAnthropicApi:
 
         assert "ANTHROPIC_API_KEY" not in os.environ
 
+    def test_placeholder_embeds_egg_session_token_when_set(self, monkeypatch):
+        """When EGG_SESSION_TOKEN is set (k8s/Compose agent path), the
+        placeholder wraps it so the gateway's /v1/messages proxy can
+        identify the session from the request header instead of falling
+        back to ephemeral pod-IP lookup (issue #2829).
+        """
+        from egg_session_placeholder import from_placeholder
+
+        monkeypatch.setenv("GATEWAY_URL", f"http://test-gateway:{GATEWAY_PORT}")
+        monkeypatch.setenv("EGG_SESSION_TOKEN", "agent-session-xyz")
+
+        config = MagicMock()
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.setup_anthropic_api(config, logger)
+
+        placeholder = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+        assert placeholder.startswith("sk-ant-oat01-")
+        assert from_placeholder(placeholder) == "agent-session-xyz"
+
 
 class TestConfigAuthMethod:
     """Tests for Config anthropic_auth_method handling."""

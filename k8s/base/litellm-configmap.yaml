@@ -12,10 +12,17 @@ data:
     # LiteLLM Proxy configuration (issue #2769).
     #
     # This ConfigMap ships with an EMPTY ``model_list`` so the Deployment
-    # comes up healthy but serves NO models until an operator populates
-    # entries here and overrides this ConfigMap via a kustomize overlay or
-    # ``kubectl apply``.  Without entries, no agent request can route to
-    # LiteLLM (the gateway only forwards when a session's ``upstream`` is
+    # comes up healthy but serves NO models by default. Operators register
+    # backends via a host-side overlay at
+    # ``~/.config/egg/litellm-models.yaml`` — ``make litellm-config``
+    # (also invoked by ``make deploy``/``make redeploy``) merges it onto
+    # this ConfigMap and rolls the LiteLLM Deployment. The committed
+    # default keeps per-operator backend choices out of the repo. See
+    # ``config/litellm-models.template.yaml`` for the file layout and
+    # ``docs/guides/per-agent-models.md`` for the end-to-end flow.
+    #
+    # Without any backend entries, no agent request can route to LiteLLM
+    # (the gateway only forwards when a session's ``upstream`` is
     # explicitly set to ``"litellm"``).
     #
     # Operators add backends per LiteLLM's documented format. Each
@@ -25,30 +32,32 @@ data:
     # field before send, but a handful of startup probes leak the
     # suffix onto the wire — without the alias LiteLLM 400s those
     # probes with ``Invalid model name``. The two-row shape eats that
-    # noise without needing a gateway-side body rewrite. E.g. for a
-    # hosted Qwen provider (cq-6):
+    # noise without needing a gateway-side body rewrite. E.g. for the
+    # OpenRouter pilot backend (cq-6):
     #
     #   model_list:
-    #     - model_name: qwen3-coder-30b
+    #     - model_name: qwen3-max
     #       litellm_params:
-    #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
-    #         api_key: os.environ/TOGETHER_API_KEY
-    #     - model_name: qwen3-coder-30b[1m]
+    #         model: openrouter/qwen/qwen3-max
+    #         api_key: os.environ/OPENROUTER_API_KEY
+    #     - model_name: qwen3-max[1m]
     #       litellm_params:
-    #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
-    #         api_key: os.environ/TOGETHER_API_KEY
+    #         model: openrouter/qwen/qwen3-max
+    #         api_key: os.environ/OPENROUTER_API_KEY
     #
-    # The matching provider-side API key (e.g. ``TOGETHER_API_KEY``,
-    # ``OPENROUTER_API_KEY``) is read by LiteLLM from its container env
-    # at startup. Per issue #2799, provider keys flow through the same
-    # path as the master key: operators set them in
-    # ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts each
-    # onto ``gateway-secrets`` as a literal key; the LiteLLM Deployment
-    # binds them via ``secretKeyRef`` (``optional: true`` so deployments
-    # without that backend still start). The original cq-7 wording
-    # asserted that only the master key crossed this boundary — that
-    # asymmetry was retired with #2799 in favor of a single uniform
-    # extraction path for every LiteLLM-bound secret.
+    # Provider-side API keys referenced by overlay entries are read by
+    # LiteLLM from its container env at startup. ``OPENROUTER_API_KEY``
+    # is wired end-to-end out of the box (issue #2799): operators set
+    # it in ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts
+    # it onto ``gateway-secrets`` as a literal key; the LiteLLM
+    # Deployment binds it via ``secretKeyRef`` with ``optional: true``.
+    # Adding any other provider key (e.g. ``TOGETHER_API_KEY``) is NOT
+    # automatic — it additionally requires editing the ``k3s-secrets``
+    # Makefile target to extract the new key and editing
+    # ``k8s/base/litellm-deployment.yaml`` to bind it as a
+    # ``secretKeyRef`` env entry. Without those edits,
+    # ``os.environ/<NEW_KEY>`` in this configmap resolves to empty at
+    # request time and the provider returns silent 401s.
     model_list: []
 
     # Health-check config — used by the kubelet readiness/liveness

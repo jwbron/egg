@@ -105,10 +105,14 @@ try:
         AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
+        ContainerInfo,
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
         HITLDecision,
+        IterationSummary,
+        OperatorDirective,
+        PhaseExecution,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -159,10 +163,14 @@ except ImportError:
         AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
+        ContainerInfo,
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
         HITLDecision,
+        IterationSummary,
+        OperatorDirective,
+        PhaseExecution,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -6262,6 +6270,8 @@ def _build_review_prompt(
     last_reviewed_commit: str | None = None,
     base_branch: str | None = None,
     concurrent: bool = False,
+    operator_directives: list[OperatorDirective] | None = None,
+    iteration_history: list[IterationSummary] | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -6535,6 +6545,13 @@ def _build_review_prompt(
             "Verify prior feedback was addressed AND review new code thoroughly."
         )
         lines.append("")
+
+    # Phase iteration context: operator directives + prior iteration
+    # history. Surfaced to reviewers so they cannot faithfully NACK a
+    # directive-driven change against a stale default rubric (#2795).
+    iteration_context = _build_phase_iteration_context(operator_directives, iteration_history)
+    if iteration_context:
+        lines.append(iteration_context)
 
     # Prior feedback for re-reviews
     if review_cycle > 1 and prior_feedback:
@@ -11942,6 +11959,205 @@ _YAML_TASKS_SAFETY_GUIDANCE = [
 ]
 
 
+def _build_phase_iteration_context(
+    operator_directives: list[OperatorDirective] | None,
+    iteration_history: list[IterationSummary] | None,
+) -> str:
+    """Render operator directives + prior iteration history as a prompt section.
+
+    Issued in iteration N+1 prompts (for **both** producers and reviewers)
+    after one or more HITL phase-gate kickbacks. Replaces the unstructured
+    ``## Review Feedback`` rendering that previously squatted on the
+    agentic-cycle feedback channel — operator directives now have their own
+    section with explicit precedence prose so reviewers cannot faithfully
+    NACK a directive-driven change against a stale default rubric (#2795).
+
+    Returns an empty string when there are no directives and no history
+    so the caller can unconditionally append the result.
+    """
+    directives = operator_directives or []
+    history = iteration_history or []
+    if not directives and not history:
+        return ""
+
+    lines: list[str] = ["## Phase Iteration Context\n"]
+    if directives:
+        lines.append(
+            "The operator has kicked this phase back through HITL one or "
+            "more times. The directives below **override prompt-template "
+            "defaults**. If a rubric item in your role's instructions "
+            "conflicts with a directive, the directive wins. Later "
+            "directives override earlier ones.\n"
+        )
+        lines.append("### Operator Directives (chronological)\n")
+        for idx, directive in enumerate(directives, start=1):
+            ts = directive.created_at.isoformat()
+            lines.append(f"**Directive {idx}** (iteration {directive.iteration_n}, {ts}):")
+            lines.append("")
+            lines.append(directive.feedback_text.rstrip())
+            lines.append("")
+
+    if history:
+        lines.append("### Prior Iteration History\n")
+        lines.append(
+            "Each entry below is a frozen snapshot of a previously kicked-"
+            "back iteration's BRC outcome — what the reviewers concluded "
+            "and why. Use it to see which rubric items tripped last round "
+            "so you do not repeat the same NACKs.\n"
+        )
+        for summary in history:
+            ts = summary.completed_at.isoformat()
+            lines.append(f"**Iteration {summary.iteration_n}** (completed {ts}):")
+            if summary.final_proposal_commit:
+                # SHAs are pre-filtered by _build_iteration_summary_from_tracker
+                # (empty + RECONSTRUCTED_NO_SHA dropped before the dict is
+                # populated), so every value here is a real commit.
+                commit_parts = [
+                    f"{producer}={sha[:12]}"
+                    for producer, sha in sorted(summary.final_proposal_commit.items())
+                ]
+                lines.append(f"- Final proposal commits: {', '.join(commit_parts)}")
+            if summary.verdict_matrix:
+                verdicts = "; ".join(
+                    f"{edge}: {state}" for edge, state in sorted(summary.verdict_matrix.items())
+                )
+                lines.append(f"- Verdict matrix: {verdicts}")
+            if summary.nack_reasons:
+                lines.append(f"- NACK reasons ({len(summary.nack_reasons)}):")
+                for reason in summary.nack_reasons:
+                    lines.append(f"  - {reason}")
+            if summary.artifacts_snapshot:
+                arts = ", ".join(sorted(summary.artifacts_snapshot.keys()))
+                lines.append(f"- Artifacts at iteration close: {arts}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_iteration_summary_from_tracker(
+    tracker: Any,
+    iteration_n: int,
+    artifacts: dict[str, str] | None = None,
+    completed_at: datetime | None = None,
+) -> IterationSummary:
+    """Capture an :class:`IterationSummary` from a live BRC tracker.
+
+    Called by the HITL kickback handler **before** ``_clear_concurrent_state``
+    wipes the tracker so the iteration N+1 prompt can render what tripped
+    iteration N. Tolerates a ``None`` tracker — returns a summary with only
+    the iteration index + completion timestamp populated, which still lets
+    downstream prompts mention that a kickback occurred without claiming
+    false verdict detail.
+    """
+    completion = completed_at or datetime.now(UTC)
+    summary = IterationSummary(
+        iteration_n=iteration_n,
+        completed_at=completion,
+        artifacts_snapshot=dict(artifacts or {}),
+    )
+    if tracker is None:
+        return summary
+
+    try:
+        matrix = getattr(tracker, "matrix", None)
+        if matrix is None:
+            return summary
+        # Snapshot the matrix entries + commit SHAs under the tracker's
+        # lock so concurrent mutations from a still-live tracker can't
+        # tear the read. RLock means re-entry is safe if callers already
+        # hold it. Iteration below runs on the local copies.
+        lock = getattr(tracker, "_lock", None)
+        commits_snapshot: dict[str, str] = {}
+        if lock is not None:
+            with lock:
+                entries_snapshot = list(getattr(matrix, "_entries", {}).items())
+                commits_snapshot = dict(getattr(tracker, "_proposal_commit_shas", {}))
+        else:
+            entries_snapshot = list(getattr(matrix, "_entries", {}).items())
+            commits_snapshot = dict(getattr(tracker, "_proposal_commit_shas", {}))
+
+        verdict_matrix: dict[str, str] = {}
+        nack_reasons: list[str] = []
+        for (reviewer, producer), entry in entries_snapshot:
+            state = getattr(entry, "state", None)
+            state_val = state.value if state is not None else "unknown"
+            verdict_matrix[f"{reviewer}->{producer}"] = state_val
+            if state_val == "nacked" and getattr(entry, "reason", ""):
+                nack_reasons.append(f"{reviewer}→{producer}: {entry.reason}")
+        summary.verdict_matrix = verdict_matrix
+        summary.nack_reasons = nack_reasons
+
+        producers = {producer for _, producer in (k for k, _ in entries_snapshot)}
+        commits: dict[str, str] = {}
+        for producer in producers:
+            sha = commits_snapshot.get(producer, "")
+            if sha and sha != "RECONSTRUCTED_NO_SHA":
+                commits[producer] = sha
+        summary.final_proposal_commit = commits
+    except Exception as e:  # noqa: BLE001
+        logger.debug(
+            "Failed to snapshot iteration summary from tracker",
+            iteration_n=iteration_n,
+            error=str(e),
+        )
+    return summary
+
+
+def _apply_inline_hitl_kickback_to_phase(
+    phase_execution: PhaseExecution,
+    revision_feedback: str,
+    tracker: Any = None,
+) -> list[ContainerInfo]:
+    """Apply the inline HITL kickback's phase-state mutations.
+
+    Extracted from the inline ``request_changes`` handler so tests can
+    drive the assertion through production code rather than constructing
+    a fixture by hand (#2795 review). The caller is still responsible for
+    the wrapping concerns: clearing the message store + consensus tracker
+    via ``_clear_concurrent_state``, persisting the pipeline via
+    ``store.save_pipeline``, and stopping the stale containers returned
+    here (the K8s delete is asynchronous so an explicit stop is required
+    to avoid iteration N+1 racing iteration N's still-terminating pods).
+
+    Returns the snapshot of containers that were running at kickback
+    time, for the caller to issue the defensive stop on.
+    """
+    # Monotone across the legacy-hitl_feedback migration boundary: a
+    # pre-#2795 phase migrates with iteration_history empty but a
+    # synthetic OperatorDirective carrying iteration_n derived from
+    # hitl_review_cycles. ``len(iteration_history)`` alone would
+    # restart at 0 and label two distinct iterations identically; use
+    # one past the maximum existing directive index as the floor so
+    # the displayed "iteration X" labels stay monotone.
+    iteration_n = max(
+        len(phase_execution.iteration_history),
+        max(
+            (d.iteration_n for d in phase_execution.operator_directives),
+            default=-1,
+        )
+        + 1,
+    )
+    phase_execution.operator_directives.append(
+        OperatorDirective(
+            iteration_n=iteration_n,
+            feedback_text=revision_feedback,
+        )
+    )
+    phase_execution.iteration_history.append(
+        _build_iteration_summary_from_tracker(
+            tracker,
+            iteration_n=iteration_n,
+            artifacts=phase_execution.artifacts,
+        )
+    )
+    stale_containers = list(phase_execution.containers)
+    phase_execution.containers = []
+    phase_execution.agents = []
+    phase_execution.artifacts = {}
+    phase_execution.review_cycles = 0
+    return stale_containers
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -11953,6 +12169,8 @@ def _build_phase_prompt(
     review_feedback: str | None = None,
     review_cycle: int = 0,
     repo_path: str | None = None,
+    operator_directives: list[OperatorDirective] | None = None,
+    iteration_history: list[IterationSummary] | None = None,
 ) -> str:
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
@@ -11972,11 +12190,18 @@ def _build_phase_prompt(
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
 
-    # --- Prior review feedback (agentic revision cycles OR HITL phase reset) ---
-    # Feedback can arrive on cycle 0 when a human rejects a phase_gate with
-    # change_approach/request_changes — the HITL handler resets review_cycles
-    # to 0 and stores the feedback in phase_execution.hitl_feedback, which
-    # flows back here via the review_feedback parameter (#1915).
+    # --- Phase iteration context (HITL kickbacks) ---
+    # Operator directives have their own section with explicit precedence
+    # prose so reviewers cannot faithfully NACK a directive-driven change
+    # against a stale default rubric. See issue #2795.
+    iteration_context = _build_phase_iteration_context(operator_directives, iteration_history)
+    if iteration_context:
+        lines.append(iteration_context)
+
+    # --- Prior review feedback (agentic revision cycles only) ---
+    # Scoped to agentic-cycle review feedback since #2795 — HITL kickback
+    # feedback now flows through ``operator_directives`` / the iteration
+    # context section above.
     if review_feedback:
         if review_cycle > 0:
             lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
@@ -13804,6 +14029,8 @@ def _build_agent_prompt(
     all_phases=None,
     concurrent: bool = False,
     network_mode: str | None = None,
+    operator_directives: list[OperatorDirective] | None = None,
+    iteration_history: list[IterationSummary] | None = None,
     *,
     is_pre_seeded_empty_producer: bool = False,
 ) -> str:
@@ -13859,6 +14086,8 @@ def _build_agent_prompt(
             review_feedback=review_feedback,
             review_cycle=review_cycle,
             repo_path=repo_path,
+            operator_directives=operator_directives,
+            iteration_history=iteration_history,
         )
         # Surface file boundaries so agent knows what it can push (#1431).
         # Pass repo so the rendered patterns match per-repo overrides
@@ -13885,6 +14114,38 @@ def _build_agent_prompt(
                 is_pre_seeded_empty_producer=is_pre_seeded_empty_producer,
             )
         return base_prompt
+
+    if role_value.startswith("reviewer_"):
+        # Reviewer prompts are fully built by _build_review_prompt with its
+        # own criteria/verdict format + iteration-context wiring; we don't
+        # accumulate the role-shared ``lines`` block for them. Dispatching
+        # here (rather than mid-function with an early return) prevents
+        # future drift where a "must always be included" line is added to
+        # the accumulation and silently never reaches reviewers (#2795).
+        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
+        review_prompt = _build_review_prompt(
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            reviewer_type=reviewer_type,
+            issue_number=issue_number,
+            review_cycle=review_cycle + 1,
+            prior_feedback=review_feedback,
+            repo_path=repo_path,
+            base_branch=base_branch,
+            concurrent=concurrent,
+            operator_directives=operator_directives,
+            iteration_history=iteration_history,
+        )
+        if concurrent:
+            review_prompt += "\n" + _build_brc_preamble(
+                role_value,
+                phase,
+                repo=repo,
+                branch=branch,
+                base_branch=base_branch,
+            )
+        return review_prompt
 
     # Build context header (shared across all roles)
     lines = [f"You are the **{role_value.upper()}** agent in the **{phase}** phase.\n"]
@@ -13930,7 +14191,15 @@ def _build_agent_prompt(
     if role_context:
         lines.append(role_context)
 
-    # Review feedback from prior cycles
+    # Phase iteration context: operator directives + prior iteration history.
+    # Rendered for all roles (producers AND reviewers) so reviewers cannot
+    # NACK a directive-driven change against a stale default rubric (#2795).
+    iteration_context = _build_phase_iteration_context(operator_directives, iteration_history)
+    if iteration_context:
+        lines.append(iteration_context)
+
+    # Review feedback from prior agentic cycles (scoped to agentic NACKs
+    # since #2795 — HITL kickbacks render via the iteration context above).
     if review_feedback:
         lines.append("## Review Feedback\n")
         lines.append(review_feedback)
@@ -14707,30 +14976,6 @@ def _build_agent_prompt(
                 "",
             ]
         )
-    elif role_value.startswith("reviewer_"):
-        # Delegate to the detailed review prompt with criteria and verdict format
-        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
-        review_prompt = _build_review_prompt(
-            phase=phase,
-            pipeline_id=pipeline_id,
-            pipeline_mode=pipeline_mode,
-            reviewer_type=reviewer_type,
-            issue_number=issue_number,
-            review_cycle=review_cycle + 1,
-            prior_feedback=review_feedback,
-            repo_path=repo_path,
-            base_branch=base_branch,
-            concurrent=concurrent,
-        )
-        if concurrent:
-            review_prompt += "\n" + _build_brc_preamble(
-                role_value,
-                phase,
-                repo=repo,
-                branch=branch,
-                base_branch=base_branch,
-            )
-        return review_prompt
     else:
         lines.extend(
             [
@@ -17088,6 +17333,8 @@ def _run_concurrent_phase_with_impasse_retry(
     worktree_repo_path: Path,
     review_feedback: str | None = None,
     slice_id: str | None = None,
+    operator_directives: list[OperatorDirective] | None = None,
+    iteration_history: list[IterationSummary] | None = None,
 ) -> tuple[int, str]:
     """Run a concurrent phase, auto-delegating impasses once before HITL.
 
@@ -17166,6 +17413,8 @@ def _run_concurrent_phase_with_impasse_retry(
             worktree_repo_path=worktree_repo_path,
             review_feedback=review_feedback,
             slice_id=slice_id,
+            operator_directives=operator_directives,
+            iteration_history=iteration_history,
         )
 
         try:
@@ -17268,6 +17517,8 @@ def _run_concurrent_phase(
     worktree_repo_path: Path,
     review_feedback: str | None = None,
     slice_id: str | None = None,
+    operator_directives: list[OperatorDirective] | None = None,
+    iteration_history: list[IterationSummary] | None = None,
 ) -> tuple[int, str]:
     """Run a phase using concurrent all-agents-at-once execution.
 
@@ -17432,6 +17683,8 @@ def _run_concurrent_phase(
             concurrent=True,
             review_feedback=review_feedback,
             network_mode=gateway_mode,
+            operator_directives=operator_directives,
+            iteration_history=iteration_history,
             is_pre_seeded_empty_producer=role.value in _pre_seeded_empty_producer_roles,
         )
         agent_prompts[role] = prompt
@@ -21625,23 +21878,10 @@ def _run_pipeline(
                     _emit_pipeline_event(pipeline, "pipeline.failed")
                     return
 
-        # Check for feedback preserved by the recovery path in start_pipeline
-        # or by the inline request_changes handler.  When either stores
-        # reviewer feedback in phase_execution.hitl_feedback, we read it
-        # here so it can be forwarded to the re-running agents.
-        _hitl_review_feedback: str | None = None
-        try:
-            with get_pipeline_state_lock(pipeline_id):
-                _recovery_pipeline = store.load_pipeline(pipeline_id)
-                _recovery_phase = _recovery_pipeline.get_phase_execution(
-                    _recovery_pipeline.current_phase
-                )
-                if _recovery_phase.hitl_feedback:
-                    _hitl_review_feedback = _recovery_phase.hitl_feedback
-                    _recovery_phase.hitl_feedback = None
-                    store.save_pipeline(_recovery_pipeline)
-        except Exception as e:
-            logger.debug("Failed to read hitl_feedback from recovery path", error=str(e))
+        # Operator directives + prior iteration history are persisted on
+        # ``PhaseExecution`` and accumulate across HITL kickbacks (#2795).
+        # They are read directly off the phase below each loop iteration —
+        # no separate "read once and clear" stash is needed.
 
         # Initialize the Tier 1 health monitor so deterministic tripwires
         # (heartbeat timeout, container exit, repeated errors, message rate,
@@ -22302,26 +22542,21 @@ def _run_pipeline(
                         mode=gateway_mode,
                     )
 
-                    # Read HITL feedback stored by the inline request_changes
-                    # handler or the AWAITING_HUMAN recovery path, and clear it
-                    # so it's only forwarded once.
-                    _phase_review_feedback: str | None = None
-                    if _hitl_review_feedback:
-                        _phase_review_feedback = _hitl_review_feedback
-                        _hitl_review_feedback = None
-                    else:
-                        # Re-read from persisted state in case the inline path
-                        # stored feedback and looped back via continue.
-                        try:
-                            with get_pipeline_state_lock(pipeline_id):
-                                _fb_pipeline = store.load_pipeline(pipeline_id)
-                                _fb_phase = _fb_pipeline.get_phase_execution(current_phase)
-                                if _fb_phase.hitl_feedback:
-                                    _phase_review_feedback = _fb_phase.hitl_feedback
-                                    _fb_phase.hitl_feedback = None
-                                    store.save_pipeline(_fb_pipeline)
-                        except Exception as e:
-                            logger.debug("Failed to read hitl_feedback for phase", error=str(e))
+                    # Read structured operator directives + prior iteration
+                    # history off the phase so iteration N+1 prompts can render
+                    # them with precedence prose (#2795). These lists accumulate
+                    # across kickbacks and are never cleared, so no read-and-
+                    # clear stash is needed.
+                    _phase_operator_directives: list[OperatorDirective] = []
+                    _phase_iteration_history: list[IterationSummary] = []
+                    try:
+                        with get_pipeline_state_lock(pipeline_id):
+                            _fb_pipeline = store.load_pipeline(pipeline_id)
+                            _fb_phase = _fb_pipeline.get_phase_execution(current_phase)
+                            _phase_operator_directives = list(_fb_phase.operator_directives)
+                            _phase_iteration_history = list(_fb_phase.iteration_history)
+                    except Exception as e:
+                        logger.debug("Failed to read operator directives for phase", error=str(e))
 
                     # #2137: route the implement phase through the slice
                     # DAG iterator when the contract has more than one
@@ -22434,7 +22669,8 @@ def _run_pipeline(
                                 store=store,
                                 certs_volume=certs_volume,
                                 worktree_repo_path=worktree_repo_path,
-                                review_feedback=_phase_review_feedback,
+                                operator_directives=_phase_operator_directives,
+                                iteration_history=_phase_iteration_history,
                             )
                     except (ContainerSpawnError, KubernetesSpawnError) as e:
                         with get_pipeline_state_lock(pipeline_id):
@@ -23227,16 +23463,41 @@ def _run_pipeline(
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
                         else:
-                            # Store feedback so the re-running agents receive it.
-                            phase_execution.hitl_feedback = _revision_feedback
+                            # #2795: append the directive + frozen iteration
+                            # summary instead of writing a single hitl_feedback
+                            # string. Both lists accumulate across kickbacks so
+                            # iteration N+1's prompts can render them with
+                            # explicit precedence prose.
+                            # Capture the BRC tracker state BEFORE
+                            # _clear_concurrent_state drops it — that's our
+                            # only chance to snapshot iteration N's verdicts
+                            # for the iteration N+1 prompt.
+                            _kickback_tracker = None
+                            try:
+                                from peer_consensus import (
+                                    get_peer_consensus_tracker as _gpct_kickback,
+                                )
 
-                            # Reset containers/agents/artifacts so the re-run
-                            # starts clean, resetting the same container/agent/
-                            # artifact fields that the recovery path resets.
-                            phase_execution.containers = []
-                            phase_execution.agents = []
-                            phase_execution.artifacts = {}
-                            phase_execution.review_cycles = 0
+                                _kickback_tracker = _gpct_kickback(pipeline_id)
+                            except Exception as tracker_err:  # noqa: BLE001
+                                logger.debug(
+                                    "Tracker lookup failed during kickback snapshot",
+                                    pipeline_id=pipeline_id,
+                                    error=str(tracker_err),
+                                )
+
+                            # Defensive teardown of iteration N's containers
+                            # before we reset and respawn (#2795). The
+                            # consensus-close path already SIGTERMs at the end
+                            # of _run_concurrent_phase, but the K8s delete is
+                            # asynchronous — calling stop_container again here
+                            # is idempotent and guarantees iteration N+1 will
+                            # not race iteration N's still-terminating pods.
+                            _kickback_stale_containers = _apply_inline_hitl_kickback_to_phase(
+                                phase_execution,
+                                _revision_feedback,
+                                tracker=_kickback_tracker,
+                            )
 
                             # Clear message store and consensus tracker so the
                             # re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED
@@ -23246,6 +23507,21 @@ def _run_pipeline(
                             _clear_concurrent_state(pipeline_id)
 
                             store.save_pipeline(pipeline)
+
+                            for _ctr in _kickback_stale_containers:
+                                if _ctr.container_id and _ctr.status == ContainerStatus.RUNNING:
+                                    try:
+                                        spawner.backend.stop_container(
+                                            _ctr.container_id, timeout=10
+                                        )
+                                    except Exception as stop_err:  # noqa: BLE001
+                                        logger.debug(
+                                            "Best-effort kickback teardown failed",
+                                            pipeline_id=pipeline_id,
+                                            container_id=_ctr.container_id,
+                                            error=str(stop_err),
+                                        )
+
                             report_pipeline_status(
                                 pipeline,
                                 event_type="phase.revision_requested",
@@ -24221,6 +24497,50 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 else:
                     # request_changes/change_approach — reset phase for re-run
                     phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                    # #2795: derive iteration_n monotonically. The
+                    # ``max(len(iteration_history), max(directive_idx) + 1)``
+                    # form does not depend on ``hitl_review_cycles``, so
+                    # this expression is safe to evaluate either before
+                    # or after ``_clear_concurrent_state`` resets the
+                    # per-phase counter. What *is* order-sensitive is
+                    # the tracker snapshot a few lines below: the BRC
+                    # tracker is in-memory only and gets wiped by
+                    # ``_clear_concurrent_state``, so the snapshot MUST
+                    # happen first. On a crash-recovery resolution the
+                    # snapshot will typically have empty verdict detail,
+                    # but the iteration index + artifacts are still
+                    # useful context for iteration N+1's prompts.
+                    # The ``max(...) + 1`` floor ensures a legacy-
+                    # hitl_feedback migration (which synthesises a
+                    # directive but leaves iteration_history empty)
+                    # doesn't restart the index at 0.
+                    _recovery_iteration_n = max(
+                        len(phase_execution.iteration_history),
+                        max(
+                            (d.iteration_n for d in phase_execution.operator_directives),
+                            default=-1,
+                        )
+                        + 1,
+                    )
+                    _recovery_tracker = None
+                    try:
+                        from peer_consensus import (
+                            get_peer_consensus_tracker as _gpct_recovery,
+                        )
+
+                        _recovery_tracker = _gpct_recovery(pipeline_id)
+                    except Exception as tracker_err:  # noqa: BLE001
+                        logger.debug(
+                            "Tracker lookup failed during recovery snapshot",
+                            pipeline_id=pipeline_id,
+                            error=str(tracker_err),
+                        )
+                    _recovery_summary = _build_iteration_summary_from_tracker(
+                        _recovery_tracker,
+                        iteration_n=_recovery_iteration_n,
+                        artifacts=phase_execution.artifacts,
+                    )
+
                     if phase_execution.status in (
                         PipelineStatus.COMPLETE,
                         PipelineStatus.FAILED,
@@ -24250,10 +24570,18 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                     _clear_concurrent_state(pipeline_id)
 
-                    # Preserve the reviewer's feedback so the re-launched
-                    # _run_pipeline thread can pass it to the agent.
+                    # #2795: append the operator directive + iteration
+                    # summary so iteration N+1 prompts can render them
+                    # with precedence prose. Both lists accumulate
+                    # across kickbacks (no clear).
                     if revision_feedback:
-                        phase_execution.hitl_feedback = revision_feedback
+                        phase_execution.operator_directives.append(
+                            OperatorDirective(
+                                iteration_n=_recovery_iteration_n,
+                                feedback_text=revision_feedback,
+                            )
+                        )
+                        phase_execution.iteration_history.append(_recovery_summary)
 
                 pipeline.error = None
                 pipeline.run_epoch = datetime.now(UTC)

@@ -71,6 +71,7 @@ if _shared_path.exists():
 from egg_health import HealthTracker
 from egg_logging import get_logger
 from egg_restrictions.hints import derive_hint as _derive_push_denied_hint
+from egg_session_placeholder import from_placeholder as _session_token_from_placeholder
 
 # Module-level health tracker. Updated every time the /api/v1/health
 # endpoint is evaluated so callers can distinguish "healthy since process
@@ -9519,6 +9520,79 @@ BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"
 RAW_INPUT_TRUNCATE_SIZE = 1000
 
 
+def _resolve_proxy_session(
+    request_headers: Any,
+    remote_addr: str | None,
+) -> tuple[Any, tuple[Response, int] | None]:
+    """
+    Resolve the session for a ``/v1/messages`` (or ``/count_tokens``) proxy
+    request.
+
+    Order of resolution (issue #2829):
+
+    1. **Token-keyed.** Extract the session token from ``x-api-key`` /
+       ``Authorization`` if the value carries the egg placeholder
+       envelope. The orchestrator wraps the session token in this
+       placeholder so Claude Code's local OAuth-token format check
+       passes while the gateway can still identify the session. This
+       is the load-bearing path for agent traffic.
+    2. **IP-keyed.** When the placeholder is absent, fall back to
+       source-IP lookup. Pod IPs are ephemeral in k8s so this is a
+       compat path for non-agent clients only (health probes, host
+       dev tools). The slice-1 "no session → anthropic" invariant for
+       non-agent probes is preserved.
+
+    Defense-in-depth: when the placeholder IS present but the session
+    lookup misses, return a 502. Silently falling through to the
+    anthropic default would silently mis-route per-agent inference
+    (the routing bug) and disable private-mode web-tool filtering (the
+    filter-bypass bug). Both were invisible at runtime before the fix.
+
+    Side effect: ``get_session`` delegates to ``validate_session``,
+    which calls ``session.extend_ttl`` on every successful lookup. The
+    proxy is therefore no longer a read-only consumer of the session —
+    each ``/v1/messages`` (or ``/count_tokens``) call bumps the
+    session's ``last_seen``, so active agent inference keeps the
+    session alive without a separate heartbeat. The legacy
+    ``get_session_by_ip`` fallback is still read-only.
+
+    Returns ``(session_or_none, error_response_or_none)``. On error the
+    caller MUST return the error response; on success ``session`` may
+    be ``None`` for non-placeholder probes and the caller falls back
+    to the anthropic default.
+    """
+    raw_auth = request_headers.get("x-api-key") or request_headers.get("Authorization")
+    placeholder_token = _session_token_from_placeholder(raw_auth)
+    session_manager = get_session_manager()
+
+    if placeholder_token:
+        session = session_manager.get_session(placeholder_token)
+        if session is None:
+            # ``validate_session`` (called via ``get_session``) already
+            # logs ``event_type=session_auth_failed`` with the token
+            # hash; emitting a second warning here would double-count
+            # any "auth failure rate" alert keyed off the first event.
+            # Caller's ``remote_addr`` shows up in standard request
+            # logs for correlation.
+            return None, (
+                jsonify(
+                    {
+                        "error": {
+                            "type": "api_error",
+                            "message": "Unknown or expired session",
+                        }
+                    }
+                ),
+                502,
+            )
+        return session, None
+
+    # Non-agent probe (no placeholder). Try IP-keyed lookup for
+    # backwards compatibility but failure here is non-fatal — the
+    # caller falls through to the anthropic default.
+    return session_manager.get_session_by_ip(remote_addr or ""), None
+
+
 def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> bytes:
     """
     Remove blocked tools from API request when in private mode.
@@ -9869,14 +9943,20 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     API traffic through the gateway for credential injection.
 
-    Uses IP-based session lookup for mode detection (Claude Code doesn't send session tokens).
-    API request/response pairs are captured to a per-session buffer for checkpoint creation.
+    Session lookup is token-keyed via a placeholder embedded in the
+    ``x-api-key`` header (issue #2829). The orchestrator wraps the
+    session token in ``sk-ant-oat01-PROXY-INJECTED-egg-session-<token>``
+    so Claude Code's local format check passes; the gateway extracts
+    the token and looks the session up. Non-agent probes (no
+    placeholder) keep the legacy IP-keyed compat path. API
+    request/response pairs are captured to a per-session buffer for
+    checkpoint creation.
     """
     start_time = time.time()
 
-    # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
-    session_manager = get_session_manager()
-    session = session_manager.get_session_by_ip(request.remote_addr or "")
+    session, lookup_error = _resolve_proxy_session(request.headers, request.remote_addr)
+    if lookup_error:
+        return lookup_error
     session_mode = session.mode if session else None
     container_id = session.container_id if session else None
     # Resolve per-session upstream (issue #2769). With no session, default to
@@ -10170,11 +10250,12 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     token counting requests through the gateway.
     """
-    # Mirror the per-session upstream lookup used by proxy_anthropic_messages
-    # so count_tokens and messages always agree on which backend serves a
-    # given agent (issue #2769).
-    session_manager = get_session_manager()
-    session = session_manager.get_session_by_ip(request.remote_addr or "")
+    # Mirror the per-session lookup used by proxy_anthropic_messages so
+    # count_tokens and messages always agree on which backend serves a
+    # given agent (issues #2769, #2829).
+    session, lookup_error = _resolve_proxy_session(request.headers, request.remote_addr)
+    if lookup_error:
+        return lookup_error
     upstream_name = session.upstream if session else "anthropic"
 
     headers = _get_forwarded_headers(request.headers)

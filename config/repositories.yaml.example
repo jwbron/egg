@@ -207,7 +207,7 @@ repo_settings:
   # # populated in the LiteLLM ConfigMap. The pipeline-level ``agent_models``
   # # field still wins when set.
   # YOUR_USERNAME/qwen-pilot:
-  #   default_agent_model: qwen3-coder-30b
+  #   default_agent_model: qwen3-max
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

@@ -126,6 +126,7 @@ make build
 | `make k3s-setup` | Install k3s + Cilium CNI (idempotent) |
 | `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
 | `make build` | Build images and import into k3s |
+| `make litellm-config` | Apply host-side LiteLLM `model_list` from `~/.config/egg/litellm-models.yaml`; no-op if absent |
 | `make k3s-teardown` | Remove k3s installation |
 
 #### `make deploy` details
@@ -136,6 +137,14 @@ make build
 - **`EGG_HOST_REPO_MAP`** — auto-derived from `~/.config/egg/repositories.yaml` via `scripts/build-host-repo-map.py`.
 
 **Prerequisite:** `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`).
+
+`make deploy` also invokes `make litellm-config` automatically at the end, applying any
+host-side LiteLLM backend overlay from `~/.config/egg/litellm-models.yaml` (no-op if the file is absent).
+See the [Per-Agent Models guide](per-agent-models.md) for the overlay format.
+
+If you invoke `make litellm-config` standalone before the cluster has been deployed, the target
+also short-circuits with a notice when the in-cluster `litellm-config` ConfigMap is not yet present —
+run `make deploy` first so the base ConfigMap exists, then re-run `make litellm-config` to overlay.
 
 **Override at deploy time:**
 
@@ -300,6 +309,7 @@ For reproducible builds, pin to an exact version tag.
 | `secrets.env` | Additional secrets (GitHub App credentials) |
 | `launcher-secret` | Gateway authentication token |
 | `lifecycle-secret` | Orchestrator lifecycle-control auth token (required for k8s deployments) |
+| `litellm-models.yaml` | Host-side LiteLLM `model_list` overlay; copy from `config/litellm-models.template.yaml` (see [Per-Agent Models](per-agent-models.md)) |
 
 ## Health Checks
 

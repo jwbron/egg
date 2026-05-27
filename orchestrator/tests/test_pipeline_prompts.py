@@ -22,6 +22,8 @@ from routes.pipelines import (
     _build_agent_roster,
     _build_brc_preamble,
     _build_file_boundary_section,
+    _build_iteration_summary_from_tracker,
+    _build_phase_iteration_context,
     _build_phase_prompt,
     _build_producer_orientation,
     _build_review_prompt,
@@ -457,13 +459,13 @@ class TestBuildPhasePromptRevisionMode:
         assert "no specific feedback was provided" in result
 
     def test_cycle_0_with_feedback_includes_review_feedback(self):
-        """Cycle 0 with HITL-reset feedback must surface it to the coder/refiner.
+        """Cycle 0 with agentic review feedback must surface it to the producer.
 
-        Regression for #1915: when a human rejects a phase_gate with
-        change_approach/request_changes, the inline handler resets
-        review_cycles to 0 and stores feedback in hitl_feedback, which
-        flows back as review_feedback. The producer prompt must include
-        that feedback — otherwise the refiner re-proposes the same draft.
+        Regression for #1915: when the agentic-cycle review feedback channel
+        carries content into the next cycle, the producer prompt must
+        include that feedback — otherwise the refiner re-proposes the
+        same draft. HITL kickback feedback flows through the separate
+        operator-directives channel since #2795.
         """
         result = _build_phase_prompt(
             phase="refine",
@@ -6005,3 +6007,196 @@ class TestRefinerOrientationSurfacesPrimitives:
         # The three execution contexts named in the criteria.
         assert "in-sandbox-agent" in orientation
         assert "trusted-CI-runner" in orientation
+
+
+class TestPhaseIterationContext:
+    """Tests for _build_phase_iteration_context and #2795 prompt wiring."""
+
+    def test_empty_inputs_return_empty_string(self):
+        assert _build_phase_iteration_context(None, None) == ""
+        assert _build_phase_iteration_context([], []) == ""
+
+    def test_single_directive_includes_precedence_prose(self):
+        from datetime import UTC, datetime
+
+        from models import OperatorDirective
+
+        directive = OperatorDirective(
+            iteration_n=0,
+            created_at=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
+            feedback_text="Drop the planner-scope sections from the refine draft.",
+        )
+        rendered = _build_phase_iteration_context([directive], [])
+
+        assert "## Phase Iteration Context" in rendered
+        # Precedence prose must be present so reviewers know the directive
+        # outranks rubric items in the prompt template.
+        assert "override prompt-template defaults" in rendered
+        assert "the directive wins" in rendered
+        assert "Later directives override earlier" in rendered
+        assert "Drop the planner-scope sections from the refine draft." in rendered
+        # Iteration index + ISO timestamp should be rendered.
+        assert "iteration 0" in rendered
+        assert "2026-05-27T12:00:00" in rendered
+
+    def test_multiple_directives_render_chronologically(self):
+        from datetime import UTC, datetime
+
+        from models import OperatorDirective
+
+        directives = [
+            OperatorDirective(
+                iteration_n=0,
+                created_at=datetime(2026, 5, 27, 12, 0, tzinfo=UTC),
+                feedback_text="First directive.",
+            ),
+            OperatorDirective(
+                iteration_n=1,
+                created_at=datetime(2026, 5, 27, 14, 0, tzinfo=UTC),
+                feedback_text="Second directive.",
+            ),
+        ]
+        rendered = _build_phase_iteration_context(directives, [])
+        first_idx = rendered.index("First directive.")
+        second_idx = rendered.index("Second directive.")
+        assert first_idx < second_idx
+        assert "**Directive 1**" in rendered
+        assert "**Directive 2**" in rendered
+
+    def test_iteration_history_renders_verdict_matrix_and_nacks(self):
+        from datetime import UTC, datetime
+
+        from models import IterationSummary
+
+        summary = IterationSummary(
+            iteration_n=0,
+            completed_at=datetime(2026, 5, 27, 13, 0, tzinfo=UTC),
+            final_proposal_commit={"refiner": "abc123def4567890"},
+            verdict_matrix={
+                "reviewer_refine->refiner": "nacked",
+                "reviewer_agent_design->refiner": "acked",
+            },
+            nack_reasons=["reviewer_refine→refiner: missing planner sections"],
+            artifacts_snapshot={"draft.md": ".egg-state/drafts/refine.md"},
+        )
+        rendered = _build_phase_iteration_context([], [summary])
+
+        assert "### Prior Iteration History" in rendered
+        assert "**Iteration 0**" in rendered
+        assert "abc123def456" in rendered  # truncated SHA
+        assert "reviewer_agent_design->refiner: acked" in rendered
+        assert "reviewer_refine->refiner: nacked" in rendered
+        assert "missing planner sections" in rendered
+        assert "draft.md" in rendered
+
+    def test_phase_prompt_threads_iteration_context_at_cycle_0(self):
+        """_build_phase_prompt must surface operator directives even on cycle 0."""
+        from models import OperatorDirective
+
+        rendered = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            review_cycle=0,
+            operator_directives=[
+                OperatorDirective(
+                    iteration_n=0,
+                    feedback_text="Drop the planner-scope sections.",
+                )
+            ],
+        )
+        assert "## Phase Iteration Context" in rendered
+        assert "override prompt-template defaults" in rendered
+        assert "Drop the planner-scope sections." in rendered
+
+    def test_agent_prompt_threads_iteration_context_for_reviewer(self):
+        """Reviewer prompts must also see the operator directive + precedence prose."""
+        from models import OperatorDirective
+
+        rendered = _build_agent_prompt(
+            role_value="reviewer_refine",
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            operator_directives=[
+                OperatorDirective(
+                    iteration_n=0,
+                    feedback_text="Operator says: planner-scope sections are out of scope.",
+                )
+            ],
+        )
+        assert "## Phase Iteration Context" in rendered
+        assert "the directive wins" in rendered
+        assert "Operator says: planner-scope sections are out of scope." in rendered
+
+    def test_iteration_summary_from_none_tracker(self):
+        """_build_iteration_summary_from_tracker tolerates a missing tracker."""
+        summary = _build_iteration_summary_from_tracker(
+            None,
+            iteration_n=2,
+            artifacts={"draft.md": "/path/to/draft.md"},
+        )
+        assert summary.iteration_n == 2
+        assert summary.artifacts_snapshot == {"draft.md": "/path/to/draft.md"}
+        assert summary.verdict_matrix == {}
+        assert summary.nack_reasons == []
+
+    def test_iteration_summary_from_live_tracker(self):
+        """Snapshot pulls verdict matrix + NACK reasons + producer SHAs."""
+        from approval_matrix import ApprovalState
+        from attestation_schemas import AttestationStrictness
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge(reviewer_role="reviewer_refine", producer_role="refiner"),
+                ReviewEdge(reviewer_role="reviewer_agent_design", producer_role="refiner"),
+            ]
+        )
+        # RELAXED strictness so handle_propose accepts a minimal payload
+        # without requiring full role-specific attestation. cooldown=0 so
+        # ACK/NACK ordering isn't gated on real time.
+        tracker = PeerConsensusTracker(
+            "pid-x",
+            graph,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            cooldown_seconds=0,
+        )
+        tracker.register_agent("refiner")
+        tracker.register_agent("reviewer_refine")
+        tracker.register_agent("reviewer_agent_design")
+        # Drive through the public API rather than reaching into
+        # tracker._proposal_commit_shas (#2795 review).
+        tracker.handle_propose(
+            "refiner",
+            {
+                "summary": "Refine draft proposed",
+                "artifacts": [".egg-state/drafts/refine.md"],
+                "commit_sha": "abc123def456",
+            },
+        )
+        tracker.handle_nack(
+            "reviewer_refine",
+            "refiner",
+            {
+                "artifact_references": [".egg-state/drafts/refine.md"],
+                "reason": "missing planner sections",
+            },
+        )
+        tracker.handle_ack(
+            "reviewer_agent_design",
+            "refiner",
+            {"artifact_references": [".egg-state/drafts/refine.md"]},
+        )
+
+        summary = _build_iteration_summary_from_tracker(
+            tracker, iteration_n=0, artifacts={"draft.md": "/p.md"}
+        )
+
+        assert summary.final_proposal_commit == {"refiner": "abc123def456"}
+        assert summary.verdict_matrix["reviewer_refine->refiner"] == ApprovalState.NACKED.value
+        assert summary.verdict_matrix["reviewer_agent_design->refiner"] == ApprovalState.ACKED.value
+        assert any("missing planner sections" in r for r in summary.nack_reasons)
