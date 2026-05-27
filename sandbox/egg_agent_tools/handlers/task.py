@@ -45,11 +45,9 @@ _JIRA_KEY_PREFIX_RE = re.compile(r"^jira_key=([A-Z][A-Z0-9_]*-[0-9]+)\s*$")
 def _project_notes_prefix(notes: str) -> tuple[str | None, str | None]:
     """Extract typed (jira_action_status, jira_key) from a notes prefix.
 
-    The applier emits the prefix as the first 1-2 lines of ``Task.notes``
-    (see ``plugins/refine-plan/skills/refine-plan/agents/applier.md``'s
-    "Lifecycle invariant" section). Either field may be absent; both
-    None means the notes carry no prefix and the typed projection is a
-    no-op.
+    The applier emits the prefix as the first 1-2 lines of
+    ``Task.notes``. Either field may be absent; both None means the
+    notes carry no prefix and the typed projection is a no-op.
     """
     status: str | None = None
     key: str | None = None

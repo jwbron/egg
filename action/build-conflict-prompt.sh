@@ -194,7 +194,7 @@ Using merge instead of rebase preserves the PR's commit history. If the resoluti
 
 5. **Commit the merge**: After resolving all conflicts, run \`git commit\` to complete the merge. Use a descriptive message like: \"Merge origin/${base_ref} into <branch-name>: resolve conflicts in <files>\"
 
-6. **Verify locally**: Run all checks (\`make lint\`, \`make test\`, \`make build\` or equivalent). Fix any issues introduced by the resolution.
+6. **Verify locally**: Run \`make lint\` and \`make build\` (or equivalent) and fix any issues introduced by the resolution. Do NOT run \`make test\` — the egg test suite takes 10-15 minutes and risks timing out this workflow; if you need to validate a specific resolution you may run individual targeted tests (\`.venv/bin/pytest path/to/test_x.py::TestY::test_z\`), but never the full \`make test\` suite. CI will run the full check suite on the pushed result. This restriction is tracked for removal once #2817 lands (see #2818).
 
 7. **Push the result**: After all checks pass, run \`git push\` to update the PR. Do NOT use \`--force\` or \`--force-with-lease\`.
 
