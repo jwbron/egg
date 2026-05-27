@@ -236,22 +236,40 @@ def get_default_refine_graph() -> ReviewGraph:
 def get_default_plan_graph() -> ReviewGraph:
     """Get the default review graph for the plan phase.
 
-    Review adjacency per the phase-role mappings:
-    - reviewer_plan reviews architect (critical)
-    - reviewer_plan reviews task_planner (critical)
-    - reviewer_plan reviews risk_analyst (advisory)
+    Review adjacency per the phase-role mappings (issue #2809):
+    - reviewer_plan reviews architect (critical) — structural lens
+    - reviewer_plan reviews task_planner (critical) — structural lens
+    - reviewer_plan reviews risk_analyst (advisory) — risk register
+      still reviewable as a producer artifact
+    - risk_analyst reviews architect (critical) — risk lens, dual-role
+    - risk_analyst reviews task_planner (critical) — risk lens, dual-role
+
+    Plan-phase consensus therefore requires **both** ``reviewer_plan``
+    and ``risk_analyst`` to ACK every CRITICAL producer (architect,
+    task_planner). The two lenses catch what one wouldn't: ``reviewer_plan``
+    audits structure (slice DAG shape, slice_size, role assignments,
+    test strategy, rollback, PR block); ``risk_analyst`` audits the
+    risk surface (what could go wrong with this design; blocking
+    concerns). ``risk_analyst`` is dual-role — it produces the risk
+    register and also reviews its upstream peers, mirroring the
+    implement-phase ``tester`` pattern (#2749).
 
     Producers: architect, task_planner, risk_analyst
-    Reviewers: reviewer_plan
+    Reviewers: reviewer_plan, risk_analyst (dual-role)
     """
     return ReviewGraph(
         [
-            # reviewer_plan reviews architect (critical)
+            # reviewer_plan reviews architect (critical) — structural lens
             ReviewEdge("reviewer_plan", "architect", ReviewCriticality.CRITICAL),
-            # reviewer_plan reviews task_planner (critical)
+            # reviewer_plan reviews task_planner (critical) — structural lens
             ReviewEdge("reviewer_plan", "task_planner", ReviewCriticality.CRITICAL),
-            # reviewer_plan reviews risk_analyst (advisory)
+            # reviewer_plan reviews risk_analyst (advisory) — risk
+            # register still reviewable as a producer artifact
             ReviewEdge("reviewer_plan", "risk_analyst", ReviewCriticality.ADVISORY),
+            # risk_analyst reviews architect (critical — risk lens, #2809)
+            ReviewEdge("risk_analyst", "architect", ReviewCriticality.CRITICAL),
+            # risk_analyst reviews task_planner (critical — risk lens, #2809)
+            ReviewEdge("risk_analyst", "task_planner", ReviewCriticality.CRITICAL),
         ]
     )
 

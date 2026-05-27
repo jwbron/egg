@@ -475,6 +475,16 @@ class TestReviewGraphIntegration:
         assert "reviewer_plan" in graph.critical_reviewers_for("task_planner")
         assert "reviewer_plan" in graph.advisory_reviewers_for("risk_analyst")
 
+        # #2809 — risk_analyst is dual-role: CRITICAL reviewer of
+        # architect and task_planner in addition to producing the
+        # risk register.
+        assert graph.is_reviewer("risk_analyst")
+        assert graph.is_dual_role("risk_analyst")
+        assert "risk_analyst" in graph.reviewers_for("architect")
+        assert "risk_analyst" in graph.reviewers_for("task_planner")
+        assert "risk_analyst" in graph.critical_reviewers_for("architect")
+        assert "risk_analyst" in graph.critical_reviewers_for("task_planner")
+
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("plan")
         assert len(phase_graph.edges) == len(graph.edges)
