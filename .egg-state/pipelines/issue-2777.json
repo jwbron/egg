@@ -395,10 +395,10 @@
         {
           "container_id": "3ef4261d-eed4-43b8-aca6-58299e4a9f26",
           "container_name": "egg-sandbox-egg-agent-issue-2777-slice-1-reviewer-security",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-27T07:45:21.105757Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-27T11:45:59.204055Z",
+          "exit_code": -1,
           "agent_role": "reviewer_security",
           "session_token": null,
           "pod_name": null,
@@ -506,15 +506,15 @@
         },
         {
           "role": "reviewer_security",
-          "status": "running",
+          "status": "failed",
           "container_id": "3ef4261d-eed4-43b8-aca6-58299e4a9f26",
           "container_info": null,
           "slice_id": "slice-1",
           "started_at": "2026-05-27T07:45:21.105758Z",
-          "completed_at": null,
+          "completed_at": "2026-05-27T11:45:59.247270Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -1199,6 +1199,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-27T11:45:59.103541Z",
           "container_id": "825caace-5f27-4054-94e9-c0fe200a89a6"
+        },
+        {
+          "role": "reviewer_security",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-27T11:45:59.247282Z",
+          "container_id": "3ef4261d-eed4-43b8-aca6-58299e4a9f26"
         }
       ]
     }
@@ -1420,7 +1427,7 @@
     }
   ],
   "created_at": "2026-05-27T05:07:27.593505Z",
-  "updated_at": "2026-05-27T11:45:59.103879Z",
+  "updated_at": "2026-05-27T11:45:59.247527Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1433,7 +1440,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-27T07:44:20.409407Z",
-  "version": 62,
+  "version": 63,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
