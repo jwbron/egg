@@ -13,9 +13,9 @@ Deployment, the per-session routing decision — is described in
 [Upstream Routing](../architecture/upstream-routing.md) and was the
 slice-1 deliverable. This guide is the operator-facing complement: the
 two configuration fields slice 2 introduces, how they compose, the
-**recognized-alias** mitigation that keeps Claude Code's auto-compaction
-math sane on non-Claude routes, and the end-to-end smoke test that
-validates a live LiteLLM endpoint.
+`ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration (#2832) that
+keeps Claude Code's auto-compaction math sane on non-Claude routes,
+and the end-to-end smoke test that validates a live LiteLLM endpoint.
 
 ## Mental model in one sentence
 
@@ -277,9 +277,29 @@ data:
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+      # Paired `[1m]` alias — required to absorb the Claude Code
+      # startup-probe suffix leak (#2832). See note below.
+      - model_name: qwen3-max[1m]
+        litellm_params:
+          model: openrouter/qwen/qwen3-max
+          api_key: os.environ/OPENROUTER_API_KEY
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
+
+> **Why the paired `<name>[1m]` row?** Claude Code registers the
+> custom model with a `[1m]` context-window-opt-in suffix
+> (`ANTHROPIC_CUSTOM_MODEL_OPTION=qwen3-max[1m]`) and strips the
+> suffix client-side before request bodies hit the wire — but a
+> handful of startup probes leak the suffixed name through. Without
+> the paired `qwen3-max[1m]` row in `model_list`, LiteLLM rejects
+> those probes with `Invalid model name`. Registering both the bare
+> and suffixed aliases pointing at the same `litellm_params`
+> absorbs the noise without a gateway-side body rewrite. The
+> committed
+> [`k8s/base/litellm-configmap.yaml`](../../k8s/base/litellm-configmap.yaml)
+> comment block has the full background; ship the paired row for
+> every non-Claude `model_name` you register.
 
 `OPENROUTER_API_KEY` is wired end-to-end out of the box: set it in
 `~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`, and
@@ -383,10 +403,14 @@ lookup, with no per-request routing log line:
 
 - **Refiner session-created line**: `upstream=litellm`,
   `upstream_model=qwen3-max`. Subsequent refiner requests have
-  their body forwarded to
-  `litellm.egg-system.svc.cluster.local:4000` with the
-  `_rewrite_upstream_model` helper substituting the `"model"` field;
-  LiteLLM routes to the hosted Qwen backend.
+  their body forwarded **byte-identically** to
+  `litellm.egg-system.svc.cluster.local:4000` — Claude Code emits
+  the bare upstream name (`qwen3-max`) in the request `"model"`
+  field on its own, having stripped the `[1m]` context-window-opt-in
+  suffix client-side after registering the custom model via
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` at startup (#2832). The gateway
+  performs no body rewrite; LiteLLM matches the bare name against
+  its `model_list` and routes to the hosted Qwen backend.
 - **Every other session-created line**: `upstream=anthropic`,
   `upstream_model=null`. Subsequent requests have their body
   forwarded byte-identically to `api.anthropic.com`.
