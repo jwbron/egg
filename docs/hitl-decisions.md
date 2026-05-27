@@ -8,7 +8,7 @@ The SDLC pipeline includes phases where human input is required before proceedin
 - **Refine phase**: Human approves the analysis before planning
 - **Plan phase**: Human approves the implementation plan before coding
 
-Three mechanisms exist for gathering human input:
+Four mechanisms exist for gathering human input:
 1. **Formal HITL decisions** — Multiple-choice questions with checkboxes
 2. **Feedback comments** — Open-ended questions in an editable comment
 3. **Phase approval** — Single checkbox to approve and advance to the next phase
