@@ -140,6 +140,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "660ecfa1a5d9e26dca2ef85f35254e64be33a7fc": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:20:38.747489+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
+    },
     "68b9147e1de77085f4dec4afbc908ab684ae08e3": {
       "branch": "egg/issue-2777/slice-1",
       "pipeline_id": "issue-2777",
@@ -189,6 +196,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "80ef5b9515e1ea623be966d8453de858f9bf5b54": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:20:34.875394+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
     "8167284f24d0e3cdd2fb90fab386fe050cd40715": {
       "branch": "egg/issue-2777/slice-1",
       "pipeline_id": "issue-2777",
@@ -209,6 +223,13 @@
       "registered_at": "2026-05-27T06:33:51.363662+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
+    },
+    "9c3b7f10315822be5aebce4583253fd84aad9d7b": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:20:43.677855+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "a185ffb55f8dbf0c333d8b53a4bfe0ec15c98897": {
       "branch": "egg/issue-2777/slice-1",
@@ -377,6 +398,13 @@
       "registered_at": "2026-05-27T08:22:33.348999+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
+    },
+    "ede039caf4e81f53bfa9931dae858e42b671c080": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:20:38.826879+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
     },
     "f5b13ed55163e5b79b56cb818bbed47407d3cd32": {
       "branch": "egg/issue-2777/slice-1",
