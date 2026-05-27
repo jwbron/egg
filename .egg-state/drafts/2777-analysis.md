@@ -577,3 +577,10 @@ naturally parallelisable into 2–4 slices (cq-1).
 ---
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Operator scope directive: #2792 / plan_draft_missing_on_local / plan-implement reconciliation work is OUT OF SCOPE for this pipeline. It is being handled separately. Goal 4 from the issue body must not be included in any slice. cq-7 will be answered as out-of-scope when it surfaces in Wave 2. Feedback Q1 #2627 clause will also be answered as out-of-scope. The planner must produce a slice DAG covering Goals 1-3 only (context-PR realignment, sliced-implement mess cleanup, slice/phase restart hardening). All #2792-coupled primitives listed in the Runtime-Primitive Inventory should be ignored by the planner.

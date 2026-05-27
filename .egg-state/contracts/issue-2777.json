@@ -16,10 +16,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two slices with dependency: [A+D: context-PR collapse + cleanup + PR-phase removal] -> [C: restart hardening] (2 PRs, sequential so the cleanup lands first). NOTE: slice B (#2792 plan->implement auto-reconcile) is OUT OF SCOPE per operator directive and must not be included. Slice A also expands to include deletion of the PR phase entirely (see cq-4 answer): the context PR opens up-front at plan->implement boundary, hard-required and idempotent; the PR phase as a separate stage is removed.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:53:36.164690Z",
       "debounce_until": null
     },
     {
@@ -28,10 +28,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hard-remove the three fields and bump schemaVersion to 1.2 \u2014 clean break; in-flight contracts on disk will fail to load until migrated\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:53:36.175993Z",
       "debounce_until": null
     },
     {
@@ -40,10 +40,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep all five with `# noqa: ARG002` / dead-code markers and a doc-pointer to #2199 \u2014 preserves the planned API surface, costs ~120 lines of test-only code\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:54:22.295280Z",
       "debounce_until": null
     },
     {
@@ -52,10 +52,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: DELETE THE PR PHASE ENTIRELY. Open the context PR (egg/<id>/work -> main) up-front at the plan->implement boundary, hard-required and idempotent (one `gh pr list` + maybe one `gh pr create`). Apply uniformly to monolithic and sliced pipelines. Rationale: the 'backstop' framing in the original options exists only because the current up-front open is a multi-step non-atomic operation that can silently fail. Once the up-front open is atomic and hard-required, there is no silent-failure path to back-stop, so the PR phase becomes dead weight. Specifically: delete `_should_skip_pr_phase_auto_pr` (pipelines.py:8222) and its caller (pipelines.py:20844); delete the PR-phase route/runner registration; shrink `_maybe_open_base_pr_for_plan_to_implement` (pipelines.py:10648) to a non-soft-fail `_open_context_pr_at_implement_start` (or inline it); delete the `_context_pr_events_emitted` dedup set and the soft-fail observability sinks (they exist because the create can silently fail; with hard-require they're unnecessary). Slice PRs continue to be opened inline by `create_slice_pr` (subject to cq-8 idempotency). Verify the initial PR body is assembleable at plan->implement boundary from planner output (yaml-tasks, test plan, manual steps) before deletion; verify no PR-phase-specific HITL or operator surfaces exist; verify no MCP verbs / docs / monitoring assume the PR phase exists.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:54:46.644082Z",
       "debounce_until": null
     },
     {
@@ -64,10 +64,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Delete `orchestrator/consensus.py` entirely in this cleanup \u2014 confirm no readers remain, then remove the module and the restart-path clear() calls\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:55:52.296538Z",
       "debounce_until": null
     },
     {
@@ -76,10 +76,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Subsume #2389 into this cleanup \u2014 terminology change is structurally part of the context-PR collapse; close #2389 with a reference to the slice that handles it\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:55:52.345904Z",
       "debounce_until": null
     },
     {
@@ -88,10 +88,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: OUT OF SCOPE. #2792 (plan_draft_missing_on_local / _sync_worktree_with_remote / plan->implement reconciliation) is being handled separately and must not be part of this pipeline. The planner must exclude all #2792-coupled work from the slice DAG: no changes to _sync_worktree_with_remote, no auto-recover wrapper, no HITL rephrasing for _empty_contract_hitl_*, no touching of PlanDraftMissingOnLocalError / PlanDraftMissingOnLocalAndOriginError / PopulateProducedEmptyContractError / _populate_contract_from_plan / _populate_contract_from_plan_safe / _empty_contract_hitl_question / _empty_contract_hitl_reason / _emit_empty_contract_hitl. The remaining scope (Goals 1 and 3 = A+D+C, plus the cq-4 PR-phase removal) does not require any #2792 work.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:55:52.520262Z",
       "debounce_until": null
     },
     {
@@ -100,10 +100,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a `gh pr list --head <slice_branch> --base <parent> --state open` pre-flight in `create_slice_pr`; on hit, return the existing PR number without calling `gh pr create` \u2014 same shape as the new context-PR idempotency\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:55:52.542915Z",
       "debounce_until": null
     },
     {
@@ -112,10 +112,10 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both: tighten the eager-persist (correctness fix) AND keep the merge-base fallback (defence-in-depth for legacy/orphaned slices)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:57:31.933446Z",
       "debounce_until": null
     },
     {
@@ -124,10 +124,33 @@
       "type": "hitl",
       "phase": "refine",
       "options": [],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Surgical: extract only what the context-PR collapse forces (the slice-1 base resolution that currently calls `_resolve_slice_1_context_branch_from_contract`) and the `_is_slice_dag_mode` helper; leave the rest for #2261\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:57:31.965749Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator scope directive: #2792 / plan_draft_missing_on_local / plan-implement reconciliation work is OUT OF SCOPE for this pipeline. It is being handled separately. Goal 4 from the issue body must not be included in any slice. cq-7 will be answered as out-of-scope when it surfaces in Wave 2. Feedback Q1 #2627 clause will also be answered as out-of-scope. The planner must produce a slice DAG covering Goals 1-3 only (context-PR realignment, sliced-implement mess cleanup, slice/phase restart hardening). All #2792-coupled primitives listed in the Runtime-Primitive Inventory should be ignored by the planner.",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-27T05:44:47.797242Z",
       "debounce_until": null
     }
   ],
@@ -412,32 +435,32 @@
       {
         "id": "Q1",
         "question": "Are there other related issues you want bundled into this cleanup that aren't already in the 'Related' list? Specifically: #2570 (work branch rebased onto main breaks isolation \u2014 interacts with `context PR = work\u2192main`), #2627 (sibling case: draft missing on both local AND origin), #2409 (slice-scoped consensus trackers can't reconstruct after orchestrator restart). Each looks structurally adjacent; should any be folded in?",
-        "answer": null
+        "answer": "Bundle in #2570 and #2409. EXCLUDE #2627 \u2014 it's a #2792 sibling case (draft missing on both local AND origin) and #2792 is out of scope per operator directive. #2570 (work branch silently rebased onto main) directly threatens the new context PR = work->main model and must be addressed alongside the topology change \u2014 diagnose and stop the silent rebase as part of slice A. #2409 (per-slice consensus tracker reconstruction in startup_reconciliation) fits naturally into slice C (restart hardening)."
       },
       {
         "id": "Q2",
         "question": "BLE001 swallow-all handlers (20 of them in the slice code at lines 15131, 15196, 15274, 15336, 15386, 15422, 15451, 15471, 15501, 15709, 15742, 15775, 15795, 15841, 15901, 15910, 15946, 15964, 16080, 16105). Preferred approach: (a) audit each individually and replace with specific exception types where the call's failure modes are knowable; (b) leave them alone (they paper over genuine third-party flakiness that we don't want to crash the slice loop on); or (c) replace with a single typed `SliceLoopRecoverableError` and a uniform structured-log handler? Or do you have a different preferred shape?",
-        "answer": null
+        "answer": "Audit individually and replace with specific exception types where the call's failure modes are knowable. Leave the rest with deliberate comments explaining what each catches and why. Don't blanket-replace with a single SliceLoopRecoverableError \u2014 that loses per-site specificity. Don't leave them all alone \u2014 half of them likely paper over now-knowable failure modes that should propagate."
       },
       {
         "id": "Q3",
         "question": "9 `except ImportError` dual-path import shims (lines 15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034, 16209). These exist for `from orchestrator.X import Y` vs `from X import Y` (in-package vs flat-layout). The shims are at module-load time, so they almost certainly always take the same branch in production. Is there a reason to keep them (test harness compatibility?), or are they safe to collapse to a single canonical import?",
-        "answer": null
+        "answer": "Collapse to canonical `from orchestrator.X import Y` imports everywhere. The flat-layout `from X import Y` fallback shims at lines 15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034, 16209 are dead weight \u2014 the package structure has stabilized. Verify by running the full test suite after collapse; if any test relies on the flat-layout form, revisit. No reason to preserve them speculatively."
       },
       {
         "id": "Q4",
         "question": "What's the acceptance bar for 'the trigger bug is fixed'? Should this cleanup include an integration test that exercises the slice-DAG pipeline \u2192 context PR open \u2192 context PR missing \u2192 PR-phase backstop opens it path, or is the structural deletion sufficient given the design becomes idempotent-by-construction?",
-        "answer": null
+        "answer": "Integration test required. The whole point of #2769 (the trigger incident) was that the context-PR failure was silent and only surfaced post-pipeline as an unmergeable slice stack. An end-to-end test exercising the slice-DAG -> context PR opens up-front -> hard-required path prevents regression. With cq-4 (delete PR phase), the test exercises 'context PR opens up-front at plan->implement boundary, hard-required, idempotent' rather than backstop. Also add unit tests for the idempotency check (gh pr list pre-flight) and the hard-required failure semantics."
       },
       {
         "id": "Q5",
         "question": "Are there pipelines currently in flight (slice-DAG, RUNNING) that this cleanup must remain compatible with during deployment? If yes, that constrains the schema migration choice in cq-2 and the dead-code removal choice in cq-3.",
-        "answer": null
+        "answer": "No in-flight pipelines that must remain compatible with this deploy. Deploy can be cleanly cut over after any active pipelines quiesce. This validates the cq-2 hard-remove choice for context_branch/context_title/context_description fields and the cq-3 dead-code marker treatment. If active pipelines exist at deploy time, gate the deploy on their completion or cancellation."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-27T05:58:57.389475Z",
     "comment_id": null,
     "debounce_until": null
   },
