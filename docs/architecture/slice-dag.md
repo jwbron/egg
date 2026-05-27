@@ -97,7 +97,7 @@ def validate_forest(slices: list[Slice]) -> list[str]:
 
 The orchestrator's `_populate_contract_from_plan` route invokes
 `validate_forest()`, stashes any returned errors on
-`Contract.plan_review_feedback` (so the plan reviewer NACKs the planner),
+`Contract.plan_review_feedback` (so the plan reviewer NACKs the architect, #2809),
 **and then raises a structured `ForestValidationError`**. Slices are not
 written to the contract in this case — leaving `contract.slices` empty
 so downstream code visibly fails fast.
@@ -741,9 +741,9 @@ during refine. The most consequential are referenced inline above:
 - **decision-16** — stacked-PR rebase: GitHub auto-retarget primary path,
   reconciler safety net.
 - **decision-17** — auto-serialization for would-be multi-parent slices:
-  planner-supplied `serialized_chain_order` is the source of truth.
+  architect-supplied `serialized_chain_order` is the source of truth (#2809).
 - **decision-18** — forest constraint enforced at plan ingestion only;
-  multi-parent slices NACK the planner.
+  multi-parent slices NACK the architect (#2809).
 - **decision-20** — implement-phase run-loop wire-up (TASK-4-2,
   TASK-4-4, TASK-5-1 invocation, TASK-5-3 scheduling). Operator chose
   **opt-2** ("require the wire-up to land here before consensus"); the
