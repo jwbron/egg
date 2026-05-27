@@ -40,11 +40,11 @@ This architecture implements **structural enforcement**: the agent physically ca
 │                            SDLC Pipeline                                │
 │                                                                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                  │
-│  │   Refine    │───▶│    Plan     │───▶│  Implement  │  ←  context PR    │
-│  │  (Human)    │    │  (Human)    │    │ (Reviewer)  │     opened at     │
-│  └─────────────┘    └─────────────┘    └─────────────┘     plan→impl     │
-│        │                  │                  │             boundary      │
-│        ▼                  ▼                  ▼                            │
+│  │   Refine    │───▶│    Plan     │───▶│  Implement  │                  │
+│  │  (Human)    │    │  (Human)    │    │ (Reviewer)  │                  │
+│  └─────────────┘    └─────────────┘    └─────────────┘                  │
+│        │                  │                  │                          │
+│        ▼                  ▼                  ▼                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
 │  │  .egg-state/contracts/{identifier}.json                         │    │
@@ -58,6 +58,11 @@ This architecture implements **structural enforcement**: the agent physically ca
 │  Contract API → Role Enforcement → Phase Filter                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> The orchestrator opens the **Context PR** at the plan→implement boundary
+> via `_open_context_pr_at_implement_start`; the implement phase is the
+> terminal pipeline phase (the standalone PR phase was removed in
+> [#2777](https://github.com/jwbron/egg/issues/2777)).
 
 ### Pipeline Phases
 

@@ -63,11 +63,11 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                  │
-│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶ HUMAN MERGE  │
-│  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │     (on context  │
-│  └─────────────┘    └─────────────┘    └─────────────┘      PR opened   │
-│        │ ╎                │                  │              at plan→    │
-│        ▼ ╎                ▼                  ▼              impl)       │
+│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │                  │
+│  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │                  │
+│  └─────────────┘    └─────────────┘    └─────────────┘                  │
+│        │ ╎                │                  │                          │
+│        ▼ ╎                ▼                  ▼                          │
 │   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
 │   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │                     │
 │   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │                     │

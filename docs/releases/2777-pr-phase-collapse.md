@@ -139,10 +139,10 @@ If a legacy v1.1 contract surfaces after deploying #2777:
    - `pr.context_branch`
 4. Retain `pr.context_pr_number` — it now references the
    `egg/<id>/work → main` PR opened at the plan→implement boundary.
-5. If `pr.title` and `pr.description` are unpopulated (e.g. a v1.0
-   contract that had only context_* fields set), copy the deleted
-   `context_title` / `context_description` values into them so the
-   Context PR carries the intended framing.
+5. If `pr.title` and `pr.description` are unpopulated on a v1.1
+   contract that did populate `context_title` / `context_description`,
+   copy the deleted `context_title` / `context_description` values
+   into them so the Context PR carries the intended framing.
 6. Validate the file loads: `egg-contract --pipeline-id <id> show`.
 
 For a typical in-flight pipeline, the simpler path is to re-run the
@@ -176,7 +176,7 @@ draft on disk and the orchestrator advances to implement.
 ## Pointers
 
 - **Opener**: [`orchestrator/routes/pipelines.py::_open_context_pr_at_implement_start`](../../orchestrator/routes/pipelines.py).
-- **Pre-flight validator**: [`orchestrator/routes/phases.py::PlanPreflightError`](../../orchestrator/routes/phases.py).
+- **Pre-flight validator**: [`shared/egg_contracts/plan_parser.py::PlanPreflightError`](../../shared/egg_contracts/plan_parser.py).
 - **Slice base resolution**: [`orchestrator/routes/pipelines.py::_resolve_slice_base_branch`](../../orchestrator/routes/pipelines.py), [`_is_slice_dag_mode`](../../orchestrator/routes/pipelines.py).
 - **Schema**: [`shared/egg_contracts/models.py::PRMetadata`](../../shared/egg_contracts/models.py), [`PipelinePhase`](../../shared/egg_contracts/models.py).
 - **Related docs**:
