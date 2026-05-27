@@ -128,9 +128,9 @@ takes 10-15 minutes and is causing this workflow to time out. CI runs the
 configured check suite on every PR HEAD after you push — trust those results
 rather than re-running the suite yourself.
 
-If you need to validate a specific change you just made, you may run one
-targeted test (\`.venv/bin/pytest path/to/test_x.py::TestY::test_z\`), but
-never the full \`make test\` suite. This restriction is tracked for removal
+If you need to validate a specific change you just made, you may run
+individual targeted tests (\`.venv/bin/pytest path/to/test_x.py::TestY::test_z\`),
+but never the full \`make test\` suite. This restriction is tracked for removal
 once #2817 lands and \`make test\`'s changeset narrowing becomes tight enough.
 
 ## Feedback Contract — review feedback must never disappear
