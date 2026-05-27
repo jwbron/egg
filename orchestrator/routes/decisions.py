@@ -150,6 +150,67 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
         )
 
 
+def _handle_hard_reset_recovery_resolution(
+    pipeline_id: str,
+    context: str,
+    resolution: str,
+) -> None:
+    """Dispatch the hard-reset recovery HITL ack (#2792).
+
+    ``context`` is ``hard_reset_recovery:<phase>``; ``resolution`` is
+    one of the two options the HITL exposed (``"Continue with post-reset
+    state"`` or ``"Abort pipeline"``).
+
+    Continue → :func:`routes.pipelines.resume_pipeline_after_hard_reset_ack`
+    resets the failed phase exec state and spawns a fresh
+    ``_run_pipeline`` thread so the populator (and downstream phase
+    work) re-runs against the reconciled worktree.
+
+    Abort → :func:`routes.pipelines.abort_pipeline_after_hard_reset_ack`
+    transitions the pipeline to CANCELLED.  Cleanup of containers /
+    worktrees / other pending decisions still happens via the existing
+    PATCH ``update_pipeline`` flow the operator drives next.
+
+    Unknown resolutions are logged at INFO and silently skipped — the
+    decision is already marked RESOLVED at this point, so the human's
+    intent is preserved in state regardless.
+    """
+    phase_value = context.removeprefix("hard_reset_recovery:")
+
+    # Local import to avoid circular import at module load
+    # (routes.pipelines imports routes.decisions via the blueprint
+    # registration path in some test setups).
+    from routes.pipelines import (
+        abort_pipeline_after_hard_reset_ack,
+        resume_pipeline_after_hard_reset_ack,
+    )
+
+    if resolution == "Continue with post-reset state":
+        ok = resume_pipeline_after_hard_reset_ack(
+            pipeline_id,
+            phase_value=phase_value,
+        )
+        if not ok:
+            logger.warning(
+                "hard_reset_recovery 'Continue' dispatch returned False",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+            )
+    elif resolution == "Abort pipeline":
+        ok = abort_pipeline_after_hard_reset_ack(pipeline_id)
+        if not ok:
+            logger.warning(
+                "hard_reset_recovery 'Abort' dispatch returned False",
+                pipeline_id=pipeline_id,
+            )
+    else:
+        logger.info(
+            "hard_reset_recovery resolved with unrecognized option",
+            pipeline_id=pipeline_id,
+            resolution=resolution[:80],
+        )
+
+
 def _handle_conditional_ack_gate(
     pipeline_id: str,
     context: str,
@@ -812,6 +873,16 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                         failed_role=failed_role,
                         exc_info=True,
                     )
+
+        # #2792: hard-reset recovery ack. ``context`` is
+        # ``hard_reset_recovery:<phase>``; dispatch on the prefix so the
+        # branch is independent of the prose-y question text.
+        if decision.context and decision.context.startswith("hard_reset_recovery:"):
+            _handle_hard_reset_recovery_resolution(
+                pipeline_id,
+                decision.context,
+                decision.resolution or "",
+            )
 
         return make_success_response(
             "Decision resolved",

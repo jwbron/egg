@@ -3338,6 +3338,155 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     )
 
 
+def resume_pipeline_after_hard_reset_ack(
+    pipeline_id: str,
+    *,
+    phase_value: str,
+    reason: str = "operator ack'd sync-recovery hard reset (#2792)",
+) -> bool:
+    """Programmatic phase-restart for the hard-reset-recovery HITL (#2792).
+
+    Mirrors the in-lock state reset that :func:`restart_phase` performs
+    (phase exec status → PENDING, pipeline status → RUNNING, bump
+    ``run_epoch``) and spawns a fresh ``_run_pipeline`` driver thread.
+
+    Slimmer than the HTTP route on purpose:
+
+    * No container teardown — the hard-reset path is reached after BRC
+      consensus already completed (or never spawned containers for this
+      run), so there are no live containers to stop.
+    * No per-agent worktree deletion — the pipeline worktree was
+      reconciled in-place by the sync helper; per-agent worktrees are
+      managed by the next phase spawn.
+    * No salvage step — the discarded local commits were already
+      pinned under the ``refs/egg-backup/sync-recovery/...`` ref by
+      :func:`_sync_worktree_with_remote`.
+
+    Returns True if the resume kicked off, False on any precondition
+    failure (logged).  The caller (decision-resolution dispatch) treats
+    False as best-effort — the decision itself is already marked
+    RESOLVED, so a transient resume failure leaves the operator with a
+    FAILED pipeline they can manually ``restart_phase`` against.
+    """
+    repo_path = get_repo_path()
+    try:
+        store, _ = _resolve_pipeline(pipeline_id, repo_path)
+    except (InvalidPipelineIdError, PipelineNotFoundError) as exc:
+        logger.warning(
+            "resume_pipeline_after_hard_reset_ack: pipeline lookup failed",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return False
+
+    try:
+        PipelinePhase(phase_value)
+    except ValueError:
+        logger.warning(
+            "resume_pipeline_after_hard_reset_ack: invalid phase",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+        )
+        return False
+
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        if phase_value != pipeline.current_phase.value:
+            logger.warning(
+                "resume_pipeline_after_hard_reset_ack: phase mismatch",
+                pipeline_id=pipeline_id,
+                requested_phase=phase_value,
+                current_phase=pipeline.current_phase.value,
+            )
+            return False
+        phase_exec = pipeline.phases.get(phase_value)
+        if phase_exec is None:
+            logger.warning(
+                "resume_pipeline_after_hard_reset_ack: phase exec missing",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+            )
+            return False
+
+        # Mirror the state reset in restart_phase (lines 3140-3155) so
+        # the new _run_pipeline thread treats this as a fresh phase.
+        phase_exec.containers = []
+        phase_exec.agents = []
+        phase_exec.review_cycles = 0
+        phase_exec.hitl_review_cycles = 0
+        phase_exec.status = PipelineStatus.PENDING
+        phase_exec.started_at = None
+        phase_exec.work_started_at = None
+        phase_exec.completed_at = None
+        phase_exec.error = None
+        phase_exec.cycle_timings = []
+        pipeline.status = PipelineStatus.RUNNING
+        pipeline.error = None
+        pipeline.run_epoch = datetime.now(UTC)
+        store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
+    logger.info(
+        "Resumed pipeline after hard-reset recovery ack",
+        pipeline_id=pipeline_id,
+        phase=phase_value,
+        reason=reason,
+    )
+    return True
+
+
+def abort_pipeline_after_hard_reset_ack(
+    pipeline_id: str,
+    *,
+    reason: str = "operator aborted after sync-recovery hard reset (#2792)",
+) -> bool:
+    """Programmatic abort for the hard-reset-recovery HITL (#2792).
+
+    Sets ``pipeline.status = CANCELLED`` and records ``pipeline.error``
+    so observers see a structured terminal state instead of FAILED-
+    with-pending-decision drifting forever.  Cancellation of other
+    pending decisions and container/worktree cleanup are intentionally
+    left to the existing :func:`update_pipeline` PATCH path that the
+    operator (or downstream automation) drives next — replicating that
+    full cleanup pipeline here would duplicate ~80 lines of logic that
+    is already battle-tested.  The backup ref preserves the discarded
+    commits for offline inspection independently of cleanup timing.
+
+    Returns True on a successful state write, False on precondition
+    failure.
+    """
+    repo_path = get_repo_path()
+    try:
+        store, _ = _resolve_pipeline(pipeline_id, repo_path)
+    except (InvalidPipelineIdError, PipelineNotFoundError) as exc:
+        logger.warning(
+            "abort_pipeline_after_hard_reset_ack: pipeline lookup failed",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return False
+
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        pipeline.status = PipelineStatus.CANCELLED
+        pipeline.error = reason
+        store.save_pipeline(pipeline)
+    try:
+        _emit_pipeline_event(pipeline, "pipeline.cancelled")
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Failed to emit pipeline.cancelled after hard-reset abort",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+    logger.info(
+        "Aborted pipeline after hard-reset recovery ack",
+        pipeline_id=pipeline_id,
+        reason=reason,
+    )
+    return True
+
+
 def _filter_salvage_worktrees(
     worktrees: list[Any],
     *,
@@ -6439,6 +6588,142 @@ def _aggregate_review_verdicts(
     )
 
 
+class WorktreeSyncOutcome(NamedTuple):
+    """Structured outcome from :func:`_sync_worktree_with_remote` (#2792).
+
+    Phase-boundary callers inspect ``hard_reset_performed`` to decide
+    whether to emit the destructive-recovery HITL ack.  Best-effort
+    callers can ignore the return value entirely — every field has a
+    safe default and the sync still does the same in-band work whether
+    or not the outcome is consumed.
+
+    ``case`` is the same discriminator the function emits to its
+    ``worktree_sync_outcome`` log line, so the field can be cross-
+    referenced against operator-grep patterns.
+
+    ``backup_ref`` is the full ref name (``refs/egg-backup/sync-recovery/
+    <pipeline_id>/<unix_ts>``) when the hard-reset fallback fires and the
+    backup write succeeded.  ``None`` means the reset still happened but
+    the backup write failed — the discarded SHAs go into the WARN log
+    inline so they're at least in the audit trail (see the helper body).
+
+    ``discarded_commit_shas`` is the list of local-only short SHAs (with
+    summaries) that were on HEAD before the hard reset and are now
+    reachable only via ``backup_ref``.  Empty when the local-only-commit
+    rev-list itself failed; the hard reset still runs, but the operator
+    can't be told exactly what was discarded.
+    """
+
+    case: str
+    hard_reset_performed: bool = False
+    backup_ref: str | None = None
+    discarded_commit_shas: tuple[str, ...] = ()
+
+
+def _build_sync_recovery_backup_ref(pipeline_id: str, unix_ts: int) -> str:
+    """Return the canonical ``refs/egg-backup/sync-recovery/<pid>/<ts>`` name (#2792).
+
+    Pulled out so the test, the writer, and any future opportunistic
+    pruner share a single ref-name convention.  The slash-segment
+    layout lets ``git for-each-ref refs/egg-backup/sync-recovery/<pid>``
+    enumerate just this pipeline's backups.
+    """
+    return f"refs/egg-backup/sync-recovery/{pipeline_id}/{unix_ts}"
+
+
+def _collect_local_only_commits(
+    git_base: list[str],
+    *,
+    pipeline_id: str,
+    branch: str,
+    remote_branch: str,
+) -> tuple[str, ...]:
+    """Enumerate local-only commits between HEAD and ``origin/<remote_branch>``.
+
+    Returns a tuple of ``"<short-sha> <summary>"`` strings, oldest first.
+    A failure (subprocess error, nonzero rc, parse error) returns an
+    empty tuple and emits a WARN — the hard-reset fallback proceeds
+    with an unknown discard list rather than blocking on best-effort
+    forensic enumeration (#2792 section 5).
+    """
+    try:
+        result = subprocess.run(
+            [
+                *git_base,
+                "rev-list",
+                "--reverse",
+                "--pretty=format:%h %s",
+                "--no-commit-header",
+                f"origin/{remote_branch}..HEAD",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "Failed to enumerate local-only commits before hard reset",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                remote_branch=remote_branch,
+                rc=result.returncode,
+                stderr=result.stderr.strip()[:200],
+            )
+            return ()
+        lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+        return tuple(lines)
+    except Exception as exc:
+        logger.warning(
+            "Local-only commit enumeration raised before hard reset",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            remote_branch=remote_branch,
+            error=str(exc),
+        )
+        return ()
+
+
+def _create_sync_recovery_backup_ref(
+    git_base: list[str],
+    *,
+    pipeline_id: str,
+    ref_name: str,
+) -> bool:
+    """Pin current HEAD under ``ref_name`` via ``git update-ref`` (#2792).
+
+    Returns True on success.  On failure logs WARN and returns False;
+    the caller proceeds with the destructive reset regardless — the
+    backup is best-effort, the reset is the reconcile primitive.
+    """
+    try:
+        result = subprocess.run(
+            [*git_base, "update-ref", ref_name, "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "Failed to create sync-recovery backup ref",
+                pipeline_id=pipeline_id,
+                ref_name=ref_name,
+                rc=result.returncode,
+                stderr=result.stderr.strip()[:200],
+            )
+            return False
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Sync-recovery backup-ref write raised",
+            pipeline_id=pipeline_id,
+            ref_name=ref_name,
+            error=str(exc),
+        )
+        return False
+
+
 def _sync_worktree_with_remote(
     spawner: "ContainerSpawner",  # noqa: UP037
     pipeline_id: str,
@@ -6448,7 +6733,7 @@ def _sync_worktree_with_remote(
     base_branch: str | None = None,
     *,
     pipeline_branch: str | None = None,
-) -> None:
+) -> WorktreeSyncOutcome:
     """Sync a worktree with its remote branch (best-effort).
 
     After an orchestrator restart or a phase boundary, the local worktree
@@ -6486,6 +6771,17 @@ def _sync_worktree_with_remote(
     implementation silently left the worktree stale and downstream
     populator/decision-sync paths consumed the stale state.
 
+    When the rebase itself fails (#2792), fall through to a destructive
+    hard-reset recovery so the worktree is reconciled *before* the
+    populator and other downstream consumers read it.  Local-only
+    commits are pinned to ``refs/egg-backup/sync-recovery/
+    <pipeline_id>/<unix_ts>`` before the reset so they remain reachable
+    for forensic inspection (``git log <backup_ref>``); the reset
+    discards them from HEAD.  Callers at phase boundaries inspect
+    ``hard_reset_performed`` on the returned :class:`WorktreeSyncOutcome`
+    and surface an HITL ack — recovery is automatic, *acknowledgement*
+    is the human gate.
+
     Every return path emits at least one ``worktree_sync_outcome`` log
     line with a ``case`` discriminator so production logs name which
     path fired.  Paths that fall through to the step-4 reset
@@ -6496,6 +6792,11 @@ def _sync_worktree_with_remote(
 
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
+
+    Returns a :class:`WorktreeSyncOutcome` describing what the helper
+    did.  Most callers can ignore the return value; phase-boundary
+    callers inspect ``hard_reset_performed`` to decide whether to emit
+    the destructive-recovery HITL ack (#2792).
     """
     base_branch_for_reconcile = base_branch
     git_base = [
@@ -6520,7 +6821,7 @@ def _sync_worktree_with_remote(
             pipeline_id=pipeline_id,
             case="fetch_failed",
         )
-        return
+        return WorktreeSyncOutcome(case="fetch_failed")
 
     # Step 2: Determine current branch
     try:
@@ -6538,7 +6839,7 @@ def _sync_worktree_with_remote(
                 pipeline_id=pipeline_id,
                 case="detached_head",
             )
-            return
+            return WorktreeSyncOutcome(case="detached_head")
     except Exception as branch_err:
         logger.info(
             "worktree_sync_outcome",
@@ -6546,7 +6847,7 @@ def _sync_worktree_with_remote(
             case="branch_detect_failed",
             error=str(branch_err),
         )
-        return
+        return WorktreeSyncOutcome(case="branch_detect_failed")
 
     # ``branch`` is the **local** branch name (e.g. ``egg/<pid>/work`` on
     # orchestrator worktrees).  ``remote_branch`` is the remote-side name
@@ -6573,7 +6874,7 @@ def _sync_worktree_with_remote(
                 remote_branch=remote_branch,
                 case="no_remote_tracking",
             )
-            return
+            return WorktreeSyncOutcome(case="no_remote_tracking")
     except Exception as rev_parse_err:
         logger.info(
             "worktree_sync_outcome",
@@ -6583,7 +6884,7 @@ def _sync_worktree_with_remote(
             case="rev_parse_failed",
             error=str(rev_parse_err),
         )
-        return
+        return WorktreeSyncOutcome(case="rev_parse_failed")
 
     # Step 3b: Check divergence between local and remote.
     local_ahead = 0
@@ -6643,7 +6944,7 @@ def _sync_worktree_with_remote(
             local_ahead=0,
             remote_ahead=0,
         )
-        return
+        return WorktreeSyncOutcome(case="already_in_sync")
 
     if local_ahead > 0 and remote_ahead == 0:
         # Local is strictly ahead of remote (no divergence).
@@ -6678,7 +6979,7 @@ def _sync_worktree_with_remote(
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
                 )
-                return
+                return WorktreeSyncOutcome(case="local_ahead_pushed")
             else:
                 logger.warning(
                     "worktree_sync_outcome",
@@ -6760,7 +7061,7 @@ def _sync_worktree_with_remote(
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
             )
-            return
+            return WorktreeSyncOutcome(case="divergence_rebased")
         logger.error(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
@@ -6772,7 +7073,99 @@ def _sync_worktree_with_remote(
             category=rebase_outcome.category,
             detail=rebase_outcome.detail,
         )
-        return
+
+        # #2792: hard-reset auto-recovery.  The rebase failed to
+        # reconcile divergence (typically because the agent-output
+        # autoresolve only handles ``.egg-state/agent-outputs/`` and
+        # contracts/brc-history conflicts fall outside that allowlist).
+        # Without recovery, downstream callers — populator,
+        # decision-sync, plan-complete — would consume the stale
+        # worktree state, exactly the silent-failure path #2337
+        # raised an explicit error for and #2792 is closing the
+        # recurrence loop on.
+        #
+        # Step A: enumerate the local-only commits we're about to
+        # discard so the operator-facing HITL can list them.
+        discarded = _collect_local_only_commits(
+            git_base,
+            pipeline_id=pipeline_id,
+            branch=branch,
+            remote_branch=remote_branch,
+        )
+        # Step B: pin them under a backup ref so they remain reachable
+        # for forensic inspection after the reset.  Best-effort; a
+        # backup-write failure inlines the SHA list into the WARN log
+        # so they at least land in the audit trail (#2792 section 5).
+        unix_ts = int(time.time())
+        backup_ref = _build_sync_recovery_backup_ref(pipeline_id, unix_ts)
+        backup_ok = _create_sync_recovery_backup_ref(
+            git_base,
+            pipeline_id=pipeline_id,
+            ref_name=backup_ref,
+        )
+        if not backup_ok and discarded:
+            logger.warning(
+                "Sync-recovery hard reset proceeding without backup ref; "
+                "discarded SHAs inlined for audit",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                remote_branch=remote_branch,
+                discarded_commit_shas=list(discarded),
+            )
+        # Step C: destructive reset to reconcile.
+        try:
+            reset_result = subprocess.run(
+                [*git_base, "reset", "--hard", f"origin/{remote_branch}"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            reset_rc = reset_result.returncode
+            reset_err = reset_result.stderr.strip()
+        except Exception as reset_exc:
+            reset_rc = -1
+            reset_err = str(reset_exc)
+
+        if reset_rc != 0:
+            logger.error(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                remote_branch=remote_branch,
+                case="divergence_rebase_and_reset_failed",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
+                rebase_category=rebase_outcome.category,
+                rebase_detail=rebase_outcome.detail,
+                reset_rc=reset_rc,
+                reset_error=reset_err[:200],
+            )
+            return WorktreeSyncOutcome(
+                case="divergence_rebase_and_reset_failed",
+                hard_reset_performed=False,
+                backup_ref=backup_ref if backup_ok else None,
+                discarded_commit_shas=discarded,
+            )
+
+        logger.warning(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            remote_branch=remote_branch,
+            case="divergence_recovered_via_reset",
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
+            backup_ref=backup_ref if backup_ok else None,
+            discarded_commit_count=len(discarded),
+            rebase_category=rebase_outcome.category,
+        )
+        return WorktreeSyncOutcome(
+            case="divergence_recovered_via_reset",
+            hard_reset_performed=True,
+            backup_ref=backup_ref if backup_ok else None,
+            discarded_commit_shas=discarded,
+        )
 
     # Step 4: Reset local branch to remote.
     # This handles: local behind remote, post-push reset, and rev-list-failed
@@ -6796,16 +7189,17 @@ def _sync_worktree_with_remote(
                 remote_ahead=remote_ahead,
                 error=result.stderr.strip(),
             )
-        else:
-            logger.info(
-                "worktree_sync_outcome",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                remote_branch=remote_branch,
-                case="reset_succeeded",
-                local_ahead=local_ahead,
-                remote_ahead=remote_ahead,
-            )
+            return WorktreeSyncOutcome(case="reset_failed")
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            remote_branch=remote_branch,
+            case="reset_succeeded",
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
+        )
+        return WorktreeSyncOutcome(case="reset_succeeded")
     except Exception as sync_err:
         logger.warning(
             "worktree_sync_outcome",
@@ -6817,6 +7211,7 @@ def _sync_worktree_with_remote(
             remote_ahead=remote_ahead,
             error=str(sync_err),
         )
+        return WorktreeSyncOutcome(case="reset_failed")
 
 
 class StalePipelineBranchError(RuntimeError):
@@ -14130,6 +14525,7 @@ def _persist_hitl_decision(
     question: str,
     options: list[str],
     phase: PipelinePhase | None = None,
+    context: str | None = None,
 ):
     """Create and persist an HITL decision under the pipeline state lock.
 
@@ -14146,6 +14542,11 @@ def _persist_hitl_decision(
     notifications are not needed for the issue-2203 path.  The in-memory
     `pipeline` argument is also synced so callers observe consistent state.
 
+    ``context`` is set on the persisted decision before save so dispatch
+    handlers in :mod:`routes.decisions` can route on a stable string
+    discriminator rather than the prose-y ``question`` text (see the
+    ``failed_role:`` / ``hard_reset_recovery:`` patterns).
+
     Returns the created decision, or None if persistence failed (logged;
     callers should not raise — losing an HITL decision is bad but losing
     the rest of the cleanup path is worse).
@@ -14158,6 +14559,8 @@ def _persist_hitl_decision(
                 options=options,
                 phase=phase or disk_pipeline.current_phase,
             )
+            if context is not None:
+                decision.context = context
             store.save_pipeline(disk_pipeline)
         # Defensive copy: avoid sharing the list reference with the
         # disk-loaded copy, which is local and goes out of scope.
@@ -14171,6 +14574,102 @@ def _persist_hitl_decision(
             exc_info=True,
         )
         return None
+
+
+_HARD_RESET_RECOVERY_CONTEXT_PREFIX = "hard_reset_recovery:"
+
+_HARD_RESET_RECOVERY_HITL_OPTIONS = [
+    "Continue with post-reset state",
+    "Abort pipeline",
+]
+
+_HARD_RESET_RECOVERY_CONTINUE = "Continue with post-reset state"
+_HARD_RESET_RECOVERY_ABORT = "Abort pipeline"
+
+
+def _hard_reset_recovery_hitl_question(
+    *,
+    pipeline_id: str,
+    phase: PipelinePhase | None,
+    backup_ref: str | None,
+    discarded_commit_shas: tuple[str, ...] | list[str],
+) -> str:
+    """Build the HITL question for the destructive sync-recovery ack (#2792).
+
+    The pipeline has already been reconciled — the rebase couldn't
+    resolve divergence, so the helper hard-reset HEAD to the remote
+    after pinning the local-only commits under ``backup_ref``.  The
+    operator's job here is not to recover; it's to acknowledge that
+    the recovery happened and either continue from the reconciled
+    state or abort the pipeline outright.
+    """
+    phase_label = phase.value if phase is not None else "current phase"
+    backup_line = (
+        f"Backup ref: {backup_ref} (inspect with `git log {backup_ref}`)."
+        if backup_ref
+        else ("Backup ref: not written — see WARN log for inlined SHAs. The hard reset still ran.")
+    )
+    if discarded_commit_shas:
+        discarded_block = (
+            "Discarded commits (now reachable only via the backup ref):\n  - "
+            + "\n  - ".join(discarded_commit_shas)
+        )
+    else:
+        discarded_block = (
+            "Discarded commit list could not be enumerated; check the WARN log "
+            "and the backup ref for the exact set."
+        )
+    return (
+        f"Pipeline {pipeline_id}: the worktree had diverged from origin at "
+        f"{phase_label}, the rebase autoresolve could not reconcile it, and "
+        f"the sync helper hard-reset HEAD to origin to keep downstream "
+        f"populator/decision-sync reads against a consistent state (#2792). "
+        f"{backup_line}\n{discarded_block}\n\n"
+        f"How to proceed?\n"
+        f"- '{_HARD_RESET_RECOVERY_CONTINUE}' — restart_phase {phase_label} "
+        f"so the populator and BRC agents re-run against the reconciled "
+        f"worktree.\n"
+        f"- '{_HARD_RESET_RECOVERY_ABORT}' — cancel_task; the backup ref "
+        f"preserves the discarded commits for offline inspection."
+    )
+
+
+def _emit_hard_reset_recovery_hitl(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    store: StateStore,
+    *,
+    phase: PipelinePhase | None,
+    backup_ref: str | None,
+    discarded_commit_shas: tuple[str, ...] | list[str],
+):
+    """Persist the dedicated hard-reset-recovery HITL (#2792).
+
+    Mirrors :func:`_emit_empty_contract_hitl` — load/mutate/save under
+    the pipeline state lock, with a ``context`` discriminator so the
+    decisions dispatch hook in :mod:`routes.decisions` can route on a
+    stable string instead of the prose-y question text.
+
+    Phase is embedded in the context (``hard_reset_recovery:<phase>``)
+    so the ``Continue`` resolution knows which phase to restart without
+    re-walking the pipeline state at dispatch time.
+    """
+    phase_label = phase.value if phase is not None else "unknown"
+    context = f"{_HARD_RESET_RECOVERY_CONTEXT_PREFIX}{phase_label}"
+    return _persist_hitl_decision(
+        pipeline_id,
+        pipeline,
+        store,
+        question=_hard_reset_recovery_hitl_question(
+            pipeline_id=pipeline_id,
+            phase=phase,
+            backup_ref=backup_ref,
+            discarded_commit_shas=tuple(discarded_commit_shas),
+        ),
+        options=list(_HARD_RESET_RECOVERY_HITL_OPTIONS),
+        phase=phase,
+        context=context,
+    )
 
 
 def _emit_empty_contract_hitl(
@@ -18246,10 +18745,12 @@ def _empty_contract_hitl_question(
         )
     return (
         f"Pipeline blocked at {gate}: {divergence_line} "
-        f"(reason={reason}). The populate-from-plan step silently failed "
-        f"earlier (#2337 / #2627), so pipeline state and the contract have "
-        f"diverged. Plain restart_phase implement will respawn into the "
-        f"same broken state. How to proceed?\n"
+        f"(reason={reason}). The sync helper's auto-reconcile path "
+        f"(#2792) tried to bring the worktree forward before the "
+        f"populator ran; if you're seeing this, that reconcile either "
+        f"didn't fire or didn't restore the draft, so pipeline state "
+        f"and the contract have diverged. Plain restart_phase implement "
+        f"will respawn into the same broken state. How to proceed?\n"
         f"- 'Repopulate contract from plan draft and retry' — run "
         f"POST /pipelines/{pipeline_id}/phase/populate-contract, then "
         f"restart_phase implement.\n"
@@ -19852,7 +20353,7 @@ def _run_pipeline(
                 ):
                     prior_phase_succeeded = False
 
-            _sync_worktree_with_remote(
+            phase_start_sync_outcome = _sync_worktree_with_remote(
                 spawner,
                 pipeline_id,
                 worktree_repo_path,
@@ -19861,6 +20362,42 @@ def _run_pipeline(
                 base_branch=pipeline.base_branch,
                 pipeline_branch=pipeline.branch,
             )
+
+            # #2792: phase-start sync fell through to the destructive
+            # hard-reset recovery.  The worktree is now reconciled but
+            # local-only commits were discarded; pin the pipeline to
+            # FAILED and surface an HITL ack before any phase work
+            # spawns against the post-reset state.
+            if phase_start_sync_outcome.hard_reset_performed:
+                _hard_reset_msg = (
+                    f"Sync helper hard-reset {pipeline.branch} to origin at "
+                    f"{current_phase.value} phase start (rebase autoresolve "
+                    f"could not reconcile divergence); "
+                    f"{len(phase_start_sync_outcome.discarded_commit_shas)} "
+                    f"local-only commit(s) preserved under "
+                    f"{phase_start_sync_outcome.backup_ref or '(backup ref write failed)'}"
+                )
+                logger.error(
+                    "OVERSEER_ALERT worktree_sync_hard_reset_recovery",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    backup_ref=phase_start_sync_outcome.backup_ref,
+                    discarded_commit_count=len(phase_start_sync_outcome.discarded_commit_shas),
+                )
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = _hard_reset_msg
+                    store.save_pipeline(pipeline)
+                _emit_hard_reset_recovery_hitl(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    phase=current_phase,
+                    backup_ref=phase_start_sync_outcome.backup_ref,
+                    discarded_commit_shas=phase_start_sync_outcome.discarded_commit_shas,
+                )
+                return
 
             # When resuming a stale pipeline branch (cancelled run from
             # days/weeks ago), rebase origin/<branch> onto origin/<base>
@@ -21405,6 +21942,7 @@ def _run_pipeline(
             # their on-disk modifications.  Running the sync first also
             # ensures _populate_contract_from_plan can read agent-produced
             # draft files that only exist on the remote.
+            post_phase_sync_outcome: WorktreeSyncOutcome | None = None
             if pipeline.branch and worktree_repo_path != repo_path:
                 # Best-effort: a sync failure must not strand the
                 # auto-advance.  Without this guard, a gateway HTTP error
@@ -21413,7 +21951,7 @@ def _run_pipeline(
                 # also fails) leaves the pipeline wedged with phase
                 # COMPLETE but no successor (#2219).
                 try:
-                    _sync_worktree_with_remote(
+                    post_phase_sync_outcome = _sync_worktree_with_remote(
                         spawner,
                         pipeline_id,
                         worktree_repo_path,
@@ -21428,6 +21966,65 @@ def _run_pipeline(
                         phase=current_phase.value,
                         error=str(sync_err),
                     )
+
+            # #2792: when the post-phase sync fell through to the
+            # destructive hard-reset recovery, the worktree is now
+            # reconciled but local agent commits were discarded (pinned
+            # under ``backup_ref``).  Surface this as a dedicated HITL
+            # ack so the operator decides whether to continue from the
+            # reconciled state or abort — keeping the populator from
+            # silently running after a destructive reset matches the
+            # #2337 / #2627 fail-loud posture.
+            if post_phase_sync_outcome is not None and post_phase_sync_outcome.hard_reset_performed:
+                _hard_reset_msg = (
+                    f"Sync helper hard-reset {pipeline.branch} to origin "
+                    f"after rebase autoresolve failed at {current_phase.value} "
+                    f"phase boundary; "
+                    f"{len(post_phase_sync_outcome.discarded_commit_shas)} "
+                    f"local-only commit(s) preserved under "
+                    f"{post_phase_sync_outcome.backup_ref or '(backup ref write failed)'}"
+                )
+                logger.error(
+                    "OVERSEER_ALERT worktree_sync_hard_reset_recovery",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    backup_ref=post_phase_sync_outcome.backup_ref,
+                    discarded_commit_count=len(post_phase_sync_outcome.discarded_commit_shas),
+                )
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.FAILED
+                    phase_execution.error = _hard_reset_msg
+                    phase_execution.completed_at = datetime.now(UTC)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = _hard_reset_msg
+                    store.save_pipeline(pipeline)
+                _emit_hard_reset_recovery_hitl(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    phase=current_phase,
+                    backup_ref=post_phase_sync_outcome.backup_ref,
+                    discarded_commit_shas=post_phase_sync_outcome.discarded_commit_shas,
+                )
+                with overseer_lock:
+                    if overseer_container_id and phase_overseer_active:
+                        phase_overseer_active = False
+                        _teardown_phase_overseer(
+                            spawner,
+                            overseer_container_id,
+                            pipeline_id,
+                            phase_label=str(current_phase),
+                            reason="sync helper hard-reset recovery",
+                        )
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {_hard_reset_msg[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
+                break
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and

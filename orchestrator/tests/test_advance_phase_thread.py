@@ -437,8 +437,11 @@ class TestPostBrcBandSwallowsErrors:
         # ``try`` whose ``except`` matches ``Exception`` so any failure
         # mode is swallowed with a warning rather than killing the thread.
         # Indentation-tolerant: ``\s+`` between ``try:`` and the call.
+        # Allow either the original direct call or the ``outcome = ...``
+        # capture introduced in #2792 (the call is the same; we only
+        # capture the return now so the hard-reset HITL can fire).
         assert re.search(
-            r"try:\s*\n\s*_sync_worktree_with_remote\(",
+            r"try:\s*\n\s*(?:\w[\w.\[\] |]*\s*=\s*)?_sync_worktree_with_remote\(",
             source,
         ), (
             "_sync_worktree_with_remote(...) call after BRC return must be "

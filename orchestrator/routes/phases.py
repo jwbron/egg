@@ -1046,7 +1046,10 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             "data": {
                 "phase_count": 2,
                 "task_count": 6,
-                "pushed_to_origin": true
+                "pushed_to_origin": true,
+                "hard_reset_performed": false,
+                "backup_ref": null,
+                "discarded_commit_shas": []
             }
         }
 
@@ -1058,6 +1061,15 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
     ``pipeline.branch`` is unset or the worktree resolves to
     ``store.repo_path``) and the operator must commit and push
     themselves before respawning.
+
+    ``hard_reset_performed`` / ``backup_ref`` / ``discarded_commit_shas``
+    surface whether the route's pre-populate :func:`_sync_worktree_with_remote`
+    call fell through to the destructive hard-reset recovery (#2792).
+    ``True`` means the worktree was reconciled by discarding local-only
+    commits — they remain reachable via ``backup_ref`` for forensic
+    inspection.  Non-success responses include the same fields in
+    ``details`` so an operator-driven recovery sees the hard-reset in
+    the response body regardless of populator outcome.
 
     Error responses include a machine-readable ``reason`` code (#1939,
     #2627):
@@ -1085,13 +1097,49 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             _get_spawner,
             _pipeline_identifier,
             _populate_contract_from_plan,
+            _sync_worktree_with_remote,
         )
+
+        # #2792: reconcile the worktree before reading the draft so an
+        # auto-recovery here can rescue a divergent worktree the same
+        # way the phase-boundary sync does.  When the rebase fails and
+        # the helper falls through to its hard-reset path, the operator
+        # gets a ``hard_reset_performed: true`` field in the response —
+        # the populate route is recovery-driven, so the operator (and
+        # any automation that drove this endpoint) sees the destructive
+        # recovery in the response rather than having to grep logs.
+        populate_sync_outcome = None
+        if pipeline.branch and worktree_path != store.repo_path:
+            gateway_mode_for_sync, _ = _compute_gateway_mode(pipeline)
+            try:
+                populate_sync_outcome = _sync_worktree_with_remote(
+                    _get_spawner(),
+                    pipeline_id,
+                    worktree_path,
+                    gateway_mode=gateway_mode_for_sync,
+                    base_branch=pipeline.base_branch,
+                    pipeline_branch=pipeline.branch,
+                )
+            except Exception as sync_err:  # noqa: BLE001
+                logger.warning(
+                    "populate_contract: pre-populate sync raised (continuing)",
+                    pipeline_id=pipeline_id,
+                    error=str(sync_err),
+                )
 
         _populate_endpoint_result = _populate_contract_from_plan(
             repo_path=worktree_path,
             pipeline_id=pipeline_id,
             pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
             issue_number=pipeline.issue_number,
+        )
+
+        hard_reset_performed = bool(
+            populate_sync_outcome and populate_sync_outcome.hard_reset_performed
+        )
+        hard_reset_backup_ref = populate_sync_outcome.backup_ref if populate_sync_outcome else None
+        hard_reset_discarded = (
+            list(populate_sync_outcome.discarded_commit_shas) if populate_sync_outcome else []
         )
 
         # #2627 follow-up: surface non-POPULATED outcomes as 4xx/5xx so
@@ -1165,6 +1213,14 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                     "phase_count": _populate_endpoint_result.slice_count,
                     "task_count": _populate_endpoint_result.task_count,
                     "pushed_to_origin": pushed_to_origin,
+                    # #2792: surface the destructive recovery so the
+                    # operator (or automation) driving this endpoint
+                    # sees that the worktree was hard-reset before the
+                    # populator ran.  ``False`` is the no-op case
+                    # (already in sync or a non-destructive rebase).
+                    "hard_reset_performed": hard_reset_performed,
+                    "backup_ref": hard_reset_backup_ref,
+                    "discarded_commit_shas": hard_reset_discarded,
                 },
             )
         if _outcome in {PopulateOutcome.DRAFT_MISSING, PopulateOutcome.NO_DRAFT_PATH}:
@@ -1172,12 +1228,22 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 f"Plan draft not available ({_outcome.value})",
                 status_code=404,
                 reason=_outcome.value,
+                details={
+                    "hard_reset_performed": hard_reset_performed,
+                    "backup_ref": hard_reset_backup_ref,
+                    "discarded_commit_shas": hard_reset_discarded,
+                },
             )
         if _outcome in {PopulateOutcome.PARSE_FAILED, PopulateOutcome.EMPTY_RESULT}:
             return make_error_response(
                 f"Plan populate produced non-POPULATED outcome ({_outcome.value})",
                 status_code=422,
                 reason=_outcome.value,
+                details={
+                    "hard_reset_performed": hard_reset_performed,
+                    "backup_ref": hard_reset_backup_ref,
+                    "discarded_commit_shas": hard_reset_discarded,
+                },
             )
         # CONTRACT_LOAD_FAILED / EGG_CONTRACTS_UNAVAILABLE /
         # UNEXPECTED_EXCEPTION — server-side failure.
@@ -1185,6 +1251,11 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             f"Plan populate failed ({_outcome.value})",
             status_code=500,
             reason=_outcome.value,
+            details={
+                "hard_reset_performed": hard_reset_performed,
+                "backup_ref": hard_reset_backup_ref,
+                "discarded_commit_shas": hard_reset_discarded,
+            },
         )
 
     except InvalidPipelineIdError:
