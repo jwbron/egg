@@ -7,6 +7,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
     },
+    "7185eab43031795d3e0644e9f7c1ac069349a0e6": {
+      "branch": "egg/pipeline-f82240dc/work",
+      "pipeline_id": "pipeline-f82240dc",
+      "registered_at": "2026-05-27T00:24:09.687973+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "91e643205192147fcdbc65c6572d6a973c438f37": {
       "branch": "egg/pipeline-f82240dc/work",
       "pipeline_id": "pipeline-f82240dc",
