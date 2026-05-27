@@ -363,14 +363,14 @@ Some HITL decisions are created directly by the orchestrator — not by agents �
 
 ### Sync Divergence: Hard-Reset Recovery (#2792)
 
-When a pipeline branch's worktree diverges from its remote (i.e., a rebase at a phase boundary fails), the orchestrator automatically:
+When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator automatically performs the following steps. Steps 1–3 happen inside `_sync_worktree_with_remote` (the destructive recovery helper); step 4 happens in the caller (`_fail_pipeline_and_emit_hard_reset_recovery`, invoked from `_run_pipeline` or `populate_contract`):
 
 1. Enumerates local-only commits that will be discarded
-2. Creates a backup ref: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts>`
+2. Creates a backup ref: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`, where `<unix-ts-ns>` is `time.time_ns()` — a 19-digit nanoseconds-since-epoch value, not conventional Unix seconds. To derive the wall-clock time: `date -d @$((<unix-ts-ns>/1000000000))`.
 3. Hard-resets the worktree to the remote tip
 4. Pins the pipeline to `FAILED` and emits a HITL decision (context: `hard_reset_recovery:<phase>`)
 
-The pipeline stays in `failed_pending_hitl` until the operator resolves the decision.
+The pipeline stays in a failed-pending-HITL state (`pipeline.status=FAILED` with a pending decision whose context is `hard_reset_recovery:<phase>`) until the operator resolves the decision.
 
 **Options:**
 
@@ -382,7 +382,7 @@ The pipeline stays in `failed_pending_hitl` until the operator resolves the deci
 **Recovery steps for operators:**
 
 1. Open `/sdlc` and find the pending decision
-2. Inspect the backup ref to assess what was discarded: `git log refs/egg-backup/sync-recovery/<pipeline-id>/<ts>`
+2. Inspect the backup ref to assess what was discarded — from the pipeline worktree on the orchestrator host, since `refs/egg-backup/*` is created via `git update-ref` in the orchestrator's per-pipeline worktree and is not pushed to upstream: `git log refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`
 3. Choose **Continue** if the discarded commits are recoverable from the backup or acceptable to lose; choose **Abort** to cancel and clean up manually
 4. After choosing **Continue**, the orchestrator auto-restarts the phase — no further manual action is needed
 
@@ -393,7 +393,7 @@ The pipeline stays in `failed_pending_hitl` until the operator resolves the deci
 This recovery fires at three sites:
 - **Phase start** — when the pre-phase rebase fails
 - **Post-phase** — when the post-phase sync fails
-- **`populate_contract`** — when the pre-populate sync fails (HTTP 409 with `reason="hard_reset_recovery_unacked"`)
+- **`populate_contract`** — when the pre-populate sync fails. HTTP 409 with `reason="hard_reset_recovery_unacked"` on the successful-recovery branch, or `reason="sync_rebase_and_reset_failed"` on the doubly-failed branch.
 
 ## Related Files
 
