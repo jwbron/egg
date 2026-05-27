@@ -119,6 +119,20 @@ Source: `orchestrator/consensus_wrapper.py`
 
 In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues. The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades.
 
+### Buffer Overflow Detection
+
+The `is_buffer_overflow()` function is checked **before** `is_transient_crash()`. It greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`) and, when found, exits the wrapper immediately without consuming any restart budget.
+
+The SDK has a 1 MB JSON message-reader buffer cap; a tool result that exceeds it kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
+
+```
+Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting.
+```
+
+The agent output is captured by piping stdout and stderr through `tee` into a temporary log file (`AGENT_OUTPUT_LOG`, created via `mktemp`). This log is truncated at the start of each agent run so old crash signatures don't bleed into subsequent runs.
+
+> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. The real fix is tool-layer truncation of oversized payloads ([#2805](https://github.com/jwbron/egg/issues/2805)); this is the fail-fast path until that lands.
+
 ### Transient Exit Codes
 
 The `is_transient_crash()` function classifies these exit codes as transient:
@@ -156,6 +170,7 @@ Clean-exit restarts (exit code 0) do not incur any backoff delay.
 | Behavior | Before | After |
 |----------|--------|-------|
 | Segfault (exit 139/255) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
+| SDK buffer overflow (exit 255 + overflow marker) | Classified as transient, burns restart budget | Detected by `is_buffer_overflow()`, exits immediately without retrying |
 | OOM kill (exit 137) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
 | API/network error at startup (exit 1, age &lt; 30s) | `NOT restarting` — immediate failure | Classified as startup failure, restarted with backoff |
 | Application error (exit 1, age &ge; 30s) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
