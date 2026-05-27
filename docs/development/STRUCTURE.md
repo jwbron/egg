@@ -473,7 +473,7 @@ config/
 | Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
-| Agent navigation | `CLAUDE.md` at component root | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
+| Agent navigation | `CLAUDE.md` at component root (with `AGENTS.md` symlink alias) | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
 
 ## Documentation Organization
 
