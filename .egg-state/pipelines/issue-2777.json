@@ -317,10 +317,10 @@
         {
           "container_id": "41ebdde2-16f1-46ff-97f3-cbfc33c86007",
           "container_name": "egg-sandbox-egg-agent-issue-2777-slice-1-reviewer-code",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-27T07:45:21.105714Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-27T11:45:54.430367Z",
+          "exit_code": -1,
           "agent_role": "reviewer_code",
           "session_token": null,
           "pod_name": null,
@@ -422,15 +422,15 @@
       "agents": [
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "failed",
           "container_id": "41ebdde2-16f1-46ff-97f3-cbfc33c86007",
           "container_info": null,
           "slice_id": "slice-1",
           "started_at": "2026-05-27T07:45:21.105726Z",
-          "completed_at": null,
+          "completed_at": "2026-05-27T11:45:54.473475Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -1171,6 +1171,13 @@
           ],
           "terminated_at": "2026-05-27T11:02:54.066369Z",
           "container_id": "ad17fbb7-5dac-4efc-8573-9b7cf30ae662"
+        },
+        {
+          "role": "reviewer_code",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-27T11:45:54.473489Z",
+          "container_id": "41ebdde2-16f1-46ff-97f3-cbfc33c86007"
         }
       ]
     }
@@ -1392,7 +1399,7 @@
     }
   ],
   "created_at": "2026-05-27T05:07:27.593505Z",
-  "updated_at": "2026-05-27T11:02:54.066635Z",
+  "updated_at": "2026-05-27T11:45:54.473719Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1405,7 +1412,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-27T07:44:20.409407Z",
-  "version": 58,
+  "version": 59,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
