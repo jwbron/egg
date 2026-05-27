@@ -3166,6 +3166,64 @@ class TestExternalResearchInstructions:
         assert "WebFetch" in prompt
 
 
+class TestSubagentExplorationGuidance:
+    """All seven producer roles must include the #2814 subagent exploration directive."""
+
+    _DISTINCTIVE_PHRASE = "subagent_type: Explore"
+
+    @staticmethod
+    def _refine_prompt() -> str:
+        return _build_phase_prompt(
+            phase="refine",
+            pipeline_id="t",
+            pipeline_mode="issue",
+            prompt="Analyze.",
+            issue_number=1,
+        )
+
+    @staticmethod
+    def _coder_prompt() -> str:
+        return _build_phase_prompt(
+            phase="implement",
+            pipeline_id="t",
+            pipeline_mode="issue",
+            prompt="Implement.",
+            issue_number=1,
+        )
+
+    @staticmethod
+    def _agent_prompt(role: str, phase: str) -> str:
+        return _build_agent_prompt(
+            role_value=role,
+            phase=phase,
+            pipeline_id="t",
+            pipeline_mode="issue",
+            prompt="Work.",
+            issue_number=1,
+        )
+
+    def test_refiner(self):
+        assert self._DISTINCTIVE_PHRASE in self._refine_prompt()
+
+    def test_coder(self):
+        assert self._DISTINCTIVE_PHRASE in self._coder_prompt()
+
+    def test_architect(self):
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("architect", "plan")
+
+    def test_task_planner(self):
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("task_planner", "plan")
+
+    def test_risk_analyst(self):
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("risk_analyst", "plan")
+
+    def test_tester(self):
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("tester", "implement")
+
+    def test_documenter(self):
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("documenter", "implement")
+
+
 class TestRefinePromptHonorsAdditionalContext:
     """Refine prompt must instruct refiner to skip already-resolved questions.
 

@@ -11941,6 +11941,26 @@ _PR_CONTEXT_YAML_EXAMPLE_LINES = [
 # parses as a nested mapping and raises ScannerError. Block scalars (``|-``)
 # take the whole indented block literally, so backticks, colons, quotes, and
 # other punctuation are safe. See issue #1974.
+_SUBAGENT_EXPLORATION_GUIDANCE = [
+    "## Subagent Use for Exploration\n",
+    "You **may** use the Agent tool (e.g. `subagent_type: Explore` or "
+    "`general-purpose`) when exploration would otherwise dominate your "
+    "context window. Use your judgment — a one-off grep or short read "
+    "doesn't need a subagent; deep investigation of a large file or many "
+    "call sites usually does. The producer's main context stays lean "
+    "for synthesis; the subagent returns a focused summary.\n",
+    "Example signals where subagent use often pays off:",
+    "- More than ~3 grep/read calls on the same target file or directory.",
+    "- Walking a primitive's call sites — delegate; ask for `file:line` "
+    "citations + a few lines of context.",
+    "- Reading large files (> ~500 lines) — get a subagent summary "
+    "first; only `Read` the main file yourself if the summary identifies "
+    "specific line ranges you need to author at.\n",
+    "Subagent summaries are part of your authoritative work. Verify "
+    "critical claims (e.g. `file:line` citations) before committing "
+    "them to your output.\n",
+]
+
 _YAML_TASKS_SAFETY_GUIDANCE = [
     "**YAML safety**: Use block scalars (`|-`) for every prose field — "
     "`name`, `goal`, `description`, `acceptance`. Plain unquoted scalars "
@@ -12734,6 +12754,11 @@ def _build_phase_prompt(
 
     else:
         lines.append(f"Execute the {phase} phase.\n")
+
+    # --- Subagent exploration guidance ---
+    # Permissive guidance advising producers they may use the Agent tool
+    # for deep exploration to keep their main context lean (#2814).
+    lines.extend(_SUBAGENT_EXPLORATION_GUIDANCE)
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
@@ -14197,6 +14222,12 @@ def _build_agent_prompt(
         lines.append("## Review Feedback\n")
         lines.append(review_feedback)
         lines.append("")
+
+    # Subagent exploration guidance (#2814) — permissive advice for all
+    # producer roles (architect, task_planner, risk_analyst, tester,
+    # documenter) to use the Agent tool for deep exploration. Coder and
+    # refiner get this via _build_phase_prompt instead.
+    lines.extend(_SUBAGENT_EXPLORATION_GUIDANCE)
 
     # Derive the pipeline identifier for namespaced output filenames.
     _identifier = _pipeline_identifier(issue_number, pipeline_id)
