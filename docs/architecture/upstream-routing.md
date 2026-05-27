@@ -96,18 +96,25 @@ Key topology properties:
   gateway pod calls LiteLLM.
 - **Operator-owned isolation for the LiteLLM pod itself.** LiteLLM
   in turn talks out to the configured provider (hosted Qwen for
-  the first cut, per `cq-6`). Per-provider credentials flow through
-  the same path as `LITELLM_MASTER_KEY` (issue #2799): operators set
-  them in `~/.config/egg/secrets.env`; `make k3s-secrets` extracts
-  each onto `gateway-secrets` as a literal key; the LiteLLM
-  Deployment binds them via `secretKeyRef` (`optional: true`). The
-  gateway pod does not consume them — `secrets.env` is the
-  operator-facing entry point and the LiteLLM ConfigMap references
-  each with `os.environ/<NAME>`.
+  the first cut, per `cq-6`). `OPENROUTER_API_KEY` follows the same
+  path as `LITELLM_MASTER_KEY` (issue #2799): operators set it in
+  `~/.config/egg/secrets.env`; `make k3s-secrets` extracts it onto
+  `gateway-secrets` as a literal key; the LiteLLM Deployment binds
+  it via `secretKeyRef` (`optional: true`). Other provider keys
+  (Together AI, etc.) are NOT auto-wired — operators add the
+  extraction line in `make k3s-secrets` and the matching
+  `secretKeyRef` env entry on the LiteLLM container themselves. The
+  gateway pod does not consume any provider key — `secrets.env` is
+  the operator-facing entry point and the LiteLLM ConfigMap
+  references each with `os.environ/<NAME>`.
 - **No-op until configured.** The Service comes up healthy with an
-  empty `model_list`. Until an operator populates the ConfigMap
-  and sets the LiteLLM master key, every `/v1/messages` request
-  still routes to `api.anthropic.com` via the default
+  empty `model_list`. Operators register backends via a host-side
+  overlay at `~/.config/egg/litellm-models.yaml` (copy from
+  `config/litellm-models.template.yaml`) and apply it with
+  `make litellm-config` (also invoked by `make deploy` /
+  `make redeploy`). Until the LiteLLM master key is set and at
+  least one entry is registered, every `/v1/messages` request still
+  routes to `api.anthropic.com` via the default
   `session.upstream = "anthropic"`.
 
 The manifests land at:
@@ -415,7 +422,7 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
 | `orchestrator/gateway_client.py:602` `register_session` | New optional `upstream` / `upstream_model` kwargs; included in POST body only when set |
 | `k8s/base/litellm-deployment.yaml` *(new)* | LiteLLM pod in `egg-system` |
 | `k8s/base/litellm-service.yaml` *(new)* | ClusterIP `litellm:4000` (default `LITELLM_BASE_URL`) |
-| `k8s/base/litellm-configmap.yaml` *(new)* | Empty `model_list` — gateway-only callable; operators populate post-deploy |
+| `k8s/base/litellm-configmap.yaml` *(new)* | Empty `model_list` — gateway-only callable; operators register backends via the `config/litellm-models.template.yaml` host-side overlay applied by `make litellm-config` |
 | `k8s/base/kustomization.yaml` | Registers the three new LiteLLM resources |
 | `config/secrets.template.env` | `LITELLM_MASTER_KEY=""` block (disable-when-empty); `OPENROUTER_API_KEY=""` block added by #2799 |
 

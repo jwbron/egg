@@ -1,0 +1,89 @@
+# LiteLLM model_list overlay template.
+#
+# Copy this file to ~/.config/egg/litellm-models.yaml and edit. The
+# `make litellm-config` target (also invoked by `make deploy` /
+# `make redeploy`) reads from that path and applies it as a JSON merge
+# patch (RFC 7396, via `kubectl patch --type=merge`) onto the in-cluster
+# `litellm-config` ConfigMap, then rolls the LiteLLM Deployment to pick
+# up the new config. If the file is absent, the LiteLLM pod runs with
+# the empty `model_list` from `k8s/base/litellm-configmap.yaml` and
+# serves no routed backends.
+#
+# IMPORTANT: this file is per-operator config — DO NOT COMMIT
+# ~/.config/egg/litellm-models.yaml.
+#
+# Provider-credential wiring: OpenRouter is wired end-to-end out of the
+# box. `LITELLM_MASTER_KEY` and `OPENROUTER_API_KEY` set in
+# `~/.config/egg/secrets.env` are extracted onto `gateway-secrets` by
+# `make k3s-secrets` and bound onto the LiteLLM container via
+# `k8s/base/litellm-deployment.yaml`. Adding any other provider
+# (Together AI, etc.) is NOT automatic — you must also (1) add an
+# extraction line for the new key in the `k3s-secrets` Makefile target
+# and (2) add a matching `secretKeyRef` env entry on the LiteLLM
+# container in `k8s/base/litellm-deployment.yaml`. Without both edits,
+# `os.environ/<YOUR_KEY>` resolves to an empty string at request time
+# and the provider returns silent 401s.
+#
+# The body below is a complete `config.yaml` for LiteLLM — model_list
+# plus general_settings. The patch replaces the base configmap's
+# `config.yaml` string in full, so include every setting you need (not
+# just model_list).
+#
+# WARNING: the `general_settings.master_key` entry MUST remain. Without
+# it, LiteLLM accepts requests with any `x-api-key` value and the
+# gateway↔LiteLLM mutual-auth invariant breaks open (any pod that can
+# reach the LiteLLM Service can call it directly).
+#
+# Per-model tuning: anything LiteLLM accepts under `litellm_params`
+# (reasoning_effort, drop_params, extra_body, temperature, top_p,
+# seed, …) works here. See
+# https://docs.litellm.ai/docs/proxy/config_settings#model_list-params
+# for the full list. For routing parity with Anthropic Opus xhigh —
+# egg's current baseline — see the qwen3-max entry below; note that
+# Qwen has no exact xhigh equivalent (fixed-depth internal CoT, not a
+# tunable budget), so per-provider reasoning behavior will differ even
+# after tuning. Leave temperature / top_p / penalties at defaults for
+# cleaner cross-provider comparisons.
+
+data:
+  config.yaml: |
+    model_list:
+      # OpenRouter — Qwen Max (issue #2799 pilot). The slug below
+      # (`qwen/qwen3-max`) is the canonical OpenRouter slug as of
+      # 2026-05; always verify the current slug at
+      # https://openrouter.ai/<vendor>/<model> before enabling — a
+      # stale slug returns 404 at request time, not at config-load.
+      - model_name: qwen3-max
+        litellm_params:
+          model: openrouter/qwen/qwen3-max
+          api_key: os.environ/OPENROUTER_API_KEY
+          # Closest available knob to Opus xhigh. `reasoning_effort:
+          # high` opts into the deepest reasoning OpenRouter exposes
+          # for the model; `drop_params: true` silently drops
+          # Anthropic-only request fields (e.g. `thinking`) that
+          # LiteLLM can't translate for openrouter/*, preventing 400s.
+          # Recommended for the #2799 pilot — uncomment both:
+          # reasoning_effort: high
+          # drop_params: true
+          # If LiteLLM's normalized `reasoning_effort` isn't honored
+          # for this provider (check the validation run's LiteLLM
+          # logs), pass the OpenRouter-shaped reasoning map directly
+          # via extra_body — they are mutually redundant, pick one:
+          # extra_body:
+          #   reasoning:
+          #     effort: "high"
+
+      # Together AI — example hosted Qwen Coder entry. NOT wired
+      # end-to-end out of the box: to enable, (1) set
+      # `TOGETHER_API_KEY=...` in `~/.config/egg/secrets.env`,
+      # (2) add an extraction line for it in the `k3s-secrets` Makefile
+      # target alongside `OPENROUTER_API_KEY`, and (3) add a
+      # `secretKeyRef` env entry for `TOGETHER_API_KEY` on the LiteLLM
+      # container in `k8s/base/litellm-deployment.yaml`. Then uncomment.
+      # - model_name: qwen3-coder-30b
+      #   litellm_params:
+      #     model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
+      #     api_key: os.environ/TOGETHER_API_KEY
+
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY

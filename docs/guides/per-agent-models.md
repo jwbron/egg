@@ -54,7 +54,7 @@ free-form model strings — interpreted by the resolver (below).
 ```python
 PipelineConfig(
     agent_models={
-        "refiner": "qwen3-coder-30b",   # → LiteLLM, "qwen3-coder-30b"
+        "refiner": "qwen3-max",         # → LiteLLM, "qwen3-max"
         "coder":   "sonnet",            # → Anthropic, "sonnet"
     },
     # other fields unchanged …
@@ -253,30 +253,52 @@ rereads `secrets.env` on mtime change.
 
 ### 2. Configure LiteLLM `model_list`
 
-Populate the LiteLLM ConfigMap with a `model_list` entry naming the
-upstream-side model and provider:
+Per-operator backend choices live in a host-side overlay, **not** in
+the committed `k8s/base/litellm-configmap.yaml`. Copy the template and
+edit:
+
+```bash
+cp config/litellm-models.template.yaml ~/.config/egg/litellm-models.yaml
+$EDITOR ~/.config/egg/litellm-models.yaml
+```
+
+The file is a JSON merge patch (RFC 7396, via `kubectl patch
+--type=merge`) for the in-cluster `litellm-config` ConfigMap — its
+`data.config.yaml` replaces the empty default in full, so include both
+`model_list` and `general_settings`:
 
 ```yaml
-# k8s/base/litellm-configmap.yaml (partial)
+# ~/.config/egg/litellm-models.yaml
 data:
   config.yaml: |
     model_list:
-      - model_name: qwen3-coder-30b
+      - model_name: qwen3-max
         litellm_params:
-          model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
-          api_key: os.environ/TOGETHER_API_KEY
+          model: openrouter/qwen/qwen3-max
+          api_key: os.environ/OPENROUTER_API_KEY
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
 
-Then surface `TOGETHER_API_KEY` (or your provider's equivalent) to the
-LiteLLM Deployment. Follow the same shape as the master key and the
-OpenRouter key (issue #2799): add the variable to
-`~/.config/egg/secrets.env`, extract it onto `gateway-secrets` in
-`make k3s-secrets`, and bind it as a `secretKeyRef` env var on the
-LiteLLM container in `k8s/base/litellm-deployment.yaml` (`optional: true`
-so deployments without that backend still start). Apply the change and
-roll the LiteLLM Deployment.
+`OPENROUTER_API_KEY` is wired end-to-end out of the box: set it in
+`~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`, and
+`make k3s-secrets` extracts it onto the `gateway-secrets` Secret while
+`k8s/base/litellm-deployment.yaml` binds it as a `secretKeyRef` env
+var on the LiteLLM container (`optional: true` so deployments without
+OpenRouter still start).
+
+Adding any other provider key (e.g. `TOGETHER_API_KEY`) is **not**
+automatic — it additionally requires (1) extending the `k3s-secrets`
+target in `Makefile` to read the new variable from `secrets.env` and
+surface it as a literal on `gateway-secrets`, and (2) adding a matching
+`secretKeyRef` env entry on the LiteLLM container in
+`k8s/base/litellm-deployment.yaml`. Without both edits,
+`os.environ/<NEW_KEY>` in the overlay resolves to empty at request
+time and the provider returns silent 401s.
+
+Apply by running `make litellm-config` (also invoked automatically by
+`make deploy` and `make redeploy`). The target patches the live
+ConfigMap and rolls the LiteLLM Deployment to pick up the new config.
 
 > **Hosted-provider choice.** Hosted Qwen is the cq-6 first target;
 > any LiteLLM-supported backend works. Self-hosted vLLM / SGLang is
@@ -291,9 +313,9 @@ If every role on this repo should default to the same model, edit
 ```yaml
 repo_settings:
   acme-corp/widgets:
-    # Every role on this repo defaults to qwen3-coder-30b, unless a
+    # Every role on this repo defaults to qwen3-max, unless a
     # pipeline passes its own agent_models entry.
-    default_agent_model: qwen3-coder-30b
+    default_agent_model: qwen3-max
 ```
 
 `default_agent_model` is a *repo-level default for every role* — to
@@ -315,7 +337,7 @@ in the `submit_task` MCP-tool arguments
   "issue_number": 1234,
   "config": {
     "agent_models": {
-      "refiner": "qwen3-coder-30b"
+      "refiner": "qwen3-max"
     }
   }
 }
@@ -333,7 +355,7 @@ optional `branch` override:
   "branch": "egg/issue-1234/work",
   "config": {
     "agent_models": {
-      "refiner": "qwen3-coder-30b"
+      "refiner": "qwen3-max"
     }
   }
 }
@@ -359,7 +381,7 @@ session inherits the decision implicitly via the session-keyed
 lookup, with no per-request routing log line:
 
 - **Refiner session-created line**: `upstream=litellm`,
-  `upstream_model=qwen3-coder-30b`. Subsequent refiner requests have
+  `upstream_model=qwen3-max`. Subsequent refiner requests have
   their body forwarded to
   `litellm.egg-system.svc.cluster.local:4000` with the
   `_rewrite_upstream_model` helper substituting the `"model"` field;
