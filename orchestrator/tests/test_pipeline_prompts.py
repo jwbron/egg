@@ -6005,3 +6005,83 @@ class TestRefinerOrientationSurfacesPrimitives:
         # The three execution contexts named in the criteria.
         assert "in-sandbox-agent" in orientation
         assert "trusted-CI-runner" in orientation
+
+
+class TestProducerExplorationSubagentDirective:
+    """Issue #2814 — every producer prompt must include the permissive
+    'Subagent use for exploration' directive so producers can isolate
+    deep grep/Read exploration in subagents and keep their main context
+    lean for synthesis. Mitigates the failure surface of #2804 (Agent
+    SDK 1MB JSON buffer overflow)."""
+
+    DIRECTIVE_HEADER = "## Subagent use for exploration"
+
+    def test_refiner_prompt_includes_directive(self):
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+        )
+        assert self.DIRECTIVE_HEADER in result
+
+    def test_coder_cycle_0_includes_directive(self):
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Build a widget",
+            review_cycle=0,
+        )
+        assert self.DIRECTIVE_HEADER in result
+
+    def test_coder_revision_cycle_omits_directive(self):
+        # Revision cycle is intentionally slim — mirrors the existing
+        # "Parallel Execution with Subagents" block which is also dropped
+        # on cycle 2+ (see TestBuildPhasePromptRevisionMode).
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Build a widget",
+            review_cycle=1,
+            review_feedback="Fix naming",
+        )
+        assert self.DIRECTIVE_HEADER not in result
+
+    @pytest.mark.parametrize(
+        "role,phase",
+        [
+            ("tester", "implement"),
+            ("documenter", "implement"),
+            ("architect", "plan"),
+            ("task_planner", "plan"),
+            ("risk_analyst", "plan"),
+        ],
+    )
+    def test_multi_agent_producer_prompt_includes_directive(self, role, phase):
+        result = _build_agent_prompt(
+            role_value=role,
+            phase=phase,
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert self.DIRECTIVE_HEADER in result
+
+    def test_directive_body_contains_actionable_signals(self):
+        # Guard against landing an empty/header-only block by accident:
+        # the body must name the subagent types and at least one of the
+        # example signals from #2814.
+        result = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=1,
+        )
+        assert "Explore" in result
+        assert "general-purpose" in result
+        assert "file:line" in result
