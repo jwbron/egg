@@ -53,9 +53,11 @@ and purge accumulated dead code.
   `_gather_context_pr_files` (`pipelines.py:9896`), (e) commits and pushes
   to `egg/<id>/context`, (f) calls `GatewayClient.create_pr`, (g) persists
   the linkage via `_persist_context_pr_linkage_on_contract`. The function
-  has **17 silent `return None` paths** (lines 10114, 10121, 10131, 10146,
+  has **21 silent `return None` paths** (lines 10114, 10121, 10131, 10146,
   10153, 10160, 10189, 10221, 10265, 10279, 10373, 10427, 10453, 10461,
-  10472, 10496, 10502, 10539), each logged at warning/info and swallowed.
+  10472, 10496, 10502, 10539, 10598, 10617, 10629), each logged at
+  warning/info and swallowed (count verified via
+  `awk 'NR>=10002 && NR<=10647 && /return None/'`).
 - **`_lookup_existing_context_pr`** (`pipelines.py:9735`, ~150 lines):
   GitHub-authoritative check via `gh pr list`. Distinguishes full match /
   head-only mismatch / no PR — needed because the multi-step create can
@@ -79,16 +81,18 @@ and purge accumulated dead code.
 - **Gateway push-exemption**: `_CONTEXT_BRANCH_RE = r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/context$"`
   (`gateway.py:1112`), exempting `egg/<id>/context` from the pipeline-session
   push block (#2028), used at `gateway.py:1350` and `gateway.py:1362`.
-- **PR-phase skip**: `_should_skip_pr_phase_auto_pr` (`pipelines.py:8222`)
-  returns `(True, f"slice_dag_mode_slice_count={slice_count}")` (line 8276)
+- **PR-phase skip**: `_should_skip_pr_phase_auto_pr` (`pipelines.py:8222`,
+  called from `pipelines.py:20844`) returns
+  `(True, f"slice_dag_mode_slice_count={slice_count}")` (line 8276)
   whenever `len(contract.slices) > 1`. No backstop runs in slice-DAG mode.
 - **Schema** (`shared/egg_contracts/models.py:467`): `PRMetadata` adds
   `context_title: str|None`, `context_description: str|None`,
   `context_branch: str|None`, `context_pr_number: int|None`,
   `deferred_actions: list[DeferredAction]`.
-  `contract.pr.context_branch` is written at `pipelines.py:9839`
-  (`_persist_context_pr_linkage_on_contract`) and read at
-  `pipelines.py:10172`, `10212`, `10910`, `15398`, `15394–15405`, `18719`.
+  `contract.pr.context_branch` is written at `pipelines.py:9839` (inside
+  `_persist_context_pr_linkage_on_contract`, defined at `pipelines.py:9791`)
+  and read at `pipelines.py:10172`, `10212`, `10910`, `15398`,
+  `15394–15405`, `18719`.
 
 ### Plan → implement reconciliation (#2792)
 
@@ -101,23 +105,27 @@ and purge accumulated dead code.
   raises `PlanDraftMissingOnLocalError` at line 18478 when the draft is on
   origin but `local_path.exists()` is False), the populator sees a missing
   draft and triggers the HITL.
-- **HITL gate**: `_empty_contract_hitl_question` at `pipelines.py:18247–18259`
-  emits the prompt currently used in #2792's reproduction:
-  > Pipeline blocked at plan_complete: contract.slices is empty and the plan
-  > draft is missing, unparseable, or yielded no tasks
-  > (reason=plan_draft_missing_on_local). The populate-from-plan step
-  > silently failed earlier (#2337 / #2627), so pipeline state and the
-  > contract have diverged. Plain restart_phase implement will respawn into
-  > the same broken state. How to proceed?
+- **HITL gate**: `_empty_contract_hitl_question` (defined at
+  `pipelines.py:18202`; prose body at `pipelines.py:18247–18259`) emits
+  the prompt currently used in #2792's reproduction (verbatim, with the
+  operator-action suffixes that matter for cq-7 / feedback Q1):
+  > Pipeline blocked at {gate}: {divergence_line} (reason={reason}). The
+  > populate-from-plan step silently failed earlier (#2337 / #2627), so
+  > pipeline state and the contract have diverged. Plain restart_phase
+  > implement will respawn into the same broken state. How to proceed?
   >
-  > - 'Repopulate contract from plan draft and retry'
-  > - 'Restart plan phase'
-  > - 'Abort pipeline'
+  > - 'Repopulate contract from plan draft and retry' — run POST
+  >   /pipelines/{pipeline_id}/phase/populate-contract, then restart_phase
+  >   implement.
+  > - 'Restart plan phase' — restart_phase plan to regenerate the draft
+  >   from scratch.
+  > - 'Abort pipeline' — cancel_task.
 
-  Decision is raised at `pipelines.py:21508–21545` via `_emit_empty_contract_hitl`
-  (line 21537). The "silently failed earlier" phrasing is misleading on a
-  clean run because there was no earlier populate event — the divergence is
-  reached on the *first* `plan_complete`.
+  Decision is raised at `pipelines.py:21508–21545` via
+  `_emit_empty_contract_hitl` (defined at `pipelines.py:14176`; invoked
+  at `pipelines.py:21537`). The "silently failed earlier" phrasing is
+  misleading on a clean run because there was no earlier populate event —
+  the divergence is reached on the *first* `plan_complete`.
 - **Exception classes**: `PlanDraftMissingOnLocalError`
   (`pipelines.py:17987–17998`), `PlanDraftMissingOnLocalAndOriginError`
   (`pipelines.py:18000–18014`), `PopulateProducedEmptyContractError`
@@ -142,8 +150,9 @@ and purge accumulated dead code.
     READY and re-spawned from scratch; the integration-branch push can hit
     a non-fast-forward rejection (mitigated only when the slice's PR was
     merged in the gap — `pipelines.py:15442–15459`).
-- **`SliceStatus` enum** (`shared/egg_contracts/models.py:41–55`):
-  `PENDING`, `IN_PROGRESS`, `COMPLETE`, `BLOCKED`.
+- **`SliceStatus` enum** (`shared/egg_contracts/models.py:41`, members
+  defined at lines 52–55): `PENDING`, `IN_PROGRESS`, `COMPLETE`, `BLOCKED`.
+  Backward-compat alias `PhaseStatus = SliceStatus` at line 59.
 - **`parent_branch_at_creation`** is written under the per-pipeline state
   lock at `pipelines.py:15414–15421`, immediately after resolution and
   BEFORE `create_slice_integration_branch` (line 15492). The reconstruction
@@ -153,14 +162,16 @@ and purge accumulated dead code.
   Exception, sets `pr_created=False`, calls
   `scheduler.record_failure(slice_id)` (line 15785), returns exit code 1.
   No pre-flight `gh pr list` "PR already open?" check.
-- **`restart_phase`** (`pipelines.py:3250–3287`): clears the pipeline-level
-  consensus tracker via `get_peer_consensus_tracker(pipeline_id).clear()`
-  (lines 3259–3261) and the legacy evaluator via
-  `evaluator.clear(pipeline_id)` (line 3279). **Does not iterate per-slice
-  consensus trackers** (`{pipeline_id}/{slice_id}` namespace at
-  `peer_consensus.py:1865`).
-- **`restart_agent`** (`pipelines.py:2255` area): slice-aware, respects
-  `slice_id` query param. Asymmetric with `restart_phase`.
+- **`restart_phase`** (defined at `pipelines.py:2968`; consensus-clear
+  block at `pipelines.py:3250–3287`): clears the pipeline-level consensus
+  tracker via `get_peer_consensus_tracker(pipeline_id).clear()` (lines
+  3259–3261) and the legacy evaluator via `evaluator.clear(pipeline_id)`
+  (line 3279). **Does not iterate per-slice consensus trackers**. The
+  slice-aware key constructor is `_tracker_key(pipeline_id, slice_id)`
+  at `peer_consensus.py:1844`, returning `f"{pipeline_id}/{slice_id}"`
+  (used at `peer_consensus.py:1872, 1890, 1899, 2011`).
+- **`restart_agent`** (defined at `pipelines.py:2255`): slice-aware,
+  respects `slice_id` query param. Asymmetric with `restart_phase`.
 - **`startup_reconciliation.py`**: handles containers and pipeline-level
   agents; refrains from marking phase COMPLETE if sibling slices are
   active (lines 358–367) but does NOT reconstruct per-slice consensus
@@ -184,14 +195,41 @@ and purge accumulated dead code.
   (`orchestrator/peer_consensus.py:69`) is the only consensus path in
   production. Still reset on every `restart_phase`
   (`pipelines.py:3279`).
-- **"Umbrella" terminology** (#2389): `gateway_client.py:1231,1238,1258`
-  (`create_slice_pr` docstring + literal banner string),
-  `pipelines.py:11270,11292,11301,11308` (`umbrella_has_program_block`
-  variable + comments), test fixtures pinning the banner string.
-- **`# noqa: BLE001` swallow-all handlers** in slice code: 20 sites at
-  `pipelines.py:15131, 15196, 15274, 15336, 15386, 15422, 15451, 15471,
-  15501, 15709, 15742, 15775, 15795, 15841, 15901, 15910, 15946, 15964,
-  16080, 16105`.
+- **"Umbrella" terminology** (#2389) — actual sites (re-verified against
+  HEAD, the v1 citations in the issue body had drifted):
+  - `gateway_client.py:299` (lazy-import comment),
+    `gateway_client.py:1523, 1539, 1542, 1550, 1569, 1600, 1611, 1615,
+    1624` (`create_slice_pr` docstring + body comments),
+    `gateway_client.py:1629` (literal banner string `"> **Program-level
+    umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"`),
+    `gateway_client.py:1670, 1692` (obligation-on-umbrella error
+    messages).
+  - `pipelines.py:9010, 9038, 9047` (narrative comments in the slice-PR
+    builder context).
+  - `pipelines.py:15615` (`umbrella_has_program_block` assignment) and
+    `pipelines.py:15620` (read in the `is_terminal or not
+    umbrella_has_program_block` condition) — the dead-branch
+    candidates once the program-level content moves to the work→main PR.
+  - `pipelines.py:15608, 15610, 15686, 15691` (further narrative comments
+    in the same block).
+  - Tests: `tests/test_gateway_client.py:1378, 1379, 1421` (negative
+    asserts in non-terminal cases) and `tests/test_gateway_client.py:1493,
+    1525` (`test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker`
+    — positive assert that the banner appears on the terminal slice).
+    These tests change shape entirely once the umbrella concept is
+    deleted; the deletion is structural, not a string rename.
+- **`# noqa: BLE001` swallow-all handlers** in the slice run loop and its
+  immediate helpers: 20 sites total. `_run_implement_phase_slices` ends at
+  `pipelines.py:15916` (next `def _clear_stale_impasses_for_producers` at
+  `pipelines.py:15917`); the next helper after that is
+  `def _run_concurrent_phase_with_impasse_retry` at `pipelines.py:15980`.
+  16 sites are inside `_run_implement_phase_slices` itself
+  (`pipelines.py:15131, 15196, 15274, 15336, 15386, 15422, 15451, 15471,
+  15501, 15709, 15742, 15775, 15795, 15841, 15901, 15910`); the
+  remaining 4 are in the immediate helpers
+  (`pipelines.py:15946, 15964` inside `_clear_stale_impasses_for_producers`;
+  `pipelines.py:16080, 16105` inside `_run_concurrent_phase_with_impasse_retry`).
+  Treatment is bounded by feedback-1 Q2.
 - **`except ImportError` dual-path import shims**: 9 sites at
   `pipelines.py:15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034,
   16209`.
@@ -242,18 +280,23 @@ named with file:line evidence and execution-context scope.
 - `pipelines._open_context_pr_for_pipeline` — `pipelines.py:10002`
 - `pipelines._lookup_existing_context_pr` — `pipelines.py:9735`
 - `pipelines._gather_context_pr_files` — `pipelines.py:9896`
-- `pipelines._persist_context_pr_linkage_on_contract` — `pipelines.py:9839`
+- `pipelines._persist_context_pr_linkage_on_contract` — defined at
+  `pipelines.py:9791` (context_branch write at `pipelines.py:9839`)
 - `pipelines._maybe_open_base_pr_for_plan_to_implement` — `pipelines.py:10648`
 - `pipelines._resolve_slice_1_context_branch_from_contract` — `pipelines.py:10883`
-- `pipelines._should_skip_pr_phase_auto_pr` — `pipelines.py:8222`
+- `pipelines._should_skip_pr_phase_auto_pr` — defined at `pipelines.py:8222`,
+  called from `pipelines.py:20844`
 - `pipelines._sync_worktree_with_remote` — `pipelines.py:6442`
 - `pipelines._populate_contract_from_plan` — `pipelines.py:18535`
 - `pipelines._populate_contract_from_plan_safe` — `pipelines.py:18408`
-- `pipelines._empty_contract_hitl_question` — `pipelines.py:18247`
+- `pipelines._empty_contract_hitl_question` — defined at `pipelines.py:18202`
+  (prose body at `pipelines.py:18247–18259`)
 - `pipelines._empty_contract_hitl_reason` — `pipelines.py:18287`
-- `pipelines._emit_empty_contract_hitl` — invoked at `pipelines.py:21537`
-- `pipelines.restart_phase` route — `pipelines.py:3250–3287`
-- `pipelines.restart_agent` route — `pipelines.py:2255` area
+- `pipelines._emit_empty_contract_hitl` — defined at `pipelines.py:14176`,
+  invoked at `pipelines.py:21537`
+- `pipelines.restart_phase` route — defined at `pipelines.py:2968`
+  (consensus-clear block at `pipelines.py:3250–3287`)
+- `pipelines.restart_agent` route — `pipelines.py:2255`
 - `PlanDraftMissingOnLocalError` / `…AndOriginError` / `PopulateProducedEmptyContractError` —
   `pipelines.py:17987 / 18000 / 18043`
 - `phases.advance_phase` (calls the wrapper at `phases.py:500`)
@@ -268,14 +311,17 @@ named with file:line evidence and execution-context scope.
     `poll_cascades`, `all_done` (live)
   - `record_cycle`, `teardown_slice`, `respawn_slice`, `cancel_cascade`,
     `hitl_escalator` param (dead — see cq-3)
-- `SliceStatus` enum — `shared/egg_contracts/models.py:41–55`
+- `SliceStatus` enum — `shared/egg_contracts/models.py:41` (members
+  at lines 52–55); backward-compat alias `PhaseStatus = SliceStatus` at
+  line 59
 - `PRMetadata` — `shared/egg_contracts/models.py:467`
   - Fields: `title`, `description`, `test_plan`, `manual_steps`,
     `context_title`, `context_description`, `context_branch`,
     `context_pr_number`, `deferred_actions`
 - `PeerConsensusTracker` — `orchestrator/peer_consensus.py:69`
-  - `_consensus_tracker_namespace()` — `peer_consensus.py:1865` (key pattern
-    `{pipeline_id}/{slice_id}`)
+  - Slice-aware tracker-key constructor: `_tracker_key(pipeline_id, slice_id)`
+    — `peer_consensus.py:1844` (returns `f"{pipeline_id}/{slice_id}"` on
+    line 1865); call sites at `peer_consensus.py:1872, 1890, 1899, 2011`
   - `get_peer_consensus_tracker(...)`, `tracker.clear()`,
     `remove_peer_consensus_tracker(...)`
 - `ConsensusEvaluator` (legacy/deprecated) — `orchestrator/consensus.py:38`,
