@@ -15497,6 +15497,94 @@ def _publish_consensus_timeout_alert(
         )
 
 
+def _emit_producer_death_alert(
+    *,
+    pipeline_id: str,
+    role: str,
+    phase: str,
+    slice_id: str | None,
+    exit_code: int,
+) -> None:
+    """Publish a high-priority ``OVERSEER_ALERT`` for permanent producer death (#2806).
+
+    Fires from ``_run_concurrent_phase`` when a producer's
+    consensus-wrapper container exits with a non-clean code after
+    exhausting its retry budget. The pipeline (or slice) is about to
+    transition to FAILED — the alert is what makes the operator notice
+    rather than waiting for the consensus-timeout / overseer
+    ``stuck-phase-transition`` alert to fire 30+ minutes later.
+
+    Best-effort: failures to write to the message store degrade to a
+    WARNING log, mirroring ``_publish_consensus_timeout_alert``.
+    """
+    phase_value = phase if isinstance(phase, str) else getattr(phase, "value", str(phase))
+    # ``is not None`` (not truthy) so subject and metadata agree on edge
+    # values like ``slice_id == ""``: metadata at 15349 also uses ``is
+    # not None`` (#2811 round 3 item 1). In practice ``slice_id`` is
+    # validated to ``slice-<N>`` upstream, so the asymmetry can't fire
+    # today — keeping the two checks aligned avoids a future footgun.
+    subject_slice = f" slice={slice_id}" if slice_id is not None else ""
+    subject = f"producer-permanent-death: {role} exit={exit_code}{subject_slice} [high]"
+    slice_render = f" (slice {slice_id})" if slice_id is not None else ""
+    body = (
+        f"Producer '{role}'{slice_render} died permanently in phase "
+        f"'{phase_value}': container exited with code {exit_code} after the "
+        f"consensus-wrapper exhausted its retry budget.\n\n"
+        "The slice/pipeline state machine cannot replace a permanently "
+        "dead producer, so the pipeline is being transitioned to FAILED "
+        "(Option A, issue #2806). The agent's committed work — if any — "
+        "is still on the per-role branch; use `restart_phase` to resume "
+        "from the prior known-good state, or `cancel_task` to abort."
+    )
+    metadata: dict[str, Any] = {
+        "anomaly_type": "producer-permanent-death",
+        "phase": phase_value,
+        "role": role,
+        "exit_code": exit_code,
+        "priority": "high",
+    }
+    if slice_id is not None:
+        metadata["slice_id"] = slice_id
+
+    try:
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            from ..message_store import (  # type: ignore[no-redef]
+                Message,
+                MessageType,
+            )
+        store_fn = _get_message_store()
+        if store_fn is None:
+            logger.warning(
+                "Producer-death alert: message store unavailable",
+                pipeline_id=pipeline_id,
+                role=role,
+            )
+            return
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject=subject,
+                body=body,
+                metadata=metadata,
+                phase=phase_value,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to publish producer-permanent-death OVERSEER_ALERT",
+            pipeline_id=pipeline_id,
+            role=role,
+            error=str(e),
+            exc_info=True,
+        )
+
+
 # Pipeline-branch divergence alert (#2224 PR 3).
 #
 # Watches ``origin/<pipeline_branch>`` for the contamination shape from
@@ -17966,15 +18054,86 @@ def _run_concurrent_phase(
                 # _classify_exit, so the two layers can't race to write
                 # contradictory agent.status values.
                 if info.exit_code not in (0, 143):
+                    # Issue #2806 (Option A): a producer's consensus-wrapper
+                    # exhausting its retry budget is unrecoverable — the
+                    # slice state machine cannot replace a permanently dead
+                    # producer, and the surviving reviewers will heartbeat
+                    # forever waiting on a proposal that will never come.
+                    # Detect this case and short-circuit the polling loop
+                    # with a non-zero return so the caller transitions the
+                    # pipeline (or slice) to FAILED. Reviewer-only deaths
+                    # still flow through ``handle_agent_failure`` because
+                    # peer-review redistribution can recover them.
+                    role_value = exec_info.role.value
+                    if filtered_graph.is_producer(role_value):
+                        # Race window guard: a producer can legitimately
+                        # exit non-zero after CONFIRMED (wrapper cleanup
+                        # crash) — between step 1 (consensus check) and
+                        # step 4 (exit detection) the producer could have
+                        # written CONFIRMED and then died. Re-query
+                        # consensus before hard-failing; if it has
+                        # completed, fall through and let the next
+                        # iteration's step 1/2 return success.
+                        try:
+                            recheck = executor.check_consensus()
+                        except Exception as recheck_err:
+                            logger.warning(
+                                "Producer-death consensus recheck failed",
+                                pipeline_id=pipeline_id,
+                                role=role_value,
+                                error=str(recheck_err),
+                            )
+                            recheck = {"is_complete": False}
+                        if recheck.get("is_complete"):
+                            logger.info(
+                                "Producer container exited non-zero but consensus already complete — skipping hard-fail",
+                                pipeline_id=pipeline_id,
+                                role=role_value,
+                                exit_code=info.exit_code,
+                            )
+                            # Consensus completed in the race window before
+                            # the producer's wrapper-cleanup crash. Step 5
+                            # (or the next iteration's step 1/2) will return
+                            # success; skip handle_agent_failure (reviewer
+                            # recovery path, not applicable to producers).
+                            continue
+                        _emit_producer_death_alert(
+                            pipeline_id=pipeline_id,
+                            role=role_value,
+                            phase=phase_str,
+                            slice_id=slice_id,
+                            exit_code=info.exit_code,
+                        )
+                        logger.error(
+                            "Producer agent died permanently — failing phase",
+                            pipeline_id=pipeline_id,
+                            phase=phase_str,
+                            slice_id=slice_id,
+                            role=role_value,
+                            exit_code=info.exit_code,
+                        )
+                        _stop_running_containers()
+                        combined_logs = "\n".join(
+                            all_logs
+                            + [
+                                "--- PRODUCER PERMANENT DEATH ---",
+                                (
+                                    f"Producer '{role_value}' container exited with code "
+                                    f"{info.exit_code} after the consensus-wrapper exhausted "
+                                    f"its retry budget. Pipeline failing (issue #2806)."
+                                ),
+                            ]
+                        )
+                        return 1, combined_logs
                     try:
                         executor.handle_agent_failure(
-                            role=exec_info.role.value,
+                            role=role_value,
                             error=f"Container exited with code {info.exit_code}",
                         )
                     except Exception as e:
                         logger.warning(
                             "handle_agent_failure error",
-                            role=exec_info.role.value,
+                            role=role_value,
                             error=str(e),
                         )
                 else:

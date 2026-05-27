@@ -211,14 +211,16 @@ class TestAgentExitsRecorded:
         """Multiple containers each get their own AgentExitInfo, in observation order."""
         mock_monotonic.return_value = 0.0
 
+        # Failing role is a non-producer (reviewer_code) so the producer-death
+        # short-circuit (#2806) does not fire and both exits get recorded.
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
             _make_execution(AgentRole.TESTER, "tester-1"),
         ]
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-2205-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-2205-reviewer_code",
                 status=ContainerStatus.FAILED,
                 exit_code=1,
                 exited_at=datetime.now(UTC),
@@ -242,7 +244,7 @@ class TestAgentExitsRecorded:
         mock_executor_instance.check_consensus.return_value = {
             "is_complete": False,
             "has_objections": False,
-            "blocking_agents": ["coder", "tester"],
+            "blocking_agents": ["reviewer_code", "tester"],
         }
         MockExecutor.return_value = mock_executor_instance
 
@@ -261,15 +263,15 @@ class TestAgentExitsRecorded:
         assert len(phase_exec.agent_exits) == 2
         # The polling loop iterates `active_executions` in order and calls
         # `_record_container_exit` synchronously, so the recorded order
-        # mirrors the spawn order — coder first, tester second.
+        # mirrors the spawn order — reviewer first, tester second.
         assert [ae.role for ae in phase_exec.agent_exits] == [
-            AgentRole.CODER,
+            AgentRole.REVIEWER_CODE,
             AgentRole.TESTER,
         ]
-        coder, tester = phase_exec.agent_exits
-        assert coder.exit_code == 1
+        reviewer, tester = phase_exec.agent_exits
+        assert reviewer.exit_code == 1
         assert tester.exit_code == 0
-        assert coder.last_lines == ["boom"]
+        assert reviewer.last_lines == ["boom"]
         assert tester.last_lines == []
         # Each recorded exit triggered a persistence call.
         assert mock_store.save_pipeline.call_count >= 2

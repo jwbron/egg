@@ -597,12 +597,14 @@ class TestContainerExitFallback:
         """When a container exits non-zero, returns (1, ...) via fallback."""
         mock_monotonic.return_value = 0.0
 
-        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        # Failing role is a non-producer so the producer-death short-circuit
+        # (#2806) does not preempt the handle_agent_failure path under test.
+        executions = [_make_execution(AgentRole.REVIEWER_CODE, "reviewer-1")]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-999-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
                 status=ContainerStatus.FAILED,
                 exit_code=1,
                 exited_at=datetime.now(UTC),
@@ -618,7 +620,7 @@ class TestContainerExitFallback:
         mock_executor_instance.check_consensus.return_value = {
             "is_complete": False,
             "has_objections": False,
-            "blocking_agents": ["coder"],
+            "blocking_agents": ["reviewer_code"],
         }
         MockExecutor.return_value = mock_executor_instance
 
@@ -637,9 +639,270 @@ class TestContainerExitFallback:
         assert exit_code == 1
         # handle_agent_failure should have been called
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 1",
         )
+
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_short_circuits_phase(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Issue #2806: a producer dying after retry-budget exhaustion
+        short-circuits the phase with (1, logs) carrying the PRODUCER
+        PERMANENT DEATH marker, stops surviving containers, and skips
+        handle_agent_failure (which is the reviewer-only recovery path).
+        """
+        mock_monotonic.return_value = 0.0
+
+        # Producer (coder) dies non-zero; reviewer is still running so we
+        # exercise _stop_running_containers cleanup as well.
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.FAILED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
+                status=ContainerStatus.RUNNING,
+                exit_code=None,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        # Both the step-1 consensus check and the producer-death recheck
+        # return is_complete=False — consensus has genuinely not completed.
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1
+        assert "PRODUCER PERMANENT DEATH" in logs
+        assert "coder" in logs
+        # Surviving reviewer should have been stopped by _stop_running_containers.
+        stopped_ids = {c.args[0] for c in mock_docker.stop_container.call_args_list}
+        assert "reviewer-1" in stopped_ids
+        # Producers do NOT flow through handle_agent_failure (reviewer path).
+        mock_executor_instance.handle_agent_failure.assert_not_called()
+        # And the high-priority OVERSEER_ALERT was published.
+        assert msg_store.add_message.call_count == 1
+        alert = msg_store.add_message.call_args.args[0]
+        assert alert.subject == "producer-permanent-death: coder exit=1 [high]"
+        assert alert.metadata["priority"] == "high"
+
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_short_circuits_phase_with_slice_id(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Round-3 item 2: end-to-end coverage that ``slice_id`` propagates
+        from ``_run_concurrent_phase``'s ``slice_id`` kwarg into the
+        alert subject. Without this test the slice-cascade triage format
+        (``producer-permanent-death: <role> exit=<N> slice=<id> [high]``)
+        is only smoke-tested at the helper level.
+        """
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.FAILED,
+                exit_code=137,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            slice_id="slice-2",
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1
+        assert "PRODUCER PERMANENT DEATH" in logs
+        assert msg_store.add_message.call_count == 1
+        alert = msg_store.add_message.call_args.args[0]
+        # Subject carries slice id so per-slice cascade is triagable.
+        assert alert.subject == "producer-permanent-death: coder exit=137 slice=slice-2 [high]"
+        assert alert.metadata["slice_id"] == "slice-2"
+        assert alert.metadata["exit_code"] == 137
+
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_skipped_when_consensus_completes_in_race(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Race window guard (#2811 review item 4): a producer can exit
+        non-zero *after* CONFIRMED (wrapper cleanup crash). When the
+        recheck inside the producer-death branch finds consensus is
+        complete, the phase must NOT hard-fail — fall through and let
+        the next iteration succeed.
+        """
+        # Monotonic clock is decoupled from consensus call counts so the
+        # test stays valid regardless of how many ``check_consensus`` calls
+        # the polling loop makes (review round 2 item 3).
+        tick = [0]
+
+        def _monotonic():
+            tick[0] += 1
+            return tick[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+        ]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        # First consensus check sees incomplete; every subsequent call
+        # (including the race-window recheck inside the producer-death
+        # branch, and any step-5 / next-iteration check) returns complete.
+        # The "first vs subsequent" framing isolates the test from the
+        # absolute call index — adding another ``check_consensus()``
+        # earlier in the loop would just shift which call is "first",
+        # but the load-bearing invariant (race-window recheck sees
+        # complete → phase succeeds) is preserved.
+        incomplete = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        complete = {"is_complete": True, "has_objections": False, "blocking_agents": []}
+        consensus_returns = iter([incomplete])
+
+        def _check_consensus():
+            try:
+                return next(consensus_returns)
+            except StopIteration:
+                return complete
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        # Race-window recheck found consensus complete → phase succeeds.
+        assert exit_code == 0
+        assert "PRODUCER PERMANENT DEATH" not in logs
+        # Lower-bound the call count: at minimum the initial step-1 check
+        # (incomplete) and the race-window recheck (complete) must have
+        # fired. Any additional calls (step 5 / next-iteration) are fine.
+        assert mock_executor_instance.check_consensus.call_count >= 2
+        # No producer-death alert was published — only the
+        # CONSENSUS_REACHED success path ran.
+        msg_store.add_message.assert_not_called()
 
 
 class TestMixedScenarios:
@@ -728,15 +991,18 @@ class TestMixedScenarios:
         """When a container crashes, handle_agent_failure() is called."""
         mock_monotonic.return_value = 0.0
 
+        # Crashed container is a non-producer (reviewer_code) so the
+        # producer-death short-circuit (#2806) does not preempt the
+        # handle_agent_failure path under test.
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
             _make_execution(AgentRole.TESTER, "tester-1"),
         ]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-999-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
                 status=ContainerStatus.FAILED,
                 exit_code=137,
                 exited_at=datetime.now(UTC),
@@ -759,7 +1025,7 @@ class TestMixedScenarios:
         mock_executor_instance.check_consensus.return_value = {
             "is_complete": False,
             "has_objections": False,
-            "blocking_agents": ["coder"],
+            "blocking_agents": ["reviewer_code"],
         }
         MockExecutor.return_value = mock_executor_instance
 
@@ -777,7 +1043,7 @@ class TestMixedScenarios:
 
         assert exit_code == 1
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 137",
         )
 
@@ -794,6 +1060,11 @@ class TestMixedScenarios:
 
         Issue #1495: consensus is the authoritative success signal — container
         failures should not override it when consensus is_complete=True.
+
+        After #2806, a non-clean exit on a *producer* hard-fails the pipeline,
+        so this test uses a non-producer (reviewer_code) for the OOM case —
+        the consensus-overrides-failure invariant still applies on the
+        reviewer-failure path that handle_agent_failure recovers.
         """
         poll_count = [0]
 
@@ -803,14 +1074,14 @@ class TestMixedScenarios:
         mock_monotonic.side_effect = _monotonic
 
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
             _make_execution(AgentRole.TESTER, "tester-1"),
         ]
 
-        # Coder exits 137 (OOM kill) immediately; tester stays running
-        failed_coder = ContainerInfo(
-            container_id="coder-1",
-            container_name="issue-999-coder",
+        # Reviewer exits 137 (OOM kill) immediately; tester stays running.
+        failed_reviewer = ContainerInfo(
+            container_id="reviewer-1",
+            container_name="issue-999-reviewer_code",
             status=ContainerStatus.FAILED,
             exit_code=137,
             exited_at=datetime.now(UTC),
@@ -823,8 +1094,8 @@ class TestMixedScenarios:
         )
 
         def _get_info(cid):
-            if cid == "coder-1":
-                return failed_coder
+            if cid == "reviewer-1":
+                return failed_reviewer
             return running_tester
 
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
@@ -832,7 +1103,7 @@ class TestMixedScenarios:
 
         def _check_consensus():
             poll_count[0] += 1
-            # After handle_agent_failure removes coder, tester alone reaches consensus
+            # After handle_agent_failure removes reviewer, tester alone reaches consensus
             if poll_count[0] >= 2:
                 return {"is_complete": True, "has_objections": False, "blocking_agents": []}
             return {"is_complete": False, "has_objections": False, "blocking_agents": ["tester"]}
@@ -858,9 +1129,9 @@ class TestMixedScenarios:
         # Even though a container failed (OOM), consensus was reached so
         # the phase should succeed (exit 0).
         assert exit_code == 0
-        # handle_agent_failure should have been called for the crashed coder
+        # handle_agent_failure should have been called for the crashed reviewer
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
-            role="coder",
+            role="reviewer_code",
             error="Container exited with code 137",
         )
 

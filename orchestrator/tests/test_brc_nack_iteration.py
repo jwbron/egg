@@ -433,9 +433,14 @@ class TestIncompleteConsensusWithFailures:
 
         mock_monotonic.return_value = 0.0
 
+        # The non-zero exit is on a non-producer (reviewer_code_holistic) so
+        # the #2806 producer-death short-circuit does not fire before the
+        # HITL-escalation path runs. The unresolved-NACK target is still
+        # "coder" so the test's assertions about the surfaced reason
+        # ("Run-loop wire-up missing") continue to hold.
         executions = [
             _make_execution(AgentRole.CODER, "coder-1"),
-            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+            _make_execution(AgentRole.REVIEWER_CODE_HOLISTIC, "reviewer-1"),
         ]
 
         container_infos = {
@@ -443,14 +448,14 @@ class TestIncompleteConsensusWithFailures:
                 container_id="coder-1",
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
-                exit_code=1,
+                exit_code=0,
                 exited_at=datetime.now(UTC),
             ),
             "reviewer-1": ContainerInfo(
                 container_id="reviewer-1",
-                container_name="issue-999-reviewer_code",
+                container_name="issue-999-reviewer_code_holistic",
                 status=ContainerStatus.EXITED,
-                exit_code=0,
+                exit_code=1,
                 exited_at=datetime.now(UTC),
             ),
         }
@@ -520,11 +525,16 @@ class TestIncompleteConsensusWithFailures:
 
         mock_monotonic.return_value = 0.0
 
-        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        # Failing container is a non-producer (reviewer_code_holistic) so the
+        # producer-death short-circuit (#2806) does not preempt the HITL
+        # escalation path under test. The blocking_agents list still names
+        # "coder"/"reviewer_code" — those are the consensus blockers, not
+        # the failing container.
+        executions = [_make_execution(AgentRole.REVIEWER_CODE_HOLISTIC, "reviewer-1")]
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-999-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code_holistic",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
                 exited_at=datetime.now(UTC),

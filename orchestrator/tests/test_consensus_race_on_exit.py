@@ -160,32 +160,36 @@ class TestConsensusRaceOnContainerExit:
         (step 2), then all containers exit with code 1. The final consensus
         re-check (added by the fix) returns is_complete=True. The phase should
         return exit code 0.
+
+        All failing containers are non-producers (reviewers) so the
+        producer-death short-circuit (#2806) does not preempt the final
+        consensus re-check that this race-condition test exercises.
         """
         mock_monotonic.return_value = 10.0
 
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
-            _make_execution(AgentRole.TESTER, "tester-1"),
-            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-code-1"),
+            _make_execution(AgentRole.REVIEWER_SECURITY, "reviewer-sec-1"),
+            _make_execution(AgentRole.REVIEWER_CONCURRENCY, "reviewer-conc-1"),
         ]
 
         # All containers have already exited with non-zero codes
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-1564-coder",
+            "reviewer-code-1": ContainerInfo(
+                container_id="reviewer-code-1",
+                container_name="issue-1564-reviewer_code",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
-            "tester-1": ContainerInfo(
-                container_id="tester-1",
-                container_name="issue-1564-tester",
+            "reviewer-sec-1": ContainerInfo(
+                container_id="reviewer-sec-1",
+                container_name="issue-1564-reviewer_security",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
-            "reviewer-1": ContainerInfo(
-                container_id="reviewer-1",
-                container_name="issue-1564-reviewer",
+            "reviewer-conc-1": ContainerInfo(
+                container_id="reviewer-conc-1",
+                container_name="issue-1564-reviewer_concurrency",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
@@ -202,7 +206,11 @@ class TestConsensusRaceOnContainerExit:
                 return {
                     "is_complete": False,
                     "has_objections": False,
-                    "blocking_agents": ["coder", "tester", "reviewer_code"],
+                    "blocking_agents": [
+                        "reviewer_code",
+                        "reviewer_security",
+                        "reviewer_concurrency",
+                    ],
                 }
             return {
                 "is_complete": True,
@@ -321,24 +329,29 @@ class TestConsensusRaceOnContainerExit:
         mock_sleep,
     ):
         """When the final re-check succeeds, _update_agents_complete and
-        _stop_running_containers should be invoked (same as step 2 path)."""
+        _stop_running_containers should be invoked (same as step 2 path).
+
+        Uses non-producer roles for the failing containers so the
+        producer-death short-circuit (#2806) does not preempt the final
+        re-check path under test.
+        """
         mock_monotonic.return_value = 10.0
 
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
-            _make_execution(AgentRole.TESTER, "tester-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-code-1"),
+            _make_execution(AgentRole.REVIEWER_SECURITY, "reviewer-sec-1"),
         ]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-1564-coder",
+            "reviewer-code-1": ContainerInfo(
+                container_id="reviewer-code-1",
+                container_name="issue-1564-reviewer_code",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
-            "tester-1": ContainerInfo(
-                container_id="tester-1",
-                container_name="issue-1564-tester",
+            "reviewer-sec-1": ContainerInfo(
+                container_id="reviewer-sec-1",
+                container_name="issue-1564-reviewer_security",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
@@ -354,7 +367,7 @@ class TestConsensusRaceOnContainerExit:
                 return {
                     "is_complete": False,
                     "has_objections": False,
-                    "blocking_agents": ["coder"],
+                    "blocking_agents": ["reviewer_code"],
                 }
             return {
                 "is_complete": True,
@@ -399,17 +412,21 @@ class TestConsensusRaceOnContainerExit:
         mock_sleep,
     ):
         """When the final re-check succeeds and the pipeline was externally
-        marked FAILED, the status should be recovered to RUNNING."""
+        marked FAILED, the status should be recovered to RUNNING.
+
+        Uses a non-producer role so the producer-death short-circuit (#2806)
+        does not preempt the recovery path under test.
+        """
         mock_monotonic.return_value = 10.0
 
         executions = [
-            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
         ]
 
         container_infos = {
-            "coder-1": ContainerInfo(
-                container_id="coder-1",
-                container_name="issue-1564-coder",
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-1564-reviewer_code",
                 status=ContainerStatus.EXITED,
                 exit_code=1,
             ),
@@ -429,7 +446,7 @@ class TestConsensusRaceOnContainerExit:
                 return {
                     "is_complete": False,
                     "has_objections": False,
-                    "blocking_agents": ["coder"],
+                    "blocking_agents": ["reviewer_code"],
                 }
             return {
                 "is_complete": True,

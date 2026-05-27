@@ -21,16 +21,21 @@ state — so it should be rare.
 If the agent exits without reaching CONFIRMED state in the BRC protocol,
 the wrapper restarts the agent with a prompt that explains what happened and
 instructs it to assess state, then continue the BRC protocol. Restarts
-are capped at ``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting
+are capped at ``MAX_CONSENSUS_RESTARTS`` (default 3). After exhausting
 restarts the wrapper exits with code 1 so the orchestrator's failure path
-handles escalation.
+handles escalation (Option A — producer permanent death transitions the
+pipeline to FAILED; see issue #2806). Each restart also publishes an
+``OVERSEER_ALERT`` so the operator sees every recovery attempt rather than
+only learning about the cohort after the wrapper gives up.
 """
 
 import shlex
 
 # Default maximum number of times the wrapper will restart the agent after a
-# clean exit without consensus being reached.
-MAX_CONSENSUS_RESTARTS = 2
+# clean exit without consensus being reached. Bumped from 2 → 3 per issue
+# #2806 to give one more recovery attempt before the orchestrator hard-fails
+# the pipeline on producer permanent death.
+MAX_CONSENSUS_RESTARTS = 3
 
 # Default maximum number of poll cycles to wait for consensus when the agent
 # already signaled READY. With a default poll interval of 30s, this gives
@@ -491,6 +496,23 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     fi
 
     cw_log "Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
+
+    # Issue #2806: publish an OVERSEER_ALERT on every restart so the operator
+    # sees recovery attempts in real time rather than only learning about a
+    # dead agent once the wrapper has fully exhausted retries. Best-effort —
+    # a failed alert must not block the restart itself.
+    if command -v egg-orch >/dev/null 2>&1 && [ -n "${{EGG_PIPELINE_ID:-}}" ]; then
+        ALERT_ROLE="${{AGENT_ROLE:-agent}}"
+        # ``timeout 5`` bounds wall-clock time so a stalled orchestrator
+        # cannot delay the restart itself (issue #2811 review).
+        timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID}}" \
+            --role "$ALERT_ROLE" \
+            --anomaly agent-restart \
+            --priority medium \
+            --summary "Agent ${{ALERT_ROLE}} restart $RESTART_COUNT/$MAX_RESTARTS" \
+            --detail "Consensus-wrapper restarted agent after a clean/transient exit without reaching CONFIRMED. After $MAX_RESTARTS restarts the pipeline will be marked FAILED (issue #2806)." \
+            >/dev/null 2>&1 || true
+    fi
 
     # Get current BRC state and NACK feedback for the recovery system prompt
     RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
