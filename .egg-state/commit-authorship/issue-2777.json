@@ -28,6 +28,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "355a7e3dd6cd58783a99052459e8c970f8612eb4": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T07:45:51.667752+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "3a3551cf3662746fc73a8c7730f0563b9732a79e": {
       "branch": "egg/issue-2777/work",
       "pipeline_id": "issue-2777",
@@ -76,6 +83,13 @@
       "registered_at": "2026-05-27T06:21:40.661740+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
+    },
+    "af2a0826a3239e7e816550e5f1955bbe89ddfebb": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T07:45:51.659614+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "c0118c24837a847b38560a30abff142ad21b5daa": {
       "branch": "egg/issue-2777/work",
