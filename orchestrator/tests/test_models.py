@@ -366,6 +366,63 @@ class TestPhaseExecution:
         assert restored.agent_exits[0].role == AgentRole.CODER
         assert restored.agent_exits[0].exit_code == 1
 
+    def test_legacy_hitl_feedback_migrates_to_operator_directive(self):
+        """A persisted hitl_feedback string is translated into operator_directives.
+
+        Pre-#2795 ``PhaseExecution`` carried a single ``hitl_feedback: str``
+        that the inline HITL handler and recovery path wrote and consumed.
+        #2795 replaced it with ``operator_directives``; without the migration,
+        Pydantic's default ``extra='ignore'`` would silently drop the
+        surviving value on the first load after deploy, losing the operator's
+        directive for any pipeline paused at a HITL gate.
+        """
+        raw = {
+            "phase": PipelinePhase.REFINE.value,
+            "hitl_feedback": "Drop the planner-scope sections.",
+            "hitl_review_cycles": 2,
+        }
+        restored = PhaseExecution.model_validate(raw)
+        assert len(restored.operator_directives) == 1
+        assert restored.operator_directives[0].feedback_text == "Drop the planner-scope sections."
+        # iteration_n is hitl_review_cycles - 1, matching the inline path.
+        assert restored.operator_directives[0].iteration_n == 1
+        # The legacy attribute is gone on the migrated model.
+        assert not hasattr(restored, "hitl_feedback")
+
+    def test_legacy_hitl_feedback_absent_or_empty_is_noop(self):
+        """No legacy field and an empty legacy field both leave directives unchanged."""
+        # Missing field — load is a plain construction.
+        restored = PhaseExecution.model_validate({"phase": PipelinePhase.REFINE.value})
+        assert restored.operator_directives == []
+
+        # Explicit empty string — treated as no-op, no synthetic directive.
+        restored = PhaseExecution.model_validate(
+            {"phase": PipelinePhase.REFINE.value, "hitl_feedback": ""}
+        )
+        assert restored.operator_directives == []
+
+    def test_legacy_hitl_feedback_appends_to_existing_directives(self):
+        """If operator_directives already has entries, migrated entry appends.
+
+        Guards against losing both pre-#2795 hitl_feedback and any
+        post-#2795 directives if a write path raced the migration.
+        """
+        raw = {
+            "phase": PipelinePhase.REFINE.value,
+            "hitl_review_cycles": 2,
+            "hitl_feedback": "Legacy directive",
+            "operator_directives": [
+                {"iteration_n": 0, "feedback_text": "Already-structured directive"},
+            ],
+        }
+        restored = PhaseExecution.model_validate(raw)
+        assert len(restored.operator_directives) == 2
+        assert restored.operator_directives[0].feedback_text == "Already-structured directive"
+        assert restored.operator_directives[1].feedback_text == "Legacy directive"
+        # Collides on iteration_n=1 because hitl_review_cycles=2 → 1, which
+        # doesn't conflict with the existing entry at iteration 0.
+        assert restored.operator_directives[1].iteration_n == 1
+
 
 class TestAgentExitInfo:
     """Tests for AgentExitInfo (issue #2205)."""

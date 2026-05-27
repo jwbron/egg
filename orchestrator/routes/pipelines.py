@@ -105,12 +105,14 @@ try:
         AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
+        ContainerInfo,
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
         HITLDecision,
         IterationSummary,
         OperatorDirective,
+        PhaseExecution,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -161,12 +163,14 @@ except ImportError:
         AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
+        ContainerInfo,
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
         HITLDecision,
         IterationSummary,
         OperatorDirective,
+        PhaseExecution,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -11949,8 +11953,11 @@ def _build_phase_iteration_context(
             ts = summary.completed_at.isoformat()
             lines.append(f"**Iteration {summary.iteration_n}** (completed {ts}):")
             if summary.final_proposal_commit:
+                # SHAs are pre-filtered by _build_iteration_summary_from_tracker
+                # (empty + RECONSTRUCTED_NO_SHA dropped before the dict is
+                # populated), so every value here is a real commit.
                 commit_parts = [
-                    f"{producer}={sha[:12]}" if sha else f"{producer}=<none>"
+                    f"{producer}={sha[:12]}"
                     for producer, sha in sorted(summary.final_proposal_commit.items())
                 ]
                 lines.append(f"- Final proposal commits: {', '.join(commit_parts)}")
@@ -11999,10 +12006,23 @@ def _build_iteration_summary_from_tracker(
         matrix = getattr(tracker, "matrix", None)
         if matrix is None:
             return summary
-        entries = getattr(matrix, "_entries", {})
+        # Snapshot the matrix entries + commit SHAs under the tracker's
+        # lock so concurrent mutations from a still-live tracker can't
+        # tear the read. RLock means re-entry is safe if callers already
+        # hold it. Iteration below runs on the local copies.
+        lock = getattr(tracker, "_lock", None)
+        commits_snapshot: dict[str, str] = {}
+        if lock is not None:
+            with lock:
+                entries_snapshot = list(getattr(matrix, "_entries", {}).items())
+                commits_snapshot = dict(getattr(tracker, "_proposal_commit_shas", {}))
+        else:
+            entries_snapshot = list(getattr(matrix, "_entries", {}).items())
+            commits_snapshot = dict(getattr(tracker, "_proposal_commit_shas", {}))
+
         verdict_matrix: dict[str, str] = {}
         nack_reasons: list[str] = []
-        for (reviewer, producer), entry in entries.items():
+        for (reviewer, producer), entry in entries_snapshot:
             state = getattr(entry, "state", None)
             state_val = state.value if state is not None else "unknown"
             verdict_matrix[f"{reviewer}->{producer}"] = state_val
@@ -12011,13 +12031,10 @@ def _build_iteration_summary_from_tracker(
         summary.verdict_matrix = verdict_matrix
         summary.nack_reasons = nack_reasons
 
-        producers = {producer for _, producer in entries.keys()}
+        producers = {producer for _, producer in (k for k, _ in entries_snapshot)}
         commits: dict[str, str] = {}
         for producer in producers:
-            try:
-                sha = tracker.get_proposal_commit_sha(producer)
-            except Exception:
-                sha = ""
+            sha = commits_snapshot.get(producer, "")
             if sha and sha != "RECONSTRUCTED_NO_SHA":
                 commits[producer] = sha
         summary.final_proposal_commit = commits
@@ -12028,6 +12045,47 @@ def _build_iteration_summary_from_tracker(
             error=str(e),
         )
     return summary
+
+
+def _apply_inline_hitl_kickback_to_phase(
+    phase_execution: PhaseExecution,
+    revision_feedback: str,
+    tracker: Any = None,
+) -> list[ContainerInfo]:
+    """Apply the inline HITL kickback's phase-state mutations.
+
+    Extracted from the inline ``request_changes`` handler so tests can
+    drive the assertion through production code rather than constructing
+    a fixture by hand (#2795 review). The caller is still responsible for
+    the wrapping concerns: clearing the message store + consensus tracker
+    via ``_clear_concurrent_state``, persisting the pipeline via
+    ``store.save_pipeline``, and stopping the stale containers returned
+    here (the K8s delete is asynchronous so an explicit stop is required
+    to avoid iteration N+1 racing iteration N's still-terminating pods).
+
+    Returns the snapshot of containers that were running at kickback
+    time, for the caller to issue the defensive stop on.
+    """
+    iteration_n = len(phase_execution.iteration_history)
+    phase_execution.operator_directives.append(
+        OperatorDirective(
+            iteration_n=iteration_n,
+            feedback_text=revision_feedback,
+        )
+    )
+    phase_execution.iteration_history.append(
+        _build_iteration_summary_from_tracker(
+            tracker,
+            iteration_n=iteration_n,
+            artifacts=phase_execution.artifacts,
+        )
+    )
+    stale_containers = list(phase_execution.containers)
+    phase_execution.containers = []
+    phase_execution.agents = []
+    phase_execution.artifacts = {}
+    phase_execution.review_cycles = 0
+    return stale_containers
 
 
 def _build_phase_prompt(
@@ -13979,6 +14037,38 @@ def _build_agent_prompt(
             )
         return base_prompt
 
+    if role_value.startswith("reviewer_"):
+        # Reviewer prompts are fully built by _build_review_prompt with its
+        # own criteria/verdict format + iteration-context wiring; we don't
+        # accumulate the role-shared ``lines`` block for them. Dispatching
+        # here (rather than mid-function with an early return) prevents
+        # future drift where a "must always be included" line is added to
+        # the accumulation and silently never reaches reviewers (#2795).
+        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
+        review_prompt = _build_review_prompt(
+            phase=phase,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            reviewer_type=reviewer_type,
+            issue_number=issue_number,
+            review_cycle=review_cycle + 1,
+            prior_feedback=review_feedback,
+            repo_path=repo_path,
+            base_branch=base_branch,
+            concurrent=concurrent,
+            operator_directives=operator_directives,
+            iteration_history=iteration_history,
+        )
+        if concurrent:
+            review_prompt += "\n" + _build_brc_preamble(
+                role_value,
+                phase,
+                repo=repo,
+                branch=branch,
+                base_branch=base_branch,
+            )
+        return review_prompt
+
     # Build context header (shared across all roles)
     lines = [f"You are the **{role_value.upper()}** agent in the **{phase}** phase.\n"]
     lines.append("## Context\n")
@@ -14673,32 +14763,6 @@ def _build_agent_prompt(
                 "",
             ]
         )
-    elif role_value.startswith("reviewer_"):
-        # Delegate to the detailed review prompt with criteria and verdict format
-        reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
-        review_prompt = _build_review_prompt(
-            phase=phase,
-            pipeline_id=pipeline_id,
-            pipeline_mode=pipeline_mode,
-            reviewer_type=reviewer_type,
-            issue_number=issue_number,
-            review_cycle=review_cycle + 1,
-            prior_feedback=review_feedback,
-            repo_path=repo_path,
-            base_branch=base_branch,
-            concurrent=concurrent,
-            operator_directives=operator_directives,
-            iteration_history=iteration_history,
-        )
-        if concurrent:
-            review_prompt += "\n" + _build_brc_preamble(
-                role_value,
-                phase,
-                repo=repo,
-                branch=branch,
-                base_branch=base_branch,
-            )
-        return review_prompt
     else:
         lines.extend(
             [
@@ -23093,14 +23157,6 @@ def _run_pipeline(
                             # string. Both lists accumulate across kickbacks so
                             # iteration N+1's prompts can render them with
                             # explicit precedence prose.
-                            iteration_n = phase_execution.hitl_review_cycles - 1
-                            phase_execution.operator_directives.append(
-                                OperatorDirective(
-                                    iteration_n=iteration_n,
-                                    feedback_text=_revision_feedback,
-                                )
-                            )
-
                             # Capture the BRC tracker state BEFORE
                             # _clear_concurrent_state drops it — that's our
                             # only chance to snapshot iteration N's verdicts
@@ -23118,13 +23174,6 @@ def _run_pipeline(
                                     pipeline_id=pipeline_id,
                                     error=str(tracker_err),
                                 )
-                            phase_execution.iteration_history.append(
-                                _build_iteration_summary_from_tracker(
-                                    _kickback_tracker,
-                                    iteration_n=iteration_n,
-                                    artifacts=phase_execution.artifacts,
-                                )
-                            )
 
                             # Defensive teardown of iteration N's containers
                             # before we reset and respawn (#2795). The
@@ -23133,15 +23182,11 @@ def _run_pipeline(
                             # asynchronous — calling stop_container again here
                             # is idempotent and guarantees iteration N+1 will
                             # not race iteration N's still-terminating pods.
-                            _kickback_stale_containers = list(phase_execution.containers)
-
-                            # Reset containers/agents/artifacts so the re-run
-                            # starts clean, resetting the same container/agent/
-                            # artifact fields that the recovery path resets.
-                            phase_execution.containers = []
-                            phase_execution.agents = []
-                            phase_execution.artifacts = {}
-                            phase_execution.review_cycles = 0
+                            _kickback_stale_containers = _apply_inline_hitl_kickback_to_phase(
+                                phase_execution,
+                                _revision_feedback,
+                                tracker=_kickback_tracker,
+                            )
 
                             # Clear message store and consensus tracker so the
                             # re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED
@@ -24147,7 +24192,11 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # this snapshot will typically have empty verdict
                     # detail — but the iteration index + artifacts are
                     # still useful context for iteration N+1's prompts.
-                    _recovery_iteration_n = phase_execution.hitl_review_cycles
+                    # Derive iteration_n from len(iteration_history) so it
+                    # stays monotone — the cycle counter is reset to 0 a
+                    # few lines below, which would otherwise collide with
+                    # subsequent inline-path kickbacks (#2795 review).
+                    _recovery_iteration_n = len(phase_execution.iteration_history)
                     _recovery_tracker = None
                     try:
                         from peer_consensus import (

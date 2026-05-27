@@ -5929,6 +5929,7 @@ class TestPhaseIterationContext:
     def test_iteration_summary_from_live_tracker(self):
         """Snapshot pulls verdict matrix + NACK reasons + producer SHAs."""
         from approval_matrix import ApprovalState
+        from attestation_schemas import AttestationStrictness
         from peer_consensus import PeerConsensusTracker
         from review_graph import ReviewEdge, ReviewGraph
 
@@ -5938,22 +5939,40 @@ class TestPhaseIterationContext:
                 ReviewEdge(reviewer_role="reviewer_agent_design", producer_role="refiner"),
             ]
         )
-        tracker = PeerConsensusTracker("pid-x", graph)
+        # RELAXED strictness so handle_propose accepts a minimal payload
+        # without requiring full role-specific attestation. cooldown=0 so
+        # ACK/NACK ordering isn't gated on real time.
+        tracker = PeerConsensusTracker(
+            "pid-x",
+            graph,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            cooldown_seconds=0,
+        )
         tracker.register_agent("refiner")
         tracker.register_agent("reviewer_refine")
         tracker.register_agent("reviewer_agent_design")
-        tracker.matrix.record_proposal("refiner")
-        tracker._proposal_commit_shas["refiner"] = "abc123def456"
-        tracker.matrix.record_nack(
-            reviewer="reviewer_refine",
-            producer="refiner",
-            version=1,
-            reason="missing planner sections",
+        # Drive through the public API rather than reaching into
+        # tracker._proposal_commit_shas (#2795 review).
+        tracker.handle_propose(
+            "refiner",
+            {
+                "summary": "Refine draft proposed",
+                "artifacts": [".egg-state/drafts/refine.md"],
+                "commit_sha": "abc123def456",
+            },
         )
-        tracker.matrix.record_ack(
-            reviewer="reviewer_agent_design",
-            producer="refiner",
-            version=1,
+        tracker.handle_nack(
+            "reviewer_refine",
+            "refiner",
+            {
+                "artifact_references": [".egg-state/drafts/refine.md"],
+                "reason": "missing planner sections",
+            },
+        )
+        tracker.handle_ack(
+            "reviewer_agent_design",
+            "refiner",
+            {"artifact_references": [".egg-state/drafts/refine.md"]},
         )
 
         summary = _build_iteration_summary_from_tracker(

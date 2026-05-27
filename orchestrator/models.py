@@ -469,6 +469,62 @@ class PhaseExecution(BaseModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_hitl_feedback(cls, data: Any) -> Any:
+        """Migrate persisted ``hitl_feedback`` strings to ``operator_directives``.
+
+        Before #2795 ``PhaseExecution`` carried a single ``hitl_feedback: str``
+        that the inline HITL handler and AWAITING_HUMAN recovery path each
+        wrote and consumed. #2795 replaces it with the chronological
+        ``operator_directives`` list. Pydantic's default ``extra='ignore'``
+        would silently drop a surviving ``hitl_feedback`` value on the first
+        load after deploy — for a pipeline paused at a HITL gate with the
+        operator's directive already on disk, that means the directive is
+        lost with no log, warning, or error.
+
+        Translate any non-empty ``hitl_feedback`` into a synthetic
+        ``OperatorDirective`` so the directive survives the deploy, and emit
+        a one-shot deprecation log so operators see the migration happen.
+        """
+        if not isinstance(data, dict):
+            return data
+        legacy = data.pop("hitl_feedback", None)
+        if not legacy:
+            return data
+
+        directives = list(data.get("operator_directives", []))
+        # Synthesize the directive at the iteration index implied by the
+        # cycle counter (the inline handler's old behaviour wrote
+        # hitl_feedback after incrementing hitl_review_cycles). Fall back
+        # to len(operator_directives) if the counter is unavailable so
+        # the index still increases monotonically with each migration.
+        hitl_cycles = data.get("hitl_review_cycles", 0) or 0
+        iteration_n = max(hitl_cycles - 1, 0)
+        if any(isinstance(d, dict) and d.get("iteration_n") == iteration_n for d in directives):
+            # Avoid collisions if a writer somehow populated both fields.
+            iteration_n = len(directives)
+        directives.append(
+            {
+                "iteration_n": iteration_n,
+                "feedback_text": legacy,
+            }
+        )
+        data["operator_directives"] = directives
+        # Best-effort import to avoid pulling logger eagerly in model module.
+        try:
+            import logging as _logging
+
+            _logging.getLogger("orchestrator.models").warning(
+                "Migrated legacy PhaseExecution.hitl_feedback to operator_directives "
+                "(phase=%s, iteration_n=%s); the hitl_feedback field is removed in #2795.",
+                data.get("phase"),
+                iteration_n,
+            )
+        except Exception:  # noqa: BLE001 — migration must not fail on logging
+            pass
+        return data
+
 
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
