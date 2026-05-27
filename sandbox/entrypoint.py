@@ -722,17 +722,40 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     A placeholder OAuth token is set to satisfy Claude Code's startup validation.
     The gateway strips this placeholder and injects real credentials.
 
-    Reference: PR #701 - ANTHROPIC_BASE_URL credential injection plan
+    Security note: when ``EGG_SESSION_TOKEN`` is set (the k8s/Compose
+    orchestrator path), the placeholder envelope embeds the session
+    token verbatim. The token therefore appears in *two* env vars
+    inside the sandbox — ``EGG_SESSION_TOKEN`` and
+    ``CLAUDE_CODE_OAUTH_TOKEN``. Net attack surface is unchanged (any
+    in-sandbox process that could read one could already read the
+    other) and Claude Code requires the placeholder in this env var,
+    but readers grepping for the session secret should know it lives
+    in both places.
+
+    Reference: PR #701 - ANTHROPIC_BASE_URL credential injection plan;
+    issue #2829 - token-keyed session lookup in /v1/messages proxy.
     """
     gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
 
-    # Placeholder OAuth token to satisfy Claude Code's startup validation
-    # Must match sk-ant-oat01-* format for Claude Code to accept it
-    # Gateway strips this and injects real credentials from secrets.env
-    oauth_placeholder = (
-        "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
-        "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
-    )
+    # Placeholder OAuth token to satisfy Claude Code's startup validation.
+    # Must match sk-ant-oat01-* format for Claude Code to accept it.
+    # Gateway strips this and injects real credentials.
+    #
+    # When EGG_SESSION_TOKEN is present (k8s + Compose orchestrator paths)
+    # the placeholder wraps the session token so the gateway's /v1/messages
+    # proxy can identify the session from the request header rather than
+    # falling back to ephemeral pod-IP lookup (issue #2829). The static
+    # fallback covers dev/host flows where no session has been registered.
+    session_token = os.environ.get("EGG_SESSION_TOKEN")
+    if session_token:
+        from egg_session_placeholder import to_placeholder
+
+        oauth_placeholder = to_placeholder(session_token)
+    else:
+        oauth_placeholder = (
+            "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
+            "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
+        )
 
     # Set ANTHROPIC_BASE_URL to route API calls through gateway
     os.environ["ANTHROPIC_BASE_URL"] = gateway_url

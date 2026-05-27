@@ -813,17 +813,13 @@ class KubernetesSpawner:
                 "NO_PROXY": "gateway.egg-system.svc.cluster.local,orchestrator.egg-system.svc.cluster.local",
                 "AGENT_ANCHOR_ID": agent_anchor_id,
                 # Route Anthropic API calls through the gateway for
-                # credential injection. Matches what sandbox/entrypoint.py
-                # sets in the Compose flow — the placeholder token is a
-                # deliberately-invalid string that satisfies Claude CLI's
-                # local "am I logged in" check; the gateway strips it and
-                # injects the real credential server-side. Real credentials
-                # never enter the sandbox environment.
+                # credential injection. The sandbox's setup_anthropic_api
+                # derives CLAUDE_CODE_OAUTH_TOKEN from EGG_SESSION_TOKEN at
+                # boot (issue #2829) — a placeholder envelope around the
+                # session token so the gateway's /v1/messages proxy can
+                # identify the session from the request header. Real
+                # credentials never enter the sandbox environment.
                 "ANTHROPIC_BASE_URL": GATEWAY_K8S_URL,
-                "CLAUDE_CODE_OAUTH_TOKEN": (
-                    "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
-                    "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
-                ),
             }
             if session_token:
                 environment["EGG_SESSION_TOKEN"] = session_token
