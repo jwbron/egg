@@ -331,10 +331,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Are there other related issues you want bundled into this cleanup that aren't already in the 'Related' list? Specifically: #2570 (work branch rebased onto main breaks isolation — interacts with `context PR = work→main`), #2627 (sibling case: draft missing on both local AND origin), #2409 (slice-scoped consensus trackers can't reconstruct after orchestrator restart). Each looks structurally adjacent; should any be folded in?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "BLE001 swallow-all handlers (20 of them in the slice code at lines 15131, 15196, 15274, 15336, 15386, 15422, 15451, 15471, 15501, 15709, 15742, 15775, 15795, 15841, 15901, 15910, 15946, 15964, 16080, 16105). Preferred approach: (a) audit each individually and replace with specific exception types where the call's failure modes are knowable; (b) leave them alone (they paper over genuine third-party flakiness that we don't want to crash the slice loop on); or (c) replace with a single typed `SliceLoopRecoverableError` and a uniform structured-log handler? Or do you have a different preferred shape?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "9 `except ImportError` dual-path import shims (lines 15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034, 16209). These exist for `from orchestrator.X import Y` vs `from X import Y` (in-package vs flat-layout). The shims are at module-load time, so they almost certainly always take the same branch in production. Is there a reason to keep them (test harness compatibility?), or are they safe to collapse to a single canonical import?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "What's the acceptance bar for 'the trigger bug is fixed'? Should this cleanup include an integration test that exercises the slice-DAG pipeline → context PR open → context PR missing → PR-phase backstop opens it path, or is the structural deletion sufficient given the design becomes idempotent-by-construction?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Are there pipelines currently in flight (slice-DAG, RUNNING) that this cleanup must remain compatible with during deployment? If yes, that constrains the schema migration choice in cq-2 and the dead-code removal choice in cq-3.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-27T05:44:48.636861Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-27T05:07:27.593505Z",
-  "updated_at": "2026-05-27T05:44:48.606570Z",
+  "updated_at": "2026-05-27T05:44:48.644924Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -347,7 +387,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
