@@ -142,6 +142,10 @@ make build
 host-side LiteLLM backend overlay from `~/.config/egg/litellm-models.yaml` (no-op if the file is absent).
 See the [Per-Agent Models guide](per-agent-models.md) for the overlay format.
 
+If you invoke `make litellm-config` standalone before the cluster has been deployed, the target
+also short-circuits with a notice when the in-cluster `litellm-config` ConfigMap is not yet present —
+run `make deploy` first so the base ConfigMap exists, then re-run `make litellm-config` to overlay.
+
 **Override at deploy time:**
 
 ```bash
