@@ -1261,14 +1261,23 @@ class TestSyncPipelineDecisionsToContract:
 class TestInlineRequestChangesStateReset:
     """Verify that inline request_changes resets phase state like the recovery path.
 
-    The inline path (inside _run_pipeline's HITL gate loop) must store
-    hitl_feedback and reset containers/agents/artifacts so the re-run
-    starts clean, matching the AWAITING_HUMAN recovery path in start_pipeline.
+    The inline path (inside _run_pipeline's HITL gate loop) must append
+    a structured OperatorDirective (#2795) and reset containers/agents/
+    artifacts so the re-run starts clean, matching the AWAITING_HUMAN
+    recovery path in start_pipeline.
     """
 
     def test_inline_rerun_resets_state_fields(self):
-        """The re-run (else) branch should reset containers/agents/artifacts/review_cycles."""
+        """The re-run (else) branch should reset containers/agents/artifacts/review_cycles.
+
+        Drives the assertion through the production helper
+        ``_apply_inline_hitl_kickback_to_phase`` so the test exercises the
+        same mutations the inline kickback handler runs (#2795 review).
+        Fixture-only setup that does not call the production code would
+        pass by construction and miss future regressions in the handler.
+        """
         from models import AgentExecution, ContainerInfo, ContainerStatus
+        from routes.pipelines import _apply_inline_hitl_kickback_to_phase
 
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
         phase.status = PipelineStatus.COMPLETE
@@ -1282,24 +1291,89 @@ class TestInlineRequestChangesStateReset:
         phase.agents = [AgentExecution(role="coder")]
         phase.artifacts = {"pr_url": "https://github.com/old"}
         phase.review_cycles = 2
-
-        # Simulate the re-run (else) branch of the inline request_changes handler.
-        # The reset only happens when the circuit breaker does NOT trip.
+        # The caller (the inline handler) does these two before invoking the
+        # helper, so mirror it here.
         phase.status = PipelineStatus.RUNNING
         phase.completed_at = None
         phase.hitl_review_cycles += 1
-        phase.hitl_feedback = "Fix the tests"
-        phase.containers = []
-        phase.agents = []
-        phase.artifacts = {}
-        phase.review_cycles = 0
 
-        assert phase.hitl_feedback == "Fix the tests"
+        stale = _apply_inline_hitl_kickback_to_phase(
+            phase,
+            revision_feedback="Fix the tests",
+            tracker=None,
+        )
+
+        # The helper returns the snapshot of containers that were running
+        # at kickback time so the caller can issue defensive stop calls.
+        assert len(stale) == 1
+        assert stale[0].container_id == "old-ctr"
+
+        # Directive + iteration summary are appended.
+        assert phase.operator_directives[-1].feedback_text == "Fix the tests"
+        assert phase.operator_directives[-1].iteration_n == 0
+        assert len(phase.iteration_history) == 1
+        assert phase.iteration_history[-1].iteration_n == 0
+        # Phase state is reset for the re-run.
         assert phase.containers == []
         assert phase.agents == []
         assert phase.artifacts == {}
         assert phase.review_cycles == 0
         assert phase.hitl_review_cycles == 1
+
+    def test_inline_rerun_iteration_n_is_monotone(self):
+        """iteration_n derives from len(iteration_history) so it monotonically increases.
+
+        Guards against the inline path drifting back to
+        ``hitl_review_cycles - 1`` after the AWAITING_HUMAN recovery path
+        resets that counter to 0 (#2795 review).
+        """
+        from routes.pipelines import _apply_inline_hitl_kickback_to_phase
+
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        # Caller sets these before invoking the helper each kickback.
+        phase.hitl_review_cycles = 1
+        _apply_inline_hitl_kickback_to_phase(phase, "first", tracker=None)
+        assert phase.operator_directives[-1].iteration_n == 0
+        assert phase.iteration_history[-1].iteration_n == 0
+
+        # Simulate the recovery path's counter reset, then another inline kickback.
+        phase.hitl_review_cycles = 1  # back to 1 after a recovery reset → 0 → +1
+        _apply_inline_hitl_kickback_to_phase(phase, "second", tracker=None)
+        # Without the len(history) fix this would collide on iteration_n=0.
+        assert phase.operator_directives[-1].iteration_n == 1
+        assert phase.iteration_history[-1].iteration_n == 1
+        assert len(phase.operator_directives) == 2
+        assert len(phase.iteration_history) == 2
+
+    def test_inline_rerun_iteration_n_monotone_across_legacy_migration(self):
+        """iteration_n stays monotone when a legacy hitl_feedback migration seeded the directive list.
+
+        Pre-#2795 phases load with a synthetic OperatorDirective at
+        ``iteration_n = hitl_review_cycles - 1`` but an empty
+        iteration_history. A naive ``len(iteration_history)`` derivation
+        for the next inline kickback would restart at 0 and label two
+        distinct iterations identically. The ``max(...)+1`` floor on the
+        existing directive indices keeps the rendering monotone.
+        """
+        from routes.pipelines import _apply_inline_hitl_kickback_to_phase
+
+        # Simulate post-migration state: synthetic directive at
+        # iteration_n=1 (from hitl_review_cycles=2) with empty history.
+        phase = PhaseExecution.model_validate(
+            {
+                "phase": PipelinePhase.PLAN.value,
+                "hitl_review_cycles": 2,
+                "hitl_feedback": "Legacy operator directive.",
+            }
+        )
+        assert phase.operator_directives[0].iteration_n == 1
+        assert phase.iteration_history == []
+
+        _apply_inline_hitl_kickback_to_phase(phase, "post-migration", tracker=None)
+        # Without the max(...)+1 floor this would collide at iteration_n=0
+        # (len(iteration_history) at call time was 0).
+        assert phase.operator_directives[-1].iteration_n == 2
+        assert phase.iteration_history[-1].iteration_n == 2
 
     def test_circuit_breaker_preserves_artifacts(self):
         """When the circuit breaker trips, containers/agents/artifacts must be preserved."""

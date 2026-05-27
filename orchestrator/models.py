@@ -360,6 +360,61 @@ class AgentExitInfo(BaseModel):
     )
 
 
+class OperatorDirective(BaseModel):
+    """An operator-issued directive recorded at an HITL phase-gate kickback.
+
+    Replaces the single ``PhaseExecution.hitl_feedback`` string with a
+    chronologically accumulated record. Each kickback on a phase appends
+    one ``OperatorDirective``; the list is never cleared, so iteration
+    N+1's prompt can render all prior directives in order with explicit
+    precedence prose. See issue #2795.
+    """
+
+    iteration_n: int = Field(
+        ..., ge=0, description="Zero-based index of the iteration this directive kicked back"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the operator issued the directive",
+    )
+    feedback_text: str = Field(..., description="Operator-provided feedback text")
+
+
+class IterationSummary(BaseModel):
+    """Frozen snapshot of a kicked-back iteration's BRC outcome.
+
+    Captured before ``_clear_concurrent_state`` wipes the consensus
+    tracker so reviewers in iteration N+1 can see what tripped the rubric
+    last round. See issue #2795.
+    """
+
+    iteration_n: int = Field(..., ge=0, description="Zero-based iteration index")
+    completed_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the iteration's consensus closed",
+    )
+    final_proposal_commit: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of producer role to final proposal commit SHA, if any",
+    )
+    verdict_matrix: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-edge BRC verdict at iteration close, keyed by "
+            "'reviewer_role->producer_role' → ApprovalState value "
+            "(e.g. 'acked', 'nacked')"
+        ),
+    )
+    nack_reasons: list[str] = Field(
+        default_factory=list,
+        description="Collected NACK rationales, prefixed by reviewer role",
+    )
+    artifacts_snapshot: dict[str, str] = Field(
+        default_factory=dict,
+        description="Snapshot of PhaseExecution.artifacts at iteration close",
+    )
+
+
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
@@ -383,9 +438,22 @@ class PhaseExecution(BaseModel):
         default_factory=dict, description="Produced artifacts (file paths)"
     )
     error: str | None = Field(default=None, description="Error if failed")
-    hitl_feedback: str | None = Field(
-        default=None,
-        description="HITL revision feedback preserved across recovery restarts",
+    operator_directives: list[OperatorDirective] = Field(
+        default_factory=list,
+        description=(
+            "Chronologically accumulated operator directives from HITL "
+            "phase-gate kickbacks. Never cleared — replaces the single "
+            "hitl_feedback string so iteration N+1 prompts can render "
+            "every prior directive with precedence prose. See #2795."
+        ),
+    )
+    iteration_history: list[IterationSummary] = Field(
+        default_factory=list,
+        description=(
+            "One entry per kicked-back iteration. Captured before "
+            "_clear_concurrent_state wipes the BRC tracker so future "
+            "iterations can see prior verdicts/NACK reasons. See #2795."
+        ),
     )
     phase_start_sha: str | None = Field(
         default=None,
@@ -400,6 +468,80 @@ class PhaseExecution(BaseModel):
             "source of truth while the phase is running. See issue #2205."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_hitl_feedback(cls, data: Any) -> Any:
+        """Migrate persisted ``hitl_feedback`` strings to ``operator_directives``.
+
+        Before #2795 ``PhaseExecution`` carried a single ``hitl_feedback: str``
+        that the inline HITL handler and AWAITING_HUMAN recovery path each
+        wrote and consumed. #2795 replaces it with the chronological
+        ``operator_directives`` list. Pydantic's default ``extra='ignore'``
+        would silently drop a surviving ``hitl_feedback`` value on the first
+        load after deploy — for a pipeline paused at a HITL gate with the
+        operator's directive already on disk, that means the directive is
+        lost with no log, warning, or error.
+
+        Translate any non-empty ``hitl_feedback`` into a synthetic
+        ``OperatorDirective`` so the directive survives the deploy, and emit
+        a one-shot deprecation log so operators see the migration happen.
+        """
+        if not isinstance(data, dict):
+            return data
+        # Normalise an explicit ``null`` for ``operator_directives`` to an
+        # empty list before any early return: Pydantic's
+        # ``default_factory=list`` does not prevent a writer from emitting a
+        # literal ``null``, and the non-Optional ``list[OperatorDirective]``
+        # field validation would then reject the record entirely. Doing
+        # this here covers both the no-legacy-feedback fast path and the
+        # migration branch below.
+        if "operator_directives" in data and data["operator_directives"] is None:
+            data["operator_directives"] = []
+        legacy = data.pop("hitl_feedback", None)
+        if not legacy:
+            return data
+
+        directives = list(data.get("operator_directives") or [])
+        # Synthesize the directive at the iteration index implied by the
+        # cycle counter (the inline handler's old behaviour wrote
+        # hitl_feedback after incrementing hitl_review_cycles). On
+        # collision with an existing entry, pick one past the current
+        # maximum so the floor is uniqueness regardless of how sparse
+        # the existing indices are (a ``len(directives)`` fallback can
+        # itself collide when entries are sparse — e.g. ``[0, 2]`` with
+        # primary collision at ``1`` would fall back to ``2``).
+        hitl_cycles = data.get("hitl_review_cycles", 0) or 0
+        iteration_n = max(hitl_cycles - 1, 0)
+        # The migration only sees raw JSON-loaded data, so entries are
+        # expected to be ``dict`` with an int ``iteration_n``. Any
+        # malformed entry (non-dict or non-int index) is silently skipped
+        # here from collision detection — downstream Pydantic field
+        # validation will reject it with a precise error rather than the
+        # migration trying to second-guess the shape.
+        existing_indices = [
+            d.get("iteration_n")
+            for d in directives
+            if isinstance(d, dict) and isinstance(d.get("iteration_n"), int)
+        ]
+        if iteration_n in existing_indices:
+            iteration_n = max(existing_indices) + 1
+        directives.append(
+            {
+                "iteration_n": iteration_n,
+                "feedback_text": legacy,
+            }
+        )
+        data["operator_directives"] = directives
+        import logging as _logging
+
+        _logging.getLogger("orchestrator.models").warning(
+            "Migrated legacy PhaseExecution.hitl_feedback to operator_directives "
+            "(phase=%s, iteration_n=%s); the hitl_feedback field is removed in #2795.",
+            data.get("phase"),
+            iteration_n,
+        )
+        return data
 
 
 class PipelineConfig(BaseModel):
