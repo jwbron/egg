@@ -9548,6 +9548,14 @@ def _resolve_proxy_session(
     (the routing bug) and disable private-mode web-tool filtering (the
     filter-bypass bug). Both were invisible at runtime before the fix.
 
+    Side effect: ``get_session`` delegates to ``validate_session``,
+    which calls ``session.extend_ttl`` on every successful lookup. The
+    proxy is therefore no longer a read-only consumer of the session —
+    each ``/v1/messages`` (or ``/count_tokens``) call bumps the
+    session's ``last_seen``, so active agent inference keeps the
+    session alive without a separate heartbeat. The legacy
+    ``get_session_by_ip`` fallback is still read-only.
+
     Returns ``(session_or_none, error_response_or_none)``. On error the
     caller MUST return the error response; on success ``session`` may
     be ``None`` for non-placeholder probes and the caller falls back
@@ -9560,11 +9568,12 @@ def _resolve_proxy_session(
     if placeholder_token:
         session = session_manager.get_session(placeholder_token)
         if session is None:
-            logger.warning(
-                "Session placeholder present but lookup missed",
-                event_type="session_lookup_miss",
-                remote_addr=remote_addr,
-            )
+            # ``validate_session`` (called via ``get_session``) already
+            # logs ``event_type=session_auth_failed`` with the token
+            # hash; emitting a second warning here would double-count
+            # any "auth failure rate" alert keyed off the first event.
+            # Caller's ``remote_addr`` shows up in standard request
+            # logs for correlation.
             return None, (
                 jsonify(
                     {

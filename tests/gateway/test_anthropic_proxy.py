@@ -2890,8 +2890,127 @@ class TestSessionLookupViaPlaceholder:
             )
 
             assert response.status_code == 200
-            sm.get_session_by_ip.assert_called_once()
+            # Pin the contract: ``_resolve_proxy_session`` passes
+            # ``remote_addr or ""``, and Flask's test client uses
+            # ``127.0.0.1`` as the default ``remote_addr``.
+            sm.get_session_by_ip.assert_called_once_with("127.0.0.1")
             assert mock_client.post.called
+
+    def test_count_tokens_resolves_via_placeholder(self, client):
+        """Bug 1 parity (issue #2829, #2769): the count_tokens endpoint
+        shares ``_resolve_proxy_session`` with ``/v1/messages`` and must
+        route per ``session.upstream`` looked up by token, not by IP.
+
+        ``proxy_count_tokens`` is independently registered, so even
+        though it calls the same helper, a regression of the call site
+        (e.g. forgetting to swap in the helper, or short-circuiting it)
+        wouldn't be caught by the ``/v1/messages`` tests alone.
+        """
+        from httpx import Headers
+
+        litellm_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"input_tokens": 7}).encode()
+        mock_response.status_code = 200
+        mock_response.headers = Headers([("content-type", "application/json")])
+        litellm_client.post.return_value = mock_response
+
+        anthropic_client = MagicMock()
+        anthropic_client.post.side_effect = AssertionError(
+            "Anthropic client must NOT be invoked for a LiteLLM-routed session"
+        )
+
+        def _registry_get(upstream):
+            if upstream == "litellm":
+                return (
+                    litellm_client,
+                    lambda: MagicMock(header_name="x-api-key", header_value="litellm-key"),
+                )
+            if upstream == "anthropic":
+                return (
+                    anthropic_client,
+                    lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-test"),
+                )
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+        fake_registry.is_known.return_value = True
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch(
+                "gateway.gateway.get_upstream_registry",
+                return_value=fake_registry,
+            ),
+            patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
+            patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="litellm-key"
+            )
+
+            sm = MagicMock()
+            # IP lookup MUST NOT resolve count_tokens either.
+            sm.get_session_by_ip.side_effect = AssertionError(
+                "count_tokens fell back to IP lookup when placeholder was present"
+            )
+            sm.get_session.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages/count_tokens",
+                data=json.dumps({"model": "opus", "messages": []}),
+                content_type="application/json",
+                headers={"x-api-key": self._placeholder("agent-qwen")},
+            )
+
+            assert response.status_code == 200
+            sm.get_session.assert_called_once_with("agent-qwen")
+            assert litellm_client.post.called, (
+                "LiteLLM client was not invoked for a LiteLLM-routed count_tokens session"
+            )
+
+    def test_count_tokens_placeholder_with_unknown_session_fails_closed(self, client):
+        """count_tokens parity for the fail-closed defense-in-depth rule.
+
+        A placeholder present but lookup-miss must 502, not silently
+        route to Anthropic — same invariant as ``/v1/messages``.
+        """
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_anthropic_client") as mock_anthropic_get,
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+
+            sm = MagicMock()
+            sm.get_session.return_value = None
+            mock_sm_get.return_value = sm
+
+            mock_anthropic_get.side_effect = AssertionError(
+                "Anthropic client must NOT be reached when placeholder session is unknown"
+            )
+
+            response = client.post(
+                "/v1/messages/count_tokens",
+                data=json.dumps({"model": "claude-3"}),
+                content_type="application/json",
+                headers={"x-api-key": self._placeholder("stale-token")},
+            )
+
+            assert response.status_code == 502, (
+                f"Unknown placeholder session must fail closed on count_tokens, "
+                f"got {response.status_code}: {response.data!r}"
+            )
 
     def test_private_session_strips_web_tools_via_placeholder(self, client):
         """Bug 2 (issue #2829): private-mode session resolved by token must
@@ -2999,12 +3118,9 @@ class TestSessionLookupViaPlaceholder:
             patch(
                 "gateway.gateway.get_upstream_registry",
                 return_value=fake_registry,
-                create=True,
             ),
             patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
-            patch(
-                "gateway.gateway.get_litellm_credentials_manager", create=True
-            ) as mock_litellm_get,
+            patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get,
         ):
             mock_creds_get.return_value.get_credential.return_value = MagicMock(
                 header_name="x-api-key", header_value="sk-ant-test"

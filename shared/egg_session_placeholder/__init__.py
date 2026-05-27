@@ -35,8 +35,12 @@ def from_placeholder(value: str | None) -> str | None:
     """
     if not value:
         return None
-    if value.startswith("Bearer "):
-        value = value[len("Bearer ") :]
+    # RFC 7235 §2.1: the auth scheme name is case-insensitive. Claude Code
+    # always sends ``Bearer `` capitalized, but accept any case so a future
+    # client that ships lowercase ``bearer `` doesn't silently fall through
+    # to IP-keyed lookup (and then fail closed on a non-IP-registered agent).
+    if value[:7].lower() == "bearer ":
+        value = value[7:]
     if value.startswith(PLACEHOLDER_PREFIX):
         return value[len(PLACEHOLDER_PREFIX) :] or None
     return None
