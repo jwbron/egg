@@ -2,11 +2,12 @@
 #
 # Copy this file to ~/.config/egg/litellm-models.yaml and edit. The
 # `make litellm-config` target (also invoked by `make deploy` /
-# `make redeploy`) reads from that path and applies it as a
-# strategic-merge patch onto the in-cluster `litellm-config` ConfigMap,
-# then rolls the LiteLLM Deployment to pick up the new config. If the
-# file is absent, the LiteLLM pod runs with the empty `model_list` from
-# `k8s/base/litellm-configmap.yaml` and serves no routed backends.
+# `make redeploy`) reads from that path and applies it as a JSON merge
+# patch (RFC 7396, via `kubectl patch --type=merge`) onto the in-cluster
+# `litellm-config` ConfigMap, then rolls the LiteLLM Deployment to pick
+# up the new config. If the file is absent, the LiteLLM pod runs with
+# the empty `model_list` from `k8s/base/litellm-configmap.yaml` and
+# serves no routed backends.
 #
 # IMPORTANT: this file is per-operator config — DO NOT COMMIT
 # ~/.config/egg/litellm-models.yaml.

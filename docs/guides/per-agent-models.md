@@ -262,19 +262,20 @@ cp config/litellm-models.template.yaml ~/.config/egg/litellm-models.yaml
 $EDITOR ~/.config/egg/litellm-models.yaml
 ```
 
-The file is a strategic-merge patch for the in-cluster `litellm-config`
-ConfigMap — its `data.config.yaml` replaces the empty default in full,
-so include both `model_list` and `general_settings`:
+The file is a JSON merge patch (RFC 7396, via `kubectl patch
+--type=merge`) for the in-cluster `litellm-config` ConfigMap — its
+`data.config.yaml` replaces the empty default in full, so include both
+`model_list` and `general_settings`:
 
 ```yaml
 # ~/.config/egg/litellm-models.yaml
 data:
   config.yaml: |
     model_list:
-      - model_name: qwen3-coder-30b
+      - model_name: qwen3-max
         litellm_params:
-          model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
-          api_key: os.environ/TOGETHER_API_KEY
+          model: openrouter/qwen/qwen3-max
+          api_key: os.environ/OPENROUTER_API_KEY
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
