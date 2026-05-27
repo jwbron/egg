@@ -1917,7 +1917,7 @@ def _chdir_to_single_repo(config: Config) -> None:
 
     The symlinks are container-local artifacts and must not be committed to
     user repositories — the target is an absolute container path
-    (``/home/agent/.claude/CLAUDE.md``) that would be broken on any host
+    (``/home/egg/.claude/CLAUDE.md``) that would be broken on any host
     checkout. ``_exclude_from_git()`` writes both names to
     ``.git/info/exclude`` so ``git status`` ignores them.
 
