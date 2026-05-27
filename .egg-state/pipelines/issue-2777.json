@@ -343,10 +343,10 @@
         {
           "container_id": "182a73d2-cb11-4017-b67f-ecf3bc9b77a8",
           "container_name": "egg-sandbox-egg-agent-issue-2777-slice-1-reviewer-code",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-05-27T16:02:38.222585Z",
-          "exited_at": "2026-05-27T16:49:45.451894Z",
-          "exit_code": null,
+          "exited_at": "2026-05-27T16:50:20.098270Z",
+          "exit_code": -1,
           "agent_role": "reviewer_code",
           "session_token": null,
           "pod_name": null,
@@ -455,10 +455,10 @@
           "container_info": null,
           "slice_id": "slice-1",
           "started_at": "2026-05-27T16:02:38.222587Z",
-          "completed_at": "2026-05-27T16:49:45.451894Z",
+          "completed_at": "2026-05-27T16:50:20.117880Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -1421,6 +1421,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-27T16:50:20.040946Z",
           "container_id": "e9029739-06a6-49a5-9be8-67bc168e75e8"
+        },
+        {
+          "role": "reviewer_code",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-27T16:50:20.117893Z",
+          "container_id": "182a73d2-cb11-4017-b67f-ecf3bc9b77a8"
         }
       ]
     }
@@ -1660,7 +1667,7 @@
     }
   ],
   "created_at": "2026-05-27T05:07:27.593505Z",
-  "updated_at": "2026-05-27T16:50:20.041171Z",
+  "updated_at": "2026-05-27T16:50:20.118147Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1673,7 +1680,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-27T16:01:25.627843Z",
-  "version": 74,
+  "version": 75,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
