@@ -19,6 +19,7 @@ doesn't need a real git worktree.
 
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -293,6 +294,128 @@ class TestDispatchResolution:
         assert sent_msg.message_type == "OVERSEER_ALERT"
         assert sent_msg.metadata.get("anomaly") == ("hard_reset_recovery_unknown_resolution")
         assert sent_msg.metadata.get("priority") == "high"
+
+    def test_continue_rejected_when_not_in_valid_options(self):
+        """#2797 follow-up: a "Continue with post-reset state" resolution
+        on a doubly-failed HITL whose options list collapsed to
+        ``["Abort pipeline"]`` only must not route to the resume helper
+        (which would loop straight back into the same divergence).
+        The cross-check routes the call into the unknown-resolution
+        path: WARN log + OVERSEER_ALERT, no dispatch.
+        """
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        mock_store = MagicMock()
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+            patch("routes.decisions.logger") as mock_logger,
+            patch("message_store.get_message_store", return_value=mock_store),
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                "Continue with post-reset state",
+                valid_options=["Abort pipeline"],
+            )
+
+        mock_resume.assert_not_called()
+        mock_abort.assert_not_called()
+        mock_logger.warning.assert_called()
+        mock_store.add_message.assert_called_once()
+        sent_msg = mock_store.add_message.call_args.args[0]
+        assert sent_msg.message_type == "OVERSEER_ALERT"
+        assert sent_msg.metadata.get("anomaly") == "hard_reset_recovery_unknown_resolution"
+        assert sent_msg.metadata.get("priority") == "high"
+        # The alert body should call out the options-list mismatch
+        # so the operator sees why dispatch was suppressed.
+        assert "options list" in sent_msg.body
+        assert "Abort pipeline" in sent_msg.body
+
+    def test_abort_accepted_when_in_valid_options(self):
+        """The valid-options cross-check must not block a legitimate
+        Abort on a doubly-failed HITL — "Abort pipeline" is the only
+        option offered in that branch and must still dispatch.
+        """
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                "Abort pipeline",
+                valid_options=["Abort pipeline"],
+            )
+
+        mock_abort.assert_called_once_with("pipeline-abc")
+        mock_resume.assert_not_called()
+
+    def test_continue_accepted_when_in_valid_options(self):
+        """Successful-recovery HITLs offer both options — Continue must
+        still dispatch to the resume helper when it's in the list.
+        """
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                "Continue with post-reset state",
+                valid_options=["Continue with post-reset state", "Abort pipeline"],
+            )
+
+        mock_resume.assert_called_once()
+        mock_abort.assert_not_called()
+
+    def test_valid_options_none_keeps_legacy_behavior(self):
+        """``valid_options=None`` (the default) skips the cross-check —
+        legacy callers that don't pass options keep dispatching on the
+        known whitelist alone.
+        """
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ),
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                "Continue with post-reset state",
+                # valid_options omitted → defaults to None
+            )
+
+        mock_resume.assert_called_once()
 
 
 class TestEmptyContractHitlWordingNoLongerNamesPriorPopulator:
@@ -953,3 +1076,110 @@ class TestFailPipelineAndEmitHelper:
             )
 
         assert m_emit.call_args.kwargs["reset_succeeded"] is False
+
+    def test_failed_write_and_hitl_persist_held_under_same_lock(self):
+        """#2797 follow-up: the helper must hold
+        ``get_pipeline_state_lock(pipeline_id)`` across both the outer
+        ``store.save_pipeline`` write that pins ``status=FAILED`` *and*
+        the inner ``_persist_hitl_decision`` save that writes the
+        decision.  A concurrent reader from another thread attempting
+        to acquire the same lock between the two writes must be
+        blocked until both have landed — otherwise an observer could
+        see ``status=FAILED`` without the pending decision (the
+        invariant the helper exists to enforce).
+
+        This test exercises the real ``threading.RLock`` from
+        ``state_store.get_pipeline_state_lock`` and the real
+        ``_persist_hitl_decision`` (only ``store`` and the event
+        broadcasters are mocked), so a future refactor that
+        accidentally drops the lock-spanning behavior would be caught
+        here even if the mock-based call-order tests still pass.
+        """
+        from models import PipelinePhase, PipelineStatus
+        from routes.pipelines import (
+            _persist_hitl_decision,  # noqa: F401  # ensure real symbol present
+        )
+        from state_store import get_pipeline_state_lock
+
+        # A unique pipeline_id keeps the per-pipeline lock isolated
+        # from any other test that may share the module-global lock
+        # registry in ``state_store``.
+        pipeline_id = "real-lock-test-issue-2792"
+        pipeline = self._make_pipeline()
+        pipeline.id = pipeline_id
+
+        # Real per-pipeline RLock — same instance the helper acquires.
+        lock = get_pipeline_state_lock(pipeline_id)
+
+        # At every ``save_pipeline`` call, spawn a worker thread that
+        # tries to acquire the lock non-blocking.  RLock allows
+        # reentrance from the same thread but blocks others — so if
+        # the helper still holds the lock at that point, the worker's
+        # ``acquire(blocking=False)`` returns False.
+        acquisitions_during_save: list[bool] = []
+
+        def probe_other_thread() -> None:
+            result = {"acquired": False}
+
+            def attempt() -> None:
+                if lock.acquire(blocking=False):
+                    try:
+                        result["acquired"] = True
+                    finally:
+                        lock.release()
+
+            t = threading.Thread(target=attempt)
+            t.start()
+            t.join(timeout=2.0)
+            acquisitions_during_save.append(result["acquired"])
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        def fake_save(_p):  # noqa: ANN001
+            probe_other_thread()
+
+        mock_store.save_pipeline.side_effect = fake_save
+
+        # Patch only the event broadcasters — let ``_persist_hitl_decision``
+        # run for real so its inner ``load → add_decision → save`` is
+        # the second save call we probe.
+        with (
+            patch("routes.pipelines.report_pipeline_status"),
+            patch("routes.pipelines._emit_pipeline_event"),
+        ):
+            _fail_pipeline_and_emit_hard_reset_recovery(
+                pipeline_id,
+                mock_store,
+                phase=PipelinePhase.IMPLEMENT,
+                error_message="boom",
+                backup_ref="refs/egg-backup/sync-recovery/test/123",
+                discarded_commit_shas=("abc1234 add foo",),
+            )
+
+        # Two save_pipeline calls: outer pins FAILED, inner persists
+        # the HITL.  The lock must have been held (un-acquirable from
+        # another thread) at *both* points.
+        assert mock_store.save_pipeline.call_count == 2, (
+            f"expected 2 save_pipeline calls (outer FAILED + inner HITL); "
+            f"got {mock_store.save_pipeline.call_count}"
+        )
+        assert acquisitions_during_save == [False, False], (
+            f"lock was acquirable from another thread during save_pipeline; "
+            f"per-call results: {acquisitions_during_save} "
+            f"(False=held by helper, True=lock dropped between writes)"
+        )
+
+        # After the helper returns, the lock must be released so the
+        # next operator action (e.g. resolve_decision) can acquire it.
+        assert lock.acquire(blocking=False), (
+            "helper did not release pipeline state lock after returning"
+        )
+        lock.release()
+
+        # Sanity-check the persisted state mirrors what the helper
+        # claimed to write: FAILED + a decision visible on the same
+        # pipeline object the inner save received.
+        assert pipeline.status == PipelineStatus.FAILED
+        assert len(pipeline.decisions) == 1
+        assert pipeline.decisions[0].context == "hard_reset_recovery:implement"

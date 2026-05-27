@@ -20446,6 +20446,44 @@ def _run_pipeline(
         pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
         transitions = PHASE_TRANSITIONS
 
+        def _make_overseer_teardown_hook(
+            *,
+            reason: str,
+            container_id: str | None,
+            phase: PipelinePhase,
+        ) -> Callable[[], None]:
+            """Build a pre_event_hook that tears down the per-phase overseer.
+
+            ``container_id`` and ``phase`` are snapshotted as function
+            parameters (frozen per-call), so the returned closure binds
+            the loop-iteration values that were current when the
+            post-phase cleanup branch fired — late binding would race a
+            subsequent loop iteration.  ``reason`` differs between the
+            doubly-failed and hard-reset-recovered call sites and is
+            forwarded to :func:`_teardown_phase_overseer`.
+
+            #2797 follow-up: collapses the two duplicated closure
+            definitions at the two post-phase hard-reset emission sites
+            into one shared factory.  The closure remains inside
+            ``_run_pipeline`` because the ``phase_overseer_active``
+            bool is a local nonlocal of this function.
+            """
+
+            def _hook() -> None:
+                nonlocal phase_overseer_active
+                with overseer_lock:
+                    if container_id and phase_overseer_active:
+                        phase_overseer_active = False
+                        _teardown_phase_overseer(
+                            spawner,
+                            container_id,
+                            pipeline_id,
+                            phase_label=str(phase),
+                            reason=reason,
+                        )
+
+            return _hook
+
         # Map pipeline to gateway session mode.
         gateway_mode, detected_visibility = _compute_gateway_mode(pipeline)
         if not pipeline.network_mode and pipeline.repo:
@@ -22304,26 +22342,6 @@ def _run_pipeline(
                     discarded_commit_count=len(post_phase_sync_doubly_failed.discarded_commit_shas),
                 )
 
-                # Bind loop-iteration values as default args (B023 lint
-                # nit): the closure is invoked synchronously inside the
-                # helper so late binding wouldn't bite in practice, but
-                # explicit binding keeps the intent obvious.
-                def _teardown_overseer_doubly_failed(
-                    _container_id: str | None = overseer_container_id,
-                    _phase: PipelinePhase = current_phase,
-                ) -> None:
-                    nonlocal phase_overseer_active
-                    with overseer_lock:
-                        if _container_id and phase_overseer_active:
-                            phase_overseer_active = False
-                            _teardown_phase_overseer(
-                                spawner,
-                                _container_id,
-                                pipeline_id,
-                                phase_label=str(_phase),
-                                reason="sync helper rebase+reset doubly failed",
-                            )
-
                 _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
                     store,
@@ -22332,7 +22350,11 @@ def _run_pipeline(
                     backup_ref=post_phase_sync_doubly_failed.backup_ref,
                     discarded_commit_shas=post_phase_sync_doubly_failed.discarded_commit_shas,
                     reset_succeeded=False,
-                    pre_event_hook=_teardown_overseer_doubly_failed,
+                    pre_event_hook=_make_overseer_teardown_hook(
+                        reason="sync helper rebase+reset doubly failed",
+                        container_id=overseer_container_id,
+                        phase=current_phase,
+                    ),
                 )
                 break
 
@@ -22361,25 +22383,6 @@ def _run_pipeline(
                     discarded_commit_count=len(post_phase_sync_outcome.discarded_commit_shas),
                 )
 
-                # Bind loop-iteration values as default args (B023 lint
-                # nit): invoked synchronously inside the helper, but
-                # explicit binding keeps the intent obvious.
-                def _teardown_overseer_recovered(
-                    _container_id: str | None = overseer_container_id,
-                    _phase: PipelinePhase = current_phase,
-                ) -> None:
-                    nonlocal phase_overseer_active
-                    with overseer_lock:
-                        if _container_id and phase_overseer_active:
-                            phase_overseer_active = False
-                            _teardown_phase_overseer(
-                                spawner,
-                                _container_id,
-                                pipeline_id,
-                                phase_label=str(_phase),
-                                reason="sync helper hard-reset recovery",
-                            )
-
                 _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
                     store,
@@ -22387,7 +22390,11 @@ def _run_pipeline(
                     error_message=_hard_reset_msg,
                     backup_ref=post_phase_sync_outcome.backup_ref,
                     discarded_commit_shas=post_phase_sync_outcome.discarded_commit_shas,
-                    pre_event_hook=_teardown_overseer_recovered,
+                    pre_event_hook=_make_overseer_teardown_hook(
+                        reason="sync helper hard-reset recovery",
+                        container_id=overseer_container_id,
+                        phase=current_phase,
+                    ),
                 )
                 break
 

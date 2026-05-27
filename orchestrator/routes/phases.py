@@ -1062,12 +1062,15 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
     Pre-populate sync (#2792): the route runs
     :func:`_sync_worktree_with_remote` before reading the draft.  If
     that helper falls through to the destructive hard-reset recovery
-    (rebase autoresolve failed), the route refuses to populate and
-    returns HTTP 409 with ``reason="hard_reset_recovery_unacked"``
-    and ``backup_ref`` / ``discarded_commit_shas`` in ``details``.
-    The operator must ack the phase-boundary HITL before re-running
-    this endpoint — a 2xx with the destructive recovery flag hidden
-    in the body would let automation silently miss the discard.
+    (rebase autoresolve failed), the route emits the hard-reset
+    recovery HITL itself (via
+    :func:`_fail_pipeline_and_emit_hard_reset_recovery`) and returns
+    HTTP 409 with ``reason="hard_reset_recovery_unacked"`` and
+    ``backup_ref`` / ``discarded_commit_shas`` in ``details``.  The
+    operator must ack the hard-reset recovery HITL (visible in
+    ``/sdlc``) before re-running this endpoint — a 2xx with the
+    destructive recovery flag hidden in the body would let automation
+    silently miss the discard.
 
     Error responses include a machine-readable ``reason`` code (#1939,
     #2627):
