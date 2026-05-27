@@ -417,9 +417,9 @@ If all agents have confirmed BRC consensus but the pipeline phase has not transi
 
 **Transition-completion short-circuit:** Before applying the 90-second grace window, the detector loads the pipeline and returns early (no alert, no HITL decision, no Slack) when any of the following indicate the post-consensus transition already succeeded:
 
-- `pipeline.current_phase != "implement"` — the pipeline has already advanced out of implement (e.g., into `pr` or `complete`)
-- `pipeline.pr_number is not None` — an auto-created PR number has been written back to the pipeline record (see [Pipeline state writeback after auto-PR creation](../architecture/orchestrator.md#pipeline-state-writeback-after-auto-pr-creation))
-- `phases["pr"].artifacts["pr_url"]` is set — the PR phase has already recorded a `pr_url` artifact
+- `pipeline.current_phase != "implement"` — the pipeline has already advanced out of implement (e.g., to `complete`)
+- `pipeline.pr_number is not None` — a context PR number has been written back to the pipeline record (see [Pipeline state writeback after PR creation](../architecture/orchestrator.md#pipeline-state-writeback-after-pr-creation))
+- `contract.pr.context_pr_number is not None` — the orchestrator's `_open_context_pr_at_implement_start` opener succeeded at the plan→implement boundary
 
 When the short-circuit fires, the grace-period timer (`_post_consensus_stall_first_seen`) is reset so a subsequent genuine stall gets a fresh grace window. If loading the pipeline raises an exception, the detector falls through to the existing behaviour (fail open — a bug in the short-circuit must not suppress genuine alerts).
 
@@ -441,7 +441,7 @@ Both layers apply suppression rules to reduce false positives:
 
 ### Additional Overseer Health Checks
 
-Each poll cycle the overseer evaluates six targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost):
+Each poll cycle the overseer evaluates several targeted health checks (the fourth triggers only on phase transitions). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost). The historical "PR phase no PR" safety-net alert was removed in [#2777](https://github.com/jwbron/egg/issues/2777) alongside the standalone PR phase — with the PR phase deleted the alert can never fire.
 
 > **Note:** All checks broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`. Each alert is routed to the correct pipeline using an explicit `pipeline_id` argument and attributed with `from_role: overseer`, ensuring alerts from internal self-tests or other pipelines never leak into unrelated pipelines' message streams.
 
@@ -451,7 +451,6 @@ Each poll cycle the overseer evaluates six targeted health checks (the fourth tr
 | **Status inconsistency** | Pipeline shows `failed` while all agents show `complete` — a possible transient state | HITL escalation + Slack notification + message bus broadcast (after one poll-cycle grace period) |
 | **HITL propagation failure** | A resolved phase-gate decision is not reflected in the SDLC contract after `overseer_hitl_propagation_timeout_seconds` | HITL escalation + Slack notification + message bus broadcast |
 | **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification + message bus broadcast (deduplicated per phase-transition pair) |
-| **PR phase no PR** | Pipeline reaches `complete` with `current_phase=pr` but no `pr_url` in phase artifacts — defense-in-depth for edge cases where primary PR creation failure handling was bypassed, so stranded branch work is not silently lost | HITL decision + Slack notification + message bus broadcast |
 | **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + oversight event + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
 | **Incomplete consensus stall** | Consensus is incomplete and the same agents are blocking for ~5 minutes — likely stuck in a heartbeat loop after a re-review cycle cleared their confirmed status | Targeted nudge to each blocking agent (deferred if agents have recent progress events; nudge deferral capped at 1× HITL threshold); HITL + Slack if stall persists for ~5 more minutes (HITL deferral capped at 2× HITL threshold from absolute stall start) |
 | **Infrastructure error (Tier 1)** | Agent emits `blocked` progress event with infrastructure-related blocker text (git failures, gateway errors, permission denied, EROFS) | Critical alert → overseer routes to decision maker HITL fast-path, bypassing nudge/redirect ladder. Deduplicated: same agent + same error pattern within `overseer_infra_error_dedup_window_seconds` produces only one HITL escalation across both tiers |

@@ -442,10 +442,22 @@ slice_count=None, slice_files_affected=None, context_pr_number=None, ...)`
 opens one PR per slice (#2745). Slice PRs are scoped to their own slice:
 the body shows the slice subject, files affected, and full task
 descriptions with acceptance criteria. Strategic context (analysis doc,
-plan doc, refine/plan BRC history) lives on the base/context PR opened
-by #2548, which slice PRs link to via `context_pr_number`. The terminal
-slice keeps the umbrella treatment (program-level test plan, manual
-steps, pre-merge obligations) because it is the merge gate.
+plan doc, refine/plan BRC history) lives on the program-level Context PR
+opened by `_open_context_pr_at_implement_start` at the plan→implement
+boundary (#2548, collapsed in #2777), which slice PRs link to via
+`context_pr_number`. The terminal slice carries the **merge-gate**
+treatment (program-level test plan, manual steps, pre-merge obligations)
+because it is the last-to-merge PR in the stack.
+
+> **#2777 dropped the "umbrella" terminology.** The terminal slice was
+> historically called the "umbrella PR" and rendered an
+> `> **Program-level umbrella PR …**` banner in its body. The banner,
+> the umbrella narrative comments in `gateway_client.py`, and the
+> `umbrella_has_program_block` plumbing are deleted. The terminal slice
+> is now called the **merge-gate slice**; its position marker is still
+> `merge-gate` and its rendering still includes the program-level
+> rollup, but the umbrella banner is no longer emitted. Subsumes
+> [#2389](https://github.com/jwbron/egg/issues/2389).
 
 - **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
   chars (titles longer than that get truncated to `title[:67] + "..."`).
@@ -467,11 +479,13 @@ steps, pre-merge obligations) because it is the merge gate.
   `**Base PR:** #<context_pr_number>` → `## This slice` (slice name,
   files affected, full task descriptions + acceptance criteria) →
   `## Stack` (position, base PR, base branch).
-- **Body (terminal — merge gate).** `> Program-level umbrella PR …`
-  banner → `program_description` → `## ⚠️ Pre-merge Obligations` /
-  `## ✅ Resolved within this PR` (when `program_deferred_actions`
-  is non-empty, rendered by `orchestrator/pr_obligations.py`) →
-  `## This slice` → `## Test Plan` → `## Manual Steps` → `## Stack`.
+- **Body (terminal — merge gate).** `program_description` →
+  `## ⚠️ Pre-merge Obligations` / `## ✅ Resolved within this PR`
+  (when `program_deferred_actions` is non-empty, rendered by
+  `orchestrator/pr_obligations.py`) → `## This slice` →
+  `## Test Plan` → `## Manual Steps` → `## Stack`. The
+  `> Program-level umbrella PR …` banner that used to lead the body
+  was removed in #2777.
 - **Body (non-terminal, no `context_pr_number` — UX backstop).**
   Falls back to inlining the full program narrative so the slice PR
   remains reviewable as a standalone diff against `/work`. The stack
@@ -522,11 +536,11 @@ The slice DAG is a forest (≤1 DAG parent per slice — see
 multi-tree forest can have multiple terminal slices, one per tree.
 The current behaviour picks `terminal_ids[-1]` (last declared) as
 `chosen_terminal` — that's the slice that gets the `merge-gate`
-position marker and the umbrella banner; the per-merge obligations
-section also lives on exactly that PR. Other terminal leaves in
-non-chosen trees are treated as non-terminals: they receive a
-`slice-N/M` position marker and skip the umbrella banner and
-obligations section. The choice is deliberate (arbitrary but stable,
+position marker; the per-merge obligations section also lives on
+exactly that PR. Other terminal leaves in non-chosen trees are
+treated as non-terminals: they receive a `slice-N/M` position marker
+and skip the merge-gate rollup (program-level test plan, manual
+steps, obligations). The choice is deliberate (arbitrary but stable,
 deterministic across parallel slice runs); operators reviewing a
 multi-tree pipeline should not be surprised that the merge-gate PR
 sits in `chosen_terminal`'s subtree.

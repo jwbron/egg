@@ -74,14 +74,6 @@ pr:
   manual_steps: |
     Pre-merge: [any required steps before merging, e.g. migrations, config changes]
     Post-merge: [any required steps after merging, e.g. deployments]
-  # Optional context-PR framing (#2548); omit to reuse pr.title / pr.description.
-  # context_title: |-
-  #   Strategic plan for #<issue> — refine/plan analysis + BRC history
-  # context_description: |-
-  #   Carries the refine analysis, the plan, the BRC consensus
-  #   history that approved each, and the agent transcripts —
-  #   so reviewers approaching the slice stack can see the strategic
-  #   narrative on a PR that targets the configured base branch.
 slices:
   - id: 1
     name: |-
@@ -137,22 +129,15 @@ slices:
 > the task's files — see [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment)
 > for the file-to-role mapping. Tasks without a `role` default to the coder.
 
-> **Context-PR framing (#2548)**: `pr.context_title` and `pr.context_description`
-> are *optional* keys planners may emit to give the dedicated context PR a
-> different framing from the slice PRs (e.g. "Strategic plan for #N" vs the
-> slice's "Implement …"). When omitted the orchestrator falls back to
-> `pr.title` / `pr.description`. Two sibling fields — `pr.context_branch` and
-> `pr.context_pr_number` — exist on the contract but are populated by the
-> orchestrator after the context branch is created and the context PR is
-> opened; planners must NOT emit them.
->
-> **As of slice-1 (#2548 part 1)**, only the schema fields and this
-> planner-prompt guidance are wired. The orchestrator branch-creation
-> and PR-opening hooks land in #2548 slices 3-4 — until those slices
-> merge, any `context_title` / `context_description` a planner emits
-> flows through the parser into `PRMetadata` but nothing acts on it
-> yet, so emitting them now is forward-compatibly safe but does not
-> change the rendered PR.
+> **Context PR framing ([#2548](https://github.com/jwbron/egg/issues/2548), collapsed in [#2777](https://github.com/jwbron/egg/issues/2777))**:
+> The Context PR opened by the orchestrator at the plan→implement
+> boundary uses `pr.title` and `pr.description` directly. The former
+> `pr.context_title` / `pr.context_description` / `pr.context_branch`
+> sibling fields (introduced in schema 1.1) were removed in the schema
+> 1.1→1.2 bump; planners must not emit them and legacy v1.1 contracts on
+> disk surface a Pydantic `ValidationError` on load. The orchestrator
+> populates `pr.context_pr_number` (the only retained `pr.context_*`
+> field) after the PR is opened.
 
 > **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
 > (canonical, post-#2137) or `phases:` (legacy alias) at the top of the

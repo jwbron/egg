@@ -127,7 +127,7 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 - `--trigger <commit|session_end>` — Filter by trigger type
 - `--status <completed|expired|failed>` — Filter by session status
 - `--agent-type <coder|tester|documenter|reviewer|unknown>` — Filter by agent type
-- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
+- `--phase <refine|plan|implement>` — Filter by pipeline phase (the standalone `pr` phase was removed in [#2777](https://github.com/jwbron/egg/issues/2777))
 
 Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
 
@@ -139,7 +139,7 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR me
 2. **YAML front matter** (legacy): A `---`-delimited YAML block at the document start. Supported for backwards compatibility.
 3. **Markdown regex** (fallback): Parses `[TASK-X-Y]` patterns from markdown. Fragile and may miss tasks if LLM output format drifts.
 
-The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`, `context_title`, `context_description`) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase; the `context_title` and `context_description` fields feed the dedicated context PR rather than the implementation PR.
+The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`) from the `pr:` field in the YAML data. If provided, this metadata is used when the orchestrator opens the Context PR at the plan→implement boundary (see [Orchestrator Architecture: Context PR](orchestrator.md#context-pr-2548-collapsed-in-2777)). The previous `context_title` / `context_description` / `context_branch` sibling fields were removed in [#2777](https://github.com/jwbron/egg/issues/2777) (schema 1.1→1.2 bump); the Context PR now uses `title` / `description` directly.
 
 **Role-aware task assignment**: Tasks can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent. The parser propagates this field through `ParsedTask` into the contract `Task` model. During the implement phase, `_build_role_context()` filters tasks by role so each agent only sees its assigned work. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for details.
 

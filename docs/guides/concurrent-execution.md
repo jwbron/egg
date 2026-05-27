@@ -931,7 +931,7 @@ record that produced it; (2) reviewers no longer have to discover
 ```
 {pipeline.base_branch}                   (e.g. main)
  ↑
-egg/<id>/context                         (Context PR — analysis + plan + refine/plan BRC)
+egg/<id>/work                            (Context PR — program-level rollup, opened at plan→implement boundary)
  ↑
 egg/<id>/slice-1                         (Slice-1 PR — slice-1 code + slice-1 BRC)
  ↑
@@ -947,73 +947,80 @@ slice-1 retargets onto the base branch via the
 [stacked-PR rebase reconciler](../architecture/slice-dag.md#stacked-pr-rebase-reconciler);
 once slice-1 merges, slice-2 retargets, and so on through the chain.
 
-### Context PR is opened first
+> **Topology change in [#2777](https://github.com/jwbron/egg/issues/2777).** The Context
+> PR previously lived on a dedicated `egg/<id>/context` branch and
+> slice-1 stacked on it. #2777 collapsed the parallel-stack-root
+> topology: the Context PR now opens directly on `egg/<id>/work`,
+> slice-1's parent is `egg/<id>/work`, and there is no separate
+> context branch. The gateway-side push-exemption regex
+> (`_CONTEXT_BRANCH_RE`) and the orchestrator's
+> `GatewayClient.create_context_branch` were deleted in the same
+> change.
+
+### Context PR is opened at the plan→implement boundary
 
 After the plan phase completes and the plan_gate is approved, the
-orchestrator (not an agent) opens a doc-only **Context PR** before any
-slice spawns. The PR's purpose is to establish the program: reviewers
-approve the strategic direction (analysis + plan + the consensus that
-produced them) before any code lands.
+orchestrator (not an agent) opens the **Context PR** at the
+plan→implement boundary via the helper
+`_open_context_pr_at_implement_start(pipeline_id)`
+(`orchestrator/routes/pipelines.py`). The PR's purpose is to establish
+the program: reviewers approve the strategic direction (analysis + plan
++ the consensus that produced them) before any code is merged.
 
 Mechanics:
 
-1. The orchestrator creates `egg/<id>/context` from the pipeline's
-   configured `base_branch` (NOT hardcoded to `main`).
-2. It commits the refine/plan artifacts to that branch:
-   - `.egg-state/drafts/<id>-analysis.md` (refine output)
-   - `.egg-state/drafts/<id>-plan.md` (plan output, with full
-     `yaml-tasks` block)
-   - `.egg-state/brc-history/<id>-refine.{md,json}` (refine BRC
-     consensus record)
-   - `.egg-state/brc-history/<id>-plan.{md,json}` (plan BRC consensus
-     record)
-   - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and
-     `<id>-plan-*.{md,json}` (per-phase agent transcripts — included
-     for maximum transparency)
-   - The contract JSON, resolved dynamically via `get_contract_path`
-     so integer issue identifiers map to the canonical
-     `.egg-state/contracts/issue-<N>.json` shape (with the legacy
-     bare `<N>.json` as a fallback). The contract is intentionally
-     omitted from the static glob list — see
-     `_STATIC_CONTEXT_PR_FILE_GLOBS` and
-     `_gather_context_pr_files` in `orchestrator/routes/pipelines.py`
-     (#2685).
-3. It opens the PR against the pipeline base branch using
-   `contract.pr.context_title` and `contract.pr.context_description`.
-   These are distinct from `contract.pr.title` / `pr.description`,
-   which are per-slice — letting the context PR carry program-level
-   framing (e.g. *"Strategic plan for #N"*) while slice PRs stay
-   focused on the slice's diff.
-4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator
-   opens it, humans review on the PR, and the pipeline does **not**
-   block on its merge before slicing begins. Slice-1 stacks on
-   `egg/<id>/context` immediately so the slice train can run in
-   parallel with reviewers approving the context.
+1. The helper performs an **idempotent pre-flight** via
+   `gh pr list --head egg/<pipeline_id>/work --base <base_branch> --state open --json number`.
+   If a PR already exists (e.g. after a `restart_phase`), the
+   existing number is persisted on `contract.pr.context_pr_number`
+   and the helper returns without a second `gh pr create`.
+2. On miss, `GatewayClient.create_pr()` opens the PR with
+   `head=egg/<pipeline_id>/work base=<base_branch>`. PR title and
+   body come from `contract.pr.title` and `contract.pr.description`
+   (the regular per-pipeline fields — the previous
+   `pr.context_title` / `pr.context_description` sibling fields were
+   removed in the schema 1.1→1.2 bump; see migration note).
+3. The base branch is taken from `pipeline.base_branch` (typically
+   `main`, falling back to the repo default) — it is **not**
+   hardcoded.
+4. The Context PR is **hard-required**: a gateway failure raises
+   `ContextPrCreationError` and surfaces as a HITL decision rather
+   than soft-failing into a slice stack that has no merge gate. The
+   pre-flight validator (`PlanPreflightError`) runs ahead of the
+   opener so malformed plans are caught at the plan gate.
+5. The PR is auto-open and **does not** block the implement phase —
+   slice-1 begins immediately so the slice train runs in parallel
+   with reviewers approving the context.
 
-The context PR is recorded on the contract via four `pr.context_*`
-fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote
-on load):
+The context PR is recorded on the contract via `pr.context_pr_number`
+(the only `pr.context_*` field retained after #2777):
 
 | Field | Description |
 |-------|-------------|
-| `pr.context_title` | Title for the context PR (program-level framing). Authored by the planner. |
-| `pr.context_description` | Body for the context PR. Authored by the planner. |
-| `pr.context_branch` | The branch name (`egg/<id>/context`) — populated by the orchestrator when it creates the branch. |
-| `pr.context_pr_number` | The GitHub PR number — populated by the orchestrator when the PR is opened. |
+| `pr.context_pr_number` | GitHub PR number for the program-level Context PR. Populated by `_open_context_pr_at_implement_start` after `gh pr create` succeeds (or after the idempotent pre-flight finds an existing PR). |
+
+The previous schema-1.1 `pr.context_title` / `pr.context_description` /
+`pr.context_branch` fields were removed in the 1.1→1.2 bump. PR title
+and body now come from `pr.title` / `pr.description` directly. See the
+[v1.1 → v1.2 migration note](../releases/2777-pr-phase-collapse.md).
 
 ### Slice-1 base resolution
 
-With the context PR landing first in the stack, **slice-1's
-`parent_branch` resolves to `egg/<id>/context`** rather than
-`egg/<id>/work`. Subsequent slices (slice-2, slice-3, …) stack onto
-the preceding slice's integration branch as before — the change only
-affects the root-of-stack pointer.
+With the Context PR opening directly on `egg/<id>/work`, **slice-1's
+`parent_branch` resolves to `egg/<id>/work`**. Subsequent slices
+(slice-2, slice-3, …) stack onto the preceding slice's integration
+branch as before — slice-1 is now the root of the slice train and
+sits directly above the pipeline tip.
 
 The stacked-PR reconciler's last-resort fallback (when a parent branch
-has been merged or deleted out from under an open child PR) prefers
-`egg/<id>/context` over the pipeline branch when retargeting orphaned
-slices. The context branch therefore acts as the canonical "program
-root" reference even after the work branch is gone.
+has been merged or deleted out from under an open child PR) targets
+`egg/<id>/work` — the pipeline tip is the canonical "program root"
+reference and the surface the Context PR has been opened against.
+The two new helpers introduced in #2777 —
+`_is_slice_dag_mode(contract)` and
+`_resolve_slice_base_branch(contract, slice_index)` —
+encapsulate this slice-base resolution so call sites no longer hardcode
+the `egg/<id>/context` fallback.
 
 ### Per-slice BRC history on each slice PR
 
