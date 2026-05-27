@@ -291,7 +291,7 @@ shared/
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
 ├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy
-│   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup (issue #2829)
+│   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
