@@ -313,9 +313,9 @@ If every role on this repo should default to the same model, edit
 ```yaml
 repo_settings:
   acme-corp/widgets:
-    # Every role on this repo defaults to qwen3-coder-30b, unless a
+    # Every role on this repo defaults to qwen3-max, unless a
     # pipeline passes its own agent_models entry.
-    default_agent_model: qwen3-coder-30b
+    default_agent_model: qwen3-max
 ```
 
 `default_agent_model` is a *repo-level default for every role* — to
@@ -337,7 +337,7 @@ in the `submit_task` MCP-tool arguments
   "issue_number": 1234,
   "config": {
     "agent_models": {
-      "refiner": "qwen3-coder-30b"
+      "refiner": "qwen3-max"
     }
   }
 }
@@ -355,7 +355,7 @@ optional `branch` override:
   "branch": "egg/issue-1234/work",
   "config": {
     "agent_models": {
-      "refiner": "qwen3-coder-30b"
+      "refiner": "qwen3-max"
     }
   }
 }
@@ -381,7 +381,7 @@ session inherits the decision implicitly via the session-keyed
 lookup, with no per-request routing log line:
 
 - **Refiner session-created line**: `upstream=litellm`,
-  `upstream_model=qwen3-coder-30b`. Subsequent refiner requests have
+  `upstream_model=qwen3-max`. Subsequent refiner requests have
   their body forwarded to
   `litellm.egg-system.svc.cluster.local:4000` with the
   `_rewrite_upstream_model` helper substituting the `"model"` field;
