@@ -726,13 +726,25 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     """
     gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
 
-    # Placeholder OAuth token to satisfy Claude Code's startup validation
-    # Must match sk-ant-oat01-* format for Claude Code to accept it
-    # Gateway strips this and injects real credentials from secrets.env
-    oauth_placeholder = (
-        "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
-        "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
-    )
+    # Placeholder OAuth token to satisfy Claude Code's startup validation.
+    # Must match sk-ant-oat01-* format for Claude Code to accept it.
+    # Gateway strips this and injects real credentials.
+    #
+    # When EGG_SESSION_TOKEN is present (k8s + Compose orchestrator paths)
+    # the placeholder wraps the session token so the gateway's /v1/messages
+    # proxy can identify the session from the request header rather than
+    # falling back to ephemeral pod-IP lookup (issue #2829). The static
+    # fallback covers dev/host flows where no session has been registered.
+    session_token = os.environ.get("EGG_SESSION_TOKEN")
+    if session_token:
+        from egg_session_placeholder import to_placeholder
+
+        oauth_placeholder = to_placeholder(session_token)
+    else:
+        oauth_placeholder = (
+            "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
+            "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
+        )
 
     # Set ANTHROPIC_BASE_URL to route API calls through gateway
     os.environ["ANTHROPIC_BASE_URL"] = gateway_url
