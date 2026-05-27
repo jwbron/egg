@@ -1064,27 +1064,6 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "defaultModel": "opus[1m]",
         "showResumeCommand": False,
         "memory": {"enabled": False},
-        # PostToolUse truncation hook — bounds tool result size to prevent
-        # the Claude Agent SDK message-reader buffer overflow that kills
-        # agent processes with exit 255 on large tool results
-        # (issue #2804). The hook runs inside the CLI subprocess, before
-        # the result crosses the SDK JSON channel, so it can suppress
-        # oversized payloads that would crash the reader. Matcher is "*"
-        # (every tool) — the hook itself decides per-tool whether to
-        # block or pass through based on serialized size.
-        "hooks": {
-            "PostToolUse": [
-                {
-                    "matcher": "*",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": ("/opt/egg-runtime/sandbox/hooks/posttooluse_truncate.py"),
-                        }
-                    ],
-                }
-            ]
-        },
     }
 
     # In private mode, disallow web tools at the agent config level so they are

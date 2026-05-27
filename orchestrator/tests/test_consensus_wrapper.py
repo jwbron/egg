@@ -1463,6 +1463,94 @@ class TestBufferOverflowDetection:
             # still kicks in; should log Transient crash.
             assert "Transient crash" in result.stderr
 
+    def test_buffer_overflow_in_restart_loop_aborts_without_further_retries(self):
+        """Restart-loop overflow path: clean initial exit triggers a
+        restart, recovery run crashes with the overflow marker, wrapper
+        aborts immediately instead of consuming the remaining budget.
+
+        Distinct from ``test_buffer_overflow_aborts_without_retry``,
+        which only exercises the initial-exit handler. Both code paths
+        need the buffer-overflow short-circuit; this regression-guards
+        the restart-loop branch (#2804 review feedback).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+            call_counter = os.path.join(tmpdir, "agent_call_count")
+
+            # Mock egg-orch: always returns is_complete=false so the
+            # wrapper enters the restart loop after each clean exit.
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Mock agent: clean exit on call 1 (triggers restart), then
+            # emits the SDK overflow signature and exits 255 on call 2.
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write("  CALL_COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(call_counter)} ]; then\n")
+                f.write(f"    CALL_COUNT=$(cat {shlex.quote(call_counter)})\n")
+                f.write("  fi\n")
+                f.write("  CALL_COUNT=$((CALL_COUNT + 1))\n")
+                f.write(f'  echo "$CALL_COUNT" > {shlex.quote(call_counter)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write('  if [ "$CALL_COUNT" -eq 1 ]; then\n')
+                f.write("    exit 0\n")  # clean exit → restart triggered
+                f.write("  fi\n")
+                # call 2: emit the overflow signature and exit 255
+                f.write(
+                    '  echo "Fatal error in message reader: Failed to decode '
+                    "JSON: JSON message exceeded maximum buffer size of "
+                    '1048576 bytes..." >&2\n'
+                )
+                f.write("  exit 255\n")
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt", max_restarts=3, transient_backoff_initial=1
+            )
+            result = TestConsensusWrapperBehavior._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            # Wrapper must propagate the overflow crash's exit code from
+            # the restart loop, NOT continue retrying.
+            assert result.returncode == 255, result.stderr
+            # Diagnostic message must indicate the restart-loop path
+            # (the initial-exit handler says "Agent crashed on Claude
+            # Agent SDK buffer overflow ..."; the restart-loop handler
+            # adds "on restart N").
+            assert "buffer overflow" in result.stderr.lower()
+            assert "on restart" in result.stderr
+            assert "#2804" in result.stderr
+            # Agent was called exactly twice: initial clean exit + one
+            # restart that crashed on overflow. Should NOT be called a
+            # third time.
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 2, (
+                f"Expected exactly 2 agent calls (initial + 1 restart with "
+                f"overflow), got {call_count}. The restart-loop buffer-overflow "
+                f"check must abort before consuming further retry budget."
+            )
+
 
 class TestEventDrivenWait:
     """Issue #1897 Phase 5 / TASK-5-1 (plan rev 4, reviewer_plan blocker 4):

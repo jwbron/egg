@@ -135,24 +135,36 @@ run_agent() {{
     local prompt="$1"
     local system_prompt="${{2:-}}"
     : > "$AGENT_OUTPUT_LOG"  # truncate per run so old crashes don't bleed forward
+    # Pipe stdout+stderr through tee so the post-mortem grep
+    # (is_buffer_overflow) sees the agent's full output. We use a
+    # single pipeline rather than per-stream process substitution
+    # because bash waits on pipelines synchronously; process
+    # substitution (> >(tee ...)) backgrounds the tee subshell and
+    # doesn't wait, which races with the immediate is_buffer_overflow
+    # grep that follows on agent exit.
     if [ -n "$system_prompt" ]; then
-        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt" \
-            > >(tee -a "$AGENT_OUTPUT_LOG") \
-            2> >(tee -a "$AGENT_OUTPUT_LOG" >&2)
+        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
     else
-        {agent_command_prefix} "$prompt" \
-            > >(tee -a "$AGENT_OUTPUT_LOG") \
-            2> >(tee -a "$AGENT_OUTPUT_LOG" >&2)
+        {agent_command_prefix} "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
     fi
-    return $?
+    return ${{PIPESTATUS[0]}}
 }}
 
-# Detect the Claude Agent SDK 1MB JSON message-reader overflow
-# signature in the most recent agent run. Issue #2804.  The overflow
+# Detect the Claude Agent SDK 1 MB JSON message-reader overflow
+# signature in the most recent agent run. Issue #2804. The overflow
 # is deterministic: re-running the agent against the same codebase
-# almost always hits the same oversized tool result, so the wrapper
-# should NOT consume retry budget on this failure class. Returns 0
-# (true) if the overflow marker was logged, 1 otherwise.
+# hits the same oversized tool result, so the wrapper must NOT
+# consume retry budget on this failure class. Returns 0 (true) if
+# the marker was logged, 1 otherwise.
+#
+# The substring matches CLI output from claude_agent_sdk emitted on
+# the buffer overflow path. If a future SDK bump changes the
+# wording, this grep silently falls through and the wrapper burns
+# its retry budget again — the marker_stability_test in
+# orchestrator/tests/test_consensus_wrapper.py exercises a synthetic
+# log to keep this honest, but does not pin against the installed
+# SDK. The real fix is tool-layer truncation (#2805); this is the
+# fail-fast path until that lands.
 is_buffer_overflow() {{
     [ -f "$AGENT_OUTPUT_LOG" ] || return 1
     grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null

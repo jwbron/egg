@@ -61,34 +61,15 @@ except ImportError:
 # Default model for sandbox agents
 DEFAULT_MODEL = "opus[1m]"
 
-# Belt-and-suspenders bump on the Claude Agent SDK message-reader buffer.
-# The SDK default is 1 MB; tool results that exceed it kill the agent
-# process with exit 255 (issue #2804). The primary defense is the
-# CLI-side PostToolUse hook (see sandbox/hooks/posttooluse_truncate.py)
-# which suppresses oversized payloads before they cross the SDK channel.
-# This bump gives breathing room for tool results that slip past the
-# hook (e.g. results just under the per-tool cap that aggregate with
-# subsequent CLI frames). Env override allows ops to raise it further
-# without a code change. See ``ClaudeAgentOptions.max_buffer_size``.
-_DEFAULT_MAX_BUFFER_SIZE = 4 * 1024 * 1024  # 4 MB
-
-# Substring of the SDK's CLIJSONDecodeError message that identifies the
-# buffer-overflow failure mode specifically. Surfaced into the
-# ``AgentResult.error`` so the consensus-wrapper can classify it as a
-# terminal (deterministic) failure rather than a transient crash worth
-# retrying. Match-string kept stable; the wrapper greps for it.
+# Substring of the SDK's CLIJSONDecodeError message identifying the
+# 1 MB JSON message-reader buffer overflow (issue #2804). The overflow
+# is deterministic — the same tool call against the same codebase
+# produces the same oversized payload — so the consensus-wrapper greps
+# for this marker on agent exit to short-circuit retry instead of
+# burning the restart budget on a doomed re-run. The real fix is
+# tool-layer truncation (see #2805); this PR only makes the failure
+# mode observable and terminal.
 _BUFFER_OVERFLOW_MARKER = "exceeded maximum buffer size"
-
-
-def _max_buffer_size() -> int:
-    raw = os.environ.get("EGG_AGENT_MAX_BUFFER_SIZE", "").strip()
-    if not raw:
-        return _DEFAULT_MAX_BUFFER_SIZE
-    try:
-        value = int(raw)
-    except ValueError:
-        return _DEFAULT_MAX_BUFFER_SIZE
-    return value if value > 0 else _DEFAULT_MAX_BUFFER_SIZE
 
 
 async def run_agent_async(
@@ -211,7 +192,6 @@ async def run_agent_async(
         setting_sources=["project", "user"],
         disallowed_tools=disallowed,
         can_use_tool=tool_permission_callback,
-        max_buffer_size=_max_buffer_size(),
     )
     if max_turns is not None:
         options.max_turns = max_turns

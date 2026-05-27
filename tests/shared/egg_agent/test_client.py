@@ -100,8 +100,6 @@ except ImportError:
         setting_sources: list[str] | None = None
         disallowed_tools: list[str] = field(default_factory=list)
         can_use_tool: Any = None
-        # issue #2804: bump the SDK's JSON message buffer
-        max_buffer_size: int | None = None
 
     @dataclass
     class PermissionResultAllow:  # type: ignore[no-redef]
@@ -823,47 +821,6 @@ class TestRunAgentAsync:
         assert opts.disallowed_tools == []
 
 
-class TestMaxBufferSize:
-    """Issue #2804: SDK message-reader buffer bump.
-
-    The SDK default is 1 MB; we bump it to 4 MB (env-overridable) so
-    moderate-but-large tool results that slip past the PostToolUse hook
-    don't crash the reader.
-    """
-
-    @patch.dict(os.environ, {}, clear=False)
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_default_max_buffer_size_is_4mb(self, mock_query):
-        env = os.environ.copy()
-        env.pop("EGG_AGENT_MAX_BUFFER_SIZE", None)
-        with patch.dict(os.environ, env, clear=True):
-            _run_async(run_agent_async("test prompt"))
-        opts = mock_query.call_args.kwargs["options"]
-        assert opts.max_buffer_size == 4 * 1024 * 1024
-
-    @patch.dict(os.environ, {"EGG_AGENT_MAX_BUFFER_SIZE": "16777216"})
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_env_override_raises_buffer(self, mock_query):
-        _run_async(run_agent_async("test prompt"))
-        opts = mock_query.call_args.kwargs["options"]
-        assert opts.max_buffer_size == 16_777_216
-
-    @patch.dict(os.environ, {"EGG_AGENT_MAX_BUFFER_SIZE": "not-a-number"})
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_garbage_env_falls_back_to_default(self, mock_query):
-        _run_async(run_agent_async("test prompt"))
-        opts = mock_query.call_args.kwargs["options"]
-        assert opts.max_buffer_size == 4 * 1024 * 1024
-
-    @patch.dict(os.environ, {"EGG_AGENT_MAX_BUFFER_SIZE": "0"})
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_zero_env_falls_back_to_default(self, mock_query):
-        """Zero is nonsensical — fall back rather than disabling the buffer."""
-        _run_async(run_agent_async("test prompt"))
-        opts = mock_query.call_args.kwargs["options"]
-        assert opts.max_buffer_size == 4 * 1024 * 1024
-
-
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the
@@ -876,7 +833,7 @@ class TestBufferOverflowErrorHandling:
         from claude_agent_sdk import CLIJSONDecodeError
 
         mock_query.side_effect = CLIJSONDecodeError(
-            "JSON message exceeded maximum buffer size of 4194304 bytes..."
+            "JSON message exceeded maximum buffer size of 1048576 bytes..."
         )
 
         result = _run_async(run_agent_async("test prompt"))
