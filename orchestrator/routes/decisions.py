@@ -150,6 +150,148 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
         )
 
 
+def _handle_hard_reset_recovery_resolution(
+    pipeline_id: str,
+    context: str,
+    resolution: str,
+    valid_options: list[str] | None = None,
+) -> None:
+    """Dispatch the hard-reset recovery HITL ack (#2792).
+
+    ``context`` is ``hard_reset_recovery:<phase>``; ``resolution`` is
+    one of the two options the HITL exposed (``"Continue with post-reset
+    state"`` or ``"Abort pipeline"``).
+
+    Continue → :func:`routes.pipelines.resume_pipeline_after_hard_reset_ack`
+    resets the failed phase exec state and spawns a fresh
+    ``_run_pipeline`` thread so the populator (and downstream phase
+    work) re-runs against the reconciled worktree.
+
+    Abort → :func:`routes.pipelines.abort_pipeline_after_hard_reset_ack`
+    transitions the pipeline to CANCELLED.  Cleanup of containers /
+    worktrees / other pending decisions still happens via the existing
+    PATCH ``update_pipeline`` flow the operator drives next.
+
+    ``valid_options`` is the decision's actual options list (defense
+    in depth, #2797 follow-up): the doubly-failed branch emits a HITL
+    whose options list is ``["Abort pipeline"]`` only.  An operator
+    hitting the resolution API directly with ``"Continue with
+    post-reset state"`` would otherwise route to the resume helper
+    and re-spawn a ``_run_pipeline`` thread that loops back into the
+    same divergence.  When the resolution is not in ``valid_options``,
+    routing is suppressed and the unknown-resolution path runs
+    instead.  ``valid_options=None`` keeps backward-compatible
+    behavior (skip the check) for legacy callers.
+
+    Unknown resolutions are logged at WARN and broadcast as an
+    ``OVERSEER_ALERT`` so the operator notices the dispatch was skipped
+    — the decision is already marked RESOLVED at this point, so the
+    human's intent is preserved in state regardless, but the pipeline
+    will stay stuck in ``failed_pending_hitl`` until someone intervenes.
+    """
+    phase_value = context.removeprefix("hard_reset_recovery:")
+
+    # Local import to avoid circular import at module load
+    # (routes.pipelines imports routes.decisions via the blueprint
+    # registration path in some test setups).
+    from routes.pipelines import (
+        abort_pipeline_after_hard_reset_ack,
+        resume_pipeline_after_hard_reset_ack,
+    )
+
+    # #2797 follow-up: refuse to route a resolution that wasn't in the
+    # decision's options list.  Catches a direct-API operator picking
+    # "Continue" on a doubly-failed HITL whose options collapsed to
+    # ["Abort pipeline"] only — without this gate, the dispatch would
+    # happily restart the phase and loop straight back into the same
+    # divergence at the next sync.  ``valid_options=None`` keeps the
+    # legacy behavior (skip the cross-check) for callers that don't
+    # have the decision in hand.
+    option_mismatch_reason: str | None = None
+    if valid_options is not None and resolution not in valid_options:
+        option_mismatch_reason = (
+            f"resolution not in the decision's options list "
+            f"(received: {resolution[:80]!r}; available: {valid_options!r})"
+        )
+
+    if option_mismatch_reason is None and resolution == "Continue with post-reset state":
+        ok = resume_pipeline_after_hard_reset_ack(
+            pipeline_id,
+            phase_value=phase_value,
+        )
+        if not ok:
+            logger.warning(
+                "hard_reset_recovery 'Continue' dispatch returned False",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+            )
+    elif option_mismatch_reason is None and resolution == "Abort pipeline":
+        ok = abort_pipeline_after_hard_reset_ack(pipeline_id)
+        if not ok:
+            logger.warning(
+                "hard_reset_recovery 'Abort' dispatch returned False",
+                pipeline_id=pipeline_id,
+            )
+    else:
+        logger.warning(
+            "hard_reset_recovery resolved with unrecognized option",
+            pipeline_id=pipeline_id,
+            resolution=resolution[:80],
+            mismatch=option_mismatch_reason,
+        )
+        try:
+            try:
+                from message_store import Message, get_message_store
+            except ImportError:
+                from orchestrator.message_store import (  # type: ignore[no-redef]
+                    Message,
+                    get_message_store,
+                )
+            if option_mismatch_reason is not None:
+                alert_body = (
+                    "Hard-reset recovery HITL resolved with an option not in "
+                    f"the decision's options list (received: {resolution[:80]!r}; "
+                    f"available: {valid_options!r}). The decision is marked "
+                    "RESOLVED but no dispatch ran; the pipeline will stay in "
+                    "failed_pending_hitl until the operator re-resolves with a "
+                    "valid option."
+                )
+            else:
+                alert_body = (
+                    "Hard-reset recovery HITL resolved with an unrecognized "
+                    f"option (received: {resolution[:80]!r}). Expected one of "
+                    "'Continue with post-reset state' or 'Abort pipeline'. The "
+                    "decision is marked RESOLVED but no dispatch ran; the "
+                    "pipeline will stay in failed_pending_hitl until the "
+                    "operator re-resolves with a valid option."
+                )
+            msg = Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type="OVERSEER_ALERT",
+                subject="hard-reset-recovery-unknown-resolution",
+                body=alert_body,
+                metadata={
+                    "anomaly": "hard_reset_recovery_unknown_resolution",
+                    "priority": "high",
+                    "context": context,
+                    "resolution": resolution[:80],
+                },
+                phase=phase_value or None,
+            )
+            get_message_store().add_message(msg)
+        except Exception:  # noqa: BLE001
+            # N5 follow-up: a broadcast failure here means the operator
+            # never sees the alert.  Log at WARN so the bus-down path
+            # leaves a trace alongside the unknown-resolution warning.
+            logger.warning(
+                "hard_reset_recovery OVERSEER_ALERT broadcast failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+
+
 def _handle_conditional_ack_gate(
     pipeline_id: str,
     context: str,
@@ -812,6 +954,24 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                         failed_role=failed_role,
                         exc_info=True,
                     )
+
+        # #2792: hard-reset recovery ack. ``context`` is
+        # ``hard_reset_recovery:<phase>``; dispatch on the prefix so the
+        # branch is independent of the prose-y question text.
+        # ``decision.options`` is passed so the dispatch handler can
+        # cross-check the resolution against the decision's actual
+        # options list (defense-in-depth, #2797 follow-up): the
+        # doubly-failed HITL collapses options to ``["Abort pipeline"]``
+        # only, and a direct-API "Continue" on that decision must not
+        # silently restart a phase that would loop straight back into
+        # the same divergence.
+        if decision.context and decision.context.startswith("hard_reset_recovery:"):
+            _handle_hard_reset_recovery_resolution(
+                pipeline_id,
+                decision.context,
+                decision.resolution or "",
+                valid_options=list(decision.options or []),
+            )
 
         return make_success_response(
             "Decision resolved",

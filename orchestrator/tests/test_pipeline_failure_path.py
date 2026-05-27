@@ -1951,6 +1951,7 @@ class TestStalePipelineBranchTransition:
         from routes.pipelines import (
             WORKTREE_BASE_DIR,
             StalePipelineBranchError,
+            WorktreeSyncOutcome,
             _run_pipeline,
         )
 
@@ -1969,6 +1970,13 @@ class TestStalePipelineBranchTransition:
             mock_emit,
             pipeline,
         )
+
+        # #2792: the helper now returns a structured outcome; the default
+        # mock would return a MagicMock whose ``hard_reset_performed``
+        # attribute is truthy and trip the new hard-reset HITL path.
+        # Pin a non-recovery outcome so this test stays scoped to the
+        # ``StalePipelineBranchError`` propagation it's asserting.
+        mock_sync.return_value = WorktreeSyncOutcome(case="already_in_sync")
 
         worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
         mock_gateway.create_worktrees.return_value = MagicMock(
