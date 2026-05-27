@@ -15326,9 +15326,14 @@ def _emit_producer_death_alert(
     WARNING log, mirroring ``_publish_consensus_timeout_alert``.
     """
     phase_value = phase if isinstance(phase, str) else getattr(phase, "value", str(phase))
-    subject_slice = f" slice={slice_id}" if slice_id else ""
+    # ``is not None`` (not truthy) so subject and metadata agree on edge
+    # values like ``slice_id == ""``: metadata at 15349 also uses ``is
+    # not None`` (#2811 round 3 item 1). In practice ``slice_id`` is
+    # validated to ``slice-<N>`` upstream, so the asymmetry can't fire
+    # today — keeping the two checks aligned avoids a future footgun.
+    subject_slice = f" slice={slice_id}" if slice_id is not None else ""
     subject = f"producer-permanent-death: {role} exit={exit_code}{subject_slice} [high]"
-    slice_render = f" (slice {slice_id})" if slice_id else ""
+    slice_render = f" (slice {slice_id})" if slice_id is not None else ""
     body = (
         f"Producer '{role}'{slice_render} died permanently in phase "
         f"'{phase_value}': container exited with code {exit_code} after the "

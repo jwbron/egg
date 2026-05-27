@@ -733,6 +733,77 @@ class TestContainerExitFallback:
     @patch("routes.pipelines._get_message_store")
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_producer_death_short_circuits_phase_with_slice_id(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_msg_store,
+    ):
+        """Round-3 item 2: end-to-end coverage that ``slice_id`` propagates
+        from ``_run_concurrent_phase``'s ``slice_id`` kwarg into the
+        alert subject. Without this test the slice-cascade triage format
+        (``producer-permanent-death: <role> exit=<N> slice=<id> [high]``)
+        is only smoke-tested at the helper level.
+        """
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.FAILED,
+                exit_code=137,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        msg_store = MagicMock()
+        mock_get_msg_store.return_value = MagicMock(return_value=msg_store)
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            slice_id="slice-2",
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1
+        assert "PRODUCER PERMANENT DEATH" in logs
+        assert msg_store.add_message.call_count == 1
+        alert = msg_store.add_message.call_args.args[0]
+        # Subject carries slice id so per-slice cascade is triagable.
+        assert alert.subject == "producer-permanent-death: coder exit=137 slice=slice-2 [high]"
+        assert alert.metadata["slice_id"] == "slice-2"
+        assert alert.metadata["exit_code"] == 137
+
+    @patch("routes.pipelines._get_message_store")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines._emit_event")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
