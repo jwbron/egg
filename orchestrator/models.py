@@ -489,16 +489,19 @@ class PhaseExecution(BaseModel):
         """
         if not isinstance(data, dict):
             return data
+        # Normalise an explicit ``null`` for ``operator_directives`` to an
+        # empty list before any early return: Pydantic's
+        # ``default_factory=list`` does not prevent a writer from emitting a
+        # literal ``null``, and the non-Optional ``list[OperatorDirective]``
+        # field validation would then reject the record entirely. Doing
+        # this here covers both the no-legacy-feedback fast path and the
+        # migration branch below.
+        if "operator_directives" in data and data["operator_directives"] is None:
+            data["operator_directives"] = []
         legacy = data.pop("hitl_feedback", None)
         if not legacy:
             return data
 
-        # ``data.get("operator_directives") or []`` (not the two-arg form):
-        # a persisted JSON record may carry an explicit ``null`` for the
-        # field even though Pydantic's ``default_factory=list`` prevents
-        # it on the write side. ``data.get(..., [])`` returns ``None`` on
-        # explicit null and ``list(None)`` then raises — defeating the
-        # migration's whole purpose.
         directives = list(data.get("operator_directives") or [])
         # Synthesize the directive at the iteration index implied by the
         # cycle counter (the inline handler's old behaviour wrote
@@ -510,6 +513,12 @@ class PhaseExecution(BaseModel):
         # primary collision at ``1`` would fall back to ``2``).
         hitl_cycles = data.get("hitl_review_cycles", 0) or 0
         iteration_n = max(hitl_cycles - 1, 0)
+        # The migration only sees raw JSON-loaded data, so entries are
+        # expected to be ``dict`` with an int ``iteration_n``. Any
+        # malformed entry (non-dict or non-int index) is silently skipped
+        # here from collision detection — downstream Pydantic field
+        # validation will reject it with a precise error rather than the
+        # migration trying to second-guess the shape.
         existing_indices = [
             d.get("iteration_n")
             for d in directives

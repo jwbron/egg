@@ -24200,20 +24200,23 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 else:
                     # request_changes/change_approach — reset phase for re-run
                     phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
-                    # #2795: capture iteration N's BRC tracker BEFORE the
-                    # reset wipes the per-phase counters. The tracker is
-                    # in-memory only, so on a crash-recovery resolution
-                    # this snapshot will typically have empty verdict
-                    # detail — but the iteration index + artifacts are
-                    # still useful context for iteration N+1's prompts.
-                    # Derive iteration_n monotonically — the cycle
-                    # counter is reset to 0 a few lines below, which
-                    # would otherwise collide with subsequent inline-
-                    # path kickbacks. Floor is one past the maximum
-                    # existing directive index so a legacy-hitl_feedback
-                    # migration (which synthesises a directive but
-                    # leaves iteration_history empty) doesn't restart
-                    # the index at 0 (#2795 review).
+                    # #2795: derive iteration_n monotonically. The
+                    # ``max(len(iteration_history), max(directive_idx) + 1)``
+                    # form does not depend on ``hitl_review_cycles``, so
+                    # this expression is safe to evaluate either before
+                    # or after ``_clear_concurrent_state`` resets the
+                    # per-phase counter. What *is* order-sensitive is
+                    # the tracker snapshot a few lines below: the BRC
+                    # tracker is in-memory only and gets wiped by
+                    # ``_clear_concurrent_state``, so the snapshot MUST
+                    # happen first. On a crash-recovery resolution the
+                    # snapshot will typically have empty verdict detail,
+                    # but the iteration index + artifacts are still
+                    # useful context for iteration N+1's prompts.
+                    # The ``max(...) + 1`` floor ensures a legacy-
+                    # hitl_feedback migration (which synthesises a
+                    # directive but leaves iteration_history empty)
+                    # doesn't restart the index at 0.
                     _recovery_iteration_n = max(
                         len(phase_execution.iteration_history),
                         max(

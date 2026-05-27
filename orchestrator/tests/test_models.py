@@ -427,9 +427,10 @@ class TestPhaseExecution:
         """An explicit ``null`` for ``operator_directives`` does not break the migration.
 
         Pydantic's ``default_factory=list`` does not prevent a writer from
-        emitting a literal ``null`` on the JSON record. ``data.get(..., [])``
-        returns ``None`` in that case and ``list(None)`` would raise — the
-        ``or []`` guard ensures the migration survives.
+        emitting a literal ``null`` on the JSON record. The validator
+        normalises ``operator_directives: None`` to ``[]`` before any
+        further work, so neither the migration branch nor the field
+        validation downstream raises.
         """
         raw = {
             "phase": PipelinePhase.REFINE.value,
@@ -441,14 +442,29 @@ class TestPhaseExecution:
         assert len(restored.operator_directives) == 1
         assert restored.operator_directives[0].feedback_text == "Drop the planner-scope sections."
 
+    def test_null_operator_directives_without_legacy_feedback_is_safe(self):
+        """``operator_directives: null`` is normalised even when no migration runs.
+
+        Without ``hitl_feedback`` the validator returns early; before the
+        normalisation moved above that early return, the non-Optional
+        ``list[OperatorDirective]`` field validation would reject the
+        record. This case guards that path.
+        """
+        raw = {
+            "phase": PipelinePhase.REFINE.value,
+            "operator_directives": None,
+        }
+        restored = PhaseExecution.model_validate(raw)
+        assert restored.operator_directives == []
+
     def test_legacy_hitl_feedback_sparse_indices_collision_floor(self):
         """Collision fallback picks one past the maximum, not ``len(directives)``.
 
-        With existing indices ``[0, 2]`` and a primary collision at
-        ``1`` (hitl_review_cycles=2 → 1 — actually no collision; force
-        it via an existing iteration_n=1 alongside the sparse 2), the
-        old ``len(directives)`` fallback would have landed on ``2`` and
-        collided again. The ``max(...)+1`` floor lands on ``3``.
+        With existing indices ``[1, 2]`` and ``hitl_review_cycles=2`` the
+        primary candidate ``hitl_review_cycles - 1 = 1`` collides with
+        the existing entry. The old ``len(directives)`` fallback would
+        have landed on ``2`` and collided again; the ``max(...) + 1``
+        floor lands on ``3``.
         """
         raw = {
             "phase": PipelinePhase.REFINE.value,
