@@ -8,10 +8,11 @@ The SDLC pipeline includes phases where human input is required before proceedin
 - **Refine phase**: Human approves the analysis before planning
 - **Plan phase**: Human approves the implementation plan before coding
 
-Three mechanisms exist for gathering human input:
+Four mechanisms exist for gathering human input:
 1. **Formal HITL decisions** — Multiple-choice questions with checkboxes
 2. **Feedback comments** — Open-ended questions in an editable comment
 3. **Phase approval** — Single checkbox to approve and advance to the next phase
+4. **Orchestrator-emitted decisions** — Automatically created by the orchestrator during pipeline recovery scenarios (e.g., sync divergence); require operator acknowledgment before the pipeline can continue. See [Orchestrator-Emitted Decisions](#orchestrator-emitted-decisions).
 
 In prompt-driven mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Prompt-Driven Mode: Type-Aware Terminal Rendering](#prompt-driven-mode-type-aware-terminal-rendering) for details.
 
@@ -355,6 +356,44 @@ Every auto-resolution prints a user-visible one-line note identifying the decisi
 - **Map is session-scoped, not persisted.** A fresh `/sdlc` invocation starts with an empty map. Across multiple phase_gates in the same session the map accumulates; newer answers for a duplicate normalized question overwrite older ones.
 - **Map is not cleared on `change_approach`.** When a user selects `change_approach`, the phase restarts and new decisions may arrive with the same question text but different intent. The map still holds old answers, so if the restarted phase re-registers the same question text, the old answer may auto-resolve. The user-visible transparency note makes this catchable — an unexpected auto-resolution can be corrected at the next phase gate.
 - **Prompt-driven mode (`egg-sdlc`) is unaffected.** The terminal UI in `sandbox/egg_lib/sdlc_hitl.py` does not use `resolved_questions_map` — this is strictly a `/sdlc` Claude Code skill optimization.
+
+## Orchestrator-Emitted Decisions
+
+Some HITL decisions are created directly by the orchestrator — not by agents — in response to internal recovery scenarios. These decisions appear in `/sdlc` and the decision queue the same way agent-created decisions do, but they surface pipeline-level recovery choices rather than design questions.
+
+### Sync Divergence: Hard-Reset Recovery (#2792)
+
+When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator automatically performs the following steps. Steps 1–3 happen inside `_sync_worktree_with_remote` (the destructive recovery helper); step 4 happens in the caller (`_fail_pipeline_and_emit_hard_reset_recovery`, invoked from `_run_pipeline` or `populate_contract`):
+
+1. Enumerates local-only commits that will be discarded
+2. Creates a backup ref: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`, where `<unix-ts-ns>` is `time.time_ns()` — a 19-digit nanoseconds-since-epoch value, not conventional Unix seconds. To derive the wall-clock time: `date -d @$((<unix-ts-ns>/1000000000))`.
+3. Hard-resets the worktree to the remote tip
+4. Pins the pipeline to `FAILED` and emits a HITL decision (context: `hard_reset_recovery:<phase>`)
+
+The pipeline stays in a failed-pending-HITL state (`pipeline.status=FAILED` with a pending decision whose context is `hard_reset_recovery:<phase>`) until the operator resolves the decision.
+
+**Options:**
+
+| Option | Effect |
+|--------|--------|
+| `Continue with post-reset state` | Orchestrator resets phase exec state and spawns a fresh pipeline run against the reconciled worktree |
+| `Abort pipeline` | Orchestrator marks the pipeline `CANCELLED` |
+
+**Recovery steps for operators:**
+
+1. Open `/sdlc` and find the pending decision
+2. Inspect the backup ref to assess what was discarded — from the pipeline worktree on the orchestrator host, since `refs/egg-backup/*` is created via `git update-ref` in the orchestrator's per-pipeline worktree and is not pushed to upstream: `git log refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`
+3. Choose **Continue** if the discarded commits are recoverable from the backup or acceptable to lose; choose **Abort** to cancel and clean up manually
+4. After choosing **Continue**, the orchestrator auto-restarts the phase — no further manual action is needed
+
+**Doubly-failed case:** If both the rebase and the hard reset fail, the HITL options collapse to `["Abort pipeline"]` only. The pipeline branch is still divergent in this case; the operator must manually reconcile the worktree before retrying.
+
+> **Note:** Resolving this HITL via the API directly with an option not in the decision's options list (e.g., sending "Continue" on a doubly-failed decision that only offers "Abort") is rejected by the dispatch handler. The decision is marked resolved but no action runs; the pipeline remains stuck, and an `OVERSEER_ALERT` is broadcast.
+
+This recovery fires at three sites:
+- **Phase start** — when the pre-phase rebase fails
+- **Post-phase** — when the post-phase sync fails
+- **`populate_contract`** — when the pre-populate sync fails. HTTP 409 with `reason="hard_reset_recovery_unacked"` on the successful-recovery branch, or `reason="sync_rebase_and_reset_failed"` on the doubly-failed branch.
 
 ## Related Files
 
