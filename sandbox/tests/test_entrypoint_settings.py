@@ -84,3 +84,46 @@ class TestDisallowedToolsPrivateMode:
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
         assert "disallowedTools" not in settings
+
+
+class TestPostToolUseHook:
+    """Issue #2804: settings.json must wire the PostToolUse truncation
+    hook so the CLI runs it for every tool call, bounding tool_response
+    size before it crosses the SDK JSON channel.
+    """
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_hook_registered_for_post_tool_use(self, _which, mock_config, mock_logger):
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        assert "hooks" in settings, "settings.json must include hooks for #2804"
+        assert "PostToolUse" in settings["hooks"]
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_hook_matcher_covers_all_tools(self, _which, mock_config, mock_logger):
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        matchers = settings["hooks"]["PostToolUse"]
+        assert len(matchers) == 1
+        # ``*`` matches every tool so we catch Read/Bash/Grep/Edit/MCP alike
+        assert matchers[0]["matcher"] == "*"
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_hook_points_at_runtime_path(self, _which, mock_config, mock_logger):
+        """The command must reference the in-image runtime path.
+
+        The Dockerfile bakes ``sandbox/`` to ``/opt/egg-runtime/sandbox/``
+        (see ``sandbox/Dockerfile``); the hook script lives at
+        ``hooks/posttooluse_truncate.py`` under that root.
+        """
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        commands = [
+            cmd["command"]
+            for matcher in settings["hooks"]["PostToolUse"]
+            for cmd in matcher["hooks"]
+            if cmd.get("type") == "command"
+        ]
+        assert any(
+            "/opt/egg-runtime/sandbox/hooks/posttooluse_truncate.py" in cmd for cmd in commands
+        ), f"hook command must reference runtime path, got {commands!r}"

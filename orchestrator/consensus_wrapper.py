@@ -119,6 +119,13 @@ TRANSIENT_BACKOFF_INITIAL={transient_backoff_initial}
 TRANSIENT_BACKOFF_MAX=30
 STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 
+# Capture agent stdout+stderr so the wrapper can post-mortem the run.
+# Used by is_buffer_overflow() to detect the Claude Agent SDK
+# message-reader 1MB JSON buffer crash (issue #2804) which is
+# deterministic — retrying just hits the same overflow and burns
+# the restart budget for no gain.
+AGENT_OUTPUT_LOG="${{AGENT_OUTPUT_LOG:-/tmp/agent-output-$$.log}}"
+
 # Log wrapper messages to stderr so they never leak into agent SDK context.
 cw_log() {{
     echo "[consensus-wrapper] $*" >&2
@@ -127,12 +134,28 @@ cw_log() {{
 run_agent() {{
     local prompt="$1"
     local system_prompt="${{2:-}}"
+    : > "$AGENT_OUTPUT_LOG"  # truncate per run so old crashes don't bleed forward
     if [ -n "$system_prompt" ]; then
-        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt"
+        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt" \
+            > >(tee -a "$AGENT_OUTPUT_LOG") \
+            2> >(tee -a "$AGENT_OUTPUT_LOG" >&2)
     else
-        {agent_command_prefix} "$prompt"
+        {agent_command_prefix} "$prompt" \
+            > >(tee -a "$AGENT_OUTPUT_LOG") \
+            2> >(tee -a "$AGENT_OUTPUT_LOG" >&2)
     fi
     return $?
+}}
+
+# Detect the Claude Agent SDK 1MB JSON message-reader overflow
+# signature in the most recent agent run. Issue #2804.  The overflow
+# is deterministic: re-running the agent against the same codebase
+# almost always hits the same oversized tool result, so the wrapper
+# should NOT consume retry budget on this failure class. Returns 0
+# (true) if the overflow marker was logged, 1 otherwise.
+is_buffer_overflow() {{
+    [ -f "$AGENT_OUTPUT_LOG" ] || return 1
+    grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null
 }}
 
 # Helper: extract BRC agent state from pipeline status JSON
@@ -286,7 +309,10 @@ if [ "$AGENT_EXIT" -ne 0 ]; then
         fi
     fi
 
-    if is_transient_crash "$AGENT_EXIT"; then
+    if is_buffer_overflow; then
+        cw_log "Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting."
+        exit $AGENT_EXIT
+    elif is_transient_crash "$AGENT_EXIT"; then
         cw_log "Transient crash (code $AGENT_EXIT). Will restart with backoff."
         CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
     elif is_startup_failure "$AGENT_EXIT" "$AGENT_DURATION"; then
@@ -557,6 +583,10 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
                 cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT) but already CONFIRMED. Exiting cleanly."
                 exit 0
             fi
+        fi
+        if is_buffer_overflow; then
+            cw_log "Agent crashed on Claude Agent SDK buffer overflow (issue #2804) on restart $RESTART_COUNT. Deterministic failure; further retries would waste budget. Stopping."
+            exit $AGENT_EXIT
         fi
         if is_transient_crash "$AGENT_EXIT"; then
             cw_log "Transient crash on restart $RESTART_COUNT (code $AGENT_EXIT). Will retry."
