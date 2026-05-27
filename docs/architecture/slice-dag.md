@@ -74,7 +74,7 @@ pass either.
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| `serialized_chain_order` | `list[str]` | `[]` | Planner-emitted ordering for would-be multi-parent slices. When the planner identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
+| `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
 | `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. |
 
 ## Plan Parser & Forest Validation
@@ -97,7 +97,7 @@ def validate_forest(slices: list[Slice]) -> list[str]:
 
 The orchestrator's `_populate_contract_from_plan` route invokes
 `validate_forest()`, stashes any returned errors on
-`Contract.plan_review_feedback` (so the plan reviewer NACKs the planner),
+`Contract.plan_review_feedback` (so the plan reviewer NACKs the architect, #2809),
 **and then raises a structured `ForestValidationError`**. Slices are not
 written to the contract in this case — leaving `contract.slices` empty
 so downstream code visibly fails fast.
@@ -617,7 +617,7 @@ of the three callables (refine-phase decision-15) — every gateway call
 flows through the same per-agent allowlists the slice's regular agent
 team uses.
 
-## Planner & plan-reviewer prompt updates
+## Architect, planner & plan-reviewer prompt updates
 
 The dynamic prompt builders for `task_planner` and `reviewer_plan` were
 extended to teach the agents the new schema and constraints:
@@ -741,9 +741,9 @@ during refine. The most consequential are referenced inline above:
 - **decision-16** — stacked-PR rebase: GitHub auto-retarget primary path,
   reconciler safety net.
 - **decision-17** — auto-serialization for would-be multi-parent slices:
-  planner-supplied `serialized_chain_order` is the source of truth.
+  architect-supplied `serialized_chain_order` is the source of truth (#2809).
 - **decision-18** — forest constraint enforced at plan ingestion only;
-  multi-parent slices NACK the planner.
+  multi-parent slices NACK the architect (#2809).
 - **decision-20** — implement-phase run-loop wire-up (TASK-4-2,
   TASK-4-4, TASK-5-1 invocation, TASK-5-3 scheduling). Operator chose
   **opt-2** ("require the wire-up to land here before consensus"); the
