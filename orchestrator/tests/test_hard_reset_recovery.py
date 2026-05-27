@@ -262,6 +262,7 @@ class TestDispatchResolution:
     def test_unknown_resolution_is_logged_and_skipped(self):
         from routes.decisions import _handle_hard_reset_recovery_resolution
 
+        mock_store = MagicMock()
         with (
             patch(
                 "routes.pipelines.resume_pipeline_after_hard_reset_ack",
@@ -272,6 +273,7 @@ class TestDispatchResolution:
                 return_value=True,
             ) as mock_abort,
             patch("routes.decisions.logger") as mock_logger,
+            patch("message_store.get_message_store", return_value=mock_store),
         ):
             _handle_hard_reset_recovery_resolution(
                 "pipeline-abc",
@@ -281,7 +283,14 @@ class TestDispatchResolution:
 
         mock_resume.assert_not_called()
         mock_abort.assert_not_called()
-        mock_logger.info.assert_called()
+        # N5: unknown resolution now logs at WARN and emits an
+        # OVERSEER_ALERT so the operator notices the stuck pipeline.
+        mock_logger.warning.assert_called()
+        mock_store.add_message.assert_called_once()
+        sent_msg = mock_store.add_message.call_args.args[0]
+        assert sent_msg.message_type == "OVERSEER_ALERT"
+        assert sent_msg.metadata.get("anomaly") == ("hard_reset_recovery_unknown_resolution")
+        assert sent_msg.metadata.get("priority") == "high"
 
 
 class TestEmptyContractHitlWordingNoLongerNamesPriorPopulator:
@@ -308,3 +317,210 @@ class TestEmptyContractHitlWordingNoLongerNamesPriorPopulator:
         # state and contract have diverged so the next action picker
         # has the context it needs.
         assert "diverged" in question
+
+
+class TestResumeHelperResetsConsensusAndHealth:
+    """#2792 review B1: ``resume_pipeline_after_hard_reset_ack`` must
+    mirror ``restart_phase``'s consensus / restart-count / health-monitor
+    cleanup so a re-spawn after a post-phase hard reset does not
+    short-circuit against the prior round's CONFIRMED tracker state and
+    does not fire stale-elapsed Tier-1 health alerts (#2084 bug class).
+    """
+
+    def _make_pipeline_with_agents(self):
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-2792",
+            issue_number=2792,
+            repo="owner/repo",
+            branch="egg/issue-2792",
+            status=PipelineStatus.FAILED,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.phases = {
+            PipelinePhase.IMPLEMENT.value: PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.FAILED,
+                error="hard-reset recovery pending",
+                review_cycles=2,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.RUNNING),
+                    AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.RUNNING),
+                    AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.RUNNING),
+                ],
+            ),
+        }
+        return pipeline
+
+    def test_resume_clears_tracker_evaluator_restart_counts_health(self):
+        pipeline = self._make_pipeline_with_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+
+        mock_spawner = MagicMock()
+        mock_tracker = MagicMock()
+        mock_evaluator = MagicMock()
+        mock_hm = MagicMock()
+
+        with (
+            patch("routes.pipelines.get_repo_path", return_value=Path("/repo")),
+            patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
+            patch("routes.pipelines.get_pipeline_state_lock"),
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+            patch("routes.pipelines._spawn_pipeline_run_thread") as mock_spawn_thread,
+            patch.dict(
+                "sys.modules",
+                {
+                    "peer_consensus": MagicMock(
+                        get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                    ),
+                    "consensus": MagicMock(
+                        get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
+                    ),
+                    "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
+                },
+            ),
+        ):
+            from routes.pipelines import resume_pipeline_after_hard_reset_ack
+
+            ok = resume_pipeline_after_hard_reset_ack(
+                "issue-2792",
+                phase_value="implement",
+            )
+
+        assert ok is True
+        mock_tracker.clear.assert_called_once()
+        mock_evaluator.clear.assert_called_once_with("issue-2792")
+        mock_spawner.reset_restart_counts.assert_called_once_with("issue-2792")
+        reset_calls = {call.args[0] for call in mock_hm.reset_agent.call_args_list}
+        assert reset_calls == {"coder", "tester", "documenter"}
+        mock_spawn_thread.assert_called_once()
+
+    def test_resume_falls_back_to_role_table_when_phase_agents_empty(self):
+        """When ``phase_exec.agents`` is empty (phase-start hard reset
+        path), the resume helper must fall back to the deterministic
+        per-phase roster source so health-monitor cleanup still covers
+        the roles the next spawn will create."""
+        from models import (
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-2792b",
+            issue_number=2792,
+            repo="owner/repo",
+            branch="egg/issue-2792b",
+            status=PipelineStatus.FAILED,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.phases = {
+            PipelinePhase.IMPLEMENT.value: PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.FAILED,
+                error="hard-reset recovery pending",
+                agents=[],
+            ),
+        }
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+
+        mock_spawner = MagicMock()
+        mock_hm = MagicMock()
+        fake_roles_module = MagicMock()
+        fake_roles_module.get_roles_for_phase.return_value = [
+            AgentRole.CODER,
+            AgentRole.TESTER,
+        ]
+
+        with (
+            patch("routes.pipelines.get_repo_path", return_value=Path("/repo")),
+            patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
+            patch("routes.pipelines.get_pipeline_state_lock"),
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+            patch("routes.pipelines._spawn_pipeline_run_thread"),
+            patch.dict(
+                "sys.modules",
+                {
+                    "peer_consensus": MagicMock(
+                        get_peer_consensus_tracker=MagicMock(return_value=None)
+                    ),
+                    "consensus": MagicMock(
+                        get_consensus_evaluator=MagicMock(return_value=MagicMock())
+                    ),
+                    "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
+                    "egg_contracts.agent_roles": fake_roles_module,
+                },
+            ),
+        ):
+            from routes.pipelines import resume_pipeline_after_hard_reset_ack
+
+            ok = resume_pipeline_after_hard_reset_ack(
+                "issue-2792b",
+                phase_value="implement",
+            )
+
+        assert ok is True
+        reset_calls = {call.args[0] for call in mock_hm.reset_agent.call_args_list}
+        assert reset_calls == {"coder", "tester"}
+
+    def test_resume_returns_false_on_phase_mismatch(self):
+        """Phase-mismatch (operator resolved a stale recovery decision
+        after the pipeline already advanced) must not clear consensus —
+        the active phase would lose live tracker state."""
+        pipeline = self._make_pipeline_with_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+
+        mock_tracker = MagicMock()
+        mock_evaluator = MagicMock()
+
+        with (
+            patch("routes.pipelines.get_repo_path", return_value=Path("/repo")),
+            patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
+            patch("routes.pipelines.get_pipeline_state_lock"),
+            patch("routes.pipelines._get_spawner") as mock_get_spawner,
+            patch("routes.pipelines._spawn_pipeline_run_thread") as mock_spawn,
+            patch.dict(
+                "sys.modules",
+                {
+                    "peer_consensus": MagicMock(
+                        get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                    ),
+                    "consensus": MagicMock(
+                        get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
+                    ),
+                },
+            ),
+        ):
+            from routes.pipelines import resume_pipeline_after_hard_reset_ack
+
+            # Pipeline is currently on IMPLEMENT, ack names PLAN.
+            ok = resume_pipeline_after_hard_reset_ack(
+                "issue-2792",
+                phase_value="plan",
+            )
+
+        assert ok is False
+        mock_tracker.clear.assert_not_called()
+        mock_evaluator.clear.assert_not_called()
+        mock_get_spawner.assert_not_called()
+        mock_spawn.assert_not_called()

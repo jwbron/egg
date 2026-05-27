@@ -171,9 +171,11 @@ def _handle_hard_reset_recovery_resolution(
     worktrees / other pending decisions still happens via the existing
     PATCH ``update_pipeline`` flow the operator drives next.
 
-    Unknown resolutions are logged at INFO and silently skipped — the
-    decision is already marked RESOLVED at this point, so the human's
-    intent is preserved in state regardless.
+    Unknown resolutions are logged at WARN and broadcast as an
+    ``OVERSEER_ALERT`` so the operator notices the dispatch was skipped
+    — the decision is already marked RESOLVED at this point, so the
+    human's intent is preserved in state regardless, but the pipeline
+    will stay stuck in ``failed_pending_hitl`` until someone intervenes.
     """
     phase_value = context.removeprefix("hard_reset_recovery:")
 
@@ -204,11 +206,44 @@ def _handle_hard_reset_recovery_resolution(
                 pipeline_id=pipeline_id,
             )
     else:
-        logger.info(
+        logger.warning(
             "hard_reset_recovery resolved with unrecognized option",
             pipeline_id=pipeline_id,
             resolution=resolution[:80],
         )
+        try:
+            try:
+                from message_store import Message, get_message_store
+            except ImportError:
+                from orchestrator.message_store import (  # type: ignore[no-redef]
+                    Message,
+                    get_message_store,
+                )
+            msg = Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type="OVERSEER_ALERT",
+                subject="hard-reset-recovery-unknown-resolution",
+                body=(
+                    "Hard-reset recovery HITL resolved with an unrecognized "
+                    f"option (received: {resolution[:80]!r}). Expected one of "
+                    "'Continue with post-reset state' or 'Abort pipeline'. The "
+                    "decision is marked RESOLVED but no dispatch ran; the "
+                    "pipeline will stay in failed_pending_hitl until the "
+                    "operator re-resolves with a valid option."
+                ),
+                metadata={
+                    "anomaly": "hard_reset_recovery_unknown_resolution",
+                    "priority": "high",
+                    "context": context,
+                    "resolution": resolution[:80],
+                },
+                phase=phase_value or None,
+            )
+            get_message_store().add_message(msg)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _handle_conditional_ack_gate(

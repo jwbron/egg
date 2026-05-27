@@ -697,7 +697,12 @@ class TestSyncWorktreeOutcomeTaxonomy:
         assert outcome.hard_reset_performed is True
 
     def test_case_diverged_rebase_and_reset_failed(self):
-        """Rebase fails AND the hard-reset fallback also fails → distinct terminal case."""
+        """Rebase fails AND the hard-reset fallback also fails → raises
+        ``SyncRebaseAndResetFailedError`` with the backup ref and the
+        discarded SHA list attached (#2792 review B5)."""
+        import pytest
+        from routes.pipelines import SyncRebaseAndResetFailedError
+
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -720,16 +725,16 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 category="reconcile_rebase_conflict",
                 detail="conflict",
             )
-            outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            with pytest.raises(SyncRebaseAndResetFailedError) as exc_info:
+                _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
         assert _outcome_cases(mock_logger) == [
             "divergence_rebase_failed",
             "divergence_rebase_and_reset_failed",
         ]
-        assert outcome.case == "divergence_rebase_and_reset_failed"
-        assert outcome.hard_reset_performed is False
         # Backup ref was written successfully even though the reset
         # itself failed, so it's still surfaced for forensic use.
-        assert outcome.backup_ref is not None
+        assert exc_info.value.backup_ref is not None
+        assert exc_info.value.discarded_commit_shas == ("abc1234 foo",)
 
     def test_case_diverged_recovered_via_reset_with_backup_failure(self):
         """Backup-ref write failure → reset still runs, ``backup_ref=None`` on outcome."""

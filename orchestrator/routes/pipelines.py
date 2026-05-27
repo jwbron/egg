@@ -3349,6 +3349,11 @@ def resume_pipeline_after_hard_reset_ack(
     Mirrors the in-lock state reset that :func:`restart_phase` performs
     (phase exec status → PENDING, pipeline status → RUNNING, bump
     ``run_epoch``) and spawns a fresh ``_run_pipeline`` driver thread.
+    Also mirrors :func:`restart_phase`'s consensus / restart-count /
+    health-monitor cleanup so a re-spawn after a post-phase hard reset
+    does not short-circuit against the prior round's CONFIRMED tracker
+    state or fire stale-elapsed Tier-1 health alerts (the #2084 fix
+    class that the original slim implementation skipped).
 
     Slimmer than the HTTP route on purpose:
 
@@ -3389,6 +3394,7 @@ def resume_pipeline_after_hard_reset_ack(
         )
         return False
 
+    agent_role_values: list[str] = []
     with get_pipeline_state_lock(pipeline_id):
         pipeline = store.load_pipeline(pipeline_id)
         if phase_value != pipeline.current_phase.value:
@@ -3408,6 +3414,42 @@ def resume_pipeline_after_hard_reset_ack(
             )
             return False
 
+        # Collect roster of agent roles for health-monitor reset (#2084).
+        # The cache on phase_exec.agents may be the most recent spawn's
+        # roster (post-phase emission site) or stale-from-prior-run
+        # (phase-start site).  Fall back to the deterministic per-phase
+        # roster source so the reset covers both cases.
+        for agent in phase_exec.agents:
+            try:
+                role = (
+                    agent.role
+                    if isinstance(getattr(agent, "role", None), AgentRole)
+                    else AgentRole(agent.role)
+                )
+                agent_role_values.append(role.value)
+            except ValueError, AttributeError:
+                continue
+        if not agent_role_values:
+            try:
+                from egg_contracts.agent_roles import (
+                    get_roles_for_phase as _get_roles_for_phase,
+                )
+
+                for r in _get_roles_for_phase(
+                    phase_value,
+                    include_reviewers=True,
+                    repo=pipeline.repo,
+                    has_contract=getattr(pipeline, "has_contract", True),
+                ):
+                    agent_role_values.append(r.value)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "resume_pipeline_after_hard_reset_ack: roster fallback failed",
+                    pipeline_id=pipeline_id,
+                    phase=phase_value,
+                    error=str(exc),
+                )
+
         # Mirror the state reset in restart_phase (lines 3140-3155) so
         # the new _run_pipeline thread treats this as a fresh phase.
         phase_exec.containers = []
@@ -3425,12 +3467,89 @@ def resume_pipeline_after_hard_reset_ack(
         pipeline.run_epoch = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
+    # Outside the lock: reset BRC tracker, legacy evaluator, restart
+    # counts, and health-monitor anchors so a re-spawn does NOT
+    # short-circuit against the prior round's CONFIRMED tracker state
+    # or fire stale-elapsed health alerts.  This mirrors restart_phase
+    # lines 3250-3312 — the bug class is #2084.  (#2792 review B1.)
+    try:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (  # type: ignore[import-not-found]
+                get_peer_consensus_tracker,
+            )
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.clear()
+            logger.info(
+                "Cleared peer consensus tracker after hard-reset ack",
+                pipeline_id=pipeline_id,
+            )
+    except ImportError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to clear peer consensus after hard-reset ack",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    try:
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import (  # type: ignore[import-not-found]
+                get_consensus_evaluator,
+            )
+
+        evaluator = get_consensus_evaluator()
+        evaluator.clear(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to clear legacy consensus after hard-reset ack",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    try:
+        _get_spawner().reset_restart_counts(pipeline_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to reset restart counts after hard-reset ack",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    try:
+        try:
+            from health_monitor import get_health_monitor
+        except ImportError:
+            from ..health_monitor import (  # type: ignore[import-not-found]
+                get_health_monitor,
+            )
+        _hm = get_health_monitor()
+        if _hm is not None:
+            for _role_value in agent_role_values:
+                _hm.reset_agent(_role_value)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to reset health-monitor state after hard-reset ack",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+            error=str(e),
+        )
+
     _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
     logger.info(
         "Resumed pipeline after hard-reset recovery ack",
         pipeline_id=pipeline_id,
         phase=phase_value,
         reason=reason,
+        agent_roles_reset=agent_role_values,
     )
     return True
 
@@ -7096,7 +7215,12 @@ def _sync_worktree_with_remote(
         # for forensic inspection after the reset.  Best-effort; a
         # backup-write failure inlines the SHA list into the WARN log
         # so they at least land in the audit trail (#2792 section 5).
-        unix_ts = int(time.time())
+        # Use nanosecond precision so two recoveries within the same
+        # second on the same pipeline (orchestrator restart loop, HITL
+        # ack racing a phase-start emission) cannot collide on the
+        # ref name and silently overwrite the first backup (#2797
+        # review N1).
+        unix_ts = time.time_ns()
         backup_ref = _build_sync_recovery_backup_ref(pipeline_id, unix_ts)
         backup_ok = _create_sync_recovery_backup_ref(
             git_base,
@@ -7141,9 +7265,19 @@ def _sync_worktree_with_remote(
                 reset_rc=reset_rc,
                 reset_error=reset_err[:200],
             )
-            return WorktreeSyncOutcome(
-                case="divergence_rebase_and_reset_failed",
-                hard_reset_performed=False,
+            # #2792 review B5: raise a typed error so callers route the
+            # doubly-failed path through the same FAILED-cleanup flow
+            # as other terminal sync failures.  Returning an outcome
+            # with hard_reset_performed=False would be indistinguishable
+            # from a happy no-op at every caller — the worktree is
+            # still divergent, but the pipeline would continue with no
+            # signal, re-opening the silent-failure loop this PR
+            # closes.
+            raise SyncRebaseAndResetFailedError(
+                f"Worktree sync helper exhausted recovery options: "
+                f"rebase failed ({rebase_outcome.category}) and "
+                f"hard-reset to origin/{remote_branch} also failed "
+                f"(rc={reset_rc}, stderr={reset_err[:120]})",
                 backup_ref=backup_ref if backup_ok else None,
                 discarded_commit_shas=discarded,
             )
@@ -7223,6 +7357,29 @@ class StalePipelineBranchError(RuntimeError):
     fresh — vastly preferable to silently producing a PR with 70+
     cherry-picked-variant commits buried in it (#2098).
     """
+
+
+class SyncRebaseAndResetFailedError(RuntimeError):
+    """Raised when the rebase AND the hard-reset fallback both failed (#2792).
+
+    The sync helper attempts a rebase-then-reset cascade to reconcile a
+    divergent worktree.  When both halves fail, the worktree is still
+    divergent — proceeding silently would re-open the silent-failure
+    loop #2792 was opened to close.  Callers convert this into a FAILED
+    pipeline + HITL ack so the operator knows the helper exhausted its
+    auto-recovery options without reconciling.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        backup_ref: str | None,
+        discarded_commit_shas: tuple[str, ...],
+    ) -> None:
+        super().__init__(message)
+        self.backup_ref = backup_ref
+        self.discarded_commit_shas = discarded_commit_shas
 
 
 def _rebase_pipeline_branch_onto_base(
@@ -20353,15 +20510,59 @@ def _run_pipeline(
                 ):
                     prior_phase_succeeded = False
 
-            phase_start_sync_outcome = _sync_worktree_with_remote(
-                spawner,
-                pipeline_id,
-                worktree_repo_path,
-                prior_phase_succeeded=prior_phase_succeeded,
-                gateway_mode=gateway_mode,
-                base_branch=pipeline.base_branch,
-                pipeline_branch=pipeline.branch,
-            )
+            try:
+                phase_start_sync_outcome = _sync_worktree_with_remote(
+                    spawner,
+                    pipeline_id,
+                    worktree_repo_path,
+                    prior_phase_succeeded=prior_phase_succeeded,
+                    gateway_mode=gateway_mode,
+                    base_branch=pipeline.base_branch,
+                    pipeline_branch=pipeline.branch,
+                )
+            except SyncRebaseAndResetFailedError as sync_terminal_err:
+                # #2792 review B5: rebase AND hard-reset both failed.
+                # The worktree is still divergent; we cannot let the
+                # phase proceed.  Mark the pipeline FAILED, emit the
+                # HITL ack, and surface the pipeline.failed event
+                # (mirrors the successful-recovery emission site so
+                # observers see a consistent terminal state).
+                _doubly_failed_msg = (
+                    f"Sync helper could not reconcile {pipeline.branch} at "
+                    f"{current_phase.value} phase start: {sync_terminal_err}"
+                )
+                logger.error(
+                    "OVERSEER_ALERT worktree_sync_doubly_failed",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    backup_ref=sync_terminal_err.backup_ref,
+                    discarded_commit_count=len(sync_terminal_err.discarded_commit_shas),
+                )
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = _doubly_failed_msg
+                        phase_execution.completed_at = datetime.now(UTC)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = _doubly_failed_msg
+                    store.save_pipeline(pipeline)
+                _emit_hard_reset_recovery_hitl(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    phase=current_phase,
+                    backup_ref=sync_terminal_err.backup_ref,
+                    discarded_commit_shas=sync_terminal_err.discarded_commit_shas,
+                )
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {_doubly_failed_msg[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
+                return
 
             # #2792: phase-start sync fell through to the destructive
             # hard-reset recovery.  The worktree is now reconciled but
@@ -20384,8 +20585,19 @@ def _run_pipeline(
                     backup_ref=phase_start_sync_outcome.backup_ref,
                     discarded_commit_count=len(phase_start_sync_outcome.discarded_commit_shas),
                 )
+                # Mirror the post-phase emission site (B3 + B2): mark
+                # both pipeline AND phase_exec FAILED, and emit the
+                # pipeline.failed event so subscribers (collaborator
+                # dashboards, gateway state cache, anything wired to
+                # the event stream) see the destructive recovery
+                # symmetrically with the post-phase path.
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = _hard_reset_msg
+                        phase_execution.completed_at = datetime.now(UTC)
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = _hard_reset_msg
                     store.save_pipeline(pipeline)
@@ -20397,6 +20609,12 @@ def _run_pipeline(
                     backup_ref=phase_start_sync_outcome.backup_ref,
                     discarded_commit_shas=phase_start_sync_outcome.discarded_commit_shas,
                 )
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {_hard_reset_msg[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
                 return
 
             # When resuming a stale pipeline branch (cancelled run from
@@ -21943,13 +22161,18 @@ def _run_pipeline(
             # ensures _populate_contract_from_plan can read agent-produced
             # draft files that only exist on the remote.
             post_phase_sync_outcome: WorktreeSyncOutcome | None = None
+            post_phase_sync_doubly_failed: SyncRebaseAndResetFailedError | None = None
             if pipeline.branch and worktree_repo_path != repo_path:
-                # Best-effort: a sync failure must not strand the
-                # auto-advance.  Without this guard, a gateway HTTP error
-                # or git subprocess failure inside the helper propagates
-                # to the outer Exception handler and (if marking FAILED
-                # also fails) leaves the pipeline wedged with phase
-                # COMPLETE but no successor (#2219).
+                # Best-effort for transient failures: a sync failure
+                # must not strand the auto-advance.  Without this guard,
+                # a gateway HTTP error or git subprocess failure inside
+                # the helper propagates to the outer Exception handler
+                # and (if marking FAILED also fails) leaves the pipeline
+                # wedged with phase COMPLETE but no successor (#2219).
+                # SyncRebaseAndResetFailedError is the structured
+                # signal that rebase AND hard-reset both failed (#2792
+                # review B5) — capture it explicitly so the same HITL
+                # path runs as the successful-recovery case.
                 try:
                     post_phase_sync_outcome = _sync_worktree_with_remote(
                         spawner,
@@ -21959,6 +22182,8 @@ def _run_pipeline(
                         base_branch=pipeline.base_branch,
                         pipeline_branch=pipeline.branch,
                     )
+                except SyncRebaseAndResetFailedError as sync_terminal_err:
+                    post_phase_sync_doubly_failed = sync_terminal_err
                 except Exception as sync_err:
                     logger.warning(
                         "Failed to sync worktree with remote after phase (continuing)",
@@ -21966,6 +22191,59 @@ def _run_pipeline(
                         phase=current_phase.value,
                         error=str(sync_err),
                     )
+
+            # #2792 review B5: rebase AND hard-reset both failed.  The
+            # worktree is still divergent; populator and decision-sync
+            # consumers would read stale state.  Mirror the
+            # successful-recovery HITL path so the operator gets the
+            # same surfacing regardless of which half of the cascade
+            # failed.
+            if post_phase_sync_doubly_failed is not None:
+                _doubly_failed_msg = (
+                    f"Sync helper could not reconcile {pipeline.branch} after "
+                    f"{current_phase.value} phase: {post_phase_sync_doubly_failed}"
+                )
+                logger.error(
+                    "OVERSEER_ALERT worktree_sync_doubly_failed",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    backup_ref=post_phase_sync_doubly_failed.backup_ref,
+                    discarded_commit_count=len(post_phase_sync_doubly_failed.discarded_commit_shas),
+                )
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.status = PipelineStatus.FAILED
+                    phase_execution.error = _doubly_failed_msg
+                    phase_execution.completed_at = datetime.now(UTC)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = _doubly_failed_msg
+                    store.save_pipeline(pipeline)
+                _emit_hard_reset_recovery_hitl(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    phase=current_phase,
+                    backup_ref=post_phase_sync_doubly_failed.backup_ref,
+                    discarded_commit_shas=post_phase_sync_doubly_failed.discarded_commit_shas,
+                )
+                with overseer_lock:
+                    if overseer_container_id and phase_overseer_active:
+                        phase_overseer_active = False
+                        _teardown_phase_overseer(
+                            spawner,
+                            overseer_container_id,
+                            pipeline_id,
+                            phase_label=str(current_phase),
+                            reason="sync helper rebase+reset doubly failed",
+                        )
+                report_pipeline_status(
+                    pipeline,
+                    event_type="pipeline.failed",
+                    message=f"Pipeline failed: {_doubly_failed_msg[:100]}",
+                )
+                _emit_pipeline_event(pipeline, "pipeline.failed")
+                break
 
             # #2792: when the post-phase sync fell through to the
             # destructive hard-reset recovery, the worktree is now
