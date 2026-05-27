@@ -15326,7 +15326,8 @@ def _emit_producer_death_alert(
     WARNING log, mirroring ``_publish_consensus_timeout_alert``.
     """
     phase_value = phase if isinstance(phase, str) else getattr(phase, "value", str(phase))
-    subject = f"producer-permanent-death: {role} exit={exit_code} [high]"
+    subject_slice = f" slice={slice_id}" if slice_id else ""
+    subject = f"producer-permanent-death: {role} exit={exit_code}{subject_slice} [high]"
     slice_render = f" (slice {slice_id})" if slice_id else ""
     body = (
         f"Producer '{role}'{slice_render} died permanently in phase "
@@ -17894,10 +17895,10 @@ def _run_concurrent_phase(
                                 exit_code=info.exit_code,
                             )
                             # Consensus completed in the race window before
-                            # the producer's wrapper-cleanup crash. The
-                            # next iteration's step 1/2 will return success;
-                            # skip handle_agent_failure (reviewer recovery
-                            # path, not applicable to producers).
+                            # the producer's wrapper-cleanup crash. Step 5
+                            # (or the next iteration's step 1/2) will return
+                            # success; skip handle_agent_failure (reviewer
+                            # recovery path, not applicable to producers).
                             continue
                         _emit_producer_death_alert(
                             pipeline_id=pipeline_id,

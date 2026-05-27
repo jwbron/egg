@@ -753,10 +753,14 @@ class TestContainerExitFallback:
         complete, the phase must NOT hard-fail — fall through and let
         the next iteration succeed.
         """
-        poll_count = [0]
+        # Monotonic clock is decoupled from consensus call counts so the
+        # test stays valid regardless of how many ``check_consensus`` calls
+        # the polling loop makes (review round 2 item 3).
+        tick = [0]
 
         def _monotonic():
-            return poll_count[0] * 5.0
+            tick[0] += 1
+            return tick[0] * 5.0
 
         mock_monotonic.side_effect = _monotonic
 
@@ -776,18 +780,27 @@ class TestContainerExitFallback:
             executions, container_infos=container_infos
         )
 
-        # First call (step 1) sees incomplete; recheck (inside the
-        # producer-death branch) returns complete; subsequent iteration's
-        # step 1 returns complete and exits with 0.
+        # First consensus check sees incomplete; every subsequent call
+        # (including the race-window recheck inside the producer-death
+        # branch, and any step-5 / next-iteration check) returns complete.
+        # The "first vs subsequent" framing isolates the test from the
+        # absolute call index — adding another ``check_consensus()``
+        # earlier in the loop would just shift which call is "first",
+        # but the load-bearing invariant (race-window recheck sees
+        # complete → phase succeeds) is preserved.
+        incomplete = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        complete = {"is_complete": True, "has_objections": False, "blocking_agents": []}
+        consensus_returns = iter([incomplete])
+
         def _check_consensus():
-            poll_count[0] += 1
-            if poll_count[0] == 1:
-                return {
-                    "is_complete": False,
-                    "has_objections": False,
-                    "blocking_agents": ["coder"],
-                }
-            return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+            try:
+                return next(consensus_returns)
+            except StopIteration:
+                return complete
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
@@ -812,6 +825,10 @@ class TestContainerExitFallback:
         # Race-window recheck found consensus complete → phase succeeds.
         assert exit_code == 0
         assert "PRODUCER PERMANENT DEATH" not in logs
+        # Lower-bound the call count: at minimum the initial step-1 check
+        # (incomplete) and the race-window recheck (complete) must have
+        # fired. Any additional calls (step 5 / next-iteration) are fine.
+        assert mock_executor_instance.check_consensus.call_count >= 2
         # No producer-death alert was published — only the
         # CONSENSUS_REACHED success path ran.
         msg_store.add_message.assert_not_called()

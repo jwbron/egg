@@ -67,8 +67,10 @@ class TestEmitProducerDeathAlert:
         assert msg.metadata["slice_id"] == "slice-2"
         assert "slice slice-2" in msg.body
         assert msg.metadata["exit_code"] == 137
-        # Exit code in subject reflects the alternate kill (OOM = 137).
-        assert msg.subject == "producer-permanent-death: tester exit=137 [high]"
+        # Subject surfaces both exit code (alternate kill = OOM 137) and the
+        # slice id so per-slice cascades are triagable at-a-glance in the
+        # alert list (#2811 review round 2 item 4).
+        assert msg.subject == "producer-permanent-death: tester exit=137 slice=slice-2 [high]"
 
     def test_swallows_message_store_unavailable(self):
         """Missing message store → log + return, no exception."""
