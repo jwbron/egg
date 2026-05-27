@@ -18,11 +18,22 @@ data:
     # LiteLLM (the gateway only forwards when a session's ``upstream`` is
     # explicitly set to ``"litellm"``).
     #
-    # Operators add backends per LiteLLM's documented format, e.g. for a
+    # Operators add backends per LiteLLM's documented format. Each
+    # non-Claude entry SHOULD ship paired (bare, ``[1m]``-suffixed)
+    # ``model_name`` rows that point at the same ``litellm_params``
+    # (#2832): Claude Code strips the ``[1m]`` suffix from the model
+    # field before send, but a handful of startup probes leak the
+    # suffix onto the wire — without the alias LiteLLM 400s those
+    # probes with ``Invalid model name``. The two-row shape eats that
+    # noise without needing a gateway-side body rewrite. E.g. for a
     # hosted Qwen provider (cq-6):
     #
     #   model_list:
     #     - model_name: qwen3-coder-30b
+    #       litellm_params:
+    #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
+    #         api_key: os.environ/TOGETHER_API_KEY
+    #     - model_name: qwen3-coder-30b[1m]
     #       litellm_params:
     #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
     #         api_key: os.environ/TOGETHER_API_KEY

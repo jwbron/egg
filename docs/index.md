@@ -59,7 +59,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
 | [File Decomposition Pattern](guides/decomposition-pattern.md) | Canonical sub-package + explicit re-export barrel pattern for decomposing oversize Python files under the `scripts/file-size-allowlist.yaml` cap; covers conversion mechanics, method-modules-on-class shape, audit recipe, allowlist rebase, and routes-handling convention |
-| [Per-Agent Models](guides/per-agent-models.md) | Operator guide for flipping a single agent role to a non-Claude model via the LiteLLM proxy: `PipelineConfig.agent_models` + `default_agent_model` precedence, the `resolve_agent_model` classifier, the gateway-side `_rewrite_upstream_model` helper, the recognized-alias compaction mitigation (cq-5), and the end-to-end Qwen smoke test ([#2769](https://github.com/jwbron/egg/issues/2769)) |
+| [Per-Agent Models](guides/per-agent-models.md) | Operator guide for flipping a single agent role to a non-Claude model via the LiteLLM proxy: `PipelineConfig.agent_models` + `default_agent_model` precedence, the `resolve_agent_model` classifier, the `ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration for 1M-context compaction math ([#2832](https://github.com/jwbron/egg/issues/2832)), and the end-to-end Qwen smoke test ([#2769](https://github.com/jwbron/egg/issues/2769)) |
 
 ### Deploy
 
