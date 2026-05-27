@@ -617,7 +617,7 @@ of the three callables (refine-phase decision-15) — every gateway call
 flows through the same per-agent allowlists the slice's regular agent
 team uses.
 
-## Planner & plan-reviewer prompt updates
+## Architect, planner & plan-reviewer prompt updates
 
 The dynamic prompt builders for `task_planner` and `reviewer_plan` were
 extended to teach the agents the new schema and constraints:
