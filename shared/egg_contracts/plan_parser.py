@@ -1454,6 +1454,131 @@ def parse_plan_file(path: Path) -> ParseResult:
         )
 
 
+# ---------------------------------------------------------------------------
+# #2777 TASK-1-1a — plan-phase pre-flight validator
+# ---------------------------------------------------------------------------
+
+
+class PlanPreflightError(Exception):
+    """Raised by :func:`validate_plan_for_implement_phase` when a plan
+    draft is missing structural inputs that the implement-phase entry
+    hook (:func:`orchestrator.routes.pipelines._open_context_pr_at_implement_start`)
+    depends on.
+
+    The implement-phase entry hook opens the pipeline's context PR
+    (``egg/<id>/work → main``) hard-required, using
+    ``contract.pr.title``, ``contract.pr.description``, and the
+    populated ``yaml-tasks`` block.  If any of those inputs are
+    missing the opener has nothing to populate the PR with, so we
+    reject the plan at the plan→implement boundary rather than
+    discovering the gap mid-implement.
+
+    Attributes:
+        missing_fields: Ordered list of required fields that were
+            missing or empty.  Each entry names the field by its
+            dotted path (e.g. ``pr.title``, ``yaml-tasks``).
+    """
+
+    def __init__(self, missing_fields: list[str], detail: str | None = None) -> None:
+        self.missing_fields = list(missing_fields)
+        joined = ", ".join(missing_fields) if missing_fields else "<unspecified>"
+        body = (
+            f"Plan draft is missing required field(s): {joined}. "
+            f"The implement-phase context-PR opener requires these to "
+            f"be populated. Re-run the planner with the missing fields."
+        )
+        if detail:
+            body = f"{body} ({detail})"
+        super().__init__(body)
+
+
+def validate_plan_for_implement_phase(content: str) -> None:
+    """Validate a plan draft has every structural input the implement-
+    phase context-PR opener needs (#2777 TASK-1-1a).
+
+    The validator runs at plan-phase completion, BEFORE the
+    implement-phase entry hook
+    (:func:`_open_context_pr_at_implement_start`) fires. It rejects the
+    plan with a typed :class:`PlanPreflightError` when any of the
+    following are missing:
+
+    * ``yaml-tasks`` block missing or unparseable
+    * ``pr.title`` missing or empty
+    * ``pr.description`` missing or empty
+    * ``pr.test_plan`` missing or empty
+    * ``pr.manual_steps`` missing entirely (the empty string is allowed —
+      the planner explicitly carries an empty manual_steps for tasks
+      with no manual steps, but the field key must be present)
+
+    Raising surfaces an actionable NACK in the plan-phase BRC review
+    naming the missing field by name, rather than the implement-phase
+    discovering the gap and failing under a soft-fail wrapper.
+
+    Args:
+        content: The plan-draft markdown content.
+
+    Raises:
+        PlanPreflightError: One or more required fields are missing.
+    """
+    missing: list[str] = []
+    detail_parts: list[str] = []
+
+    # (a) yaml-tasks block must exist and parse.
+    yaml_data, _remaining, _warnings = parse_yaml_code_fence(content)
+    if yaml_data is None:
+        missing.append("yaml-tasks")
+        # We cannot validate any of (b)-(e) without a parsed block, so
+        # short-circuit with a clear error rather than emitting five
+        # cascading complaints.
+        raise PlanPreflightError(
+            missing,
+            detail="yaml-tasks code fence missing or unparseable",
+        )
+
+    pr_data = yaml_data.get("pr") if isinstance(yaml_data, dict) else None
+    if pr_data is None or not isinstance(pr_data, dict):
+        # Without a pr: block none of (b)-(e) can be checked field-by-
+        # field; report the structural absence instead.
+        raise PlanPreflightError(
+            ["pr"],
+            detail="`pr:` block missing from yaml-tasks",
+        )
+
+    # (b) pr.title
+    title = pr_data.get("title")
+    if not isinstance(title, str) or not title.strip():
+        missing.append("pr.title")
+
+    # (c) pr.description
+    description = pr_data.get("description")
+    if not isinstance(description, str) or not description.strip():
+        missing.append("pr.description")
+
+    # (d) pr.test_plan
+    test_plan = pr_data.get("test_plan")
+    if not isinstance(test_plan, str) or not test_plan.strip():
+        missing.append("pr.test_plan")
+
+    # (e) pr.manual_steps — the key must be present, but the value
+    #     is allowed to be the empty string.  ``yaml.safe_load`` maps a
+    #     bare ``manual_steps:`` to ``None``; treat that as missing.
+    if "manual_steps" not in pr_data:
+        missing.append("pr.manual_steps")
+    else:
+        manual_steps = pr_data["manual_steps"]
+        if manual_steps is None:
+            # Bare ``manual_steps:`` with no value — disambiguate from
+            # the explicit ``manual_steps: ""`` case, which is allowed.
+            missing.append("pr.manual_steps")
+            detail_parts.append(
+                "`pr.manual_steps` is null; use an empty string if the "
+                "task has no manual steps"
+            )
+
+    if missing:
+        raise PlanPreflightError(missing, detail="; ".join(detail_parts) or None)
+
+
 def format_warnings_for_comment(warnings: list[ParseWarning]) -> str:
     """
     Format warnings for display in a GitHub comment.
@@ -1743,9 +1868,11 @@ __all__ = (
     "ParsedTask",
     "ParseResult",
     "ParseWarning",
+    "PlanPreflightError",
     "format_warnings_for_comment",
     "parse_plan",
     "parse_plan_file",
     "validate_forest",
+    "validate_plan_for_implement_phase",
     "validate_task_role_alignment",
 )
