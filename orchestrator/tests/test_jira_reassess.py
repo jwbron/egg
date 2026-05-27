@@ -776,10 +776,10 @@ class TestRunReassessSweepPaginationWarning:
 
 class TestReassessFieldsListNoDescription:
     """The sweep no longer requests ``description`` (review feedback
-    #7 / agent-mode reviewer): per ``task-planner.md``'s
-    ``[mode: epic-reassess]`` block, the planner re-authors per-task
-    descriptions from scratch, so the field is not load-bearing and
-    Atlassian's ADF dict would just be dropped silently anyway."""
+    #7 / agent-mode reviewer): the planner re-authors per-task
+    descriptions from scratch in ``epic-reassess`` mode, so the field
+    is not load-bearing and Atlassian's ADF dict would just be dropped
+    silently anyway."""
 
     def test_description_not_requested(self, monkeypatch):
         captured: dict[str, Any] = {}
