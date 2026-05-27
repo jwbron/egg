@@ -71,6 +71,19 @@ spec:
                   name: gateway-secrets
                   key: litellm-master-key
                   optional: true
+            # OpenRouter API key — referenced by ``openrouter/*`` model
+            # entries in ``litellm-configmap.yaml`` (see issue #2799).
+            # Operators populate ``OPENROUTER_API_KEY`` in
+            # ``~/.config/egg/secrets.env``; ``make k3s-secrets``
+            # extracts it onto the ``gateway-secrets`` Secret as the
+            # ``openrouter-api-key`` literal key. ``optional: true`` so
+            # deployments without an OpenRouter backend still start.
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: openrouter-api-key
+                  optional: true
           livenessProbe:
             httpGet:
               path: /health/liveliness

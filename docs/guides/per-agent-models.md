@@ -245,9 +245,10 @@ gateway forwards it on every LiteLLM-bound request as
 LITELLM_MASTER_KEY=<random_secret>
 ```
 
-This is the **only** gateway-held LiteLLM credential. Provider-side
-keys (the hosted-Qwen API key, etc.) go in **LiteLLM's** environment,
-not the gateway's `secrets.env` — see the next step. The gateway pod
+The master key is the credential the gateway itself uses to talk to
+LiteLLM. Provider-side keys (the hosted-Qwen API key, the OpenRouter
+key, etc.) flow through the same `secrets.env` → `gateway-secrets` →
+LiteLLM Deployment env path — see the next step. The gateway pod
 rereads `secrets.env` on mtime change.
 
 ### 2. Configure LiteLLM `model_list`
@@ -269,9 +270,13 @@ data:
 ```
 
 Then surface `TOGETHER_API_KEY` (or your provider's equivalent) to the
-LiteLLM Deployment — typically as a Secret env-var binding on the
-LiteLLM pod, **not** through the gateway. Apply the change and roll
-the LiteLLM Deployment.
+LiteLLM Deployment. Follow the same shape as the master key and the
+OpenRouter key (issue #2799): add the variable to
+`~/.config/egg/secrets.env`, extract it onto `gateway-secrets` in
+`make k3s-secrets`, and bind it as a `secretKeyRef` env var on the
+LiteLLM container in `k8s/base/litellm-deployment.yaml` (`optional: true`
+so deployments without that backend still start). Apply the change and
+roll the LiteLLM Deployment.
 
 > **Hosted-provider choice.** Hosted Qwen is the cq-6 first target;
 > any LiteLLM-supported backend works. Self-hosted vLLM / SGLang is
