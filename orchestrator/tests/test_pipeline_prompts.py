@@ -4796,6 +4796,41 @@ class TestAdversarialReReviewPriming:
         assert "do not negotiate" not in respond_block.lower()
 
 
+class TestProducerSubagentExplorationGuidance:
+    """All 7 producer roles must receive the subagent exploration guidance (#2814).
+
+    The guidance is permissive ("may use") and framed around example signals,
+    not mandates — the producer keeps judgment over when delegation pays off.
+    The goal is to keep deep exploration out of the producer's main context
+    window so the Agent SDK 1MB JSON buffer bug (#2804) doesn't lose work.
+
+    Parametrized over all producer roles to pin the property: every role
+    that produces a prompt must carry this block. The coder and refiner
+    roles flow through `_build_phase_prompt`; the other five flow through
+    the `elif role_value` branches in `_build_agent_prompt`.
+    """
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_subagent_exploration_block_present(self, role, phase):
+        """Every producer prompt must include the subagent exploration section."""
+        prompt = _build_agent_prompt(
+            role_value=role,
+            phase=phase,
+            pipeline_id="test-pipeline-123",
+            pipeline_mode="issue",
+            prompt="# Test Feature\n\nTest detail.",
+            issue_number=1,
+        )
+        # The section header must be present
+        assert "## Subagent use for exploration (#2814)" in prompt
+        # The permissive framing ("**may**") must be present (with markdown bold)
+        assert "**may**" in prompt.lower()
+        # At least one example signal must be present
+        assert "example signals" in prompt.lower()
+        # The verification caveat must be present
+        assert "verify critical claims" in prompt.lower()
+
+
 class TestInitialReviewOperatorCopyPasteFraming:
     """The operator-copy-paste framing and the pre-existing-broken-behavior
     procedural step must fire on **initial** reviews, not just re-reviews.

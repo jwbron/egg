@@ -11951,6 +11951,36 @@ _YAML_TASKS_SAFETY_GUIDANCE = [
     "values on the same line as the key.",
 ]
 
+# Permissive subagent-use guidance for producer-role prompts (#2814).
+# Framed as "may" with example signals, not a mandate — the producer
+# keeps full judgment over when delegation pays off. The goal is to
+# keep deep exploration (many grep/read turns, walking call sites on
+# a very large file) out of the producer's main context window so the
+# Agent SDK 1MB JSON buffer bug (#2804) doesn't lose uncommitted work.
+_SUBAGENT_EXPLORATION_SECTION = [
+    "## Subagent use for exploration (#2814)",
+    "",
+    "You **may** use the Agent tool (e.g. `subagent_type: Explore` or "
+    "`general-purpose`) when exploration would otherwise dominate your "
+    "context window. Use your judgment — a one-off grep or short read "
+    "doesn't need a subagent; deep investigation of a large file or many "
+    "call sites usually does. The producer's main context stays lean for "
+    "synthesis; the subagent returns a focused summary.",
+    "",
+    "Example signals where subagent use often pays off:",
+    "- More than ~3 grep/read calls on the same target file or directory.",
+    "- Walking a primitive's call sites — delegate; ask for `file:line` "
+    "citations + a few lines of context.",
+    "- Reading large files (> ~500 lines) — get a subagent summary first; "
+    "only `Read` the main file yourself if the summary identifies specific "
+    "line ranges you need to author at.",
+    "",
+    "Subagent summaries are part of your authoritative work. Verify "
+    "critical claims (e.g. `file:line` citations) before committing them "
+    "to your output.",
+    "",
+]
+
 
 def _build_phase_iteration_context(
     operator_directives: list[OperatorDirective] | None,
@@ -12734,6 +12764,14 @@ def _build_phase_prompt(
 
     else:
         lines.append(f"Execute the {phase} phase.\n")
+
+    # --- Subagent use for exploration (coder + refiner) (#2814) ---
+    # Both roles share this prompt assembly path; a single insert here
+    # pins the property for both without duplicating the text. Distinct
+    # from the cycle-0 "Parallel Execution with Subagents" block above —
+    # that one is about parallel implementation across non-overlapping
+    # files; this one is about context isolation during exploration.
+    lines.extend(_SUBAGENT_EXPLORATION_SECTION)
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
@@ -14976,6 +15014,14 @@ def _build_agent_prompt(
                 "",
             ]
         )
+
+    # Subagent use for exploration (#2814) — applies to every producer
+    # role that flows through this function (tester, documenter,
+    # architect, task_planner, risk_analyst). Refiner and coder return
+    # early above via `_build_phase_prompt`, which carries the same
+    # block. A single insert here pins the property for all five roles
+    # without duplicating the text.
+    lines.extend(_SUBAGENT_EXPLORATION_SECTION)
 
     # Phase restrictions
     _recovery_base_ref = _resolve_origin_ref(base_branch)
