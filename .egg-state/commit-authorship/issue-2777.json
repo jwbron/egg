@@ -1,5 +1,12 @@
 {
   "entries": {
+    "044c06890a2f44abd00f25094bdb657d8dcc6bc4": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:04:59.299066+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "045301ef2c5924358a99b35d5d9289059c370ff5": {
       "branch": "egg/issue-2777/slice-1",
       "pipeline_id": "issue-2777",
@@ -41,6 +48,13 @@
       "registered_at": "2026-05-27T05:23:45.166596+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
+    },
+    "29f9dbb7d129453152bb42ca280428e822d9a51f": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:05:08.094445+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "31c313e8ad1cad91e52b863f1d2f91d762481498": {
       "branch": "egg/issue-2777/work",
@@ -104,6 +118,13 @@
       "registered_at": "2026-05-27T06:00:09.205001+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
+    },
+    "617476095f787f4866a80457d14c0cfe63859f78": {
+      "branch": "egg/issue-2777/slice-1",
+      "pipeline_id": "issue-2777",
+      "registered_at": "2026-05-27T16:04:59.304123+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     },
     "6250f417ecf60b417b800660b08e5f0e29753800": {
       "branch": "egg/issue-2777/work",
