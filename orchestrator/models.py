@@ -758,7 +758,7 @@ class PipelineConfig(BaseModel):
         default_factory=dict,
         description=(
             "Per-role model overrides keyed by AgentRole value (e.g. "
-            "{'refiner': 'qwen3-coder-30b'}). Keys are restricted to the "
+            "{'refiner': 'qwen3-max'}). Keys are restricted to the "
             "SDLC phase producer and reviewer roles the resolver honors "
             "(agent_roles.MODEL_OVERRIDE_ROLES) — utility/interface roles "
             "such as overseer or autofixer are rejected at construction "
