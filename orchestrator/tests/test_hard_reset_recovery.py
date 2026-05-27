@@ -39,6 +39,8 @@ from routes.pipelines import (  # noqa: E402
     WorktreeSyncOutcome,
     _build_sync_recovery_backup_ref,
     _emit_hard_reset_recovery_hitl,
+    _fail_pipeline_and_emit_hard_reset_recovery,
+    _hard_reset_recovery_hitl_options,
     _hard_reset_recovery_hitl_question,
     _sync_worktree_with_remote,
 )
@@ -685,3 +687,269 @@ class TestPopulateContractHardResetSurfacing:
         assert kwargs["phase"] == PipelinePhase.IMPLEMENT
         assert kwargs["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/456"
         assert kwargs["discarded_commit_shas"] == ("def5678 add bar",)
+        # Doubly-failed branch must pass reset_succeeded=False so the
+        # HITL wording reflects the still-divergent state and the
+        # "Continue" option is suppressed.
+        assert kwargs["reset_succeeded"] is False
+
+
+class TestHardResetHitlDoublyFailedBranch:
+    """#2797 follow-up: when ``SyncRebaseAndResetFailedError`` fires the
+    HITL question must reflect the still-divergent state and the options
+    must suppress "Continue" — otherwise the operator is offered a
+    restart that would loop back into the same failure.
+    """
+
+    def test_options_drop_continue_when_reset_failed(self):
+        # Success branch keeps both options.
+        assert _hard_reset_recovery_hitl_options(reset_succeeded=True) == [
+            "Continue with post-reset state",
+            "Abort pipeline",
+        ]
+        # Doubly-failed branch only offers the abort option.
+        assert _hard_reset_recovery_hitl_options(reset_succeeded=False) == ["Abort pipeline"]
+
+    def test_question_text_branches_on_reset_succeeded(self):
+        from routes.pipelines import PipelinePhase
+
+        succeeded = _hard_reset_recovery_hitl_question(
+            pipeline_id="pipeline-xyz",
+            phase=PipelinePhase.PLAN,
+            backup_ref="refs/egg-backup/sync-recovery/pipeline-xyz/100",
+            discarded_commit_shas=("abc1234 add foo",),
+            reset_succeeded=True,
+        )
+        failed = _hard_reset_recovery_hitl_question(
+            pipeline_id="pipeline-xyz",
+            phase=PipelinePhase.PLAN,
+            backup_ref="refs/egg-backup/sync-recovery/pipeline-xyz/100",
+            discarded_commit_shas=("abc1234 add foo",),
+            reset_succeeded=False,
+        )
+        # Success wording claims reconciliation completed; failed
+        # wording says the reset itself failed and the worktree is
+        # still divergent.
+        assert "hard-reset HEAD to origin to keep downstream" in succeeded
+        assert "still divergent" not in succeeded
+        assert "subsequent hard-reset to origin ALSO failed" in failed
+        assert "still divergent" in failed
+        # The Continue option label MUST NOT appear in the doubly-failed
+        # prose — the helper suppresses it and the question shouldn't
+        # advertise it either (operators copy-paste resolutions).
+        assert "Continue with post-reset state" not in failed
+        assert "Abort pipeline" in failed
+        # Success prose still lists both options.
+        assert "Continue with post-reset state" in succeeded
+        assert "Abort pipeline" in succeeded
+
+    def test_emit_passes_reset_succeeded_to_options_and_question(self):
+        """The emission helper must thread ``reset_succeeded`` through to
+        both the question builder and the options list — otherwise the
+        operator could see doubly-failed wording with a "Continue"
+        option, or vice versa."""
+        from routes.pipelines import PipelinePhase
+
+        captured: dict = {}
+
+        def fake_persist(
+            pipeline_id, pipeline, store, *, question, options, phase=None, context=None
+        ):  # noqa: ANN001
+            captured["options"] = options
+            captured["question"] = question
+            return MagicMock(id="decision-9", context=context)
+
+        with patch("routes.pipelines._persist_hitl_decision", side_effect=fake_persist):
+            _emit_hard_reset_recovery_hitl(
+                "pipeline-xyz",
+                MagicMock(),
+                MagicMock(),
+                phase=PipelinePhase.PLAN,
+                backup_ref="refs/egg-backup/sync-recovery/pipeline-xyz/100",
+                discarded_commit_shas=("abc1234 foo",),
+                reset_succeeded=False,
+            )
+
+        assert captured["options"] == ["Abort pipeline"]
+        assert "still divergent" in captured["question"]
+
+
+class TestFailPipelineAndEmitHelper:
+    """#2797 follow-up: direct unit test of
+    :func:`_fail_pipeline_and_emit_hard_reset_recovery` — the previous
+    tests mocked the helper out at the call sites, so the lock /
+    save / emit / hook / event sequence had no isolated coverage.
+    """
+
+    def _make_pipeline(self):
+        from models import (
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-2792",
+            issue_number=2792,
+            repo="owner/repo",
+            branch="egg/issue-2792",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.phases = {
+            PipelinePhase.IMPLEMENT.value: PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+            ),
+        }
+        return pipeline
+
+    def test_writes_failed_under_lock_then_emits_hitl_and_events(self):
+        """Happy path: helper acquires the pipeline state lock, writes
+        ``status=FAILED`` on both pipeline and phase_exec, persists the
+        HITL (under the same reentrant lock), then broadcasts the
+        ``pipeline.failed`` event via both the StatusReporter and the
+        pipeline event stream.
+        """
+        from models import PipelinePhase, PipelineStatus
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        call_order: list[str] = []
+
+        def fake_save(p):  # noqa: ANN001
+            call_order.append("save_pipeline")
+            assert p.status == PipelineStatus.FAILED
+            assert p.error == "boom"
+            phase_exec = p.get_phase_execution(PipelinePhase.IMPLEMENT)
+            assert phase_exec is not None
+            assert phase_exec.status == PipelineStatus.FAILED
+            assert phase_exec.error == "boom"
+            assert phase_exec.completed_at is not None
+
+        mock_store.save_pipeline.side_effect = fake_save
+
+        def fake_emit(*args, **kwargs):  # noqa: ANN001
+            call_order.append("emit_hitl")
+            return MagicMock()
+
+        def fake_report(*args, **kwargs):  # noqa: ANN001
+            call_order.append("report_pipeline_status")
+
+        def fake_event(*args, **kwargs):  # noqa: ANN001
+            call_order.append("emit_pipeline_event")
+
+        with (
+            patch(
+                "routes.pipelines._emit_hard_reset_recovery_hitl", side_effect=fake_emit
+            ) as m_emit,
+            patch("routes.pipelines.report_pipeline_status", side_effect=fake_report) as m_report,
+            patch("routes.pipelines._emit_pipeline_event", side_effect=fake_event) as m_event,
+        ):
+            _fail_pipeline_and_emit_hard_reset_recovery(
+                "issue-2792",
+                mock_store,
+                phase=PipelinePhase.IMPLEMENT,
+                error_message="boom",
+                backup_ref="refs/egg-backup/sync-recovery/issue-2792/42",
+                discarded_commit_shas=("abc1234 add foo",),
+            )
+
+        # Order matters: FAILED must be persisted before the HITL is
+        # written, and the HITL must be written before the public
+        # pipeline.failed event so subscribers reading state on the
+        # event see both the FAILED status and the pending decision.
+        assert call_order == [
+            "save_pipeline",
+            "emit_hitl",
+            "report_pipeline_status",
+            "emit_pipeline_event",
+        ]
+
+        emit_kwargs = m_emit.call_args.kwargs
+        assert emit_kwargs["phase"] == PipelinePhase.IMPLEMENT
+        assert emit_kwargs["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/42"
+        assert emit_kwargs["discarded_commit_shas"] == ("abc1234 add foo",)
+        # Default is reset_succeeded=True.
+        assert emit_kwargs["reset_succeeded"] is True
+
+        report_kwargs = m_report.call_args.kwargs
+        assert report_kwargs["event_type"] == "pipeline.failed"
+        assert "boom" in report_kwargs["message"]
+
+        m_event.assert_called_once()
+        event_args = m_event.call_args.args
+        assert event_args[1] == "pipeline.failed"
+
+    def test_pre_event_hook_runs_between_hitl_and_public_event(self):
+        """The post-phase ``_run_pipeline`` sites pass a hook that tears
+        down the per-phase overseer container — it must run after the
+        HITL is persisted (so the operator sees the decision before the
+        container disappears) and before the public event (so observers
+        don't race the teardown)."""
+        from models import PipelinePhase
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        call_order: list[str] = []
+        mock_store.save_pipeline.side_effect = lambda p: call_order.append("save")
+        hook = MagicMock(side_effect=lambda: call_order.append("hook"))
+
+        with (
+            patch(
+                "routes.pipelines._emit_hard_reset_recovery_hitl",
+                side_effect=lambda *a, **k: call_order.append("emit_hitl"),
+            ),
+            patch(
+                "routes.pipelines.report_pipeline_status",
+                side_effect=lambda *a, **k: call_order.append("report"),
+            ),
+            patch(
+                "routes.pipelines._emit_pipeline_event",
+                side_effect=lambda *a, **k: call_order.append("event"),
+            ),
+        ):
+            _fail_pipeline_and_emit_hard_reset_recovery(
+                "issue-2792",
+                mock_store,
+                phase=PipelinePhase.IMPLEMENT,
+                error_message="boom",
+                backup_ref=None,
+                discarded_commit_shas=(),
+                pre_event_hook=hook,
+            )
+
+        hook.assert_called_once()
+        assert call_order == ["save", "emit_hitl", "hook", "report", "event"]
+
+    def test_reset_succeeded_false_threads_through_to_emit(self):
+        """The helper must forward ``reset_succeeded=False`` to the HITL
+        emission so the question/options reflect the doubly-failed
+        state — otherwise the operator could see "Continue" on a
+        worktree that's still divergent."""
+        from models import PipelinePhase
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        with (
+            patch("routes.pipelines._emit_hard_reset_recovery_hitl") as m_emit,
+            patch("routes.pipelines.report_pipeline_status"),
+            patch("routes.pipelines._emit_pipeline_event"),
+        ):
+            _fail_pipeline_and_emit_hard_reset_recovery(
+                "issue-2792",
+                mock_store,
+                phase=PipelinePhase.IMPLEMENT,
+                error_message="rebase+reset both failed",
+                backup_ref="refs/egg-backup/sync-recovery/issue-2792/99",
+                discarded_commit_shas=("def5678 add bar",),
+                reset_succeeded=False,
+            )
+
+        assert m_emit.call_args.kwargs["reset_succeeded"] is False

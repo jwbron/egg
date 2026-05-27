@@ -14750,45 +14750,87 @@ def _hard_reset_recovery_hitl_question(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     discarded_commit_shas: tuple[str, ...] | list[str],
+    reset_succeeded: bool = True,
 ) -> str:
     """Build the HITL question for the destructive sync-recovery ack (#2792).
 
-    The pipeline has already been reconciled — the rebase couldn't
-    resolve divergence, so the helper hard-reset HEAD to the remote
-    after pinning the local-only commits under ``backup_ref``.  The
-    operator's job here is not to recover; it's to acknowledge that
-    the recovery happened and either continue from the reconciled
-    state or abort the pipeline outright.
+    When ``reset_succeeded`` is True the worktree has already been
+    reconciled — the rebase couldn't resolve divergence, so the helper
+    hard-reset HEAD to the remote after pinning the local-only commits
+    under ``backup_ref``.  The operator's job here is not to recover;
+    it's to acknowledge that the recovery happened and either continue
+    from the reconciled state or abort the pipeline outright.
+
+    When ``reset_succeeded`` is False the rebase *and* the hard-reset
+    fallback both failed (``SyncRebaseAndResetFailedError``).  The
+    worktree is still divergent — "Continue" would only loop back into
+    the same failure on the next sync — so the wording reflects the
+    actual state and only the abort option is offered (the caller
+    suppresses ``_HARD_RESET_RECOVERY_CONTINUE`` in
+    :data:`_HARD_RESET_RECOVERY_HITL_OPTIONS` via
+    :func:`_hard_reset_recovery_hitl_options`).  Operators who want to
+    intervene manually should abort, fix the worktree on the
+    orchestrator side, then resubmit the task.
     """
     phase_label = phase.value if phase is not None else "current phase"
     backup_line = (
         f"Backup ref: {backup_ref} (inspect with `git log {backup_ref}`)."
         if backup_ref
-        else ("Backup ref: not written — see WARN log for inlined SHAs. The hard reset still ran.")
+        else "Backup ref: not written — see WARN log for inlined SHAs."
     )
     if discarded_commit_shas:
-        discarded_block = (
-            "Discarded commits (now reachable only via the backup ref):\n  - "
-            + "\n  - ".join(discarded_commit_shas)
+        commits_label = (
+            "Discarded commits (now reachable only via the backup ref):"
+            if reset_succeeded
+            else "Local-only commits captured under the backup ref (worktree still divergent):"
         )
+        discarded_block = commits_label + "\n  - " + "\n  - ".join(discarded_commit_shas)
     else:
         discarded_block = (
             "Discarded commit list could not be enumerated; check the WARN log "
             "and the backup ref for the exact set."
         )
+    if reset_succeeded:
+        return (
+            f"Pipeline {pipeline_id}: the worktree had diverged from origin at "
+            f"{phase_label}, the rebase autoresolve could not reconcile it, and "
+            f"the sync helper hard-reset HEAD to origin to keep downstream "
+            f"populator/decision-sync reads against a consistent state (#2792). "
+            f"{backup_line}\n{discarded_block}\n\n"
+            f"How to proceed?\n"
+            f"- '{_HARD_RESET_RECOVERY_CONTINUE}' — restart_phase {phase_label} "
+            f"so the populator and BRC agents re-run against the reconciled "
+            f"worktree.\n"
+            f"- '{_HARD_RESET_RECOVERY_ABORT}' — cancel_task; the backup ref "
+            f"preserves the discarded commits for offline inspection."
+        )
     return (
         f"Pipeline {pipeline_id}: the worktree had diverged from origin at "
         f"{phase_label}, the rebase autoresolve could not reconcile it, and "
-        f"the sync helper hard-reset HEAD to origin to keep downstream "
-        f"populator/decision-sync reads against a consistent state (#2792). "
-        f"{backup_line}\n{discarded_block}\n\n"
+        f"the subsequent hard-reset to origin ALSO failed — the worktree is "
+        f"still divergent (#2792). Continuing would only loop back into the "
+        f"same failure on the next sync. {backup_line}\n{discarded_block}\n\n"
         f"How to proceed?\n"
-        f"- '{_HARD_RESET_RECOVERY_CONTINUE}' — restart_phase {phase_label} "
-        f"so the populator and BRC agents re-run against the reconciled "
-        f"worktree.\n"
         f"- '{_HARD_RESET_RECOVERY_ABORT}' — cancel_task; the backup ref "
-        f"preserves the discarded commits for offline inspection."
+        f"preserves the local-only commits for offline inspection. To recover, "
+        f"fix the worktree on the orchestrator side manually and resubmit the "
+        f"task."
     )
+
+
+def _hard_reset_recovery_hitl_options(*, reset_succeeded: bool) -> list[str]:
+    """Return the HITL options list for the hard-reset recovery ack.
+
+    The "Continue with post-reset state" option only makes sense when
+    the reset actually completed — when the rebase AND the reset both
+    failed (``SyncRebaseAndResetFailedError``) the worktree is still
+    divergent and restarting the phase would loop straight back into
+    the same failure, so the doubly-failed branch suppresses it (#2797
+    follow-up).
+    """
+    if reset_succeeded:
+        return list(_HARD_RESET_RECOVERY_HITL_OPTIONS)
+    return [_HARD_RESET_RECOVERY_ABORT]
 
 
 def _emit_hard_reset_recovery_hitl(
@@ -14799,6 +14841,7 @@ def _emit_hard_reset_recovery_hitl(
     phase: PipelinePhase | None,
     backup_ref: str | None,
     discarded_commit_shas: tuple[str, ...] | list[str],
+    reset_succeeded: bool = True,
 ):
     """Persist the dedicated hard-reset-recovery HITL (#2792).
 
@@ -14810,6 +14853,12 @@ def _emit_hard_reset_recovery_hitl(
     Phase is embedded in the context (``hard_reset_recovery:<phase>``)
     so the ``Continue`` resolution knows which phase to restart without
     re-walking the pipeline state at dispatch time.
+
+    When ``reset_succeeded`` is False (the doubly-failed
+    ``SyncRebaseAndResetFailedError`` path) the question wording and
+    the options list both branch to reflect that the worktree is still
+    divergent — see :func:`_hard_reset_recovery_hitl_question` and
+    :func:`_hard_reset_recovery_hitl_options`.
     """
     phase_label = phase.value if phase is not None else "unknown"
     context = f"{_HARD_RESET_RECOVERY_CONTEXT_PREFIX}{phase_label}"
@@ -14822,8 +14871,9 @@ def _emit_hard_reset_recovery_hitl(
             phase=phase,
             backup_ref=backup_ref,
             discarded_commit_shas=tuple(discarded_commit_shas),
+            reset_succeeded=reset_succeeded,
         ),
-        options=list(_HARD_RESET_RECOVERY_HITL_OPTIONS),
+        options=_hard_reset_recovery_hitl_options(reset_succeeded=reset_succeeded),
         phase=phase,
         context=context,
     )
@@ -14837,18 +14887,39 @@ def _fail_pipeline_and_emit_hard_reset_recovery(
     error_message: str,
     backup_ref: str | None,
     discarded_commit_shas: tuple[str, ...] | list[str],
+    reset_succeeded: bool = True,
+    pre_event_hook: Callable[[], None] | None = None,
 ) -> None:
     """Pin pipeline+phase to FAILED, emit the hard-reset HITL, broadcast events.
 
-    Shared between the two ``_run_pipeline`` emission sites and the
-    ``populate_contract`` route (#2792 review B4) so all three triggers
-    of the destructive recovery surface the same operator-facing
-    state: ``pipeline.status=FAILED`` + ``phase_execution.status=FAILED``
-    persisted under lock, the dedicated hard-reset HITL written, and
-    a ``pipeline.failed`` event/StatusReporter dispatch.
+    Shared across all four ``_run_pipeline`` emission sites (phase-start
+    + post-phase, success + doubly-failed) and the ``populate_contract``
+    route (#2792 review B4, #2797 follow-up) so every trigger of the
+    destructive recovery surfaces the same operator-facing state:
+    ``pipeline.status=FAILED`` + ``phase_execution.status=FAILED``
+    persisted under lock, the dedicated hard-reset HITL written under
+    the same lock so observers never see ``status=FAILED`` without the
+    pending decision, then a ``pipeline.failed`` event/StatusReporter
+    dispatch.
 
-    Acquires ``get_pipeline_state_lock(pipeline_id)`` for the write,
-    so callers must not already hold it.
+    ``reset_succeeded`` distinguishes the successful-recovery branch
+    (``hard_reset_performed=True``) from the doubly-failed branch
+    (``SyncRebaseAndResetFailedError``) — the HITL question wording and
+    the options list both branch on it so the operator isn't offered a
+    "Continue" option that would only loop into the same failure.
+
+    ``pre_event_hook`` runs after the FAILED-write + HITL persist but
+    before the ``pipeline.failed`` broadcast.  The two post-phase
+    ``_run_pipeline`` sites use it to tear down the per-phase overseer
+    container under their existing overseer lock — keeping the
+    teardown ordered before the public event matches the pre-helper
+    inline layout.
+
+    Acquires ``get_pipeline_state_lock(pipeline_id)`` as an RLock and
+    holds it across both the FAILED write and the HITL persist so a
+    reader observing the pipeline never sees ``status=FAILED`` without
+    the corresponding pending decision (#2797 follow-up).  Callers
+    must not already hold a non-reentrant lock that conflicts.
     """
     with get_pipeline_state_lock(pipeline_id):
         pipeline = store.load_pipeline(pipeline_id)
@@ -14861,14 +14932,21 @@ def _fail_pipeline_and_emit_hard_reset_recovery(
         pipeline.status = PipelineStatus.FAILED
         pipeline.error = error_message
         store.save_pipeline(pipeline)
-    _emit_hard_reset_recovery_hitl(
-        pipeline_id,
-        pipeline,
-        store,
-        phase=phase,
-        backup_ref=backup_ref,
-        discarded_commit_shas=discarded_commit_shas,
-    )
+        # Persist the HITL while still holding the (reentrant) lock so
+        # a reader between the two writes can't observe FAILED without
+        # the pending decision.  ``_persist_hitl_decision`` re-acquires
+        # the same RLock — safe under reentrance.
+        _emit_hard_reset_recovery_hitl(
+            pipeline_id,
+            pipeline,
+            store,
+            phase=phase,
+            backup_ref=backup_ref,
+            discarded_commit_shas=discarded_commit_shas,
+            reset_succeeded=reset_succeeded,
+        )
+    if pre_event_hook is not None:
+        pre_event_hook()
     report_pipeline_status(
         pipeline,
         event_type="pipeline.failed",
@@ -20571,10 +20649,9 @@ def _run_pipeline(
             except SyncRebaseAndResetFailedError as sync_terminal_err:
                 # #2792 review B5: rebase AND hard-reset both failed.
                 # The worktree is still divergent; we cannot let the
-                # phase proceed.  Mark the pipeline FAILED, emit the
-                # HITL ack, and surface the pipeline.failed event
-                # (mirrors the successful-recovery emission site so
-                # observers see a consistent terminal state).
+                # phase proceed.  Route through the shared helper so
+                # all four FAILED-recovery sites stay in sync (#2797
+                # follow-up: drift-risk elimination).
                 _doubly_failed_msg = (
                     f"Sync helper could not reconcile {pipeline.branch} at "
                     f"{current_phase.value} phase start: {sync_terminal_err}"
@@ -20586,30 +20663,15 @@ def _run_pipeline(
                     backup_ref=sync_terminal_err.backup_ref,
                     discarded_commit_count=len(sync_terminal_err.discarded_commit_shas),
                 )
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    if phase_execution is not None:
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = _doubly_failed_msg
-                        phase_execution.completed_at = datetime.now(UTC)
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = _doubly_failed_msg
-                    store.save_pipeline(pipeline)
-                _emit_hard_reset_recovery_hitl(
+                _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
-                    pipeline,
                     store,
                     phase=current_phase,
+                    error_message=_doubly_failed_msg,
                     backup_ref=sync_terminal_err.backup_ref,
                     discarded_commit_shas=sync_terminal_err.discarded_commit_shas,
+                    reset_succeeded=False,
                 )
-                report_pipeline_status(
-                    pipeline,
-                    event_type="pipeline.failed",
-                    message=f"Pipeline failed: {_doubly_failed_msg[:100]}",
-                )
-                _emit_pipeline_event(pipeline, "pipeline.failed")
                 return
 
             # #2792: phase-start sync fell through to the destructive
@@ -20633,36 +20695,17 @@ def _run_pipeline(
                     backup_ref=phase_start_sync_outcome.backup_ref,
                     discarded_commit_count=len(phase_start_sync_outcome.discarded_commit_shas),
                 )
-                # Mirror the post-phase emission site (B3 + B2): mark
-                # both pipeline AND phase_exec FAILED, and emit the
-                # pipeline.failed event so subscribers (collaborator
-                # dashboards, gateway state cache, anything wired to
-                # the event stream) see the destructive recovery
-                # symmetrically with the post-phase path.
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    if phase_execution is not None:
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = _hard_reset_msg
-                        phase_execution.completed_at = datetime.now(UTC)
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = _hard_reset_msg
-                    store.save_pipeline(pipeline)
-                _emit_hard_reset_recovery_hitl(
+                # Mirror the post-phase emission site (B3 + B2) via the
+                # shared helper: same FAILED state, same HITL, same
+                # pipeline.failed event order (#2797 follow-up).
+                _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
-                    pipeline,
                     store,
                     phase=current_phase,
+                    error_message=_hard_reset_msg,
                     backup_ref=phase_start_sync_outcome.backup_ref,
                     discarded_commit_shas=phase_start_sync_outcome.discarded_commit_shas,
                 )
-                report_pipeline_status(
-                    pipeline,
-                    event_type="pipeline.failed",
-                    message=f"Pipeline failed: {_hard_reset_msg[:100]}",
-                )
-                _emit_pipeline_event(pipeline, "pipeline.failed")
                 return
 
             # When resuming a stale pipeline branch (cancelled run from
@@ -22242,10 +22285,12 @@ def _run_pipeline(
 
             # #2792 review B5: rebase AND hard-reset both failed.  The
             # worktree is still divergent; populator and decision-sync
-            # consumers would read stale state.  Mirror the
-            # successful-recovery HITL path so the operator gets the
-            # same surfacing regardless of which half of the cascade
-            # failed.
+            # consumers would read stale state.  Route through the
+            # shared FAILED-recovery helper so all four sites stay in
+            # lockstep (#2797 follow-up).  ``pre_event_hook`` tears
+            # down the per-phase overseer under its own lock between
+            # the HITL persist and the public ``pipeline.failed``
+            # event — same ordering as the inline implementation.
             if post_phase_sync_doubly_failed is not None:
                 _doubly_failed_msg = (
                     f"Sync helper could not reconcile {pipeline.branch} after "
@@ -22258,42 +22303,37 @@ def _run_pipeline(
                     backup_ref=post_phase_sync_doubly_failed.backup_ref,
                     discarded_commit_count=len(post_phase_sync_doubly_failed.discarded_commit_shas),
                 )
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    # Consistent guard: same defensive None-check the
-                    # phase-start emission sites use (#2797 follow-up).
-                    if phase_execution is not None:
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = _doubly_failed_msg
-                        phase_execution.completed_at = datetime.now(UTC)
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = _doubly_failed_msg
-                    store.save_pipeline(pipeline)
-                _emit_hard_reset_recovery_hitl(
+
+                # Bind loop-iteration values as default args (B023 lint
+                # nit): the closure is invoked synchronously inside the
+                # helper so late binding wouldn't bite in practice, but
+                # explicit binding keeps the intent obvious.
+                def _teardown_overseer_doubly_failed(
+                    _container_id: str | None = overseer_container_id,
+                    _phase: PipelinePhase = current_phase,
+                ) -> None:
+                    nonlocal phase_overseer_active
+                    with overseer_lock:
+                        if _container_id and phase_overseer_active:
+                            phase_overseer_active = False
+                            _teardown_phase_overseer(
+                                spawner,
+                                _container_id,
+                                pipeline_id,
+                                phase_label=str(_phase),
+                                reason="sync helper rebase+reset doubly failed",
+                            )
+
+                _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
-                    pipeline,
                     store,
                     phase=current_phase,
+                    error_message=_doubly_failed_msg,
                     backup_ref=post_phase_sync_doubly_failed.backup_ref,
                     discarded_commit_shas=post_phase_sync_doubly_failed.discarded_commit_shas,
+                    reset_succeeded=False,
+                    pre_event_hook=_teardown_overseer_doubly_failed,
                 )
-                with overseer_lock:
-                    if overseer_container_id and phase_overseer_active:
-                        phase_overseer_active = False
-                        _teardown_phase_overseer(
-                            spawner,
-                            overseer_container_id,
-                            pipeline_id,
-                            phase_label=str(current_phase),
-                            reason="sync helper rebase+reset doubly failed",
-                        )
-                report_pipeline_status(
-                    pipeline,
-                    event_type="pipeline.failed",
-                    message=f"Pipeline failed: {_doubly_failed_msg[:100]}",
-                )
-                _emit_pipeline_event(pipeline, "pipeline.failed")
                 break
 
             # #2792: when the post-phase sync fell through to the
@@ -22320,42 +22360,35 @@ def _run_pipeline(
                     backup_ref=post_phase_sync_outcome.backup_ref,
                     discarded_commit_count=len(post_phase_sync_outcome.discarded_commit_shas),
                 )
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    # Consistent guard: same defensive None-check the
-                    # phase-start emission sites use (#2797 follow-up).
-                    if phase_execution is not None:
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = _hard_reset_msg
-                        phase_execution.completed_at = datetime.now(UTC)
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = _hard_reset_msg
-                    store.save_pipeline(pipeline)
-                _emit_hard_reset_recovery_hitl(
+
+                # Bind loop-iteration values as default args (B023 lint
+                # nit): invoked synchronously inside the helper, but
+                # explicit binding keeps the intent obvious.
+                def _teardown_overseer_recovered(
+                    _container_id: str | None = overseer_container_id,
+                    _phase: PipelinePhase = current_phase,
+                ) -> None:
+                    nonlocal phase_overseer_active
+                    with overseer_lock:
+                        if _container_id and phase_overseer_active:
+                            phase_overseer_active = False
+                            _teardown_phase_overseer(
+                                spawner,
+                                _container_id,
+                                pipeline_id,
+                                phase_label=str(_phase),
+                                reason="sync helper hard-reset recovery",
+                            )
+
+                _fail_pipeline_and_emit_hard_reset_recovery(
                     pipeline_id,
-                    pipeline,
                     store,
                     phase=current_phase,
+                    error_message=_hard_reset_msg,
                     backup_ref=post_phase_sync_outcome.backup_ref,
                     discarded_commit_shas=post_phase_sync_outcome.discarded_commit_shas,
+                    pre_event_hook=_teardown_overseer_recovered,
                 )
-                with overseer_lock:
-                    if overseer_container_id and phase_overseer_active:
-                        phase_overseer_active = False
-                        _teardown_phase_overseer(
-                            spawner,
-                            overseer_container_id,
-                            pipeline_id,
-                            phase_label=str(current_phase),
-                            reason="sync helper hard-reset recovery",
-                        )
-                report_pipeline_status(
-                    pipeline,
-                    event_type="pipeline.failed",
-                    message=f"Pipeline failed: {_hard_reset_msg[:100]}",
-                )
-                _emit_pipeline_event(pipeline, "pipeline.failed")
                 break
 
             # After plan phase: populate contract with task structure.

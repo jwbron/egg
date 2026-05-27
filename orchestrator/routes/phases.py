@@ -1148,6 +1148,7 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                     error_message=_doubly_failed_msg,
                     backup_ref=sync_terminal_err.backup_ref,
                     discarded_commit_shas=sync_terminal_err.discarded_commit_shas,
+                    reset_succeeded=False,
                 )
                 return make_error_response(
                     f"Worktree sync helper exhausted recovery options: {sync_terminal_err}",
@@ -1204,8 +1205,8 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             )
             return make_error_response(
                 "Worktree was hard-reset during pre-populate sync; "
-                "operator must ack the recovery via the phase-boundary HITL "
-                "before re-running populate_contract.",
+                "operator must ack the hard-reset recovery HITL "
+                "(visible in /sdlc) before re-running populate_contract.",
                 status_code=409,
                 reason="hard_reset_recovery_unacked",
                 details={
