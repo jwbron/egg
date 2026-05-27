@@ -124,6 +124,27 @@ TRANSIENT_BACKOFF_INITIAL={transient_backoff_initial}
 TRANSIENT_BACKOFF_MAX=30
 STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 
+# Capture agent stdout+stderr so the wrapper can post-mortem the run.
+# Used by is_buffer_overflow() to detect the Claude Agent SDK
+# message-reader 1MB JSON buffer crash (issue #2804) which is
+# deterministic — retrying just hits the same overflow and burns
+# the restart budget for no gain.
+#
+# Use ``mktemp`` for the default path so a co-tenant on the same host
+# cannot pre-create a symlink at a predictable ``/tmp/agent-output-$$``
+# location (``tee -a`` follows symlinks). The container is single-tenant
+# in normal operation; mktemp is defense-in-depth for multi-tenant
+# sandbox setups. The fallback to ``/tmp/agent-output-$$.log`` fires on
+# any ``mktemp`` failure — missing from PATH, ``/tmp`` full (``ENOSPC``),
+# tmpfs read-only, fd exhaustion, etc. The predictable-path attack
+# window narrows considerably in practice (mktemp is in coreutils and
+# the failure modes above are themselves rare), but the fallback is
+# still a known weakening of the symlink protection rather than an
+# unreachable branch.
+if [ -z "${{AGENT_OUTPUT_LOG:-}}" ]; then
+    AGENT_OUTPUT_LOG="$(mktemp -t agent-output.XXXXXX 2>/dev/null || echo "/tmp/agent-output-$$.log")"
+fi
+
 # Log wrapper messages to stderr so they never leak into agent SDK context.
 cw_log() {{
     echo "[consensus-wrapper] $*" >&2
@@ -132,12 +153,52 @@ cw_log() {{
 run_agent() {{
     local prompt="$1"
     local system_prompt="${{2:-}}"
+    : > "$AGENT_OUTPUT_LOG"  # truncate per run so old crashes don't bleed forward
+    # Pipe stdout+stderr through tee so the post-mortem grep
+    # (is_buffer_overflow) sees the agent's full output. We use a
+    # single pipeline rather than per-stream process substitution
+    # because bash waits on pipelines synchronously; process
+    # substitution (> >(tee ...)) backgrounds the tee subshell and
+    # doesn't wait, which races with the immediate is_buffer_overflow
+    # grep that follows on agent exit.
+    #
+    # Note: ``2>&1 | tee -a`` interleaves stdout and stderr in the
+    # captured log. This is intentional — the SDK overflow marker
+    # is emitted on stderr (``logger.error`` in
+    # ``claude_agent_sdk.query``), and the grep that triggers
+    # is_buffer_overflow needs to see it in the same file as
+    # stdout. Side-effect: any future log analysis that depends on
+    # stdout/stderr separation will need to capture them separately
+    # upstream (e.g. via ``script`` or a wrapper process), not from
+    # ``$AGENT_OUTPUT_LOG``.
     if [ -n "$system_prompt" ]; then
-        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt"
+        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
     else
-        {agent_command_prefix} "$prompt"
+        {agent_command_prefix} "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
     fi
-    return $?
+    return ${{PIPESTATUS[0]}}
+}}
+
+# Detect the Claude Agent SDK 1 MB JSON message-reader overflow
+# signature in the most recent agent run. Issue #2804. The overflow
+# is deterministic: re-running the agent against the same codebase
+# hits the same oversized tool result, so the wrapper must NOT
+# consume retry budget on this failure class. Returns 0 (true) if
+# the marker was logged, 1 otherwise.
+#
+# The substring matches CLI output from claude_agent_sdk emitted on
+# the buffer overflow path. If a future SDK bump changes the
+# wording, this grep silently falls through and the wrapper burns
+# its retry budget again — the buffer-overflow tests in
+# orchestrator/tests/test_consensus_wrapper.py (notably
+# test_script_marker_matches_client_constant and the
+# test_buffer_overflow_*_aborts_without_retry pair) exercise the
+# wrapper against a synthetic log to keep this honest, but do not
+# pin against the installed SDK. The real fix is tool-layer
+# truncation (#2805); this is the fail-fast path until that lands.
+is_buffer_overflow() {{
+    [ -f "$AGENT_OUTPUT_LOG" ] || return 1
+    grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null
 }}
 
 # Helper: extract BRC agent state from pipeline status JSON
@@ -291,7 +352,10 @@ if [ "$AGENT_EXIT" -ne 0 ]; then
         fi
     fi
 
-    if is_transient_crash "$AGENT_EXIT"; then
+    if is_buffer_overflow; then
+        cw_log "Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting."
+        exit $AGENT_EXIT
+    elif is_transient_crash "$AGENT_EXIT"; then
         cw_log "Transient crash (code $AGENT_EXIT). Will restart with backoff."
         CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
     elif is_startup_failure "$AGENT_EXIT" "$AGENT_DURATION"; then
@@ -579,6 +643,10 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
                 cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT) but already CONFIRMED. Exiting cleanly."
                 exit 0
             fi
+        fi
+        if is_buffer_overflow; then
+            cw_log "Agent crashed on Claude Agent SDK buffer overflow (issue #2804) on restart $RESTART_COUNT. Deterministic failure; further retries would waste budget. Stopping."
+            exit $AGENT_EXIT
         fi
         if is_transient_crash "$AGENT_EXIT"; then
             cw_log "Transient crash on restart $RESTART_COUNT (code $AGENT_EXIT). Will retry."

@@ -9,7 +9,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from egg_agent.client import _MAX_TOOL_CONTENT_LOG_LEN, _truncate, run_agent, run_agent_async
+from egg_agent.client import (
+    _BUFFER_OVERFLOW_MARKER,
+    _MAX_TOOL_CONTENT_LOG_LEN,
+    _truncate,
+    run_agent,
+    run_agent_async,
+)
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
@@ -79,6 +85,11 @@ except ImportError:
     class CLINotFoundError(ClaudeSDKError):  # type: ignore[no-redef]
         pass
 
+    class CLIJSONDecodeError(ClaudeSDKError):  # type: ignore[no-redef]
+        """Mirrors claude_agent_sdk._errors.CLIJSONDecodeError (issue #2804)."""
+
+        pass
+
     @dataclass
     class SystemMessage:  # type: ignore[no-redef]
         subtype: str = ""
@@ -124,6 +135,7 @@ except ImportError:
     _mock_sdk.ProcessError = ProcessError  # type: ignore[attr-defined]
     _mock_sdk.CLINotFoundError = CLINotFoundError  # type: ignore[attr-defined]
     _mock_sdk.ClaudeSDKError = ClaudeSDKError  # type: ignore[attr-defined]
+    _mock_sdk.CLIJSONDecodeError = CLIJSONDecodeError  # type: ignore[attr-defined]
     _mock_sdk.SystemMessage = SystemMessage  # type: ignore[attr-defined]
     _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
     _mock_sdk.PermissionResultAllow = PermissionResultAllow  # type: ignore[attr-defined]
@@ -813,6 +825,32 @@ class TestRunAgentAsync:
         call_kwargs = mock_query.call_args.kwargs
         opts = call_kwargs["options"]
         assert opts.disallowed_tools == []
+
+
+class TestBufferOverflowErrorHandling:
+    """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
+    overflow, the agent must return a structured failure with the
+    overflow marker preserved in ``error`` — the consensus-wrapper
+    greps for that string to short-circuit retry.
+    """
+
+    @patch("claude_agent_sdk.query")
+    def test_buffer_overflow_returns_failure_with_marker(self, mock_query):
+        from claude_agent_sdk import CLIJSONDecodeError
+
+        mock_query.side_effect = CLIJSONDecodeError(
+            f"JSON message {_BUFFER_OVERFLOW_MARKER} of 1048576 bytes..."
+        )
+
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is False
+        assert result.returncode == -1
+        # Marker must appear verbatim in ``error`` so the wrapper's grep
+        # in is_buffer_overflow() matches. Referencing the module-level
+        # constant here means a rename in client.py drives a test
+        # failure rather than silently desyncing from the wrapper grep.
+        assert _BUFFER_OVERFLOW_MARKER in result.error
 
 
 class TestToolInterception:

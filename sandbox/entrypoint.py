@@ -1054,7 +1054,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
             logger.success(f"Skills installed: {', '.join(installed)}")
 
     # Create settings.json
-    settings = {
+    settings: dict[str, Any] = {
         "defaultPermissionMode": "bypassPermissions",
         "skipDangerousModePermissionPrompt": True,
         "autoApproveEdits": True,

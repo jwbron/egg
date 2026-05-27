@@ -1360,6 +1360,236 @@ class TestConsensusWrapperBehavior:
             assert "Transient crash" not in result.stderr
 
 
+class TestBufferOverflowDetection:
+    """Issue #2804: the Claude Agent SDK 1MB JSON buffer crash is
+    deterministic — retrying just hits the same overflow on the same
+    codebase. The wrapper must short-circuit retry budget when it
+    sees the overflow signature in the agent's output.
+    """
+
+    def test_script_defines_is_buffer_overflow(self):
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "is_buffer_overflow()" in script
+        assert "exceeded maximum buffer size" in script
+
+    def test_script_marker_matches_client_constant(self):
+        """The bash grep substring must match ``_BUFFER_OVERFLOW_MARKER``
+        in ``shared/egg_agent/client.py``. Renaming the constant without
+        updating the wrapper script silently regresses the short-circuit
+        — this test pins them together. Issue #2804.
+        """
+        # ``orchestrator/tests/conftest.py`` already puts ``shared/`` on
+        # ``sys.path`` for the orchestrator test session, so the import
+        # below resolves without any per-test path munging.
+        from egg_agent.client import _BUFFER_OVERFLOW_MARKER
+
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert _BUFFER_OVERFLOW_MARKER in script, (
+            f"consensus_wrapper script must grep for {_BUFFER_OVERFLOW_MARKER!r} "
+            "to match the marker emitted by run_agent_async on SDK overflow"
+        )
+
+    def test_script_captures_agent_output(self):
+        """Agent output must be tee'd to a log file the wrapper can grep."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "AGENT_OUTPUT_LOG" in script
+        assert "tee -a" in script
+
+    def test_buffer_overflow_check_runs_before_transient_check(self):
+        """The overflow check must precede is_transient_crash so a
+        signal-255 agent that crashed on overflow doesn't get retried.
+        """
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Both functions exist
+        assert "is_buffer_overflow" in script
+        assert "is_transient_crash" in script
+        # Find the first occurrence of each in the initial-exit handler
+        # (the section after the consensus/confirmed checks).
+        idx_buffer = script.find("if is_buffer_overflow")
+        idx_transient = script.find('is_transient_crash "$AGENT_EXIT"')
+        assert idx_buffer > 0 and idx_transient > 0
+        assert idx_buffer < idx_transient, (
+            "is_buffer_overflow must be checked BEFORE is_transient_crash"
+        )
+
+    def test_buffer_overflow_log_message_cites_issue(self):
+        """When the wrapper aborts on overflow, log must mention #2804."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "#2804" in script
+
+    def test_buffer_overflow_check_in_restart_loop(self):
+        """The restart-loop must ALSO check for buffer overflow — even if
+        the initial run survived, a recovery attempt that hits the
+        overflow must abort without consuming the rest of the budget.
+        """
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # is_buffer_overflow appears at least twice: initial handler + restart loop
+        assert script.count("is_buffer_overflow") >= 2
+
+    @staticmethod
+    def _make_buffer_overflow_agent(tmpdir: str) -> None:
+        """Create a mock python3 that simulates the SDK buffer-overflow crash.
+
+        Writes the signature marker to stderr (matching the real SDK's
+        ``logger.error`` from ``query.py:221``) and exits 255 — the same
+        shape produced by the real crash in the issue-2777 #2804 incident.
+        """
+        mock_python = os.path.join(tmpdir, "python3")
+        real_python = sys.executable
+        with open(mock_python, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+            f.write(
+                '  echo "Fatal error in message reader: Failed to decode '
+                "JSON: JSON message exceeded maximum buffer size of "
+                '1048576 bytes..." >&2\n'
+            )
+            f.write("  exit 255\n")
+            f.write("else\n")
+            f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+            f.write("fi\n")
+        os.chmod(mock_python, 0o755)  # nosec B103
+
+    def test_buffer_overflow_aborts_without_retry(self):
+        """Agent crashing with the SDK buffer-overflow signature must
+        exit immediately, NOT consume the restart budget.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            # No consensus reached
+            TestConsensusWrapperBehavior._make_mock_orch_no_consensus(tmpdir, log_file)
+            self._make_buffer_overflow_agent(tmpdir)
+
+            cmd = build_consensus_wrapped_command("Prompt", max_restarts=2)
+            result = TestConsensusWrapperBehavior._run_wrapper_command(cmd, tmpdir)
+
+            # Wrapper must propagate the agent's exit code (255)
+            assert result.returncode == 255, result.stderr
+            # Must log the overflow diagnosis
+            assert "buffer overflow" in result.stderr.lower()
+            assert "#2804" in result.stderr
+            # Must NOT have attempted a restart
+            assert "Restarting" not in result.stderr
+            assert "Transient crash" not in result.stderr
+
+    def test_signal_255_without_overflow_marker_still_retries(self):
+        """Other 255 crashes (genuine SIGSEGV, bun segfault) keep the
+        existing transient-retry behavior — the wrapper must only
+        short-circuit when the overflow marker is present.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            TestConsensusWrapperBehavior._make_mock_orch_no_consensus(tmpdir, log_file)
+            # Plain exit 255 with no marker → should still be classified
+            # as transient and trigger a restart.
+            _make_mock_agent(tmpdir, exit_code=255)
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt",
+                max_restarts=1,
+                transient_backoff_initial=1,
+            )
+            result = TestConsensusWrapperBehavior._run_wrapper_command(cmd, tmpdir, timeout=20)
+
+            # Without the marker, the existing transient-crash classification
+            # still kicks in; should log Transient crash.
+            assert "Transient crash" in result.stderr
+
+    def test_buffer_overflow_in_restart_loop_aborts_without_further_retries(self):
+        """Restart-loop overflow path: clean initial exit triggers a
+        restart, recovery run crashes with the overflow marker, wrapper
+        aborts immediately instead of consuming the remaining budget.
+
+        Distinct from ``test_buffer_overflow_aborts_without_retry``,
+        which only exercises the initial-exit handler. Both code paths
+        need the buffer-overflow short-circuit; this regression-guards
+        the restart-loop branch (#2804 review feedback).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+            call_counter = os.path.join(tmpdir, "agent_call_count")
+
+            # Mock egg-orch: always returns is_complete=false so the
+            # wrapper enters the restart loop after each clean exit.
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Mock agent: clean exit on call 1 (triggers restart), then
+            # emits the SDK overflow signature and exits 255 on call 2.
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write("  CALL_COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(call_counter)} ]; then\n")
+                f.write(f"    CALL_COUNT=$(cat {shlex.quote(call_counter)})\n")
+                f.write("  fi\n")
+                f.write("  CALL_COUNT=$((CALL_COUNT + 1))\n")
+                f.write(f'  echo "$CALL_COUNT" > {shlex.quote(call_counter)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write('  if [ "$CALL_COUNT" -eq 1 ]; then\n')
+                f.write("    exit 0\n")  # clean exit → restart triggered
+                f.write("  fi\n")
+                # call 2: emit the overflow signature and exit 255
+                f.write(
+                    '  echo "Fatal error in message reader: Failed to decode '
+                    "JSON: JSON message exceeded maximum buffer size of "
+                    '1048576 bytes..." >&2\n'
+                )
+                f.write("  exit 255\n")
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt", max_restarts=3, transient_backoff_initial=1
+            )
+            result = TestConsensusWrapperBehavior._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            # Wrapper must propagate the overflow crash's exit code from
+            # the restart loop, NOT continue retrying.
+            assert result.returncode == 255, result.stderr
+            # Diagnostic message must indicate the restart-loop path
+            # (the initial-exit handler says "Agent crashed on Claude
+            # Agent SDK buffer overflow ..."; the restart-loop handler
+            # adds "on restart N").
+            assert "buffer overflow" in result.stderr.lower()
+            assert "on restart" in result.stderr
+            assert "#2804" in result.stderr
+            # Agent was called exactly twice: initial clean exit + one
+            # restart that crashed on overflow. Should NOT be called a
+            # third time.
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 2, (
+                f"Expected exactly 2 agent calls (initial + 1 restart with "
+                f"overflow), got {call_count}. The restart-loop buffer-overflow "
+                f"check must abort before consuming further retry budget."
+            )
+
+
 class TestEventDrivenWait:
     """Issue #1897 Phase 5 / TASK-5-1 (plan rev 4, reviewer_plan blocker 4):
     ``check_confirmed_and_wait`` is an SSE-primary hybrid.

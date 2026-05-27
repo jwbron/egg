@@ -61,6 +61,16 @@ except ImportError:
 # Default model for sandbox agents
 DEFAULT_MODEL = "opus[1m]"
 
+# Substring of the SDK's CLIJSONDecodeError message identifying the
+# 1 MB JSON message-reader buffer overflow (issue #2804). The overflow
+# is deterministic — the same tool call against the same codebase
+# produces the same oversized payload — so the consensus-wrapper greps
+# for this marker on agent exit to short-circuit retry instead of
+# burning the restart budget on a doomed re-run. The real fix is
+# tool-layer truncation (see #2805); this PR only makes the failure
+# mode observable and terminal.
+_BUFFER_OVERFLOW_MARKER = "exceeded maximum buffer size"
+
 
 async def run_agent_async(
     prompt: str,
@@ -118,6 +128,19 @@ async def run_agent_async(
             UserMessage,
             query,
         )
+        # CLIJSONDecodeError is a subclass of ClaudeSDKError, so it's
+        # caught by the existing handler below — issue #2804 relies on
+        # its error message preserving the ``exceeded maximum buffer
+        # size`` marker so the consensus-wrapper can short-circuit
+        # retry on this failure class. Tests pin that the marker
+        # propagates into ``result.error`` once raised, and that the
+        # consensus-wrapper grep matches ``_BUFFER_OVERFLOW_MARKER``;
+        # stability of the marker against future ``claude-agent-sdk``
+        # releases is NOT verified (the SDK could change the wording
+        # at any minor bump and the wrapper would silently fall back
+        # to burning the transient-crash retry budget). See #2823 for
+        # the follow-up to pin or smoke-test the marker against the
+        # installed SDK.
     except ImportError:
         return AgentResult(
             success=False,

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Add sandbox/ to sys.path so entrypoint is importable
-_sandbox_path = str(Path(__file__).parent.parent)
+_sandbox_path = str(Path(__file__).parent.parent.parent / "sandbox")
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
@@ -47,7 +47,23 @@ def _read_settings(config: Any) -> dict[str, Any]:
 
 
 class TestDisallowedToolsPrivateMode:
-    """WebFetch/WebSearch should be disallowed only in private mode."""
+    """WebFetch/WebSearch should be disallowed only in private mode.
+
+    Originally lived in ``sandbox/tests/test_entrypoint_settings.py``
+    alongside ``TestPostToolUseHook`` coverage for the #2804 truncation
+    hook. The hook was removed in this PR after review showed
+    PostToolUse ``decision: block`` does not suppress oversized tool
+    responses (#2810). The private-mode coverage moved here because the
+    production code at ``sandbox/entrypoint.py`` (the
+    ``EGG_PRIVATE_MODE`` branch that writes
+    ``settings["disallowedTools"]``) is still live.
+
+    Defense-in-depth note: ``run_agent_async`` also sets
+    ``ClaudeAgentOptions.disallowed_tools`` via a CLI flag (see
+    ``shared/egg_agent/client.py``); that is a different code path
+    covered by ``tests/shared/egg_agent/test_client.py``. This file
+    covers the ``settings.json`` write layer.
+    """
 
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "true"})
     @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
