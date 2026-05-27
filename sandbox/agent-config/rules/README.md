@@ -16,6 +16,8 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
 
 **Note**: `CLAUDE.md` is the [official Claude Code format](https://www.anthropic.com/engineering/claude-code-best-practices) for providing context and instructions to the agent. `AGENTS.md` is the convention adopted by other agent tools — keeping both names as symlinks to the same content makes the rules portable.
 
+**Windows checkouts**: Git on Windows defaults `core.symlinks` to `false` unless Developer Mode (or admin rights) is on. Without it, the committed `AGENTS.md` symlinks at the repo root and under `gateway/`, `orchestrator/`, `sandbox/` materialize as one-line text files containing the literal string `CLAUDE.md`. That degrades to harmless noise (the file is no longer a discoverable rules alias) rather than breaking anything; egg's runtime path is Linux containers, so the symlinks behave correctly there.
+
 ## File Guide
 
 ### Core Agent Instructions
