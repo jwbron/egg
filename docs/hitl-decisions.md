@@ -162,7 +162,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 
 In **prompt-driven mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
-When an operator selects `request_changes` or `change_approach`, the feedback text is stored as a timestamped `OperatorDirective` on the phase. Directives **accumulate** — they are never cleared. On the next iteration, both producer and reviewer agents receive a `## Phase Iteration Context` prompt section that lists all prior directives in chronological order with explicit precedence prose (later directives override earlier ones), plus a snapshot of each prior iteration's BRC verdict matrix and NACK reasons. This ensures reviewer agents cannot faithfully NACK a directive-driven change against a stale default rubric.
+When an operator selects `request_changes` or `change_approach`, the feedback text is stored as a timestamped `OperatorDirective` on the phase. Directives **accumulate** — they are never cleared. Whenever producer or reviewer prompts are subsequently built and the directive list is non-empty, agents receive a `## Phase Iteration Context` prompt section that lists all prior directives in chronological order with explicit precedence prose (later directives override earlier ones), plus a snapshot of each prior iteration's BRC verdict matrix and NACK reasons. This ensures reviewer agents do not unwittingly NACK a directive-driven change against a stale default rubric.
 
 ### Key Differences from Decisions
 
