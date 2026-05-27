@@ -360,6 +360,61 @@ class AgentExitInfo(BaseModel):
     )
 
 
+class OperatorDirective(BaseModel):
+    """An operator-issued directive recorded at an HITL phase-gate kickback.
+
+    Replaces the single ``PhaseExecution.hitl_feedback`` string with a
+    chronologically accumulated record. Each kickback on a phase appends
+    one ``OperatorDirective``; the list is never cleared, so iteration
+    N+1's prompt can render all prior directives in order with explicit
+    precedence prose. See issue #2795.
+    """
+
+    iteration_n: int = Field(
+        ..., ge=0, description="Zero-based index of the iteration this directive kicked back"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the operator issued the directive",
+    )
+    feedback_text: str = Field(..., description="Operator-provided feedback text")
+
+
+class IterationSummary(BaseModel):
+    """Frozen snapshot of a kicked-back iteration's BRC outcome.
+
+    Captured before ``_clear_concurrent_state`` wipes the consensus
+    tracker so reviewers in iteration N+1 can see what tripped the rubric
+    last round. See issue #2795.
+    """
+
+    iteration_n: int = Field(..., ge=0, description="Zero-based iteration index")
+    completed_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the iteration's consensus closed",
+    )
+    final_proposal_commit: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of producer role to final proposal commit SHA, if any",
+    )
+    verdict_matrix: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-edge BRC verdict at iteration close, keyed by "
+            "'reviewer_role->producer_role' → ApprovalState value "
+            "(e.g. 'acked', 'nacked')"
+        ),
+    )
+    nack_reasons: list[str] = Field(
+        default_factory=list,
+        description="Collected NACK rationales, prefixed by reviewer role",
+    )
+    artifacts_snapshot: dict[str, str] = Field(
+        default_factory=dict,
+        description="Snapshot of PhaseExecution.artifacts at iteration close",
+    )
+
+
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
@@ -383,9 +438,22 @@ class PhaseExecution(BaseModel):
         default_factory=dict, description="Produced artifacts (file paths)"
     )
     error: str | None = Field(default=None, description="Error if failed")
-    hitl_feedback: str | None = Field(
-        default=None,
-        description="HITL revision feedback preserved across recovery restarts",
+    operator_directives: list[OperatorDirective] = Field(
+        default_factory=list,
+        description=(
+            "Chronologically accumulated operator directives from HITL "
+            "phase-gate kickbacks. Never cleared — replaces the single "
+            "hitl_feedback string so iteration N+1 prompts can render "
+            "every prior directive with precedence prose. See #2795."
+        ),
+    )
+    iteration_history: list[IterationSummary] = Field(
+        default_factory=list,
+        description=(
+            "One entry per kicked-back iteration. Captured before "
+            "_clear_concurrent_state wipes the BRC tracker so future "
+            "iterations can see prior verdicts/NACK reasons. See #2795."
+        ),
     )
     phase_start_sha: str | None = Field(
         default=None,

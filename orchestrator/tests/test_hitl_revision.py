@@ -1261,14 +1261,15 @@ class TestSyncPipelineDecisionsToContract:
 class TestInlineRequestChangesStateReset:
     """Verify that inline request_changes resets phase state like the recovery path.
 
-    The inline path (inside _run_pipeline's HITL gate loop) must store
-    hitl_feedback and reset containers/agents/artifacts so the re-run
-    starts clean, matching the AWAITING_HUMAN recovery path in start_pipeline.
+    The inline path (inside _run_pipeline's HITL gate loop) must append
+    a structured OperatorDirective (#2795) and reset containers/agents/
+    artifacts so the re-run starts clean, matching the AWAITING_HUMAN
+    recovery path in start_pipeline.
     """
 
     def test_inline_rerun_resets_state_fields(self):
         """The re-run (else) branch should reset containers/agents/artifacts/review_cycles."""
-        from models import AgentExecution, ContainerInfo, ContainerStatus
+        from models import AgentExecution, ContainerInfo, ContainerStatus, OperatorDirective
 
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
         phase.status = PipelineStatus.COMPLETE
@@ -1288,13 +1289,15 @@ class TestInlineRequestChangesStateReset:
         phase.status = PipelineStatus.RUNNING
         phase.completed_at = None
         phase.hitl_review_cycles += 1
-        phase.hitl_feedback = "Fix the tests"
+        phase.operator_directives.append(
+            OperatorDirective(iteration_n=0, feedback_text="Fix the tests")
+        )
         phase.containers = []
         phase.agents = []
         phase.artifacts = {}
         phase.review_cycles = 0
 
-        assert phase.hitl_feedback == "Fix the tests"
+        assert phase.operator_directives[-1].feedback_text == "Fix the tests"
         assert phase.containers == []
         assert phase.agents == []
         assert phase.artifacts == {}
