@@ -14829,6 +14829,54 @@ def _emit_hard_reset_recovery_hitl(
     )
 
 
+def _fail_pipeline_and_emit_hard_reset_recovery(
+    pipeline_id: str,
+    store,  # noqa: ANN001 — StateStore (avoid import cycle)
+    *,
+    phase: PipelinePhase | None,
+    error_message: str,
+    backup_ref: str | None,
+    discarded_commit_shas: tuple[str, ...] | list[str],
+) -> None:
+    """Pin pipeline+phase to FAILED, emit the hard-reset HITL, broadcast events.
+
+    Shared between the two ``_run_pipeline`` emission sites and the
+    ``populate_contract`` route (#2792 review B4) so all three triggers
+    of the destructive recovery surface the same operator-facing
+    state: ``pipeline.status=FAILED`` + ``phase_execution.status=FAILED``
+    persisted under lock, the dedicated hard-reset HITL written, and
+    a ``pipeline.failed`` event/StatusReporter dispatch.
+
+    Acquires ``get_pipeline_state_lock(pipeline_id)`` for the write,
+    so callers must not already hold it.
+    """
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        if phase is not None:
+            phase_execution = pipeline.get_phase_execution(phase)
+            if phase_execution is not None:
+                phase_execution.status = PipelineStatus.FAILED
+                phase_execution.error = error_message
+                phase_execution.completed_at = datetime.now(UTC)
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error = error_message
+        store.save_pipeline(pipeline)
+    _emit_hard_reset_recovery_hitl(
+        pipeline_id,
+        pipeline,
+        store,
+        phase=phase,
+        backup_ref=backup_ref,
+        discarded_commit_shas=discarded_commit_shas,
+    )
+    report_pipeline_status(
+        pipeline,
+        event_type="pipeline.failed",
+        message=f"Pipeline failed: {error_message[:100]}",
+    )
+    _emit_pipeline_event(pipeline, "pipeline.failed")
+
+
 def _emit_empty_contract_hitl(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -22213,9 +22261,12 @@ def _run_pipeline(
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.status = PipelineStatus.FAILED
-                    phase_execution.error = _doubly_failed_msg
-                    phase_execution.completed_at = datetime.now(UTC)
+                    # Consistent guard: same defensive None-check the
+                    # phase-start emission sites use (#2797 follow-up).
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = _doubly_failed_msg
+                        phase_execution.completed_at = datetime.now(UTC)
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = _doubly_failed_msg
                     store.save_pipeline(pipeline)
@@ -22272,9 +22323,12 @@ def _run_pipeline(
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.status = PipelineStatus.FAILED
-                    phase_execution.error = _hard_reset_msg
-                    phase_execution.completed_at = datetime.now(UTC)
+                    # Consistent guard: same defensive None-check the
+                    # phase-start emission sites use (#2797 follow-up).
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = _hard_reset_msg
+                        phase_execution.completed_at = datetime.now(UTC)
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = _hard_reset_msg
                     store.save_pipeline(pipeline)

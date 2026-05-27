@@ -1094,6 +1094,7 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             SyncRebaseAndResetFailedError,
             _commit_statefiles_to_worktree,
             _compute_gateway_mode,
+            _fail_pipeline_and_emit_hard_reset_recovery,
             _get_spawner,
             _pipeline_identifier,
             _populate_contract_from_plan,
@@ -1103,14 +1104,14 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         # #2792: reconcile the worktree before reading the draft so an
         # auto-recovery here can rescue a divergent worktree the same
         # way the phase-boundary sync does.  When the rebase fails and
-        # the helper falls through to its hard-reset path, refuse to
-        # run the populator: the route is recovery-driven, but the
-        # operator still needs an explicit ack via the phase-boundary
-        # HITL gate before downstream consumers (populator, agents)
-        # read from the post-reset worktree.  Returning 409 with the
-        # destructive-recovery fields in ``details`` gives automation
-        # an unambiguous failure signal — a 2xx with a deep-buried
-        # flag is the worst of both worlds (review B4 on #2797).
+        # the helper falls through to its hard-reset path, emit the
+        # same hard-reset recovery HITL the phase-boundary sites do,
+        # pin the pipeline+phase to FAILED, and refuse to populate.
+        # All three triggers of the destructive recovery (phase-start,
+        # post-phase, populate_contract) now expose the operator the
+        # same surface — see #2797 review B4.  A 200 with a deep-buried
+        # ``hard_reset_performed`` flag would let automation silently
+        # miss the discard.
         populate_sync_outcome = None
         if pipeline.branch and worktree_path != store.repo_path:
             gateway_mode_for_sync, _ = _compute_gateway_mode(pipeline)
@@ -1125,16 +1126,28 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 )
             except SyncRebaseAndResetFailedError as sync_terminal_err:
                 # #2792 review B5: rebase AND hard-reset both failed —
-                # the worktree is still divergent.  Refuse to populate
-                # and surface the terminal failure with the same 409
-                # shape as the successful-but-unacked hard-reset case,
-                # but with a distinct reason code so callers can tell
-                # the two apart.
+                # the worktree is still divergent.  Pin the pipeline to
+                # FAILED, emit the hard-reset recovery HITL, and surface
+                # the terminal failure with a distinct 409 reason code
+                # so callers can tell it apart from the
+                # successful-recovery-but-unacked case.
+                _doubly_failed_msg = (
+                    f"Sync helper could not reconcile {pipeline.branch} during "
+                    f"populate_contract pre-sync: {sync_terminal_err}"
+                )
                 logger.error(
                     "populate_contract: pre-populate sync doubly failed",
                     pipeline_id=pipeline_id,
                     backup_ref=sync_terminal_err.backup_ref,
                     discarded_commit_count=len(sync_terminal_err.discarded_commit_shas),
+                )
+                _fail_pipeline_and_emit_hard_reset_recovery(
+                    pipeline_id,
+                    store,
+                    phase=pipeline.current_phase,
+                    error_message=_doubly_failed_msg,
+                    backup_ref=sync_terminal_err.backup_ref,
+                    discarded_commit_shas=sync_terminal_err.discarded_commit_shas,
                 )
                 return make_error_response(
                     f"Worktree sync helper exhausted recovery options: {sync_terminal_err}",
@@ -1163,15 +1176,31 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
 
         if hard_reset_performed:
             # Do NOT run the populator on a worktree that was just
-            # hard-reset — the operator must ack the destructive
-            # recovery via the phase-boundary HITL first.  Surface a
-            # 409 so automation callers see a non-2xx status code,
-            # not a misleading 200 with the flag hidden in ``data``.
+            # hard-reset.  Pin the pipeline+phase to FAILED and emit
+            # the same hard-reset recovery HITL the phase-boundary
+            # sites do so the operator's ack surface is uniform across
+            # all three triggers of the destructive recovery, then
+            # return 409 (#2797 review B4).
+            _hard_reset_msg = (
+                f"Sync helper hard-reset {pipeline.branch} to origin during "
+                f"populate_contract pre-sync (rebase autoresolve could not "
+                f"reconcile divergence); "
+                f"{len(hard_reset_discarded)} local-only commit(s) preserved "
+                f"under {hard_reset_backup_ref or '(backup ref write failed)'}"
+            )
             logger.error(
                 "populate_contract: refusing to populate after hard-reset recovery",
                 pipeline_id=pipeline_id,
                 backup_ref=hard_reset_backup_ref,
                 discarded_commit_count=len(hard_reset_discarded),
+            )
+            _fail_pipeline_and_emit_hard_reset_recovery(
+                pipeline_id,
+                store,
+                phase=pipeline.current_phase,
+                error_message=_hard_reset_msg,
+                backup_ref=hard_reset_backup_ref,
+                discarded_commit_shas=hard_reset_discarded,
             )
             return make_error_response(
                 "Worktree was hard-reset during pre-populate sync; "

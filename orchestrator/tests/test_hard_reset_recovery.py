@@ -524,3 +524,164 @@ class TestResumeHelperResetsConsensusAndHealth:
         mock_evaluator.clear.assert_not_called()
         mock_get_spawner.assert_not_called()
         mock_spawn.assert_not_called()
+
+
+class TestPopulateContractHardResetSurfacing:
+    """#2797 review B4 / N3: ``populate_contract`` must surface the
+    destructive recovery the same way the phase-boundary sites do —
+    pin pipeline+phase to FAILED, emit the hard-reset HITL, broadcast
+    ``pipeline.failed``, and return 409 — so the operator's ack surface
+    is uniform across all three triggers (phase-start, post-phase,
+    populate_contract).
+    """
+
+    def _make_app_client(self):
+        from flask import Flask
+        from routes.phases import phases_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(phases_bp)
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    def _make_pipeline(self):
+        from models import Pipeline, PipelinePhase
+
+        pipeline = Pipeline(
+            id="issue-2792",
+            issue_number=2792,
+            repo="owner/repo",
+            branch="egg/issue-2792",
+        )
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        return pipeline
+
+    def test_hard_reset_recovery_returns_409_and_emits_hitl(self):
+        """When ``_sync_worktree_with_remote`` reports
+        ``hard_reset_performed=True``, the route must call the shared
+        failure-and-HITL helper (so the operator gets the same ack
+        surface as the phase-boundary sites), skip the populator, and
+        return HTTP 409 with ``reason="hard_reset_recovery_unacked"``.
+        """
+        from routes.pipelines import WorktreeSyncOutcome
+
+        client = self._make_app_client()
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+
+        outcome = WorktreeSyncOutcome(
+            case="divergence_recovered_via_reset",
+            hard_reset_performed=True,
+            backup_ref="refs/egg-backup/sync-recovery/issue-2792/123",
+            discarded_commit_shas=("abc1234 add foo",),
+        )
+
+        with (
+            patch(
+                "routes.phases.get_state_store_for_pipeline",
+                return_value=(mock_store, pipeline),
+            ),
+            patch(
+                "routes.resolve_worktree_path",
+                return_value=Path("/home/egg/.egg-worktrees/issue-2792/egg"),
+            ),
+            patch("routes.pipelines._sync_worktree_with_remote", return_value=outcome),
+            patch("routes.pipelines._compute_gateway_mode", return_value=("public", None)),
+            patch("routes.pipelines._get_spawner", return_value=MagicMock()),
+            patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
+            patch("routes.pipelines._fail_pipeline_and_emit_hard_reset_recovery") as mock_fail_emit,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-2792/phase/populate-contract")
+
+        assert resp.status_code == 409
+        import json
+
+        body = json.loads(resp.data)
+        assert body["success"] is False
+        assert body["reason"] == "hard_reset_recovery_unacked"
+        assert body["details"]["hard_reset_performed"] is True
+        assert body["details"]["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/123"
+        assert body["details"]["discarded_commit_shas"] == ["abc1234 add foo"]
+
+        # Populator MUST NOT run on a worktree that was just hard-reset.
+        mock_populate.assert_not_called()
+        # The shared failure-and-HITL helper MUST have been invoked so
+        # the operator sees the same recovery HITL as the phase-boundary
+        # sites — without this the 409 body would lie about a HITL that
+        # was never emitted (the original B4 wording-vs-reality bug).
+        mock_fail_emit.assert_called_once()
+        from models import PipelinePhase
+
+        kwargs = mock_fail_emit.call_args.kwargs
+        assert kwargs["phase"] == PipelinePhase.IMPLEMENT
+        assert kwargs["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/123"
+        # Helper accepts ``tuple`` or ``list``; the route normalises to
+        # list (to share the value with the JSON response body).
+        assert list(kwargs["discarded_commit_shas"]) == ["abc1234 add foo"]
+
+    def test_doubly_failed_returns_409_and_emits_hitl(self):
+        """When ``_sync_worktree_with_remote`` raises
+        ``SyncRebaseAndResetFailedError`` (rebase AND hard-reset both
+        failed — worktree still divergent), the route must call the
+        shared failure-and-HITL helper, skip the populator, and return
+        HTTP 409 with ``reason="sync_rebase_and_reset_failed"``.
+        """
+        from routes.pipelines import SyncRebaseAndResetFailedError
+
+        client = self._make_app_client()
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+
+        terminal_err = SyncRebaseAndResetFailedError(
+            "rebase failed (conflicts) and hard-reset failed (rc=128, stderr=…)",
+            backup_ref="refs/egg-backup/sync-recovery/issue-2792/456",
+            discarded_commit_shas=("def5678 add bar",),
+        )
+
+        with (
+            patch(
+                "routes.phases.get_state_store_for_pipeline",
+                return_value=(mock_store, pipeline),
+            ),
+            patch(
+                "routes.resolve_worktree_path",
+                return_value=Path("/home/egg/.egg-worktrees/issue-2792/egg"),
+            ),
+            patch(
+                "routes.pipelines._sync_worktree_with_remote",
+                side_effect=terminal_err,
+            ),
+            patch("routes.pipelines._compute_gateway_mode", return_value=("public", None)),
+            patch("routes.pipelines._get_spawner", return_value=MagicMock()),
+            patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
+            patch("routes.pipelines._fail_pipeline_and_emit_hard_reset_recovery") as mock_fail_emit,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-2792/phase/populate-contract")
+
+        assert resp.status_code == 409
+        import json
+
+        body = json.loads(resp.data)
+        assert body["success"] is False
+        assert body["reason"] == "sync_rebase_and_reset_failed"
+        # ``hard_reset_performed`` is False on this branch because the
+        # hard reset itself failed (it was attempted but did not
+        # complete) — distinct from the unacked-recovery case above.
+        assert body["details"]["hard_reset_performed"] is False
+        assert body["details"]["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/456"
+        assert body["details"]["discarded_commit_shas"] == ["def5678 add bar"]
+
+        # Populator MUST NOT run on a worktree that is still divergent.
+        mock_populate.assert_not_called()
+        # The shared failure-and-HITL helper MUST have been invoked so
+        # the operator gets the same recovery surface across all three
+        # triggers of the hard reset (#2797 B4).
+        mock_fail_emit.assert_called_once()
+        from models import PipelinePhase
+
+        kwargs = mock_fail_emit.call_args.kwargs
+        assert kwargs["phase"] == PipelinePhase.IMPLEMENT
+        assert kwargs["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2792/456"
+        assert kwargs["discarded_commit_shas"] == ("def5678 add bar",)

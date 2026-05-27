@@ -243,7 +243,14 @@ def _handle_hard_reset_recovery_resolution(
             )
             get_message_store().add_message(msg)
         except Exception:  # noqa: BLE001
-            pass
+            # N5 follow-up: a broadcast failure here means the operator
+            # never sees the alert.  Log at WARN so the bus-down path
+            # leaves a trace alongside the unknown-resolution warning.
+            logger.warning(
+                "hard_reset_recovery OVERSEER_ALERT broadcast failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
 
 
 def _handle_conditional_ack_gate(
