@@ -117,9 +117,21 @@ ${filter_note}
    - Issue-level comments: \`${issue_comments_cmd}\`
 2. **Understand the current code**: Use \`gh pr diff ${PR_NUMBER}\` to see the PR changes.
 3. **Make fixes**: Address each piece of actionable feedback.
-4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
+4. **Verify**: Run \`make lint\` locally before pushing. See \"Do NOT run the test suite\" below.
 5. **Push**: Commit and push all fixes together.
 6. **Respond**: Post a single top-level summary comment with a per-item disposition (see contract below).
+
+## Do NOT run the test suite
+
+**Never run \`make test\`** as part of addressing feedback. The egg test suite
+takes 10-15 minutes and is causing this workflow to time out. CI runs the
+configured check suite on every PR HEAD after you push — trust those results
+rather than re-running the suite yourself.
+
+If you need to validate a specific change you just made, you may run
+individual targeted tests (\`.venv/bin/pytest path/to/test_x.py::TestY::test_z\`),
+but never the full \`make test\` suite. This restriction is tracked for removal
+once #2817 lands and \`make test\`'s changeset narrowing becomes tight enough.
 
 ## Feedback Contract — review feedback must never disappear
 
