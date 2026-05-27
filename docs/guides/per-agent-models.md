@@ -54,7 +54,7 @@ free-form model strings — interpreted by the resolver (below).
 ```python
 PipelineConfig(
     agent_models={
-        "refiner": "qwen3-coder-30b",   # → LiteLLM, "qwen3-coder-30b"
+        "refiner": "qwen3-max",         # → LiteLLM, "qwen3-max"
         "coder":   "sonnet",            # → Anthropic, "sonnet"
     },
     # other fields unchanged …
