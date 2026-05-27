@@ -6,6 +6,7 @@ from egg_contracts.plan_parser import (
     ParsedTask,
     ParseResult,
     ParseWarning,
+    PlanPreflightError,
     _normalize_optional_string,
     extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
@@ -15,6 +16,7 @@ from egg_contracts.plan_parser import (
     parse_tasks_from_markdown,
     parse_tasks_from_yaml,
     parse_yaml_code_fence,
+    validate_plan_for_implement_phase,
 )
 
 
@@ -2255,3 +2257,491 @@ phases:
         assert not any(
             "Invalid YAML in yaml-tasks code fence" in w.message for w in result.warnings
         )
+
+
+# ---------------------------------------------------------------------------
+# #2777 TASK-1-1a — plan-phase pre-flight validator
+# ---------------------------------------------------------------------------
+
+
+def _valid_plan_markdown(
+    *,
+    title: str = "Implement #2777",
+    description: str = "Body content.",
+    test_plan: str = "- Automated: unit tests under tests/",
+    manual_steps: str | None = "",
+    include_yaml_fence: bool = True,
+    include_pr_block: bool = True,
+    omit_keys: tuple[str, ...] = (),
+) -> str:
+    """Build a plan-draft markdown payload for the pre-flight validator.
+
+    The helper produces the canonical-shape plan used by
+    :func:`validate_plan_for_implement_phase` happy path, then lets each
+    test selectively remove fields via ``omit_keys`` or null them out via
+    ``manual_steps=None`` so the per-case rejection paths are exercised
+    against a known-good baseline rather than diverging hand-rolled
+    fixtures.
+    """
+    if not include_yaml_fence:
+        return "# Plan\n\nNo yaml-tasks fence here at all.\n"
+    if not include_pr_block:
+        return (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "phases:\n"
+            "  - id: 1\n"
+            "    name: slice-1\n"
+            "    tasks: []\n"
+            "```\n"
+        )
+    lines = ["# Plan", "", "```yaml", "# yaml-tasks", "pr:"]
+    if "title" not in omit_keys:
+        lines.append(f'  title: "{title}"')
+    if "description" not in omit_keys:
+        lines.append(f'  description: "{description}"')
+    if "test_plan" not in omit_keys:
+        lines.append(f'  test_plan: "{test_plan}"')
+    if "manual_steps" not in omit_keys:
+        if manual_steps is None:
+            # Emit a bare ``manual_steps:`` — yaml.safe_load yields None.
+            lines.append("  manual_steps:")
+        else:
+            lines.append(f'  manual_steps: "{manual_steps}"')
+    lines.extend(
+        [
+            "phases:",
+            "  - id: 1",
+            "    name: slice-1",
+            "    tasks: []",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+class TestPlanPreflightErrorShape:
+    """The :class:`PlanPreflightError` exception itself (#2777 TASK-1-1a).
+
+    Pins the public surface the implement-phase guard and the plan-phase
+    BRC NACK rendering both consume: ``missing_fields`` is an ordered
+    ``list[str]`` and the stringified exception names every missing
+    field by its dotted path.
+    """
+
+    def test_missing_fields_attribute_is_list(self):
+        err = PlanPreflightError(["pr.title", "pr.description"])
+        assert isinstance(err.missing_fields, list)
+        assert err.missing_fields == ["pr.title", "pr.description"]
+
+    def test_str_contains_every_missing_field_name(self):
+        err = PlanPreflightError(["yaml-tasks", "pr.title", "pr.description"])
+        msg = str(err)
+        # Every missing field name appears verbatim in the message.
+        assert "yaml-tasks" in msg
+        assert "pr.title" in msg
+        assert "pr.description" in msg
+
+    def test_str_includes_optional_detail(self):
+        err = PlanPreflightError(["pr.manual_steps"], detail="explicit empty allowed")
+        msg = str(err)
+        assert "pr.manual_steps" in msg
+        assert "explicit empty allowed" in msg
+
+    def test_constructor_copies_missing_fields_list(self):
+        """The class must not store the caller's list by reference.
+
+        Adversarial: a downstream consumer that mutated the input list
+        post-raise could corrupt the on-disk audit log. Pin defensive
+        copying so the exception object owns an independent list.
+        """
+        src = ["pr.title"]
+        err = PlanPreflightError(src)
+        src.append("mutated")
+        assert err.missing_fields == ["pr.title"]
+
+    def test_empty_missing_fields_produces_unspecified_marker(self):
+        err = PlanPreflightError([])
+        msg = str(err)
+        assert "<unspecified>" in msg
+
+
+class TestValidatePlanForImplementPhaseHappyPath:
+    """Valid plan drafts pass without raising."""
+
+    def test_full_plan_passes(self):
+        # Sanity: a plan with all required fields populated returns
+        # without raising. The function is annotated ``-> None``, so we
+        # exercise it for side effects (no exception) rather than
+        # asserting on a return value.
+        content = _valid_plan_markdown()
+        validate_plan_for_implement_phase(content)  # does not raise
+
+    def test_empty_manual_steps_explicitly_allowed(self):
+        """Case (e) carve-out: empty string for ``manual_steps`` is OK.
+
+        The planner explicitly emits ``manual_steps: ""`` for slices
+        with no manual steps. Per the docstring this MUST be accepted —
+        only ``None`` / missing-key counts as missing.
+        """
+        content = _valid_plan_markdown(manual_steps="")
+        validate_plan_for_implement_phase(content)  # does not raise
+
+    def test_block_scalar_values_accepted(self):
+        """Multi-line block scalar values still satisfy the validator.
+
+        Adversarial: a regression that only checked single-line scalars
+        would silently reject every real-world plan, since planners
+        habitually use ``|-`` block scalars for descriptions.
+        """
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            '  title: "Implement #2777"\n'
+            "  description: |-\n"
+            "    Multi-line body\n"
+            "    spans several lines.\n"
+            "  test_plan: |-\n"
+            "    - Automated: unit tests\n"
+            "    - Manual: smoke test\n"
+            '  manual_steps: ""\n'
+            "phases: []\n"
+            "```\n"
+        )
+        validate_plan_for_implement_phase(content)  # does not raise
+
+
+class TestValidatePlanForImplementPhaseRejections:
+    """The five rejection cases (a)–(e) named in TASK-1-1a's acceptance."""
+
+    # ------------------------------------------------------------------
+    # Case (a): yaml-tasks fence missing or unparseable.
+    # ------------------------------------------------------------------
+
+    def test_a_missing_yaml_fence(self):
+        """No yaml-tasks code fence at all → reject with `yaml-tasks`."""
+        content = _valid_plan_markdown(include_yaml_fence=False)
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert excinfo.value.missing_fields == ["yaml-tasks"]
+        # Detail is surfaced to the BRC NACK message.
+        assert "yaml-tasks" in str(excinfo.value)
+
+    def test_a_unparseable_yaml_fence(self):
+        """A yaml-tasks fence that does not parse → reject as missing.
+
+        Adversarial: the parser swallows malformed YAML to a warning
+        rather than raising; the validator MUST still surface the
+        absence to the plan-phase BRC.
+        """
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr: : : : :\n"  # malformed YAML
+            "```\n"
+        )
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert excinfo.value.missing_fields == ["yaml-tasks"]
+
+    # ------------------------------------------------------------------
+    # Structural: pr: block absent or non-dict.
+    # ------------------------------------------------------------------
+
+    def test_pr_block_entirely_missing(self):
+        content = _valid_plan_markdown(include_pr_block=False)
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert excinfo.value.missing_fields == ["pr"]
+        assert "pr" in str(excinfo.value)
+
+    def test_pr_block_is_a_list_rejected(self):
+        """``pr: [title, body]`` is a structural error, not field-level.
+
+        Adversarial: a planner that confused YAML mapping vs list
+        syntax could emit a list here. The validator must reject
+        rather than crash on ``.get`` against the list.
+        """
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            "  - title-as-list-entry\n"
+            "  - body-as-list-entry\n"
+            "phases: []\n"
+            "```\n"
+        )
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert excinfo.value.missing_fields == ["pr"]
+
+    # ------------------------------------------------------------------
+    # Case (b): pr.title missing or empty.
+    # ------------------------------------------------------------------
+
+    def test_b_missing_pr_title(self):
+        content = _valid_plan_markdown(omit_keys=("title",))
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.title" in excinfo.value.missing_fields
+        assert "pr.title" in str(excinfo.value)
+
+    def test_b_empty_pr_title(self):
+        content = _valid_plan_markdown(title="")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.title" in excinfo.value.missing_fields
+
+    def test_b_whitespace_only_pr_title(self):
+        """Whitespace-only ``pr.title`` is treated as empty (#2777 TASK-1-1a)."""
+        content = _valid_plan_markdown(title="   ")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.title" in excinfo.value.missing_fields
+
+    # ------------------------------------------------------------------
+    # Case (c): pr.description missing or empty.
+    # ------------------------------------------------------------------
+
+    def test_c_missing_pr_description(self):
+        content = _valid_plan_markdown(omit_keys=("description",))
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.description" in excinfo.value.missing_fields
+
+    def test_c_empty_pr_description(self):
+        content = _valid_plan_markdown(description="")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.description" in excinfo.value.missing_fields
+
+    def test_c_whitespace_only_pr_description(self):
+        content = _valid_plan_markdown(description="\t  \n  ")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.description" in excinfo.value.missing_fields
+
+    # ------------------------------------------------------------------
+    # Case (d): pr.test_plan missing or empty.
+    # ------------------------------------------------------------------
+
+    def test_d_missing_pr_test_plan(self):
+        content = _valid_plan_markdown(omit_keys=("test_plan",))
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.test_plan" in excinfo.value.missing_fields
+
+    def test_d_empty_pr_test_plan(self):
+        content = _valid_plan_markdown(test_plan="")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.test_plan" in excinfo.value.missing_fields
+
+    def test_d_whitespace_only_pr_test_plan(self):
+        content = _valid_plan_markdown(test_plan="   ")
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.test_plan" in excinfo.value.missing_fields
+
+    # ------------------------------------------------------------------
+    # Case (e): pr.manual_steps key missing OR explicitly null.
+    # ------------------------------------------------------------------
+
+    def test_e_missing_pr_manual_steps_key(self):
+        content = _valid_plan_markdown(omit_keys=("manual_steps",))
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.manual_steps" in excinfo.value.missing_fields
+
+    def test_e_null_pr_manual_steps(self):
+        """A bare ``manual_steps:`` (YAML null) must be rejected.
+
+        The carve-out is for the *explicit empty string* form; a
+        bare key with no value is ambiguous and could mask a planner
+        regression that meant to populate the field. Reject with a
+        detail message explicitly pointing at the ``""`` workaround
+        so the planner fix is obvious.
+        """
+        content = _valid_plan_markdown(manual_steps=None)
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.manual_steps" in excinfo.value.missing_fields
+        # The detail message must point operators at the workaround.
+        assert "empty string" in str(excinfo.value).lower()
+
+
+class TestValidatePlanForImplementPhaseAdversarial:
+    """Probes for ways the validator could regress in real-world plans."""
+
+    def test_all_four_pr_fields_missing_simultaneously(self):
+        """Every missing field appears in ``missing_fields``, in order.
+
+        Adversarial: a fragile implementation might short-circuit on
+        the first missing field, hiding the rest from the planner's
+        feedback. The plan-phase BRC NACK is more actionable when it
+        lists every gap at once.
+        """
+        content = "# Plan\n\n```yaml\n# yaml-tasks\npr: {}\nphases: []\n```\n"
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert set(excinfo.value.missing_fields) == {
+            "pr.title",
+            "pr.description",
+            "pr.test_plan",
+            "pr.manual_steps",
+        }
+
+    def test_non_string_pr_title_treated_as_missing(self):
+        """``pr.title: 123`` is not a string → missing.
+
+        Adversarial: a planner that confused field types might emit an
+        integer here. ``isinstance(title, str)`` is the guard the
+        validator uses; pin it so a future ``str(title)`` coercion
+        regression fails loudly.
+        """
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            "  title: 12345\n"
+            '  description: "ok"\n'
+            '  test_plan: "ok"\n'
+            '  manual_steps: ""\n'
+            "phases: []\n"
+            "```\n"
+        )
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.title" in excinfo.value.missing_fields
+
+    def test_non_string_pr_description_treated_as_missing(self):
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            '  title: "t"\n'
+            "  description:\n"
+            "    nested: dict\n"
+            '  test_plan: "ok"\n'
+            '  manual_steps: ""\n'
+            "phases: []\n"
+            "```\n"
+        )
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.description" in excinfo.value.missing_fields
+
+    def test_non_string_pr_test_plan_treated_as_missing(self):
+        content = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            '  title: "t"\n'
+            '  description: "ok"\n'
+            "  test_plan:\n"
+            "    - item-one\n"
+            "    - item-two\n"
+            '  manual_steps: ""\n'
+            "phases: []\n"
+            "```\n"
+        )
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert "pr.test_plan" in excinfo.value.missing_fields
+
+    def test_plain_text_no_yaml_fence_rejected(self):
+        """A plan that is just paragraphs of text with no yaml-tasks fence
+        is the most common 'missing yaml-tasks' regression mode.
+        """
+        content = "# Plan\n\nGoals:\n- something\n- something else\n\nApproach: thoughts.\n"
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        assert excinfo.value.missing_fields == ["yaml-tasks"]
+
+    def test_yaml_fence_without_pr_or_phases(self):
+        """A bare ``# yaml-tasks`` block with no contents → ``pr`` missing."""
+        content = "# Plan\n\n```yaml\n# yaml-tasks\n{}\n```\n"
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        # Empty mapping passes the "yaml-tasks parsed" gate; pr is missing.
+        assert excinfo.value.missing_fields == ["pr"]
+
+    def test_top_level_yaml_is_a_list_treated_as_yaml_missing(self):
+        """``yaml-tasks`` block that parses to a list, not a dict.
+
+        ``parse_yaml_code_fence`` already rejects top-level non-dict
+        YAML as a parse error (returns ``None``), so the validator
+        surfaces this as the case (a) "yaml-tasks missing or
+        unparseable" rejection. Pin that behavior so a future
+        ``parse_yaml_code_fence`` relaxation that started returning
+        the list through doesn't slip past the validator's ``pr.*``
+        field checks via an ``AttributeError`` on ``.get('pr')``.
+        """
+        content = "# Plan\n\n```yaml\n# yaml-tasks\n- a\n- b\n```\n"
+        with pytest.raises(PlanPreflightError) as excinfo:
+            validate_plan_for_implement_phase(content)
+        # parse_yaml_code_fence rejects non-dict top-level YAML
+        # upstream, so the validator surfaces this as case (a).
+        assert excinfo.value.missing_fields == ["yaml-tasks"]
+
+    def test_exception_chains_no_inner_attribute_error(self):
+        """The validator must never propagate an ``AttributeError`` /
+        ``TypeError`` to callers — even adversarial inputs.
+
+        Adversarial: ``yaml_data.get('pr')`` on a non-dict would raise
+        ``AttributeError`` if the type guard regressed. Pin that the
+        only exception type that escapes is ``PlanPreflightError``.
+        """
+        content = "# Plan\n\n```yaml\n# yaml-tasks\n[1, 2, 3]\n```\n"
+        # Must raise PlanPreflightError, not AttributeError/TypeError.
+        with pytest.raises(PlanPreflightError):
+            validate_plan_for_implement_phase(content)
+
+    def test_validator_exported_via___all__(self):
+        """The validator and exception must be in plan_parser.__all__ so
+        importers using ``from plan_parser import *`` see them.
+
+        Adversarial: a coder who added the symbols without updating
+        ``__all__`` would break wildcard imports elsewhere in the
+        codebase. Pin the export so a regression fails fast.
+        """
+        from egg_contracts import plan_parser
+
+        assert "validate_plan_for_implement_phase" in plan_parser.__all__
+        assert "PlanPreflightError" in plan_parser.__all__
+
+    def test_validator_return_annotation_is_none(self):
+        """Explicit type pin: the validator is annotated ``-> None``.
+
+        Adversarial: a refactor that returned ``yaml_data`` for caller
+        reuse would silently change the API. The plan calls for a
+        side-effect-free validator that raises on failure. Mypy is
+        configured under ``-> None`` so attempting to use the return
+        value would surface as a typing regression in
+        ``make lint`` — pin the annotation explicitly here so a
+        local refactor that bumps the return type is also caught
+        by the runtime suite.
+        """
+        import inspect
+
+        sig = inspect.signature(validate_plan_for_implement_phase)
+        assert sig.return_annotation is None or sig.return_annotation == "None"
+
+    def test_planpreflighterror_is_an_exception(self):
+        """The error class must subclass ``Exception`` (so the BRC NACK
+        renderer's exception-handling path catches it cleanly).
+
+        Adversarial: a refactor that switched to ``BaseException`` would
+        let it slip past ``except Exception`` handlers and trigger
+        process-level abort. Pin the base class.
+        """
+        assert issubclass(PlanPreflightError, Exception)
