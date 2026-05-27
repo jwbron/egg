@@ -970,25 +970,33 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     claude_md.write_text("\n\n---\n\n".join(content_parts))
     os.chown(claude_md, config.runtime_uid, config.runtime_gid)
 
-    # Clean up stale CLAUDE.md files from previous container runs.
-    # _chdir_to_single_repo() re-creates a symlink at CWD/CLAUDE.md later
-    # when the session starts; this cleanup ensures a fresh state.
-    # Covers all three CWD scenarios: home, repos_dir, and single-repo.
-    stale_home = config.user_home / "CLAUDE.md"
-    if stale_home.exists() or stale_home.is_symlink():
-        stale_home.unlink()
-    stale_repos = config.repos_dir / "CLAUDE.md"
-    if stale_repos.exists() or stale_repos.is_symlink():
-        stale_repos.unlink()
-    # Single-repo case: symlink is inside repos_dir/<repo>/CLAUDE.md
-    if config.repos_dir.exists():
-        for subdir in config.repos_dir.iterdir():
-            if subdir.is_dir() and (subdir / ".git").exists():
-                stale_repo = subdir / "CLAUDE.md"
-                if stale_repo.is_symlink():
-                    stale_repo.unlink()
+    # AGENTS.md is the cross-tool industry alias for CLAUDE.md; expose both
+    # so non-Claude agent frontends can discover the same rules.
+    agents_md = config.claude_dir / "AGENTS.md"
+    if agents_md.exists() or agents_md.is_symlink():
+        agents_md.unlink()
+    agents_md.symlink_to(claude_md.name)
 
-    logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (global)")
+    # Clean up stale CLAUDE.md / AGENTS.md files from previous container runs.
+    # _chdir_to_single_repo() re-creates symlinks at CWD later when the session
+    # starts; this cleanup ensures a fresh state.
+    # Covers all three CWD scenarios: home, repos_dir, and single-repo.
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        stale_home = config.user_home / name
+        if stale_home.exists() or stale_home.is_symlink():
+            stale_home.unlink()
+        stale_repos = config.repos_dir / name
+        if stale_repos.exists() or stale_repos.is_symlink():
+            stale_repos.unlink()
+        # Single-repo case: symlink is inside repos_dir/<repo>/<name>
+        if config.repos_dir.exists():
+            for subdir in config.repos_dir.iterdir():
+                if subdir.is_dir() and (subdir / ".git").exists():
+                    stale_repo = subdir / name
+                    if stale_repo.is_symlink():
+                        stale_repo.unlink()
+
+    logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (+ AGENTS.md alias)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc architecture)")
     logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
@@ -1913,22 +1921,26 @@ def _chdir_to_single_repo(config: Config) -> None:
     else:
         os.chdir(config.user_home)
 
-    # Create project-level CLAUDE.md symlink so Claude Code detects it
-    # in the working directory (suppresses "Run /init" welcome message).
+    # Create project-level CLAUDE.md / AGENTS.md symlinks so Claude Code
+    # (and other AGENTS.md-aware tools) detect the rules in the working
+    # directory (and suppresses Claude's "Run /init" welcome message).
     # The actual rules live in ~/.claude/CLAUDE.md (global config).
     #
-    # Note: setup_agent_rules() cleans up stale CLAUDE.md files from previous
-    # container runs earlier in startup. This symlink is re-created fresh each
-    # time the session starts — the cleanup and creation are intentionally
-    # separate phases.
-    cwd_claude_md = Path.cwd() / "CLAUDE.md"
+    # Note: setup_agent_rules() cleans up stale CLAUDE.md/AGENTS.md files from
+    # previous container runs earlier in startup. These symlinks are re-created
+    # fresh each time the session starts — the cleanup and creation are
+    # intentionally separate phases.
     global_claude_md = config.claude_dir / "CLAUDE.md"
-    if global_claude_md.exists() and not cwd_claude_md.exists() and not cwd_claude_md.is_symlink():
-        cwd_claude_md.symlink_to(global_claude_md)
-        # If CWD is inside a git repo, exclude the symlink from git tracking
-        # to prevent it from being committed (the symlink target is a
-        # container-local absolute path that would be broken elsewhere).
-        _exclude_from_git(cwd_claude_md)
+    if global_claude_md.exists():
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            cwd_link = Path.cwd() / name
+            if not cwd_link.exists() and not cwd_link.is_symlink():
+                cwd_link.symlink_to(global_claude_md)
+                # If CWD is inside a git repo, exclude the symlink from git
+                # tracking to prevent it from being committed (the symlink
+                # target is a container-local absolute path that would be
+                # broken elsewhere).
+                _exclude_from_git(cwd_link)
 
 
 def run_exec(config: Config, logger: Logger, args: list[str]) -> int:

@@ -8,10 +8,13 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 
 **Installation:**
 - `~/.claude/CLAUDE.md` → All rules combined (user-level global config)
+- `~/.claude/AGENTS.md` → Symlink to `CLAUDE.md` (cross-tool industry-norm alias)
+
+A matching `AGENTS.md` symlink is also created in the agent's CWD next to the project-level `CLAUDE.md` symlink, so AGENTS.md-aware frontends discover the same rules without a second source of truth.
 
 **Why one file?** Since `~/repos/` is mounted from the host (not copied), we can't reliably write to it during container startup. Combining all rules into `~/.claude/CLAUDE.md` ensures they're always available regardless of CWD.
 
-**Note**: `CLAUDE.md` is the [official Claude Code format](https://www.anthropic.com/engineering/claude-code-best-practices) for providing context and instructions to the agent.
+**Note**: `CLAUDE.md` is the [official Claude Code format](https://www.anthropic.com/engineering/claude-code-best-practices) for providing context and instructions to the agent. `AGENTS.md` is the convention adopted by other agent tools — keeping both names as symlinks to the same content makes the rules portable.
 
 ## File Guide
 
