@@ -1,0 +1,913 @@
+[
+  {
+    "id": "5a08208b-2b12-45",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:14:07.866009+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8bd86f2c-205a-4d",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:14:33.273274+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0f01b576-ad8c-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:15:23.581638+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "65965a41-b001-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:15:31.554592+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a3924d6d-28e8-45",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:16:18.344940+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "aee285a6-9a9b-47",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:16:31.631365+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f7899090-ef64-44",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:17:18.485108+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f8f3e130-e860-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:17:31.695727+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "14aae05c-91e1-4c",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:18:18.610998+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bb99bbc7-f014-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:18:31.775169+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e87e1835-0194-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:19:18.670872+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "60b97d4a-45c6-4a",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:19:31.883096+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "85f78065-7498-4c",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:20:18.739413+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8270e798-3d37-4d",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:20:31.952182+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d3d962b4-ebf2-44",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:21:18.856196+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "35cf7947-9431-4c",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:21:31.992423+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "039cdf6e-0b76-4c",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:22:18.889130+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "182d0e4d-05bf-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:22:32.128755+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e86aa065-b31a-4a",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:23:18.932526+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "fa9d3d10-4d30-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:23:32.220186+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3e60a209-dcf0-41",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:24:19.017680+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "088eb191-44f7-46",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:24:32.318212+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3be2bfe9-b134-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "refiner has been silent for 665s in refine phase \u2014 monitor's silent-agent detection is firing on calibration artifact, not the real agent\n\nDetail:\nPipeline issue-2777, phase refine. The refiner container (cce0b3bd) has been running since 03:13:19 UTC (665s elapsed) with zero bus messages emitted. Both reviewer agents are heartbeating normally every ~60s, waiting for CONSENSUS_PROPOSE. The overseer monitor's detector_alerts are firing on a phantom '_config_unavailable' role (calibration artifact from a pipeline_unreachable boot cycle), not on the real refiner. No advisor-gate-opening tier-1 alert has fired for the actual refiner role. Recommend: verify refiner container is progressing and not stuck in a tool loop or context-window overflow.\n\nRecommended action:\nCheck refiner container logs via egg-checkpoint. If no progress within next 120s, consider container restart.",
+    "metadata": {},
+    "timestamp": "2026-05-27T03:24:54.224769+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6651dc33-0085-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:25:19.076137+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "97cd3dc5-320e-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:25:32.429696+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "caecdfeb-10e9-49",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:26:19.194056+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "278ab3c7-405d-4d",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:26:32.481021+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "08e6a8f7-5a60-41",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:27:19.270072+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f13738b3-8a21-44",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:27:32.536037+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f75baa1b-64a0-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer monitoring cycle active \u2014 refiner 867s, reviewers healthy, watching for CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:28:01.431255+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4334c79f-1a28-4f",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:28:19.331712+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e572ad30-cd95-46",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:28:32.646908+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4d4d14b1-7174-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:13:48.198929+00:00"
+    },
+    "timestamp": "2026-05-27T03:29:19.400237+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0658b12f-1a6f-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:14:16.475988+00:00"
+    },
+    "timestamp": "2026-05-27T03:29:32.760873+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "645925ca-4b31-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refine analysis for #2777: sliced implement-phase cleanup (context-PR topology, restart hardening, plan->implement reconciliation). Surfaces all four goals with current-behavior citations (file:line), four decomposition options, recommendation (Option D: two slices with topology->cleanup+restart+#2792 dependency), and 10 HITL decisions + 4 open-ended feedback questions covering slice decomposition, vestigial-hook removal scope, ConsensusEvaluator handling, #2409 close-in-scope question, PRMetadata field retirement strategy, auto-recovery fallback, bootstrap-gap recovery strategy, #2570 interaction, slice-PR payload extraction scope vs #2261, and PR-phase backstop scope. Complexity rated high.",
+    "metadata": {
+      "payload": {
+        "summary": "Refine analysis for #2777: sliced implement-phase cleanup (context-PR topology, restart hardening, plan->implement reconciliation). Surfaces all four goals with current-behavior citations (file:line), four decomposition options, recommendation (Option D: two slices with topology->cleanup+restart+#2792 dependency), and 10 HITL decisions + 4 open-ended feedback questions covering slice decomposition, vestigial-hook removal scope, ConsensusEvaluator handling, #2409 close-in-scope question, PRMetadata field retirement strategy, auto-recovery fallback, bootstrap-gap recovery strategy, #2570 interaction, slice-PR payload extraction scope vs #2261, and PR-phase backstop scope. Complexity rated high.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2777-analysis.md"
+        ],
+        "risk_considered": "The recommendation (Option D sequential) trades wall-clock time for reduced merge-conflict risk in pipelines.py. Several open questions could materially affect plan-phase decomposition: #2570 interaction (work-branch rebase) might require diagnostic work the plan phase did not anticipate; PRMetadata migration choice affects whether contract-load needs a transformer; bootstrap-gap recovery strategy affects scheduler complexity. The analysis enumerates the surface (18 return-None paths in _open_context_pr_for_pipeline, 4 call sites of _maybe_open_base_pr_for_plan_to_implement, 3 sites recomputing slice_count > 1, 15+ # noqa: BLE001 handlers, 6 dual-path ImportError shims) but does not pre-bake an implementation plan -- that is the plan phase's job.",
+        "commit_sha": "ec91d9dda3db201c9f319f449846fbe04d63821b",
+        "files_changed": [
+          ".egg-state/drafts/2777-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "ec91d9dda3db201c9f319f449846fbe04d63821b"
+    },
+    "timestamp": "2026-05-27T03:30:09.671439+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c752c268-9826-46",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:30:09.744430+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f5bb3a47-a5f0-4f",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:30:09.762897+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a2dc22ca-845a-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:30:19.569039+00:00"
+    },
+    "timestamp": "2026-05-27T03:30:34.237741+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bef3d80-6c3f-4b",
+    "pipeline_id": "issue-2777",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "refiner silent for 1009s in refine phase \u2014 upgrading to HIGH priority, zero BRC/bus messages since container start\n\nDetail:\nPipeline issue-2777. Refiner container cce0b3bd has been running for 1009s (16.8 min) with zero bus messages. BRC state still shows producer_phase=WORKING (container alive per orchestrator). Both reviewers heartbeating every ~60s waiting for CONSENSUS_PROPOSE. Phase threshold is 3600s. The refiner appears to be doing extended silent computation (deep codebase exploration or context overflow). Action recommended: inspect refiner container logs. If no proposal within next 5 minutes (~1300s total), HITL intervention warranted.\n\nRecommended action:\nInspect refiner container logs. If no CONSENSUS_PROPOSE by ~1300s elapsed, restart refiner or escalate to HITL.",
+    "metadata": {},
+    "timestamp": "2026-05-27T03:30:49.765747+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2ffa8b00-16c6-47",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:30:49.850599+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "468a26e2-9bce-4b",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:30:55.443623+00:00"
+    },
+    "timestamp": "2026-05-27T03:30:55.500467+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8057f315-5638-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nReviewed `.egg-state/drafts/2777-analysis.md` (614 lines) against the agent-mode design rubric (`docs/guides/agent-mode-design.md`). No agent-mode design concerns.\n\n### Scope check\nThe draft is a refine-phase analysis of an orchestrator cleanup \u2014 context-PR topology realignment, sliced implement-phase decomposition, slice/phase restart hardening, and the plan\u2192implement reconciliation loop. It does not propose new agent prompts, new LLM call sites, new model identifiers, or new structured-output-for-humans surfaces. The eight named anti-patterns (excessive pre-fetching, structured output for humans, post-processing pipelines, rigid procedures, prompt-level security, direct LLM API calls outside sandbox, Agent SDK bypass, hardcoded model identifiers) are all not-applicable here.\n\n### Aligned with agent-mode design (positive observations)\n1. **Auto-reconciliation over unnecessary HITL (Goal 4, cq-6).** The draft proposes replacing the current 3-option HITL on `plan_draft_missing_on_local` (lines 256-269) with deterministic recovery (`git fetch` + `git reset --hard origin/<branch>` + re-invoke `_populate_contract_from_plan_safe`) when the draft is verifiably on origin. This matches the principle of escalating to humans only when the system genuinely cannot recover.\n2. **Removing fragile soft-fail scaffolding (Goal 1).** The draft proposes deleting `_maybe_open_base_pr_for_plan_to_implement` (lines 88-93) \u2014 a soft-fail wrapper that emits `context_pr.skipped`/`context_pr.failed` to three observability sinks with dedup. Replacing it with a simpler topology that doesn't need the scaffold reduces opaque failure modes, which is agent-mode friendly.\n3. **Code references use file:line notation, not embedded source.** The draft cites locations (e.g. `pipelines.py:10002-10553`, `gateway_client.py:1491-1742`) rather than baking large code blocks into the analysis \u2014 appropriate for downstream agents who will read the actual files.\n4. **Open questions are markdown checkbox HITLs (existing pattern).** The 10 `egg-hitl-decision` blocks and the open-ended feedback block follow the established markdown structure \u2014 no new JSON-for-humans surface is introduced.\n\n### Non-blocking\n- **cq-7 phrasing** (line 558-562): \"rebuild peer_consensus tracker, re-spawn agents pointed at the existing branch\" is a reasonable orchestration mechanic, not a prompt-engineering decision. Plan phase should ensure the tracker rebuild is bounded (don't bake transcripts into agent re-spawn prompts) \u2014 but the analysis doesn't propose that, so this is purely a forward-looking note for plan/coder, not a NACK item.\n- **cq-9** (slice-PR payload extraction): The dict-literal extraction is code organization. From an agent-design angle, the extracted helper must remain a pure Python function (no embedded prompt strings, no LLM calls); the draft does not suggest otherwise, but this is worth keeping in mind during plan/implement.\n\nACK from agent-design reviewer.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2777-analysis.md"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/2777-analysis.md` (614 lines) against the agent-mode design rubric (`docs/guides/agent-mode-design.md`). No agent-mode design concerns.\n\n### Scope check\nThe draft is a refine-phase analysis of an orchestrator cleanup \u2014 context-PR topology realignment, sliced implement-phase decomposition, slice/phase restart hardening, and the plan\u2192implement reconciliation loop. It does not propose new agent prompts, new LLM call sites, new model identifiers, or new structured-output-for-humans surfaces. The eight named anti-patterns (excessive pre-fetching, structured output for humans, post-processing pipelines, rigid procedures, prompt-level security, direct LLM API calls outside sandbox, Agent SDK bypass, hardcoded model identifiers) are all not-applicable here.\n\n### Aligned with agent-mode design (positive observations)\n1. **Auto-reconciliation over unnecessary HITL (Goal 4, cq-6).** The draft proposes replacing the current 3-option HITL on `plan_draft_missing_on_local` (lines 256-269) with deterministic recovery (`git fetch` + `git reset --hard origin/<branch>` + re-invoke `_populate_contract_from_plan_safe`) when the draft is verifiably on origin. This matches the principle of escalating to humans only when the system genuinely cannot recover.\n2. **Removing fragile soft-fail scaffolding (Goal 1).** The draft proposes deleting `_maybe_open_base_pr_for_plan_to_implement` (lines 88-93) \u2014 a soft-fail wrapper that emits `context_pr.skipped`/`context_pr.failed` to three observability sinks with dedup. Replacing it with a simpler topology that doesn't need the scaffold reduces opaque failure modes, which is agent-mode friendly.\n3. **Code references use file:line notation, not embedded source.** The draft cites locations (e.g. `pipelines.py:10002-10553`, `gateway_client.py:1491-1742`) rather than baking large code blocks into the analysis \u2014 appropriate for downstream agents who will read the actual files.\n4. **Open questions are markdown checkbox HITLs (existing pattern).** The 10 `egg-hitl-decision` blocks and the open-ended feedback block follow the established markdown structure \u2014 no new JSON-for-humans surface is introduced.\n\n### Non-blocking\n- **cq-7 phrasing** (line 558-562): \"rebuild peer_consensus tracker, re-spawn agents pointed at the existing branch\" is a reasonable orchestration mechanic, not a prompt-engineering decision. Plan phase should ensure the tracker rebuild is bounded (don't bake transcripts into agent re-spawn prompts) \u2014 but the analysis doesn't propose that, so this is purely a forward-looking note for plan/coder, not a NACK item.\n- **cq-9** (slice-PR payload extraction): The dict-literal extraction is code organization. From an agent-design angle, the extracted helper must remain a pure Python function (no embedded prompt strings, no LLM calls); the draft does not suggest otherwise, but this is worth keeping in mind during plan/implement.\n\nACK from agent-design reviewer.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-27T03:31:35.048976+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2894ed9e-719a-4d",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:31:35.101282+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e8753925-7a84-4a",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-27T03:31:37.584138+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d93ec46a-9207-4f",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:39.158323+00:00"
+    },
+    "timestamp": "2026-05-27T03:31:39.186362+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bb69b7e6-8e3a-40",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:48.580353+00:00"
+    },
+    "timestamp": "2026-05-27T03:31:48.629583+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9e9d40cb-fd61-4b",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:39.158323+00:00"
+    },
+    "timestamp": "2026-05-27T03:32:39.260546+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c461a43c-3b36-47",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:48.580353+00:00"
+    },
+    "timestamp": "2026-05-27T03:32:48.703946+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e9774993-4473-46",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:39.158323+00:00"
+    },
+    "timestamp": "2026-05-27T03:33:39.327500+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0a3cf6cb-1ef0-44",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:48.580353+00:00"
+    },
+    "timestamp": "2026-05-27T03:33:48.807411+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b79408ed-86ef-43",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:39.158323+00:00"
+    },
+    "timestamp": "2026-05-27T03:34:39.483726+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "64581e8c-dc39-41",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:31:48.580353+00:00"
+    },
+    "timestamp": "2026-05-27T03:34:48.954726+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9ed85188-566f-4b",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "### Review Summary\n\nReviewed `.egg-state/drafts/2777-analysis.md` (614 lines) and verified the 10 HITL decisions + 4 feedback questions on `.egg-state/contracts/issue-2777.json`. Cross-checked ~25 specific code citations against the actual codebase. The analysis is comprehensive, well-structured, and the recommendation flows logically from the evidence. **ACK.**\n\n### What I verified\n\n**Problem understanding:** Correctly identifies the four interlocking root causes from the issue body (context-PR over-engineering, sliced implement accumulated mess, slice/phase restart gaps, plan\u2192implement reconciliation loop #2792) and frames them as mutually reinforcing rather than independent. Aligns with the issue's \"verify and extend the starting context\" directive.\n\n**Research quality (code citations):** Spot-checked against the repo and the substantive claims are accurate:\n- `_open_context_pr_for_pipeline` \u2014 18 distinct `return None` paths confirmed (line list in \u00a7Current Behavior matches).\n- `_maybe_open_base_pr_for_plan_to_implement` \u2014 analysis correctly **downgrades** the issue body's \"5 call sites\" estimate to the **actual 4** at `pipelines.py:15120, 20572, 22051, 22994` \u2014 that's the kind of independent verification the refine phase exists for.\n- `_should_skip_pr_phase_auto_pr` returns `(True, \"slice_dag_mode_slice_count=...\")` when `len(slices) > 1` \u2014 verified at `pipelines.py:8274-8276`.\n- `_resolve_extant_new_base` in `stacked_pr_reconciler.py` already treats `work` as canonical with `context_branch` an optional preference \u2014 confirms the \"codebase is half on the simpler model\" claim.\n- `SliceScheduler(contract)` is constructed without an `hitl_escalator` callback; `record_cycle` / `teardown_slice` / `respawn_slice` / `cancel_cascade` have **zero callers outside `slice_scheduler.py` and its tests** \u2014 the \"speculative #2199 hooks\" framing is correct.\n- `ConsensusEvaluator` module header at `orchestrator/consensus.py:8` does say \"DEPRECATED: This module is superseded by peer_consensus.py (BRC protocol).\" \u2014 citation is accurate.\n- `_CONTEXT_BRANCH_RE` at `gateway/gateway.py:1112`, referenced at 1350 and 1362 \u2014 verified.\n- `_use_slice_loop = _slice_count > 1` gate at `pipelines.py:21134` and branches to `_run_implement_phase_slices` vs `_run_concurrent_phase` \u2014 verified.\n- HITL question text contains \"populate-from-plan step silently failed earlier\" \u2014 verified at `pipelines.py:18249`.\n\n**Options analysis:** Four options (A single / B parallel-2 / C parallel-3 / D dependent-2) are meaningfully different, and the trade-offs are concrete:\n- Option D's rationale (\"topology realignment is the prerequisite for honest cleanup\" \u2014 payload assembly extraction before topology change locks the API to a soon-dead shape, slice-1 resolver shim still needed if context branch lives, `context_pr_number` fallback at line 15670-15671 is alive) is the strongest line in the document and the right call.\n- Option C's \"three-way merge conflict risk in the same file regions\" is a real engineering concern given `pipelines.py` is 23,318 lines.\n- The wall-clock cost of sequential slices (D's main downside) is surfaced honestly and routed through feedback Q4 for operator preference.\n\n**HITL Decision Registration (criterion 7):** All 10 prose questions in \u00a7Open Questions correspond 1:1 to `<!-- egg-hitl-decision id=cq-N -->` markers and have matching contract entries (cq-1 through cq-10), each with 3-5 well-scoped options + an \"Other (explain in reply)\" fallback. The 4 feedback questions are registered as `feedback-1` with Q1-Q4. Every question has options that map clearly to producible plan-phase decisions (slice topology, dead-code retention policy, schema migration strategy, restart strategy, terminal backstop scope) \u2014 no orphaned prose. **\u00a77 satisfied.**\n\n**Constraints:** 7 constraints surfaced cover (a) single-file density, (b) PRMetadata schema migration for in-flight contracts, (c) gateway push policy as security surface \u2014 explicitly notes the ordering constraint that `_CONTEXT_BRANCH_RE` removal must come AFTER every caller stops, (d) #2570 work-branch-rebase interaction, (e) legacy monolithic implement path coexistence, (f) #2199 dependency for vestigial scheduler hooks, (g) in-flight pipelines (`issue-2769`, `pipeline-f82240dc`) backwards-compat. Net-negative-lines target is also called out as a scope-creep risk, which is the right framing.\n\n### Non-blocking \u2014 minor inaccuracies\n\nThese are small enough that they do not block the analysis but should be cleaned up before the plan phase reads them:\n\n- **`pipelines.py`:15013-15916 / 904 lines** \u2014 actual end-line is 15914 and the function is 902 lines, not 904. Off-by-2.\n- **`_run_one_slice_inner` 15364-15797 / 434 lines** \u2014 actual span is 435 lines (15364-15798 by closure body, the 15797 endpoint matches the last code line). Off-by-1.\n- **`DEFAULT_SLICE_LOCAL_MAX_CYCLES=3, DEFAULT_SLICE_GLOBAL_MAX_CYCLES=10` at `env_config.py:269-272`** \u2014 actual location is 271-272; lines 269-270 hold different constants.\n- **`SliceScheduler(contract)` constructor at `pipelines.py` ~15145** \u2014 actual call site is `pipelines.py:15090`, ~55 lines off. Worth correcting because the plan phase will want to read the call site.\n- **\"Ten 'umbrella' references in `pipelines.py`\"** \u2014 listed 8 lines (9010, 9038, 9047, 15608, 15615, 15620, 15686, 15691) but the actual count appears to be 9 in `pipelines.py` (missing 15610) plus 2 in `stacked_pr_reconciler.py` = 11 total. The \"ten\" claim and the listed line numbers disagree internally. Minor, but the plan phase will run grep again.\n- **`ConsensusEvaluator (orchestrator/consensus.py:1-161)`** \u2014 the *class* definition starts at line 38, not 1; the *module* is in that range. Re-phrase as \"`consensus.py` (1-161; class at line 38)\" or similar to avoid ambiguity.\n\nNone of these change any substantive conclusion. They are line-citation drift only.\n\n### Non-blocking \u2014 observations for the plan phase\n\n- **cq-9 (slice-PR payload extraction)** intersects with the Recommended Approach narrative: Option D's Slice B already includes the extraction, but cq-9 lets the operator choose to defer it to #2261. The plan phase should be prepared for either resolution \u2014 if operator picks cq-9 opt-2 (defer to #2261), Slice B's scope shrinks materially. This is consistent, not a bug, but worth flagging.\n- **cq-5 (PRMetadata field retirement) \u2194 Recommendation closing paragraph** \u2014 the analysis already notes \"the plan phase will need to decide how PRMetadata field deprecation is staged across the two slices\" but doesn't explicitly cross-reference cq-5. Minor cross-reference improvement opportunity.\n- **#2570 interaction (cq-8)** is correctly surfaced as a decision rather than baked into the recommendation, which is the right call \u2014 operator owns the \"are we fixing root cause or guarding the symptom\" trade-off.\n- **The \"agents ran, commits pushed, consensus not reached\" gap (cq-7)** is the most underspecified area in the Current Behavior section relative to its severity (it's a cascade-fail trigger). Plan phase will need to scope the bootstrap Layer-C detector concretely \u2014 the current write-up describes the symptom but not the detection signal (integration-branch tip ahead of parent on origin AND no slice PR open) crisply enough to plan from. The option-1 text in cq-7 partially fills the gap, but the recovery path (rebuild tracker from existing pushed commits without re-spawning agents fresh) needs design work in plan.\n\n### Verdict\n\nStrong refine output. The analysis correctly inverts the issue's framing from \"fix the recurring context-PR bug\" to \"the bug is a symptom of an over-engineered topology\" and the recommendation is the right deletion-heavy first slice. The HITL decisions cover every actual ambiguity in the work. Plan phase can proceed from this artifact.\n\nACK at version 1.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2777-analysis.md",
+          ".egg-state/contracts/issue-2777.json"
+        ],
+        "reason": "### Review Summary\n\nReviewed `.egg-state/drafts/2777-analysis.md` (614 lines) and verified the 10 HITL decisions + 4 feedback questions on `.egg-state/contracts/issue-2777.json`. Cross-checked ~25 specific code citations against the actual codebase. The analysis is comprehensive, well-structured, and the recommendation flows logically from the evidence. **ACK.**\n\n### What I verified\n\n**Problem understanding:** Correctly identifies the four interlocking root causes from the issue body (context-PR over-engineering, sliced implement accumulated mess, slice/phase restart gaps, plan\u2192implement reconciliation loop #2792) and frames them as mutually reinforcing rather than independent. Aligns with the issue's \"verify and extend the starting context\" directive.\n\n**Research quality (code citations):** Spot-checked against the repo and the substantive claims are accurate:\n- `_open_context_pr_for_pipeline` \u2014 18 distinct `return None` paths confirmed (line list in \u00a7Current Behavior matches).\n- `_maybe_open_base_pr_for_plan_to_implement` \u2014 analysis correctly **downgrades** the issue body's \"5 call sites\" estimate to the **actual 4** at `pipelines.py:15120, 20572, 22051, 22994` \u2014 that's the kind of independent verification the refine phase exists for.\n- `_should_skip_pr_phase_auto_pr` returns `(True, \"slice_dag_mode_slice_count=...\")` when `len(slices) > 1` \u2014 verified at `pipelines.py:8274-8276`.\n- `_resolve_extant_new_base` in `stacked_pr_reconciler.py` already treats `work` as canonical with `context_branch` an optional preference \u2014 confirms the \"codebase is half on the simpler model\" claim.\n- `SliceScheduler(contract)` is constructed without an `hitl_escalator` callback; `record_cycle` / `teardown_slice` / `respawn_slice` / `cancel_cascade` have **zero callers outside `slice_scheduler.py` and its tests** \u2014 the \"speculative #2199 hooks\" framing is correct.\n- `ConsensusEvaluator` module header at `orchestrator/consensus.py:8` does say \"DEPRECATED: This module is superseded by peer_consensus.py (BRC protocol).\" \u2014 citation is accurate.\n- `_CONTEXT_BRANCH_RE` at `gateway/gateway.py:1112`, referenced at 1350 and 1362 \u2014 verified.\n- `_use_slice_loop = _slice_count > 1` gate at `pipelines.py:21134` and branches to `_run_implement_phase_slices` vs `_run_concurrent_phase` \u2014 verified.\n- HITL question text contains \"populate-from-plan step silently failed earlier\" \u2014 verified at `pipelines.py:18249`.\n\n**Options analysis:** Four options (A single / B parallel-2 / C parallel-3 / D dependent-2) are meaningfully different, and the trade-offs are concrete:\n- Option D's rationale (\"topology realignment is the prerequisite for honest cleanup\" \u2014 payload assembly extraction before topology change locks the API to a soon-dead shape, slice-1 resolver shim still needed if context branch lives, `context_pr_number` fallback at line 15670-15671 is alive) is the strongest line in the document and the right call.\n- Option C's \"three-way merge conflict risk in the same file regions\" is a real engineering concern given `pipelines.py` is 23,318 lines.\n- The wall-clock cost of sequential slices (D's main downside) is surfaced honestly and routed through feedback Q4 for operator preference.\n\n**HITL Decision Registration (criterion 7):** All 10 prose questions in \u00a7Open Questions correspond 1:1 to `<!-- egg-hitl-decision id=cq-N -->` markers and have matching contract entries (cq-1 through cq-10), each with 3-5 well-scoped options + an \"Other (explain in reply)\" fallback. The 4 feedback questions are registered as `feedback-1` with Q1-Q4. Every question has options that map clearly to producible plan-phase decisions (slice topology, dead-code retention policy, schema migration strategy, restart strategy, terminal backstop scope) \u2014 no orphaned prose. **\u00a77 satisfied.**\n\n**Constraints:** 7 constraints surfaced cover (a) single-file density, (b) PRMetadata schema migration for in-flight contracts, (c) gateway push policy as security surface \u2014 explicitly notes the ordering constraint that `_CONTEXT_BRANCH_RE` removal must come AFTER every caller stops, (d) #2570 work-branch-rebase interaction, (e) legacy monolithic implement path coexistence, (f) #2199 dependency for vestigial scheduler hooks, (g) in-flight pipelines (`issue-2769`, `pipeline-f82240dc`) backwards-compat. Net-negative-lines target is also called out as a scope-creep risk, which is the right framing.\n\n### Non-blocking \u2014 minor inaccuracies\n\nThese are small enough that they do not block the analysis but should be cleaned up before the plan phase reads them:\n\n- **`pipelines.py`:15013-15916 / 904 lines** \u2014 actual end-line is 15914 and the function is 902 lines, not 904. Off-by-2.\n- **`_run_one_slice_inner` 15364-15797 / 434 lines** \u2014 actual span is 435 lines (15364-15798 by closure body, the 15797 endpoint matches the last code line). Off-by-1.\n- **`DEFAULT_SLICE_LOCAL_MAX_CYCLES=3, DEFAULT_SLICE_GLOBAL_MAX_CYCLES=10` at `env_config.py:269-272`** \u2014 actual location is 271-272; lines 269-270 hold different constants.\n- **`SliceScheduler(contract)` constructor at `pipelines.py` ~15145** \u2014 actual call site is `pipelines.py:15090`, ~55 lines off. Worth correcting because the plan phase will want to read the call site.\n- **\"Ten 'umbrella' references in `pipelines.py`\"** \u2014 listed 8 lines (9010, 9038, 9047, 15608, 15615, 15620, 15686, 15691) but the actual count appears to be 9 in `pipelines.py` (missing 15610) plus 2 in `stacked_pr_reconciler.py` = 11 total. The \"ten\" claim and the listed line numbers disagree internally. Minor, but the plan phase will run grep again.\n- **`ConsensusEvaluator (orchestrator/consensus.py:1-161)`** \u2014 the *class* definition starts at line 38, not 1; the *module* is in that range. Re-phrase as \"`consensus.py` (1-161; class at line 38)\" or similar to avoid ambiguity.\n\nNone of these change any substantive conclusion. They are line-citation drift only.\n\n### Non-blocking \u2014 observations for the plan phase\n\n- **cq-9 (slice-PR payload extraction)** intersects with the Recommended Approach narrative: Option D's Slice B already includes the extraction, but cq-9 lets the operator choose to defer it to #2261. The plan phase should be prepared for either resolution \u2014 if operator picks cq-9 opt-2 (defer to #2261), Slice B's scope shrinks materially. This is consistent, not a bug, but worth flagging.\n- **cq-5 (PRMetadata field retirement) \u2194 Recommendation closing paragraph** \u2014 the analysis already notes \"the plan phase will need to decide how PRMetadata field deprecation is staged across the two slices\" but doesn't explicitly cross-reference cq-5. Minor cross-reference improvement opportunity.\n- **#2570 interaction (cq-8)** is correctly surfaced as a decision rather than baked into the recommendation, which is the right call \u2014 operator owns the \"are we fixing root cause or guarding the symptom\" trade-off.\n- **The \"agents ran, commits pushed, consensus not reached\" gap (cq-7)** is the most underspecified area in the Current Behavior section relative to its severity (it's a cascade-fail trigger). Plan phase will need to scope the bootstrap Layer-C detector concretely \u2014 the current write-up describes the symptom but not the detection signal (integration-branch tip ahead of parent on origin AND no slice PR open) crisply enough to plan from. The option-1 text in cq-7 partially fills the gap, but the recovery path (rebuild tracker from existing pushed commits without re-spawning agents fresh) needs design work in plan.\n\n### Verdict\n\nStrong refine output. The analysis correctly inverts the issue's framing from \"fix the recurring context-PR bug\" to \"the bug is a symptom of an over-engineered topology\" and the recommendation is the right deletion-heavy first slice. The HITL decisions cover every actual ambiguity in the work. Plan phase can proceed from this artifact.\n\nACK at version 1.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-27T03:35:29.772768+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "118c6050-a5b8-42",
+    "pipeline_id": "issue-2777",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-27T03:35:29.772826+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "437cb453-0d48-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:35:29.833729+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4a122879-c3ff-4e",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-27T03:35:33.241055+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2a8b9660-733e-41",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-27T03:35:33.339254+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5bda119a-60c7-49",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-27T03:35:37.850335+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3d87984f-502a-44",
+    "pipeline_id": "issue-2777",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:35:37.956535+00:00"
+    },
+    "timestamp": "2026-05-27T03:35:38.002841+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "689814e8-e1e1-48",
+    "pipeline_id": "issue-2777",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-27T03:35:41.391481+00:00"
+    },
+    "timestamp": "2026-05-27T03:35:41.486147+00:00",
+    "phase": "refine"
+  }
+]
