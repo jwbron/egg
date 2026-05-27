@@ -512,12 +512,22 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	@# sides of the wire share one source of truth. Empty value is the
 	@# no-op default (the manifest reads the Secret with
 	@# ``optional: true``).
+	@#
+	@# OpenRouter API key (issue #2799): the LiteLLM Deployment reads
+	@# ``OPENROUTER_API_KEY`` at startup so ``openrouter/*`` model
+	@# entries in ``litellm-configmap.yaml`` can authenticate against
+	@# openrouter.ai. Same shape as the master-key extraction above —
+	@# pull the value out of ``secrets.env`` and surface it as a
+	@# literal key on ``gateway-secrets`` so the manifest's
+	@# ``secretKeyRef`` resolves.
 	@LITELLM_KEY="$$(grep -E '^[[:space:]]*LITELLM_MASTER_KEY[[:space:]]*=' "$$HOME/.config/egg/secrets.env" 2>/dev/null | tail -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//' -e 's/^"//' -e 's/"$$//' -e "s/^'//" -e "s/'$$//")"; \
+	OPENROUTER_KEY="$$(grep -E '^[[:space:]]*OPENROUTER_API_KEY[[:space:]]*=' "$$HOME/.config/egg/secrets.env" 2>/dev/null | tail -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//' -e 's/^"//' -e 's/"$$//' -e "s/^'//" -e "s/'$$//")"; \
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	kubectl apply -f k8s/base/namespaces.yaml && \
 	kubectl -n egg-system create secret generic gateway-secrets \
 		--from-file=$$HOME/.config/egg/ \
 		--from-literal=litellm-master-key="$$LITELLM_KEY" \
+		--from-literal=openrouter-api-key="$$OPENROUTER_KEY" \
 		--dry-run=client -o yaml | kubectl apply -f -
 
 deploy: k3s-secrets  ## Deploy egg to k3s
