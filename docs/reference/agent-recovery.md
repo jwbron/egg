@@ -147,7 +147,7 @@ When a transient crash or startup failure is detected, the wrapper:
 2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
 3. Restarts the agent via the same recovery loop used for clean-exit restarts (with BRC state, NACK feedback, and anchor state injected into the recovery system prompt)
 4. Doubles the backoff after each crash restart (capped at 30 seconds)
-5. Shares the `MAX_CONSENSUS_RESTARTS` (default: 2) cap with clean-exit restarts
+5. Shares the `MAX_CONSENSUS_RESTARTS` (default: 3) cap with clean-exit restarts
 
 Clean-exit restarts (exit code 0) do not incur any backoff delay.
 
