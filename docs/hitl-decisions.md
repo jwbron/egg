@@ -162,6 +162,8 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 
 In **prompt-driven mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
+When an operator selects `request_changes` or `change_approach`, the feedback text is stored as a timestamped `OperatorDirective` on the phase. Directives **accumulate** — they are never cleared. On the next iteration, both producer and reviewer agents receive a `## Phase Iteration Context` prompt section that lists all prior directives in chronological order with explicit precedence prose (later directives override earlier ones), plus a snapshot of each prior iteration's BRC verdict matrix and NACK reasons. This ensures reviewer agents cannot faithfully NACK a directive-driven change against a stale default rubric.
+
 ### Key Differences from Decisions
 
 | Aspect | Formal Decisions | Phase Approval |
@@ -398,7 +400,7 @@ This recovery fires at three sites:
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
-- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones)
+- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
