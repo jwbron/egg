@@ -5,13 +5,5 @@
     "name": "egg maintainers",
     "url": "https://github.com/jwbron/egg/issues"
   },
-  "plugins": [
-    {
-      "name": "refine-plan",
-      "source": "./plugins/refine-plan",
-      "description": "BRC-inspired local approximation of egg's refine + plan phases: role-typed subagents, evidence-backed iterated parallel review, per-cycle verdict journal, artifacts consistent with egg's .egg-state/ layout. Not a real BRC bus — see SKILL.md for the honest framing.",
-      "category": "sdlc",
-      "tags": ["egg", "sdlc", "refine", "plan", "brc-inspired", "multi-agent-review"]
-    }
-  ]
+  "plugins": []
 }
