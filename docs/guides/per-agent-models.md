@@ -253,11 +253,21 @@ rereads `secrets.env` on mtime change.
 
 ### 2. Configure LiteLLM `model_list`
 
-Populate the LiteLLM ConfigMap with a `model_list` entry naming the
-upstream-side model and provider:
+Per-operator backend choices live in a host-side overlay, **not** in
+the committed `k8s/base/litellm-configmap.yaml`. Copy the template and
+edit:
+
+```bash
+cp config/litellm-models.template.yaml ~/.config/egg/litellm-models.yaml
+$EDITOR ~/.config/egg/litellm-models.yaml
+```
+
+The file is a strategic-merge patch for the in-cluster `litellm-config`
+ConfigMap — its `data.config.yaml` replaces the empty default in full,
+so include both `model_list` and `general_settings`:
 
 ```yaml
-# k8s/base/litellm-configmap.yaml (partial)
+# ~/.config/egg/litellm-models.yaml
 data:
   config.yaml: |
     model_list:
@@ -269,14 +279,16 @@ data:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
 
-Then surface `TOGETHER_API_KEY` (or your provider's equivalent) to the
-LiteLLM Deployment. Follow the same shape as the master key and the
-OpenRouter key (issue #2799): add the variable to
-`~/.config/egg/secrets.env`, extract it onto `gateway-secrets` in
-`make k3s-secrets`, and bind it as a `secretKeyRef` env var on the
-LiteLLM container in `k8s/base/litellm-deployment.yaml` (`optional: true`
-so deployments without that backend still start). Apply the change and
-roll the LiteLLM Deployment.
+Provider keys referenced here (`TOGETHER_API_KEY`, `OPENROUTER_API_KEY`,
+etc.) go in `~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`.
+`make k3s-secrets` extracts each onto the `gateway-secrets` Secret, and
+`k8s/base/litellm-deployment.yaml` binds them as `secretKeyRef` env vars
+on the LiteLLM container (`optional: true` so deployments without that
+backend still start).
+
+Apply by running `make litellm-config` (also invoked automatically by
+`make deploy` and `make redeploy`). The target patches the live
+ConfigMap and rolls the LiteLLM Deployment to pick up the new config.
 
 > **Hosted-provider choice.** Hosted Qwen is the cq-6 first target;
 > any LiteLLM-supported backend works. Self-hosted vLLM / SGLang is

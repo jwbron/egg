@@ -12,31 +12,29 @@ data:
     # LiteLLM Proxy configuration (issue #2769).
     #
     # This ConfigMap ships with an EMPTY ``model_list`` so the Deployment
-    # comes up healthy but serves NO models until an operator populates
-    # entries here and overrides this ConfigMap via a kustomize overlay or
-    # ``kubectl apply``.  Without entries, no agent request can route to
-    # LiteLLM (the gateway only forwards when a session's ``upstream`` is
+    # comes up healthy but serves NO models by default. Operators register
+    # backends via a host-side overlay at
+    # ``~/.config/egg/litellm-models.yaml`` — ``make litellm-config``
+    # (also invoked by ``make deploy``/``make redeploy``) merges it onto
+    # this ConfigMap and rolls the LiteLLM Deployment. The committed
+    # default keeps per-operator backend choices out of the repo. See
+    # ``config/litellm-models.template.yaml`` for the file layout and
+    # ``docs/guides/per-agent-models.md`` for the end-to-end flow.
+    #
+    # Without any backend entries, no agent request can route to LiteLLM
+    # (the gateway only forwards when a session's ``upstream`` is
     # explicitly set to ``"litellm"``).
     #
-    # Operators add backends per LiteLLM's documented format, e.g. for a
-    # hosted Qwen provider (cq-6):
-    #
-    #   model_list:
-    #     - model_name: qwen3-coder-30b
-    #       litellm_params:
-    #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
-    #         api_key: os.environ/TOGETHER_API_KEY
-    #
-    # The matching provider-side API key (e.g. ``TOGETHER_API_KEY``,
-    # ``OPENROUTER_API_KEY``) is read by LiteLLM from its container env
-    # at startup. Per issue #2799, provider keys flow through the same
-    # path as the master key: operators set them in
-    # ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts each
-    # onto ``gateway-secrets`` as a literal key; the LiteLLM Deployment
-    # binds them via ``secretKeyRef`` (``optional: true`` so deployments
-    # without that backend still start). The original cq-7 wording
-    # asserted that only the master key crossed this boundary — that
-    # asymmetry was retired with #2799 in favor of a single uniform
+    # Provider-side API keys (e.g. ``OPENROUTER_API_KEY``,
+    # ``TOGETHER_API_KEY``) referenced by overlay entries are read by
+    # LiteLLM from its container env at startup. Per issue #2799, they
+    # flow through the same path as the master key: operators set them
+    # in ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts
+    # each onto ``gateway-secrets`` as a literal key; the LiteLLM
+    # Deployment binds them via ``secretKeyRef`` (``optional: true`` so
+    # deployments without that backend still start). The original cq-7
+    # wording asserted that only the master key crossed this boundary —
+    # that asymmetry was retired with #2799 in favor of a single uniform
     # extraction path for every LiteLLM-bound secret.
     model_list: []
 

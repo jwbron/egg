@@ -530,6 +530,30 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 		--from-literal=openrouter-api-key="$$OPENROUTER_KEY" \
 		--dry-run=client -o yaml | kubectl apply -f -
 
+litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litellm-models.yaml
+	@# Per-operator LiteLLM model_list lives in ~/.config/egg/litellm-models.yaml,
+	@# parallel to secrets.env. The committed k8s/base/litellm-configmap.yaml
+	@# ships an empty model_list so the pod starts healthy by default; this
+	@# target merges the operator's backend choices on top after `make deploy`
+	@# has applied the base configmap. No-op if the file is absent.
+	@MODEL_FILE="$$HOME/.config/egg/litellm-models.yaml"; \
+	if [ ! -f "$$MODEL_FILE" ]; then \
+		echo "==> No $$MODEL_FILE; LiteLLM keeps the empty model_list from the base configmap."; \
+		echo "    Copy config/litellm-models.template.yaml to register backends."; \
+		exit 0; \
+	fi; \
+	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	if ! kubectl -n egg-system get configmap litellm-config >/dev/null 2>&1; then \
+		echo "==> litellm-config ConfigMap not present yet — run 'make deploy' first."; \
+		exit 0; \
+	fi; \
+	echo "==> Patching litellm-config ConfigMap from $$MODEL_FILE..." && \
+	kubectl patch configmap litellm-config -n egg-system \
+		--type=merge --patch-file="$$MODEL_FILE" && \
+	echo "==> Rolling LiteLLM deployment to pick up new config..." && \
+	kubectl rollout restart deployment litellm -n egg-system && \
+	kubectl rollout status deployment litellm -n egg-system --timeout=120s
+
 deploy: k3s-secrets  ## Deploy egg to k3s
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	@command -v envsubst >/dev/null 2>&1 || { \
@@ -550,6 +574,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		kubectl apply -f - && \
 	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
+	@$(MAKE) --no-print-directory litellm-config
 	@echo "Deployment complete"
 
 redeploy: sudo-keepalive build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step

@@ -1,0 +1,43 @@
+# LiteLLM model_list overlay template.
+#
+# Copy this file to ~/.config/egg/litellm-models.yaml and edit. The
+# `make litellm-config` target (also invoked by `make deploy` /
+# `make redeploy`) reads from that path and applies it as a
+# strategic-merge patch onto the in-cluster `litellm-config` ConfigMap,
+# then rolls the LiteLLM Deployment to pick up the new config. If the
+# file is absent, the LiteLLM pod runs with the empty `model_list` from
+# `k8s/base/litellm-configmap.yaml` and serves no routed backends.
+#
+# IMPORTANT: this file is per-operator config — DO NOT COMMIT
+# ~/.config/egg/litellm-models.yaml. Provider credentials referenced
+# here (e.g. OPENROUTER_API_KEY, TOGETHER_API_KEY) live in
+# ~/.config/egg/secrets.env, get extracted onto the `gateway-secrets`
+# Secret by `make k3s-secrets`, and are bound into the LiteLLM
+# container's env via `k8s/base/litellm-deployment.yaml`.
+#
+# The body below is a complete `config.yaml` for LiteLLM — model_list
+# plus general_settings. The patch replaces the base configmap's
+# `config.yaml` string in full, so include every setting you need (not
+# just model_list).
+
+data:
+  config.yaml: |
+    model_list:
+      # OpenRouter — Qwen 3.7 Max (issue #2799 pilot). Verify the
+      # provider-side slug at https://openrouter.ai/<vendor>/<model>
+      # before enabling.
+      - model_name: qwen3.7-max
+        litellm_params:
+          model: openrouter/qwen/qwen3.7-max
+          api_key: os.environ/OPENROUTER_API_KEY
+
+      # Together AI — example hosted Qwen Coder entry. Uncomment and
+      # populate TOGETHER_API_KEY in secrets.env + the LiteLLM
+      # Deployment env to enable.
+      # - model_name: qwen3-coder-30b
+      #   litellm_params:
+      #     model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
+      #     api_key: os.environ/TOGETHER_API_KEY
+
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
