@@ -9,15 +9,888 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "How should this work be decomposed into slices?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Single slice: topology + cleanup + restart + #2792 ship together (1 PR)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Two slices in parallel: [topology + cleanup] || [restart + #2792] (2 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Two slices with dependency (recommended): [topology realignment] -> [cleanup + restart + #2792] (2 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Three slices fully parallel: [topology] || [implement-phase cleanup] || [restart + #2792] (3 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Should vestigial scheduler hooks (record_cycle, teardown_slice, respawn_slice, cancel_cascade, hitl_escalator) be deleted now or kept for #2199?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Delete now (favours net-negative cleanup goal in this issue)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep \u2014 #2199 (per-slice MCP controls) will re-add them; deletion + re-add churns the public API",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Delete the unused ones (record_cycle / teardown_slice / respawn_slice / cancel_cascade / hitl_escalator param) but keep max_cycles plumbing for cheap re-wiring",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "How should the legacy ConsensusEvaluator (orchestrator/consensus.py, marked DEPRECATED in module header) be handled?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Delete now \u2014 superseded by peer_consensus.PeerConsensusTracker; reset sites in restart_phase / restart_agent / _clear_consensus can drop the evaluator clear",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep \u2014 leave the module and its three reset sites untouched for this issue",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Delete only the resets in restart paths; leave the module for a follow-up cleanup",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "Should per-slice consensus tracker reconstruction in startup_reconciliation (#2409) be closed by #2777?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 implement per-slice tracker reconstruction here; closes #2409 alongside #2777",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 leave #2409 as a separate work item; #2777's restart hardening covers restart_phase per-slice awareness only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Implement the reconstruction loop but leave #2409 open for the deeper per-slice replay edge cases (#2422 caveat)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "How should PRMetadata schema fields (context_branch, context_title, context_description) be retired? (context_pr_number stays as the linkage.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove fields outright in the topology PR; loader tolerates unknown keys via pydantic extras",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Mark fields as deprecated in the topology PR; remove in a follow-up after one release cycle",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Migrate-and-remove: topology PR adds a contract-load migration that drops legacy values, then removes the fields",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Keep context_title / context_description (planners optionally use them for context-PR framing); remove only context_branch",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "When auto-recovery for plan_draft_missing_on_local fails (fetch+reset+repopulate cannot bring the contract back), what is the fallback?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Surface the existing 3-option HITL (repopulate / restart-plan / abort), but down-weight 'Restart plan phase' relative to 'Repopulate'",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Surface a 2-option HITL (repopulate / abort); remove 'Restart plan phase' since auto-recovery exhausted the repopulate path",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Fail-loud with OVERSEER_ALERT and no HITL \u2014 pipeline goes FAILED; operator restarts via existing endpoints",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Retry auto-recovery once with exponential backoff before any HITL fallback",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "What is the strategy for the 'agents ran, commits pushed, consensus not reached' bootstrap-gap (non-fast-forward push rejection on slice integration branch after restart)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add a Layer-C bootstrap detector: if the integration branch tip is ahead of the parent on origin AND no slice PR is open, attempt to resume consensus from the pushed state (rebuild peer_consensus tracker, re-spawn agents pointed at the existing branch)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Make create_slice_integration_branch idempotent: if the branch exists with commits, no-op the parent-sha push and let the run loop proceed (lets the run loop discover state via the existing peer_consensus reconstruction path)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Mark the slice FAILED on detect; require operator restart_agent to recover (preserves existing semantics but the operator gets a clearer cascade signal)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Combination: Layer-C detector + idempotent integration-branch push",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-8",
+      "question": "Does #2777 need to resolve the #2570 interaction (work branch silently rebased onto main breaks the new context-PR model)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 diagnose and stop the silent rebase as part of the topology realignment; the new model is unsafe without it",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Partially \u2014 add a guard that detects work-branch rebase and blocks the slice, escalating to #2570 for the actual fix",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No \u2014 #2570 is a separate root-cause investigation; #2777 ships assuming work-branch isolation is intact",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-9",
+      "question": "Should the slice-PR payload assembly extraction (the ~145-line dict literal in _run_one_slice_inner) be part of #2777, or deferred to #2261 (pipelines.py decomposition)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extract here \u2014 the simpler-surface form (no context_pr_number fallback, no terminal-narrative differences) is the right API to extract",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Defer to #2261 \u2014 keep the inline assembly in #2777 to minimise churn; let #2261 do the systematic file decomposition",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Extract a thin helper here (assemble_slice_pr_data) but leave deeper module-level reorg to #2261",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-10",
+      "question": "Should the PR-phase terminal backstop (open egg/<id>/work -> main PR if still missing) be added unconditionally, including for single-slice / monolithic pipelines?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 always check / open at PR-phase entry; removes the slice-DAG vs non-slice-DAG asymmetry in _should_skip_pr_phase_auto_pr",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Slice-DAG only \u2014 preserve the existing monolithic auto-PR path; the backstop only fires when slice_count > 1",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Single-slice pipelines should also use the new model \u2014 collapse monolithic auto-PR into the same idempotent op",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-27T03:27:04.022319Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "How should this work be decomposed into slices?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Single slice: topology + cleanup + restart + #2792 ship together (1 PR)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Two slices in parallel: [topology + cleanup] || [restart + #2792] (2 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Two slices with dependency (recommended): [topology realignment] -> [cleanup + restart + #2792] (2 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Three slices fully parallel: [topology] || [implement-phase cleanup] || [restart + #2792] (3 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this work be decomposed into slices?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:27:37.527979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Should vestigial scheduler hooks (record_cycle, teardown_slice, respawn_slice, cancel_cascade, hitl_escalator) be deleted now or kept for #2199?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Delete now (favours net-negative cleanup goal in this issue)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep \u2014 #2199 (per-slice MCP controls) will re-add them; deletion + re-add churns the public API",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Delete the unused ones (record_cycle / teardown_slice / respawn_slice / cancel_cascade / hitl_escalator param) but keep max_cycles plumbing for cheap re-wiring",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should vestigial scheduler hooks (record_cycle, te...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:27:38.025481Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "How should the legacy ConsensusEvaluator (orchestrator/consensus.py, marked DEPRECATED in module header) be handled?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Delete now \u2014 superseded by peer_consensus.PeerConsensusTracker; reset sites in restart_phase / restart_agent / _clear_consensus can drop the evaluator clear",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep \u2014 leave the module and its three reset sites untouched for this issue",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Delete only the resets in restart paths; leave the module for a follow-up cleanup",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the legacy ConsensusEvaluator (orchestr...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:27:48.946979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "Should per-slice consensus tracker reconstruction in startup_reconciliation (#2409) be closed by #2777?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 implement per-slice tracker reconstruction here; closes #2409 alongside #2777",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 leave #2409 as a separate work item; #2777's restart hardening covers restart_phase per-slice awareness only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Implement the reconstruction loop but leave #2409 open for the deeper per-slice replay edge cases (#2422 caveat)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should per-slice consensus tracker reconstruction ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:27:49.445110Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "How should PRMetadata schema fields (context_branch, context_title, context_description) be retired? (context_pr_number stays as the linkage.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove fields outright in the topology PR; loader tolerates unknown keys via pydantic extras",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Mark fields as deprecated in the topology PR; remove in a follow-up after one release cycle",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Migrate-and-remove: topology PR adds a contract-load migration that drops legacy values, then removes the fields",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Keep context_title / context_description (planners optionally use them for context-PR framing); remove only context_branch",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should PRMetadata schema fields (context_branc...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:02.076863Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "When auto-recovery for plan_draft_missing_on_local fails (fetch+reset+repopulate cannot bring the contract back), what is the fallback?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Surface the existing 3-option HITL (repopulate / restart-plan / abort), but down-weight 'Restart plan phase' relative to 'Repopulate'",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Surface a 2-option HITL (repopulate / abort); remove 'Restart plan phase' since auto-recovery exhausted the repopulate path",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Fail-loud with OVERSEER_ALERT and no HITL \u2014 pipeline goes FAILED; operator restarts via existing endpoints",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Retry auto-recovery once with exponential backoff before any HITL fallback",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When auto-recovery for plan_draft_missing_on_local...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:02.559257Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "What is the strategy for the 'agents ran, commits pushed, consensus not reached' bootstrap-gap (non-fast-forward push rejection on slice integration branch after restart)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add a Layer-C bootstrap detector: if the integration branch tip is ahead of the parent on origin AND no slice PR is open, attempt to resume consensus from the pushed state (rebuild peer_consensus tracker, re-spawn agents pointed at the existing branch)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Make create_slice_integration_branch idempotent: if the branch exists with commits, no-op the parent-sha push and let the run loop proceed (lets the run loop discover state via the existing peer_consensus reconstruction path)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Mark the slice FAILED on detect; require operator restart_agent to recover (preserves existing semantics but the operator gets a clearer cascade signal)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Combination: Layer-C detector + idempotent integration-branch push",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the strategy for the 'agents ran, commits ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:14.320943Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-8",
+        "question": "Does #2777 need to resolve the #2570 interaction (work branch silently rebased onto main breaks the new context-PR model)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 diagnose and stop the silent rebase as part of the topology realignment; the new model is unsafe without it",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Partially \u2014 add a guard that detects work-branch rebase and blocks the slice, escalating to #2570 for the actual fix",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No \u2014 #2570 is a separate root-cause investigation; #2777 ships assuming work-branch isolation is intact",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Does #2777 need to resolve the #2570 interaction (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:14.830179Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-9",
+        "question": "Should the slice-PR payload assembly extraction (the ~145-line dict literal in _run_one_slice_inner) be part of #2777, or deferred to #2261 (pipelines.py decomposition)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Extract here \u2014 the simpler-surface form (no context_pr_number fallback, no terminal-narrative differences) is the right API to extract",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Defer to #2261 \u2014 keep the inline assembly in #2777 to minimise churn; let #2261 do the systematic file decomposition",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Extract a thin helper here (assemble_slice_pr_data) but leave deeper module-level reorg to #2261",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the slice-PR payload assembly extraction (t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:27.284079Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-10",
+        "question": "Should the PR-phase terminal backstop (open egg/<id>/work -> main PR if still missing) be added unconditionally, including for single-slice / monolithic pipelines?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 always check / open at PR-phase entry; removes the slice-DAG vs non-slice-DAG asymmetry in _should_skip_pr_phase_auto_pr",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Slice-DAG only \u2014 preserve the existing monolithic auto-PR path; the backstop only fires when slice_count > 1",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Single-slice pipelines should also use the new model \u2014 collapse monolithic auto-PR into the same idempotent op",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the PR-phase terminal backstop (open egg/<i...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-27T03:28:27.796425Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there in-flight pipelines on jwbron/egg (or other instances) whose persisted contracts have context_branch / context_pr_number set and that must keep working through this migration? If so, list their pipeline IDs.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Are there constraints on touching gateway/gateway.py (e.g. policy-review gate, separate deploy cadence) that affect whether the _CONTEXT_BRANCH_RE exemption can be removed in the same PR that stops calling create_context_branch?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Is 'context PR' or 'base PR' the canonical name to land on after the umbrella drop? The issue body uses both; the codebase should pick one.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Is the wall-clock cost of sequential slices (Option D) acceptable, or is parallel work (Option B/C) preferred despite the merge-conflict risk surfaced in the analysis?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 4 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there in-flight pipelines on jwbron/egg (or other instances) whose persisted contracts have context_branch / context_pr_number set and that must keep working through this migration? If so, list their pipeline IDs.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Are there constraints on touching gateway/gateway.py (e.g. policy-review gate, separate deploy cadence) that affect whether the _CONTEXT_BRANCH_RE exemption can be removed in the same PR that stops calling create_context_branch?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Is 'context PR' or 'base PR' the canonical name to land on after the umbrella drop? The issue body uses both; the codebase should pick one.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Is the wall-clock cost of sequential slices (Option D) acceptable, or is parallel work (Option B/C) preferred despite the merge-conflict risk surfaced in the analysis?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
