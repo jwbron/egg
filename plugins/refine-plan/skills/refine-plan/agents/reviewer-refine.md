@@ -62,3 +62,11 @@ If the Task context includes `prior_nacks`, verify each prior cycle's NACK is no
 - Speculative scope: bundled rewrites, fixes for adjacent issues the brief didn't ask about
 - "Generic best practice" pros/cons that don't specifically engage with this codebase
 - Open questions that are actually decisions the refiner should have made
+- **Planner-shaped open questions**: NACK questions that ask the operator about
+  work decomposition, slice-DAG shape, PR packaging, or implementation strategy
+  (API shape, migration approach, fallback design, detector design). Those
+  belong to the plan phase's HITL gate. Good refine questions are about *what
+  the problem is* and *what's in/out of scope* — facts only the operator
+  knows. Cite the offending decision-ID in `feedback` and tell the refiner to
+  either drop the decision or fold the relevant context into Problem Statement
+  / Constraints.
