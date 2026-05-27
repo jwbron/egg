@@ -119,7 +119,7 @@ See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) 
 
 The Jira-epic SDLC pipelines introduced by [issue #1557](https://github.com/jwbron/egg/issues/1557) need to transition pre-existing child tickets to **Won't Do** when the reassess flow supersedes them (consolidations, obsoletes, replanned scopes). The agent-facing Jira gateway intentionally **forbids transitions** today (`gateway/jira_client.py:133` `JIRA_WRITE_VERBS_DENIED`), and the trust-boundary decision keeps it that way: there is no Jira state-machine surface available to in-sandbox agents.
 
-Instead, transitions land via a **separate orchestrator-only gateway route**, `POST /api/v1/jira/ticket/transition`, gated on **loopback / cluster-internal source + launcher-secret bearer token**. The applier in the sandbox writes Won't-Do candidates to a handoff JSON (see `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" section). The orchestrator-side `_drain_wontdo_batch_after_apply` hook (`orchestrator/routes/pipelines.py`) reads the handoff after apply-phase BRC consensus and calls `/transition` once per entry via `orchestrator/wontdo_drain.py::run_wontdo_drain`, out of band from the HITL HTTP response so Jira API latency does not block operator approvals.
+Instead, transitions land via a **separate orchestrator-only gateway route**, `POST /api/v1/jira/ticket/transition`, gated on **loopback / cluster-internal source + launcher-secret bearer token**. The applier in the sandbox writes Won't-Do candidates to a handoff JSON. The orchestrator-side `_drain_wontdo_batch_after_apply` hook (`orchestrator/routes/pipelines.py`) reads the handoff after apply-phase BRC consensus and calls `/transition` once per entry via `orchestrator/wontdo_drain.py::run_wontdo_drain`, out of band from the HITL HTTP response so Jira API latency does not block operator approvals.
 
 ### Trust model
 
@@ -234,12 +234,11 @@ Even though the same launcher secret authenticates both surfaces, transitions re
 - **Allowlist scope.** The agent path's policy module (`gateway/jira_client.py::JIRA_WRITE_VERBS_DENIED`) explicitly denies the `transition` verb because Jira's transition surface is a state-machine API — allowing arbitrary transition names from sandbox would mean re-implementing Jira's workflow guards on the gateway side. The orchestrator-only path narrows transitions to a `{Won't Do, Won't Fix}` allowlist, policy that can be inspected and audited without modelling Jira's full state machine.
 - **Audit symmetry.** Every `/transition` call carries the ticket key and transition name in the audit-log payload (`jira_ticket_transition` event), and the orchestrator-side caller pins the pipeline context. The agent-facing path has no such correlation surface (sandbox calls are pipeline-scoped only via worktree path, which doesn't reach the gateway audit layer).
 
-See `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" for the sandbox-side counterpart: the applier emits a handoff JSON and never attempts to call `/transition` directly.
+The sandbox-side applier emits a handoff JSON and never attempts to call `/transition` directly.
 
 ### Cross-references
 
 - Gateway-side route definition + audit log shape: `gateway/gateway.py` (search for `transition`); see also `gateway/README.md` for the deployment-time secret bundle layout.
-- Sandbox-side Won't-Do handoff producer: `plugins/refine-plan/skills/refine-plan/agents/applier.md` (sections "Out of scope: Won't-Do transitions" and "In-flight refusal").
 - Orchestrator-side drain helper: `orchestrator/wontdo_drain.py::{load_wontdo_handoff, run_wontdo_drain}`.
 - Orchestrator-side drain hook: `orchestrator/routes/pipelines.py::_drain_wontdo_batch_after_apply` — invoked from both the auto-advance and HITL-resolution apply-phase exit paths; writes per-Task `jira_action_status` back via the `on_entry_result` callback.
 - Issue-level decision record: [#1557 decision-15](https://github.com/jwbron/egg/issues/1557) (trust-boundary for Jira transitions).
