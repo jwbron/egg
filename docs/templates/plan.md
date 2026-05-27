@@ -166,7 +166,7 @@ slices:
 > implementable and gets its own integration branch, agent team, BRC
 > consensus, and PR. The slice DAG must be a **forest** — each slice has
 > at most one DAG parent. Multi-parent slices are rejected at plan
-> ingestion. When a planner identifies a would-be multi-parent slice, it
+> ingestion. When the architect identifies a would-be multi-parent slice, it
 > serialises the upstream cluster into a chain and records the chosen
 > order on the downstream slice's `serialized_chain_order: list[str]`
 > field. See [Slice-DAG Implement Phase](../architecture/slice-dag.md)

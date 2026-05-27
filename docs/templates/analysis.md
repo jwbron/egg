@@ -58,11 +58,11 @@ facts only the operator can answer (product intent, scope boundaries, external
 commitments, user-visible behavior). Do **not** register decisions about:
 
 - **Work decomposition / slice-DAG shape / PR packaging** — these belong to the
-  plan phase. The planner owns the slice-DAG shape (see
+  plan phase. The **architect** owns the slice-DAG shape (#2809) (see
   [Slice-DAG Implement Phase](../architecture/slice-dag.md)) and the operator
   approves it at the plan HITL gate. If the task spans multiple independently-
   implementable parts, name them in `## Problem Statement` or `## Constraints`
-  as advisory context — the planner will propose a slice shape from that.
+  as advisory context — the architect will propose a slice shape from that.
 - **Implementation strategy** the planner can derive from the analysis (migration
   approach, fallback design, detector shape). Surface these as Options Considered
   / Recommended Approach, not as `add-decision` items.

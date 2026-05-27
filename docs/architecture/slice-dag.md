@@ -74,7 +74,7 @@ pass either.
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
-| `serialized_chain_order` | `list[str]` | `[]` | Planner-emitted ordering for would-be multi-parent slices. When the planner identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
+| `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
 | `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. |
 
 ## Plan Parser & Forest Validation
