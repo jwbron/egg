@@ -27,10 +27,17 @@ data:
     #         model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
     #         api_key: os.environ/TOGETHER_API_KEY
     #
-    # The matching provider-side API key (e.g. ``TOGETHER_API_KEY``) is
-    # set via LiteLLM's standard env-var convention.  It is NOT stored
-    # in gateway secrets.env — only the LiteLLM master key crosses that
-    # boundary (cq-7).
+    # The matching provider-side API key (e.g. ``TOGETHER_API_KEY``,
+    # ``OPENROUTER_API_KEY``) is read by LiteLLM from its container env
+    # at startup. Per issue #2799, provider keys flow through the same
+    # path as the master key: operators set them in
+    # ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts each
+    # onto ``gateway-secrets`` as a literal key; the LiteLLM Deployment
+    # binds them via ``secretKeyRef`` (``optional: true`` so deployments
+    # without that backend still start). The original cq-7 wording
+    # asserted that only the master key crossed this boundary — that
+    # asymmetry was retired with #2799 in favor of a single uniform
+    # extraction path for every LiteLLM-bound secret.
     model_list: []
 
     # Health-check config — used by the kubelet readiness/liveness
