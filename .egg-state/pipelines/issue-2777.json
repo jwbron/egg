@@ -5,7 +5,7 @@
   "branch": "egg/issue-2777/work",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -68,97 +68,14 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-05-27T03:12:56.502083Z",
       "work_started_at": "2026-05-27T03:13:17.954792Z",
-      "completed_at": "2026-05-27T03:35:43.134147Z",
-      "containers": [
-        {
-          "container_id": "cce0b3bd-31f0-40f1-9538-d97c012e12d2",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-refiner",
-          "status": "exited",
-          "started_at": "2026-05-27T03:13:19.438785Z",
-          "exited_at": "2026-05-27T03:35:42.173799Z",
-          "exit_code": 0,
-          "agent_role": "refiner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-refiner"
-        },
-        {
-          "container_id": "ad0eb090-9d76-41b3-9c15-55b1da70cf21",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-reviewer-refine",
-          "status": "exited",
-          "started_at": "2026-05-27T03:13:19.438810Z",
-          "exited_at": "2026-05-27T03:35:42.173802Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_refine",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-reviewer-refine"
-        },
-        {
-          "container_id": "daf2bf12-5ad6-4364-aa99-b684b1d6592c",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-reviewer-agent-design",
-          "status": "exited",
-          "started_at": "2026-05-27T03:13:19.438816Z",
-          "exited_at": "2026-05-27T03:35:42.173806Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_agent_design",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-reviewer-agent-design"
-        }
-      ],
-      "agents": [
-        {
-          "role": "refiner",
-          "status": "complete",
-          "container_id": "cce0b3bd-31f0-40f1-9538-d97c012e12d2",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-27T03:13:19.438800Z",
-          "completed_at": "2026-05-27T03:35:42.173774Z",
-          "commit": "ec91d9dda3db201c9f319f449846fbe04d63821b",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_refine",
-          "status": "complete",
-          "container_id": "ad0eb090-9d76-41b3-9c15-55b1da70cf21",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-27T03:13:19.438813Z",
-          "completed_at": "2026-05-27T03:35:42.173784Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_agent_design",
-          "status": "complete",
-          "container_id": "daf2bf12-5ad6-4364-aa99-b684b1d6592c",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-27T03:13:19.438818Z",
-          "completed_at": "2026-05-27T03:35:42.173789Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -169,7 +86,7 @@
       ],
       "artifacts": {},
       "error": null,
-      "hitl_feedback": null,
+      "hitl_feedback": "The refine phase is producing artifacts that belong to the planner. The refiner's job is to **define the problem** — not to decompose the work, scope what's in/out, or recommend implementation strategy. Please revise the analysis as follows.\n\n## REMOVE (planner's work, not refiner's)\n\n1. The entire **'Options Considered'** section (Option A / B / C / D).\n2. The entire **'Recommended Approach'** section.\n3. **All 10 registered open questions (cq-1 through cq-10).** Every single one is either a decomposition, a scope-boundary, or an implementation-strategy question — none are problem-definition questions. Specifically:\n   - cq-1, cq-9 → slice-DAG / extraction decomposition (planner)\n   - cq-2, cq-3, cq-4, cq-8 → what folds into #2777 vs follow-ups (planner, with operator HITL where genuinely ambiguous)\n   - cq-5, cq-6, cq-7, cq-10 → implementation strategy (schema migration approach, fallback HITL design, bootstrap detector design, backstop scope)\n\n## KEEP (this IS the refiner's job, and the current draft does it well)\n\n1. **Problem Statement** — the four-root-cause framing is good. Keep.\n2. **Current Behavior** — the line-level citations are exactly the right artifact. Keep.\n3. **Constraints** — keep, including the in-flight pipeline compatibility (`issue-2769`, `pipeline-f82240dc`), gateway push-policy notes, #2570 interaction, and `PRMetadata` migration constraints. Constraints are facts-about-the-world the planner needs, not solution choices.\n\n## What to register, if anything\n\nOnly register an `egg-contract add-decision` if you have a genuine **problem-definition ambiguity** — an operator-input gap about *what the problem is*, not *how to solve it*. Example shape: 'symptom X is observed but unclear whether it's in scope of the stated problem'. None of the current cq-1..10 are this shape.\n\n## Context\n\n#2584 (closed by #2597) was a prior narrower instance of the same pattern — it fixed PR-count vs slice-count framing in refiner decisions. The deeper scope issue (refiner registering decomposition / strategy decisions at all) persists. Tracking issue forthcoming.\n\nThe planner phase will receive the cleaned-up Problem Statement + Current Behavior + Constraints and will produce the slice DAG, scope decisions, and implementation strategy as part of its own work — that's where these questions belong.\n\nReset the draft, delete the offending sections, and re-propose.",
       "phase_start_sha": "3a3551cf3662746fc73a8c7730f0563b9732a79e",
       "agent_exits": []
     }
@@ -194,7 +111,7 @@
     }
   ],
   "created_at": "2026-05-27T03:12:52.783575Z",
-  "updated_at": "2026-05-27T03:45:03.708158Z",
+  "updated_at": "2026-05-27T03:45:08.073181Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,7 +124,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
