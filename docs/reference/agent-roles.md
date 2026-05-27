@@ -25,8 +25,8 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_agent_design` | Review | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
 | `architect` | Analysis | Plan | No | — |
 | `task_planner` | Analysis | Plan | Yes (with `risk_analyst`) | architect |
-| `risk_analyst` | Analysis | Plan | Yes (with `task_planner`) | architect |
-| `reviewer_plan` | Review | Plan | No | task_planner, risk_analyst |
+| `risk_analyst` | Analysis (dual-role: also reviews `architect` + `task_planner`) | Plan | Yes (with `task_planner`) | architect |
+| `reviewer_plan` | Review | Plan | No | architect, task_planner, risk_analyst |
 | `applier` | Execution | Apply (epic-mode only) | No | — |
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
@@ -85,7 +85,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `architect`
 
-**Purpose**: Analyze the task, research the codebase, and recommend a high-level implementation approach.
+**Purpose**: Analyze the task, research the codebase, and recommend a high-level implementation approach. **Sole authority for slice composition** in the plan phase (#2809) — owns slice count, slice boundaries, slice DAG shape, and sub-slicing. Emits a binding `architect-slices.yaml` scaffold that `task_planner` copies verbatim into the plan document's `# yaml-tasks` appendix.
 
 **File access**:
 - Allowed writes: `.egg-state/drafts/`, `.egg-state/agent-outputs/`
@@ -93,29 +93,38 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/agent-outputs/{identifier}-architect-output.json` — Architectural analysis
+- `.egg-state/agent-outputs/{identifier}-architect-slices.yaml` — Binding slice scaffold (`id` / `name` / `goal` / `parent_slice_id`; no `tasks:` — that is `task_planner`'s job)
 
 **Prompt context**: Full issue body, refine analysis.
 
+**Reviewed by**: `reviewer_plan` (structural lens, CRITICAL) and `risk_analyst` (risk lens, CRITICAL).
+
 ### `task_planner`
 
-**Purpose**: Break the work into discrete phases and tasks with acceptance criteria. Produces the plan document with a YAML appendix.
+**Purpose**: Enumerate the discrete tasks (with acceptance criteria) **inside the architect's slice scaffold**. Produces the plan document with a YAML appendix; the slice shape comes from `architect-slices.yaml` verbatim (#2809). When a slice needs subdivision, the planner raises NACK pressure on the architect via the plan prose rather than silently re-shaping slices.
 
 **File access**: Same as `architect`.
 
 **Outputs**:
-- `.egg-state/drafts/{identifier}-plan.md` — The plan document (includes YAML appendix)
+- `.egg-state/drafts/{identifier}-plan.md` — The plan document (includes YAML appendix; slice scaffold copied verbatim from architect, `tasks:` enumerated underneath)
 - `.egg-state/agent-outputs/{identifier}-task_planner-output.json` — Handoff data
 
-**Prompt context**: Full issue body, architect output.
+**Prompt context**: Full issue body, architect output, architect slice scaffold.
+
+**Reviewed by**: `reviewer_plan` (structural lens, CRITICAL) and `risk_analyst` (risk lens, CRITICAL).
 
 ### `risk_analyst`
 
-**Purpose**: Identify technical risks and propose mitigation strategies.
+**Purpose**: Identify technical risks and propose mitigation strategies. **Dual-role in the plan phase** (#2809) — also reviews `architect` and `task_planner` through the risk lens, mirroring the implement-phase `tester` dual-role pattern (#2749).
+
+**Producer role**: emit a risk register (top risks, mitigations, blocking concerns).
+
+**Reviewer role**: CRITICAL reviewer of `architect` and `task_planner`. NACK when a risk is severe enough that shipping the plan as-proposed would invite a known-class failure (security regression, data loss, compliance break, runtime-primitive or trust-boundary mismatch). ACK when risks are real but mitigated, or low enough that the plan can ship and the risks belong in the register as forward-looking notes. Verdict / feedback is mirrored from the producer artifact into the `egg-orch consensus ack` / `nack` reason body so the upstream producer can act on it. The *Dual-Role Execution Order* banner in the BRC preamble is the authoritative ordering — `CONSENSUS_PROPOSE`-augmented producer waits wake the agent on architect's / task_planner's proposals.
 
 **File access**: Same as `architect`.
 
 **Outputs**:
-- `.egg-state/agent-outputs/{identifier}-risk_analyst-output.json` — Risk analysis
+- `.egg-state/agent-outputs/{identifier}-risk_analyst-output.json` — Risk analysis (producer artifact carries the verdict + `blocking_concerns` + `feedback` payload mirrored into reviewer ACK/NACK reasons)
 
 **Prompt context**: Full issue body, architect output.
 

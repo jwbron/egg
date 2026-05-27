@@ -2653,6 +2653,54 @@ class TestSynthesizePlanDraftNamespaced:
         # No meaningful content → draft not written
         assert not draft_path.exists()
 
+    def test_includes_architect_slices_yaml_when_present(self, tmp_path):
+        """architect-slices.yaml is captured in the synthesized fallback draft (#2809).
+
+        The fallback synthesizer is the recovery path when task_planner fails
+        to write {id}-plan.md directly. The architect scaffold is the binding
+        source of slice DAG shape, so it must be visible in the synthesized
+        draft for the HITL gate to show the operator a complete plan.
+        """
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": "Architecture analysis for issue 871"})
+        )
+        scaffold_yaml = (
+            "slices:\n"
+            "  - id: 1\n"
+            "    name: |-\n"
+            "      Bootstrap\n"
+            "    goal: |-\n"
+            "      Stand up the new auth route\n"
+            "    parent_slice_id: null\n"
+        )
+        (outputs_dir / "871-architect-slices.yaml").write_text(scaffold_yaml)
+        (outputs_dir / "871-risk_analyst-output.json").write_text(
+            json.dumps({"content": "Risk assessment for issue 871"})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        # Scaffold heading and raw YAML body (YAML falls through json.loads to raw text)
+        assert "## Slice Scaffold" in content
+        assert "Bootstrap" in content
+        assert "parent_slice_id: null" in content
+        # Other agent outputs still included
+        assert "Architecture analysis for issue 871" in content
+        assert "Risk assessment for issue 871" in content
+
 
 class TestBuildReviewPrompt:
     """Tests for _build_review_prompt verdict format, conventions, and preambles."""

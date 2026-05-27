@@ -18850,6 +18850,7 @@ def _synthesize_plan_draft(
     sections: list[str] = []
     agent_files = [
         ("architect-output.json", "Architecture Analysis"),
+        ("architect-slices.yaml", "Slice Scaffold"),
         ("risk_analyst-output.json", "Risk Assessment"),
     ]
 

@@ -622,36 +622,59 @@ team uses.
 The dynamic prompt builders for `task_planner` and `reviewer_plan` were
 extended to teach the agents the new schema and constraints:
 
-- **Planner (`task_planner`)** — three new sections appended to the plan
-  phase prompt:
-  1. *Slice-sizing guidance* (advisory only, never enforced; HITL
-     decision-6 opt-2): the planner is encouraged to keep slices ≤1,000
-     LOC and informed that the plan reviewer issues escalating advisories
-     at >1,000 / >2,000 LOC.
+- **Architect (`architect`)** — sole authority for slice composition
+  (#2809, inverting HITL decision-6 opt-2). The architect prompt
+  declares this authority explicitly and the architect emits a binding
+  `architect-slices.yaml` scaffold alongside its analysis JSON
+  (`{identifier}-architect-slices.yaml` under `.egg-state/agent-outputs/`).
+  The scaffold encodes slice `id` / `name` / `goal` / `parent_slice_id`;
+  `tasks:` is intentionally omitted (that is `task_planner`'s job).
+- **Planner (`task_planner`)** — sections appended to the plan phase
+  prompt:
+  1. *Slice composition is NOT the planner's call* (#2809): the
+     architect's `architect-slices.yaml` scaffold is binding. The
+     planner copies it verbatim into the `# yaml-tasks` appendix
+     (same `id` / `name` / `goal` / `parent_slice_id`, same order) and
+     fills in `tasks:` under each slice. The planner does not
+     silently re-shape slices — if a slice needs to be subdivided,
+     the planner raises NACK pressure on the architect (via the
+     plan prose, which `risk_analyst` / `reviewer_plan` pick up)
+     rather than re-shaping locally.
   2. *Forest constraint* (HARD): every slice must have ≤1 DAG parent;
      the populator hard-rejects multi-parent slices with
-     `ForestValidationError`.
-  3. *Auto-serialization rule with worked example*: when the planner
-     identifies a slice that would otherwise have >1 parents, it
-     serialises the upstream cluster into a chain and records the chosen
-     order on the downstream slice's `serialized_chain_order` field. The
-     fallback heuristic (`files_affected` Jaccard >0.3, then descending
-     fan-out) is documented; the planner's own ordering is the source of
-     truth (HITL decision-17).
+     `ForestValidationError`. The architect's scaffold encodes this
+     via `parent_slice_id`; the planner preserves it.
+  3. *Auto-serialization* for would-be multi-parent slices: the
+     architect is responsible for serialising the upstream cluster
+     and populating `serialized_chain_order` on the downstream
+     slice. The fallback heuristic (`files_affected` Jaccard >0.3,
+     then descending fan-out) is documented; the architect's own
+     ordering is the source of truth (HITL decision-17). The
+     planner preserves the field verbatim from the scaffold.
   4. The yaml-block key swap: `slices:` is canonical, `phases:` is
      backward-compat.
 - **Plan reviewer (`reviewer_plan`)** — two new prompt sections:
   1. *Forest-violation NACK*: when the populator left a "Plan ingestion
      REJECTED" block on `plan_review_feedback` (or a `forest_violation`
-     log discriminator is present), the reviewer NACKs the planner with
-     the structured errors verbatim and instructs re-emission with
-     `serialized_chain_order` populated.
-  2. *Slice-sizing advisory* (advisory only, NEVER NACK): tone scales
-     with magnitude — 1,000–2,000 LOC: "consider splitting"; >2,000 LOC:
-     "well above the soft target — strongly consider splitting". HITL
-     decision-6 opt-2 keeps override authority with the
-     refiner/operator; promoting the advisory to a hard NACK requires a
-     fresh HITL revision.
+     log discriminator is present), the reviewer NACKs the **architect**
+     (not the planner — slice scaffold ownership moved to architect in
+     #2809) with the structured errors verbatim and instructs re-emission
+     of the scaffold with `serialized_chain_order` populated.
+  2. *Slice-sizing NACK* (hard, judgment-based; #2809 inverts HITL
+     decision-6 opt-2). The reviewer is empowered AND required to
+     hard-NACK the architect on `slice_size` when a slice is oversized
+     for one BRC cycle. There is no fixed LOC budget — the rubric is
+     judgment-based: NACK when a slice bundles >~3 distinct
+     file-categories, combines deletion-heavy work with new-API
+     introduction, would require >3–4 commit-propose-revise cycles to
+     converge, or contains independent task groups with no internal
+     dependency. The reviewer names the seam where subdivision is
+     appropriate so the architect's re-propose is actionable. See
+     `_get_plan_review_criteria()` §11 for the full rubric and worked
+     NACK examples. Refiner/operator override remains available when a
+     large slice is deliberate (e.g. atomic schema migration) — the
+     architect cites the override in the analysis and the reviewer
+     ACKs once the rationale is on the record.
 
 ## Configuration knobs
 
