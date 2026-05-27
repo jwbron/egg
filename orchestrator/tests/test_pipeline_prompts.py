@@ -3201,6 +3201,12 @@ class TestRefinePromptTemplateFenceSeparation:
             "**Multiple-choice questions**",
             "**Open-ended questions**",
             "Transcribe this `## How to Populate Open Questions` section",
+            # #2793 added new meta-guidance about slice/PR packaging — these
+            # strings must also stay outside the template fence, otherwise the
+            # refiner may transcribe them into its analysis document.
+            "Out of scope for refine open questions",
+            "Slice / PR packaging is NOT a refine-phase decision",
+            "Advisory seam-listing is fine",
         ):
             assert needle not in body, (
                 f"meta-instruction {needle!r} leaked into template fence — "
@@ -3275,7 +3281,7 @@ class TestRefinePromptDelegatesSlicingToPlanner:
         # count picks. The planner is free to slice differently.
         assert "Advisory seam-listing is fine" in prompt
         assert "planner is free to slice differently" in prompt
-        assert "do not pre-number parts" in prompt or "Do not pre-number" in prompt
+        assert "Do not pre-number" in prompt
 
     def test_prompt_blocks_planner_shaped_open_questions(self):
         prompt = self._refine_prompt()

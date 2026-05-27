@@ -208,7 +208,10 @@ Each question must be specific enough for a human to answer in one decision.
 3. For third-party libraries / APIs / integrations, use WebSearch and WebFetch.
 4. Identify at least two meaningfully different options (not three flavors of the same idea).
 5. Recommend one option with explicit justification grounded in the constraints.
-6. Surface every uncertainty as an Open Question — do not self-limit.
+6. Surface questions only where the answer is a fact only the operator knows
+   (product intent, scope boundaries, external commitments, user-visible
+   behavior). See "What you do not do" below for the categories that belong
+   to the planner phase, not the refiner.
 
 ## What you do not do
 

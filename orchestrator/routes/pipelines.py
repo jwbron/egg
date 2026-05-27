@@ -11433,8 +11433,10 @@ def _build_phase_prompt(
                 "4. Identify constraints and dependencies",
                 "5. Consider multiple implementation approaches",
                 "6. Recommend an approach with justification",
-                "7. Surface **all** questions and uncertainties that need human input "
-                "(do not self-limit — raise every ambiguity)",
+                "7. Surface the questions and uncertainties that genuinely need a "
+                "human to answer — see `## How to Populate Open Questions` below for "
+                "the filter (slice/PR packaging, implementation strategy, and "
+                "API/schema details belong to the planner, not the refiner)",
                 "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
                 "or phased rollout. That is the **plan** phase's job. Stay focused on "
@@ -11515,12 +11517,16 @@ def _build_phase_prompt(
                 "rather than *how to build it*.\n",
                 "**Out of scope for refine open questions** — do NOT register decisions "
                 "about:\n"
-                "- **Work decomposition / slice-DAG shape / PR packaging** — the plan "
-                "phase owns slice DAG construction and has its own HITL gate. If the "
-                "task obviously spans multiple parts, name them in Problem Statement "
-                "or Constraints, but do not ask the operator to pick a slice shape — "
-                "the planner will propose one and the operator approves at the plan "
-                "gate.\n"
+                "- **Work decomposition / slice-DAG shape / PR packaging** — "
+                "**Slice / PR packaging is NOT a refine-phase decision.** The "
+                "plan phase owns slice-DAG construction (see "
+                "`docs/architecture/slice-dag.md`) and the operator approves the "
+                "proposed slice shape at the plan HITL gate. Do not register "
+                "`add-decision` items asking how the work should be sliced, how "
+                "many PRs to ship, or which parts should run in parallel. If "
+                "the task obviously spans multiple parts, name them in Problem "
+                "Statement or Constraints — the planner will propose a shape "
+                "from the analysis it reads.\n"
                 "- **Implementation strategy choices** that the planner can decide "
                 'from Problem Statement + Constraints (e.g. "which migration '
                 'approach", "which fallback design", "which detector shape"). '
@@ -11554,13 +11560,6 @@ def _build_phase_prompt(
                 'They edit the comment to add their responses and check "Submit '
                 'feedback" when done. The pipeline will resume with the feedback '
                 "available in the contract.\n",
-                "**Slice / PR packaging is NOT a refine-phase decision.** The plan "
-                "phase owns slice-DAG construction (see "
-                "`docs/architecture/slice-dag.md`) and the operator approves the "
-                "proposed slice shape at the plan HITL gate. Do not register "
-                "`add-decision` items asking how the work should be sliced, how many "
-                "PRs to ship, or which parts should run in parallel — the planner "
-                "will propose a shape from the analysis it reads.\n",
                 "**Advisory seam-listing is fine** — if the task obviously spans "
                 "independently-implementable parts, you MAY name them in Problem "
                 'Statement or Constraints (e.g. "the change touches the gateway, '
