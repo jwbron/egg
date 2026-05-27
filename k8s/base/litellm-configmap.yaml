@@ -25,17 +25,19 @@ data:
     # (the gateway only forwards when a session's ``upstream`` is
     # explicitly set to ``"litellm"``).
     #
-    # Provider-side API keys (e.g. ``OPENROUTER_API_KEY``,
-    # ``TOGETHER_API_KEY``) referenced by overlay entries are read by
-    # LiteLLM from its container env at startup. Per issue #2799, they
-    # flow through the same path as the master key: operators set them
-    # in ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts
-    # each onto ``gateway-secrets`` as a literal key; the LiteLLM
-    # Deployment binds them via ``secretKeyRef`` (``optional: true`` so
-    # deployments without that backend still start). The original cq-7
-    # wording asserted that only the master key crossed this boundary —
-    # that asymmetry was retired with #2799 in favor of a single uniform
-    # extraction path for every LiteLLM-bound secret.
+    # Provider-side API keys referenced by overlay entries are read by
+    # LiteLLM from its container env at startup. ``OPENROUTER_API_KEY``
+    # is wired end-to-end out of the box (issue #2799): operators set
+    # it in ``~/.config/egg/secrets.env``; ``make k3s-secrets`` extracts
+    # it onto ``gateway-secrets`` as a literal key; the LiteLLM
+    # Deployment binds it via ``secretKeyRef`` with ``optional: true``.
+    # Adding any other provider key (e.g. ``TOGETHER_API_KEY``) is NOT
+    # automatic — it additionally requires editing the ``k3s-secrets``
+    # Makefile target to extract the new key and editing
+    # ``k8s/base/litellm-deployment.yaml`` to bind it as a
+    # ``secretKeyRef`` env entry. Without those edits,
+    # ``os.environ/<NEW_KEY>`` in this configmap resolves to empty at
+    # request time and the provider returns silent 401s.
     model_list: []
 
     # Health-check config — used by the kubelet readiness/liveness

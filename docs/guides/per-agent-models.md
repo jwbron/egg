@@ -279,12 +279,21 @@ data:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
 
-Provider keys referenced here (`TOGETHER_API_KEY`, `OPENROUTER_API_KEY`,
-etc.) go in `~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`.
-`make k3s-secrets` extracts each onto the `gateway-secrets` Secret, and
-`k8s/base/litellm-deployment.yaml` binds them as `secretKeyRef` env vars
-on the LiteLLM container (`optional: true` so deployments without that
-backend still start).
+`OPENROUTER_API_KEY` is wired end-to-end out of the box: set it in
+`~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`, and
+`make k3s-secrets` extracts it onto the `gateway-secrets` Secret while
+`k8s/base/litellm-deployment.yaml` binds it as a `secretKeyRef` env
+var on the LiteLLM container (`optional: true` so deployments without
+OpenRouter still start).
+
+Adding any other provider key (e.g. `TOGETHER_API_KEY`) is **not**
+automatic — it additionally requires (1) extending the `k3s-secrets`
+target in `Makefile` to read the new variable from `secrets.env` and
+surface it as a literal on `gateway-secrets`, and (2) adding a matching
+`secretKeyRef` env entry on the LiteLLM container in
+`k8s/base/litellm-deployment.yaml`. Without both edits,
+`os.environ/<NEW_KEY>` in the overlay resolves to empty at request
+time and the provider returns silent 401s.
 
 Apply by running `make litellm-config` (also invoked automatically by
 `make deploy` and `make redeploy`). The target patches the live

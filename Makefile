@@ -34,7 +34,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import sudo-keepalive
+        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive
 
 # Default target
 help:
@@ -548,11 +548,16 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 		exit 0; \
 	fi; \
 	echo "==> Patching litellm-config ConfigMap from $$MODEL_FILE..." && \
-	kubectl patch configmap litellm-config -n egg-system \
-		--type=merge --patch-file="$$MODEL_FILE" && \
-	echo "==> Rolling LiteLLM deployment to pick up new config..." && \
-	kubectl rollout restart deployment litellm -n egg-system && \
-	kubectl rollout status deployment litellm -n egg-system --timeout=120s
+	PATCH_OUT="$$(kubectl patch configmap litellm-config -n egg-system \
+		--type=merge --patch-file="$$MODEL_FILE")" && \
+	echo "$$PATCH_OUT" && \
+	if echo "$$PATCH_OUT" | grep -q '(no change)'; then \
+		echo "==> ConfigMap unchanged; skipping LiteLLM rollout."; \
+	else \
+		echo "==> Rolling LiteLLM deployment to pick up new config..." && \
+		kubectl rollout restart deployment litellm -n egg-system && \
+		kubectl rollout status deployment litellm -n egg-system --timeout=180s; \
+	fi
 
 deploy: k3s-secrets  ## Deploy egg to k3s
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
