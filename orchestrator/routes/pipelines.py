@@ -12066,7 +12066,21 @@ def _apply_inline_hitl_kickback_to_phase(
     Returns the snapshot of containers that were running at kickback
     time, for the caller to issue the defensive stop on.
     """
-    iteration_n = len(phase_execution.iteration_history)
+    # Monotone across the legacy-hitl_feedback migration boundary: a
+    # pre-#2795 phase migrates with iteration_history empty but a
+    # synthetic OperatorDirective carrying iteration_n derived from
+    # hitl_review_cycles. ``len(iteration_history)`` alone would
+    # restart at 0 and label two distinct iterations identically; use
+    # one past the maximum existing directive index as the floor so
+    # the displayed "iteration X" labels stay monotone.
+    iteration_n = max(
+        len(phase_execution.iteration_history),
+        max(
+            (d.iteration_n for d in phase_execution.operator_directives),
+            default=-1,
+        )
+        + 1,
+    )
     phase_execution.operator_directives.append(
         OperatorDirective(
             iteration_n=iteration_n,
@@ -24192,11 +24206,22 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # this snapshot will typically have empty verdict
                     # detail — but the iteration index + artifacts are
                     # still useful context for iteration N+1's prompts.
-                    # Derive iteration_n from len(iteration_history) so it
-                    # stays monotone — the cycle counter is reset to 0 a
-                    # few lines below, which would otherwise collide with
-                    # subsequent inline-path kickbacks (#2795 review).
-                    _recovery_iteration_n = len(phase_execution.iteration_history)
+                    # Derive iteration_n monotonically — the cycle
+                    # counter is reset to 0 a few lines below, which
+                    # would otherwise collide with subsequent inline-
+                    # path kickbacks. Floor is one past the maximum
+                    # existing directive index so a legacy-hitl_feedback
+                    # migration (which synthesises a directive but
+                    # leaves iteration_history empty) doesn't restart
+                    # the index at 0 (#2795 review).
+                    _recovery_iteration_n = max(
+                        len(phase_execution.iteration_history),
+                        max(
+                            (d.iteration_n for d in phase_execution.operator_directives),
+                            default=-1,
+                        )
+                        + 1,
+                    )
                     _recovery_tracker = None
                     try:
                         from peer_consensus import (

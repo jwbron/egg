@@ -423,6 +423,48 @@ class TestPhaseExecution:
         # doesn't conflict with the existing entry at iteration 0.
         assert restored.operator_directives[1].iteration_n == 1
 
+    def test_legacy_hitl_feedback_null_operator_directives_is_safe(self):
+        """An explicit ``null`` for ``operator_directives`` does not break the migration.
+
+        Pydantic's ``default_factory=list`` does not prevent a writer from
+        emitting a literal ``null`` on the JSON record. ``data.get(..., [])``
+        returns ``None`` in that case and ``list(None)`` would raise — the
+        ``or []`` guard ensures the migration survives.
+        """
+        raw = {
+            "phase": PipelinePhase.REFINE.value,
+            "hitl_feedback": "Drop the planner-scope sections.",
+            "hitl_review_cycles": 1,
+            "operator_directives": None,
+        }
+        restored = PhaseExecution.model_validate(raw)
+        assert len(restored.operator_directives) == 1
+        assert restored.operator_directives[0].feedback_text == "Drop the planner-scope sections."
+
+    def test_legacy_hitl_feedback_sparse_indices_collision_floor(self):
+        """Collision fallback picks one past the maximum, not ``len(directives)``.
+
+        With existing indices ``[0, 2]`` and a primary collision at
+        ``1`` (hitl_review_cycles=2 → 1 — actually no collision; force
+        it via an existing iteration_n=1 alongside the sparse 2), the
+        old ``len(directives)`` fallback would have landed on ``2`` and
+        collided again. The ``max(...)+1`` floor lands on ``3``.
+        """
+        raw = {
+            "phase": PipelinePhase.REFINE.value,
+            "hitl_review_cycles": 2,
+            "hitl_feedback": "Legacy directive",
+            "operator_directives": [
+                {"iteration_n": 1, "feedback_text": "First"},
+                {"iteration_n": 2, "feedback_text": "Sparse"},
+            ],
+        }
+        restored = PhaseExecution.model_validate(raw)
+        assert len(restored.operator_directives) == 3
+        # Primary candidate hitl_review_cycles-1 = 1 collides with existing
+        # entry at iteration_n=1 → fallback to max([1, 2]) + 1 = 3.
+        assert restored.operator_directives[2].iteration_n == 3
+
 
 class TestAgentExitInfo:
     """Tests for AgentExitInfo (issue #2205)."""

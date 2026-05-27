@@ -1345,6 +1345,36 @@ class TestInlineRequestChangesStateReset:
         assert len(phase.operator_directives) == 2
         assert len(phase.iteration_history) == 2
 
+    def test_inline_rerun_iteration_n_monotone_across_legacy_migration(self):
+        """iteration_n stays monotone when a legacy hitl_feedback migration seeded the directive list.
+
+        Pre-#2795 phases load with a synthetic OperatorDirective at
+        ``iteration_n = hitl_review_cycles - 1`` but an empty
+        iteration_history. A naive ``len(iteration_history)`` derivation
+        for the next inline kickback would restart at 0 and label two
+        distinct iterations identically. The ``max(...)+1`` floor on the
+        existing directive indices keeps the rendering monotone.
+        """
+        from routes.pipelines import _apply_inline_hitl_kickback_to_phase
+
+        # Simulate post-migration state: synthetic directive at
+        # iteration_n=1 (from hitl_review_cycles=2) with empty history.
+        phase = PhaseExecution.model_validate(
+            {
+                "phase": PipelinePhase.PLAN.value,
+                "hitl_review_cycles": 2,
+                "hitl_feedback": "Legacy operator directive.",
+            }
+        )
+        assert phase.operator_directives[0].iteration_n == 1
+        assert phase.iteration_history == []
+
+        _apply_inline_hitl_kickback_to_phase(phase, "post-migration", tracker=None)
+        # Without the max(...)+1 floor this would collide at iteration_n=0
+        # (len(iteration_history) at call time was 0).
+        assert phase.operator_directives[-1].iteration_n == 2
+        assert phase.iteration_history[-1].iteration_n == 2
+
     def test_circuit_breaker_preserves_artifacts(self):
         """When the circuit breaker trips, containers/agents/artifacts must be preserved."""
         from models import AgentExecution, ContainerInfo, ContainerStatus

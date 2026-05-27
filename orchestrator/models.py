@@ -493,17 +493,30 @@ class PhaseExecution(BaseModel):
         if not legacy:
             return data
 
-        directives = list(data.get("operator_directives", []))
+        # ``data.get("operator_directives") or []`` (not the two-arg form):
+        # a persisted JSON record may carry an explicit ``null`` for the
+        # field even though Pydantic's ``default_factory=list`` prevents
+        # it on the write side. ``data.get(..., [])`` returns ``None`` on
+        # explicit null and ``list(None)`` then raises — defeating the
+        # migration's whole purpose.
+        directives = list(data.get("operator_directives") or [])
         # Synthesize the directive at the iteration index implied by the
         # cycle counter (the inline handler's old behaviour wrote
-        # hitl_feedback after incrementing hitl_review_cycles). Fall back
-        # to len(operator_directives) if the counter is unavailable so
-        # the index still increases monotonically with each migration.
+        # hitl_feedback after incrementing hitl_review_cycles). On
+        # collision with an existing entry, pick one past the current
+        # maximum so the floor is uniqueness regardless of how sparse
+        # the existing indices are (a ``len(directives)`` fallback can
+        # itself collide when entries are sparse — e.g. ``[0, 2]`` with
+        # primary collision at ``1`` would fall back to ``2``).
         hitl_cycles = data.get("hitl_review_cycles", 0) or 0
         iteration_n = max(hitl_cycles - 1, 0)
-        if any(isinstance(d, dict) and d.get("iteration_n") == iteration_n for d in directives):
-            # Avoid collisions if a writer somehow populated both fields.
-            iteration_n = len(directives)
+        existing_indices = [
+            d.get("iteration_n")
+            for d in directives
+            if isinstance(d, dict) and isinstance(d.get("iteration_n"), int)
+        ]
+        if iteration_n in existing_indices:
+            iteration_n = max(existing_indices) + 1
         directives.append(
             {
                 "iteration_n": iteration_n,
@@ -511,18 +524,14 @@ class PhaseExecution(BaseModel):
             }
         )
         data["operator_directives"] = directives
-        # Best-effort import to avoid pulling logger eagerly in model module.
-        try:
-            import logging as _logging
+        import logging as _logging
 
-            _logging.getLogger("orchestrator.models").warning(
-                "Migrated legacy PhaseExecution.hitl_feedback to operator_directives "
-                "(phase=%s, iteration_n=%s); the hitl_feedback field is removed in #2795.",
-                data.get("phase"),
-                iteration_n,
-            )
-        except Exception:  # noqa: BLE001 — migration must not fail on logging
-            pass
+        _logging.getLogger("orchestrator.models").warning(
+            "Migrated legacy PhaseExecution.hitl_feedback to operator_directives "
+            "(phase=%s, iteration_n=%s); the hitl_feedback field is removed in #2795.",
+            data.get("phase"),
+            iteration_n,
+        )
         return data
 
 
