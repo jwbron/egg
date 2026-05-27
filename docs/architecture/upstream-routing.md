@@ -175,8 +175,10 @@ will be routed to LiteLLM with this unset" comment, one block below
 the existing `ANTHROPIC_API_KEY` block. This is the choice from
 `cq-7`: the gateway holds the LiteLLM master key and injects it on
 every LiteLLM-bound request, mirroring today's Anthropic credential
-injection. LiteLLM itself holds the real per-backend keys in its
-ConfigMap (e.g. the hosted Qwen provider's API key). The sandbox
+injection. Per-provider backend keys (e.g. `OPENROUTER_API_KEY`) flow
+through the same `secrets.env` → `gateway-secrets` path as the master
+key (issue #2799); the LiteLLM ConfigMap references them with
+`os.environ/<NAME>`. The gateway pod does not consume them. The sandbox
 sees neither.
 
 ### Injection
@@ -415,7 +417,7 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
 | `k8s/base/litellm-service.yaml` *(new)* | ClusterIP `litellm:4000` (default `LITELLM_BASE_URL`) |
 | `k8s/base/litellm-configmap.yaml` *(new)* | Empty `model_list` — gateway-only callable; operators populate post-deploy |
 | `k8s/base/kustomization.yaml` | Registers the three new LiteLLM resources |
-| `config/secrets.template.env` | New `LITELLM_MASTER_KEY=""` block with the disable-when-empty note |
+| `config/secrets.template.env` | `LITELLM_MASTER_KEY=""` block (disable-when-empty); `OPENROUTER_API_KEY=""` block added by #2799 |
 
 ## Related Documentation
 
