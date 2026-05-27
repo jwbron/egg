@@ -523,8 +523,9 @@ class TestStartAwaitingHumanPipeline:
         assert phase_exec.started_at is None
         assert pipeline.current_phase == PipelinePhase.REFINE
         assert pipeline.status == PipelineStatus.RUNNING
-        # Feedback should be preserved for the re-running agent
-        assert phase_exec.hitl_feedback == "Try a different strategy"
+        # Feedback should be appended as a structured operator directive (#2795)
+        assert phase_exec.operator_directives
+        assert phase_exec.operator_directives[-1].feedback_text == "Try a different strategy"
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
@@ -576,7 +577,7 @@ class TestStartAwaitingHumanPipeline:
     def test_recovery_preserves_feedback(
         self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        """request_changes feedback is stored in phase_execution.hitl_feedback."""
+        """request_changes feedback appends to operator_directives (#2795)."""
         pipeline = _make_awaiting_pipeline(
             phase=PipelinePhase.REFINE,
             resolution='{"action": "request_changes", "feedback": "Fix the tests"}',
@@ -587,7 +588,11 @@ class TestStartAwaitingHumanPipeline:
 
         assert resp.status_code == 200
         phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert phase_exec.hitl_feedback == "Fix the tests"
+        assert phase_exec.operator_directives
+        assert phase_exec.operator_directives[-1].feedback_text == "Fix the tests"
+        # An iteration summary is also appended (sparse on recovery path
+        # since the in-memory tracker is gone after restart).
+        assert phase_exec.iteration_history
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")

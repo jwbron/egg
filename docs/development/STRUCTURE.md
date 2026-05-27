@@ -290,6 +290,8 @@ shared/
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
+├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy
+│   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
@@ -471,7 +473,7 @@ config/
 | Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
-| Agent navigation | `CLAUDE.md` at component root | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
+| Agent navigation | `CLAUDE.md` at component root (with `AGENTS.md` symlink alias) | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
 
 ## Documentation Organization
 

@@ -1126,20 +1126,21 @@ class TestSetupAgentRules:
 
     @patch("os.chown")
     def test_cleans_up_stale_single_repo_symlink(self, mock_chown, temp_dir):
-        """Stale CLAUDE.md symlink inside a single repo is cleaned up."""
+        """Stale CLAUDE.md symlink pointing at the global rules file is cleaned up."""
         repos_dir = temp_dir / "repos"
         repos_dir.mkdir()
         repo = repos_dir / "my-project"
         repo.mkdir()
         (repo / ".git").mkdir()
 
-        # Create a stale symlink inside the repo (from a previous container run)
-        stale = repo / "CLAUDE.md"
-        stale.symlink_to(temp_dir / "nonexistent" / "CLAUDE.md")
-        assert stale.is_symlink()
-
         claude_dir = temp_dir / ".claude"
         claude_dir.mkdir()
+
+        # Stale symlink left behind by a previous container run — points at the
+        # global rules file, which is exactly what the cleanup target-matches on.
+        stale = repo / "CLAUDE.md"
+        stale.symlink_to(claude_dir / "CLAUDE.md")
+        assert stale.is_symlink()
 
         config = MagicMock()
         config.user_home = temp_dir
@@ -1197,6 +1198,153 @@ class TestSetupAgentRules:
         assert real_file.exists()
         assert not real_file.is_symlink()
         assert real_file.read_text() == "# Project rules"
+
+    @patch("os.chown")
+    def test_creates_agents_md_alias(self, mock_chown, temp_dir, monkeypatch):
+        """AGENTS.md symlink is created next to CLAUDE.md in claude_dir."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = temp_dir / "repos"
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+            entrypoint.setup_agent_rules(config, logger)
+
+        agents_md = claude_dir / "AGENTS.md"
+        claude_md = claude_dir / "CLAUDE.md"
+        assert agents_md.is_symlink()
+        assert agents_md.resolve() == claude_md.resolve()
+        # Relative target so the alias travels with the rules file
+        assert os.readlink(agents_md) == "CLAUDE.md"
+
+    @patch("os.chown")
+    def test_replaces_stale_agents_md_alias(self, mock_chown, temp_dir, monkeypatch):
+        """Pre-existing AGENTS.md symlink/file in claude_dir is replaced."""
+        monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+        # Stale AGENTS.md pointing somewhere bogus
+        stale = claude_dir / "AGENTS.md"
+        stale.symlink_to(temp_dir / "nonexistent")
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = temp_dir / "repos"
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+            entrypoint.setup_agent_rules(config, logger)
+
+        assert stale.is_symlink()
+        assert stale.resolve() == (claude_dir / "CLAUDE.md").resolve()
+
+    @patch("os.chown")
+    def test_cleans_up_stale_agents_md_in_single_repo(self, mock_chown, temp_dir):
+        """Stale AGENTS.md symlink pointing at the global rules file is cleaned up."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        # Stale AGENTS.md symlink left behind by a previous container run.
+        stale = repo / "AGENTS.md"
+        stale.symlink_to(claude_dir / "CLAUDE.md")
+        assert stale.is_symlink()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+            entrypoint.setup_agent_rules(config, logger)
+
+        assert not stale.exists()
+        assert not stale.is_symlink()
+
+    @patch("os.chown")
+    def test_preserves_committed_agents_md_alias_in_repo(self, mock_chown, temp_dir):
+        """Committed relative ``AGENTS.md -> CLAUDE.md`` symlink survives cleanup.
+
+        Regression test for the case where a repo (e.g. egg itself in the
+        dogfood scenario) commits ``AGENTS.md`` as a relative symlink to its
+        own ``CLAUDE.md`` for cross-tool agent discovery. The entrypoint must
+        not delete this symlink — it's tracked content, not container-local
+        state from a previous run.
+        """
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Committed repo content: real CLAUDE.md + relative AGENTS.md alias.
+        real_claude = repo / "CLAUDE.md"
+        real_claude.write_text("# Project rules")
+        committed_alias = repo / "AGENTS.md"
+        committed_alias.symlink_to("CLAUDE.md")  # relative, like the repo commit
+        assert committed_alias.is_symlink()
+        assert os.readlink(committed_alias) == "CLAUDE.md"
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
+            entrypoint.setup_agent_rules(config, logger)
+
+        # The committed alias and its target must be intact and unchanged.
+        assert committed_alias.is_symlink()
+        assert os.readlink(committed_alias) == "CLAUDE.md"
+        assert real_claude.exists()
+        assert not real_claude.is_symlink()
+        assert real_claude.read_text() == "# Project rules"
 
 
 class TestSetupEggSymlink:
@@ -1354,6 +1502,26 @@ class TestSetupAnthropicApi:
         entrypoint.setup_anthropic_api(config, logger)
 
         assert "ANTHROPIC_API_KEY" not in os.environ
+
+    def test_placeholder_embeds_egg_session_token_when_set(self, monkeypatch):
+        """When EGG_SESSION_TOKEN is set (k8s/Compose agent path), the
+        placeholder wraps it so the gateway's /v1/messages proxy can
+        identify the session from the request header instead of falling
+        back to ephemeral pod-IP lookup (issue #2829).
+        """
+        from egg_session_placeholder import from_placeholder
+
+        monkeypatch.setenv("GATEWAY_URL", f"http://test-gateway:{GATEWAY_PORT}")
+        monkeypatch.setenv("EGG_SESSION_TOKEN", "agent-session-xyz")
+
+        config = MagicMock()
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.setup_anthropic_api(config, logger)
+
+        placeholder = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+        assert placeholder.startswith("sk-ant-oat01-")
+        assert from_placeholder(placeholder) == "agent-session-xyz"
 
 
 class TestConfigAuthMethod:
@@ -1572,10 +1740,17 @@ class TestChdirToSingleRepo:
         assert symlink.is_symlink()
         assert symlink.resolve() == global_claude_md.resolve()
 
-        # Symlink should be excluded from git tracking via .git/info/exclude
+        # AGENTS.md alias is created alongside CLAUDE.md for cross-tool compat
+        agents_alias = repo / "AGENTS.md"
+        assert agents_alias.is_symlink()
+        assert agents_alias.resolve() == global_claude_md.resolve()
+
+        # Both symlinks should be excluded from git tracking via .git/info/exclude
         exclude_file = repo / ".git" / "info" / "exclude"
         assert exclude_file.exists()
-        assert "CLAUDE.md" in exclude_file.read_text()
+        exclude_contents = exclude_file.read_text()
+        assert "CLAUDE.md" in exclude_contents
+        assert "AGENTS.md" in exclude_contents
 
     def test_existing_claude_md_not_overwritten(self, tmp_path, monkeypatch):
         """Existing CLAUDE.md in repo is not replaced with a symlink."""
