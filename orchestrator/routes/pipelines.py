@@ -20355,8 +20355,7 @@ def _write_apply_phase_handoff(
 ) -> None:
     """Write the applier handoff JSON before the ``APPLY`` phase spawns.
 
-    The applier prompt (``plugins/refine-plan/skills/refine-plan/
-    agents/applier.md``) consumes a one-line JSON identifying which
+    The applier prompt consumes a one-line JSON identifying which
     artifact was just approved so it can branch between refine-apply
     (writing the analysis to the epic Description) and plan-apply
     (walking ``Task.jira_action`` + driving the Jira CLI per task).
@@ -21830,67 +21829,6 @@ def _run_pipeline(
                             pipeline_id=pipeline_id,
                             epic_key=jira_ticket_value,
                             error=str(sweep_err),
-                        )
-
-            # Issue #1557 reviewer_code v1 finding #3 + reviewer_code_holistic
-            # v1 finding #3: strip non-matching ``## [mode: X]`` blocks from
-            # the refiner / task-planner / applier prompt files in the
-            # worktree before the sandbox spawns, so the skill system reads
-            # a single-mode prompt instead of four interleaved mode blocks
-            # (risk_analyst R10 mitigation b — server-side strip).
-            #
-            # The strip runs on a per-phase worktree, never on the source
-            # tree (``worktree_repo_path`` is the per-pipeline checkout),
-            # so the modification is scoped to this pipeline's execution
-            # and disappears with the worktree teardown.  Fail-open: a
-            # strip error logs a warning and the prompts keep their
-            # original four-mode shape (the documenter's self-selection
-            # fallback handles the multi-block case).
-            try:
-                from prompt_loader import prep_mode_aware_prompt
-            except ImportError:  # pragma: no cover - defensive
-                try:
-                    from orchestrator.prompt_loader import (  # type: ignore[no-redef]
-                        prep_mode_aware_prompt,
-                    )
-                except ImportError:
-                    prep_mode_aware_prompt = None  # type: ignore[assignment]
-            _epic_mode_value = sandbox_env.get("EGG_EPIC_MODE")
-            if prep_mode_aware_prompt is not None and _epic_mode_value:
-                _agents_dir = (
-                    Path(worktree_repo_path)
-                    / "plugins"
-                    / "refine-plan"
-                    / "skills"
-                    / "refine-plan"
-                    / "agents"
-                )
-                for _prompt_name in ("refiner.md", "task-planner.md", "applier.md"):
-                    _prompt_path = _agents_dir / _prompt_name
-                    try:
-                        if not _prompt_path.is_file():
-                            continue
-                        _original_text = _prompt_path.read_text(encoding="utf-8")
-                        _stripped_text = prep_mode_aware_prompt(_original_text, _epic_mode_value)
-                        # Skip the write when the helper returned the input
-                        # unchanged (unknown mode / no mode markup) so the
-                        # worktree's git status isn't churned for prompts
-                        # that don't need stripping.
-                        if _stripped_text != _original_text:
-                            _prompt_path.write_text(_stripped_text, encoding="utf-8")
-                            logger.info(
-                                "Stripped non-matching mode blocks from agent prompt",
-                                pipeline_id=pipeline_id,
-                                prompt=_prompt_name,
-                                mode=_epic_mode_value,
-                            )
-                    except Exception as _strip_err:  # noqa: BLE001 — fail-open
-                        logger.warning(
-                            "Mode-block strip failed (continuing with unstripped prompt)",
-                            pipeline_id=pipeline_id,
-                            prompt=_prompt_name,
-                            mode=_epic_mode_value,
-                            error=str(_strip_err),
                         )
 
             phase_failed = False
