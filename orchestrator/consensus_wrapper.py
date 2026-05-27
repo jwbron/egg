@@ -129,9 +129,13 @@ STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 # cannot pre-create a symlink at a predictable ``/tmp/agent-output-$$``
 # location (``tee -a`` follows symlinks). The container is single-tenant
 # in normal operation; mktemp is defense-in-depth for multi-tenant
-# sandbox setups. The fallback to ``/tmp/agent-output-$$.log`` only
-# fires if ``mktemp`` itself isn't on PATH, which would be a much
-# bigger problem.
+# sandbox setups. The fallback to ``/tmp/agent-output-$$.log`` fires on
+# any ``mktemp`` failure — missing from PATH, ``/tmp`` full (``ENOSPC``),
+# tmpfs read-only, fd exhaustion, etc. The predictable-path attack
+# window narrows considerably in practice (mktemp is in coreutils and
+# the failure modes above are themselves rare), but the fallback is
+# still a known weakening of the symlink protection rather than an
+# unreachable branch.
 if [ -z "${{AGENT_OUTPUT_LOG:-}}" ]; then
     AGENT_OUTPUT_LOG="$(mktemp -t agent-output.XXXXXX 2>/dev/null || echo "/tmp/agent-output-$$.log")"
 fi
@@ -180,11 +184,13 @@ run_agent() {{
 # The substring matches CLI output from claude_agent_sdk emitted on
 # the buffer overflow path. If a future SDK bump changes the
 # wording, this grep silently falls through and the wrapper burns
-# its retry budget again — the marker_stability_test in
-# orchestrator/tests/test_consensus_wrapper.py exercises a synthetic
-# log to keep this honest, but does not pin against the installed
-# SDK. The real fix is tool-layer truncation (#2805); this is the
-# fail-fast path until that lands.
+# its retry budget again — the buffer-overflow tests in
+# orchestrator/tests/test_consensus_wrapper.py (notably
+# test_script_marker_matches_client_constant and the
+# test_buffer_overflow_*_aborts_without_retry pair) exercise the
+# wrapper against a synthetic log to keep this honest, but do not
+# pin against the installed SDK. The real fix is tool-layer
+# truncation (#2805); this is the fail-fast path until that lands.
 is_buffer_overflow() {{
     [ -f "$AGENT_OUTPUT_LOG" ] || return 1
     grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null

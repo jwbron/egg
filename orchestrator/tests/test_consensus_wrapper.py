@@ -1359,11 +1359,10 @@ class TestBufferOverflowDetection:
         updating the wrapper script silently regresses the short-circuit
         — this test pins them together. Issue #2804.
         """
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
-        try:
-            from egg_agent.client import _BUFFER_OVERFLOW_MARKER
-        finally:
-            sys.path.pop(0)
+        # ``orchestrator/tests/conftest.py`` already puts ``shared/`` on
+        # ``sys.path`` for the orchestrator test session, so the import
+        # below resolves without any per-test path munging.
+        from egg_agent.client import _BUFFER_OVERFLOW_MARKER
 
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
