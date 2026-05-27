@@ -96,8 +96,14 @@ Key topology properties:
   gateway pod calls LiteLLM.
 - **Operator-owned isolation for the LiteLLM pod itself.** LiteLLM
   in turn talks out to the configured provider (hosted Qwen for
-  the first cut, per `cq-6`); per-provider credentials live in the
-  LiteLLM ConfigMap, not the gateway.
+  the first cut, per `cq-6`). Per-provider credentials flow through
+  the same path as `LITELLM_MASTER_KEY` (issue #2799): operators set
+  them in `~/.config/egg/secrets.env`; `make k3s-secrets` extracts
+  each onto `gateway-secrets` as a literal key; the LiteLLM
+  Deployment binds them via `secretKeyRef` (`optional: true`). The
+  gateway pod does not consume them — `secrets.env` is the
+  operator-facing entry point and the LiteLLM ConfigMap references
+  each with `os.environ/<NAME>`.
 - **No-op until configured.** The Service comes up healthy with an
   empty `model_list`. Until an operator populates the ConfigMap
   and sets the LiteLLM master key, every `/v1/messages` request
