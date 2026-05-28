@@ -75,13 +75,15 @@ Call `.to_dict()` to serialize for JSON/event payloads.
 
 | Property | What it does | Used by |
 |----------|-------------|---------|
-| `git_log` | `git log --oneline -20` on the branch | StateConsistencyCheck |
-| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | StateConsistencyCheck |
+| `git_log` | `git log --oneline -20` on the branch | _None — see note below_ |
+| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | _None — see note below_ |
 | `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck |
-| `contract` | Parses SDLC contract JSON for the pipeline's issue | StateConsistencyCheck |
+| `contract` | Parses SDLC contract JSON for the pipeline's issue | _None — see note below_ |
 | `live_container_ids` | Lists running Docker containers | ContainerLivenessCheck, StartupStateCheck, StateConsistencyCheck |
 
-**Truncation:** `git_diff_stat` is capped at ~16,000 chars (~4000 tokens) via `_TIER2_CHAR_CAP` in `context.py`; the constant keeps its legacy `TIER2` name but now bounds this Tier 1 context field. Agent output files are capped at 4KB each.
+> **Unused properties:** `git_log`, `git_diff_stat`, and `contract` are defined on the context but consumed by no currently registered check — they were the removed `AgentInspectorCheck`'s (Tier 2) context fields, retained for a future Tier 2 check (see the Tier 2 registration status note at the top). Note that `StateConsistencyCheck` reads contract data via `agent_outputs` (scanning for a `contract` file), not via the `contract` property.
+
+**Truncation:** `git_diff_stat` is capped at ~16,000 chars (~4000 tokens) via `_TIER2_CHAR_CAP` in `context.py` (the constant keeps its legacy `TIER2` name). Because `git_diff_stat` is currently unused (see the note above), this bound is presently inert. Agent output files — which *are* consumed, by `StateConsistencyCheck` — are capped at 4KB each.
 
 ## Runner (`runner.py`)
 
