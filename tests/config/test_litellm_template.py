@@ -8,8 +8,12 @@ config copied to ``~/.config/egg/litellm-models.yaml``. Each routed
 suffix leaks — without the alias registered, LiteLLM 400s those probes
 with ``Invalid model name``.
 
-This test file catches a forgetting operator who adds a new backend
-without its paired alias. Commented-out example entries in the
+This test file enforces three guarantees: every bare row has its
+``[1m]`` alias, every ``[1m]`` alias has its bare sibling, and paired
+rows share byte-equal ``litellm_params`` — so probes and real requests
+can never be quietly routed through different configs. It catches a
+forgetting operator who adds a new backend without its paired alias or
+lets the two rows' params drift. Commented-out example entries in the
 template are YAML comments, not parsed entries, so they're naturally
 excluded.
 """
