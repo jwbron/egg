@@ -16,7 +16,7 @@ When an agent container exits, the gateway **no longer** automatically commits a
 - It committed files outside the agent's role boundaries, blocking downstream agents' pushes
 - WIP commits broke CI and confused reviewers
 
-With per-agent worktree isolation, each agent's uncommitted work persists safely in its own worktree on disk until the pipeline cleans up. For committed-but-unpushed work (pushes wedged by gateway rejection or infra failure), `cleanup_pipeline` and `restart_phase` both auto-salvage to `egg/recovered/…` refs before deleting worktrees — see [Committed but Unpushed: Auto-Salvage](#committed-but-unpushed-auto-salvage) below.
+With per-agent worktree isolation, each agent's uncommitted work persists safely in its own worktree on disk until the pipeline cleans up. For committed-but-unpushed work (pushes wedged by gateway rejection or infra failure), `cleanup_pipeline`, `restart_phase`, and `restart_agent_job` all auto-salvage to `egg/recovered/…` refs before deleting or hard-resetting worktrees — see [Committed but Unpushed: Auto-Salvage](#committed-but-unpushed-auto-salvage) below.
 
 Source: `gateway/post_agent_commit.py`
 
@@ -38,7 +38,7 @@ Per-agent worktrees persist after container exit (until pipeline cleanup). Uncom
 
 A different failure class exists when an agent **commits** work locally but its **pushes** to the remote are wedged — gateway branch-allowlist rejection from a wrong-branch spawn-time env var, transient infra failure, or restart-reconciliation marking a still-running pipeline `failed`. In these cases the commits sit on the local `egg/{worktree_id}/work` branch and are lost when `cleanup_pipeline` deletes the worktree.
 
-Since [#2438](https://github.com/jwbron/egg/pull/2438), `cleanup_pipeline` automatically calls `auto_salvage_pipeline` before deleting any worktree. Since [#2526](https://github.com/jwbron/egg/pull/2526), `restart_phase` does the same — making phase restart (the scenario most likely to produce wedged pushes) a safe worktree-deletion path. Every per-agent worktree with local commits not reachable from `origin/<assigned_branch>` is pushed to a recovery ref:
+Since [#2438](https://github.com/jwbron/egg/pull/2438), `cleanup_pipeline` automatically calls `auto_salvage_pipeline` before deleting any worktree. Since [#2526](https://github.com/jwbron/egg/pull/2526), `restart_phase` does the same — making phase restart (the scenario most likely to produce wedged pushes) a safe worktree-deletion path. Since [#2855](https://github.com/jwbron/egg/pull/2855), **agent restart** (`restart_agent_job`) also calls `auto_salvage_pipeline`, with `salvage_uncommitted=True` — so uncommitted edits present at restart time are committed to a synthetic `[salvage] pre-crash working-tree state` snapshot before the recovery push, extending salvage coverage to the mid-`Edit` crash window where work exists only in the dirty working tree. Every per-agent worktree with local commits not reachable from `origin/<assigned_branch>` is pushed to a recovery ref:
 
 ```
 egg/recovered/<pipeline_id>/<scope>/<short_sha>

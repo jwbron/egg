@@ -226,6 +226,8 @@ For a per-slice agent in a multi-slice implement phase, `slice_id` scopes the re
 
 Agent restart preserves the agent's git worktree, including any committed work on the branch. The gateway's `create_worktrees` API is **idempotent** — when called with a worktree ID that already exists (keyed by `{pipeline_id}-{role}`), it returns the existing worktree and its host paths rather than creating a new one. This means the respawned agent starts with the full commit history and all prior committed work intact.
 
+**Uncommitted work is also captured before respawn** ([#2807](https://github.com/jwbron/egg/issues/2807)): auto-salvage runs with `salvage_uncommitted=True`, which stages and commits the agent's dirty working tree (using identity `egg-salvage <egg-salvage@localhost>` and commit message `[salvage] pre-crash working-tree state (#2807)`) before pushing to `egg/recovered/…`. The gateway's subsequent `git reset --hard` during worktree reuse then destroys the local dirty state, but the recovery ref persists on origin.
+
 **Implementation detail:** `spawn_agent_container()` always calls the gateway to create (or reuse) the per-agent worktree when `repos` is provided, regardless of whether `repo_volumes` was passed by the caller. This ensures both the initial spawn path and the restart path (which does not pass `repo_volumes`) correctly mount the agent's worktree. See issue [#1597](https://github.com/jwbron/egg/issues/1597) for the fix that resolved a bug where the restart path skipped worktree creation.
 
 ## Phase-Level Restart
@@ -276,7 +278,7 @@ When an agent's pushes to its assigned branch are wedged — gateway branch-allo
 | **API (read)** | `GET /api/v1/pipelines/{id}/local-commits[?agent_role=&slice_id=]` — list unpushed commits per worktree (read-only) |
 | **API (write)** | `POST /api/v1/pipelines/{id}/salvage[?agent_role=&slice_id=]` — push HEAD to `egg/recovered/...` |
 | **MCP tool** | `list_agent_local_commits(task_id, agent_role?, slice_id?)` and `salvage_agent_commits(task_id, agent_role?, slice_id?)` |
-| **Auto-salvage** | Best-effort, automatic — runs from `kubernetes_spawner.cleanup_pipeline` (skipped when `preserve_worktrees=True`, since the worktree survives and there's nothing to mirror) and from `restart_phase` (always runs against the worktrees of the roles being restarted). Failures are logged and never block cleanup or restart |
+| **Auto-salvage** | Best-effort, automatic — runs from `kubernetes_spawner.cleanup_pipeline` (skipped when `preserve_worktrees=True`, since the worktree survives and there's nothing to mirror), from `restart_phase` (always runs against the worktrees of the roles being restarted), and from **agent restart** (`restart_agent_job`, [#2807](https://github.com/jwbron/egg/issues/2807)) with `salvage_uncommitted=True` — which also commits the dirty working tree onto the work branch before the recovery push, so uncommitted edits survive the respawn's `git reset --hard`. Failures are logged and never block cleanup or restart |
 
 ### Recovery Workflow
 
