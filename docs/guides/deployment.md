@@ -84,6 +84,7 @@ make build
 # docker build -t egg-sandbox:latest sandbox/
 # docker build -t egg-orchestrator:latest orchestrator/
 # docker build -t egg-gateway:latest gateway/
+# docker build -t egg-litellm:latest litellm/  (vendored with cache_control patches)
 # k3s ctr images import <image-tarballs>
 ```
 
@@ -411,7 +412,7 @@ If the sandbox exits with `Claude Code CLI not found in PATH`, the Claude binary
 Fix: rebuild and re-import the sandbox image. The legacy `egg --reset` shortcut was removed in [#1762](https://github.com/jwbron/egg/issues/1762); run the underlying commands directly:
 
 ```bash
-make build         # rebuild egg-sandbox / egg-orchestrator / egg-gateway images
+make build         # rebuild egg-sandbox / egg-orchestrator / egg-gateway / egg-litellm images
 make k3s-import    # import rebuilt images into k3s
 make deploy        # roll out deployments in egg-system
 ```

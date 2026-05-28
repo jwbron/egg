@@ -30,6 +30,7 @@ If `.venv` is absent, run `make deps` to install everything. This installs `uv` 
 | `orchestrator/` | Central SDLC pipeline engine — scheduling, health monitoring, multi-agent coordination |
 | `gateway/` | Policy-enforcement sidecar — validates git/gh operations, injects credentials |
 | `sandbox/` | Untrusted agent container — Claude Code config, tools, entrypoint |
+| `litellm/` | Vendored LiteLLM image with cache_control passthrough patches for qwen/deepseek |
 | `shared/` | Shared Python packages and agent prompt templates |
 | `docs/` | All documentation — guides, architecture, references |
 | `integration_tests/` | Cross-component integration tests |

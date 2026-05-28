@@ -12,6 +12,7 @@ egg/
 ├── gateway/                # Gateway sidecar (trusted container)
 ├── integration_tests/      # Integration tests (require k3s)
 ├── k8s/                    # Kubernetes manifests (Kustomize base + overlays)
+├── litellm/                # Vendored LiteLLM image (cache_control patches for qwen/deepseek)
 ├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── plugins/                # Claude Code plugins (distributable via egg-tools marketplace)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
@@ -34,6 +35,7 @@ egg/
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring k3s cluster and real pods | CI / local |
 | `k8s/` | Kubernetes manifests: Kustomize base + overlays (local/k3s). Namespaces, Deployments, Services, NetworkPolicies, agent Job template, RBAC | k3s cluster |
+| `litellm/` | Vendored LiteLLM image: `Dockerfile` based on upstream LiteLLM + `patch-cache-control.py` that adds qwen/deepseek to the `cache_control` passthrough allowlists (issue #2839) | k3s cluster |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
