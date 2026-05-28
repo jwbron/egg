@@ -1410,6 +1410,40 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
+            # Salvage agent work before respawning (#2807). The respawn
+            # reuses the on-disk worktree and hard-resets it to a remote
+            # ref (gateway _reset_reused_worktree_to_safe_ref), destroying
+            # both unpushed commits and the dirty working tree. The modal
+            # #2807 crash window is mid-Edit, before any commit, so
+            # salvage_uncommitted=True commits the dirty tree onto the work
+            # branch first; auto-salvage then pushes everything to
+            # egg/recovered/<pipeline>/<scope>/<sha> for manual triage.
+            #
+            # This runs on the respawn critical path while the restart lock
+            # is held. It is scoped to just this agent's own worktree, the
+            # working-tree commit is local git, and the gateway push carries
+            # its own HTTP timeout, so the added lock-hold is bounded. The
+            # best-effort try/except keeps a salvage failure from blocking
+            # the respawn.
+            agent_worktree_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id)
+            try:
+                agent_salvage.auto_salvage_pipeline(
+                    self.gateway,
+                    pipeline_id,
+                    worktree_filter={agent_worktree_id},
+                    mode=mode,
+                    base_branch=base_branch,
+                    salvage_uncommitted=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Auto-salvage failed during agent restart; proceeding",
+                    pipeline_id=pipeline_id,
+                    agent_role=agent_role.value,
+                    worktree_id=agent_worktree_id,
+                    error=str(e),
+                )
+
             # Respawn — gateway's create_worktrees() is idempotent.
             # ``slice_id`` is forwarded so spawn_agent_job builds the
             # slice-scoped Job + worktree id and sets ``EGG_SLICE_ID``

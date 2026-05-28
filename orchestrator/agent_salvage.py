@@ -78,6 +78,16 @@ RECOVERY_BRANCH_PREFIX = "egg/recovered"
 # group so the caller can validate it against the AgentRole allowlist.
 _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 
+# Message + identity for the synthetic commit that captures a crashed
+# agent's uncommitted working-tree state (#2807). Operators grep the
+# message prefix to tell a salvaged dirty-tree snapshot apart from the
+# agent's own commits. The orchestrator runs git on the agent's worktree
+# without a configured user, so an explicit identity is required for the
+# commit to succeed.
+_UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
+_SALVAGE_COMMIT_NAME = "egg-salvage"
+_SALVAGE_COMMIT_EMAIL = "egg-salvage@localhost"
+
 
 @dataclass(frozen=True)
 class AgentWorktree:
@@ -556,19 +566,106 @@ def _recovery_ref(
     return f"{RECOVERY_BRANCH_PREFIX}/{pipeline_id}/{scope_label}/{short}"
 
 
+def _has_uncommitted_changes(repo_path: Path) -> bool:
+    """Return True when the worktree has staged, unstaged, or untracked changes."""
+    try:
+        result = _run_git("status", "--porcelain", cwd=repo_path, check=False)
+    except OSError, subprocess.SubprocessError:
+        return False
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def commit_working_tree(worktree: AgentWorktree) -> str | None:
+    """Commit a crashed agent's uncommitted working-tree state (#2807).
+
+    The coder commits at consensus-propose time, not per task, so a crash
+    in the ``Edit``→``git commit`` window leaves valuable work only in the
+    dirty working tree. The respawn path reuses the on-disk worktree and
+    hard-resets it to a remote ref (gateway
+    ``_reset_reused_worktree_to_safe_ref``), which would discard that
+    state. Staging and committing it onto the local work branch *before*
+    salvage lets the recovery-ref push capture it.
+
+    Best-effort: returns the new commit SHA on success, ``None`` when
+    there is nothing to commit or the commit fails. Never raises — a
+    failure here must not stop the committed-but-unpushed salvage that
+    follows.
+    """
+    if not _is_git_worktree(worktree.repo_path):
+        return None
+    if not _has_uncommitted_changes(worktree.repo_path):
+        return None
+    try:
+        add = _run_git("add", "-A", cwd=worktree.repo_path, check=False)
+        if add.returncode != 0:
+            logger.warning(
+                "Salvage: git add -A failed; skipping uncommitted capture",
+                worktree_id=worktree.worktree_id,
+                stderr=(add.stderr or "").strip(),
+            )
+            return None
+        commit = _run_git(
+            "-c",
+            f"user.name={_SALVAGE_COMMIT_NAME}",
+            "-c",
+            f"user.email={_SALVAGE_COMMIT_EMAIL}",
+            "commit",
+            "-m",
+            _UNCOMMITTED_SALVAGE_MESSAGE,
+            cwd=worktree.repo_path,
+            check=False,
+        )
+        if commit.returncode != 0:
+            logger.warning(
+                "Salvage: commit of uncommitted working tree failed",
+                worktree_id=worktree.worktree_id,
+                stderr=(commit.stderr or "").strip(),
+            )
+            return None
+        head = _run_git("rev-parse", "HEAD", cwd=worktree.repo_path, check=False)
+        head_sha = (head.stdout or "").strip() if head.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(
+            "Salvage: capturing uncommitted working tree raised; continuing",
+            worktree_id=worktree.worktree_id,
+            error=str(e),
+        )
+        return None
+
+    logger.info(
+        "Salvage: committed uncommitted working-tree state before recovery push",
+        pipeline_id=worktree.pipeline_id,
+        worktree_id=worktree.worktree_id,
+        agent_role=worktree.agent_role,
+        head_sha=head_sha,
+    )
+    return head_sha
+
+
 def salvage_worktree(
     gateway: GatewayClient,
     worktree: AgentWorktree,
     *,
     base_branch: str | None = None,
     mode: str = "public",
+    salvage_uncommitted: bool = False,
 ) -> SalvageResult:
     """Push ``worktree``'s HEAD to a recovery ref, if it has unpushed work.
 
     Returns a ``SalvageResult`` with ``ok=True`` when a push succeeded or
     when there was nothing to salvage (``n_commits=0``). ``ok=False``
     only on push failure or worktree corruption.
+
+    When ``salvage_uncommitted`` is set, the worktree's dirty state is
+    committed onto the local work branch (via :func:`commit_working_tree`)
+    *before* enumeration, so the recovery push also captures uncommitted
+    edits — the #2807 crash window where a respawn's ``git reset --hard``
+    would otherwise destroy them. Callers on the cleanup path leave it
+    ``False`` to avoid turning routine untracked build artifacts into
+    recovery refs.
     """
+    if salvage_uncommitted:
+        commit_working_tree(worktree)
     report = list_unpushed_commits(worktree, base_branch=base_branch)
     if report.error:
         return SalvageResult(
@@ -665,6 +762,7 @@ def auto_salvage_pipeline(
     base_branch: str | None = None,
     mode: str = "public",
     worktree_filter: set[str] | None = None,
+    salvage_uncommitted: bool = False,
 ) -> list[SalvageResult]:
     """Best-effort salvage of every per-agent worktree for a pipeline.
 
@@ -677,6 +775,11 @@ def auto_salvage_pipeline(
     the given set, so the caller can pass exactly the ids it is about
     to delete and skip stale on-disk worktrees from a prior pipeline
     re-use.
+
+    ``salvage_uncommitted`` (set by the restart-recovery caller, #2807)
+    commits each worktree's dirty state onto its work branch before the
+    recovery push so uncommitted edits survive the respawn's
+    ``git reset --hard``. Left ``False`` on the cleanup path.
     """
     results: list[SalvageResult] = []
     try:
@@ -698,6 +801,7 @@ def auto_salvage_pipeline(
                 wt,
                 base_branch=base_branch,
                 mode=mode,
+                salvage_uncommitted=salvage_uncommitted,
             )
         except Exception as e:
             # salvage_worktree is supposed to catch its own failures, but
