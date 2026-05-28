@@ -16,7 +16,9 @@ HealthCheckRunner
 │   ├── ContainerLivenessCheck
 │   ├── StartupStateCheck
 │   ├── PhaseOutputPresenceCheck
-│   └── StateConsistencyCheck
+│   ├── StateConsistencyCheck
+│   ├── ConsensusStallCheck
+│   └── IncompleteConsensusStallCheck
 ```
 
 ## Core Types (`types.py`)
@@ -78,6 +80,8 @@ Call `.to_dict()` to serialize for JSON/event payloads.
 | `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck |
 | `contract` | Parses SDLC contract JSON for the pipeline's issue | StateConsistencyCheck |
 | `live_container_ids` | Lists running Docker containers | ContainerLivenessCheck, StartupStateCheck, StateConsistencyCheck |
+
+**Truncation:** `git_diff_stat` is capped at ~16,000 chars (~4000 tokens) via `_TIER2_CHAR_CAP` in `context.py`; the constant keeps its legacy `TIER2` name but now bounds this Tier 1 context field. Agent output files are capped at 4KB each.
 
 ## Runner (`runner.py`)
 
@@ -151,16 +155,14 @@ Detects BRC consensus-complete-but-phase-stuck conditions for concurrent executi
 - **HEALTHY**: Pipeline not running, phase not using concurrent execution, within grace period, or consensus not yet complete
 - Recovery is driven by `ContainerMonitor._handle_consensus_stall_recovery()`: tracker reconstruction first, then aggressive agent/phase completion with optimistic locking
 
+### IncompleteConsensusStallCheck (`tier1/incomplete_consensus_stall.py`)
 
-**Configuration:**
+Detects BRC consensus-*incomplete*-and-not-progressing conditions: most agents have confirmed but one or more remain stuck (e.g. in a heartbeat loop after a re-review cycle).
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `HEALTH_CHECK_MODEL` | Model to use for inspection | `sonnet` |
-
-**Context token budget:**
-
-Tier 2 context fields are capped at ~4000 tokens (~16,000 chars) via `_TIER2_CHAR_CAP` in `context.py`. Individual agent output files are capped at 4KB. The contract JSON is trimmed to key fields (`current_phase`, `acceptance_criteria`, `decisions`, `agent_executions`) before inclusion.
+- **Triggers:** RUNTIME_TICK, ON_DEMAND
+- **DEGRADED** (+ ALERT): The same set of blocking (unconfirmed) agents persists for `stall_tick_threshold` consecutive ticks (default 10), after the phase grace period (default 300s) and post-proposal grace period have elapsed
+- **HEALTHY**: Pipeline not running, phase not using concurrent execution, within a grace period, no blocking agents, the blocking set is still changing, or blocking agents show recent progress activity
+- Purely diagnostic — recovery is escalated to the overseer (`details.recovery_action = escalate_to_overseer`)
 
 ## Integration Points
 
