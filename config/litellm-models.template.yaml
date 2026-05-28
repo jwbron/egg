@@ -84,13 +84,28 @@ data:
           #   reasoning:
           #     effort: "high"
       # Paired `[1m]` alias — absorbs Claude Code startup-probe
-      # suffix leak (#2832). Same `litellm_params` as above; do not
-      # diverge them, the suffix is a routing-key tag, not a
-      # behavioral knob.
+      # suffix leak (#2832). The suffix has two faces: from Claude
+      # Code's side it IS a behavioral knob — it triggers the 1M-
+      # context compaction-math opt-in via
+      # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
+      # just a routing alias pointing at the same backend. Keep the
+      # `litellm_params` block byte-identical to the bare row: if
+      # you uncomment any tuning above (`reasoning_effort`,
+      # `drop_params`, `extra_body`, …), uncomment the same lines
+      # here too. Divergence between the two rows means probes and
+      # real requests are quietly served by different configs.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+          # Mirror these in lock-step with the bare row above. They
+          # are intentionally commented out here too — uncomment
+          # both rows together or neither.
+          # reasoning_effort: high
+          # drop_params: true
+          # extra_body:
+          #   reasoning:
+          #     effort: "high"
 
       # Together AI — example hosted Qwen Coder entry. NOT wired
       # end-to-end out of the box: to enable, (1) set
