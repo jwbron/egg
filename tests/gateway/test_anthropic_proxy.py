@@ -2146,33 +2146,25 @@ class TestSessionCreateUpstreamValidation:
 
 
 # =============================================================================
-# Upstream body rewrite — slice-2 of issue #2769 (TASK-2-6 / TASK-2-8)
+# Upstream body forwarding — slice-2 of #2769, updated for #2832
 # =============================================================================
 #
-# Slice 2 adds ``_rewrite_upstream_model(request_body, upstream_model)``
-# next to ``_filter_blocked_tools`` in gateway.py.  On LiteLLM-routed
-# requests with ``session.upstream_model`` set, the helper REPLACES the
-# top-level ``"model"`` field in the JSON body with the upstream-side
-# model name (e.g. ``"qwen3-coder-30b"``).  This is the cq-5 mitigation
-# on the wire: Claude Code is presented a recognized Claude alias
-# (``"opus"``) as ``--model``, so its compaction math stays sane; the
-# gateway rewrites the body just before forwarding to LiteLLM so the
-# upstream actually receives the right model name.
+# Slice 2 originally added ``_rewrite_upstream_model`` to swap the cq-5
+# ``"opus"`` placeholder for the real upstream model name on LiteLLM
+# requests.  #2832 retired that mitigation in favour of in-sandbox
+# ``ANTHROPIC_CUSTOM_MODEL_OPTION`` registration: Claude Code now places
+# the bare upstream name in the request body directly (and the gateway
+# no longer rewrites it).  These tests guard the byte-identical
+# forwarding contract on both upstreams.
 #
 # Invariants:
 #
-# - ``upstream == "anthropic"``  → body is byte-identical (regression).
-# - ``upstream == "litellm"`` and ``upstream_model is None``  → body
-#   unchanged (slice-1 no-op state).
-# - ``upstream == "litellm"`` and ``upstream_model="qwen3-coder-30b"``
-#   → forwarded body has ``"model": "qwen3-coder-30b"`` regardless of
-#   incoming ``"model"`` value.
-# - Invalid JSON  → original body returned unchanged (proxy MUST NOT
-#   crash on a malformed body — slice-1 ``_filter_blocked_tools``
-#   matches this contract).
-# - The rewrite happens AFTER ``_filter_blocked_tools`` and BEFORE the
-#   upstream request is built, so blocked-tool stripping in private
-#   mode still works.
+# - ``upstream == "anthropic"``  → body forwarded byte-identically.
+# - ``upstream == "litellm"``    → body forwarded byte-identically;
+#   the gateway does NOT inspect or rewrite ``"model"``.
+# - Invalid JSON on either upstream  → no 500; proxy passes the bytes
+#   through untouched (the same contract ``_filter_blocked_tools``
+#   honours).
 # =============================================================================
 
 
@@ -2207,126 +2199,11 @@ def _capture_upstream_body(captured_holder: dict, status: int = 200, response_bo
     return _capture
 
 
-class TestRewriteUpstreamModelHelper:
-    """Direct unit tests on the ``_rewrite_upstream_model`` helper.
-
-    Skips when the helper has not landed yet (waiting on coder).
-    """
-
-    @pytest.fixture
-    def _rewrite_fn(self):
-        try:
-            from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]
-
-            return _rewrite_upstream_model
-        except ImportError:
-            pytest.skip("_rewrite_upstream_model not yet implemented (waiting on coder)")
-
-    def test_no_op_when_upstream_model_is_none(self, _rewrite_fn):
-        body = json.dumps({"model": "opus", "messages": []}).encode()
-        out = _rewrite_fn(body, None)
-        # Byte-identical when no rewrite is requested.
-        assert out == body
-
-    def test_rewrites_top_level_model_field(self, _rewrite_fn):
-        body = json.dumps({"model": "opus", "messages": []}).encode()
-        out = _rewrite_fn(body, "qwen3-coder-30b")
-        parsed = json.loads(out)
-        assert parsed["model"] == "qwen3-coder-30b"
-        # Other fields preserved.
-        assert parsed["messages"] == []
-
-    def test_preserves_other_top_level_keys(self, _rewrite_fn):
-        """The rewrite must not drop other body fields — system prompt,
-        tools, max_tokens, etc.  If it does, Claude Code's request
-        shape silently changes shape across the gateway.
-        """
-        body = json.dumps(
-            {
-                "model": "opus",
-                "messages": [{"role": "user", "content": "hi"}],
-                "max_tokens": 4096,
-                "system": "You are a helpful assistant.",
-                "tools": [{"name": "bash"}],
-                "stream": True,
-            }
-        ).encode()
-        out = _rewrite_fn(body, "qwen3-coder-30b")
-        parsed = json.loads(out)
-        assert parsed["model"] == "qwen3-coder-30b"
-        assert parsed["max_tokens"] == 4096
-        assert parsed["system"] == "You are a helpful assistant."
-        assert parsed["tools"] == [{"name": "bash"}]
-        assert parsed["stream"] is True
-        assert parsed["messages"] == [{"role": "user", "content": "hi"}]
-
-    def test_invalid_json_returns_original_body(self, _rewrite_fn):
-        """Slice-1 ``_filter_blocked_tools`` matches this contract —
-        on JSONDecodeError the helper returns the input unchanged so
-        the proxy doesn't crash on a malformed body.  Slice-2 must do
-        the same.
-        """
-        body = b"not valid json {{"
-        out = _rewrite_fn(body, "qwen3-coder-30b")
-        assert out == body
-
-    def test_empty_body_returns_unchanged(self, _rewrite_fn):
-        body = b""
-        out = _rewrite_fn(body, "qwen3-coder-30b")
-        # Either byte-identical or a degenerate ``{}``-rewrite is
-        # acceptable; what's not acceptable is a crash.
-        assert isinstance(out, (bytes, bytearray))
-
-    def test_body_without_model_key_is_handled(self, _rewrite_fn):
-        """Adversarial: incoming body has no ``model`` key.  The helper
-        either inserts the upstream model (so LiteLLM still gets the
-        right model name) or returns the body unchanged — what MUST
-        NOT happen is a KeyError crash.
-        """
-        body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
-        out = _rewrite_fn(body, "qwen3-coder-30b")
-        # Should not raise, and should not corrupt the rest of the body.
-        # If the implementation chooses to inject the model field, the
-        # result MUST be valid JSON with ``messages`` preserved.
-        try:
-            parsed = json.loads(out)
-            assert parsed.get("messages") == [{"role": "user", "content": "hi"}]
-        except json.JSONDecodeError:
-            # Returning the body unchanged is also acceptable.
-            assert out == body
-
-    def test_unicode_model_name_round_trips(self, _rewrite_fn):
-        """The helper must not break on non-ASCII model names — even
-        though LiteLLM model names are ASCII in practice, the helper
-        shouldn't impose a stricter encoding constraint than the
-        original body parser.
-        """
-        body = json.dumps({"model": "opus", "messages": []}).encode()
-        out = _rewrite_fn(body, "qwen-✨-30b")
-        parsed = json.loads(out)
-        assert parsed["model"] == "qwen-✨-30b"
-
-
-def _rewrite_helper_exists() -> bool:
-    """Return True if slice-2's ``_rewrite_upstream_model`` has landed
-    on the gateway side.  Tests below skip when False.
-    """
-    try:
-        # noqa: F401 — import is for existence check, the symbol is unused.
-        from gateway.gateway import _rewrite_upstream_model  # type: ignore[attr-defined]  # noqa: F401, I001
-
-        return True
-    except ImportError:
-        return False
-
-
-class TestRewriteUpstreamModelOnProxyRoute:
-    """End-to-end: ``proxy_anthropic_messages`` with a LiteLLM session
-    forwards the rewritten body to the LiteLLM upstream.
-
-    These tests drive the Flask app like slice-1's
-    ``TestUpstreamRoutingMessages`` and assert on the body forwarded
-    to the LiteLLM-side httpx client.
+class TestLiteLLMBodyForwardedVerbatim:
+    """End-to-end: ``proxy_anthropic_messages`` forwards the request
+    body to the LiteLLM upstream byte-for-byte.  Per #2832 the gateway
+    no longer rewrites ``"model"`` — Claude Code already puts the
+    bare upstream name on the wire via ``ANTHROPIC_CUSTOM_MODEL_OPTION``.
     """
 
     @pytest.fixture
@@ -2376,17 +2253,16 @@ class TestRewriteUpstreamModelOnProxyRoute:
         fake_registry.get.side_effect = _registry_get
         return fake_registry, litellm_client, anthropic_client
 
-    def test_litellm_session_with_upstream_model_rewrites_body(self, client):
-        """With ``upstream="litellm"`` and
-        ``upstream_model="qwen3-coder-30b"``, the body forwarded to the
-        LiteLLM client has ``"model": "qwen3-coder-30b"`` regardless of
-        what Claude Code sent (it sends ``"opus"`` per the cq-5
-        mitigation).
+    def test_litellm_session_body_is_forwarded_unchanged(self, client):
+        """LiteLLM-routed requests forward the body byte-identically.
+        Whatever ``"model"`` Claude Code put in the body — typically
+        the bare upstream name set up via
+        ``ANTHROPIC_CUSTOM_MODEL_OPTION_NAME`` — reaches LiteLLM
+        unchanged.
         """
-        if not _rewrite_helper_exists():
-            pytest.skip("_rewrite_upstream_model not yet implemented")
         captured: dict = {}
-        fake_registry, litellm_client, _ = self._build_full_registry_patch(captured)
+        fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
+        original_body = json.dumps({"model": "qwen3-coder-30b", "messages": []})
 
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
@@ -2407,8 +2283,6 @@ class TestRewriteUpstreamModelOnProxyRoute:
             mock_litellm_get.return_value.get_credential.return_value = MagicMock(
                 header_name="x-api-key", header_value="litellm-key"
             )
-            # ``get_anthropic_client`` is also called in the no-session
-            # path; wire it to a harmless mock to be safe.
             mock_anthropic_get.return_value = MagicMock()
 
             sm = MagicMock()
@@ -2419,27 +2293,26 @@ class TestRewriteUpstreamModelOnProxyRoute:
 
             response = client.post(
                 "/v1/messages",
-                # Claude Code presents 'opus' on the wire (cq-5).
-                data=json.dumps({"model": "opus", "messages": []}),
+                data=original_body,
                 content_type="application/json",
             )
 
             assert response.status_code == 200
             body = captured.get("body")
             assert body is not None, "LiteLLM client was not called with a body to capture"
-            parsed = json.loads(body) if isinstance(body, (bytes, bytearray)) else json.loads(body)
-            assert parsed["model"] == "qwen3-coder-30b", (
-                f"LiteLLM-routed body MUST have model='qwen3-coder-30b' "
-                f"(rewritten from incoming 'opus'); got {parsed.get('model')!r}"
+            assert body == original_body.encode(), (
+                f"LiteLLM-routed body MUST be byte-identical (#2832); "
+                f"incoming {original_body!r}, forwarded {body!r}"
             )
 
-    def test_litellm_session_without_upstream_model_preserves_body_model(self, client):
-        """Slice-1 no-op state: a LiteLLM session with
-        ``upstream_model=None`` MUST NOT rewrite the body — the proxy
-        passes whatever model name the client sent.
+    def test_litellm_session_with_suffixed_model_is_forwarded_unchanged(self, client):
+        """A handful of Claude Code startup probes leak the ``[1m]``
+        suffix onto the wire — the gateway forwards them unchanged so
+        the ``litellm-configmap.yaml`` alias entry can absorb them.
         """
         captured: dict = {}
         fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
+        original_body = json.dumps({"model": "qwen3-coder-30b[1m]", "messages": []})
 
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
@@ -2463,22 +2336,18 @@ class TestRewriteUpstreamModelOnProxyRoute:
 
             sm = MagicMock()
             sm.get_session_by_ip.return_value = _build_mock_session(
-                upstream="litellm", upstream_model=None
+                upstream="litellm", upstream_model="qwen3-coder-30b"
             )
             mock_sm_get.return_value = sm
 
             client.post(
                 "/v1/messages",
-                data=json.dumps({"model": "opus", "messages": []}),
+                data=original_body,
                 content_type="application/json",
             )
 
             body = captured.get("body")
-            assert body is not None
-            parsed = json.loads(body)
-            assert parsed["model"] == "opus", (
-                f"upstream_model=None must NOT rewrite the body; got model={parsed.get('model')!r}"
-            )
+            assert body == original_body.encode()
 
     def test_anthropic_session_body_is_byte_identical(self, client):
         """Regression guard for the Anthropic path — with no session,
@@ -2537,15 +2406,14 @@ class TestRewriteUpstreamModelOnProxyRoute:
                 f"{original_body!r}, forwarded {body!r}"
             )
 
-    def test_litellm_count_tokens_rewrites_body(self, client):
-        """The body-rewrite must mirror across BOTH proxy routes —
-        otherwise Claude Code's token accounting for a LiteLLM-routed
-        agent silently drifts from the actual upstream model.
+    def test_litellm_count_tokens_body_is_forwarded_unchanged(self, client):
+        """``/v1/messages/count_tokens`` forwards the LiteLLM body
+        byte-identically too — the gateway treats both proxy routes
+        the same after #2832.
         """
-        if not _rewrite_helper_exists():
-            pytest.skip("_rewrite_upstream_model not yet implemented")
         captured: dict = {}
-        fake_registry, litellm_client, _ = self._build_full_registry_patch(captured)
+        fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
+        original_body = json.dumps({"model": "qwen3-coder-30b", "messages": []})
 
         with (
             patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
@@ -2574,33 +2442,20 @@ class TestRewriteUpstreamModelOnProxyRoute:
 
             response = client.post(
                 "/v1/messages/count_tokens",
-                data=json.dumps({"model": "opus", "messages": []}),
+                data=original_body,
                 content_type="application/json",
             )
 
             assert response.status_code == 200
             body = captured.get("body")
-            assert body is not None
-            parsed = json.loads(body)
-            assert parsed["model"] == "qwen3-coder-30b", (
-                f"count_tokens body rewrite missing on LiteLLM route; got "
-                f"{parsed.get('model')!r} — Claude Code token accounting "
-                f"will drift from the upstream model on the next request"
-            )
+            assert body == original_body.encode()
 
-    def test_rewrite_runs_after_tool_filtering(self, client):
-        """``_rewrite_upstream_model`` MUST run AFTER
-        ``_filter_blocked_tools`` per the plan — if it runs before, a
-        body that gets re-serialized by the rewrite changes the byte
-        shape the tool-filter sees, which would silently break the
-        private-mode tool strip.
-
-        Probe: send a private-mode session with a blocked tool AND a
-        LiteLLM upstream.  Assert both the tool was stripped AND the
-        model was rewritten in the forwarded body.
+    def test_tool_filter_still_runs_on_litellm_path(self, client):
+        """The private-mode tool strip MUST still run on the LiteLLM
+        path even though body-rewrite was retired (#2832) — otherwise
+        a private-mode agent on a non-Claude backend would silently
+        leak WebSearch / WebFetch calls.
         """
-        if not _rewrite_helper_exists():
-            pytest.skip("_rewrite_upstream_model not yet implemented")
         captured: dict = {}
         fake_registry, _litellm_client, _ = self._build_full_registry_patch(captured)
 
@@ -2625,7 +2480,7 @@ class TestRewriteUpstreamModelOnProxyRoute:
             )
 
             session = _build_mock_session(upstream="litellm", upstream_model="qwen3-coder-30b")
-            session.mode = "private"  # trigger tool-stripping
+            session.mode = "private"
             sm = MagicMock()
             sm.get_session_by_ip.return_value = session
             mock_sm_get.return_value = sm
@@ -2634,12 +2489,8 @@ class TestRewriteUpstreamModelOnProxyRoute:
                 "/v1/messages",
                 data=json.dumps(
                     {
-                        "model": "opus",
+                        "model": "qwen3-coder-30b",
                         "messages": [],
-                        # WebSearch is blocked in private mode per
-                        # BLOCKED_TOOLS_PRIVATE_MODE — if rewrite runs
-                        # before filter, this tool may survive into
-                        # the forwarded body.
                         "tools": [
                             {"name": "WebSearch"},
                             {"name": "Read"},
@@ -2652,24 +2503,20 @@ class TestRewriteUpstreamModelOnProxyRoute:
             body = captured.get("body")
             assert body is not None
             parsed = json.loads(body)
-            # Model was rewritten:
-            assert parsed["model"] == "qwen3-coder-30b"
-            # Blocked tool was stripped (tool-filter ran):
             tool_names = {t.get("name") for t in parsed.get("tools", [])}
             assert "WebSearch" not in tool_names, (
-                f"Blocked tool 'WebSearch' survived in private mode + "
-                f"LiteLLM upstream — tool-filter / rewrite ordering "
-                f"may be broken.  Forwarded tools: {tool_names}"
+                f"Blocked tool 'WebSearch' survived in private mode on the "
+                f"LiteLLM path; tool-filter must run on every upstream. "
+                f"Forwarded tools: {tool_names}"
             )
-            assert "Read" in tool_names, (
-                f"Tool-filter stripped a non-blocked tool ('Read') — got {tool_names}"
-            )
+            assert "Read" in tool_names
 
 
-class TestRewriteUpstreamModelMalformedBodyResilience:
-    """Adversarial probes: the body-rewrite helper MUST NOT crash the
-    proxy on adversarial inputs (matches the slice-1
-    ``_filter_blocked_tools`` resilience contract).
+class TestLiteLLMMalformedBodyResilience:
+    """Adversarial probe: a LiteLLM-routed proxy MUST NOT 500 on a
+    malformed body (matches the slice-1 ``_filter_blocked_tools``
+    resilience contract). #2832 dropped the body rewrite, but the
+    proxy's bytes-through guarantee on bad JSON is unchanged.
     """
 
     @pytest.fixture

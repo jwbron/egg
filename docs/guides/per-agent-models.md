@@ -13,18 +13,23 @@ Deployment, the per-session routing decision — is described in
 [Upstream Routing](../architecture/upstream-routing.md) and was the
 slice-1 deliverable. This guide is the operator-facing complement: the
 two configuration fields slice 2 introduces, how they compose, the
-**recognized-alias** mitigation that keeps Claude Code's auto-compaction
-math sane on non-Claude routes, and the end-to-end smoke test that
-validates a live LiteLLM endpoint.
+`ANTHROPIC_CUSTOM_MODEL_OPTION` env-var registration (#2832) that
+keeps Claude Code's auto-compaction math sane on non-Claude routes,
+and the end-to-end smoke test that validates a live LiteLLM endpoint.
 
 ## Mental model in one sentence
 
 > Each agent role independently resolves to a `(claude_code_alias,
-> upstream, upstream_model)` triple — the `--model` flag handed to
-> Claude Code stays a recognized Claude alias on every route, while
-> the gateway rewrites the request body's `model` field to the
-> upstream-side name (`"qwen3-coder-30b"`, …) on LiteLLM-bound
-> requests so the proxy targets the right backend.
+> upstream, upstream_model)` triple — on the Anthropic path
+> `claude_code_alias` is a Claude alias and `upstream_model` is
+> `None`; on the LiteLLM path `claude_code_alias` is the upstream
+> name with a `[1m]` context-window-opt-in suffix (e.g.
+> `qwen3-coder-30b[1m]`). The orchestrator threads the suffixed name
+> into both the agent's `--model` flag and the
+> `ANTHROPIC_CUSTOM_MODEL_OPTION` env var so Claude Code registers
+> the custom model with 1M-window compaction math; Claude Code
+> strips the suffix before the request hits the wire and LiteLLM
+> matches the bare name against its `model_list`.
 
 The default path (every agent on Claude, every request to
 `api.anthropic.com`) is **byte-identical to today** — no config means
@@ -110,124 +115,120 @@ The resolver's classifier divides model strings into two camps:
 |----------------------|------------|---------------------|------------------|
 | `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
-| Everything else (e.g. `qwen3-coder-30b`, `mistral-large`) | `"litellm"` | **`"opus"`** (the cq-5 mitigation — see below) | the model string verbatim |
+| Everything else (e.g. `qwen3-coder-30b`, `mistral-large`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
 
 Two consequences:
 
 - The Anthropic path produces no wire change at all when the resolved
   model is a Claude alias — `upstream_model` is `None`, so the gateway
   forwards the body verbatim.
-- The LiteLLM path always presents Claude Code the alias `"opus"` —
-  see *Recognized-alias mitigation* below for why this matters.
+- The LiteLLM path threads `<model>[1m]` into `--model` and the
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` env var. Claude Code strips the
+  suffix before sending, so LiteLLM keys on the bare upstream name —
+  the gateway does not rewrite the body.
 
 ## How the resolved decision threads through spawn
 
 Two sites resolve and thread the decision into the consensus-wrapper
-command + gateway session-create call:
+command, the agent's env, and the gateway session-create call:
 
-| Spawn site | Threads `--model` to | Threads `upstream` / `upstream_model` to |
-|------------|----------------------|-------------------------------------------|
-| Initial spawn at `orchestrator/concurrent_executor.py:454` | `build_consensus_wrapped_command(model=decision.claude_code_alias, …)` | `GatewayClient.register_session(upstream=…, upstream_model=…)` at `orchestrator/kubernetes_spawner.py:735` (the new kwargs land on the slice-1 wire contract) |
-| Restart path at `orchestrator/routes/pipelines.py:2704` | Same `--model` resolution | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
+| Spawn site | Threads `--model` + env to | Threads `upstream` / `upstream_model` to |
+|------------|----------------------------|-------------------------------------------|
+| Initial spawn in `orchestrator/concurrent_executor.py` (`_spawn_agent`) | `build_consensus_wrapped_command(model=decision.claude_code_alias, …)` plus `decision.env_vars()` merged into `extra_env` (sets `ANTHROPIC_CUSTOM_MODEL_OPTION` + `…_OPTION_NAME` on the LiteLLM path) | `GatewayClient.register_session(upstream=…, upstream_model=…)` via the spawner |
+| Restart path in `orchestrator/routes/pipelines.py` (`restart_agent`) | Same `--model` resolution; `decision.env_vars()` merged into `extra_env` so the restarted Job re-registers the custom model | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
 
 When the resolved decision is the default Claude case
 (`upstream="anthropic"`, `upstream_model=None`),
-`ConcurrentPhaseExecutor._spawn_agent` omits the `upstream` /
-`upstream_model` kwargs from its `spawn_fn` call entirely
-(`concurrent_executor.py:501-503`), so test mocks and legacy spawn
-paths see the pre-#2769 call signature. One layer down,
-`spawn_agent_job` still passes both kwargs to
-`GatewayClient.register_session` (`kubernetes_spawner.py:770-771`) — as
-`None` on the default path — and `register_session` drops `None`
-values from the session-create request body
-(`gateway_client.py:707-712`), so the wire shape stays byte-identical
-to today. This is the slice-2 regression guard exercised by the
-existing concurrent-executor tests.
+`decision.env_vars()` is empty and `ConcurrentPhaseExecutor._spawn_agent`
+omits the `upstream` / `upstream_model` kwargs from its `spawn_fn`
+call entirely, so test mocks and legacy spawn paths see the pre-#2769
+call signature. One layer down, `spawn_agent_job` still passes both
+kwargs to `GatewayClient.register_session` — as `None` on the default
+path — and `register_session` drops `None` values from the
+session-create request body, so the wire shape stays byte-identical
+to today.
 
-## The gateway-side body rewrite
+## Gateway-side body handling
 
-For LiteLLM-bound requests, the gateway has to make the upstream model
-name reach LiteLLM — Claude Code is still sending `"model": "opus"` in
-the body it constructs. The rewrite lives in a new helper
-`_rewrite_upstream_model(request_body, upstream_model)` colocated with
-`_filter_blocked_tools` in `gateway/gateway.py` (slice-1 added
-`_filter_blocked_tools` at `gateway/gateway.py:9496`; the new helper
-sits adjacent to it).
-
-Called from `proxy_anthropic_messages`
-(`gateway/gateway.py:9839`) and `proxy_count_tokens`
-(`gateway/gateway.py:10135`) **after** `_filter_blocked_tools` and
-**before** building the upstream request:
+For LiteLLM-bound requests the gateway forwards the body **unchanged**.
+Claude Code already places the bare upstream name in the request's
+`"model"` field — it strips the `[1m]` suffix from
+`ANTHROPIC_CUSTOM_MODEL_OPTION` before send — so LiteLLM keys the
+`model_list` entry off the body directly:
 
 ```
 sandbox ──POST /v1/messages──▶ gateway
-                                  │
+                                  │   body: {"model": "qwen3-coder-30b", …}
                                   ├─ session_manager.get_session_by_ip(...)
                                   │     → session.upstream = "litellm"
-                                  │     → session.upstream_model = "qwen3-coder-30b"
+                                  │     → session.upstream_model = "qwen3-coder-30b"  (audit only)
                                   │
                                   ├─ _inject_upstream_credentials(headers, "litellm")
                                   ├─ _filter_blocked_tools(body, session.mode)
-                                  ├─ _rewrite_upstream_model(body, session.upstream_model)
-                                  │     → body["model"]: "opus" → "qwen3-coder-30b"
                                   │
                                   ├─ client = registry.get("litellm")[0]
                                   └─ stream upstream → accumulate → return SSE downstream
 ```
 
-Behavior at the edges:
+`Session.upstream_model` is retained as audit metadata on
+`session_created` log lines so operators can correlate a transcript
+with the resolved backend, but the proxy does not consume it for
+routing or rewriting.
 
-- **`upstream="anthropic"` (or `upstream_model is None`)** — the body
-  is returned unchanged. The Anthropic regression guard is enforced
-  with a test that sends a non-default incoming `"model"` (e.g.
-  `"opus"`) and asserts byte-identical forwarding.
-- **Invalid JSON in the request body** — the rewrite is a no-op (the
-  original bytes are returned). Parsing failures never crash the
-  proxy; they fall through to the existing upstream and let the
-  upstream produce whatever error response it would have produced.
+> **Startup-probe leak.** A handful of probes Claude Code issues on
+> startup leak the `[1m]` suffix onto the wire instead of stripping
+> it. `litellm-configmap.yaml` accordingly ships paired
+> `model_name: <name>` and `model_name: <name>[1m]` entries pointing
+> at the same `litellm_params`, so the suffixed probes resolve to
+> the same backend instead of 400ing with `Invalid model name`. See
+> the example in [`k8s/base/litellm-configmap.yaml`](../../k8s/base/litellm-configmap.yaml).
 
-## Recognized-alias mitigation (cq-5) — *plausible, not empirically proven*
+## Compaction math + custom model registration (#2832)
 
-> The behavior described in this section is the cq-5 *mitigation* for
-> a harness compatibility risk — not a proven guarantee. Confirming
-> compaction math actually stays sane on long non-Claude sessions is
-> the cq-4-deferred operator smoke test below. Read the invariants
-> as "what the resolver enforces structurally" rather than "what
-> Claude Code is guaranteed to do."
+> The Claude Code harness derives a model's **context window** —
+> and therefore **auto-compaction timing** — from the model name it
+> is told to use. Anthropic models map to known windows; an
+> unrecognised name silently falls back to a 200k assumption that
+> wedges agents on either side of the real upstream window (over-
+> compaction for 1M-context Qwen / DeepSeek, no-compaction for
+> sub-200k upstreams).
 
-The harness Claude Code runs the agent inside makes **decisions keyed
-on the model name** that we cannot ask it to override:
+Claude Code documents an opt-in for custom (non-Claude) models via
+two env vars:
 
-- It derives a model's **context window** — and therefore
-  **auto-compaction timing** — from the `--model` flag.
-- Some features (e.g. extended thinking) are gated on recognized
-  model names.
+- `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
+  custom model ID and tells Claude Code to use 1M-context
+  compaction math.
+- `ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=<upstream>` — the bare
+  on-the-wire name. Claude Code strips the `[1m]` suffix from the
+  registered ID before sending the `"model"` field, so LiteLLM sees
+  the bare name and matches its `model_list` entry directly.
 
-An unrecognized model name gets a fallback context window that does
-not match the real backend. On long sessions this produces
-over-length requests that hard-fail and wedge the agent.
+The resolver builds both values from the decided upstream string and
+the spawn sites merge them into the agent's `extra_env`
+(see `AgentModelDecision.env_vars()`). The resolver also pins the
+agent's `--model` flag to `<upstream>[1m]` so the harness's
+``--model``-keyed pathway also routes through the custom-model
+registration.
 
-The cq-5 mitigation, baked into the resolver's classifier above:
+> **Capability env vars (`MAX_THINKING_TOKENS`,
+> `ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES`).** Not set
+> by default — clamping them to zero/empty maximises cost savings
+> but diverges from the Claude path's runtime behaviour (extended
+> thinking, `CLAUDE_EFFORT=xhigh`), making apples-to-apples quality
+> comparisons unreliable. Operators who want to minimise cost
+> rather than match parity can layer them in via the per-pipeline
+> override flow (see [#2832](https://github.com/jwbron/egg/issues/2832)
+> for the follow-up).
 
-> For every LiteLLM-routed agent, Claude Code is told `--model opus`.
-> The gateway separately rewrites the on-the-wire `"model"` field to
-> the LiteLLM-side name (`"qwen3-coder-30b"` etc.).
-
-Two structural invariants follow (these are enforced by the resolver
-and tested explicitly; *whether* they are sufficient to keep Claude
-Code's compaction math sane on a given backend remains the smoke
-test's job):
-
-- The Claude-Code-facing alias is **always** a recognized Claude name
-  (`opus` by default).
-- The model name actually requested upstream is **always** the
-  configured `upstream_model`. LiteLLM dispatches to the right
-  `model_list` entry.
-
-Tests in `orchestrator/tests/test_agent_model_resolution.py` and
-`tests/gateway/test_anthropic_proxy.py` assert both invariants
-explicitly — in particular that the Claude-Code-facing alias for a
-LiteLLM-routed agent is `"opus"`, never the upstream model name.
+> **Sub-1M-window upstreams.** The resolver appends `[1m]`
+> unconditionally on the LiteLLM path. The current pilot upstreams
+> (Qwen3.7-max, DeepSeek-v4-*) are all 1M; smaller upstreams (e.g.
+> the original qwen3-coder-30b at 32k) would see Claude Code defer
+> compaction past their real window. A per-entry context_window
+> declaration is the natural extension when those backends graduate
+> past pilot — left out of this change deliberately to keep the
+> seam minimal.
 
 ## Operator walkthrough — Qwen for the refiner role
 
@@ -276,9 +277,29 @@ data:
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+      # Paired `[1m]` alias — required to absorb the Claude Code
+      # startup-probe suffix leak (#2832). See note below.
+      - model_name: qwen3-max[1m]
+        litellm_params:
+          model: openrouter/qwen/qwen3-max
+          api_key: os.environ/OPENROUTER_API_KEY
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
+
+> **Why the paired `<name>[1m]` row?** Claude Code registers the
+> custom model with a `[1m]` context-window-opt-in suffix
+> (`ANTHROPIC_CUSTOM_MODEL_OPTION=qwen3-max[1m]`) and strips the
+> suffix client-side before request bodies hit the wire — but a
+> handful of startup probes leak the suffixed name through. Without
+> the paired `qwen3-max[1m]` row in `model_list`, LiteLLM rejects
+> those probes with `Invalid model name`. Registering both the bare
+> and suffixed aliases pointing at the same `litellm_params`
+> absorbs the noise without a gateway-side body rewrite. The
+> committed
+> [`k8s/base/litellm-configmap.yaml`](../../k8s/base/litellm-configmap.yaml)
+> comment block has the full background; ship the paired row for
+> every non-Claude `model_name` you register.
 
 `OPENROUTER_API_KEY` is wired end-to-end out of the box: set it in
 `~/.config/egg/secrets.env` alongside `LITELLM_MASTER_KEY`, and
@@ -382,10 +403,14 @@ lookup, with no per-request routing log line:
 
 - **Refiner session-created line**: `upstream=litellm`,
   `upstream_model=qwen3-max`. Subsequent refiner requests have
-  their body forwarded to
-  `litellm.egg-system.svc.cluster.local:4000` with the
-  `_rewrite_upstream_model` helper substituting the `"model"` field;
-  LiteLLM routes to the hosted Qwen backend.
+  their body forwarded **byte-identically** to
+  `litellm.egg-system.svc.cluster.local:4000` — Claude Code emits
+  the bare upstream name (`qwen3-max`) in the request `"model"`
+  field on its own, having stripped the `[1m]` context-window-opt-in
+  suffix client-side after registering the custom model via
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` at startup (#2832). The gateway
+  performs no body rewrite; LiteLLM matches the bare name against
+  its `model_list` and routes to the hosted Qwen backend.
 - **Every other session-created line**: `upstream=anthropic`,
   `upstream_model=null`. Subsequent requests have their body
   forwarded byte-identically to `api.anthropic.com`.
@@ -411,11 +436,11 @@ The two compatibility properties only the live path can prove:
    not seeing it in practice).
 2. **Auto-compaction boundary.** Run a session long enough that
    Claude Code triggers its auto-compaction step. With the
-   recognized-alias mitigation, the compaction should fire on
-   schedule and the agent should resume cleanly. If the agent wedges
-   on an over-length request, the alias mitigation has failed and the
-   model needs a custom context-window override (an out-of-scope
-   follow-on for #2769).
+   custom-model env-var registration (#2832), Claude Code should
+   compact against the real upstream window (1M for the current
+   pilots) rather than the legacy 200k Claude fallback. Confirm the
+   in-session `/context` panel reports the right window size and that
+   compaction fires on schedule.
 
 Capture the transcript via `egg-checkpoint show <ckpt>` and the
 gateway audit log via the structured-logging stream
@@ -455,9 +480,8 @@ misconfiguration on one does not silently activate the LiteLLM path.
 | `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:757` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects keys outside the phase producer / reviewer set (`agent_roles.MODEL_OVERRIDE_ROLES`) |
 | `default_agent_model: str \| None` | `config/repositories.yaml.example` (documented schema) | Repository-level default applied when `agent_models` does not pin the role |
 | `get_default_agent_model(repo)` | `config/repo_config.py` (mirrors `get_repo_setting` at `config/repo_config.py:248`) | Reader for the repo-level default; returns `None` when absent |
-| `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` *(new module)* | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)` |
-| Spawn-side plumbing | `orchestrator/concurrent_executor.py:454`, `orchestrator/routes/pipelines.py:2704`, `orchestrator/kubernetes_spawner.py:735` | Threads `--model` to the consensus wrapper and `upstream` / `upstream_model` to `GatewayClient.register_session` |
-| `_rewrite_upstream_model(request_body, upstream_model)` | `gateway/gateway.py` (adjacent to `_filter_blocked_tools` at `gateway/gateway.py:9496`); called from `proxy_anthropic_messages` (`gateway/gateway.py:9839`) and `proxy_count_tokens` (`gateway/gateway.py:10135`) | Rewrites the body's `"model"` field on LiteLLM-bound requests; no-op for `"anthropic"` and for invalid JSON |
+| `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)`; `AgentModelDecision.env_vars()` returns the `ANTHROPIC_CUSTOM_MODEL_OPTION` pair on the LiteLLM path |
+| Spawn-side plumbing | `orchestrator/concurrent_executor.py` (`_spawn_agent`), `orchestrator/routes/pipelines.py` (`restart_agent`), `orchestrator/kubernetes_spawner.py` (`spawn_agent_job`) | Threads `--model` to the consensus wrapper, merges `decision.env_vars()` into `extra_env`, and forwards `upstream` / `upstream_model` to `GatewayClient.register_session` |
 
 The slice-1 primitives this guide builds on (`UpstreamRegistry`,
 `Session.upstream` / `upstream_model`, the LiteLLM credential
@@ -470,7 +494,7 @@ Routing → Files](../architecture/upstream-routing.md#files).
 |----------|------------|-------------------|
 | `cq-3` | Per-role field on `PipelineConfig` **and** `repositories.yaml` default | Two-knob config above; precedence chain in the resolver |
 | `cq-4` | No agent-flip in this pipeline; operator smoke-test deferred | Smoke-test section is operator-driven, not gating merge |
-| `cq-5` | Keep Claude Code; recognized-alias mitigation | `claude_code_alias` is always a Claude name; gateway rewrites body's `model` |
+| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
 | `cq-6` | First validation backend is hosted Qwen | Step 2 example uses hosted Qwen; self-hosted deferred |
 | `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Step 4 error-path note; same behavior as today's Anthropic upstream errors |
 | `cq-11` | Leave `[1m]` for Claude | Non-Claude model strings simply do not carry `[1m]`; the resolver routes them via the LiteLLM path |

@@ -948,23 +948,30 @@ class TestCheckConsensusMessageBusFallback:
 
 
 # =============================================================================
-# Per-agent model wiring — slice-2 of issue #2769 (TASK-2-4 / TASK-2-7)
+# Per-agent model wiring — slice-2 of issue #2769 (TASK-2-4 / TASK-2-7),
+# updated for #2832 (custom-model env-var registration).
 # =============================================================================
 #
 # Slice 2 threads ``resolve_agent_model(role, pipeline.config, pipeline.repo)``
 # through the spawn path so:
 #
 # - ``build_consensus_wrapped_command`` receives the resolved
-#   Claude-Code-facing alias as ``model=`` (e.g. always ``"opus"`` on
-#   LiteLLM-routed agents, per cq-5).
+#   Claude-Code-facing alias as ``model=`` — a Claude alias on the
+#   Anthropic path, or ``<upstream>[1m]`` on the LiteLLM path (#2832,
+#   superseding the original cq-5 ``opus`` pin).
+# - The agent's ``extra_env`` carries
+#   ``ANTHROPIC_CUSTOM_MODEL_OPTION`` / ``…_OPTION_NAME`` on the
+#   LiteLLM path so Claude Code registers the custom model with
+#   1M-context compaction math at startup (#2832).
 # - ``spawn_fn`` (which dispatches to ``KubernetesSpawner.spawn_agent``
 #   → ``GatewayClient.register_session``) receives ``upstream=`` and
 #   ``upstream_model=`` so the gateway session is registered with the
 #   right per-agent routing decision.
 #
 # Default-config pipelines (``agent_models == {}``) MUST still hit the
-# old call shape — no new register_session kwargs, no change to the
-# ``--model`` flag.  That's the slice-2 no-op invariant.
+# old call shape — no new register_session kwargs, no new env vars,
+# no change to the ``--model`` flag.  That's the slice-2 no-op
+# invariant, preserved through #2832.
 # =============================================================================
 
 
@@ -1078,15 +1085,21 @@ class TestSpawnDefaultAgentModelPath:
 class TestSpawnLiteLLMConfiguredPath:
     """``agent_models={"refiner": "qwen3-coder-30b"}`` MUST:
 
-    - Pass ``model="opus"`` (cq-5 mitigation) to the consensus wrapper.
+    - Pass ``model="qwen3-coder-30b[1m]"`` to the consensus wrapper so
+      Claude Code's ``--model`` and ``ANTHROPIC_CUSTOM_MODEL_OPTION``
+      both register the custom model with 1M-context compaction math
+      (#2832, superseding the original cq-5 ``opus`` pin).
     - Pass ``upstream="litellm"`` and
       ``upstream_model="qwen3-coder-30b"`` to the spawn_fn.
+    - Set the ``ANTHROPIC_CUSTOM_MODEL_OPTION`` env-var pair on the
+      agent's ``extra_env`` so Claude Code's startup-time custom-model
+      registration fires (#2832).
 
     Other roles (e.g. coder) in the same pipeline MUST keep the
     default Anthropic shape — the override is per-role.
     """
 
-    def test_refiner_override_passes_opus_to_consensus_wrapper(self):
+    def test_refiner_override_passes_suffixed_model_to_consensus_wrapper(self):
         if not _slice_2_available():
             pytest.skip("agent_model_resolution not yet implemented")
 
@@ -1114,11 +1127,52 @@ class TestSpawnLiteLLMConfiguredPath:
         ):
             executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
 
-        # cq-5: Claude Code's ``--model`` flag MUST be a recognized
-        # Claude alias, NEVER the LiteLLM-side upstream model name.
-        assert captured.get("model") == "opus", (
-            f"LiteLLM-routed refiner MUST present model='opus' to "
-            f"Claude Code (cq-5); got {captured.get('model')!r}"
+        # #2832: Claude Code's ``--model`` flag carries ``<upstream>[1m]``
+        # so the custom-model registration fires with 1M compaction math.
+        # The legacy cq-5 ``opus`` pin no longer applies.
+        assert captured.get("model") == "qwen3-coder-30b[1m]", (
+            f"LiteLLM-routed refiner MUST present "
+            f"model='qwen3-coder-30b[1m]' to Claude Code (#2832); got "
+            f"{captured.get('model')!r}"
+        )
+
+    def test_refiner_override_injects_custom_model_env_vars(self):
+        """Spawn-side wiring of the #2832 env-var registration: the
+        agent's ``extra_env`` MUST carry the two
+        ``ANTHROPIC_CUSTOM_MODEL_OPTION*`` vars so Claude Code
+        registers the custom model with 1M compaction at startup.
+        """
+        if not _slice_2_available():
+            pytest.skip("agent_model_resolution not yet implemented")
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        try:
+            pipeline.config.agent_models = {"refiner": "qwen3-coder-30b"}
+        except AttributeError, ValueError:
+            pipeline.config.__dict__["agent_models"] = {"refiner": "qwen3-coder-30b"}
+
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result("refiner"))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            return_value=["bash", "-c", "true"],
+        ):
+            executor._spawn_agent(AgentRole.REFINER, prompt_text="run task")
+
+        _args, kwargs = mock_spawn.call_args
+        extra_env = kwargs.get("extra_env") or {}
+        assert extra_env.get("ANTHROPIC_CUSTOM_MODEL_OPTION") == "qwen3-coder-30b[1m]", (
+            f"refiner spawn MUST inject ANTHROPIC_CUSTOM_MODEL_OPTION="
+            f"'qwen3-coder-30b[1m]'; got {extra_env.get('ANTHROPIC_CUSTOM_MODEL_OPTION')!r}"
+        )
+        assert extra_env.get("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME") == "qwen3-coder-30b", (
+            f"refiner spawn MUST inject ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="
+            f"'qwen3-coder-30b'; got "
+            f"{extra_env.get('ANTHROPIC_CUSTOM_MODEL_OPTION_NAME')!r}"
         )
 
     def test_refiner_override_passes_upstream_to_spawn_fn(self):
@@ -1195,6 +1249,12 @@ class TestSpawnLiteLLMConfiguredPath:
             f"Coder spawn_fn must have upstream_model=None when only "
             f"refiner is overridden; got {kwargs.get('upstream_model')!r}"
         )
+        # #2832 regression guard: the default-Anthropic coder MUST NOT
+        # carry the ANTHROPIC_CUSTOM_MODEL_OPTION env vars — those are
+        # LiteLLM-path only.
+        extra_env = kwargs.get("extra_env") or {}
+        assert "ANTHROPIC_CUSTOM_MODEL_OPTION" not in extra_env
+        assert "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME" not in extra_env
 
 
 class TestSpawnClaudeAliasOverride:
