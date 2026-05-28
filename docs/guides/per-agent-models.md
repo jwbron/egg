@@ -259,6 +259,13 @@ being in private mode (`EGG_PRIVATE_MODE`):
    for PreToolUse). The `permissionDecisionReason` directs the model
    to retry with `mcp__ddg__search` / `mcp__ddg__fetch_content`.
 
+   As a belt-and-suspenders, `shared/egg_agent/client.py` also
+   registers the same deny as a programmatic `PreToolUse` hook on
+   `ClaudeAgentOptions.hooks` — mirroring how `disallowed_tools` is set
+   both in `settings.json` and on the options object. This removes the
+   single point of dependency on `setting_sources` loading the
+   filesystem hook; both denying is idempotent.
+
 2. **Register the DDG replacement.** `shared/egg_agent/client.py`
    registers the pre-installed `duckduckgo-mcp-server` stdio server
    programmatically on `ClaudeAgentOptions.mcp_servers` (under the key

@@ -117,6 +117,10 @@ async def run_agent_async(
             ClaudeAgentOptions,
             ClaudeSDKError,
             CLINotFoundError,
+            HookContext,
+            HookInput,
+            HookJSONOutput,
+            HookMatcher,
             PermissionResultAllow,
             PermissionResultDeny,
             ProcessError,
@@ -287,6 +291,39 @@ async def run_agent_async(
             **existing_servers,
             "ddg": {"type": "stdio", "command": "duckduckgo-mcp-server"},
         }
+
+        # Belt-and-suspenders: also register the WebSearch/WebFetch deny as a
+        # programmatic PreToolUse hook, mirroring how disallowed_tools is set
+        # both in settings.json and on ClaudeAgentOptions (the programmatic path
+        # is more reliable). The sandbox entrypoint installs the same deny as a
+        # filesystem hook (block-builtin-web-tools.sh); registering it here too
+        # removes the single point of dependency on setting_sources loading
+        # filesystem hooks. Both denying is idempotent. The reason text must
+        # stay in sync with that script.
+        async def _deny_web_tools(
+            input_data: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "WebSearch and WebFetch do not work in this session "
+                        "(routing through LiteLLM to a non-Anthropic model; the "
+                        "Anthropic built-in tool schemas are stripped). Use "
+                        "mcp__ddg__search instead of WebSearch, and "
+                        "mcp__ddg__fetch_content instead of WebFetch. Retry your "
+                        "operation with those tools."
+                    ),
+                }
+            }
+
+        existing_hooks = getattr(options, "hooks", None) or {}
+        pre_tool_use = list(existing_hooks.get("PreToolUse", []))
+        pre_tool_use.append(HookMatcher(matcher="WebSearch", hooks=[_deny_web_tools]))
+        pre_tool_use.append(HookMatcher(matcher="WebFetch", hooks=[_deny_web_tools]))
+        options.hooks = {**existing_hooks, "PreToolUse": pre_tool_use}
+
         logger.info(
             "Registered DuckDuckGo MCP fallback for LiteLLM web tools",
             event_type="system",

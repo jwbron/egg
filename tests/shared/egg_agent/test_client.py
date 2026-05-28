@@ -892,6 +892,76 @@ class TestDdgMcpFallback:
         assert "ddg" not in servers
         assert opts.disallowed_tools == ["WebFetch", "WebSearch"]
 
+    @staticmethod
+    def _pre_tool_use_matchers(opts):
+        hooks = getattr(opts, "hooks", None) or {}
+        return [hm.matcher for hm in hooks.get("PreToolUse", [])]
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "false",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_registered_on_litellm_public_path(self, mock_query):
+        # Belt-and-suspenders: the deny is registered programmatically via
+        # ClaudeAgentOptions.hooks in addition to the filesystem hook installed
+        # by the entrypoint, so it does not depend solely on setting_sources
+        # loading filesystem hooks.
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" in matchers
+        assert "WebFetch" in matchers
+
+        # The hook must emit the modern PreToolUse deny shape and name both DDG
+        # MCP tools, matching block-builtin-web-tools.sh.
+        hooks = opts.hooks["PreToolUse"]
+        web_search_hook = next(hm for hm in hooks if hm.matcher == "WebSearch")
+        out = _run_async(web_search_hook.hooks[0]({}, "tool-1", None))
+        decision = out["hookSpecificOutput"]
+        assert decision["hookEventName"] == "PreToolUse"
+        assert decision["permissionDecision"] == "deny"
+        assert "decision" not in out
+        reason = decision["permissionDecisionReason"]
+        assert "mcp__ddg__search" in reason
+        assert "mcp__ddg__fetch_content" in reason
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_not_registered_on_first_party_route(self, mock_query):
+        env = os.environ.copy()
+        env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
+        env["EGG_PRIVATE_MODE"] = "false"
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" not in matchers
+        assert "WebFetch" not in matchers
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "true",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_not_registered_in_private_mode(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" not in matchers
+        assert "WebFetch" not in matchers
+
 
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
