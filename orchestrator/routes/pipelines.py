@@ -11958,6 +11958,40 @@ _YAML_TASKS_SAFETY_GUIDANCE = [
     "values on the same line as the key.",
 ]
 
+# Permissive subagent-exploration guidance for producer prompts (#2814).
+# Producers may delegate deep grep/Read exploration to the Claude Code
+# `general-purpose` subagent so large tool-result payloads don't accumulate
+# in the producer's main context window. Mitigates the failure surface of
+# #2804 (Agent SDK 1MB JSON buffer overflow). Reused across all seven
+# producer prompts so the wording stays uniform.
+#
+# `general-purpose` is the only subagent the Agent SDK ships out of the
+# box; we deliberately do not name `Explore` here because the sandbox
+# runtime does not register an `Explore` AgentDefinition (no `agents=`
+# on ClaudeAgentOptions and no filesystem `.claude/agents/Explore.md`),
+# so the example would burn a turn on an unknown-subagent retry.
+_EXPLORATION_SUBAGENT_HEADER = "## Subagent use for exploration"
+_EXPLORATION_SUBAGENT_GUIDANCE = [
+    f"{_EXPLORATION_SUBAGENT_HEADER}\n",
+    "You **may** use the Agent tool (`subagent_type: general-purpose`) "
+    "when exploration would otherwise dominate your context window. Use "
+    "your judgment — a one-off grep or short read doesn't need a "
+    "subagent; deep investigation of a large file or many call sites "
+    "usually does. The producer's main context stays lean for synthesis; "
+    "the subagent returns a focused summary.\n",
+    "Example signals where subagent use often pays off:",
+    "- More than ~3 grep/read calls on the same target file or directory.",
+    "- Walking a primitive's call sites — delegate; ask for `file:line` "
+    "citations + a few lines of context.",
+    "- Reading large files (> ~500 lines) — get a subagent summary first; "
+    "only `Read` the main file yourself if the summary identifies specific "
+    "line ranges you need to author at.\n",
+    "Subagent summaries are part of your authoritative work. Verify "
+    "critical claims (e.g. `file:line` citations) before committing them "
+    "to your output.",
+    "",
+]
+
 
 def _build_phase_iteration_context(
     operator_directives: list[OperatorDirective] | None,
@@ -12425,6 +12459,7 @@ def _build_phase_prompt(
                 "",
             ]
         )
+        lines.extend(_EXPLORATION_SUBAGENT_GUIDANCE)
         lines.extend(
             [
                 f"Write your analysis to `{analysis_path}`.",
@@ -12670,6 +12705,7 @@ def _build_phase_prompt(
                 "- For small or sequential tasks, just implement directly — don't over-parallelize."
             )
             lines.append("")
+            lines.extend(_EXPLORATION_SUBAGENT_GUIDANCE)
         else:
             # Revision cycle: slim delta-focused prompt.
             # Guard: if review_feedback is unexpectedly missing, fall
@@ -14392,6 +14428,7 @@ def _build_agent_prompt(
                 "stage or commit from subagents. After all subagents complete, run the full "
                 "test suite to verify everything passes together, then stage and commit yourself.",
                 "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )
 
@@ -14546,6 +14583,7 @@ def _build_agent_prompt(
                 "above), do NOT use the no-op path — author doc changes as "
                 "usual.",
                 "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )
     elif role_value == "architect":
@@ -14667,6 +14705,7 @@ def _build_agent_prompt(
                 "- Do NOT create or modify reviews (`.egg-state/reviews/`)",
                 "- Do NOT create or modify plan drafts (`.egg-state/drafts/*-plan.md`)",
                 "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )
     elif role_value == "task_planner":
@@ -14892,6 +14931,7 @@ def _build_agent_prompt(
                 "",
                 f"Write your plan to `{draft_path}`.",
                 "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )
         # Append role file restriction info so the planner assigns tasks correctly.
@@ -14974,6 +15014,7 @@ def _build_agent_prompt(
                 "the slice, the missing mitigation — so the upstream "
                 "producer's re-propose is actionable.",
                 "",
+                *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )
     else:
