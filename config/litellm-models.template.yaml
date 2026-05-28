@@ -90,7 +90,8 @@ data:
       # context compaction-math opt-in via
       # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
       # just a routing alias pointing at the same backend. Keep the
-      # `litellm_params` block byte-identical to the bare row: if
+      # `litellm_params` block identical to the bare row (the CI guard
+      # compares them as parsed YAML): if
       # you uncomment any tuning above (`reasoning_effort`,
       # `drop_params`, `extra_body`, …), uncomment the same lines
       # here too. Divergence between the two rows means probes and
