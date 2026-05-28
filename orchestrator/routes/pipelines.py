@@ -11968,9 +11968,10 @@ _SUBAGENT_EXPLORATION_SECTION = [
     "synthesis; the subagent returns a focused summary.",
     "",
     "Distinct from the `## Parallel Execution with Subagents` block (when "
-    "present, cycle-0 implement-phase coder only) — that one is about "
-    "parallel implementation across non-overlapping files; this section "
-    "is about context isolation during exploration.",
+    "present — the cycle-0 implement-phase coder, and the tester role) — "
+    "that one is about parallel implementation/test authoring across "
+    "non-overlapping files; this section is about context isolation "
+    "during exploration.",
     "",
     "Example signals where subagent use often pays off:",
     "- More than ~3 grep/read calls on the same target file or directory.",
