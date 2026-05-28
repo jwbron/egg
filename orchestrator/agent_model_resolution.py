@@ -114,6 +114,15 @@ class AgentModelDecision:
         injects its own credentials at proxy time. The Anthropic path
         returns an empty dict so default-Claude spawns carry no extra
         env (the existing pre-#2832 wire shape).
+
+        We also pin ``CLAUDE_CODE_SUBAGENT_MODEL`` to the same custom
+        alias. Claude Code's Task-tool subagents (and other small/fast
+        helper calls) otherwise default to a Claude family model
+        (``claude-haiku-4-5-…``); on the LiteLLM path that name isn't in
+        the proxy's ``model_list`` and the request fails with
+        ``ProxyModelNotFoundError`` (400). Routing subagents to the same
+        upstream the main agent uses keeps every call resolvable. Mirrors
+        the host ``cllm`` wrapper's ``CLAUDE_CODE_SUBAGENT_MODEL`` export.
         """
         if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
             return {}
@@ -121,6 +130,7 @@ class AgentModelDecision:
             "ANTHROPIC_CUSTOM_MODEL_OPTION": self.claude_code_alias,
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": self.upstream_model,
             "ANTHROPIC_AUTH_METHOD": "api_key",
+            "CLAUDE_CODE_SUBAGENT_MODEL": self.claude_code_alias,
         }
 
 
