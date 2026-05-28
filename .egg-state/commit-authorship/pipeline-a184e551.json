@@ -7,6 +7,20 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_agent_design"
     },
+    "4ed13c1e96d2a5d50110d6e0a01be61537c70b15": {
+      "branch": "egg/pipeline-a184e551/work",
+      "pipeline_id": "pipeline-a184e551",
+      "registered_at": "2026-05-28T23:04:17.316013+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
+    },
+    "82bed9cf13de345f8157e871d3d78c26fed431b3": {
+      "branch": "egg/pipeline-a184e551/work",
+      "pipeline_id": "pipeline-a184e551",
+      "registered_at": "2026-05-28T23:04:17.311356+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
+    },
     "942276c3cd457c1d713a517e2b9191f25b579e81": {
       "branch": "egg/pipeline-a184e551/work",
       "pipeline_id": "pipeline-a184e551",
