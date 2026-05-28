@@ -11952,20 +11952,26 @@ _YAML_TASKS_SAFETY_GUIDANCE = [
 ]
 
 # Permissive subagent-exploration guidance for producer prompts (#2814).
-# Producers may delegate deep grep/Read exploration to Claude Code subagents
-# (Explore / general-purpose) so large tool-result payloads don't accumulate
+# Producers may delegate deep grep/Read exploration to the Claude Code
+# `general-purpose` subagent so large tool-result payloads don't accumulate
 # in the producer's main context window. Mitigates the failure surface of
 # #2804 (Agent SDK 1MB JSON buffer overflow). Reused across all seven
 # producer prompts so the wording stays uniform.
-EXPLORATION_SUBAGENT_HEADER = "## Subagent use for exploration"
+#
+# `general-purpose` is the only subagent the Agent SDK ships out of the
+# box; we deliberately do not name `Explore` here because the sandbox
+# runtime does not register an `Explore` AgentDefinition (no `agents=`
+# on ClaudeAgentOptions and no filesystem `.claude/agents/Explore.md`),
+# so the example would burn a turn on an unknown-subagent retry.
+_EXPLORATION_SUBAGENT_HEADER = "## Subagent use for exploration"
 _EXPLORATION_SUBAGENT_GUIDANCE = [
-    f"{EXPLORATION_SUBAGENT_HEADER}\n",
-    "You **may** use the Agent tool (e.g. `subagent_type: Explore` or "
-    "`general-purpose`) when exploration would otherwise dominate your "
-    "context window. Use your judgment — a one-off grep or short read "
-    "doesn't need a subagent; deep investigation of a large file or many "
-    "call sites usually does. The producer's main context stays lean for "
-    "synthesis; the subagent returns a focused summary.\n",
+    f"{_EXPLORATION_SUBAGENT_HEADER}\n",
+    "You **may** use the Agent tool (`subagent_type: general-purpose`) "
+    "when exploration would otherwise dominate your context window. Use "
+    "your judgment — a one-off grep or short read doesn't need a "
+    "subagent; deep investigation of a large file or many call sites "
+    "usually does. The producer's main context stays lean for synthesis; "
+    "the subagent returns a focused summary.\n",
     "Example signals where subagent use often pays off:",
     "- More than ~3 grep/read calls on the same target file or directory.",
     "- Walking a primitive's call sites — delegate; ask for `file:line` "

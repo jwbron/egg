@@ -6084,7 +6084,6 @@ class TestProducerExplorationSubagentDirective:
             prompt="# Feature",
             issue_number=1,
         )
-        assert "Explore" in result
         assert "general-purpose" in result
         assert "file:line" in result
 
