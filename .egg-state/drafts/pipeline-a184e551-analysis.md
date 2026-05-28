@@ -27,6 +27,7 @@ The command returned exit 0, the gateway accepted the git operation on the worki
 
 - **Scope constraint**: this refine phase is a smoke-test verification. No code changes are in scope.
 - **Phase restrictions**: the refiner is only permitted to write under `.egg-state/drafts/` and `.egg-state/agent-outputs/`, consistent with producing an analysis artifact only.
+- **File boundary constraint**: the working branch carries pre-existing commits (from a prior agent run) that modify restricted paths outside the refiner role's file-write boundaries. Specifically, commit `38377577b` (docs: document ANTHROPIC_AUTH_METHOD on LiteLLM path) touches `docs/guides/per-agent-models.md`, `orchestrator/agent_model_resolution.py`, and `orchestrator/tests/test_agent_model_resolution.py`. These must be handled by a human with appropriate role or via pre-merge condition.
 - **No dependencies** on other subsystems — the single success criterion is that the agent can execute a gateway-mediated git command.
 
 ## Options Considered
