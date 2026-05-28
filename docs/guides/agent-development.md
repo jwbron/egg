@@ -316,7 +316,7 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 **Utility roles** (autofixer, conflict_resolver) receive targeted context specific to their task (e.g., lint output, conflict details, list of affected files).
 
-**Interface roles** (inspector, overseer) receive pipeline state, health alerts, and agent logs.
+**Interface role** (overseer) receives pipeline state, health alerts, and agent logs.
 
 When adding a new execution role, `_build_role_context()` will automatically provide the summarized context and filter tasks by role. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
 

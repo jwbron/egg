@@ -63,7 +63,7 @@ Agent roles are organized into five categories defined in `shared/egg_contracts/
 | **Analysis** | Analyze and plan work | refiner, architect, task_planner, risk_analyst |
 | **Review** | Validate quality | reviewer_code, reviewer_contract, reviewer_plan |
 | **Utility** | Cross-cutting support | autofixer, conflict_resolver |
-| **Interface** | Monitoring and health | inspector, overseer |
+| **Interface** | Monitoring and health | overseer |
 
 See [Agent Roles Reference](../docs/reference/agent-roles.md) for the complete roster.
 
@@ -272,8 +272,6 @@ orchestrator/
 │   │   ├── startup_state.py        # Post-startup reconciliation verification
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs k8s pod state vs contract
-│   └── tier2/              # Semantic checks (LLM-powered)
-│       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
@@ -360,12 +358,6 @@ Health checks run at key lifecycle points to catch infrastructure and semantic f
 | `StartupStateCheck` | Post-startup reconciliation verification | STARTUP, ON_DEMAND |
 | `PhaseOutputPresenceCheck` | Detect missing artifacts (commits, plans) | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 | `StateConsistencyCheck` | Cross-reference orchestrator state vs k8s pod state vs contract | RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
-
-**Tier 2 (Semantic)** — LLM-based checks that evaluate whether agents made meaningful progress:
-
-| Check | Purpose | Triggers |
-|-------|---------|----------|
-| `AgentInspectorCheck` | Claude-powered analysis of agent git history, outputs, and contract state | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 
 ### Lifecycle Triggers
 

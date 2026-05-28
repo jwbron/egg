@@ -373,9 +373,6 @@ class TestCoderBlocklistComplement1901:
     def test_allows_sandbox_egg(self, pattern):
         assert pattern.can_write("sandbox/egg") is True
 
-    def test_allows_sandbox_bin_egg_health_inspect(self, pattern):
-        assert pattern.can_write("sandbox/bin/egg-health-inspect") is True
-
     def test_allows_sandbox_scripts_gh(self, pattern):
         """sandbox/scripts/ is writable; the gateway is the sole egress
         chokepoint, so credential-shim modifications are reviewed by

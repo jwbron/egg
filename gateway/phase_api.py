@@ -120,7 +120,7 @@ def _resolve_transition_role(value: str) -> TransitionRole | None:
     ``reviewer``, ``human``) or a fine-grained ``AgentRole`` the launcher
     stores in session metadata (``coder``, ``refiner``, ``reviewer_*`` …).
     Returns ``None`` for unknown values or for roles whose coarse mapping
-    is ``system`` — overseer and inspector are observers and do not
+    is ``system`` — overseer is an observer and does not
     advance phases.
     """
     normalized = value.lower()

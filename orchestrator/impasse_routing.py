@@ -69,7 +69,7 @@ logger = get_logger("orchestrator.impasse_routing")
 
 
 # Producer roles eligible for delegation. Cross-phase roles
-# (overseer/autofixer/conflict_resolver/inspector) are not valid
+# (overseer/autofixer/conflict_resolver) are not valid
 # delegation targets — auto-delegation rewires a producer task within
 # the implement phase, not across phases.
 _DELEGATION_ELIGIBLE_ROLES = {"coder", "tester", "documenter"}

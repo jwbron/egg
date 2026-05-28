@@ -1073,7 +1073,6 @@ class TestAgentRole:
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
         assert AgentRole.REFINER in roles
-        assert AgentRole.INSPECTOR in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CODE_HOLISTIC in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
@@ -1088,7 +1087,7 @@ class TestAgentRole:
         # Issue #1557: APPLIER asserted above next to the other execution
         # roles (CODER / TESTER / DOCUMENTER); count assertion below
         # pins the registry size including APPLIER.
-        assert len(roles) == 20
+        assert len(roles) == 19
 
 
 class TestBackwardCompatibility:

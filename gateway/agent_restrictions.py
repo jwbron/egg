@@ -41,7 +41,6 @@ from egg_restrictions.patterns import (
     DEFAULT_CODE_GLOBS,
     DEFAULT_DOCS_GLOBS,
     DEFAULT_TESTS_GLOBS,
-    INSPECTOR_PATTERNS,
     OVERSEER_PATTERNS,
     AgentFilePattern,
     AgentRole,
@@ -116,7 +115,6 @@ __all__ = [
     "DEFAULT_CODE_GLOBS",
     "DEFAULT_DOCS_GLOBS",
     "DEFAULT_TESTS_GLOBS",
-    "INSPECTOR_PATTERNS",
     "OVERSEER_PATTERNS",
     "build_agent_patterns",
     "check_agent_file_access",
@@ -205,7 +203,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_CONCURRENCY,
         AgentRole.AUTOFIXER,
         AgentRole.CONFLICT_RESOLVER,
-        AgentRole.INSPECTOR,
     ]
 }
 

@@ -695,34 +695,6 @@ CONFLICT_RESOLVER_PATTERNS = _build_conflict_resolver_pattern(
     docs_globs=DEFAULT_DOCS_GLOBS,
 )
 
-# Inspector agent pattern
-# Inspectors run diagnostic scripts and write only to agent-outputs.
-
-INSPECTOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.INSPECTOR,
-    description="agent-outputs only, no source/test/doc/config access",
-    allowed_patterns=[
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "orchestrator/",
-        "docs/",
-        "tests/",
-        "test/",
-        ".egg-state/contracts/",
-        ".egg-state/drafts/",
-        ".egg-state/reviews/",
-        ".github/",
-    ],
-)
-
-
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -744,7 +716,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
-    AgentRole.INSPECTOR: INSPECTOR_PATTERNS,
 }
 
 
@@ -847,7 +818,6 @@ def build_agent_patterns(
         AgentRole.OVERSEER: OVERSEER_PATTERNS,
         AgentRole.AUTOFIXER: autofixer,
         AgentRole.CONFLICT_RESOLVER: conflict_resolver,
-        AgentRole.INSPECTOR: INSPECTOR_PATTERNS,
     }
 
 

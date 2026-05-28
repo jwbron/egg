@@ -927,7 +927,7 @@ class PipelineConfig(BaseModel):
         ``resolve_agent_model`` is consulted only by the spawn/restart
         paths that cover the SDLC phase producers and reviewers
         (``MODEL_OVERRIDE_ROLES``). Utility roles (autofixer,
-        conflict_resolver) and interface roles (overseer, inspector) spawn
+        conflict_resolver) and interface roles (overseer) spawn
         through paths that never call the resolver, so an override naming
         one of them would be silently dropped at spawn. Rejecting both
         typos and these unhonored-but-real roles at PipelineConfig
