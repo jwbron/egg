@@ -2,6 +2,8 @@
 
 Two-tier health check framework for proactive pipeline failure detection. Catches both infrastructure failures (containers missing, state inconsistencies) and semantic failures (agents completed but produced no artifacts).
 
+> **Tier 2 registration status:** The framework retains full two-tier *capability* — the `HealthTier.AGENT` enum and the Tier 1 → Tier 2 escalation logic in `runner.py` are intact, so a new Tier 2 check can be registered without framework changes. However, **no Tier 2 checks are currently registered.** `AgentInspectorCheck` (the only Tier 2 check) was removed as unused in [#2850](https://github.com/jwbron/egg/pull/2850); every active check below is Tier 1. The Tier 2 rows and notes in this doc describe framework behavior that activates only once a Tier 2 check is registered.
+
 ## Architecture
 
 ```
@@ -164,7 +166,7 @@ Tier 2 context fields are capped at ~4000 tokens (~16,000 chars) via `_TIER2_CHA
 
 ### Startup (`cli.py`)
 
-Runner is initialized with all Tier 1 and Tier 2 checks registered. Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
+Runner is initialized with all Tier 1 checks registered (no Tier 2 checks are currently registered — see the Tier 2 registration status note at the top). Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
 
 ### Container Monitor (`container_monitor.py`)
 
