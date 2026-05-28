@@ -241,7 +241,7 @@ lint-docker:
 	@if command -v hadolint >/dev/null 2>&1; then \
 		hadolint --config .hadolint.yaml gateway/Dockerfile; \
 		hadolint --config .hadolint.yaml sandbox/Dockerfile; \
-		hadolint --config .hadolint.yaml litellm/Dockerfile; \
+		hadolint --config .hadolint.yaml config/litellm/Dockerfile; \
 	else \
 		echo "SKIP: hadolint not installed"; \
 	fi

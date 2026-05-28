@@ -34,5 +34,9 @@ RUN python3 /egg/patch_litellm_cache.py
 # it's compatible with the read-only root filesystem.
 COPY cost_callback.py /app/cost_callback.py
 
+# Drop back to non-root UID (also set via podSpec securityContext.runAsUser: 1000).
+# Ending the image on a non-root USER provides defense-in-depth.
+USER 1000
+
 # ENTRYPOINT/CMD inherited from the base image (docker/prod_entrypoint.sh);
 # the Deployment supplies --config and --port as args.
