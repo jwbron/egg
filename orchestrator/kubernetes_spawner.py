@@ -1411,6 +1411,34 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
+            # Salvage uncommitted agent work before respawning (#2807).
+            # The restarted container starts from branch HEAD, so any
+            # uncommitted edits in the worktree would be orphaned until
+            # pipeline cleanup. Auto-salvage pushes committed-but-unpushed
+            # work to egg/recovered/<pipeline>/<scope>/<sha> so operators
+            # can triage it manually.
+            agent_worktree_id = (
+                f"{pipeline_id}-{slice_id}-{agent_role.value}"
+                if slice_id
+                else f"{pipeline_id}-{agent_role.value}"
+            )
+            try:
+                agent_salvage.auto_salvage_pipeline(
+                    self.gateway,
+                    pipeline_id,
+                    worktree_filter={agent_worktree_id},
+                    mode=mode,
+                    base_branch=base_branch,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Auto-salvage failed during agent restart; proceeding",
+                    pipeline_id=pipeline_id,
+                    agent_role=agent_role.value,
+                    worktree_id=agent_worktree_id,
+                    error=str(e),
+                )
+
             # Respawn — gateway's create_worktrees() is idempotent.
             # ``slice_id`` is forwarded so spawn_agent_job builds the
             # slice-scoped Job + worktree id and sets ``EGG_SLICE_ID``
