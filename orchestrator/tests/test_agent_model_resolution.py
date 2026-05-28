@@ -377,8 +377,8 @@ class TestLiteLLMClassification:
         """``AgentModelDecision.env_vars()`` returns the
         ``ANTHROPIC_CUSTOM_MODEL_OPTION`` pair that Claude Code reads at
         startup to opt the custom model into 1M compaction math (#2832),
-        plus ``ANTHROPIC_AUTH_METHOD=api_key`` so the entrypoint skips
-        OAuth on the LiteLLM path (#2817).
+        plus ``ANTHROPIC_AUTH_METHOD=api_key`` to mark the LiteLLM path
+        as api-key auth for config validation / startup logging (#2832).
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()

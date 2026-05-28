@@ -203,11 +203,16 @@ two env vars:
   on-the-wire name. Claude Code strips the `[1m]` suffix from the
   registered ID before sending the `"model"` field, so LiteLLM sees
   the bare name and matches its `model_list` entry directly.
-- `ANTHROPIC_AUTH_METHOD=api_key` — skips the OAuth token setup in
-  the Claude Code entrypoint. LiteLLM-routed agents talk to the
-  gateway, not anthropic.com, and the gateway injects its own
-  credentials at proxy time; the OAuth flow would fail or be
-  irrelevant ([#2817](https://github.com/jwbron/egg/issues/2817)).
+- `ANTHROPIC_AUTH_METHOD=api_key` — marks the LiteLLM path as
+  api-key auth so config validation and the entrypoint's startup
+  logging don't demand an Anthropic OAuth token. It does **not**
+  itself skip the OAuth setup: the actual OAuth-token-placeholder
+  skip in `setup_anthropic_api()` (`sandbox/entrypoint.py`) is
+  driven separately by `ANTHROPIC_CUSTOM_MODEL_OPTION` (set above).
+  LiteLLM-routed agents talk to the gateway, not anthropic.com, and
+  the gateway injects its own credentials at proxy time, so the
+  Anthropic OAuth flow is irrelevant
+  ([#2832](https://github.com/jwbron/egg/issues/2832)).
 
 The resolver builds both values from the decided upstream string and
 the spawn sites merge them into the agent's `extra_env`
