@@ -317,6 +317,56 @@ class TestSpawnAgentJob:
         assert "GATEWAY_URL" in env
         assert "EGG_ORCHESTRATOR_URL" in env
 
+    def test_spawn_injects_oauth_placeholder_on_anthropic_path(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Default (Anthropic) spawns carry the session-token placeholder in
+        CLAUDE_CODE_OAUTH_TOKEN.
+
+        The k8s container command overrides the image ENTRYPOINT, so
+        ``setup_anthropic_api()`` never runs to derive the placeholder; the
+        spawner must inject it or Claude Code aborts with "Not logged in"
+        (#2817). The payload is the session token already in
+        EGG_SESSION_TOKEN — no real credential enters the sandbox.
+        """
+        from egg_session_placeholder import to_placeholder
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-anthropic",
+            agent_role=AgentRole.TESTER,
+            repos=["owner/repo"],
+        )
+        env = result.environment
+        expected = to_placeholder(env["EGG_SESSION_TOKEN"])
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"] == expected
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"].startswith("sk-ant-oat01-")
+        assert "ANTHROPIC_API_KEY" not in env
+
+    def test_spawn_injects_api_key_placeholder_on_litellm_path(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """LiteLLM spawns carry the placeholder in ANTHROPIC_API_KEY.
+
+        On the LiteLLM path Claude Code uses api_key auth and sends the
+        credential via x-api-key, so the placeholder must land in
+        ANTHROPIC_API_KEY (not CLAUDE_CODE_OAUTH_TOKEN) for the session
+        token to reach the gateway. Mirrors setup_anthropic_api (#2864) at
+        the layer that actually runs under k8s.
+        """
+        from egg_session_placeholder import to_placeholder
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-litellm",
+            agent_role=AgentRole.TESTER,
+            repos=["owner/repo"],
+            upstream="litellm",
+            upstream_model="qwen3.7-max",
+        )
+        env = result.environment
+        expected = to_placeholder(env["EGG_SESSION_TOKEN"])
+        assert env["ANTHROPIC_API_KEY"] == expected
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+
     def test_spawn_extra_env_overrides(self, spawner, mock_k8s_client):
         """extra_env overrides default environment."""
         result = spawner.spawn_agent_job(
