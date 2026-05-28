@@ -240,20 +240,39 @@ therefore silently no-op — the tool call succeeds but the upstream
 sees no web-tool schema attached, so the model never actually
 searches or fetches and the tool returns an empty result.
 
-The sandbox installs a `PreToolUse` hook keyed off
-`ANTHROPIC_CUSTOM_MODEL_OPTION` (`sandbox/entrypoint.py`,
-`sandbox/scripts/block-builtin-web-tools.sh`). On the first-party
-Claude route (env var unset) the hook approves and the built-in
-tools work normally. On the LiteLLM→non-Anthropic route it blocks
-with a `reason` string that directs the model to retry with the
-`mcp__ddg__search` and `mcp__ddg__fetch_content` MCP tools. A
-conditional MCP wrapper (`sandbox/scripts/ddg-mcp-wrapper`) execs
-the pre-installed `duckduckgo-mcp-server` only when the env var is
-set; on the Claude route the wrapper exits cleanly so no stray MCP
-server process runs. Operators do not need to configure anything —
-the `mcpServers` block is written into `~/.claude/settings.json`
-automatically at container startup, and agents see the MCP fallback
-whenever they hit a blocked built-in tool call.
+The fallback has two halves, both gated on
+`ANTHROPIC_CUSTOM_MODEL_OPTION` being set **and** the container not
+being in private mode (`EGG_PRIVATE_MODE`):
+
+1. **Block the dead built-ins.** `sandbox/entrypoint.py` writes a
+   `PreToolUse` hook into `~/.claude/settings.json` keyed on the
+   `WebSearch` / `WebFetch` matchers, pointing at
+   `sandbox/scripts/block-builtin-web-tools.sh`. On the first-party
+   Claude route (env var unset) the hook is not installed and the
+   built-in tools work normally. On the LiteLLM→non-Anthropic route
+   the script emits
+   `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",...}}`
+   — the modern PreToolUse schema Claude Code actually honors. The
+   `permissionDecision:"deny"` fires *before* the permission-mode
+   check, so it overrides the `bypassPermissions` mode egg launches
+   agents with (the deprecated top-level `decision` field is ignored
+   for PreToolUse). The `permissionDecisionReason` directs the model
+   to retry with `mcp__ddg__search` / `mcp__ddg__fetch_content`.
+
+2. **Register the DDG replacement.** `shared/egg_agent/client.py`
+   registers the pre-installed `duckduckgo-mcp-server` stdio server
+   programmatically on `ClaudeAgentOptions.mcp_servers` (under the key
+   `ddg`, which is what produces the `mcp__ddg__*` tool prefix). This
+   is the *only* correct place for a server definition —
+   `settings.json` has no `mcpServers` key, so a server written there
+   would be silently ignored (the original #2857 defect).
+
+Both halves are scoped to **public network mode only**. In private
+mode the web tools are already disallowed outright, and the locked-down
+proxy cannot reach `duckduckgo.com`, so neither the hook nor the DDG
+server is installed. Operators do not need to configure anything — the
+hook and the MCP server are wired up automatically whenever an agent
+runs on the public LiteLLM path.
 
 ## Operator walkthrough — Qwen for the refiner role
 

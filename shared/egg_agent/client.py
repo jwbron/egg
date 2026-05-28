@@ -268,6 +268,31 @@ async def run_agent_async(
                 error=str(e),
             )
 
+    # --- DuckDuckGo MCP fallback for the LiteLLM→non-Anthropic path (#2856) ---
+    # On that path (signalled by ANTHROPIC_CUSTOM_MODEL_OPTION) the built-in
+    # WebSearch/WebFetch tools silently no-op: LiteLLM's drop_params strips the
+    # Anthropic server-tool schemas during Anthropic→OpenAI translation. A
+    # PreToolUse hook installed by the sandbox entrypoint denies those calls and
+    # points the model at mcp__ddg__search / mcp__ddg__fetch_content — the tools
+    # exposed by the duckduckgo-mcp-server registered here. The Claude-visible
+    # prefix is the dict key ("ddg"), so the tool names match the hook's reason.
+    #
+    # Skipped in private mode: the web tools are disallowed there (see above) and
+    # the DDG server runs in-sandbox and must reach duckduckgo.com directly, which
+    # the locked-down private-mode proxy forbids — so the external stdio server
+    # would never connect. Only public mode (direct internet) can reach it.
+    if not private_mode and os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION"):
+        existing_servers = getattr(options, "mcp_servers", None) or {}
+        options.mcp_servers = {
+            **existing_servers,
+            "ddg": {"type": "stdio", "command": "duckduckgo-mcp-server"},
+        }
+        logger.info(
+            "Registered DuckDuckGo MCP fallback for LiteLLM web tools",
+            event_type="system",
+            event_subtype="ddg_mcp_enabled",
+        )
+
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}

@@ -827,6 +827,72 @@ class TestRunAgentAsync:
         assert opts.disallowed_tools == []
 
 
+class TestDdgMcpFallback:
+    """Issue #2856: on the LiteLLM→non-Anthropic public-mode path, run_agent_async
+    registers the DuckDuckGo MCP server in ClaudeAgentOptions.mcp_servers so the
+    PreToolUse hook's redirect targets (mcp__ddg__search / mcp__ddg__fetch_content)
+    actually exist.
+
+    These assert the real consumer contract — the server reaching
+    ``options.mcp_servers`` — rather than a dict landing in settings.json (the
+    original #2857 defect, where ``mcpServers`` was written to a key Claude Code
+    ignores). ``EGG_MCP_TOOLS=false`` isolates these from the in-process egg tool
+    registration so only the DDG block populates ``mcp_servers``.
+    """
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "false",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_registered_on_litellm_public_path(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" in servers
+        assert servers["ddg"] == {"type": "stdio", "command": "duckduckgo-mcp-server"}
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_not_registered_on_first_party_route(self, mock_query):
+        # No ANTHROPIC_CUSTOM_MODEL_OPTION → first-party Claude → built-in tools
+        # are live, so the DDG fallback must not be registered.
+        env = os.environ.copy()
+        env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
+        env["EGG_PRIVATE_MODE"] = "false"
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" not in servers
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "true",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_not_registered_in_private_mode(self, mock_query):
+        # Private mode: the in-sandbox server cannot reach duckduckgo.com through
+        # the locked-down proxy and the web tools are disallowed anyway, so the DDG
+        # fallback must not be registered.
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" not in servers
+        assert opts.disallowed_tools == ["WebFetch", "WebSearch"]
+
+
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the

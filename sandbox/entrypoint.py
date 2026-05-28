@@ -1118,41 +1118,38 @@ def setup_claude(config: Config, logger: Logger) -> None:
         settings["disallowedTools"] = ["WebFetch", "WebSearch"]
         logger.info("Private mode: disallowed WebFetch/WebSearch in agent settings")
 
-    # PreToolUse hook: block built-in WebSearch/WebFetch on the LiteLLM→non-Anthropic
+    # PreToolUse hook: deny built-in WebSearch/WebFetch on the LiteLLM→non-Anthropic
     # path (signalled by ANTHROPIC_CUSTOM_MODEL_OPTION). The Anthropic server-tool
     # schemas get stripped by LiteLLM's drop_params, so the tools silently no-op
-    # with "Did 0 searches". The hook's block-reason points the model at the DDG
-    # MCP alternatives below. On the first-party route the hook approves.
-    # See https://github.com/jwbron/egg/issues/2856.
+    # with "Did 0 searches". The hook's permissionDecisionReason points the model at
+    # the DuckDuckGo MCP tools (mcp__ddg__search / mcp__ddg__fetch_content), which
+    # run_agent_async registers in ClaudeAgentOptions.mcp_servers on the same path
+    # (settings.json has no mcpServers key — server definitions don't live there).
     #
-    # MCP server: ddg-mcp-wrapper is a shell stub that execs duckduckgo-mcp-server
-    # only on the LiteLLM path, exiting cleanly on first-party Claude so no stray
-    # server process runs when it isn't needed. The server is pre-installed in
-    # the image (Phase 2 Network Lockdown precludes runtime PyPI fetches).
-    web_block_hook = "/opt/egg-runtime/sandbox/scripts/block-builtin-web-tools.sh"
-    ddg_wrapper = "/opt/egg-runtime/sandbox/scripts/ddg-mcp-wrapper"
-    settings["hooks"] = {
-        "PreToolUse": [
-            {
-                "matcher": "WebSearch",
-                "hooks": [
-                    {"type": "command", "command": web_block_hook},
-                ],
-            },
-            {
-                "matcher": "WebFetch",
-                "hooks": [
-                    {"type": "command", "command": web_block_hook},
-                ],
-            },
-        ],
-    }
-    settings["mcpServers"] = {
-        "ddg": {
-            "type": "stdio",
-            "command": ddg_wrapper,
-        },
-    }
+    # Only installed on the LiteLLM path AND only in public mode: private mode
+    # already disallows the web tools (above), and the DDG MCP server runs inside
+    # the sandbox and must reach duckduckgo.com directly — which the locked-down
+    # private-mode proxy (empty allowlist) forbids. Public mode has direct internet,
+    # so the fallback can actually function there. See
+    # https://github.com/jwbron/egg/issues/2856.
+    custom_model_option = os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION", "")
+    if custom_model_option and private_mode_env not in ("true", "1"):
+        web_block_hook = "/opt/egg-runtime/sandbox/scripts/block-builtin-web-tools.sh"
+        settings["hooks"] = {
+            "PreToolUse": [
+                {
+                    "matcher": "WebSearch",
+                    "hooks": [{"type": "command", "command": web_block_hook}],
+                },
+                {
+                    "matcher": "WebFetch",
+                    "hooks": [{"type": "command", "command": web_block_hook}],
+                },
+            ],
+        }
+        logger.info(
+            "LiteLLM path: installed PreToolUse hook redirecting WebSearch/WebFetch to DDG MCP"
+        )
 
     settings_file = config.claude_dir / "settings.json"
     settings_file.write_text(json.dumps(settings, indent=2))
