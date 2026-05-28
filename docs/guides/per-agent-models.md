@@ -194,7 +194,7 @@ routing or rewriting.
 > sub-200k upstreams).
 
 Claude Code documents an opt-in for custom (non-Claude) models via
-two env vars:
+two env vars (plus one egg-side auth marker):
 
 - `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
   custom model ID and tells Claude Code to use 1M-context
