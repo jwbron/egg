@@ -54,9 +54,10 @@ data:
       # https://openrouter.ai/<vendor>/<model> before enabling — a
       # stale slug returns 404 at request time, not at config-load.
       #
-      # IMPORTANT: each non-Claude backend SHOULD ship paired
+      # IMPORTANT: each non-Claude backend MUST ship paired
       # (`<name>`, `<name>[1m]`) `model_name` rows that point at the
-      # same `litellm_params` (#2832). Claude Code strips the `[1m]`
+      # same `litellm_params` (#2832) — this is enforced in CI by
+      # tests/config/test_litellm_template.py. Claude Code strips the `[1m]`
       # context-window-opt-in suffix client-side before the request
       # hits the wire — but a handful of startup probes leak the
       # suffixed name through, and LiteLLM 400s those probes with
