@@ -390,7 +390,10 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" not in result
         assert "Build a widget with many features" not in result
-        assert "## Parallel Execution with Subagents" not in result
+        # The subagent-exploration section (#2814) prose-references this
+        # header by name (in backticks), so match the header form with a
+        # trailing newline to avoid that false positive.
+        assert "## Parallel Execution with Subagents\n" not in result
 
     def test_revision_cycle_contains_revision_instructions(self):
         """Cycle 2+ contains revision-focused instructions."""
@@ -433,7 +436,7 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" in result
         assert "Build a widget with many features" in result
-        assert "## Parallel Execution with Subagents" in result
+        assert "## Parallel Execution with Subagents\n" in result
 
     def test_revision_cycle_without_feedback_includes_task_description(self):
         """Cycle 2+ with no feedback falls back to including the task description."""
@@ -955,7 +958,7 @@ class TestBuildAgentPromptRoleContext:
         assert "## Task Description" not in result
         assert "## For More Context" in result
         assert "TESTER" in result
-        assert "## Parallel Execution with Subagents" in result
+        assert "## Parallel Execution with Subagents\n" in result
 
     def test_documenter_prompt_has_background_not_task_description(self):
         """Documenter prompt uses Background section, not Task Description."""
