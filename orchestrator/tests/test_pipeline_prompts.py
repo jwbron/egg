@@ -4829,6 +4829,31 @@ class TestProducerSubagentExplorationGuidance:
         assert "example signals" in prompt.lower()
         # The verification caveat must be present
         assert "verify critical claims" in prompt.lower()
+        # Ordering: the section must render *before* `## Phase Restrictions`
+        # so a future refactor that moves it (e.g. above `## Context`)
+        # is caught here, not silently. The two H2 headers must both
+        # exist for the comparison to be meaningful.
+        section_idx = prompt.index("## Subagent use for exploration (#2814)")
+        phase_restrictions_idx = prompt.index("## Phase Restrictions")
+        assert section_idx < phase_restrictions_idx, (
+            "Subagent exploration section must appear before Phase Restrictions"
+        )
+
+    def test_applier_role_does_not_receive_section(self):
+        """APPLIER drives Jira mutations, not code exploration — the
+        guidance is intentionally not appended for it. This pins the
+        property so a future refactor that drops the explicit role
+        guard in ``_build_agent_prompt`` (e.g. via an unconditional
+        ``lines.extend(...)`` in the fallthrough) is caught here."""
+        prompt = _build_agent_prompt(
+            role_value="applier",
+            phase="apply",
+            pipeline_id="test-pipeline-123",
+            pipeline_mode="issue",
+            prompt="# Test Feature\n\nTest detail.",
+            issue_number=1,
+        )
+        assert "## Subagent use for exploration (#2814)" not in prompt
 
 
 class TestInitialReviewOperatorCopyPasteFraming:

@@ -11967,19 +11967,35 @@ _SUBAGENT_EXPLORATION_SECTION = [
     "call sites usually does. The producer's main context stays lean for "
     "synthesis; the subagent returns a focused summary.",
     "",
+    "Distinct from the `## Parallel Execution with Subagents` block (when "
+    "present, cycle-0 implement-phase coder only) — that one is about "
+    "parallel implementation across non-overlapping files; this section "
+    "is about context isolation during exploration.",
+    "",
     "Example signals where subagent use often pays off:",
     "- More than ~3 grep/read calls on the same target file or directory.",
     "- Walking a primitive's call sites — delegate; ask for `file:line` "
     "citations + a few lines of context.",
-    "- Reading large files (> ~500 lines) — get a subagent summary first; "
-    "only `Read` the main file yourself if the summary identifies specific "
-    "line ranges you need to author at.",
+    "- Reading large files (files that would consume more than ~5% of "
+    "your context window, e.g. > ~1500 lines in this codebase) — get a "
+    "subagent summary first; only `Read` the main file yourself if the "
+    "summary identifies specific line ranges you need to author at.",
     "",
     "Subagent summaries are part of your authoritative work. Verify "
     "critical claims (e.g. `file:line` citations) before committing them "
     "to your output.",
     "",
 ]
+
+# The set of producer roles that flow through ``_build_agent_prompt``
+# and should receive ``_SUBAGENT_EXPLORATION_SECTION``. Coder and
+# refiner return early via ``_build_phase_prompt`` (which inserts the
+# section there), and reviewer_* roles return early before role
+# dispatch and never accumulate ``lines``. APPLIER (Jira mutations)
+# is intentionally excluded — it doesn't do code exploration.
+_SUBAGENT_EXPLORATION_ROLES = frozenset(
+    {"tester", "documenter", "architect", "task_planner", "risk_analyst"}
+)
 
 
 def _build_phase_iteration_context(
@@ -15019,9 +15035,12 @@ def _build_agent_prompt(
     # role that flows through this function (tester, documenter,
     # architect, task_planner, risk_analyst). Refiner and coder return
     # early above via `_build_phase_prompt`, which carries the same
-    # block. A single insert here pins the property for all five roles
-    # without duplicating the text.
-    lines.extend(_SUBAGENT_EXPLORATION_SECTION)
+    # block. A single guarded insert here pins the property for all
+    # five roles without duplicating the text. APPLIER also flows
+    # through the `else` fallthrough above but is intentionally
+    # excluded — it drives Jira mutations, not code exploration.
+    if role_value in _SUBAGENT_EXPLORATION_ROLES:
+        lines.extend(_SUBAGENT_EXPLORATION_SECTION)
 
     # Phase restrictions
     _recovery_base_ref = _resolve_origin_ref(base_branch)
