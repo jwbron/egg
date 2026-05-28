@@ -20,6 +20,21 @@ the cache-read hit rate — computed as a session aggregate, not a per-turn
 snapshot, because the per-turn ratio is noisy on short turns (a single
 tool-result message can dominate the prompt budget).
 
+Cost on the streaming path is intentionally reported as ``null``, not 0.
+Claude Code streams its ``/v1/messages`` requests, and LiteLLM reassembles
+the streamed chunks via ``stream_chunk_builder`` -> ``ChunkProcessor.
+calculate_usage``, which rebuilds a fresh ``Usage`` carrying only the
+token/cache counts and DROPS the upstream provider's ``cost`` /
+``cost_details``. So on real agent traffic the upstream-billed cost is not
+recoverable at this seam, and we emit ``cost: null`` (per call and in the
+session totals) rather than coercing the missing value to ``0.0`` — a
+``0.0`` would read in the logs as "this route is free", the exact opposite
+of the cost-visibility signal this module exists to provide (#2799). The
+cache-read/write and token counts DO survive reassembly, so the
+cache-hit-rate metric (the primary cq-6 signal) is unaffected. Real cost is
+still captured on the non-streaming path, where ``original_response``
+carries the raw provider JSON with ``usage.cost``.
+
 Unlike the host-side ``cost_callback.py`` this is derived from, egg agents
 are headless: there is no statusline to read a per-session JSON file, and
 the container runs read-only. So we log to stdout (captured by egg's log
@@ -108,8 +123,11 @@ def _coerce_usage(usage):
 
 def _usage_from_response_obj(response_obj):
     """Read ``usage`` off the assembled response object LiteLLM hands the
-    success hook. This is the reliable source on the streaming path, where the
-    final usage chunk is folded into ``response_obj.usage``."""
+    success hook. On the streaming path this is the reliable source for the
+    token/cache counts (the final usage chunk's counts are folded into
+    ``response_obj.usage`` by ``stream_chunk_builder``), but NOT for cost:
+    that reassembly rebuilds a fresh ``Usage`` and drops ``cost`` /
+    ``cost_details``, so ``_extract_cost`` returns None here on streaming."""
     if response_obj is None:
         return None
     usage = getattr(response_obj, "usage", None)
@@ -123,7 +141,10 @@ def _extract_cost(usage):
     BYOK that field is zero because billing routes directly to the upstream
     provider, so fall back to ``cost_details.upstream_inference_cost`` (what
     the upstream provider will bill for the same request). Either way, the
-    number we record matches real spend on that turn."""
+    number we record matches real spend on that turn. Returns None when no
+    positive cost is present — notably on the streaming path, where LiteLLM's
+    chunk reassembly drops the upstream cost (see ``_usage_from_response_obj``).
+    Callers must treat None as "unknown", not "$0"."""
     u = usage or {}
     cost = u.get("cost")
     if isinstance(cost, (int, float)) and cost > 0:
@@ -242,7 +263,11 @@ class LiteLLMCostLogger(CustomLogger):
             prompt, cached, cache_write, reasoning = _extract_cache_stats(usage)
             if cost is None and prompt == 0 and cached == 0:
                 return
-            cost = cost or 0.0
+            # ``cost`` stays None when the upstream cost is unrecoverable
+            # (the streaming path — see module docstring). We accumulate only
+            # known costs and count how many calls contributed one, so a
+            # session that never saw a real cost reports ``cost: null`` rather
+            # than a misleading ``0.0``.
             sid = _extract_session_id(mcd) or "_no_session"
             model = _extract_model(mcd)
             with _lock:
@@ -250,13 +275,16 @@ class LiteLLMCostLogger(CustomLogger):
                 if agg is None:
                     agg = {
                         "cost": 0.0,
+                        "cost_known_calls": 0.0,
                         "calls": 0.0,
                         "prompt_tokens": 0.0,
                         "cached_tokens": 0.0,
                         "cache_write_tokens": 0.0,
                         "reasoning_tokens": 0.0,
                     }
-                agg["cost"] += cost
+                if cost is not None:
+                    agg["cost"] += cost
+                    agg["cost_known_calls"] += 1
                 agg["calls"] += 1
                 agg["prompt_tokens"] += prompt
                 agg["cached_tokens"] += cached
@@ -279,6 +307,17 @@ class LiteLLMCostLogger(CustomLogger):
                     min(totals["cached_tokens"] * 100 / totals["prompt_tokens"], 100.0),
                     2,
                 )
+            # Report session cost as null until at least one call carried a
+            # known cost, so all-streaming sessions don't read as "$0 spent".
+            session = {
+                "cost": totals["cost"] if totals["cost_known_calls"] > 0 else None,
+                "cost_known_calls": totals["cost_known_calls"],
+                "calls": totals["calls"],
+                "prompt_tokens": totals["prompt_tokens"],
+                "cached_tokens": totals["cached_tokens"],
+                "cache_write_tokens": totals["cache_write_tokens"],
+                "reasoning_tokens": totals["reasoning_tokens"],
+            }
             _emit(
                 {
                     "session_id": sid,
@@ -290,7 +329,7 @@ class LiteLLMCostLogger(CustomLogger):
                         "cache_write_tokens": cache_write,
                         "reasoning_tokens": reasoning,
                     },
-                    "session": totals,
+                    "session": session,
                     "cache_hit_rate_pct": hit_rate,
                 }
             )
