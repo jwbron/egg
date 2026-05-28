@@ -6,6 +6,7 @@ while public-mode containers do not.
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -100,3 +101,107 @@ class TestDisallowedToolsPrivateMode:
         setup_claude(mock_config, mock_logger)
         settings = _read_settings(mock_config)
         assert "disallowedTools" not in settings
+
+
+class TestWebToolsHook:
+    """PreToolUse hook blocks built-in WebSearch/WebFetch on the LiteLLM→non-Anthropic path.
+
+    The hook script checks ANTHROPIC_CUSTOM_MODEL_OPTION: when set (LiteLLM
+    routing to Qwen/DeepSeek), it blocks with a reason pointing the model at
+    mcp__ddg__* alternatives. On the first-party Claude route (env var unset),
+    the hook approves and the built-in tools work normally.
+
+    See https://github.com/jwbron/egg/issues/2856.
+    """
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_hook_installed_for_both_tools(self, _which, mock_config, mock_logger):
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        hooks = settings.get("hooks", {}).get("PreToolUse", [])
+        matchers = [h["matcher"] for h in hooks]
+        assert "WebSearch" in matchers
+        assert "WebFetch" in matchers
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_hook_command_path(self, _which, mock_config, mock_logger):
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        hooks = settings["hooks"]["PreToolUse"]
+        web_search_hook = next(h for h in hooks if h["matcher"] == "WebSearch")
+        assert web_search_hook["hooks"][0]["type"] == "command"
+        assert web_search_hook["hooks"][0]["command"].endswith("block-builtin-web-tools.sh")
+
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_mcp_server_configured(self, _which, mock_config, mock_logger):
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        mcp_servers = settings.get("mcpServers", {})
+        assert "ddg" in mcp_servers
+        assert mcp_servers["ddg"]["type"] == "stdio"
+        assert "ddg-mcp-wrapper" in mcp_servers["ddg"]["command"]
+
+
+class TestBlockBuiltinWebToolsScript:
+    """Shell script behavior: allow on first-party route, block on LiteLLM route."""
+
+    @pytest.fixture()
+    def script_path(self):
+        return (
+            Path(__file__).parent.parent.parent
+            / "sandbox"
+            / "scripts"
+            / "block-builtin-web-tools.sh"
+        )
+
+    def test_script_exists(self, script_path):
+        assert script_path.exists()
+        assert os.access(script_path, os.X_OK)
+
+    def test_first_party_route_allows(self, script_path):
+        result = subprocess.run(
+            [str(script_path)],
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != "ANTHROPIC_CUSTOM_MODEL_OPTION"},
+        )
+        assert result.returncode == 0
+        decision = json.loads(result.stdout)
+        assert decision["decision"] == "allow"
+
+    def test_litellm_route_blocks(self, script_path):
+        env = os.environ.copy()
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = "qwen3-coder-30b[1m]"
+        result = subprocess.run(
+            [str(script_path)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0
+        decision = json.loads(result.stdout)
+        assert decision["decision"] == "block"
+        assert "mcp__ddg__search" in decision["reason"]
+        assert "mcp__ddg__fetch_content" in decision["reason"]
+
+
+class TestDdgMcpWrapperScript:
+    """Conditional MCP wrapper: exec duckduckgo-mcp-server on LiteLLM path, exit 0 otherwise."""
+
+    @pytest.fixture()
+    def script_path(self):
+        return Path(__file__).parent.parent.parent / "sandbox" / "scripts" / "ddg-mcp-wrapper"
+
+    def test_script_exists(self, script_path):
+        assert script_path.exists()
+        assert os.access(script_path, os.X_OK)
+
+    def test_first_party_route_exits_cleanly(self, script_path):
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_CUSTOM_MODEL_OPTION"}
+        result = subprocess.run(
+            [str(script_path)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0

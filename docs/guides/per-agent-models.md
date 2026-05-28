@@ -230,6 +230,31 @@ registration.
 > past pilot — left out of this change deliberately to keep the
 > seam minimal.
 
+### Web tool availability on the LiteLLM path (#2856)
+
+The built-in `WebSearch` and `WebFetch` tools use Anthropic-specific
+server-tool schemas (`BetaWebSearchTool20250305`,
+`BetaWebFetchTool20250305`) that LiteLLM's `drop_params` strips
+during Anthropic→OpenAI translation. On the LiteLLM path the tools
+therefore silently no-op — the tool call succeeds but the upstream
+sees no web-tool schema attached, so the model never actually
+searches or fetches and the tool returns an empty result.
+
+The sandbox installs a `PreToolUse` hook keyed off
+`ANTHROPIC_CUSTOM_MODEL_OPTION` (`sandbox/entrypoint.py`,
+`sandbox/scripts/block-builtin-web-tools.sh`). On the first-party
+Claude route (env var unset) the hook approves and the built-in
+tools work normally. On the LiteLLM→non-Anthropic route it blocks
+with a `reason` string that directs the model to retry with the
+`mcp__ddg__search` and `mcp__ddg__fetch_content` MCP tools. A
+conditional MCP wrapper (`sandbox/scripts/ddg-mcp-wrapper`) execs
+the pre-installed `duckduckgo-mcp-server` only when the env var is
+set; on the Claude route the wrapper exits cleanly so no stray MCP
+server process runs. Operators do not need to configure anything —
+the `mcpServers` block is written into `~/.claude/settings.json`
+automatically at container startup, and agents see the MCP fallback
+whenever they hit a blocked built-in tool call.
+
 ## Operator walkthrough — Qwen for the refiner role
 
 This walks through enabling hosted Qwen for a single role end-to-end.

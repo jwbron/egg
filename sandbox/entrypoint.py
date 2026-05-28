@@ -1118,6 +1118,42 @@ def setup_claude(config: Config, logger: Logger) -> None:
         settings["disallowedTools"] = ["WebFetch", "WebSearch"]
         logger.info("Private mode: disallowed WebFetch/WebSearch in agent settings")
 
+    # PreToolUse hook: block built-in WebSearch/WebFetch on the LiteLLM→non-Anthropic
+    # path (signalled by ANTHROPIC_CUSTOM_MODEL_OPTION). The Anthropic server-tool
+    # schemas get stripped by LiteLLM's drop_params, so the tools silently no-op
+    # with "Did 0 searches". The hook's block-reason points the model at the DDG
+    # MCP alternatives below. On the first-party route the hook approves.
+    # See https://github.com/jwbron/egg/issues/2856.
+    #
+    # MCP server: ddg-mcp-wrapper is a shell stub that execs duckduckgo-mcp-server
+    # only on the LiteLLM path, exiting cleanly on first-party Claude so no stray
+    # server process runs when it isn't needed. The server is pre-installed in
+    # the image (Phase 2 Network Lockdown precludes runtime PyPI fetches).
+    web_block_hook = "/opt/egg-runtime/sandbox/scripts/block-builtin-web-tools.sh"
+    ddg_wrapper = "/opt/egg-runtime/sandbox/scripts/ddg-mcp-wrapper"
+    settings["hooks"] = {
+        "PreToolUse": [
+            {
+                "matcher": "WebSearch",
+                "hooks": [
+                    {"type": "command", "command": web_block_hook},
+                ],
+            },
+            {
+                "matcher": "WebFetch",
+                "hooks": [
+                    {"type": "command", "command": web_block_hook},
+                ],
+            },
+        ],
+    }
+    settings["mcpServers"] = {
+        "ddg": {
+            "type": "stdio",
+            "command": ddg_wrapper,
+        },
+    }
+
     settings_file = config.claude_dir / "settings.json"
     settings_file.write_text(json.dumps(settings, indent=2))
     os.chown(settings_file, config.runtime_uid, config.runtime_gid)
