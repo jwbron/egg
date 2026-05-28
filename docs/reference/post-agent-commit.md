@@ -98,11 +98,11 @@ await mcp.call_tool("list_agent_local_commits", {
 
 | Before (auto-commit) | After (HITL recovery) |
 |----------------------|----------------------|
-| Uncommitted changes auto-committed on exit | Uncommitted changes remain in worktree |
+| Uncommitted changes auto-committed on exit | Uncommitted changes remain in worktree (except on agent restart, where they're salvaged — see above) |
 | WIP commits pushed to branch automatically | No automatic push; HITL decides |
 | Phase-restricted files filtered before commit | No filtering needed — nothing is auto-committed |
 | Symlink filtering applied | No filtering needed |
-| `egg/salvage-<id>` branches created for main | `egg/recovered/<pipeline>/...` refs auto-created by `cleanup_pipeline` or `restart_phase` for committed-but-unpushed work |
+| `egg/salvage-<id>` branches created for main | `egg/recovered/<pipeline>/...` refs auto-created by `cleanup_pipeline`, `restart_phase`, or `restart_agent_job` for committed-but-unpushed work |
 
 ### What operators should know
 
