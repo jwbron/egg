@@ -376,7 +376,9 @@ class TestLiteLLMClassification:
     def test_litellm_env_vars_register_custom_model(self):
         """``AgentModelDecision.env_vars()`` returns the
         ``ANTHROPIC_CUSTOM_MODEL_OPTION`` pair that Claude Code reads at
-        startup to opt the custom model into 1M compaction math (#2832).
+        startup to opt the custom model into 1M compaction math (#2832),
+        plus ``ANTHROPIC_AUTH_METHOD=api_key`` so the entrypoint skips
+        OAuth on the LiteLLM path (#2817).
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -388,6 +390,7 @@ class TestLiteLLMClassification:
         assert d.env_vars() == {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "qwen3-coder-30b",
+            "ANTHROPIC_AUTH_METHOD": "api_key",
         }
 
     def test_anthropic_env_vars_empty(self):
