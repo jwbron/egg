@@ -184,7 +184,16 @@ RUN pip3 install --no-cache-dir \
     # Web frameworks
     flask waitress \
     # Documentation
-    markdown
+    markdown \
+    # MCP search server used as a WebSearch/WebFetch fallback when routing
+    # through LiteLLM to non-Anthropic models (see #2856). Installed here
+    # rather than fetched via uvx at runtime because the sandbox runs under
+    # Phase 2 Network Lockdown. Pinned: the hook's redirect targets are the
+    # exact tool names this server exposes (mcp__ddg__search /
+    # mcp__ddg__fetch_content), so a future upstream rename would silently
+    # break the fallback with no test failure. 0.4.0 exposes search /
+    # fetch_content.
+    duckduckgo-mcp-server==0.4.0
 
 # Note: Claude authentication is mounted at runtime from ~/.egg/claude/ on host
 # This directory is shared across all containers for consistent authentication

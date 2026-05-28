@@ -13,9 +13,15 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from egg_agent.result import AgentResult
+
+if TYPE_CHECKING:
+    # Annotation-only SDK types. With ``from __future__ import annotations``
+    # these are never evaluated at runtime, so they don't belong in the
+    # runtime import below — only HookMatcher is constructed at runtime.
+    from claude_agent_sdk import HookContext, HookInput, HookJSONOutput
 
 # Maximum length for tool input/output in log events to avoid bloating logs
 _MAX_TOOL_CONTENT_LOG_LEN = 2000
@@ -117,6 +123,7 @@ async def run_agent_async(
             ClaudeAgentOptions,
             ClaudeSDKError,
             CLINotFoundError,
+            HookMatcher,
             PermissionResultAllow,
             PermissionResultDeny,
             ProcessError,
@@ -267,6 +274,64 @@ async def run_agent_async(
                 event_subtype="mcp_tools_error",
                 error=str(e),
             )
+
+    # --- DuckDuckGo MCP fallback for the LiteLLM→non-Anthropic path (#2856) ---
+    # On that path (signalled by ANTHROPIC_CUSTOM_MODEL_OPTION) the built-in
+    # WebSearch/WebFetch tools silently no-op: LiteLLM's drop_params strips the
+    # Anthropic server-tool schemas during Anthropic→OpenAI translation. A
+    # PreToolUse hook installed by the sandbox entrypoint denies those calls and
+    # points the model at mcp__ddg__search / mcp__ddg__fetch_content — the tools
+    # exposed by the duckduckgo-mcp-server registered here. The Claude-visible
+    # prefix is the dict key ("ddg"), so the tool names match the hook's reason.
+    #
+    # Skipped in private mode: the web tools are disallowed there (see above) and
+    # the DDG server runs in-sandbox and must reach duckduckgo.com directly, which
+    # the locked-down private-mode proxy forbids — so the external stdio server
+    # would never connect. Only public mode (direct internet) can reach it.
+    if not private_mode and os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION"):
+        existing_servers = getattr(options, "mcp_servers", None) or {}
+        options.mcp_servers = {
+            **existing_servers,
+            "ddg": {"type": "stdio", "command": "duckduckgo-mcp-server"},
+        }
+
+        # Belt-and-suspenders: also register the WebSearch/WebFetch deny as a
+        # programmatic PreToolUse hook, mirroring how disallowed_tools is set
+        # both in settings.json and on ClaudeAgentOptions (the programmatic path
+        # is more reliable). The sandbox entrypoint installs the same deny as a
+        # filesystem hook (block-builtin-web-tools.sh); registering it here too
+        # removes the single point of dependency on setting_sources loading
+        # filesystem hooks. If both fire, the duplicate deny is harmless. The
+        # reason text must stay in sync with that script.
+        async def _deny_web_tools(
+            input_data: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "WebSearch and WebFetch do not work in this session "
+                        "(routing through LiteLLM to a non-Anthropic model; the "
+                        "Anthropic built-in tool schemas are stripped). Use "
+                        "mcp__ddg__search instead of WebSearch, and "
+                        "mcp__ddg__fetch_content instead of WebFetch. Retry your "
+                        "operation with those tools."
+                    ),
+                }
+            }
+
+        existing_hooks = getattr(options, "hooks", None) or {}
+        pre_tool_use = list(existing_hooks.get("PreToolUse", []))
+        pre_tool_use.append(HookMatcher(matcher="WebSearch", hooks=[_deny_web_tools]))
+        pre_tool_use.append(HookMatcher(matcher="WebFetch", hooks=[_deny_web_tools]))
+        options.hooks = {**existing_hooks, "PreToolUse": pre_tool_use}
+
+        logger.info(
+            "Registered DuckDuckGo MCP fallback for LiteLLM web tools",
+            event_type="system",
+            event_subtype="ddg_mcp_enabled",
+        )
 
     stdout_parts: list[str] = []
     actual_model: str | None = None

@@ -124,6 +124,17 @@ except ImportError:
         tool_use_id: str | None = None
         agent_id: str | None = None
 
+    # Hook types (#2856): client.py constructs HookMatcher at runtime for the
+    # web-tool deny hook, so the mock must provide it with the matcher/hooks
+    # fields the code and tests read. HookInput / HookJSONOutput / HookContext
+    # are annotation-only in client.py (gated under TYPE_CHECKING there), so
+    # they are never imported at runtime and need no mock.
+    @dataclass
+    class HookMatcher:  # type: ignore[no-redef]
+        matcher: str | None = None
+        hooks: list[Any] = field(default_factory=list)
+        timeout: float | None = None
+
     # Install mock module so client.py's lazy import finds it
     _mock_sdk = ModuleType("claude_agent_sdk")
     _mock_sdk.TextBlock = TextBlock  # type: ignore[attr-defined]
@@ -141,6 +152,7 @@ except ImportError:
     _mock_sdk.PermissionResultAllow = PermissionResultAllow  # type: ignore[attr-defined]
     _mock_sdk.PermissionResultDeny = PermissionResultDeny  # type: ignore[attr-defined]
     _mock_sdk.ToolPermissionContext = ToolPermissionContext  # type: ignore[attr-defined]
+    _mock_sdk.HookMatcher = HookMatcher  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
 
     # Stubs for the in-process MCP server surface used by egg_agent_tools.
@@ -825,6 +837,142 @@ class TestRunAgentAsync:
         call_kwargs = mock_query.call_args.kwargs
         opts = call_kwargs["options"]
         assert opts.disallowed_tools == []
+
+
+class TestDdgMcpFallback:
+    """Issue #2856: on the LiteLLM→non-Anthropic public-mode path, run_agent_async
+    registers the DuckDuckGo MCP server in ClaudeAgentOptions.mcp_servers so the
+    PreToolUse hook's redirect targets (mcp__ddg__search / mcp__ddg__fetch_content)
+    actually exist.
+
+    These assert the real consumer contract — the server reaching
+    ``options.mcp_servers`` — rather than a dict landing in settings.json (the
+    original #2857 defect, where ``mcpServers`` was written to a key Claude Code
+    ignores). ``EGG_MCP_TOOLS=false`` isolates these from the in-process egg tool
+    registration so only the DDG block populates ``mcp_servers``.
+    """
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "false",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_registered_on_litellm_public_path(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" in servers
+        assert servers["ddg"] == {"type": "stdio", "command": "duckduckgo-mcp-server"}
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_not_registered_on_first_party_route(self, mock_query):
+        # No ANTHROPIC_CUSTOM_MODEL_OPTION → first-party Claude → built-in tools
+        # are live, so the DDG fallback must not be registered.
+        env = os.environ.copy()
+        env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
+        env["EGG_PRIVATE_MODE"] = "false"
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" not in servers
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "true",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_ddg_not_registered_in_private_mode(self, mock_query):
+        # Private mode: the in-sandbox server cannot reach duckduckgo.com through
+        # the locked-down proxy and the web tools are disallowed anyway, so the DDG
+        # fallback must not be registered.
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        servers = getattr(opts, "mcp_servers", {}) or {}
+        assert "ddg" not in servers
+        assert opts.disallowed_tools == ["WebFetch", "WebSearch"]
+
+    @staticmethod
+    def _pre_tool_use_matchers(opts):
+        hooks = getattr(opts, "hooks", None) or {}
+        return [hm.matcher for hm in hooks.get("PreToolUse", [])]
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "false",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_registered_on_litellm_public_path(self, mock_query):
+        # Belt-and-suspenders: the deny is registered programmatically via
+        # ClaudeAgentOptions.hooks in addition to the filesystem hook installed
+        # by the entrypoint, so it does not depend solely on setting_sources
+        # loading filesystem hooks.
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" in matchers
+        assert "WebFetch" in matchers
+
+        # The hook must emit the modern PreToolUse deny shape and name both DDG
+        # MCP tools, matching block-builtin-web-tools.sh.
+        hooks = opts.hooks["PreToolUse"]
+        web_search_hook = next(hm for hm in hooks if hm.matcher == "WebSearch")
+        out = _run_async(web_search_hook.hooks[0]({}, "tool-1", None))
+        decision = out["hookSpecificOutput"]
+        assert decision["hookEventName"] == "PreToolUse"
+        assert decision["permissionDecision"] == "deny"
+        assert "decision" not in out
+        reason = decision["permissionDecisionReason"]
+        assert "mcp__ddg__search" in reason
+        assert "mcp__ddg__fetch_content" in reason
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_not_registered_on_first_party_route(self, mock_query):
+        env = os.environ.copy()
+        env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
+        env["EGG_PRIVATE_MODE"] = "false"
+        env["EGG_MCP_TOOLS"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" not in matchers
+        assert "WebFetch" not in matchers
+
+    @patch.dict(
+        os.environ,
+        {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "EGG_PRIVATE_MODE": "true",
+            "EGG_MCP_TOOLS": "false",
+        },
+    )
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_web_tool_deny_hook_not_registered_in_private_mode(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._pre_tool_use_matchers(opts)
+        assert "WebSearch" not in matchers
+        assert "WebFetch" not in matchers
 
 
 class TestBufferOverflowErrorHandling:
