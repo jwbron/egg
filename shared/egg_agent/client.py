@@ -13,9 +13,15 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from egg_agent.result import AgentResult
+
+if TYPE_CHECKING:
+    # Annotation-only SDK types. With ``from __future__ import annotations``
+    # these are never evaluated at runtime, so they don't belong in the
+    # runtime import below — only HookMatcher is constructed at runtime.
+    from claude_agent_sdk import HookContext, HookInput, HookJSONOutput
 
 # Maximum length for tool input/output in log events to avoid bloating logs
 _MAX_TOOL_CONTENT_LOG_LEN = 2000
@@ -117,9 +123,6 @@ async def run_agent_async(
             ClaudeAgentOptions,
             ClaudeSDKError,
             CLINotFoundError,
-            HookContext,
-            HookInput,
-            HookJSONOutput,
             HookMatcher,
             PermissionResultAllow,
             PermissionResultDeny,
@@ -298,8 +301,8 @@ async def run_agent_async(
         # is more reliable). The sandbox entrypoint installs the same deny as a
         # filesystem hook (block-builtin-web-tools.sh); registering it here too
         # removes the single point of dependency on setting_sources loading
-        # filesystem hooks. Both denying is idempotent. The reason text must
-        # stay in sync with that script.
+        # filesystem hooks. If both fire, the duplicate deny is harmless. The
+        # reason text must stay in sync with that script.
         async def _deny_web_tools(
             input_data: HookInput, tool_use_id: str | None, context: HookContext
         ) -> HookJSONOutput:

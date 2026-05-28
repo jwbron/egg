@@ -264,7 +264,7 @@ being in private mode (`EGG_PRIVATE_MODE`):
    `ClaudeAgentOptions.hooks` — mirroring how `disallowed_tools` is set
    both in `settings.json` and on the options object. This removes the
    single point of dependency on `setting_sources` loading the
-   filesystem hook; both denying is idempotent.
+   filesystem hook; if both fire, the duplicate deny is harmless.
 
 2. **Register the DDG replacement.** `shared/egg_agent/client.py`
    registers the pre-installed `duckduckgo-mcp-server` stdio server

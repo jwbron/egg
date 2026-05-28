@@ -124,19 +124,11 @@ except ImportError:
         tool_use_id: str | None = None
         agent_id: str | None = None
 
-    # Hook types (#2856): client.py imports these for the web-tool deny hook.
-    # HookInput / HookJSONOutput / HookContext are only used as type
-    # annotations (client.py has `from __future__ import annotations`, so they
-    # are never evaluated at runtime); they only need to exist so the import
-    # succeeds. HookMatcher is constructed at runtime, so it needs the
-    # matcher/hooks fields the code and tests read.
-    HookInput = dict[str, Any]  # type: ignore[no-redef, misc]
-    HookJSONOutput = dict[str, Any]  # type: ignore[no-redef, misc]
-
-    @dataclass
-    class HookContext:  # type: ignore[no-redef]
-        signal: Any = None
-
+    # Hook types (#2856): client.py constructs HookMatcher at runtime for the
+    # web-tool deny hook, so the mock must provide it with the matcher/hooks
+    # fields the code and tests read. HookInput / HookJSONOutput / HookContext
+    # are annotation-only in client.py (gated under TYPE_CHECKING there), so
+    # they are never imported at runtime and need no mock.
     @dataclass
     class HookMatcher:  # type: ignore[no-redef]
         matcher: str | None = None
@@ -160,9 +152,6 @@ except ImportError:
     _mock_sdk.PermissionResultAllow = PermissionResultAllow  # type: ignore[attr-defined]
     _mock_sdk.PermissionResultDeny = PermissionResultDeny  # type: ignore[attr-defined]
     _mock_sdk.ToolPermissionContext = ToolPermissionContext  # type: ignore[attr-defined]
-    _mock_sdk.HookContext = HookContext  # type: ignore[attr-defined]
-    _mock_sdk.HookInput = HookInput  # type: ignore[attr-defined]
-    _mock_sdk.HookJSONOutput = HookJSONOutput  # type: ignore[attr-defined]
     _mock_sdk.HookMatcher = HookMatcher  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
 
