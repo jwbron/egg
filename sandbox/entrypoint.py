@@ -737,8 +737,7 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     """
     gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
 
-    # Placeholder OAuth token to satisfy Claude Code's startup validation.
-    # Must match sk-ant-oat01-* format for Claude Code to accept it.
+    # Placeholder credential to satisfy Claude Code's startup validation.
     # Gateway strips this and injects real credentials.
     #
     # When EGG_SESSION_TOKEN is present (k8s + Compose orchestrator paths)
@@ -750,9 +749,9 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     if session_token:
         from egg_session_placeholder import to_placeholder
 
-        oauth_placeholder = to_placeholder(session_token)
+        placeholder = to_placeholder(session_token)
     else:
-        oauth_placeholder = (
+        placeholder = (
             "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
             "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
         )
@@ -760,17 +759,27 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
     # Set ANTHROPIC_BASE_URL to route API calls through gateway
     os.environ["ANTHROPIC_BASE_URL"] = gateway_url
 
-    # Set placeholder OAuth token for Claude Code's startup validation
-    os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_placeholder
-
-    # Remove any Anthropic API key from container environment
-    # Credentials are held by gateway only - this prevents accidental exposure
-    for key in ["ANTHROPIC_API_KEY"]:
-        if key in os.environ:
-            del os.environ[key]
+    # On the LiteLLM path (ANTHROPIC_CUSTOM_MODEL_OPTION set), Claude Code
+    # uses api_key auth and sends credentials via the x-api-key header — set
+    # ANTHROPIC_API_KEY so the session token reaches the gateway and the
+    # entrypoint doesn't skip OAuth thinking it needs the api-key flow.
+    # On the Anthropic path, Claude Code uses OAuth and sends via the
+    # Anthropic-Header — set CLAUDE_CODE_OAUTH_TOKEN instead.
+    # Both headers reach the gateway's x-api-key extraction (gateway.py:9564),
+    # so LiteLLM-routed requests carry the same session envelope.
+    is_litellm_path = bool(os.environ.get("ANTHROPIC_CUSTOM_MODEL_OPTION"))
+    if is_litellm_path:
+        os.environ["ANTHROPIC_API_KEY"] = placeholder
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    else:
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = placeholder
+        os.environ.pop("ANTHROPIC_API_KEY", None)
 
     logger.success(f"Anthropic API routed through gateway: {gateway_url}")
-    logger.info("  Credentials injected by gateway (not in container)")
+    logger.info(
+        f"  Credentials injected by gateway (not in container), "
+        f"path={'litellm' if is_litellm_path else 'anthropic'}"
+    )
 
 
 def setup_worktrees(config: Config, logger: Logger) -> bool:
