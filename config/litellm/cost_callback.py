@@ -10,14 +10,15 @@ actually spent or whether prompt caching is working — the whole point of
 the cq-6 model-diversification pilot (#2799) and the cache patches baked
 into the ``egg-litellm`` image.
 
-We hook the proxy's post-call success path, pull the raw upstream JSON out
-of ``litellm_logging_obj.model_call_details.original_response``, and emit
-one structured JSON line per call keyed by Claude Code's session_id (sent
-on every request as ``x-claude-code-session-id``). The line carries the
-per-call delta plus the running session totals, including the cache-read
-hit rate — computed as a session aggregate, not a per-turn snapshot,
-because the per-turn ratio is noisy on short turns (a single tool-result
-message can dominate the prompt budget).
+We hook the proxy's success-logging path, pull the raw upstream ``usage``
+out of LiteLLM's ``model_call_details`` (raw provider JSON on the
+non-streaming path, the assembled response object's usage on the streaming
+path), and emit one structured JSON line per call keyed by Claude Code's
+session_id (sent on every request as ``x-claude-code-session-id``). The
+line carries the per-call delta plus the running session totals, including
+the cache-read hit rate — computed as a session aggregate, not a per-turn
+snapshot, because the per-turn ratio is noisy on short turns (a single
+tool-result message can dominate the prompt budget).
 
 Unlike the host-side ``cost_callback.py`` this is derived from, egg agents
 are headless: there is no statusline to read a per-session JSON file, and
@@ -30,11 +31,20 @@ Registered via ``litellm_settings.callbacks: cost_callback.cost_logger`` in
 the LiteLLM config (k8s/base/litellm-configmap.yaml). LiteLLM resolves a
 config-registered callback as a file next to ``--config``, so the
 egg-litellm image bakes this at ``/app/cost_callback.py`` (alongside the
-mounted ``/app/config.yaml``) — not via PYTHONPATH. The standard
-``log_success_event`` hooks don't fire for ``/v1/messages`` — that's why
-``async_post_call_success_hook`` is the right seam.
+mounted ``/app/config.yaml``) — not via PYTHONPATH.
+
+Hook choice: we implement ``async_log_success_event`` — LiteLLM's core
+success-logging hook, which fires for BOTH streaming and non-streaming
+completions (``litellm_logging.async_success_handler`` awaits it on stream
+completion). Claude Code streams its ``/v1/messages`` requests, so the core
+logging path is the only seam that sees real agent traffic. The proxy-layer
+``async_post_call_success_hook`` does NOT work here: the ``/v1/messages``
+route returns the ``text/event-stream`` response before that proxy hook
+runs, so it never fires for streaming — i.e. for essentially all agent
+traffic.
 """
 
+import collections
 import datetime
 import json
 import threading
@@ -42,25 +52,27 @@ import threading
 from litellm.integrations.custom_logger import CustomLogger
 
 _lock = threading.Lock()
-# session_id -> running totals. Bounded in practice by the number of agent
-# sessions the single-replica pod serves over its lifetime; entries are a
-# handful of floats each.
-_session_totals: dict[str, dict[str, float]] = {}
+# session_id -> running totals, kept as an LRU so the map cannot grow without
+# bound over the pod's lifetime (one entry per agent session, never otherwise
+# evicted). The single replica + tiny per-entry footprint make pressure
+# unlikely, but the pod was recently OOMKilled into a 1->2Gi bump, so we cap
+# defensively and drop the least-recently-updated session first.
+_MAX_SESSIONS = 4096
+_session_totals: collections.OrderedDict[str, dict[str, float]] = collections.OrderedDict()
 
 
-def _raw_upstream_usage(data):
+def _raw_upstream_usage(mcd):
     """Pull the upstream OpenRouter ``usage`` block out of
-    ``data['litellm_logging_obj'].model_call_details['original_response']``.
+    ``model_call_details['original_response']`` (the raw provider JSON).
 
-    Returns the parsed ``usage`` dict, or None if anything's missing /
-    malformed. All cost + cache stats below derive from this one source so
-    any provider-format quirks land in one place."""
+    Populated with full provider fidelity (cost, cost_details, cache
+    read/write counts) on the non-streaming path. For streaming, LiteLLM logs
+    only a type marker into ``original_response`` (see ``Logging.post_call``),
+    so this returns None and the caller falls back to the assembled response
+    object's usage. Returns the parsed ``usage`` dict, or None if anything's
+    missing / malformed."""
     try:
-        lo = data.get("litellm_logging_obj")
-        if lo is None:
-            return None
-        mcd = getattr(lo, "model_call_details", None) or {}
-        rr = mcd.get("original_response")
+        rr = (mcd or {}).get("original_response")
         if isinstance(rr, str):
             try:
                 rr = json.loads(rr.strip())
@@ -72,6 +84,38 @@ def _raw_upstream_usage(data):
         return usage if isinstance(usage, dict) else None
     except Exception:
         return None
+
+
+def _coerce_usage(usage):
+    """Normalize a usage value (LiteLLM ``Usage`` pydantic model, OpenAI usage
+    object, or plain dict) to a plain dict, preserving nested token-detail
+    objects and provider extras. Returns None if it can't."""
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        return usage
+    for attr in ("model_dump", "dict"):
+        fn = getattr(usage, attr, None)
+        if callable(fn):
+            try:
+                d = fn()
+                if isinstance(d, dict):
+                    return d
+            except Exception:
+                pass
+    return None
+
+
+def _usage_from_response_obj(response_obj):
+    """Read ``usage`` off the assembled response object LiteLLM hands the
+    success hook. This is the reliable source on the streaming path, where the
+    final usage chunk is folded into ``response_obj.usage``."""
+    if response_obj is None:
+        return None
+    usage = getattr(response_obj, "usage", None)
+    if usage is None and isinstance(response_obj, dict):
+        usage = response_obj.get("usage")
+    return _coerce_usage(usage)
 
 
 def _extract_cost(usage):
@@ -127,20 +171,31 @@ def _extract_cache_stats(usage):
     return prompt, cached, cache_write, reasoning
 
 
-def _extract_session_id(data):
-    """``x-claude-code-session-id`` lives at data.proxy_server_request.headers
-    — Claude Code sends it on every request."""
+def _extract_session_id(mcd):
+    """``x-claude-code-session-id`` is sent by Claude Code on every request.
+
+    In ``model_call_details`` it lands under
+    ``litellm_params.proxy_server_request`` (``get_litellm_params`` packs it
+    there); check the top level too in case a future path surfaces it there.
+    Lowercase header keys defensively — ``clean_headers`` preserves the wire
+    casing of header keys, so a non-lowercase hop (gateway, HTTP/1.1 client)
+    would otherwise collapse every call to ``_no_session`` and silently blend
+    the per-session hit rate into a global one."""
     try:
-        headers = ((data.get("proxy_server_request") or {}).get("headers")) or {}
-        sid = headers.get("x-claude-code-session-id")
-        return sid or None
+        mcd = mcd or {}
+        psr = mcd.get("proxy_server_request")
+        if not isinstance(psr, dict):
+            psr = (mcd.get("litellm_params") or {}).get("proxy_server_request")
+        headers = (psr or {}).get("headers") or {}
+        headers = {k.lower(): v for k, v in headers.items() if isinstance(k, str)}
+        return headers.get("x-claude-code-session-id") or None
     except Exception:
         return None
 
 
-def _extract_model(data):
+def _extract_model(mcd):
     try:
-        model = data.get("model")
+        model = (mcd or {}).get("model")
         return model if isinstance(model, str) else None
     except Exception:
         return None
@@ -166,42 +221,64 @@ def _emit(payload):
 
 
 class LiteLLMCostLogger(CustomLogger):
-    async def async_post_call_success_hook(self, data, user_api_key_dict, response):
+    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+        # ``kwargs`` IS LiteLLM's ``model_call_details`` dict here, and
+        # ``response_obj`` the assembled response. This hook fires on the core
+        # success path for both streaming and non-streaming completions, so it
+        # covers Claude Code's streamed /v1/messages traffic (see module
+        # docstring for why the proxy-layer success hook does not).
+        self._record(kwargs, response_obj)
+
+    def _record(self, mcd, response_obj):
         try:
-            if not isinstance(data, dict):
-                return response
-            usage = _raw_upstream_usage(data)
+            if not isinstance(mcd, dict):
+                return
+            # Raw upstream JSON first (full provider fidelity: cost,
+            # cost_details, cache_write counts) — the non-streaming path. For
+            # streaming, original_response holds only a type marker, so fall
+            # back to the assembled response object's usage.
+            usage = _raw_upstream_usage(mcd) or _usage_from_response_obj(response_obj)
             cost = _extract_cost(usage)
             prompt, cached, cache_write, reasoning = _extract_cache_stats(usage)
             if cost is None and prompt == 0 and cached == 0:
-                return response
+                return
             cost = cost or 0.0
-            sid = _extract_session_id(data) or "_no_session"
-            model = _extract_model(data)
+            sid = _extract_session_id(mcd) or "_no_session"
+            model = _extract_model(mcd)
             with _lock:
-                agg = _session_totals.setdefault(
-                    sid,
-                    {
+                agg = _session_totals.get(sid)
+                if agg is None:
+                    agg = {
                         "cost": 0.0,
                         "calls": 0.0,
                         "prompt_tokens": 0.0,
                         "cached_tokens": 0.0,
                         "cache_write_tokens": 0.0,
                         "reasoning_tokens": 0.0,
-                    },
-                )
+                    }
                 agg["cost"] += cost
                 agg["calls"] += 1
                 agg["prompt_tokens"] += prompt
                 agg["cached_tokens"] += cached
                 agg["cache_write_tokens"] += cache_write
                 agg["reasoning_tokens"] += reasoning
+                _session_totals[sid] = agg
+                _session_totals.move_to_end(sid)
+                while len(_session_totals) > _MAX_SESSIONS:
+                    _session_totals.popitem(last=False)
                 totals = dict(agg)
-            hit_rate = (
-                round(totals["cached_tokens"] * 100 / totals["prompt_tokens"], 2)
-                if totals["prompt_tokens"] > 0
-                else None
-            )
+            hit_rate = None
+            if totals["prompt_tokens"] > 0:
+                # cached_tokens is the cache-read count; prompt_tokens is the
+                # OpenAI-style total (cached included), so this is a true hit
+                # rate in [0, 100] on the normal OpenRouter path. Clamp the top
+                # defensively: if a provider ever reports cache reads under a
+                # schema where prompt_tokens excludes cached, the raw ratio
+                # could exceed 100 and read as a parser bug in the logs.
+                hit_rate = round(
+                    min(totals["cached_tokens"] * 100 / totals["prompt_tokens"], 100.0),
+                    2,
+                )
             _emit(
                 {
                     "session_id": sid,
@@ -219,7 +296,6 @@ class LiteLLMCostLogger(CustomLogger):
             )
         except Exception:
             pass
-        return response
 
 
 cost_logger = LiteLLMCostLogger()

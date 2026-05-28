@@ -64,7 +64,11 @@ data:
     # non-Claude routes into the pod log stream. Baked into the egg-litellm
     # image at /app/cost_callback.py — LiteLLM resolves a config-registered
     # callback as a file next to ``--config`` (here /app/config.yaml), so the
-    # name MUST match. Harmless with an empty model_list (no calls fire).
+    # name MUST match. LiteLLM resolves it at STARTUP, not at call time: an
+    # empty model_list keeps it idle (no calls fire), but the callback file
+    # must still exist when the proxy boots. That holds only because the
+    # egg-litellm image bakes /app/cost_callback.py — pairing this ConfigMap
+    # with the stock litellm image would fail the proxy at startup.
     #
     # NOTE: the host-side overlay (``~/.config/egg/litellm-models.yaml``)
     # replaces this whole ``config.yaml`` string, so an operator's overlay

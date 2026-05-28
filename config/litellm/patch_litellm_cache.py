@@ -17,10 +17,19 @@ Dockerfile ``FROM``), so the needles below are known to match.
   1. ``CacheControlSupportedModels`` (openrouter/chat/transformation.py)
      add QWEN + DEEPSEEK so ``cache_control`` survives the OpenRouter
      handler's strip step. Without it every turn pays full input rate.
-  2. ``is_anthropic_claude_model`` (anthropic adapter transformation.py)
-     extend the gate to qwen + deepseek so ``cache_control`` survives the
-     Anthropic->OpenAI translation the ``/v1/messages`` endpoint forces.
-     Without it patch 1 never sees ``cache_control`` (stripped earlier).
+  2. ``_add_cache_control_to_target`` cache_control gate (anthropic adapter
+     transformation.py) broaden ONLY that gate to qwen + deepseek so
+     ``cache_control`` survives the Anthropic->OpenAI translation the
+     ``/v1/messages`` endpoint forces. Without it patch 1 never sees
+     ``cache_control`` (stripped earlier). We deliberately do NOT widen the
+     shared ``is_anthropic_claude_model`` predicate: it also gates the
+     thinking->reasoning_effort translation (``translate_thinking_for_model``
+     / ``_translate_thinking_to_openai``), and widening it would forward an
+     Anthropic-shaped ``thinking`` object verbatim to OpenRouter (which
+     expects ``reasoning``). ``drop_params`` can't strip it because OpenRouter
+     advertises ``thinking`` as a supported param, so the request would 400 or
+     silently lose reasoning. Scoping the change to the cache_control call
+     site keeps thinking translation correct.
   3. ``_add_system_message_to_messages`` billing-header filter (same
      adapter file) drops ``x-anthropic-billing-header:`` text blocks.
      Claude Code injects this as the FIRST system text block, ahead of
@@ -93,9 +102,12 @@ def _patch_root(root: str) -> None:
     print(f"== patching {root}")
 
     # Patch 1 — CacheControlSupportedModels: add QWEN + DEEPSEEK.
+    # Idempotency marker is the egg-specific comment, not ``QWEN = "qwen"``:
+    # if a future LiteLLM adds QWEN natively but not DEEPSEEK, a generic marker
+    # would see it "already applied" and silently ship without DEEPSEEK.
     _apply(
         f1,
-        present='QWEN = "qwen"',
+        present="# egg cache patch. OpenRouter natively supports cache_control",
         needle='    ZAI = "z-ai"\n',
         replacement=(
             '    ZAI = "z-ai"\n'
@@ -108,20 +120,35 @@ def _patch_root(root: str) -> None:
         label="Patch 1/3 (CacheControlSupportedModels)",
     )
 
-    # Patch 2 — is_anthropic_claude_model: allow qwen + deepseek.
+    # Patch 2 — broaden ONLY the cache_control gate (not the shared
+    # is_anthropic_claude_model predicate, which also gates thinking
+    # translation — see module docstring). Touches the single call site in
+    # _add_cache_control_to_target.
     _apply(
         f2,
-        present='"qwen" in model_lower',
-        needle='return "anthropic" in model_lower or "claude" in model_lower',
+        present="# egg cache patch. Broaden ONLY the cache_control gate",
+        needle="        if cache_control and model and self.is_anthropic_claude_model(model):\n",
         replacement=(
-            "return (\n"
-            '            "anthropic" in model_lower\n'
-            '            or "claude" in model_lower\n'
-            '            or "qwen" in model_lower\n'
-            '            or "deepseek" in model_lower\n'
-            "        )"
+            "        # egg cache patch. Broaden ONLY the cache_control gate to\n"
+            "        # cover the OpenRouter qwen/deepseek routes. Do NOT widen\n"
+            "        # is_anthropic_claude_model itself: it also gates the\n"
+            "        # thinking->reasoning_effort translation, and a global\n"
+            "        # widen would forward Anthropic-shaped `thinking` verbatim\n"
+            "        # to OpenRouter (which expects `reasoning`) — drop_params\n"
+            "        # can't strip it because OpenRouter advertises `thinking`\n"
+            "        # as supported, so the request would 400 / lose reasoning.\n"
+            '        _model_lower = model.lower() if model else ""\n'
+            "        if (\n"
+            "            cache_control\n"
+            "            and model\n"
+            "            and (\n"
+            "                self.is_anthropic_claude_model(model)\n"
+            '                or "qwen" in _model_lower\n'
+            '                or "deepseek" in _model_lower\n'
+            "            )\n"
+            "        ):\n"
         ),
-        label="Patch 2/3 (is_anthropic_claude_model)",
+        label="Patch 2/3 (cache_control gate)",
     )
 
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
