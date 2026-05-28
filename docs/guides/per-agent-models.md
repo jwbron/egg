@@ -134,8 +134,8 @@ command, the agent's env, and the gateway session-create call:
 
 | Spawn site | Threads `--model` + env to | Threads `upstream` / `upstream_model` to |
 |------------|----------------------------|-------------------------------------------|
-| Initial spawn in `orchestrator/concurrent_executor.py` (`_spawn_agent`) | `build_consensus_wrapped_command(model=decision.claude_code_alias, …)` plus `decision.env_vars()` merged into `extra_env` (sets `ANTHROPIC_CUSTOM_MODEL_OPTION` + `…_OPTION_NAME` on the LiteLLM path) | `GatewayClient.register_session(upstream=…, upstream_model=…)` via the spawner |
-| Restart path in `orchestrator/routes/pipelines.py` (`restart_agent`) | Same `--model` resolution; `decision.env_vars()` merged into `extra_env` so the restarted Job re-registers the custom model | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
+| Initial spawn in `orchestrator/concurrent_executor.py` (`_spawn_agent`) | `build_consensus_wrapped_command(model=decision.claude_code_alias, …)` plus `decision.env_vars()` merged into `extra_env` (sets `ANTHROPIC_CUSTOM_MODEL_OPTION` + `…_OPTION_NAME` + `ANTHROPIC_AUTH_METHOD` on the LiteLLM path) | `GatewayClient.register_session(upstream=…, upstream_model=…)` via the spawner |
+| Restart path in `orchestrator/routes/pipelines.py` (`restart_agent`) | Same `--model` resolution; `decision.env_vars()` merged into `extra_env` so the restarted Job re-registers the custom model and skips OAuth | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
 
 When the resolved decision is the default Claude case
 (`upstream="anthropic"`, `upstream_model=None`),
@@ -194,7 +194,7 @@ routing or rewriting.
 > sub-200k upstreams).
 
 Claude Code documents an opt-in for custom (non-Claude) models via
-two env vars:
+two env vars (plus one egg-side auth marker):
 
 - `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
   custom model ID and tells Claude Code to use 1M-context
@@ -203,6 +203,16 @@ two env vars:
   on-the-wire name. Claude Code strips the `[1m]` suffix from the
   registered ID before sending the `"model"` field, so LiteLLM sees
   the bare name and matches its `model_list` entry directly.
+- `ANTHROPIC_AUTH_METHOD=api_key` — marks the LiteLLM path as
+  api-key auth so config validation and the entrypoint's startup
+  logging don't demand an Anthropic OAuth token. It does **not**
+  itself skip the OAuth setup: the actual OAuth-token-placeholder
+  skip in `setup_anthropic_api()` (`sandbox/entrypoint.py`) is
+  driven separately by `ANTHROPIC_CUSTOM_MODEL_OPTION` (set above).
+  LiteLLM-routed agents talk to the gateway, not anthropic.com, and
+  the gateway injects its own credentials at proxy time, so the
+  Anthropic OAuth flow is irrelevant
+  ([#2832](https://github.com/jwbron/egg/issues/2832)).
 
 The resolver builds both values from the decided upstream string and
 the spawn sites merge them into the agent's `extra_env`
@@ -568,7 +578,7 @@ misconfiguration on one does not silently activate the LiteLLM path.
 | `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:757` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects keys outside the phase producer / reviewer set (`agent_roles.MODEL_OVERRIDE_ROLES`) |
 | `default_agent_model: str \| None` | `config/repositories.yaml.example` (documented schema) | Repository-level default applied when `agent_models` does not pin the role |
 | `get_default_agent_model(repo)` | `config/repo_config.py` (mirrors `get_repo_setting` at `config/repo_config.py:248`) | Reader for the repo-level default; returns `None` when absent |
-| `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)`; `AgentModelDecision.env_vars()` returns the `ANTHROPIC_CUSTOM_MODEL_OPTION` pair on the LiteLLM path |
+| `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)`; `AgentModelDecision.env_vars()` returns the `ANTHROPIC_CUSTOM_MODEL_OPTION` pair plus `ANTHROPIC_AUTH_METHOD=api_key` on the LiteLLM path |
 | Spawn-side plumbing | `orchestrator/concurrent_executor.py` (`_spawn_agent`), `orchestrator/routes/pipelines.py` (`restart_agent`), `orchestrator/kubernetes_spawner.py` (`spawn_agent_job`) | Threads `--model` to the consensus wrapper, merges `decision.env_vars()` into `extra_env`, and forwards `upstream` / `upstream_model` to `GatewayClient.register_session` |
 
 The slice-1 primitives this guide builds on (`UpstreamRegistry`,
