@@ -31,10 +31,13 @@ spec:
         fsGroup: 1000
       containers:
         - name: litellm
-          # Pinned image — bump via overlay when intentionally updating.
-          # LiteLLM's Anthropic-translation interface is the contract the
-          # gateway depends on; do not float ``latest`` (cq-1, feedback Q3).
-          image: ghcr.io/berriai/litellm:main-v1.55.10
+          # Vendored image: bases on ``ghcr.io/berriai/litellm:v1.86.2`` and
+          # patches in cache_control passthrough for qwen/deepseek upstreams
+          # (issue #2839). Built by ``make build`` from ``litellm/Dockerfile``
+          # and loaded into k3s by ``make k3s-import``. Bump the upstream
+          # pin in ``litellm/Dockerfile``; the Anthropic-translation surface
+          # is the gateway's contract, do not float ``latest`` (cq-1).
+          image: egg-litellm:latest
           imagePullPolicy: IfNotPresent
           args:
             - --config

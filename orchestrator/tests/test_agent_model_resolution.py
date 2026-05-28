@@ -17,11 +17,15 @@ Classifier (model string → upstream):
       ``"haiku"``, ``"claude-*"``  → ``upstream="anthropic"``,
       ``claude_code_alias=<the string>``, ``upstream_model=None``.
     * anything else → ``upstream="litellm"``,
-      ``claude_code_alias="opus"`` (cq-5 mitigation: Claude Code keeps
-      seeing a recognized alias so its compaction math stays sane),
-      ``upstream_model=<the string>``.
+      ``claude_code_alias="<model>[1m]"`` (#2832: the [1m] suffix
+      opts Claude Code into 1M-context compaction math via the
+      ``ANTHROPIC_CUSTOM_MODEL_OPTION`` env var; Claude Code strips
+      the suffix before send, so LiteLLM keys on the bare name),
+      ``upstream_model=<the bare model name>``.
 
-Plan reference: ``.egg-state/drafts/2769-plan.md`` TASK-2-3 / TASK-2-7.
+Plan reference: ``.egg-state/drafts/2769-plan.md`` TASK-2-3 / TASK-2-7;
+#2832 superseded the cq-5 recognized-alias mitigation with env-var
+registration in the agent sandbox.
 """
 
 from __future__ import annotations
@@ -172,7 +176,9 @@ class TestResolutionPrecedence:
         # Pipeline override wins:
         assert d.upstream == "litellm"
         assert d.upstream_model == "qwen3-coder-30b"
-        assert d.claude_code_alias == "opus"  # cq-5 mitigation
+        # #2832: claude_code_alias is the suffixed name fed to Claude
+        # Code's custom-model registration (was "opus" under cq-5).
+        assert d.claude_code_alias == "qwen3-coder-30b[1m]"
 
     def test_pipeline_override_does_not_leak_to_other_roles(self):
         """``agent_models={"refiner": "qwen3-coder-30b"}`` MUST NOT change
@@ -286,10 +292,11 @@ class TestAnthropicClassification:
 class TestLiteLLMClassification:
     """Anything that does not look like a Claude alias → LiteLLM.
 
-    On the LiteLLM path the cq-5 mitigation pins
-    ``claude_code_alias="opus"`` regardless of the upstream model
-    name — Claude Code's compaction math is name-derived, so it
-    must keep seeing a recognized alias.
+    On the LiteLLM path (#2832) ``claude_code_alias`` is the bare
+    upstream name with the ``[1m]`` context-window-opt-in suffix
+    appended — passed to ``--model`` and to
+    ``ANTHROPIC_CUSTOM_MODEL_OPTION`` so Claude Code registers the
+    custom model with 1M-window compaction math.
     """
 
     @pytest.mark.parametrize(
@@ -313,19 +320,21 @@ class TestLiteLLMClassification:
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.upstream == "litellm", f"{model!r} should route to litellm"
-        # cq-5 mitigation: Claude Code MUST keep seeing a recognized alias.
-        assert d.claude_code_alias == "opus", (
-            f"LiteLLM-routed agents MUST present 'opus' to Claude Code so "
-            f"compaction math stays sane (cq-5); got {d.claude_code_alias!r}"
+        # #2832: alias is "<model>[1m]" so Claude Code registers the
+        # custom model with 1M-window compaction math.
+        assert d.claude_code_alias == f"{model}[1m]", (
+            f"LiteLLM-routed agents MUST present '<model>[1m]' to Claude "
+            f"Code so it registers the custom model option (#2832); got "
+            f"{d.claude_code_alias!r}"
         )
         assert d.upstream_model == model
 
-    def test_litellm_alias_pin_is_opus_not_upstream_model(self):
-        """Adversarial guard for the cq-5 mitigation: the
-        Claude-Code-facing alias for a LiteLLM-routed agent is
-        ALWAYS ``"opus"``, never the upstream model name — even
-        when the upstream model is something like ``"opus-7b"``
-        whose substring matches the Claude alias.
+    def test_litellm_alias_carries_1m_suffix_not_opus(self):
+        """Adversarial guard for the #2832 env-var registration: the
+        Claude-Code-facing alias for a LiteLLM-routed agent is NEVER
+        the legacy ``"opus"`` pin — it MUST carry the ``[1m]`` suffix
+        so Claude Code's custom-model registration fires with 1M
+        compaction math.
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -336,18 +345,63 @@ class TestLiteLLMClassification:
             with patch("config.repo_config.get_default_agent_model", return_value=None):
                 d = resolve_agent_model(AgentRole.CODER, config, None)
 
-            # Either the classifier correctly routes to anthropic
-            # (only if the name matches the documented exact aliases),
-            # or it routes to litellm with ``claude_code_alias="opus"``.
-            # What MUST NOT happen: routing to litellm with a non-opus
-            # alias, because Claude Code would then receive an unknown
-            # model name in its --model flag.
+            # The classifier may route a tricky name to anthropic (only
+            # if it matches the documented exact aliases) — otherwise it
+            # MUST route to litellm with claude_code_alias = "<name>[1m]".
             if d.upstream == "litellm":
-                assert d.claude_code_alias == "opus", (
-                    f"litellm route MUST pin claude_code_alias='opus' for "
-                    f"cq-5, got {d.claude_code_alias!r} for "
+                assert d.claude_code_alias == f"{tricky_model}[1m]", (
+                    f"litellm route MUST pin claude_code_alias='<name>[1m]' "
+                    f"for #2832 custom-model registration; got "
+                    f"{d.claude_code_alias!r} for "
                     f"upstream_model={tricky_model!r}"
                 )
+
+    def test_pre_suffixed_model_is_idempotent(self):
+        """If the operator passes ``qwen3-coder-30b[1m]`` directly,
+        the resolver must not double the suffix — ``upstream_model``
+        is the bare name and ``claude_code_alias`` carries a single
+        ``[1m]``.
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": "qwen3-coder-30b[1m]"})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.upstream == "litellm"
+        assert d.upstream_model == "qwen3-coder-30b"
+        assert d.claude_code_alias == "qwen3-coder-30b[1m]"
+
+    def test_litellm_env_vars_register_custom_model(self):
+        """``AgentModelDecision.env_vars()`` returns the
+        ``ANTHROPIC_CUSTOM_MODEL_OPTION`` pair that Claude Code reads at
+        startup to opt the custom model into 1M compaction math (#2832).
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": "qwen3-coder-30b"})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.env_vars() == {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
+            "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "qwen3-coder-30b",
+        }
+
+    def test_anthropic_env_vars_empty(self):
+        """Default Anthropic path MUST inject no extra env so today's
+        spawn shape stays byte-identical to the pre-#2832 wire.
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config()
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.env_vars() == {}
 
 
 # =============================================================================
@@ -408,7 +462,7 @@ class TestAgentModelsValidation:
     def test_unhonored_real_role_raises_validation_error(self):
         """Roles that exist in ``AgentRole`` but are never threaded
         through ``resolve_agent_model`` (overseer, autofixer,
-        conflict_resolver, inspector) MUST be rejected — accepting them
+        conflict_resolver) MUST be rejected — accepting them
         would let a deliberate override silently no-op at spawn, which is
         exactly the silent-ignore trap the validator exists to prevent.
         """
@@ -416,7 +470,7 @@ class TestAgentModelsValidation:
             pytest.skip("PipelineConfig.agent_models not yet implemented")
         from pydantic import ValidationError
 
-        for unhonored in ("overseer", "autofixer", "conflict_resolver", "inspector"):
+        for unhonored in ("overseer", "autofixer", "conflict_resolver"):
             with pytest.raises(ValidationError) as excinfo:
                 _pipeline_config(agent_models={unhonored: "qwen3-coder-30b"})
             assert unhonored in str(excinfo.value), (

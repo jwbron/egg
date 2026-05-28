@@ -193,7 +193,7 @@ class TestPathFiltering:
         assert check_model_versions._should_skip_path(p) is True
 
     def test_allow_source_files(self):
-        p = Path("sandbox/bin/egg-health-inspect")
+        p = Path("sandbox/bin/egg")
         assert check_model_versions._should_skip_path(p) is False
 
     def test_skip_pycache(self):

@@ -13,16 +13,18 @@ Precedence (highest first), matching #2769 task-2-3:
    default surfaced via :func:`config.repo_config.get_default_agent_model`.
 3. Built-in ``"opus"`` default — preserves today's Claude-only behaviour.
 
-Classifier (cq-5 mitigation): a model string matching one of the
-recognised Claude aliases (``opus``, ``opus[1m]``, ``sonnet``,
-``sonnet[1m]``, ``haiku``, ``claude-*``) routes through the Anthropic
-upstream and the agent's ``--model`` flag is set to that alias
-verbatim. Any other string is treated as a LiteLLM-side model name:
-the upstream is ``"litellm"``, the upstream-side model name is
-preserved (the gateway rewrites the request body before forwarding —
-see ``_rewrite_upstream_model`` in ``gateway/gateway.py``), and Claude
-Code is handed the recognised alias ``"opus"`` so its compaction math
-stays sane.
+Classifier: a model string matching one of the recognised Claude
+aliases (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``, ``haiku``,
+``claude-*``) routes through the Anthropic upstream — the agent's
+``--model`` flag is set to that alias verbatim and the gateway
+forwards the request body byte-for-byte. Any other string is treated
+as a LiteLLM-side model name (#2832): the upstream is ``"litellm"``,
+the agent is spawned with ``--model <upstream>[1m]`` and the
+``ANTHROPIC_CUSTOM_MODEL_OPTION`` / ``…_OPTION_NAME`` env vars set so
+Claude Code registers the custom model with a 1M-context-window
+compaction profile. The gateway no longer rewrites the request body;
+Claude Code strips the ``[1m]`` suffix before sending, and LiteLLM
+matches the resulting bare name against its ``model_list``.
 
 The resolver is a pure function over its three inputs (role,
 PipelineConfig, repo) so callers can use it from spawn, restart, and
@@ -46,9 +48,12 @@ DEFAULT_AGENT_MODEL = "opus"
 UPSTREAM_ANTHROPIC = "anthropic"
 UPSTREAM_LITELLM = "litellm"
 
-# Claude alias presented to Claude Code when the resolved model is a
-# non-Claude model routed through LiteLLM (cq-5 mitigation).
-LITELLM_CLAUDE_CODE_ALIAS = "opus"
+# Suffix Claude Code uses to opt a custom (non-Claude) model into 1M-context
+# compaction math. The suffix is stripped before send, so LiteLLM keys on the
+# bare model name; the orchestrator also configures a ``<name>[1m]`` alias
+# in ``litellm-configmap.yaml`` as a defensive guard against the documented
+# startup-probe leak path.
+_CONTEXT_1M_SUFFIX = "[1m]"
 
 # Recognised Claude aliases that route through the Anthropic upstream.
 # Exact-match set plus a regex for the version-pinned ``claude-*`` family
@@ -72,22 +77,43 @@ class AgentModelDecision:
     Attributes:
         claude_code_alias: The string passed to ``python3 -m egg_agent
             --model`` inside the sandbox. For Anthropic-routed models
-            this is the resolved model name verbatim. For LiteLLM-routed
-            models this is always :data:`LITELLM_CLAUDE_CODE_ALIAS` (cq-5
-            mitigation) so Claude Code's compaction heuristics stay
-            calibrated against a known Claude family.
+            this is the resolved Claude alias verbatim. For LiteLLM-routed
+            models this is the upstream-side model name with the ``[1m]``
+            context-window-opt-in suffix appended (e.g.
+            ``"qwen3-coder-30b[1m]"``); Claude Code strips the suffix
+            before the request hits the wire.
         upstream: One of :data:`UPSTREAM_ANTHROPIC` or
             :data:`UPSTREAM_LITELLM`. The gateway's UpstreamRegistry
             keys per-request ``httpx.Client`` + credential by this name.
-        upstream_model: The upstream-side model name to rewrite the
-            request body's ``model`` field to (gateway-side
-            ``_rewrite_upstream_model``). ``None`` on the Anthropic path
-            — the body is forwarded byte-for-byte unchanged.
+        upstream_model: The bare upstream-side model name (no ``[1m]``
+            suffix), recorded on ``Session.upstream_model`` as audit
+            metadata. ``None`` on the Anthropic path. The gateway does
+            not rewrite the request body — Claude Code already sends the
+            bare name once the ``[1m]`` suffix is stripped — so this is
+            now an audit field rather than a routing input.
     """
 
     claude_code_alias: str
     upstream: str
     upstream_model: str | None
+
+    def env_vars(self) -> dict[str, str]:
+        """Env vars to inject into the agent's sandbox for this decision.
+
+        On the LiteLLM path Claude Code needs to be told the custom
+        model exists (``ANTHROPIC_CUSTOM_MODEL_OPTION``) and what its
+        wire-name should be (``…_OPTION_NAME``) — without these,
+        compaction math falls back to the 200k Claude default and the
+        agent throws away >80% of a 1M-window upstream's capacity. The
+        Anthropic path returns an empty dict so default-Claude spawns
+        carry no extra env (the existing pre-#2832 wire shape).
+        """
+        if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
+            return {}
+        return {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": self.claude_code_alias,
+            "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": self.upstream_model,
+        }
 
 
 def _is_claude_alias(model: str) -> bool:  # noqa: EGG201 - docstring example shows versioned model ID format
@@ -117,10 +143,16 @@ def classify_model(model: str) -> AgentModelDecision:
             upstream=UPSTREAM_ANTHROPIC,
             upstream_model=None,
         )
+    # LiteLLM path (#2832): the operator may pass the bare upstream name
+    # (e.g. ``qwen3-coder-30b``) or pre-suffix it (``qwen3-coder-30b[1m]``).
+    # Normalise so ``upstream_model`` is always the bare name LiteLLM keys
+    # on and ``claude_code_alias`` always carries the suffix Claude Code
+    # needs to opt into 1M-context compaction math.
+    bare = model.removesuffix(_CONTEXT_1M_SUFFIX) if model.endswith(_CONTEXT_1M_SUFFIX) else model
     return AgentModelDecision(
-        claude_code_alias=LITELLM_CLAUDE_CODE_ALIAS,
+        claude_code_alias=f"{bare}{_CONTEXT_1M_SUFFIX}",
         upstream=UPSTREAM_LITELLM,
-        upstream_model=model,
+        upstream_model=bare,
     )
 
 
@@ -188,7 +220,6 @@ def resolve_agent_model(
 __all__ = [
     "AgentModelDecision",
     "DEFAULT_AGENT_MODEL",
-    "LITELLM_CLAUDE_CODE_ALIAS",
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",

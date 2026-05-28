@@ -12,6 +12,7 @@ egg/
 ├── gateway/                # Gateway sidecar (trusted container)
 ├── integration_tests/      # Integration tests (require k3s)
 ├── k8s/                    # Kubernetes manifests (Kustomize base + overlays)
+├── litellm/                # Vendored LiteLLM image (cache_control patches for qwen/deepseek)
 ├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── plugins/                # Claude Code plugins (distributable via egg-tools marketplace)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
@@ -34,6 +35,7 @@ egg/
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring k3s cluster and real pods | CI / local |
 | `k8s/` | Kubernetes manifests: Kustomize base + overlays (local/k3s). Namespaces, Deployments, Services, NetworkPolicies, agent Job template, RBAC | k3s cluster |
+| `litellm/` | Vendored LiteLLM image: `Dockerfile` based on upstream LiteLLM + `patch-cache-control.py` that adds qwen/deepseek to the `cache_control` passthrough allowlists (issue #2839) | k3s cluster |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
@@ -156,8 +158,6 @@ orchestrator/
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
-│   └── tier2/              # Semantic checks (LLM-powered)
-│       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
@@ -220,7 +220,6 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
-│   ├── egg-health-inspect  # Pipeline health inspector (delegates LLM calls for tier 2 checks)
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
@@ -290,6 +289,8 @@ shared/
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
+├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy
+│   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
@@ -471,7 +472,7 @@ config/
 | Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
-| Agent navigation | `CLAUDE.md` at component root | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
+| Agent navigation | `CLAUDE.md` at component root (with `AGENTS.md` symlink alias) | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
 
 ## Documentation Organization
 

@@ -908,9 +908,12 @@ class PipelineConfig(BaseModel):
             "The value is the upstream-side model name: a Claude alias "
             "(opus / opus[1m] / sonnet / sonnet[1m] / haiku / claude-*) "
             "routes through the Anthropic upstream, anything else routes "
-            "through the in-cluster LiteLLM proxy with the recognised "
-            "alias 'opus' presented to Claude Code (cq-5 mitigation). When a "
-            "role is absent from this mapping the resolver falls back to the "
+            "through the in-cluster LiteLLM proxy with the "
+            "ANTHROPIC_CUSTOM_MODEL_OPTION env-var registration set on "
+            "the agent's sandbox so Claude Code opts into 1M-context "
+            "compaction math (#2832, superseding the original cq-5 "
+            "recognized-alias mitigation). When a role is absent from "
+            "this mapping the resolver falls back to the "
             "repository-level default_agent_model setting and then to the "
             "built-in 'opus' default. See #2769."
         ),
@@ -924,7 +927,7 @@ class PipelineConfig(BaseModel):
         ``resolve_agent_model`` is consulted only by the spawn/restart
         paths that cover the SDLC phase producers and reviewers
         (``MODEL_OVERRIDE_ROLES``). Utility roles (autofixer,
-        conflict_resolver) and interface roles (overseer, inspector) spawn
+        conflict_resolver) and interface roles (overseer) spawn
         through paths that never call the resolver, so an override naming
         one of them would be silently dropped at spawn. Rejecting both
         typos and these unhonored-but-real roles at PipelineConfig

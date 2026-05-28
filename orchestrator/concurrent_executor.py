@@ -488,6 +488,12 @@ class ConcurrentPhaseExecutor:
         if prompt_text:
             command = build_consensus_wrapped_command(prompt_text, model=decision.claude_code_alias)
 
+        # On the LiteLLM path Claude Code needs the ANTHROPIC_CUSTOM_MODEL_OPTION
+        # env vars to opt into 1M-context compaction math (#2832). The decision's
+        # ``env_vars()`` is empty on the Anthropic path, so default-Claude spawns
+        # carry no extra env — the pre-#2832 wire shape.
+        env = {**env, **decision.env_vars()}
+
         # Forward the upstream/upstream_model kwargs to the spawner only
         # when they would change behavior — the default Anthropic decision
         # is omitted so test mocks and legacy spawn paths see the same

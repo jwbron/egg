@@ -54,16 +54,16 @@ data:
       # https://openrouter.ai/<vendor>/<model> before enabling — a
       # stale slug returns 404 at request time, not at config-load.
       #
-      # IMPORTANT: each non-Claude backend MUST ship paired
-      # (`<name>`, `<name>[1m]`) `model_name` rows pointing at the
-      # same `litellm_params`. Claude Code strips the `[1m]`
+      # IMPORTANT: each non-Claude backend SHOULD ship paired
+      # (`<name>`, `<name>[1m]`) `model_name` rows that point at the
+      # same `litellm_params` (#2832). Claude Code strips the `[1m]`
       # context-window-opt-in suffix client-side before the request
       # hits the wire — but a handful of startup probes leak the
       # suffixed name through, and LiteLLM 400s those probes with
       # `Invalid model name` unless the suffixed alias is registered.
       # The two-row shape absorbs the noise without a gateway-side
-      # body rewrite. A pytest guard in
-      # `tests/config/test_litellm_template.py` enforces this.
+      # body rewrite. See `k8s/base/litellm-configmap.yaml` for the
+      # full background.
       - model_name: qwen3-max
         litellm_params:
           model: openrouter/qwen/qwen3-max
@@ -84,17 +84,23 @@ data:
           #   reasoning:
           #     effort: "high"
       # Paired `[1m]` alias — absorbs Claude Code startup-probe
-      # suffix leak (#2832, #2847). Keep the `litellm_params` block
-      # byte-identical to the bare row: if you uncomment any tuning
-      # above (`reasoning_effort`, `drop_params`, `extra_body`),
-      # uncomment the same lines here too. Divergence between the
-      # two rows means probes and real requests are quietly served
-      # by different configs.
+      # suffix leak (#2832). The suffix has two faces: from Claude
+      # Code's side it IS a behavioral knob — it triggers the 1M-
+      # context compaction-math opt-in via
+      # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
+      # just a routing alias pointing at the same backend. Keep the
+      # `litellm_params` block byte-identical to the bare row: if
+      # you uncomment any tuning above (`reasoning_effort`,
+      # `drop_params`, `extra_body`, …), uncomment the same lines
+      # here too. Divergence between the two rows means probes and
+      # real requests are quietly served by different configs.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
-          # Mirror these in lock-step with the bare row above:
+          # Mirror these in lock-step with the bare row above. They
+          # are intentionally commented out here too — uncomment
+          # both rows together or neither.
           # reasoning_effort: high
           # drop_params: true
           # extra_body:
@@ -108,7 +114,8 @@ data:
       # target alongside `OPENROUTER_API_KEY`, and (3) add a
       # `secretKeyRef` env entry for `TOGETHER_API_KEY` on the LiteLLM
       # container in `k8s/base/litellm-deployment.yaml`. Then uncomment
-      # BOTH the bare and `[1m]` rows (see paired-alias rationale above).
+      # BOTH the bare and `[1m]`-suffixed rows (see paired-alias
+      # rationale above).
       # - model_name: qwen3-coder-30b
       #   litellm_params:
       #     model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct

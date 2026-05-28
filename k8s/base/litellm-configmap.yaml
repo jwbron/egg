@@ -25,6 +25,26 @@ data:
     # (the gateway only forwards when a session's ``upstream`` is
     # explicitly set to ``"litellm"``).
     #
+    # Operators add backends per LiteLLM's documented format. Each
+    # non-Claude entry SHOULD ship paired (bare, ``[1m]``-suffixed)
+    # ``model_name`` rows that point at the same ``litellm_params``
+    # (#2832): Claude Code strips the ``[1m]`` suffix from the model
+    # field before send, but a handful of startup probes leak the
+    # suffix onto the wire — without the alias LiteLLM 400s those
+    # probes with ``Invalid model name``. The two-row shape eats that
+    # noise without needing a gateway-side body rewrite. E.g. for the
+    # OpenRouter pilot backend (cq-6):
+    #
+    #   model_list:
+    #     - model_name: qwen3-max
+    #       litellm_params:
+    #         model: openrouter/qwen/qwen3-max
+    #         api_key: os.environ/OPENROUTER_API_KEY
+    #     - model_name: qwen3-max[1m]
+    #       litellm_params:
+    #         model: openrouter/qwen/qwen3-max
+    #         api_key: os.environ/OPENROUTER_API_KEY
+    #
     # Provider-side API keys referenced by overlay entries are read by
     # LiteLLM from its container env at startup. ``OPENROUTER_API_KEY``
     # is wired end-to-end out of the box (issue #2799): operators set
