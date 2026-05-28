@@ -19055,6 +19055,15 @@ def _spawn_and_wait(
     if spawn_retry_initial_backoff_seconds is not None:
         retry_kwargs["spawn_retry_initial_backoff_seconds"] = spawn_retry_initial_backoff_seconds
 
+    # NOTE: this helper only supports the default Anthropic auth path. It
+    # does not forward ``upstream``/``upstream_model``, so ``spawn_agent_job``
+    # falls back to the Anthropic branch and injects the session-token
+    # placeholder into ``CLAUDE_CODE_OAUTH_TOKEN`` (#2817). It has no
+    # production callers today (only test references). If this path is ever
+    # revived for a LiteLLM agent, plumb ``upstream``/``upstream_model``
+    # through here — otherwise Claude Code would send ``x-api-key`` (api_key
+    # auth) while the placeholder lands in the OAuth header, leaving the
+    # credential header empty and the session unresolvable.
     spawned = spawner.spawn_agent_job(
         pipeline_id=pipeline_id,
         agent_role=agent_role,
