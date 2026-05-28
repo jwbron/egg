@@ -309,14 +309,18 @@ class LiteLLMCostLogger(CustomLogger):
                 )
             # Report session cost as null until at least one call carried a
             # known cost, so all-streaming sessions don't read as "$0 spent".
+            # Counts (calls and token tallies) are integer-valued — emit them
+            # as ``int`` so the log line reads ``cost_known_calls: 1`` rather
+            # than ``1.0`` (the aggregate is held as float for uniform +=).
+            # ``cost`` and ``cache_hit_rate_pct`` stay float/None.
             session = {
                 "cost": totals["cost"] if totals["cost_known_calls"] > 0 else None,
-                "cost_known_calls": totals["cost_known_calls"],
-                "calls": totals["calls"],
-                "prompt_tokens": totals["prompt_tokens"],
-                "cached_tokens": totals["cached_tokens"],
-                "cache_write_tokens": totals["cache_write_tokens"],
-                "reasoning_tokens": totals["reasoning_tokens"],
+                "cost_known_calls": int(totals["cost_known_calls"]),
+                "calls": int(totals["calls"]),
+                "prompt_tokens": int(totals["prompt_tokens"]),
+                "cached_tokens": int(totals["cached_tokens"]),
+                "cache_write_tokens": int(totals["cache_write_tokens"]),
+                "reasoning_tokens": int(totals["reasoning_tokens"]),
             }
             _emit(
                 {
@@ -324,10 +328,10 @@ class LiteLLMCostLogger(CustomLogger):
                     "model": model,
                     "call": {
                         "cost": cost,
-                        "prompt_tokens": prompt,
-                        "cached_tokens": cached,
-                        "cache_write_tokens": cache_write,
-                        "reasoning_tokens": reasoning,
+                        "prompt_tokens": int(prompt),
+                        "cached_tokens": int(cached),
+                        "cache_write_tokens": int(cache_write),
+                        "reasoning_tokens": int(reasoning),
                     },
                     "session": session,
                     "cache_hit_rate_pct": hit_rate,

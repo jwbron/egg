@@ -51,7 +51,16 @@ cc = _load_cost_callback()
 
 def _streaming_usage() -> dict:
     """The shape ``ChunkProcessor.calculate_usage`` produces on the streaming
-    path: token + cache fields present, ``cost`` / ``cost_details`` absent."""
+    path: token + cache fields present, ``cost`` / ``cost_details`` absent.
+
+    NOTE: this fixture is hand-built to mirror ``calculate_usage``'s output in
+    the pinned ``litellm==1.86.2`` (the version baked into the egg-litellm
+    image). litellm can't run on the repo's Python 3.14, so the test can't
+    assert this shape against the real reassembler — revisit this fixture on a
+    litellm bump in case a newer version starts carrying ``cost`` through chunk
+    reassembly (which would make the ``cost: null`` behavior under test stale).
+    The build-time patcher already fails loudly on needle drift; this fixture
+    has no equivalent tripwire."""
     return {
         "prompt_tokens": 1000,
         "completion_tokens": 200,
@@ -122,6 +131,11 @@ class TestRecordCostReporting:
         assert payload["call"]["cache_write_tokens"] == 100
         assert payload["call"]["reasoning_tokens"] == 50
         assert payload["cache_hit_rate_pct"] == 60.0
+        # Counts render as int (not 1.0) so the "N of M" log framing reads
+        # cleanly; cost stays float/None.
+        assert isinstance(payload["session"]["cost_known_calls"], int)
+        assert isinstance(payload["session"]["calls"], int)
+        assert isinstance(payload["call"]["cached_tokens"], int)
 
     def test_nonstreaming_call_records_real_cost(self, monkeypatch):
         emitted = self._capture(monkeypatch)
