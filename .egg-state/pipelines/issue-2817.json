@@ -5,7 +5,7 @@
   "branch": "egg/issue-2817/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -85,10 +85,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-28T17:31:14.382488Z",
       "work_started_at": "2026-05-28T17:31:15.141118Z",
-      "completed_at": null,
+      "completed_at": "2026-05-28T17:32:58.146127Z",
       "containers": [
         {
           "container_id": "2092053f-df19-4f75-ae08-7f6ebbe8fe7d",
@@ -186,12 +186,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-28T17:31:15.141118Z",
-          "completed_at": null,
+          "completed_at": "2026-05-28T17:32:58.146115Z",
           "commit_sha": "46111aa32ffc0c75961f4a46e5e058956799ccb0"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff03548040>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff03548040>\nRuntimeError: aclose(): asynchronous generator is already running\nNot logged in · Please run /login\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Startup failure on restart 3 (code 1 after 1s). Will retry.\n[consensus-wrapper] Max restarts (3) exhausted. Agent never reached CONFIRMED. Exiting with failure.\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'refiner' container exited with code 1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "46111aa32ffc0c75961f4a46e5e058956799ccb0",
@@ -441,20 +441,20 @@
   },
   "decisions": [],
   "created_at": "2026-05-28T16:50:03.127065Z",
-  "updated_at": "2026-05-28T17:32:58.117339Z",
+  "updated_at": "2026-05-28T17:32:58.146422Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff03548040>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff03548040>\nRuntimeError: aclose(): asynchronous generator is already running\nNot logged in · Please run /login\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Startup failure on restart 3 (code 1 after 1s). Will retry.\n[consensus-wrapper] Max restarts (3) exhausted. Agent never reached CONFIRMED. Exiting with failure.\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'refiner' container exited with code 1 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-28T17:31:12.872107Z",
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
