@@ -453,11 +453,16 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 
 ```
 config/
-├── config.yaml.example        # Configuration template (copy to ~/.config/egg/config.yaml)
-├── repositories.yaml.example  # Repository access configuration template
-├── secrets.template.env        # Secrets template (includes Jira credential placeholders)
-├── context-filters.yaml        # Operator allowlists for external integrations (jira.projects)
-├── repo_config.py              # Python API for repo access
+├── config.yaml.example          # Configuration template (copy to ~/.config/egg/config.yaml)
+├── repositories.yaml.example    # Repository access configuration template
+├── secrets.template.env         # Secrets template (includes Jira credential placeholders)
+├── context-filters.yaml         # Operator allowlists for external integrations (jira.projects)
+├── litellm-models.template.yaml # Operator template for registering non-Claude backends (copy to ~/.config/egg/litellm-models.yaml)
+├── litellm/                     # egg-litellm image sources
+│   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache patches
+│   ├── patch_litellm_cache.py   # Build-time patches for cache_control passthrough on Qwen/DeepSeek routes
+│   └── cost_callback.py         # LiteLLM custom logger: real upstream cost + cache hit rate to pod stdout
+├── repo_config.py               # Python API for repo access
 └── README.md
 ```
 

@@ -1,6 +1,6 @@
 # Pod resource sizing
 
-Resource requests and limits for the four pod types in the egg stack. The `gateway`, `orchestrator`, and `egg-sandbox-*` allocations were tuned against the observed telemetry below; the `litellm` row was sized from `k8s/base/litellm-deployment.yaml` (it postdates the snapshots, so no telemetry exists for it yet). See #1888 / #1895 for the right-sizing initiative.
+Resource requests and limits for the four pod types in the egg stack. The `gateway`, `orchestrator`, and `egg-sandbox-*` allocations were tuned against the observed telemetry below; the `litellm` row mirrors `k8s/base/litellm-deployment.yaml`, whose 2Gi memory limit was raised after an observed OOMKill in #2853. It postdates the snapshots below (so no sampled telemetry exists for it), but the OOMKill is the runtime signal behind the current limit. See #1888 / #1895 for the right-sizing initiative.
 
 ## Current allocations
 
@@ -8,7 +8,7 @@ Resource requests and limits for the four pod types in the egg stack. The `gatew
 |---|---|---|---|---|---|
 | `gateway` (egg-system) | 200m | 2 | 2Gi | 4Gi | Burstable |
 | `orchestrator` (egg-system) | 250m | 1 | 512Mi | 1Gi | Burstable |
-| `litellm` (egg-system) | 100m | 1 | 256Mi | 1Gi | Burstable |
+| `litellm` (egg-system) | 100m | 1 | 256Mi | 2Gi | Burstable |
 | `egg-sandbox-*` (egg-agents, per-agent) | 250m | 2 | 512Mi | 2Gi | Burstable |
 
 Gateway/orchestrator values live in `k8s/base/gateway-deployment.yaml` and `k8s/base/orchestrator-deployment.yaml`. Sandbox defaults are applied programmatically in `orchestrator/kubernetes_client.py` (`create_container`); callers can override via `kwargs["resources"]`.
