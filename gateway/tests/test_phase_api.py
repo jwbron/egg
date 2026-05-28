@@ -433,7 +433,7 @@ class TestGetRoleFromContext:
         assert role.value == expected
 
     def test_role_from_session_system_roles_cannot_transition(
-        self, client, auth_headers, fine_role
+        self, client, auth_headers
     ):
         """Interface roles map to ``system`` which is not a TransitionRole."""
         with client.application.test_request_context():
