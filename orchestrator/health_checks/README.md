@@ -2,6 +2,8 @@
 
 Two-tier health check framework for proactive pipeline failure detection. Catches both infrastructure failures (containers missing, state inconsistencies) and semantic failures (agents completed but produced no artifacts).
 
+> **Tier 2 registration status:** The framework retains full two-tier *capability* — the `HealthTier.AGENT` enum and the Tier 1 → Tier 2 escalation logic in `runner.py` are intact, so a new Tier 2 check can be registered without framework changes. However, **no Tier 2 checks are currently registered.** `AgentInspectorCheck` (the only Tier 2 check) was removed as unused in [#2850](https://github.com/jwbron/egg/pull/2850); every active check below is Tier 1. The Tier 2 rows and notes in this doc describe framework behavior that activates only once a Tier 2 check is registered.
+
 ## Architecture
 
 ```
@@ -14,7 +16,9 @@ HealthCheckRunner
 │   ├── ContainerLivenessCheck
 │   ├── StartupStateCheck
 │   ├── PhaseOutputPresenceCheck
-│   └── StateConsistencyCheck
+│   ├── StateConsistencyCheck
+│   ├── ConsensusStallCheck
+│   └── IncompleteConsensusStallCheck
 ```
 
 ## Core Types (`types.py`)
@@ -71,11 +75,15 @@ Call `.to_dict()` to serialize for JSON/event payloads.
 
 | Property | What it does | Used by |
 |----------|-------------|---------|
-| `git_log` | `git log --oneline -20` on the branch | StateConsistencyCheck |
-| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | StateConsistencyCheck |
+| `git_log` | `git log --oneline -20` on the branch | _None — see note below_ |
+| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | _None — see note below_ |
 | `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck |
-| `contract` | Parses SDLC contract JSON for the pipeline's issue | StateConsistencyCheck |
+| `contract` | Parses SDLC contract JSON for the pipeline's issue | _None — see note below_ |
 | `live_container_ids` | Lists running Docker containers | ContainerLivenessCheck, StartupStateCheck, StateConsistencyCheck |
+
+> **Unused properties:** `git_log`, `git_diff_stat`, and `contract` are defined on the context but consumed by no currently registered check — they were the removed `AgentInspectorCheck`'s (Tier 2) context fields, retained for a future Tier 2 check (see the Tier 2 registration status note at the top). Note that `StateConsistencyCheck` reads contract data via `agent_outputs` (scanning for a `contract` file), not via the `contract` property.
+
+**Truncation:** `git_diff_stat` is capped at ~16,000 chars (~4000 tokens) via `_TIER2_CHAR_CAP` in `context.py` (the constant keeps its legacy `TIER2` name). Because `git_diff_stat` is currently unused (see the note above), this bound is presently inert. Agent output files — which *are* consumed, by `StateConsistencyCheck` — are capped at 4KB each.
 
 ## Runner (`runner.py`)
 
@@ -149,22 +157,20 @@ Detects BRC consensus-complete-but-phase-stuck conditions for concurrent executi
 - **HEALTHY**: Pipeline not running, phase not using concurrent execution, within grace period, or consensus not yet complete
 - Recovery is driven by `ContainerMonitor._handle_consensus_stall_recovery()`: tracker reconstruction first, then aggressive agent/phase completion with optimistic locking
 
+### IncompleteConsensusStallCheck (`tier1/incomplete_consensus_stall.py`)
 
-**Configuration:**
+Detects BRC consensus-*incomplete*-and-not-progressing conditions: most agents have confirmed but one or more remain stuck (e.g. in a heartbeat loop after a re-review cycle).
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `HEALTH_CHECK_MODEL` | Model to use for inspection | `sonnet` |
-
-**Context token budget:**
-
-Tier 2 context fields are capped at ~4000 tokens (~16,000 chars) via `_TIER2_CHAR_CAP` in `context.py`. Individual agent output files are capped at 4KB. The contract JSON is trimmed to key fields (`current_phase`, `acceptance_criteria`, `decisions`, `agent_executions`) before inclusion.
+- **Triggers:** RUNTIME_TICK, ON_DEMAND
+- **DEGRADED** (+ ALERT): The same set of blocking (unconfirmed) agents persists for `stall_tick_threshold` consecutive ticks (default 10), after the phase grace period (default 300s) and post-proposal grace period have elapsed
+- **HEALTHY**: Pipeline not running, phase not using concurrent execution, within a grace period, no blocking agents, the blocking set is still changing, or blocking agents show recent progress activity
+- Purely diagnostic — recovery is escalated to the overseer (`details.recovery_action = escalate_to_overseer`)
 
 ## Integration Points
 
 ### Startup (`cli.py`)
 
-Runner is initialized with all Tier 1 and Tier 2 checks registered. Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
+Runner is initialized with all Tier 1 checks registered (no Tier 2 checks are currently registered — see the Tier 2 registration status note at the top). Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
 
 ### Container Monitor (`container_monitor.py`)
 

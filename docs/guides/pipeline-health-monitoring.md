@@ -643,11 +643,10 @@ Pipeline health monitoring extends the existing [health check framework](../../o
 | Component | Role | Runs |
 |-----------|------|------|
 | **Tier 1 health checks** (existing) | Structural invariant checks (container liveness, state consistency, consensus stall detection) | At lifecycle triggers (STARTUP, RUNTIME_TICK, etc.) |
-| **Tier 2 health checks** (existing) | LLM-powered semantic analysis of agent progress | At WAVE_COMPLETE (if Tier 1 degraded), PHASE_COMPLETE, ON_DEMAND |
 | **Orchestrator tripwires** (new) | Deterministic real-time monitoring of structured progress events | Continuously, event-driven |
 | **Overseer agent** (new) | LLM-powered analysis of ambiguous failures, corrective action | Per-phase, poll-based + escalation-driven (spawned/torn down at phase boundaries) |
 
-The orchestrator tripwires process structured agent logs in real-time (event-driven), while the existing health check framework runs at discrete lifecycle points. The overseer agent provides deeper semantic analysis than Tier 2 health checks, with the ability to take corrective action (redirects, issue filing) rather than just reporting status.
+The orchestrator tripwires process structured agent logs in real-time (event-driven), while the existing health check framework runs at discrete lifecycle points. The overseer agent provides LLM-powered semantic analysis of ambiguous failures with the ability to take corrective action (redirects, issue filing) rather than just reporting status.
 
 ## Related Documentation
 

@@ -54,9 +54,10 @@ data:
       # https://openrouter.ai/<vendor>/<model> before enabling — a
       # stale slug returns 404 at request time, not at config-load.
       #
-      # IMPORTANT: each non-Claude backend SHOULD ship paired
+      # IMPORTANT: each non-Claude backend MUST ship paired
       # (`<name>`, `<name>[1m]`) `model_name` rows that point at the
-      # same `litellm_params` (#2832). Claude Code strips the `[1m]`
+      # same `litellm_params` (#2832) — this is enforced in CI by
+      # tests/config/test_litellm_template.py. Claude Code strips the `[1m]`
       # context-window-opt-in suffix client-side before the request
       # hits the wire — but a handful of startup probes leak the
       # suffixed name through, and LiteLLM 400s those probes with
@@ -98,11 +99,12 @@ data:
       # context compaction-math opt-in via
       # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
       # just a routing alias pointing at the same backend. Keep the
-      # `litellm_params` block byte-identical to the bare row: if you
-      # change any tuning above (`drop_params`, the `extra_body`
-      # provider pin / reasoning), mirror it here too. Divergence
-      # between the two rows means probes and real requests are quietly
-      # served by different configs.
+      # `litellm_params` block identical to the bare row (the CI guard
+      # in tests/config/test_litellm_template.py compares them as parsed
+      # YAML): if you change any tuning above (`drop_params`, the
+      # `extra_body` provider pin / reasoning), mirror it here too.
+      # Divergence between the two rows means probes and real requests
+      # are quietly served by different configs.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
