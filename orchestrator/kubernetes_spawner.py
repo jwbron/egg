@@ -179,6 +179,16 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # default, leaving slice agents pushing to ``<pid>/work``
         # instead of ``<pid>/<slice>`` — every coder push was rejected.
         "EGG_BRANCH",
+        # Session-token placeholder credential (#2817). The spawner is the
+        # single source of truth: both keys are derived from the same
+        # ``session_token`` below (one is set per spawn, keyed on
+        # ``upstream``). Protecting them matches the ``EGG_SESSION_TOKEN``
+        # treatment — an ``extra_env`` override could otherwise desync the
+        # credential header from the session the gateway resolves, leaving
+        # the session unauthenticatable. No current caller passes either
+        # via ``extra_env``; this is defense in depth.
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
     }
 )
 

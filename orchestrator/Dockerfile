@@ -45,7 +45,7 @@ COPY orchestrator/*.py ./
 COPY orchestrator/routes/ ./routes/
 COPY orchestrator/health_checks/ ./health_checks/
 
-# Copy shared modules (egg_logging, egg_config, egg_contracts, egg_restrictions, egg_container, egg_agent, egg_git, egg_anchor, egg_health)
+# Copy shared modules (egg_logging, egg_config, egg_contracts, egg_restrictions, egg_container, egg_agent, egg_git, egg_anchor, egg_health, egg_session_placeholder)
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
@@ -56,6 +56,12 @@ COPY shared/egg_orchestrator/ ./egg_orchestrator/
 COPY shared/egg_git/ ./egg_git/
 COPY shared/egg_anchor/ ./egg_anchor/
 COPY shared/egg_health/ ./egg_health/
+# #2817: kubernetes_spawner injects the session-token placeholder
+# (to_placeholder) into the agent pod env, since the k8s container
+# command overrides the image ENTRYPOINT and setup_anthropic_api()
+# never runs. Without this COPY the lazy import in spawn_agent_job
+# raises ModuleNotFoundError and no agent ever starts.
+COPY shared/egg_session_placeholder/ ./egg_session_placeholder/
 
 # Copy config module (#2528: orchestrator reads per-repo role_patterns
 # from repositories.yaml so plan-time validation and the planner prompt

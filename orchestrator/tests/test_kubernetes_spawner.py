@@ -367,6 +367,35 @@ class TestSpawnAgentJob:
         assert env["ANTHROPIC_API_KEY"] == expected
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
 
+    def test_extra_env_cannot_override_credential_placeholder(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """``extra_env`` cannot override the credential placeholder keys (#2817).
+
+        The spawner is the single source of truth: the placeholder is
+        derived from the session token and injected into
+        ``CLAUDE_CODE_OAUTH_TOKEN`` (or ``ANTHROPIC_API_KEY`` on the
+        LiteLLM path). A caller that tried to ship a different value via
+        ``extra_env`` would desync the credential header from the session
+        the gateway resolves; protecting both keys catches that.
+        """
+        from egg_session_placeholder import to_placeholder
+
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            extra_env={
+                "CLAUDE_CODE_OAUTH_TOKEN": "attacker-supplied",
+                "ANTHROPIC_API_KEY": "attacker-supplied",
+            },
+        )
+        env = result.environment
+        expected = to_placeholder(env["EGG_SESSION_TOKEN"])
+        # Spawner's placeholder wins; the attacker value is dropped.
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"] == expected
+        assert "ANTHROPIC_API_KEY" not in env
+
     def test_spawn_extra_env_overrides(self, spawner, mock_k8s_client):
         """extra_env overrides default environment."""
         result = spawner.spawn_agent_job(
