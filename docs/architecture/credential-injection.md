@@ -80,7 +80,6 @@ The gateway's `proxy_anthropic_messages()` handles this in two complementary way
 The container entrypoint:
 1. Sets `ANTHROPIC_BASE_URL=http://egg-gateway:9848`
 2. Sets a placeholder credential for Claude Code's startup validation; the gateway strips it and injects real upstream credentials
-3. Removes proxy environment variables for Node.js (Claude Code)
 
 Which env var carries the placeholder depends on the auth header Claude Code sends:
 
