@@ -3243,14 +3243,17 @@ class TestSubagentExplorationGuidance:
         # and accidentally fall through to reviewer paths (#2814 / #2795).
         #
         # Each reviewer is paired with its natural phase per the dispatch
-        # in _build_reviewer_preparation (pipelines.py:13586+): reviewer_code
-        # and reviewer_contract pair with `implement`; reviewer_plan with
-        # `plan`; reviewer_refine and reviewer_agent_design with `refine`.
-        # The dispatch-routing guarantee holds regardless of phase, but
-        # pairing each reviewer with its real-world phase keeps the test
-        # representative.
+        # in _build_reviewer_preparation (pipelines.py:13586+): reviewer_code,
+        # reviewer_code_holistic, and reviewer_contract pair with `implement`;
+        # reviewer_plan with `plan`; reviewer_refine and reviewer_agent_design
+        # with `refine`. The dispatch-routing guarantee holds regardless of
+        # phase, but pairing each reviewer with its real-world phase keeps the
+        # test representative. This list mirrors the `is_reviewer` tuple at
+        # pipelines.py:12948 — every composite reviewer the BRC roster knows
+        # about appears here.
         reviewer_phase_pairs = (
             ("reviewer_code", "implement"),
+            ("reviewer_code_holistic", "implement"),
             ("reviewer_contract", "implement"),
             ("reviewer_plan", "plan"),
             ("reviewer_refine", "refine"),
