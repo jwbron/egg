@@ -3167,29 +3167,16 @@ class TestExternalResearchInstructions:
 
 
 class TestSubagentExplorationGuidance:
-    """All seven producer roles must include the #2814 subagent exploration directive."""
+    """All seven producer roles must include the #2814 subagent exploration directive.
 
-    _DISTINCTIVE_PHRASE = "subagent_type: Explore"
+    Assertions target the section header ``## Subagent Use for Exploration``
+    rather than any inline prose like ``subagent_type: Explore`` — the header
+    is a stable anchor that survives prose tweaks, while the inline directive
+    syntax could reasonably be reworded (`subagent_type=Explore`, etc.) and
+    silently break these tests without indicating a real regression.
+    """
 
-    @staticmethod
-    def _refine_prompt() -> str:
-        return _build_phase_prompt(
-            phase="refine",
-            pipeline_id="t",
-            pipeline_mode="issue",
-            prompt="Analyze.",
-            issue_number=1,
-        )
-
-    @staticmethod
-    def _coder_prompt() -> str:
-        return _build_phase_prompt(
-            phase="implement",
-            pipeline_id="t",
-            pipeline_mode="issue",
-            prompt="Implement.",
-            issue_number=1,
-        )
+    _DISTINCTIVE_PHRASE = "## Subagent Use for Exploration"
 
     @staticmethod
     def _agent_prompt(role: str, phase: str) -> str:
@@ -3202,11 +3189,37 @@ class TestSubagentExplorationGuidance:
             issue_number=1,
         )
 
-    def test_refiner(self):
-        assert self._DISTINCTIVE_PHRASE in self._refine_prompt()
+    def test_refiner_via_phase_prompt(self):
+        prompt = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="t",
+            pipeline_mode="issue",
+            prompt="Analyze.",
+            issue_number=1,
+        )
+        assert self._DISTINCTIVE_PHRASE in prompt
 
-    def test_coder(self):
-        assert self._DISTINCTIVE_PHRASE in self._coder_prompt()
+    def test_coder_via_phase_prompt(self):
+        prompt = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="t",
+            pipeline_mode="issue",
+            prompt="Implement.",
+            issue_number=1,
+        )
+        assert self._DISTINCTIVE_PHRASE in prompt
+
+    def test_refiner_via_agent_prompt(self):
+        # Production dispatches refiner through _build_agent_prompt, which
+        # delegates to _build_phase_prompt. Exercise that delegation so a
+        # regression removing it would be caught.
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("refiner", "refine")
+
+    def test_coder_via_agent_prompt(self):
+        # Production dispatches coder through _build_agent_prompt, which
+        # delegates to _build_phase_prompt. Exercise that delegation so a
+        # regression removing it would be caught.
+        assert self._DISTINCTIVE_PHRASE in self._agent_prompt("coder", "implement")
 
     def test_architect(self):
         assert self._DISTINCTIVE_PHRASE in self._agent_prompt("architect", "plan")
@@ -3222,6 +3235,22 @@ class TestSubagentExplorationGuidance:
 
     def test_documenter(self):
         assert self._DISTINCTIVE_PHRASE in self._agent_prompt("documenter", "implement")
+
+    def test_reviewer_prompts_do_not_include_guidance(self):
+        # Reviewers are dispatched via _build_review_prompt and must NOT
+        # receive producer-only exploration guidance. Guards against future
+        # drift where the guidance might be moved up in _build_agent_prompt
+        # and accidentally fall through to reviewer paths (#2814 / #2795).
+        for reviewer_role in (
+            "reviewer_code",
+            "reviewer_contract",
+            "reviewer_plan",
+            "reviewer_refine",
+            "reviewer_agent_design",
+        ):
+            assert self._DISTINCTIVE_PHRASE not in self._agent_prompt(reviewer_role, "implement"), (
+                f"{reviewer_role} should not receive subagent exploration guidance"
+            )
 
 
 class TestRefinePromptHonorsAdditionalContext:
