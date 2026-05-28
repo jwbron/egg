@@ -118,7 +118,7 @@ class AgentModelDecision:
         We also pin ``CLAUDE_CODE_SUBAGENT_MODEL`` to the same custom
         alias. Claude Code's Task-tool subagents (and other small/fast
         helper calls) otherwise default to a Claude family model
-        (``claude-haiku-4-5-…``); on the LiteLLM path that name isn't in
+        (a versioned ``haiku`` model name); on the LiteLLM path that name isn't in
         the proxy's ``model_list`` and the request fails with
         ``ProxyModelNotFoundError`` (400). Routing subagents to the same
         upstream the main agent uses keeps every call resolvable. Mirrors
