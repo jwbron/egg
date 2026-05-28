@@ -17,7 +17,6 @@ from agent_restrictions import (
     AGENT_PATTERNS,
     AUTOFIXER_PATTERNS,
     CONFLICT_RESOLVER_PATTERNS,
-    INSPECTOR_PATTERNS,
     OVERSEER_PATTERNS,
     AgentRole,
     check_agent_file_access,
@@ -268,41 +267,6 @@ class TestConflictResolverFilePatterns:
 
 
 # ---------------------------------------------------------------------------
-# Inspector file patterns
-# ---------------------------------------------------------------------------
-
-
-class TestInspectorFilePatterns:
-    """Verify the inspector agent file access patterns."""
-
-    @pytest.fixture
-    def pattern(self):
-        return get_agent_pattern(AgentRole.INSPECTOR)
-
-    def test_inspector_allows_agent_outputs(self, pattern):
-        """Inspector can write to .egg-state/agent-outputs/."""
-        assert pattern.can_write(".egg-state/agent-outputs/diagnostic.json") is True
-
-    def test_inspector_blocks_source(self, pattern):
-        """Inspector cannot write to source files."""
-        assert pattern.can_write("orchestrator/main.py") is False
-        assert pattern.can_write("src/app.ts") is False
-
-    def test_inspector_blocks_docs(self, pattern):
-        """Inspector cannot write to docs."""
-        assert pattern.can_write("docs/guide.md") is False
-
-    def test_inspector_blocks_tests(self, pattern):
-        """Inspector cannot write to test directories."""
-        assert pattern.can_write("tests/test_foo.py") is False
-
-    def test_inspector_in_registry(self):
-        """Inspector should be registered in AGENT_PATTERNS."""
-        assert AgentRole.INSPECTOR in AGENT_PATTERNS
-        assert AGENT_PATTERNS[AgentRole.INSPECTOR] is INSPECTOR_PATTERNS
-
-
-# ---------------------------------------------------------------------------
 # GH restrictions for new roles
 # ---------------------------------------------------------------------------
 
@@ -310,19 +274,19 @@ class TestInspectorFilePatterns:
 class TestNewRoleGHRestrictions:
     """Verify GitHub restrictions for new roles."""
 
-    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver", "inspector"])
+    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver"])
     def test_new_roles_block_issue_comment(self, role):
         """New roles cannot post issue comments."""
         allowed, _ = check_agent_gh_operation(role, "issue comment 123")
         assert allowed is False
 
-    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver", "inspector"])
+    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver"])
     def test_new_roles_block_issue_edit(self, role):
         """New roles cannot edit issues."""
         allowed, _ = check_agent_gh_operation(role, "issue edit 123")
         assert allowed is False
 
-    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver", "inspector"])
+    @pytest.mark.parametrize("role", ["autofixer", "conflict_resolver"])
     def test_new_roles_in_gh_restrictions(self, role):
         """New roles should be registered in AGENT_GH_RESTRICTIONS."""
         assert role in AGENT_GH_RESTRICTIONS

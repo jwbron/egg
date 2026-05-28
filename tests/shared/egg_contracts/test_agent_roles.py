@@ -79,28 +79,31 @@ class TestAgentRole:
         "task_planner",
         "risk_analyst",
         "refiner",
+        "applier",
         "reviewer_code",
         "reviewer_code_holistic",
         "reviewer_contract",
+        "reviewer_security",
+        "reviewer_concurrency",
         "reviewer_agent_design",
         "reviewer_refine",
         "reviewer_plan",
         "overseer",
         "autofixer",
         "conflict_resolver",
-        "inspector",
     }
 
     def test_all_expected_roles_exist(self):
-        """All 16 expected roles should be present in the enum."""
+        """All 19 expected roles should be present in the enum."""
         actual = {r.value for r in AgentRole}
-        assert self.EXPECTED_ROLES.issubset(actual), (
-            f"Missing roles: {self.EXPECTED_ROLES - actual}"
+        assert self.EXPECTED_ROLES == actual, (
+            f"Missing roles: {self.EXPECTED_ROLES - actual}, "
+            f"Extra roles: {actual - self.EXPECTED_ROLES}"
         )
 
     def test_role_count(self):
-        """Should have at least 16 roles (15 standard + inspector)."""
-        assert len(AgentRole) >= 16
+        """Should have exactly 19 canonical roles."""
+        assert len(AgentRole) == 19
 
     def test_execution_roles(self):
         assert AgentRole.CODER == "coder"
@@ -697,7 +700,7 @@ class TestRoleSyncWithOrchestratorModels:
 
     The canonical AgentRole is in egg_contracts.agent_roles.
     orchestrator/models.py has its own AgentRole that must contain
-    all canonical roles (it may have extra roles like INSPECTOR for
+    all canonical roles (it may have extra roles like OVERSEER for
     backward compat).
     """
 
@@ -761,7 +764,7 @@ class TestRoleSyncWithGateway:
 
 
 # ---------------------------------------------------------------------------
-# Utility role file access and inspector
+# Utility role file access
 # ---------------------------------------------------------------------------
 
 
@@ -804,11 +807,6 @@ class TestUtilityRoleFileAccess:
         assert not fa.can_write(".egg-state/contracts/123.json")
         assert not fa.can_write(".egg-state/pipelines/state.json")
 
-    def test_inspector_role_exists(self):
-        """INSPECTOR role exists with INTERFACE category."""
-        defn = get_role_definition(AgentRole.INSPECTOR)
-        assert defn.category == AgentCategory.INTERFACE
-
 
 # ---------------------------------------------------------------------------
 # get_contract_role() — fine → coarse role mapping (#1766)
@@ -842,7 +840,6 @@ class TestGetContractRole:
             (AgentRole.REVIEWER_CODE, "reviewer"),
             (AgentRole.REVIEWER_PLAN, "reviewer"),
             (AgentRole.OVERSEER, "system"),
-            (AgentRole.INSPECTOR, "system"),
         ],
     )
     def test_mapping_values(self, fine, coarse):

@@ -91,7 +91,7 @@ These conventions extend the core principle ("the sandbox is the constraint") wi
 
 LLM calls must never use direct `httpx.post()` or Anthropic SDK calls, and must not invoke `claude --print` as a subprocess. Two approved approaches exist:
 
-- **In-sandbox code** (e.g., `egg-health-inspect`, `sandbox/llm/`): use `egg_agent.client.run_agent()`, which wraps `claude-agent-sdk` for in-process execution.
+- **In-sandbox code** (e.g., roles like `overseer`, `coder`, `refiner`; plus `sandbox/llm/`): use `egg_agent.client.run_agent()`, which wraps `claude-agent-sdk` for in-process execution.
 - **Orchestrator/gateway code spawning containers**: use `egg_agent.build_agent_command()` to build the `python3 -m egg_agent` command passed to `spawn_agent_container()`.
 
 Both approaches ensure:
@@ -234,8 +234,8 @@ verdict = resp.json()
 from egg_agent import build_agent_command
 
 spawner.spawn_agent_container(
-    pipeline_id=f"{pipeline_id}-inspect",
-    agent_role=AgentRole.INSPECTOR,
+    pipeline_id=f"{pipeline_id}-oversee",
+    agent_role=AgentRole.OVERSEER,
     command=build_agent_command(prompt=..., max_turns=1),
 )
 ```
@@ -352,7 +352,6 @@ When designing a new agent workflow, ask:
 - [Issue #161](https://github.com/jwbron/egg/issues/161) — Rewrite auto-reviews (concrete instance)
 - [Issue #134](https://github.com/jwbron/egg/issues/134) — AI-powered code review design
 - [Issue #153](https://github.com/jwbron/egg/issues/153) — Self-improvement cycle
-- [PR #868](https://github.com/jwbron/egg/pull/868) — Delegate agent inspector LLM calls to sandbox (EGG200 linter)
 - [PR #873](https://github.com/jwbron/egg/pull/873) — Enforce Claude Code pathway and model aliases (EGG201 linter)
 - [PR #1256](https://github.com/jwbron/egg/pull/1256) — Fix overseer to use Agent SDK; flag claude --print in linter (EGG100)
 

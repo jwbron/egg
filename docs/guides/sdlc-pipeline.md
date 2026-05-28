@@ -585,6 +585,8 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 This approach follows a "focus, don't starve" philosophy: agents get enough context to make good decisions without being distracted by irrelevant detail. Full context is always accessible on demand via CLI commands and file paths.
 
+**All producer prompts** (refiner, coder cycle 0, tester, documenter, architect, task_planner, risk_analyst) also include a `## Subagent use for exploration` directive that permits producers to delegate deep grep/Read investigation to the `general-purpose` subagent. This keeps the producer's main context lean for synthesis and mitigates context-window exhaustion on large codebases ([#2814](https://github.com/jwbron/egg/issues/2814)). Revision-cycle coder prompts omit this directive intentionally — they are already slim and delta-focused.
+
 The context is built by `_build_role_context()` in `orchestrator/routes/pipelines.py`, which replaces the previous pattern of embedding `pipeline.prompt` verbatim into every agent prompt. Task filtering by role ensures each agent only works on files within its gateway-enforced boundaries.
 
 ## Multi-Agent Orchestration

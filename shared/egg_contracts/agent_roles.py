@@ -91,7 +91,6 @@ class AgentRole(StrEnum):
     CONFLICT_RESOLVER = "conflict_resolver"
     # Interface roles (external system interaction)
     OVERSEER = "overseer"
-    INSPECTOR = "inspector"
 
 
 class AgentStatus(StrEnum):
@@ -792,45 +791,6 @@ OVERSEER_ROLE = AgentRoleDefinition(
 )
 
 
-# Inspector role — health-check agent used by orchestrator tier-2 diagnostics
-
-INSPECTOR_ROLE = AgentRoleDefinition(
-    role=AgentRole.INSPECTOR,
-    description="Runs targeted health-check diagnostics inside a sandbox",
-    category=AgentCategory.INTERFACE,
-    responsibilities=[
-        "Execute diagnostic scripts in a sandbox container",
-        "Collect health-check data for the orchestrator",
-        "Report findings via agent-outputs",
-    ],
-    dependencies=[],
-    file_access=FileAccessPattern(
-        allowed_read=[],
-        allowed_write=[
-            ".egg-state/agent-outputs/",
-        ],
-        blocked_write=[
-            "src/",
-            "lib/",
-            "shared/",
-            "gateway/",
-            "sandbox/",
-            "action/",
-            "orchestrator/",
-            "docs/",
-            "tests/",
-            "test/",
-            ".egg-state/contracts/",
-            ".egg-state/drafts/",
-            ".egg-state/reviews/",
-            ".github/",
-        ],
-    ),
-    can_run_in_parallel=True,
-    produces_outputs=["diagnostic_report"],
-)
-
-
 # Utility role definitions
 
 AUTOFIXER_ROLE = AgentRoleDefinition(
@@ -976,7 +936,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_ROLE,
     # Interface roles
     AgentRole.OVERSEER: OVERSEER_ROLE,
-    AgentRole.INSPECTOR: INSPECTOR_ROLE,
 }
 
 
@@ -1019,7 +978,6 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.CONFLICT_RESOLVER: Role.IMPLEMENTER,
     # Interface: observers, not contract authors
     AgentRole.OVERSEER: Role.SYSTEM,
-    AgentRole.INSPECTOR: Role.SYSTEM,
 }
 
 
@@ -1166,7 +1124,7 @@ class AgentExecution:
 
 
 # Phase-to-role mappings for multi-agent execution
-# Note: Utility roles (AUTOFIXER, CONFLICT_RESOLVER) and INSPECTOR are excluded
+# Note: Utility roles (AUTOFIXER, CONFLICT_RESOLVER) are excluded
 # by design — they are spawned on-demand, not as part of standard phase execution.
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
@@ -1214,7 +1172,7 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 # is consulted only by the concurrent-executor spawn path and the
 # ``restart_agent`` route, which between them spawn every phase producer
 # and reviewer in the two maps above. Utility roles (AUTOFIXER,
-# CONFLICT_RESOLVER) and interface roles (OVERSEER, INSPECTOR) spawn
+# CONFLICT_RESOLVER) and interface role (OVERSEER) spawn
 # through dedicated paths that never call the resolver, so an
 # ``agent_models`` entry naming one of them would be silently dropped at
 # spawn — ``PipelineConfig``'s validator rejects such keys up front. See
