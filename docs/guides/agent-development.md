@@ -320,6 +320,8 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 When adding a new execution role, `_build_role_context()` will automatically provide the summarized context and filter tasks by role. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
 
+**All producer roles** (analysis + execution; not reviewers or utility) also receive a `## Subagent use for exploration` directive via the shared `_EXPLORATION_SUBAGENT_GUIDANCE` constant in `orchestrator/routes/pipelines.py`. New producer prompt builders should include `lines.extend(_EXPLORATION_SUBAGENT_GUIDANCE)` to inherit this directive automatically ([#2814](https://github.com/jwbron/egg/issues/2814)).
+
 ## Best Practices
 
 1. **Keep agents focused**: One clear responsibility per agent
