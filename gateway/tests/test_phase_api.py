@@ -432,9 +432,7 @@ class TestGetRoleFromContext:
         assert role is not None, f"fine role {fine_role!r} should resolve"
         assert role.value == expected
 
-    def test_role_from_session_system_roles_cannot_transition(
-        self, client, auth_headers
-    ):
+    def test_role_from_session_system_roles_cannot_transition(self, client, auth_headers):
         """Interface roles map to ``system`` which is not a TransitionRole."""
         with client.application.test_request_context():
             from flask import g
