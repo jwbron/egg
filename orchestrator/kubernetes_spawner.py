@@ -1411,17 +1411,22 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
-            # Salvage uncommitted agent work before respawning (#2807).
-            # The restarted container starts from branch HEAD, so any
-            # uncommitted edits in the worktree would be orphaned until
-            # pipeline cleanup. Auto-salvage pushes committed-but-unpushed
-            # work to egg/recovered/<pipeline>/<scope>/<sha> so operators
-            # can triage it manually.
-            agent_worktree_id = (
-                f"{pipeline_id}-{slice_id}-{agent_role.value}"
-                if slice_id
-                else f"{pipeline_id}-{agent_role.value}"
-            )
+            # Salvage agent work before respawning (#2807). The respawn
+            # reuses the on-disk worktree and hard-resets it to a remote
+            # ref (gateway _reset_reused_worktree_to_safe_ref), destroying
+            # both unpushed commits and the dirty working tree. The modal
+            # #2807 crash window is mid-Edit, before any commit, so
+            # salvage_uncommitted=True commits the dirty tree onto the work
+            # branch first; auto-salvage then pushes everything to
+            # egg/recovered/<pipeline>/<scope>/<sha> for manual triage.
+            #
+            # This runs on the respawn critical path while the restart lock
+            # is held. It is scoped to just this agent's own worktree, the
+            # working-tree commit is local git, and the gateway push carries
+            # its own HTTP timeout, so the added lock-hold is bounded. The
+            # best-effort try/except keeps a salvage failure from blocking
+            # the respawn.
+            agent_worktree_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id)
             try:
                 agent_salvage.auto_salvage_pipeline(
                     self.gateway,
@@ -1429,6 +1434,7 @@ class KubernetesSpawner:
                     worktree_filter={agent_worktree_id},
                     mode=mode,
                     base_branch=base_branch,
+                    salvage_uncommitted=True,
                 )
             except Exception as e:
                 logger.warning(

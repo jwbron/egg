@@ -8,12 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from agent_salvage import (
+    _UNCOMMITTED_SALVAGE_MESSAGE,
     RECOVERY_BRANCH_PREFIX,
     AgentWorktree,
     SalvageResult,
     UnpushedCommit,
     WorktreeCommitReport,
     auto_salvage_pipeline,
+    commit_working_tree,
     enumerate_agent_worktrees,
     list_unpushed_commits,
     salvage_worktree,
@@ -432,6 +434,124 @@ class TestSalvageWorktree:
         result = salvage_worktree(gateway, wt)
         assert result.ok is False
         gateway.push_worktree_branch.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# commit_working_tree / salvage_uncommitted (#2807)
+# ---------------------------------------------------------------------------
+
+
+class TestSalvageUncommitted:
+    """The restart path commits the dirty working tree before pushing so a
+    crash in the Edit→commit window survives the respawn's reset --hard.
+    """
+
+    def _clean_worktree(self, tmp_path: Path) -> AgentWorktree:
+        """A worktree whose HEAD is fully pushed (no unpushed commits)."""
+        repo, local_branch = _make_worktree_layout(
+            tmp_path, "issue-99", agent_role="coder", slice_id=None
+        )
+        anchor = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+        _set_assigned_branch(repo, local_branch, "egg/issue-99/work")
+        _create_remote_tracking(repo, "egg/issue-99/work", anchor)
+        return AgentWorktree(
+            worktree_id="issue-99-coder",
+            pipeline_id="issue-99",
+            agent_role="coder",
+            slice_id=None,
+            repo_path=repo,
+            local_branch=local_branch,
+        )
+
+    @staticmethod
+    def _dirty(repo: Path) -> None:
+        """Apply a tracked edit + an untracked add — the #2807 crash state."""
+        (repo / "README.md").write_text("seed\nmid-Edit change\n")
+        (repo / "new_feature.py").write_text("def added():\n    return 42\n")
+
+    def test_commit_working_tree_returns_none_when_clean(self, tmp_path: Path) -> None:
+        wt = self._clean_worktree(tmp_path)
+        assert commit_working_tree(wt) is None
+
+    def test_commit_working_tree_captures_dirty_state(self, tmp_path: Path) -> None:
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+
+        sha = commit_working_tree(wt)
+
+        assert sha is not None
+        # New commit is HEAD, carries the salvage message, and includes both
+        # the tracked edit and the previously-untracked file.
+        assert _git("rev-parse", "HEAD", cwd=wt.repo_path).stdout.strip() == sha
+        assert (
+            _git("log", "-1", "--format=%s", cwd=wt.repo_path).stdout.strip()
+            == _UNCOMMITTED_SALVAGE_MESSAGE
+        )
+        assert (
+            _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
+            == "def added():\n    return 42\n"
+        )
+        # Working tree is clean again — everything was captured.
+        assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() == ""
+
+    def test_salvage_pushes_uncommitted_edits_when_flag_set(self, tmp_path: Path) -> None:
+        """salvage_uncommitted=True: dirty edits land in the pushed HEAD."""
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        result = salvage_worktree(gateway, wt, mode="public", salvage_uncommitted=True)
+
+        assert result.ok is True
+        assert result.n_commits == 1
+        head_sha = _git("rev-parse", "HEAD", cwd=wt.repo_path).stdout.strip()
+        assert result.head_sha == head_sha
+        expected_ref = f"{RECOVERY_BRANCH_PREFIX}/issue-99/coder/{head_sha[:12]}"
+        assert result.recovery_ref == expected_ref
+
+        # The push targets the recovery ref and pushes HEAD (ref=None), so the
+        # captured edits are reachable from the recovery ref.
+        kwargs = gateway.push_worktree_branch.call_args.kwargs
+        assert kwargs["branch"] == expected_ref
+        assert kwargs["ref"] is None
+        assert (
+            _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
+            == "def added():\n    return 42\n"
+        )
+
+    def test_default_does_not_capture_uncommitted(self, tmp_path: Path) -> None:
+        """salvage_uncommitted defaults False: dirty tree is left untouched."""
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        gateway = MagicMock()
+
+        result = salvage_worktree(gateway, wt)
+
+        # No commit made, nothing to push, working tree still dirty.
+        assert result.n_commits == 0
+        gateway.push_worktree_branch.assert_not_called()
+        assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() != ""
+
+    def test_auto_salvage_forwards_flag(self, tmp_path: Path) -> None:
+        """auto_salvage_pipeline threads salvage_uncommitted to the push."""
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            results = auto_salvage_pipeline(
+                gateway,
+                "issue-99",
+                worktree_filter={"issue-99-coder"},
+                salvage_uncommitted=True,
+            )
+
+        assert len(results) == 1
+        assert results[0].ok is True
+        assert results[0].n_commits == 1
+        gateway.push_worktree_branch.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

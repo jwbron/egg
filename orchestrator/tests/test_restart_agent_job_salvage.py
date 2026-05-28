@@ -295,3 +295,47 @@ class TestRestartAgentJobSalvageHook:
 
         assert captured["mode"] == "private"
         assert captured["base_branch"] == "main"
+
+    def test_salvage_uncommitted_flag_forwarded(self, spawner, mock_gateway):
+        """The restart path requests uncommitted-work capture (#2807).
+
+        Without salvage_uncommitted=True the hook only salvages
+        committed-but-unpushed work; the modal #2807 crash window is
+        mid-Edit with nothing committed, so the flag is what makes the
+        dirty tree survive the respawn's reset --hard.
+        """
+        captured: dict[str, object] = {}
+
+        def fake_salvage(_gateway, _pipeline_id, *, salvage_uncommitted=False, **_kw):
+            captured["salvage_uncommitted"] = salvage_uncommitted
+            return []
+
+        def fake_spawn(*_args, **_kwargs):
+            from kubernetes_spawner import SpawnedContainer
+            from models import ContainerInfo, ContainerStatus
+
+            return SpawnedContainer(
+                container_info=ContainerInfo(
+                    container_id="new-container",
+                    container_name="egg-new-container",
+                    status=ContainerStatus.RUNNING,
+                ),
+                session_info=None,
+                agent_role=None,
+                pipeline_id="pipe-1",
+                environment={},
+            )
+
+        with (
+            patch("agent_salvage.auto_salvage_pipeline", side_effect=fake_salvage),
+            patch.object(spawner, "spawn_agent_job", side_effect=fake_spawn),
+        ):
+            from models import AgentRole
+
+            spawner.restart_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                mode="public",
+            )
+
+        assert captured["salvage_uncommitted"] is True
