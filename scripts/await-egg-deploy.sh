@@ -4,7 +4,7 @@
 # Available, failing fast with an actionable message when the cause is
 # an image tag that was never imported into k3s.
 #
-# The orchestrator/gateway manifests reference egg-*:<EGG_IMAGE_TAG>,
+# The orchestrator/gateway/litellm manifests reference egg-*:<EGG_IMAGE_TAG>,
 # where EGG_IMAGE_TAG is `git describe --always` and so changes on every
 # commit, pull, rebase, or checkout. `make redeploy` builds, imports, and
 # deploys in one invocation so the tag is self-consistent — but a bare
@@ -21,7 +21,7 @@ NS="egg-system"
 : "${1:?usage: $0 <egg-image-tag> [timeout-seconds]}"
 TAG="$1"
 TIMEOUT="${2:-180}"
-DEPLOYMENTS=(orchestrator gateway)
+DEPLOYMENTS=(orchestrator gateway litellm)
 
 # Keep kubectl stderr off of stdout so the success-path jsonpath value in
 # $out is strictly equal to the queried field. If a future cluster ever
@@ -62,11 +62,13 @@ while :; do
   # references egg-*:$TAG which was never imported into k3s.
   #
   # The scan is scoped by label to egg's own deployments
-  # (orchestrator/gateway) — those images are egg-built and tag-rewritten
-  # by `make deploy`. Third-party pods in egg-system (e.g. the LiteLLM
-  # proxy, whose image is pulled from an external registry) have nothing
-  # to do with EGG_IMAGE_TAG: their ImagePullBackOff must not abort the
-  # deploy or mis-blame egg's tag.
+  # (orchestrator/gateway/litellm) — those images are egg-built and
+  # tag-rewritten by `make deploy`, so an ImagePullBackOff on EGG_IMAGE_TAG
+  # is the tag-drift signal we want to fast-fail on. egg-litellm is the
+  # stock LiteLLM image plus egg's cache patches, built and tagged like the
+  # rest (config/litellm/Dockerfile), so it belongs in this scan too. Any
+  # genuinely third-party pod in egg-system would not carry an egg
+  # component label and so is excluded.
   egg_image_pull_failed=0
   for d in "${DEPLOYMENTS[@]}"; do
     if kubectl -n "$NS" get pods \

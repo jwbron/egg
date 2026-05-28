@@ -468,6 +468,8 @@ build: sync-venv-if-uv
 	docker build -t egg-orchestrator:latest -t egg-orchestrator:$(EGG_IMAGE_TAG) -f orchestrator/Dockerfile .
 	@echo "==> Building sandbox container..."
 	docker build -t egg-sandbox:latest -t egg-sandbox:$(EGG_IMAGE_TAG) -f sandbox/Dockerfile .
+	@echo "==> Building litellm container (stock LiteLLM + egg cache patches)..."
+	docker build -t egg-litellm:latest -t egg-litellm:$(EGG_IMAGE_TAG) -f config/litellm/Dockerfile config/litellm
 
 # ============================================================================
 # Kubernetes (k3s) targets
@@ -575,7 +577,8 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		sed -E "/name: EGG_HOST_REPO_MAP$$/{N;s|^(\s*- name: EGG_HOST_REPO_MAP\s*\n\s*value: )(\{.*\})$$|\1'\2'|}" | \
 		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
-		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
+		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-litellm:latest|egg-litellm:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
 	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
@@ -618,7 +621,7 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 	trap 'rm -rf "$$tmp"' EXIT; \
 	tags="latest"; \
 	if [ "$(EGG_IMAGE_TAG)" != "latest" ]; then tags="$$tags $(EGG_IMAGE_TAG)"; fi; \
-	for image in egg-gateway egg-orchestrator egg-sandbox; do \
+	for image in egg-gateway egg-orchestrator egg-sandbox egg-litellm; do \
 		for tag in $$tags; do \
 			img="$$image:$$tag"; \
 			f="$$tmp/$${img//[:\/]/_}.tar"; \

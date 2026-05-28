@@ -31,10 +31,15 @@ spec:
         fsGroup: 1000
       containers:
         - name: litellm
-          # Pinned image — bump via overlay when intentionally updating.
-          # LiteLLM's Anthropic-translation interface is the contract the
-          # gateway depends on; do not float ``latest`` (cq-1, feedback Q3).
-          image: ghcr.io/berriai/litellm:main-v1.55.10
+          # egg-litellm: stock LiteLLM (pinned v1.86.2) + egg's prompt-cache
+          # patches and cost/cache logger, built locally from
+          # config/litellm/Dockerfile and imported into k3s by `make
+          # k3s-import`. The base version is pinned in that Dockerfile's
+          # FROM — LiteLLM's Anthropic-translation interface is the contract
+          # the gateway depends on, so bumps are deliberate (cq-1). Built and
+          # tag-rewritten alongside the other egg images (the deploy target
+          # rewrites :latest -> :$(EGG_IMAGE_TAG)).
+          image: egg-litellm:latest
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -59,6 +64,10 @@ spec:
             # writable instead of failing against the read-only root.
             - name: HOME
               value: /tmp
+            # NOTE: the cost/cache logger registered under
+            # ``litellm_settings.callbacks`` is resolved by LiteLLM as a file
+            # next to ``--config`` (``/app/cost_callback.py``), baked into the
+            # egg-litellm image — not via PYTHONPATH. See the image Dockerfile.
             # LiteLLM master key — clients (the gateway) inject this as
             # ``x-api-key`` on every request. Issue #2769 cq-7. Operators
             # populate the matching value in

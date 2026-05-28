@@ -68,44 +68,53 @@ data:
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
-          # Closest available knob to Opus xhigh. `reasoning_effort:
-          # high` opts into the deepest reasoning OpenRouter exposes
-          # for the model; `drop_params: true` silently drops
-          # Anthropic-only request fields (e.g. `thinking`) that
-          # LiteLLM can't translate for openrouter/*, preventing 400s.
-          # Recommended for the #2799 pilot — uncomment both:
-          # reasoning_effort: high
-          # drop_params: true
-          # If LiteLLM's normalized `reasoning_effort` isn't honored
-          # for this provider (check the validation run's LiteLLM
-          # logs), pass the OpenRouter-shaped reasoning map directly
-          # via extra_body — they are mutually redundant, pick one:
-          # extra_body:
-          #   reasoning:
-          #     effort: "high"
+          # `drop_params: true` silently drops Anthropic-only request
+          # fields (e.g. `thinking`) that LiteLLM can't translate for
+          # openrouter/*, preventing 400s on tool-heavy turns.
+          drop_params: true
+          # Prompt caching. The egg-litellm image bakes the patches that
+          # make OpenRouter honor `cache_control` for Qwen/DeepSeek (see
+          # config/litellm/patch_litellm_cache.py) — without them every
+          # turn pays full input rate. Pinning the provider to the model's
+          # first-party host then gives a stable, measurable cache surface:
+          # otherwise OpenRouter picks from a cheapest-available pool whose
+          # cache support varies per turn, and the hit rate is impossible
+          # to reason about. `allow_fallbacks: false` fails the request
+          # rather than silently routing to a non-caching peer. Verify the
+          # provider name on https://openrouter.ai/qwen/qwen3-max — Alibaba
+          # is Qwen's first-party host. The cost_callback logs the
+          # resulting per-session cache hit rate to the LiteLLM pod stream.
+          extra_body:
+            provider:
+              order: [Alibaba]
+              allow_fallbacks: false
+            # Closest knob to Opus xhigh — uncomment to opt into the
+            # deepest reasoning OpenRouter exposes for this model:
+            # reasoning:
+            #   effort: "high"
       # Paired `[1m]` alias — absorbs Claude Code startup-probe
       # suffix leak (#2832). The suffix has two faces: from Claude
       # Code's side it IS a behavioral knob — it triggers the 1M-
       # context compaction-math opt-in via
       # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
       # just a routing alias pointing at the same backend. Keep the
-      # `litellm_params` block byte-identical to the bare row: if
-      # you uncomment any tuning above (`reasoning_effort`,
-      # `drop_params`, `extra_body`, …), uncomment the same lines
-      # here too. Divergence between the two rows means probes and
-      # real requests are quietly served by different configs.
+      # `litellm_params` block byte-identical to the bare row: if you
+      # change any tuning above (`drop_params`, the `extra_body`
+      # provider pin / reasoning), mirror it here too. Divergence
+      # between the two rows means probes and real requests are quietly
+      # served by different configs.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
-          # Mirror these in lock-step with the bare row above. They
-          # are intentionally commented out here too — uncomment
-          # both rows together or neither.
-          # reasoning_effort: high
-          # drop_params: true
-          # extra_body:
-          #   reasoning:
-          #     effort: "high"
+          # Mirror the bare row above in lock-step.
+          drop_params: true
+          extra_body:
+            provider:
+              order: [Alibaba]
+              allow_fallbacks: false
+            # reasoning:
+            #   effort: "high"
 
       # Together AI — example hosted Qwen Coder entry. NOT wired
       # end-to-end out of the box: to enable, (1) set
@@ -124,6 +133,16 @@ data:
       #   litellm_params:
       #     model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
       #     api_key: os.environ/TOGETHER_API_KEY
+
+    # Cost + prompt-cache visibility. The egg-litellm image bakes
+    # cost_callback.py next to the mounted config (/app/cost_callback.py),
+    # which is how LiteLLM resolves a config-registered callback. It emits
+    # one structured JSON line per call (real upstream cost, cache read/write
+    # counts, per-session hit rate) to the LiteLLM pod log stream. KEEP this
+    # block: your overlay replaces the base config.yaml in full, so dropping
+    # it silently disables all cost/cache visibility for routed agents.
+    litellm_settings:
+      callbacks: cost_callback.cost_logger
 
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY

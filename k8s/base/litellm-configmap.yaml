@@ -60,6 +60,19 @@ data:
     # request time and the provider returns silent 401s.
     model_list: []
 
+    # Custom logger: surfaces real upstream cost + prompt-cache stats for
+    # non-Claude routes into the pod log stream. Baked into the egg-litellm
+    # image at /app/cost_callback.py — LiteLLM resolves a config-registered
+    # callback as a file next to ``--config`` (here /app/config.yaml), so the
+    # name MUST match. Harmless with an empty model_list (no calls fire).
+    #
+    # NOTE: the host-side overlay (``~/.config/egg/litellm-models.yaml``)
+    # replaces this whole ``config.yaml`` string, so an operator's overlay
+    # MUST repeat this ``litellm_settings`` block (the template carries it).
+    # Drop it and you lose all cost/cache visibility for routed agents.
+    litellm_settings:
+      callbacks: cost_callback.cost_logger
+
     # Health-check config — used by the kubelet readiness/liveness
     # probes on the Deployment. The Deployment probes /health/readiness
     # and /health/liveliness; both pass with an empty model_list because
