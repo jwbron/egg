@@ -494,6 +494,19 @@ class TestSalvageUncommitted:
         # Working tree is clean again — everything was captured.
         assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() == ""
 
+    def test_commit_working_tree_skips_when_head_off_work_branch(self, tmp_path: Path) -> None:
+        """Defense-in-depth: committing to a detached/wrong HEAD would strand the
+        salvage commit off the branch list_unpushed_commits scans, so skip it.
+        """
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        # Move HEAD off the work branch (the gateway normally prevents this).
+        _git("checkout", "-q", "--detach", cwd=wt.repo_path)
+
+        assert commit_working_tree(wt) is None
+        # Nothing was committed — the dirty tree is left untouched for inspection.
+        assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() != ""
+
     def test_salvage_pushes_uncommitted_edits_when_flag_set(self, tmp_path: Path) -> None:
         """salvage_uncommitted=True: dirty edits land in the pushed HEAD."""
         wt = self._clean_worktree(tmp_path)

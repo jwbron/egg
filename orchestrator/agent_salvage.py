@@ -596,6 +596,24 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     if not _has_uncommitted_changes(worktree.repo_path):
         return None
     try:
+        # The commit below lands on the checked-out HEAD, but list_unpushed_commits
+        # scans worktree.local_branch. The gateway blocks branch switching in
+        # pipeline mode so HEAD == local_branch; if a worktree were ever left
+        # detached or on another branch, committing to HEAD would strand the
+        # salvage commit off the branch salvage scans. Skip (logged, not silent).
+        head_ref = _run_git(
+            "symbolic-ref", "--short", "-q", "HEAD", cwd=worktree.repo_path, check=False
+        )
+        current_branch = (head_ref.stdout or "").strip() if head_ref.returncode == 0 else None
+        if current_branch != worktree.local_branch:
+            logger.warning(
+                "Salvage: worktree HEAD is not on the expected work branch; "
+                "skipping uncommitted capture to avoid a stranded salvage commit",
+                worktree_id=worktree.worktree_id,
+                head_branch=current_branch,
+                expected_branch=worktree.local_branch,
+            )
+            return None
         add = _run_git("add", "-A", cwd=worktree.repo_path, check=False)
         if add.returncode != 0:
             logger.warning(
