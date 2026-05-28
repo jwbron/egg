@@ -3241,15 +3241,24 @@ class TestSubagentExplorationGuidance:
         # receive producer-only exploration guidance. Guards against future
         # drift where the guidance might be moved up in _build_agent_prompt
         # and accidentally fall through to reviewer paths (#2814 / #2795).
-        for reviewer_role in (
-            "reviewer_code",
-            "reviewer_contract",
-            "reviewer_plan",
-            "reviewer_refine",
-            "reviewer_agent_design",
-        ):
-            assert self._DISTINCTIVE_PHRASE not in self._agent_prompt(reviewer_role, "implement"), (
-                f"{reviewer_role} should not receive subagent exploration guidance"
+        #
+        # Each reviewer is paired with its natural phase per the dispatch
+        # in _build_reviewer_preparation (pipelines.py:13586+): reviewer_code
+        # and reviewer_contract pair with `implement`; reviewer_plan with
+        # `plan`; reviewer_refine and reviewer_agent_design with `refine`.
+        # The dispatch-routing guarantee holds regardless of phase, but
+        # pairing each reviewer with its real-world phase keeps the test
+        # representative.
+        reviewer_phase_pairs = (
+            ("reviewer_code", "implement"),
+            ("reviewer_contract", "implement"),
+            ("reviewer_plan", "plan"),
+            ("reviewer_refine", "refine"),
+            ("reviewer_agent_design", "refine"),
+        )
+        for reviewer_role, phase in reviewer_phase_pairs:
+            assert self._DISTINCTIVE_PHRASE not in self._agent_prompt(reviewer_role, phase), (
+                f"{reviewer_role} ({phase}) should not receive subagent exploration guidance"
             )
 
 
