@@ -12,7 +12,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
-| **INTERFACE** | Pipeline health and monitoring | `inspector`, `overseer` |
+| **INTERFACE** | Pipeline health and monitoring | `overseer` |
 
 Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by category.
 
@@ -38,7 +38,6 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
-| `inspector` | Interface | Any | — | — (health checks) |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
@@ -189,8 +188,8 @@ separate surface (phase mounts, not role restrictions) and is kept in sync with
   `tester`, the `documenter`, or the pipeline (`.egg-state/`). The coder's
   scope is the complement of the other two producer roles in this phase,
   so source code, configuration, shell scripts, build files, top-level
-  dotfiles, and extensionless scripts (e.g. `bin/egg`, `sandbox/egg`,
-  `sandbox/bin/egg-health-inspect`) are all coder-writable by default.
+  dotfiles, and extensionless scripts (e.g. `bin/egg`, `sandbox/egg`)
+  are all coder-writable by default.
 - Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
   `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns
   (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
@@ -390,18 +389,6 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 
 ## Interface Roles
 
-### `inspector`
-
-**Category**: Interface
-
-**Purpose**: Health check role used by the Tier 2 semantic health check (`AgentInspectorCheck`). Runs targeted diagnostics inside a sandbox container, collects health-check data, and reports findings via agent-outputs.
-
-**Usage**: Spawned on-demand by the health check framework, not by standard pipeline dispatch.
-
-**File access**:
-- Allowed writes: `.egg-state/agent-outputs/`
-- Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
-
 ### `overseer`
 
 **Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, off-track behavior, and infrastructure errors. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection (including infrastructure error identification) and Sonnet/Opus decision-makers for corrective action. Infrastructure errors (git failures, gateway errors, permission denied) are fast-pathed directly to HITL escalation, bypassing the normal nudge/redirect ladder. With [#1962](https://github.com/jwbron/egg/issues/1962), an Opus 4.6 advisor (the Tier-2 decision tier) is invoked **only when** Haiku flags an anomaly **and** a Tier-1 health alert is active simultaneously — see [Advisor Gate](../guides/pipeline-health-monitoring.md#advisor-gate).
@@ -515,7 +502,7 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
 | Execution roles (coder, tester, documenter) | Summarized background + pointers to full context |
 | Utility roles (autofixer, conflict_resolver) | Targeted context (e.g., lint output, conflict details) |
-| Interface roles (inspector, overseer) | Pipeline state, health alerts, agent logs |
+| Interface role (overseer) | Pipeline state, health alerts, agent logs |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
 ## Role-Based Contract Mutations

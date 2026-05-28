@@ -15,9 +15,6 @@ HealthCheckRunner
 │   ├── StartupStateCheck
 │   ├── PhaseOutputPresenceCheck
 │   └── StateConsistencyCheck
-│
-└── Tier 2 (Semantic) ─── LLM-based, conditional escalation
-    └── AgentInspectorCheck
 ```
 
 ## Core Types (`types.py`)
@@ -74,10 +71,10 @@ Call `.to_dict()` to serialize for JSON/event payloads.
 
 | Property | What it does | Used by |
 |----------|-------------|---------|
-| `git_log` | `git log --oneline -20` on the branch | AgentInspectorCheck |
-| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | AgentInspectorCheck |
-| `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck, AgentInspectorCheck |
-| `contract` | Parses SDLC contract JSON for the pipeline's issue | AgentInspectorCheck |
+| `git_log` | `git log --oneline -20` on the branch | StateConsistencyCheck |
+| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | StateConsistencyCheck |
+| `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck |
+| `contract` | Parses SDLC contract JSON for the pipeline's issue | StateConsistencyCheck |
 | `live_container_ids` | Lists running Docker containers | ContainerLivenessCheck, StartupStateCheck, StateConsistencyCheck |
 
 ## Runner (`runner.py`)
@@ -152,35 +149,6 @@ Detects BRC consensus-complete-but-phase-stuck conditions for concurrent executi
 - **HEALTHY**: Pipeline not running, phase not using concurrent execution, within grace period, or consensus not yet complete
 - Recovery is driven by `ContainerMonitor._handle_consensus_stall_recovery()`: tracker reconstruction first, then aggressive agent/phase completion with optimistic locking
 
-## Tier 2 Checks
-
-### AgentInspectorCheck (`tier2/agent_inspector.py`)
-
-Delegates semantic analysis of agent progress to a short-lived sandbox container running `egg-health-inspect`. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
-
-- **Triggers:** WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND
-- **Model:** `sonnet` (configurable via `HEALTH_CHECK_MODEL` env var)
-- **Action:** ALERT on non-HEALTHY verdicts (never FAIL_PIPELINE — Tier 2 is advisory)
-
-**How it works:**
-
-1. Serializes `PipelineHealthContext` into a JSON payload:
-   - Recent commits (`git_log`)
-   - Diff stats vs main (`git_diff_stat`)
-   - Agent output files from `.egg-state/` (`agent_outputs`)
-   - SDLC contract state (`contract`)
-2. Spawns a sandbox container running `egg-health-inspect` with context passed via `EGG_INSPECTOR_CONTEXT` env var
-3. Container runs `claude --print` with a system prompt instructing Claude to produce a JSON verdict
-4. Parses the JSON response from container stdout into a `HealthStatus` and reasoning string
-5. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
-
-**Security boundary:**
-
-The orchestrator never calls the Anthropic API directly. All LLM calls are delegated to sandbox containers, maintaining the security boundary between the orchestrator (which has Docker and pipeline credentials) and LLM processing (which handles untrusted prompts). This is enforced at CI time by `scripts/check-llm-api-calls.py`.
-
-**Graceful degradation:**
-
-Container failures (timeouts, exit errors, malformed responses) always degrade to HEALTHY with a warning. Tier 2 check failures never block the pipeline — they are purely observational and advisory.
 
 **Configuration:**
 
@@ -241,7 +209,7 @@ Status codes: 200 (checks executed), 404 (pipeline not found), 503 (runner not i
 
 ## Adding a New Check
 
-1. Create a class satisfying the `HealthCheck` protocol in the appropriate tier directory (`tier1/` for programmatic, `tier2/` for semantic/LLM-based)
+1. Create a class satisfying the `HealthCheck` protocol in `tier1/`
 2. Set `name`, `tier`, `triggers`, and implement `run(context) -> HealthResult`
 3. Never raise from `run()` — catch internal errors and return a HealthResult with appropriate status
 4. Export from the tier's `__init__.py`

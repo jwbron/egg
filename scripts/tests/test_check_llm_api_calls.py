@@ -164,7 +164,7 @@ class TestPathFiltering:
         assert check_llm_api_calls._should_skip_path(p) is True
 
     def test_skip_test_files(self):
-        p = Path("orchestrator/tests/test_inspector.py")
+        p = Path("orchestrator/tests/test_health_check_runner.py")
         assert check_llm_api_calls._should_skip_path(p) is True
 
     def test_skip_test_prefix(self):
@@ -172,7 +172,7 @@ class TestPathFiltering:
         assert check_llm_api_calls._should_skip_path(p) is True
 
     def test_allow_source_files(self):
-        p = Path("orchestrator/health_checks/tier2/agent_inspector.py")
+        p = Path("orchestrator/health_checks/runner.py")
         assert check_llm_api_calls._should_skip_path(p) is False
 
     def test_skip_pycache(self):

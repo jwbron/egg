@@ -432,7 +432,6 @@ class TestGetRoleFromContext:
         assert role is not None, f"fine role {fine_role!r} should resolve"
         assert role.value == expected
 
-    @pytest.mark.parametrize("fine_role", ["overseer", "inspector"])
     def test_role_from_session_system_roles_cannot_transition(
         self, client, auth_headers, fine_role
     ):
@@ -441,7 +440,7 @@ class TestGetRoleFromContext:
             from flask import g
 
             mock_session = MagicMock()
-            mock_session.agent_role = fine_role
+            mock_session.agent_role = "overseer"
             g.session = mock_session
 
             role = phase_api.get_role_from_context()

@@ -156,8 +156,6 @@ orchestrator/
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
-│   └── tier2/              # Semantic checks (LLM-powered)
-│       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
@@ -220,7 +218,6 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
-│   ├── egg-health-inspect  # Pipeline health inspector (delegates LLM calls for tier 2 checks)
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py

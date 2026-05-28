@@ -17,7 +17,6 @@ from egg_restrictions.patterns import (
     CODER_PATTERNS,
     CONFLICT_RESOLVER_PATTERNS,
     DOCUMENTER_PATTERNS,
-    INSPECTOR_PATTERNS,
     OVERSEER_PATTERNS,
     REFINER_PATTERNS,
     REVIEWER_AGENT_DESIGN_PATTERNS,
@@ -59,11 +58,10 @@ class TestAgentRole:
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
-            AgentRole.INSPECTOR,
         ]
-        assert len(roles) == 19
+        assert len(roles) == 18
         # All unique
-        assert len(set(roles)) == 19
+        assert len(set(roles)) == 18
 
     def test_role_values_are_lowercase(self):
         for attr in dir(AgentRole):
@@ -80,7 +78,7 @@ class TestAgentPatterns:
     def test_registry_has_all_20_roles(self):
         # Issue #1557 — APPLIER joined the registry (Jira-epic SDLC
         # support); the count grew from 19 to 20.
-        assert len(AGENT_PATTERNS) == 20
+        assert len(AGENT_PATTERNS) == 19
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -104,7 +102,6 @@ class TestAgentPatterns:
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
-            AgentRole.INSPECTOR,
         }
         assert set(AGENT_PATTERNS.keys()) == expected_roles
 
@@ -127,7 +124,6 @@ class TestAgentPatterns:
         assert AGENT_PATTERNS[AgentRole.OVERSEER] is OVERSEER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.AUTOFIXER] is AUTOFIXER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.CONFLICT_RESOLVER] is CONFLICT_RESOLVER_PATTERNS
-        assert AGENT_PATTERNS[AgentRole.INSPECTOR] is INSPECTOR_PATTERNS
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +212,6 @@ class TestCoderBlocklistComplement:
 
     def test_allows_sandbox_egg_script(self):
         assert CODER_PATTERNS.can_write("sandbox/egg")
-
-    def test_allows_sandbox_bin_egg_health_inspect(self):
-        assert CODER_PATTERNS.can_write("sandbox/bin/egg-health-inspect")
 
     def test_allows_sandbox_scripts_gh_shim(self):
         """sandbox/scripts/ is writable; the gateway is the sole egress
@@ -606,30 +599,6 @@ class TestConflictResolverPatterns:
         assert not CONFLICT_RESOLVER_PATTERNS.can_write(".egg-state/oversight/log.json")
 
 
-class TestInspectorPatterns:
-    def test_allows_agent_outputs(self):
-        assert INSPECTOR_PATTERNS.can_write(".egg-state/agent-outputs/inspect.json")
-
-    def test_blocks_source(self):
-        assert not INSPECTOR_PATTERNS.can_write("src/main.py")
-        assert not INSPECTOR_PATTERNS.can_write("orchestrator/engine.py")
-
-    def test_blocks_docs(self):
-        assert not INSPECTOR_PATTERNS.can_write("docs/guide.md")
-
-    def test_blocks_tests(self):
-        assert not INSPECTOR_PATTERNS.can_write("tests/test_foo.py")
-
-    def test_blocks_contracts(self):
-        assert not INSPECTOR_PATTERNS.can_write(".egg-state/contracts/spec.json")
-
-    def test_blocks_drafts(self):
-        assert not INSPECTOR_PATTERNS.can_write(".egg-state/drafts/draft.md")
-
-    def test_blocks_reviews(self):
-        assert not INSPECTOR_PATTERNS.can_write(".egg-state/reviews/review.json")
-
-
 # ---------------------------------------------------------------------------
 # AgentFilePattern — edge cases
 # ---------------------------------------------------------------------------
@@ -808,14 +777,6 @@ class TestValidateAgentPush:
     def test_overseer_push_oversight(self):
         result = validate_agent_push("overseer", [".egg-state/oversight/log.json"])
         assert result.allowed is True
-
-    def test_inspector_push_agent_outputs(self):
-        result = validate_agent_push("inspector", [".egg-state/agent-outputs/out.json"])
-        assert result.allowed is True
-
-    def test_inspector_push_source_blocked(self):
-        result = validate_agent_push("inspector", ["src/main.py"])
-        assert result.allowed is False
 
     def test_autofixer_push_source(self):
         result = validate_agent_push("autofixer", ["gateway/server.py"])

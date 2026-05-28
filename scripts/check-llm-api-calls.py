@@ -214,9 +214,6 @@ def main() -> int:
         print("  3. If this is a false positive, suppress with:")
         print(f"       # noqa: {NOQA_CODE} - <justification>")
         print()
-        print("  See orchestrator/health_checks/tier2/agent_inspector.py for")
-        print("  an example of the sandbox delegation pattern.")
-        print()
 
         return 1
     else:
