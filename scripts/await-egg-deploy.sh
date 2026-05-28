@@ -91,6 +91,31 @@ while :; do
     echo "ERROR: timed out after ${TIMEOUT}s waiting for egg-system deployments." >&2
     echo "       Current pod state:" >&2
     kubectl -n "$NS" get pods >&2 || true
+    # For any not-ready egg pod, dump describe + previous-instance logs into
+    # THIS step's output. A crash-looping pod's startup stderr is otherwise
+    # only in the k3s-debug artifact, which CI autofix cannot download — so a
+    # bare `get pods` (a lone `CrashLoopBackOff` line) gives no cause to act
+    # on. `--previous` is the crashed instance's stderr; a plain `logs` on a
+    # CrashLoopBackOff pod shows only the not-yet-crashed current attempt.
+    for d in "${DEPLOYMENTS[@]}"; do
+      pods=$(kubectl -n "$NS" get pods \
+        -l "app.kubernetes.io/component=$d" \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null) || continue
+      for p in $pods; do
+        ready=$(kubectl -n "$NS" get pod "$p" \
+          -o jsonpath='{.status.containerStatuses[*].ready}' 2>/dev/null) || true
+        case "$ready" in
+          *false* | "")
+            echo "       ----- describe pod/$p -----" >&2
+            kubectl -n "$NS" describe pod "$p" >&2 2>&1 || true
+            echo "       ----- logs pod/$p (previous, crashed instance) -----" >&2
+            kubectl -n "$NS" logs "$p" --previous --all-containers >&2 2>&1 || true
+            echo "       ----- logs pod/$p (current) -----" >&2
+            kubectl -n "$NS" logs "$p" --all-containers >&2 2>&1 || true
+            ;;
+        esac
+      done
+    done
     exit 1
   fi
 
