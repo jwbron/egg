@@ -79,9 +79,14 @@ The gateway's `proxy_anthropic_messages()` handles this in two complementary way
 
 The container entrypoint:
 1. Sets `ANTHROPIC_BASE_URL=http://egg-gateway:9848`
-2. Removes `ANTHROPIC_API_KEY` from environment (if present)
-3. Removes `ANTHROPIC_OAUTH_TOKEN` from environment (if present)
-4. Removes proxy environment variables for Node.js (Claude Code)
+2. Sets a placeholder credential for Claude Code's startup validation; the gateway strips it and injects real upstream credentials
+
+Which env var carries the placeholder depends on the auth header Claude Code sends:
+
+- **Anthropic path** (default): placeholder goes into `CLAUDE_CODE_OAUTH_TOKEN`; `ANTHROPIC_API_KEY` is removed. Claude Code sends credentials via the `Authorization: Bearer` header.
+- **LiteLLM path** (`ANTHROPIC_CUSTOM_MODEL_OPTION` set): placeholder goes into `ANTHROPIC_API_KEY`; `CLAUDE_CODE_OAUTH_TOKEN` is removed. Claude Code sends credentials via the `x-api-key` header.
+
+The gateway's credential extractor reads the session token from both headers, so the same session envelope reaches the upstream regardless of path.
 
 ### Credential Storage
 

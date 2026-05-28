@@ -179,6 +179,16 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # default, leaving slice agents pushing to ``<pid>/work``
         # instead of ``<pid>/<slice>`` — every coder push was rejected.
         "EGG_BRANCH",
+        # Session-token placeholder credential (#2817). The spawner is the
+        # single source of truth: both keys are derived from the same
+        # ``session_token`` below (one is set per spawn, keyed on
+        # ``upstream``). Protecting them matches the ``EGG_SESSION_TOKEN``
+        # treatment — an ``extra_env`` override could otherwise desync the
+        # credential header from the session the gateway resolves, leaving
+        # the session unauthenticatable. No current caller passes either
+        # via ``extra_env``; this is defense in depth.
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
     }
 )
 
@@ -812,16 +822,48 @@ class KubernetesSpawner:
                 "NO_PROXY": "gateway.egg-system.svc.cluster.local,orchestrator.egg-system.svc.cluster.local",
                 "AGENT_ANCHOR_ID": agent_anchor_id,
                 # Route Anthropic API calls through the gateway for
-                # credential injection. The sandbox's setup_anthropic_api
-                # derives CLAUDE_CODE_OAUTH_TOKEN from EGG_SESSION_TOKEN at
-                # boot (issue #2829) — a placeholder envelope around the
-                # session token so the gateway's /v1/messages proxy can
-                # identify the session from the request header. Real
-                # credentials never enter the sandbox environment.
+                # credential injection. The session-token placeholder that
+                # lets the gateway's /v1/messages proxy identify the session
+                # from the request header (issue #2829) is set just below,
+                # alongside EGG_SESSION_TOKEN — under k8s the sandbox's
+                # setup_anthropic_api() never runs (the container command
+                # overrides the image ENTRYPOINT). Real credentials never
+                # enter the sandbox environment.
                 "ANTHROPIC_BASE_URL": GATEWAY_K8S_URL,
             }
             if session_token:
                 environment["EGG_SESSION_TOKEN"] = session_token
+
+                # Inject the session-token placeholder credential.
+                #
+                # In k8s the container ``command`` (the consensus wrapper /
+                # ``python3 -m egg_agent``) overrides the image ENTRYPOINT, so
+                # ``sandbox/entrypoint.py::setup_anthropic_api()`` — which
+                # normally derives this placeholder from EGG_SESSION_TOKEN at
+                # boot — never runs. Without a credential in its env, Claude
+                # Code aborts every turn with the synthetic "Not logged in ·
+                # Please run /login" before any request reaches the gateway,
+                # and the producer crash-loops to permanent death (#2817).
+                #
+                # This is NOT a real credential: it's the session-token
+                # envelope (``sk-ant-oat01-PROXY-INJECTED-egg-session-<token>``)
+                # whose payload is the same session token already present in
+                # EGG_SESSION_TOKEN above. The gateway strips it and injects
+                # the real upstream credential at proxy time — real secrets
+                # never enter the sandbox. On the LiteLLM path Claude Code
+                # sends api_key auth via x-api-key (ANTHROPIC_API_KEY); on the
+                # Anthropic path it sends OAuth via the Anthropic-Header
+                # (CLAUDE_CODE_OAUTH_TOKEN). Both reach the gateway's x-api-key
+                # extraction. Mirrors setup_anthropic_api (PR #2864) on the
+                # only code path that runs under k8s. See #2829.
+                from agent_model_resolution import UPSTREAM_LITELLM
+                from egg_session_placeholder import to_placeholder
+
+                placeholder = to_placeholder(session_token)
+                if upstream == UPSTREAM_LITELLM:
+                    environment["ANTHROPIC_API_KEY"] = placeholder
+                else:
+                    environment["CLAUDE_CODE_OAUTH_TOKEN"] = placeholder
             if pipeline_repo:
                 # owner/repo string used by the overseer auto-issue verb
                 # (issue #1962) and the gateway's overseer guardrails.

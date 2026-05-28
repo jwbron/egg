@@ -105,12 +105,15 @@ class AgentModelDecision:
         wire-name should be (``…_OPTION_NAME``) — without these,
         compaction math falls back to the 200k Claude default and the
         agent throws away >80% of a 1M-window upstream's capacity. We
-        also set ``ANTHROPIC_AUTH_METHOD=api_key`` so the entrypoint
-        skips the OAuth token setup; LiteLLM-routed agents talk to
-        the gateway, not anthropic.com, and the gateway injects its
-        own credentials at proxy time. The Anthropic path returns an
-        empty dict so default-Claude spawns carry no extra env (the
-        existing pre-#2832 wire shape).
+        also set ``ANTHROPIC_AUTH_METHOD=api_key`` to mark the path as
+        api-key auth so config validation / startup logging don't
+        demand an Anthropic OAuth token — the actual OAuth-token skip
+        in the entrypoint's ``setup_anthropic_api()`` is driven by
+        ``ANTHROPIC_CUSTOM_MODEL_OPTION``, not this var. LiteLLM-routed
+        agents talk to the gateway, not anthropic.com, and the gateway
+        injects its own credentials at proxy time. The Anthropic path
+        returns an empty dict so default-Claude spawns carry no extra
+        env (the existing pre-#2832 wire shape).
         """
         if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
             return {}
