@@ -241,7 +241,7 @@ lint-docker:
 	@if command -v hadolint >/dev/null 2>&1; then \
 		hadolint --config .hadolint.yaml gateway/Dockerfile; \
 		hadolint --config .hadolint.yaml sandbox/Dockerfile; \
-		hadolint --config .hadolint.yaml litellm/Dockerfile; \
+		hadolint --config .hadolint.yaml config/litellm/Dockerfile; \
 	else \
 		echo "SKIP: hadolint not installed"; \
 	fi
@@ -469,8 +469,8 @@ build: sync-venv-if-uv
 	docker build -t egg-orchestrator:latest -t egg-orchestrator:$(EGG_IMAGE_TAG) -f orchestrator/Dockerfile .
 	@echo "==> Building sandbox container..."
 	docker build -t egg-sandbox:latest -t egg-sandbox:$(EGG_IMAGE_TAG) -f sandbox/Dockerfile .
-	@echo "==> Building litellm container (vendored cache_control patches, #2839)..."
-	docker build -t egg-litellm:latest -t egg-litellm:$(EGG_IMAGE_TAG) -f litellm/Dockerfile .
+	@echo "==> Building litellm container (stock LiteLLM + egg cache patches)..."
+	docker build -t egg-litellm:latest -t egg-litellm:$(EGG_IMAGE_TAG) -f config/litellm/Dockerfile config/litellm
 
 # ============================================================================
 # Kubernetes (k3s) targets

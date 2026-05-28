@@ -277,15 +277,52 @@ data:
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+          drop_params: true
+          # Pin the provider to Qwen's first-party host for a stable,
+          # cacheable surface (see "Prompt caching" below).
+          extra_body:
+            provider:
+              order: [Alibaba]
+              allow_fallbacks: false
       # Paired `[1m]` alias — required to absorb the Claude Code
-      # startup-probe suffix leak (#2832). See note below.
+      # startup-probe suffix leak (#2832). See note below. Keep its
+      # litellm_params byte-identical to the bare row.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
           api_key: os.environ/OPENROUTER_API_KEY
+          drop_params: true
+          extra_body:
+            provider:
+              order: [Alibaba]
+              allow_fallbacks: false
+    # Cost + prompt-cache visibility (see "Prompt caching" below). KEEP
+    # this block — your overlay replaces config.yaml in full, so dropping
+    # it disables cost/cache logging for routed agents.
+    litellm_settings:
+      callbacks: cost_callback.cost_logger
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
 ```
+
+> **Prompt caching.** Claude Code marks a stable prefix with
+> `cache_control` on every request; on the Anthropic path that yields a
+> ~10× input-cost discount on cache hits. Routing through a stock LiteLLM
+> image **silently loses that discount on Qwen/DeepSeek** — its
+> Anthropic→OpenAI translation neither honors `cache_control` for those
+> providers nor strips the per-request `x-anthropic-billing-header` block
+> Claude Code prepends (the block's `cch=` hash invalidates the cache key
+> every turn). egg ships a custom **`egg-litellm`** image
+> ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
+> bakes in three patches closing those gaps
+> ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
+> the build fails loudly if a LiteLLM bump moves the patched code. Pinning
+> the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
+> false`) then gives a stable cache surface — without it OpenRouter routes
+> across a cheapest-available pool whose cache support varies per turn. The
+> bundled `cost_callback` logs the real upstream cost and per-session cache
+> hit rate (a JSON line per call) to the LiteLLM pod stream, visible via
+> `get_service_logs` / the structured-logging stream.
 
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
 > custom model with a `[1m]` context-window-opt-in suffix

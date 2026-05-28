@@ -84,7 +84,7 @@ make build
 # docker build -t egg-sandbox:latest sandbox/
 # docker build -t egg-orchestrator:latest orchestrator/
 # docker build -t egg-gateway:latest gateway/
-# docker build -t egg-litellm:latest litellm/  (vendored with cache_control patches)
+# docker build -t egg-litellm:latest -f config/litellm/Dockerfile config/litellm  (vendored with cache patches)
 # k3s ctr images import <image-tarballs>
 ```
 

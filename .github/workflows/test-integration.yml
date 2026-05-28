@@ -94,9 +94,11 @@ jobs:
             if docker save egg-gateway:latest | sudo k3s ctr images import - \
               && docker save egg-orchestrator:latest | sudo k3s ctr images import - \
               && docker save egg-sandbox:latest | sudo k3s ctr images import - \
+              && docker save egg-litellm:latest | sudo k3s ctr images import - \
               && docker save egg-gateway:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
               && docker save egg-orchestrator:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
-              && docker save egg-sandbox:"$EGG_IMAGE_TAG" | sudo k3s ctr images import -; then
+              && docker save egg-sandbox:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
+              && docker save egg-litellm:"$EGG_IMAGE_TAG" | sudo k3s ctr images import -; then
               echo "::endgroup::"
               echo "Image import succeeded on attempt ${attempt}"
               exit 0

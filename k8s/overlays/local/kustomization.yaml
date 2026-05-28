@@ -20,3 +20,6 @@ images:
   - name: egg-gateway
     newName: egg-gateway
     newTag: latest
+  - name: egg-litellm
+    newName: egg-litellm
+    newTag: latest
