@@ -51,10 +51,12 @@ jobs:
           # Keep the default removals (android, dotnet, haskell, large
           # apt packages) — ~20+ GB and none of them touch egg's
           # toolchain. Two opt-outs:
-          #   docker-images: `make build` runs next and needs its layer
-          #     cache; the Docker store is reclaimed post-import by the
-          #     "Reclaim Docker image store" step once images are in
-          #     containerd.
+          #   docker-images: the action's `docker-images: true` runs
+          #     `docker image prune -a`, which would evict any base
+          #     images preinstalled on the runner that `make build`
+          #     (running next) reuses as cache layers. Keep them; the
+          #     Docker store is reclaimed post-import by the "Reclaim
+          #     Docker image store" step once images are in containerd.
           #   tool-cache: this step runs AFTER "Set up Python", so
           #     /opt/hostedtoolcache holds the interpreter that uv's
           #     .venv links against — wiping it would break the build
@@ -153,13 +155,16 @@ jobs:
         # `make deploy` to reclaim the disk they duplicate, keeping the
         # node below kubelet's ephemeral-storage eviction threshold
         # (see the disk-pressure note on the "Free disk space" step).
+        # `make build` is done and `make deploy` is kubectl-only, so
+        # `image prune -af` (all unused, not just dangling) is safe and
+        # reclaims the preinstalled base images we kept for the build.
         run: |
           set -x
           docker images --format '{{.Repository}}:{{.Tag}}' \
             | grep -E '^egg-(gateway|orchestrator|sandbox|litellm):' \
             | xargs -r docker rmi -f || true
           docker builder prune -af || true
-          docker image prune -f || true
+          docker image prune -af || true
           df -h /
 
       - name: Seed local config for `make deploy`
