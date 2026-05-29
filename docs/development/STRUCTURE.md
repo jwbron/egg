@@ -319,6 +319,7 @@ shared/
 │   ├── __init__.py         # Public API: HealthTracker
 │   └── tracker.py          # Thread-safe healthy/unhealthy transition recorder with snapshot()
 ├── egg_logging/            # Structured logging
+├── egg_tool_output.py      # Tool-output size caps for egg-owned MCP tools — truncation + spill-to-file helpers shared by orchestrator MCP server and sandbox @tool wrappers (EGG_TOOL_OUTPUT_CAP_BYTES, #2805)
 ├── egg_overseer/           # Shared overseer library (advisor, issue filing, priority, scrubbing, state)
 │   ├── __init__.py         # Package docstring only — import from submodules (e.g. `from egg_overseer.advisor import consult_advisor`)
 │   ├── advisor.py          # Opus advisor wrapper — consult_advisor(), AdvisorVerdict (decision: alert|file_issue|watch)
