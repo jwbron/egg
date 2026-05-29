@@ -16651,6 +16651,10 @@ def _run_implement_phase_slices(
                     str(worktree_repo_path),
                     integration_branch=integration_branch_for_check,
                     parent_branch=parent_branch_for_check,
+                    # #2871 — pass the recorded fork base so an empty
+                    # (un-started) slice branch whose tip is still at its
+                    # creation base is not mistaken for merged work.
+                    integration_base_sha=slice_obj.integration_base_sha,
                     agent_role="coder",
                     mode=gateway_mode,  # type: ignore[arg-type]
                 )
@@ -16793,13 +16797,20 @@ def _run_implement_phase_slices(
                 # Persist the parent-branch reference on the contract
                 # under the per-pipeline state lock so a concurrent
                 # tester / documenter contract write doesn't race with
-                # ours (reviewer_code v4 #5).
+                # ours (reviewer_code v4 #5). While we hold the contract,
+                # also read back any integration_base_sha recorded on a
+                # prior run (#2871) — on a restart this lets the race
+                # check below tell an empty branch apart from a merged
+                # one. It is ``None`` on a slice's first run (recorded
+                # only after the branch is created, just below).
+                recorded_base_sha: str | None = None
                 try:
                     with get_pipeline_state_lock(pipeline_id):
                         contract_local = load_contract(pipeline_id, worktree_repo_path)
                         for s in contract_local.slices:
                             if s.id == slice_id:
                                 s.parent_branch_at_creation = parent_branch
+                                recorded_base_sha = s.integration_base_sha
                                 break
                         save_contract(contract_local, worktree_repo_path)
                 except Exception as save_err:  # noqa: BLE001
@@ -16828,6 +16839,7 @@ def _run_implement_phase_slices(
                             str(worktree_repo_path),
                             integration_branch=integration_branch,
                             parent_branch=parent_branch,
+                            integration_base_sha=recorded_base_sha,
                             agent_role="coder",
                             mode=gateway_mode,  # type: ignore[arg-type]
                         )
@@ -16904,6 +16916,46 @@ def _run_implement_phase_slices(
                             f"{integration_branch} could not be created from "
                             f"{parent_branch}"
                         )
+
+                    # #2871 — record the integration branch's fork base
+                    # exactly once, on first creation. The branch was just
+                    # pushed at the parent's tip and no agent has been
+                    # spawned yet, so its origin tip still equals its base.
+                    # Persisting it now lets a later restart's bootstrap
+                    # reconciliation (and the race check above) tell an
+                    # *empty* slice branch — tip still at this base, hence
+                    # a trivial ancestor of an advanced parent — apart from
+                    # a genuinely *merged* one whose tip moved past it. We
+                    # only write it when unset so a restart over a branch
+                    # that already carries slice commits (#2512 recovery)
+                    # keeps its original base rather than the advanced tip.
+                    if recorded_base_sha is None:
+                        try:
+                            base_sha = spawner.gateway.get_remote_branch_sha(
+                                pipeline_id,
+                                str(worktree_repo_path),
+                                f"refs/heads/{integration_branch}",
+                                mode=gateway_mode,  # type: ignore[arg-type]
+                            )
+                            if base_sha:
+                                with get_pipeline_state_lock(pipeline_id):
+                                    contract_local = load_contract(pipeline_id, worktree_repo_path)
+                                    for s in contract_local.slices:
+                                        if s.id == slice_id:
+                                            s.integration_base_sha = base_sha
+                                            break
+                                    save_contract(contract_local, worktree_repo_path)
+                                recorded_base_sha = base_sha
+                        except Exception as base_err:  # noqa: BLE001
+                            logger.warning(
+                                "Failed to record slice integration_base_sha "
+                                "(#2871); empty-branch detection degrades to "
+                                "ancestor-only on a future restart",
+                                pipeline_id=pipeline_id,
+                                slice_id=slice_id,
+                                integration_branch=integration_branch,
+                                error=str(base_err),
+                            )
 
                 logger.info(
                     "Slice spawn",

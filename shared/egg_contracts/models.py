@@ -370,6 +370,22 @@ class Slice(EggContractBaseModel):
             "that have not yet been provisioned."
         ),
     )
+    integration_base_sha: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description=(
+            "Origin SHA the slice's integration branch was forked at "
+            "when first created (#2871). Recorded once, right after "
+            "``create_slice_integration_branch`` succeeds and before any "
+            "agent is spawned, so the branch tip still equals its base. "
+            "Lets ``is_slice_branch_merged_into_parent`` distinguish an "
+            "*empty, un-started* slice branch (tip still == this base, so "
+            "trivially an ancestor of an advanced parent) from a genuinely "
+            "*merged* one (tip moved past the base). ``None`` for slices "
+            "provisioned before this field existed — the merged-check then "
+            "falls back to its prior ancestor-only behaviour."
+        ),
+    )
     commit: str | None = Field(
         default=None,
         pattern=r"^[a-f0-9]{7,40}$",
@@ -379,7 +395,7 @@ class Slice(EggContractBaseModel):
         default_factory=list, description="Feedback from reviewer"
     )
 
-    @field_validator("commit", mode="before")
+    @field_validator("commit", "integration_base_sha", mode="before")
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
         return _normalize_commit(v)
