@@ -250,8 +250,9 @@ def spill_to_file(
     For ``Read``'s line-based ``offset``/``limit`` to be useful the spilled
     text must have real line breaks, so callers should serialize with
     ``indent=2`` (or spill raw multi-line content) rather than compact JSON.
-    The inline ``preview`` is a small fixed-size head sample, independent of
-    the cap, so the descriptor stays tiny.
+    The inline ``preview`` is a small head sample bounded by
+    ``min(_SPILL_PREVIEW_BYTES, cap)``, so the descriptor stays tiny and
+    shrinks proportionally under a pathologically small cap.
 
     Only appropriate when the caller and the agent share a filesystem
     (in-sandbox tools). On any write failure, returns ``None`` so the
