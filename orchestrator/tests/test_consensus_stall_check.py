@@ -321,11 +321,11 @@ def _make_healthy_result():
 
 
 def _make_monitor():
-    """Create a ContainerMonitor with a mocked Docker client."""
-    from container_monitor import ContainerMonitor
+    """Create a KubernetesMonitor with a mocked Docker client."""
+    from kubernetes_monitor import KubernetesMonitor
 
     mock_docker = MagicMock()
-    return ContainerMonitor(docker_client=mock_docker)
+    return KubernetesMonitor(docker_client=mock_docker)
 
 
 AggressiveRecoveryFixture = namedtuple(

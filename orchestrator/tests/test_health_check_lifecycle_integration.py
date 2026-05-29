@@ -419,7 +419,7 @@ class TestBasicEndpoints:
 # ===========================================================================
 
 
-class TestContainerMonitorHealthIntegrationExtra:
+class TestKubernetesMonitorHealthIntegrationExtra:
     """Additional tests for container monitor health check integration.
 
     KubernetesMonitor fires RUNTIME_TICK checks via _run_runtime_tick_checks

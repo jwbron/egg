@@ -232,67 +232,23 @@ jobs:
 > The action runs the agent as a **bare process** in the runner (#2866) — no
 > Docker, gateway, or container image. See [action/README.md](../../action/README.md).
 
-## Pre-built Images
+## Images
 
-> **Note (#2866):** egg no longer publishes `egg-gateway` / `egg-sandbox`
-> images to GHCR. PR-bot CI runs the agent as a bare process, and the k3s
-> pipeline imports **locally built** images via `make build` + `make k3s-import`.
-> The GHCR-pull guidance below is retained only for the legacy host-side Docker
-> deployment runtime, which is slated for removal; build images locally instead.
+egg builds its component images (`egg-gateway`, `egg-orchestrator`,
+`egg-sandbox`, `egg-litellm`) **locally** with `make build` and imports
+them into the k3s container runtime with `make k3s-import`. There is no
+image registry (the GHCR release pipeline was removed in
+[#2866](https://github.com/jwbron/egg/issues/2866)).
 
-### Image Versioning
+`make build` runs `scripts/prepare-sandbox-build-context.py` to populate
+`repo-deps/` from your `repositories.yaml` before the Docker build, so
+per-repo `build_commands` (e.g. `make sandbox-deps` to populate `.venv`,
+`npm ci` to populate `node_modules`) are baked into the `egg-sandbox`
+image — including the project's own `.venv` used by `make test` /
+`make lint` (see [#2499](https://github.com/jwbron/egg/issues/2499)).
 
-egg follows [semantic versioning](https://semver.org/) with floating tags for stable releases:
-
-| Tag Pattern | Description | Updates When |
-|-------------|-------------|--------------|
-| `latest` | Latest build from main | Every push to main and every stable release |
-| `vX` | Major version (e.g., `v0`) | Every stable vX.y.z release |
-| `vX.Y` | Minor version (e.g., `v0.1`) | Every stable vX.Y.z release |
-| `vX.Y.Z` | Exact version (e.g., `v0.1.0`) | Never (immutable) |
-| `vX.Y.Z-suffix` | Pre-release (e.g., `v1.0.0-alpha`) | Never (immutable, no floating tags) |
-
-Pre-release versions (with suffixes like `-alpha`, `-beta`, `-rc`) do not update floating tags or `latest`.
-
-For details on creating releases, see [RELEASING.md](../../RELEASING.md).
-
-### Limitations of Pre-built Images
-
-Pre-built `egg-sandbox` images on GHCR are built without a host
-`repositories.yaml`, so per-repo `build_commands` (e.g. `make sandbox-deps`
-to populate `.venv`, `npm ci` to populate `node_modules`) are **not**
-applied to the published image. Operators relying on prebuilt deps —
-including the project's own `.venv` for `make test` / `make lint` — should
-build the image locally with `make build` and import it via
-`make k3s-import` rather than pulling from GHCR. `make build` runs
-`scripts/prepare-sandbox-build-context.py` to populate `repo-deps/` from
-your `repositories.yaml` before the Docker build, so per-repo deps are
-included (see #2499).
-
-### Using Pre-built Images
-
-For stability, pin to a major version in `~/.config/egg/config.yaml`:
-
-```yaml
-gateway_image: ghcr.io/jwbron/egg-gateway:v0
-sandbox_image: ghcr.io/jwbron/egg-sandbox:v0
-```
-
-For full reproducibility, pin to an exact version:
-
-```yaml
-gateway_image: ghcr.io/jwbron/egg-gateway:v0.1.0
-sandbox_image: ghcr.io/jwbron/egg-sandbox:v0.1.0
-```
-
-Or use `latest` for automatic updates (not recommended for production):
-
-```yaml
-gateway_image: ghcr.io/jwbron/egg-gateway:latest
-sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
-```
-
-For reproducible builds, pin to an exact version tag.
+Override `gateway_image` / `sandbox_image` in `~/.config/egg/config.yaml`
+only if you maintain your own private registry.
 
 ## Configuration Files
 
@@ -425,7 +381,7 @@ make deploy        # roll out deployments in egg-system
 
 **Network unavailable at startup**: The gateway retries GitHub App token initialization with exponential backoff for up to 120 seconds if the network is temporarily unavailable (e.g., DNS not yet ready). During this window you'll see log lines like `Token refresher not ready, retrying`. If the token never initializes within the timeout, the gateway exits with code 1. Increase the window with `EGG_TOKEN_INIT_TIMEOUT=<seconds>` if your network takes longer to come up.
 
-**Missing `EGG_ORCHESTRATOR_URL` in Kubernetes** (#1803): When `KUBERNETES_SERVICE_HOST` is present (i.e. the gateway is running inside a k8s pod), `EGG_ORCHESTRATOR_URL` must be explicitly set — the docker-compose default hostname `egg-orchestrator` doesn't resolve under k3s kube-dns. The `k8s/base/gateway-deployment.yaml` sets this automatically to `http://orchestrator.egg-system.svc.cluster.local:9849`. Custom overlays that omit this variable will cause the gateway to exit at startup with:
+**Missing `EGG_ORCHESTRATOR_URL` in Kubernetes** (#1803): When `KUBERNETES_SERVICE_HOST` is present (i.e. the gateway is running inside a k8s pod), `EGG_ORCHESTRATOR_URL` must be explicitly set — the bare hostname `egg-orchestrator` doesn't resolve under k3s kube-dns. The `k8s/base/gateway-deployment.yaml` sets this automatically to `http://orchestrator.egg-system.svc.cluster.local:9849`. Custom overlays that omit this variable will cause the gateway to exit at startup with:
 ```
 Startup failed: EGG_ORCHESTRATOR_URL must be set when running in Kubernetes
 ```

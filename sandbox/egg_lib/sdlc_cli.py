@@ -657,7 +657,7 @@ def main() -> None:
     if not client.health_check():
         _write(
             f"{RED}Cannot reach orchestrator at {client.base_url}\n"
-            f"Is the orchestrator running? Try: docker-compose up -d orchestrator{RESET}\n",
+            f"Is the orchestrator Deployment running in the egg-system namespace?{RESET}\n",
             file=sys.stderr,
         )
         sys.exit(1)

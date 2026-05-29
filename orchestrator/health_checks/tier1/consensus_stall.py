@@ -7,7 +7,7 @@ still RUNNING past a grace period, this check reports DEGRADED so the
 container monitor recovery handler can drive the transition.
 
 This check is purely diagnostic — it does not mutate global state.
-Recovery actions are driven by the caller (container_monitor).
+Recovery actions are driven by the caller (kubernetes_monitor).
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """
 Tests for the ContainerBackend protocol.
 
-Verifies protocol conformance for both DockerClient and KubernetesClient,
+Verifies protocol conformance for both KubernetesClient and KubernetesClient,
 exception hierarchy, and runtime-checkable behaviour.
 """
 
@@ -105,11 +105,11 @@ class TestProtocolConformance:
         assert isinstance(client, ContainerBackend)
 
     def test_docker_client_is_container_backend(self):
-        """DockerClient (alias for KubernetesClient) must be an instance of ContainerBackend."""
-        from docker_client import DockerClient
+        """KubernetesClient (alias for KubernetesClient) must be an instance of ContainerBackend."""
+        from kubernetes_client import KubernetesClient
 
-        # DockerClient is now aliased to KubernetesClient after the k8s migration
-        client = DockerClient(
+        # KubernetesClient is now aliased to KubernetesClient after the k8s migration
+        client = KubernetesClient(
             namespace="test-ns",
             _batch_api=MagicMock(),
             _core_api=MagicMock(),

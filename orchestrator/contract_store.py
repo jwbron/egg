@@ -45,7 +45,7 @@ logger = logging.getLogger("orchestrator.contract_store")
 
 
 # Must match gateway/contract_api.py WORKTREE_BASE_DIR and the
-# docker-compose volume mounts.  Pipeline worktrees live at
+# k8s Deployment volume mounts.  Pipeline worktrees live at
 # ``<base>/<pipeline_id>/<repo>/``.
 _WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 

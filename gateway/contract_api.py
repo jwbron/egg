@@ -57,7 +57,7 @@ logger = get_logger("gateway.contract")
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
 # Upstream orchestrator that owns contract state. The default matches the
-# docker-compose service name used elsewhere in the gateway
+# orchestrator Service name used elsewhere in the gateway
 # (``checkpoint_handler.py``).
 _DEFAULT_ORCHESTRATOR_URL = "http://egg-orchestrator:9849"
 

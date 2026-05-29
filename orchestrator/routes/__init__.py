@@ -220,7 +220,7 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
     raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
 
-# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+# Must match the gateway's WORKTREE_BASE_DIR and the k8s Deployment volume mounts.
 _WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
 

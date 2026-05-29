@@ -1716,7 +1716,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
             f"       curl -x http://localhost:{GATEWAY_PROXY_PORT} http://api.anthropic.com/"
         )
         logger.error("    4. If CA cert expired, restart the gateway to regenerate it:")
-        logger.error("       docker compose restart gateway")
+        logger.error("       kubectl rollout restart deployment/gateway -n egg-system")
     return False
 
 

@@ -279,7 +279,6 @@ shared/
 │   └── tests/              # Unit tests for models, loader, validator
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, infrastructure branch names, anchor size limits)
-│   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_restrictions/        # Shared agent file restriction patterns and checking logic
 │   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern, BLOCKED_HINTS, derive_hint

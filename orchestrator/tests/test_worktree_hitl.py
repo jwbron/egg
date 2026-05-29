@@ -1,7 +1,7 @@
 """Tests for worktree HITL recovery and cleanup (#1481).
 
 Covers:
-- ContainerSpawner.detect_uncommitted_changes()
+- KubernetesSpawner.detect_uncommitted_changes()
 - WorktreeManager.cleanup_clean_worktree()
 - WorktreeManager.cleanup_stale_pipeline_worktrees()
 """
@@ -19,13 +19,13 @@ if _gateway_path not in sys.path:
 
 
 class TestDetectUncommittedChanges:
-    """Tests for ContainerSpawner.detect_uncommitted_changes()."""
+    """Tests for KubernetesSpawner.detect_uncommitted_changes()."""
 
     def _make_spawner(self):
-        """Create a ContainerSpawner with mocked dependencies."""
-        from container_spawner import ContainerSpawner
+        """Create a KubernetesSpawner with mocked dependencies."""
+        from kubernetes_spawner import KubernetesSpawner
 
-        return ContainerSpawner(
+        return KubernetesSpawner(
             docker_client=MagicMock(),
             gateway_client=MagicMock(),
         )

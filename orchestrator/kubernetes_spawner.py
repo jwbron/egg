@@ -117,7 +117,7 @@ if TYPE_CHECKING:
 
 logger = get_logger("orchestrator.kubernetes_spawner")
 
-# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+# Must match the gateway's WORKTREE_BASE_DIR and the k8s Deployment volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
 # Default k8s service URLs for gateway and orchestrator

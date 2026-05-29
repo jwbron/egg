@@ -950,7 +950,7 @@ class TestHandleRestartAgent:
     """Tests for _handle_restart_agent helper."""
 
     @patch("routes.decisions.emit_event")
-    @patch("docker_client.get_docker_client")
+    @patch("kubernetes_client.get_kubernetes_client")
     def test_happy_path_stops_container_and_emits_event(self, mock_get_docker, mock_emit):
         """Container found, stopped, and CONTAINER_STOPPED event emitted."""
         from events import EventType
@@ -979,7 +979,7 @@ class TestHandleRestartAgent:
             },
         )
 
-    @patch("docker_client.get_docker_client")
+    @patch("kubernetes_client.get_kubernetes_client")
     def test_no_containers_found(self, mock_get_docker):
         """No running containers for agent — logs warning, no stop called."""
         from routes.decisions import _handle_restart_agent
@@ -993,7 +993,7 @@ class TestHandleRestartAgent:
         mock_client.stop_container.assert_not_called()
 
     @patch("routes.decisions.emit_event")
-    @patch("docker_client.get_docker_client")
+    @patch("kubernetes_client.get_kubernetes_client")
     def test_docker_stop_failure(self, mock_get_docker, mock_emit):
         """Docker stop raises exception — handled gracefully, no crash."""
         from routes.decisions import _handle_restart_agent

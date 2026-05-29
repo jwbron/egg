@@ -52,7 +52,7 @@ def _make_running_pipeline():
 
 _COMMON_PATCHES = [
     "routes.pipelines._emit_pipeline_event",
-    "routes.pipelines.get_container_spawner",
+    "routes.pipelines.get_kubernetes_spawner",
     "routes.pipelines.get_state_store",
     "routes.pipelines._spawn_and_wait",
     "routes.pipelines.get_pipeline_state_lock",

@@ -292,9 +292,8 @@ following sequence (mirrors the acceptance criteria from
    key and no raw JWT anywhere in the log tail.
 
 The integration test `integration_tests/test_k8s_deployment_tools.py`
-automates steps 1–4 end-to-end; skip it with
-`EGG_RUNTIME != "kubernetes"` or opt in with `EGG_INTEGRATION_REBUILD=1`
-for the slow rebuild-and-rollout path.
+automates steps 1–4 end-to-end; opt in to the slow rebuild-and-rollout
+path with `EGG_INTEGRATION_REBUILD=1`.
 
 ## Rate Limits
 

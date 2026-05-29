@@ -37,9 +37,9 @@ sys.modules.setdefault("docker.types", MagicMock())
 # Conditional imports
 # ---------------------------------------------------------------------------
 try:
-    from container_spawner import ContainerSpawner, SpawnedContainer
-    from docker_client import ContainerNotFoundError
     from gateway_client import GatewayHealth, SessionInfo
+    from kubernetes_client import PodNotFoundError
+    from kubernetes_spawner import KubernetesSpawner, SpawnedContainer
     from models import (
         AgentRole,
         ContainerInfo,
@@ -106,8 +106,8 @@ def mock_gateway_client():
 
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
-    """Create a ContainerSpawner with mocked clients."""
-    return ContainerSpawner(
+    """Create a KubernetesSpawner with mocked clients."""
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -395,9 +395,11 @@ class TestOverseerSpawnedAtPhaseStart:
         the flag must not be set to True, otherwise the health monitor would
         try to respawn an overseer that was never successfully started.
         """
-        from container_spawner import ContainerSpawnError
+        from kubernetes_spawner import KubernetesSpawnError
 
-        mock_docker_client.create_container.side_effect = ContainerSpawnError("Docker daemon error")
+        mock_docker_client.create_container.side_effect = KubernetesSpawnError(
+            "Docker daemon error"
+        )
 
         phase_overseer_active = False
         overseer_container_id = None
@@ -409,7 +411,7 @@ class TestOverseerSpawnedAtPhaseStart:
             )
             overseer_container_id = result.container_info.container_id
             phase_overseer_active = True
-        except ContainerSpawnError:
+        except KubernetesSpawnError:
             pass  # Non-fatal
 
         assert not phase_overseer_active, "phase_overseer_active must remain False on spawn failure"
@@ -583,7 +585,7 @@ class TestFinallyBlockSafetyNet:
 
 
 # ---------------------------------------------------------------------------
-# Scenario 7: Respawn gating with ContainerNotFoundError
+# Scenario 7: Respawn gating with PodNotFoundError
 # ---------------------------------------------------------------------------
 
 
@@ -595,7 +597,7 @@ class TestRespawnWithContainerNotFound:
     ):
         """Container vanishes from Docker during active phase -> respawn."""
         original_id = "overseer-vanished-001"
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError(
             f"Container {original_id} not found"
         )
 
@@ -649,14 +651,14 @@ class TestRespawnWithContainerNotFound:
 # ---------------------------------------------------------------------------
 
 
-class TestContainerSpawnerDocstring:
+class TestKubernetesSpawnerDocstring:
     """Verify container_spawner.spawn_overseer_container reflects phase-scoped lifecycle."""
 
     def test_docstring_mentions_phase_scoped(self):
         """The docstring should reference phase-scoped, not pipeline-scoped."""
-        from container_spawner import ContainerSpawner
+        from kubernetes_spawner import KubernetesSpawner
 
-        docstring = ContainerSpawner.spawn_overseer_container.__doc__ or ""
+        docstring = KubernetesSpawner.spawn_overseer_container.__doc__ or ""
         assert "phase" in docstring.lower(), (
             "spawn_overseer_container docstring should mention phase-scoped lifecycle"
         )

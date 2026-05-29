@@ -29,18 +29,9 @@ except ImportError:
         return logging.getLogger(name)
 
 
-import os
-
-from container_monitor import get_container_monitor
-from docker_client import (
-    ContainerNotFoundError,
-    ContainerOperationError,
-    DockerClientError,
-    ImageNotFoundError,
-    InvalidContainerIdError,
-    get_docker_client,
-)
 from kubernetes_client import (
+    ImagePullError,
+    InvalidNameError,
     JobOperationError,
     KubernetesClientError,
     PodNotFoundError,
@@ -51,22 +42,15 @@ from lifecycle_auth import require_lifecycle_secret
 from models import AgentRole
 from sandbox_template import SandboxTemplate, create_sandbox_config
 
-# Runtime detection: use Kubernetes when EGG_RUNTIME=kubernetes
-_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
-
 
 def _get_backend():
-    """Get the appropriate container backend for the current runtime."""
-    if _RUNTIME == "kubernetes":
-        return get_kubernetes_client()
-    return get_docker_client()
+    """Get the Kubernetes container backend."""
+    return get_kubernetes_client()
 
 
 def _get_monitor():
-    """Get the appropriate monitor for the current runtime."""
-    if _RUNTIME == "kubernetes":
-        return get_kubernetes_monitor()
-    return get_container_monitor()
+    """Get the Kubernetes container monitor."""
+    return get_kubernetes_monitor()
 
 
 logger = get_logger("orchestrator.containers")
@@ -185,12 +169,12 @@ def spawn_container(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
-    except ImageNotFoundError as e:
+    except ImagePullError as e:
         return make_error_response(str(e), status_code=404)
-    except (ContainerOperationError, JobOperationError) as e:
+    except JobOperationError as e:
         logger.error("Container spawn failed", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to spawn container: {e}", status_code=500)
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         logger.error("Backend error", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Backend error: {e}", status_code=500)
 
@@ -249,7 +233,7 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
             data={"containers": container_data},
         )
 
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
@@ -291,17 +275,17 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidContainerIdError:
+    except InvalidNameError:
         return make_error_response(
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except ContainerNotFoundError, PodNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
@@ -338,19 +322,19 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
 
         return make_success_response("Container removed")
 
-    except InvalidContainerIdError:
+    except InvalidNameError:
         return make_error_response(
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except ContainerNotFoundError, PodNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except (ContainerOperationError, JobOperationError) as e:
+    except JobOperationError as e:
         return make_error_response(str(e), status_code=400)
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
@@ -403,19 +387,19 @@ def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidContainerIdError:
+    except InvalidNameError:
         return make_error_response(
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except ContainerNotFoundError, PodNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except (ContainerOperationError, JobOperationError) as e:
+    except JobOperationError as e:
         return make_error_response(str(e), status_code=400)
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
@@ -453,17 +437,17 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
             data={"logs": logs},
         )
 
-    except InvalidContainerIdError:
+    except InvalidNameError:
         return make_error_response(
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except ContainerNotFoundError, PodNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except (DockerClientError, KubernetesClientError) as e:
+    except KubernetesClientError as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
 
 
@@ -491,7 +475,7 @@ def check_container_health(pipeline_id: str, container_id: str) -> tuple[Respons
 
         return make_success_response("Health checked", data=health)
 
-    except InvalidContainerIdError:
+    except InvalidNameError:
         return make_error_response(
             f"Invalid container ID format: {container_id}",
             status_code=400,

@@ -173,14 +173,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if not repo_paths:
             logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
         try:
-            from docker_client import get_docker_client
+            from kubernetes_client import get_kubernetes_client
             from startup_reconciliation import reconcile_stale_containers
 
             for rp in repo_paths:
                 try:
                     store = get_state_store(rp)
                     stores.append(store)
-                    recovered = reconcile_stale_containers(store, get_docker_client())
+                    recovered = reconcile_stale_containers(store, get_kubernetes_client())
                     if recovered:
                         logger.warning(
                             "Recovered stale pipelines on startup",
@@ -200,12 +200,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
             )
 
         try:
-            from container_monitor import (
+            from kubernetes_monitor import (
                 create_pipeline_reconciliation_handler,
-                get_container_monitor,
+                get_kubernetes_monitor,
             )
 
-            monitor = get_container_monitor()
+            monitor = get_kubernetes_monitor()
             for rp in repo_paths:
                 monitor.add_handler(create_pipeline_reconciliation_handler(str(rp)))
             monitor.start()
@@ -305,7 +305,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Wire runner into container monitor so RUNTIME_TICK checks fire
             # automatically when container state changes are detected.
             try:
-                monitor = get_container_monitor()
+                monitor = get_kubernetes_monitor()
                 monitor.set_health_check_runner(runner, repo_paths)
             except Exception:
                 pass  # Monitor may not be available; health checks still work on-demand
@@ -321,7 +321,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
                         pipeline = startup_store.load_pipeline(pid)
                         if pipeline.status.value == "running":
                             try:
-                                from docker_client import get_docker_client as _get_dc
+                                from kubernetes_client import (
+                                    get_kubernetes_client as _get_dc,
+                                )
 
                                 dc = _get_dc()
                             except Exception:

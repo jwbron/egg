@@ -89,35 +89,6 @@ def _reset_rebuild_globals():
 class TestGetDeploymentContext:
     """GET /api/v1/deployment/context."""
 
-    def test_docker_runtime_returns_placeholder_payload(self, client, monkeypatch):
-        """On Docker the route returns a structured placeholder, not an error."""
-        monkeypatch.setenv("EGG_RUNTIME", "docker")
-        monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
-        response = client.get("/api/v1/deployment/context")
-        assert response.status_code == 200
-        body = response.get_json()
-        assert body["success"] is True
-        data = body["data"]
-        assert data["runtime"] == "docker"
-        # #1850: the payload records how runtime was resolved so the
-        # operator can tell env-configured from auto-detected.
-        assert data["detection_source"] == "env"
-        # Degraded payload still carries every key the operator expects.
-        for key in (
-            "namespace",
-            "cluster_info",
-            "cni",
-            "network_policy_enforcement",
-            "images",
-            "is_k3s",
-            "k3s_flavor_hint",
-        ):
-            assert key in data, f"missing key: {key}"
-        assert data["cluster_info"]["nodes"] == 0
-        assert data["network_policy_enforcement"] is False
-        assert data["is_k3s"] is False
-        assert data["images"] == {}
-
     def test_unset_env_with_k8s_service_host_autodetects_kubernetes(self, client, monkeypatch):
         """EGG_RUNTIME unset + KUBERNETES_SERVICE_HOST set → auto-detect k8s (#1850)."""
         monkeypatch.delenv("EGG_RUNTIME", raising=False)
@@ -152,16 +123,6 @@ class TestGetDeploymentContext:
         data = response.get_json()["data"]
         assert data["runtime"] == "kubernetes"
         assert data["detection_source"] == "auto:k8s-service-host"
-
-    def test_unset_env_with_no_signals_defaults_to_docker(self, client, monkeypatch):
-        """EGG_RUNTIME unset + no KUBERNETES_SERVICE_HOST → auto-default docker."""
-        monkeypatch.delenv("EGG_RUNTIME", raising=False)
-        monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
-        response = client.get("/api/v1/deployment/context")
-        assert response.status_code == 200
-        data = response.get_json()["data"]
-        assert data["runtime"] == "docker"
-        assert data["detection_source"] == "auto:default"
 
     def test_cluster_unreachable_demotes_to_unknown(self, client, monkeypatch):
         """Kubernetes env var set but both apiserver probes fail → runtime=unknown (#1850)."""
@@ -337,15 +298,6 @@ class TestGetDeploymentContext:
 
 class TestValidateDeploymentManifestsRoute:
     """POST /api/v1/deployment/validate-manifests."""
-
-    def test_docker_runtime_returns_not_available(self, client, monkeypatch):
-        """Docker is not supported — route degrades with a structured payload."""
-        monkeypatch.setenv("EGG_RUNTIME", "docker")
-        response = client.post("/api/v1/deployment/validate-manifests", json={})
-        assert response.status_code == 200
-        data = response.get_json()["data"]
-        assert data["error"] == "not_available_on_runtime"
-        assert data["runtime"] == "docker"
 
     def test_missing_overlay_returns_404(self, client, monkeypatch, tmp_path):
         """Non-existent overlay path returns 404."""
@@ -801,16 +753,6 @@ class TestPruneWorktreesProxy:
 class TestValidateNetworkIsolationRoute:
     """POST /api/v1/deployment/validate-network-isolation."""
 
-    def test_docker_runtime_returns_not_available(self, client, monkeypatch):
-        monkeypatch.setenv("EGG_RUNTIME", "docker")
-        response = client.post(
-            "/api/v1/deployment/validate-network-isolation",
-            json={"pipeline_id": "p1", "role": "coder"},
-        )
-        assert response.status_code == 200
-        data = response.get_json()["data"]
-        assert data["error"] == "not_available_on_runtime"
-
     def test_non_enforcing_cni_short_circuits(self, client, monkeypatch):
         """When the CNI doesn't enforce NetworkPolicy we refuse to run the probe."""
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
@@ -987,12 +929,6 @@ class TestProbeManifestAndEnv:
 
 class TestRebuildAndRolloutRoute:
     """POST /api/v1/deployment/rebuild-and-rollout and its stream endpoint."""
-
-    def test_docker_runtime_returns_not_available(self, client, monkeypatch):
-        monkeypatch.setenv("EGG_RUNTIME", "docker")
-        response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
-        assert response.status_code == 200
-        assert response.get_json()["data"]["error"] == "not_available_on_runtime"
 
     def test_missing_repo_path_returns_500(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
@@ -1237,13 +1173,6 @@ class TestRunRedeploySubprocess:
 
 class TestGetServiceLogsRoute:
     """GET /api/v1/deployment/logs."""
-
-    def test_docker_runtime_returns_not_available(self, client, monkeypatch):
-        monkeypatch.setenv("EGG_RUNTIME", "docker")
-        response = client.get("/api/v1/deployment/logs?service=gateway")
-        assert response.status_code == 200
-        data = response.get_json()["data"]
-        assert data["error"] == "not_available_on_runtime"
 
     def test_missing_service_returns_400(self, client, monkeypatch):
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
@@ -1831,12 +1760,7 @@ class TestValidateDeploymentManifestsOverlayGuard:
     arbitrary filesystem paths via 200/404 differentiation.
     """
 
-    def test_absolute_path_outside_repo_root_is_rejected(
-        self, client, lifecycle_auth_headers, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
-        )
+    def test_absolute_path_outside_repo_root_is_rejected(self, client, lifecycle_auth_headers):
         # A path outside any repo root must come back as a 400 (not a
         # 404 that would leak filesystem shape).
         resp = client.post(
@@ -1851,14 +1775,9 @@ class TestValidateDeploymentManifestsOverlayGuard:
         assert body["success"] is False
         assert "repo root" in (body.get("message") or "").lower()
 
-    def test_relative_path_inside_repo_root_resolves(
-        self, client, lifecycle_auth_headers, monkeypatch
-    ):
+    def test_relative_path_inside_repo_root_resolves(self, client, lifecycle_auth_headers):
         """Relative paths that resolve inside the repo root are allowed —
         the guard is narrow and doesn't break happy-path callers."""
-        monkeypatch.setattr(
-            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
-        )
 
         # Stub _run_kustomize so we exercise just the guard (not kustomize).
         with (
@@ -1909,12 +1828,7 @@ class TestValidateNetworkIsolationLabelValueGuard:
     with a structured 400 instead of an opaque apiserver 422.
     """
 
-    def test_invalid_pipeline_id_label_returns_400(
-        self, client, lifecycle_auth_headers, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
-        )
+    def test_invalid_pipeline_id_label_returns_400(self, client, lifecycle_auth_headers):
         resp = client.post(
             "/api/v1/deployment/validate-network-isolation",
             # Slashes aren't valid in label values.
@@ -1926,10 +1840,7 @@ class TestValidateNetworkIsolationLabelValueGuard:
         assert body["success"] is False
         assert "pipeline_id" in body["message"].lower()
 
-    def test_invalid_role_label_returns_400(self, client, lifecycle_auth_headers, monkeypatch):
-        monkeypatch.setattr(
-            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
-        )
+    def test_invalid_role_label_returns_400(self, client, lifecycle_auth_headers):
         resp = client.post(
             "/api/v1/deployment/validate-network-isolation",
             # Leading dash isn't valid.
@@ -1941,16 +1852,13 @@ class TestValidateNetworkIsolationLabelValueGuard:
         assert body["success"] is False
         assert "role" in body["message"].lower()
 
-    def test_valid_label_passes_guard(self, client, lifecycle_auth_headers, monkeypatch):
+    def test_valid_label_passes_guard(self, client, lifecycle_auth_headers):
         """Label values that match the K8s regex must pass the guard.
 
         We stub the CNI probe so the route short-circuits before making
         actual k8s API calls — the only thing under test here is that
         the label validation doesn't misclassify a valid value.
         """
-        monkeypatch.setattr(
-            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
-        )
         # CNI-without-enforcement short-circuit returns 200 early.
         fake_k8s = MagicMock()
         with (

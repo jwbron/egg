@@ -19,8 +19,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawner, ContainerSpawnError
 from gateway_client import GatewayError, GatewayHealth, SessionInfo
+from kubernetes_spawner import KubernetesSpawner, KubernetesSpawnError
 from models import AgentRole, ContainerInfo, ContainerStatus
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def mock_gateway_client():
 
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -114,7 +114,7 @@ class TestPerAgentWorktreeId:
         worktree_ids = set()
         for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]:
             mock_gateway_client.create_worktrees.reset_mock()
-            spawner = ContainerSpawner(
+            spawner = KubernetesSpawner(
                 docker_client=mock_docker_client,
                 gateway_client=mock_gateway_client,
             )
@@ -208,7 +208,7 @@ class TestPerAgentWorktreeFallback:
 
         mock_gateway_client.create_worktrees.side_effect = side_effect
 
-        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+        with pytest.raises(KubernetesSpawnError, match="worktree creation failed"):
             spawner.spawn_agent_container(
                 pipeline_id="pipe-1",
                 agent_role=AgentRole.CODER,
@@ -229,7 +229,7 @@ class TestPerAgentWorktreeFallback:
 
         mock_gateway_client.create_worktrees.side_effect = side_effect
 
-        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+        with pytest.raises(KubernetesSpawnError, match="no worktrees"):
             spawner.spawn_agent_container(
                 pipeline_id="pipe-1",
                 agent_role=AgentRole.CODER,
@@ -249,7 +249,7 @@ class TestPerAgentWorktreeErrorLogging:
     def test_gateway_error_raises_container_spawn_error(
         self, spawner, mock_gateway_client, mock_docker_client, caplog
     ):
-        """GatewayError is caught and re-raised as ContainerSpawnError."""
+        """GatewayError is caught and re-raised as KubernetesSpawnError."""
         original_volumes = {"egg": "/host/path/original"}
         error_details = {"errors": ["fatal: invalid reference: egg/issue-1495"]}
 
@@ -272,7 +272,7 @@ class TestPerAgentWorktreeErrorLogging:
         import logging
 
         with caplog.at_level(logging.ERROR):
-            with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+            with pytest.raises(KubernetesSpawnError, match="worktree creation failed"):
                 spawner.spawn_agent_container(
                     pipeline_id="pipe-1",
                     agent_role=AgentRole.CODER,
@@ -281,7 +281,7 @@ class TestPerAgentWorktreeErrorLogging:
                 )
 
         # The key assertion is the pytest.raises above: a GatewayError with details
-        # is caught and re-raised as ContainerSpawnError with the message preserved.
+        # is caught and re-raised as KubernetesSpawnError with the message preserved.
         # structlog logging is not verified here because structlog doesn't integrate
         # with caplog; the exception propagation is what matters.
 

@@ -254,14 +254,14 @@ class TestRunConcurrentPhaseWait:
         """When a container disappears during poll, returns failure."""
         mock_monotonic.return_value = 0.0
 
-        from docker_client import ContainerNotFoundError
+        from kubernetes_client import PodNotFoundError
 
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
         ]
 
         pipeline, mock_store, mock_spawner, mock_docker, _ = self._make_mocks(executions)
-        mock_docker.get_container_info.side_effect = ContainerNotFoundError("coder-abc")
+        mock_docker.get_container_info.side_effect = PodNotFoundError("coder-abc")
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions

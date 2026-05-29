@@ -2552,19 +2552,19 @@ class TestGetDeploymentContextTool:
         mock_req.assert_called_once_with("/api/v1/deployment/context", method="GET")
         assert result == payload
 
-    def test_docker_not_available_is_surfaced_as_data_field(self, handler):
-        """Docker clusters return a ``not_available_on_runtime`` payload, not an error."""
+    def test_unknown_runtime_is_surfaced_as_data_field(self, handler):
+        """A demoted ``runtime: unknown`` payload (apiserver unreachable) passes through."""
         with patch.object(
             handler,
             "_make_request",
             return_value={
                 "success": True,
-                "data": {"error": "not_available_on_runtime", "runtime": "docker"},
+                "data": {"runtime": "unknown", "detection_error": "cluster_unreachable"},
             },
         ):
             result = handler.handle_tool_call("get_deployment_context", {})
-        assert result["error"] == "not_available_on_runtime"
-        assert result["runtime"] == "docker"
+        assert result["runtime"] == "unknown"
+        assert result["detection_error"] == "cluster_unreachable"
 
     def test_http_failure_wraps_into_error(self, handler):
         with patch.object(handler, "_make_request", side_effect=RuntimeError("connection refused")):
@@ -2747,17 +2747,17 @@ class TestRebuildAndRolloutTool:
         assert first_call.kwargs["method"] == "POST"
         assert result["progress_stream_id"] == "abc123"
 
-    def test_not_available_on_runtime_short_circuits(self, handler):
+    def test_runtime_detection_failed_short_circuits(self, handler):
         with patch.object(
             handler,
             "_make_request",
             return_value={
                 "success": True,
-                "data": {"error": "not_available_on_runtime", "runtime": "docker"},
+                "data": {"error": "runtime_detection_failed", "runtime": "unknown"},
             },
         ):
             result = handler.handle_tool_call("rebuild_and_rollout", {})
-        assert result["error"] == "not_available_on_runtime"
+        assert result["error"] == "runtime_detection_failed"
 
     def test_409_surfaces_rollout_already_in_progress(self, handler):
         """A 409 from the orchestrator becomes a structured error payload."""

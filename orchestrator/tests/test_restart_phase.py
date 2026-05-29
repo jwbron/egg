@@ -207,7 +207,7 @@ class TestRestartPhaseEndpoint:
     """Tests for POST /<pipeline_id>/phases/<phase>/restart endpoint."""
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_success(
@@ -248,7 +248,7 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 404
 
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_invalid_phase(self, mock_repo, mock_resolve, mock_spawner_fn, client):
@@ -267,7 +267,7 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 400
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_failed_pipeline(
@@ -298,7 +298,7 @@ class TestRestartPhaseEndpoint:
         assert pipeline.phases["implement"].status == PipelineStatus.PENDING
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_running_pipeline_status_unchanged(
@@ -326,7 +326,7 @@ class TestRestartPhaseEndpoint:
         assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_awaiting_human_pipeline_set_to_running(
@@ -358,7 +358,7 @@ class TestRestartPhaseEndpoint:
         assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_cancelled_pipeline_resumes(
@@ -394,7 +394,7 @@ class TestRestartPhaseEndpoint:
         assert mock_store.update_pipeline.call_count >= 1
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_stops_all_containers(
@@ -432,7 +432,7 @@ class TestRestartPhaseEndpoint:
         )
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_resets_consensus(
@@ -464,7 +464,7 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 200
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_resets_review_cycle_counter(
@@ -494,7 +494,7 @@ class TestRestartPhaseEndpoint:
         assert mock_store.update_pipeline.called, "Expected pipeline state to be persisted"
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_preserves_prior_phase_artifacts(
@@ -527,7 +527,7 @@ class TestRestartPhaseEndpoint:
         # Prior phase artifacts should be preserved
         assert pipeline.phases["refine"].artifacts == {"analysis": "analysis.md"}
 
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_non_current_phase_returns_409(
@@ -553,7 +553,7 @@ class TestRestartPhaseEndpoint:
         data = response.get_json()
         assert "not the current phase" in data.get("message", "").lower()
 
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_toctou_guard_under_lock(
@@ -590,7 +590,7 @@ class TestRestartPhaseEndpoint:
 
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._compute_gateway_mode")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_uses_computed_gateway_mode(
@@ -619,7 +619,7 @@ class TestRestartPhaseEndpoint:
         mock_gateway_mode.assert_called_once_with(pipeline)
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_updates_status_before_container_teardown(
@@ -682,7 +682,7 @@ class TestRestartPhaseLaunchesPollingThread:
     """Tests that restart_phase launches a _run_pipeline polling thread (#1638)."""
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_launches_polling_thread(
@@ -721,7 +721,7 @@ class TestRestartPhaseLaunchesPollingThread:
         mock_thread_instance.start.assert_called_once()
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_bumps_run_epoch(
@@ -761,7 +761,7 @@ class TestRestartPhaseLaunchesPollingThread:
         )
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_resets_completed_at(
@@ -797,7 +797,7 @@ class TestRestartPhaseLaunchesPollingThread:
         )
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_sets_phase_pending(
@@ -832,7 +832,7 @@ class TestRestartPhaseLaunchesPollingThread:
         )
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_clears_error(
@@ -864,7 +864,7 @@ class TestRestartPhaseLaunchesPollingThread:
         assert pipeline.phases["implement"].error is None, "Expected phase error to be cleared"
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_preserves_restarted_phase_artifacts(
@@ -898,7 +898,7 @@ class TestRestartPhaseLaunchesPollingThread:
         )
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_returns_agent_roles(
@@ -929,7 +929,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_deletes_per_agent_worktrees(
@@ -993,7 +993,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_deletes_slice_scoped_worktrees(
@@ -1066,7 +1066,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_skips_pipeline_level_and_other_role_worktrees(
@@ -1123,7 +1123,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_worktree_deletion_failure_is_nonfatal(
@@ -1167,7 +1167,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_continues_after_partial_worktree_deletion_failure(
@@ -1234,7 +1234,7 @@ class TestRestartPhaseLaunchesPollingThread:
     @patch("routes.pipelines.agent_salvage.auto_salvage_pipeline")
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_salvages_before_deleting_worktrees(
@@ -1310,7 +1310,7 @@ class TestRestartPhaseLaunchesPollingThread:
     @patch("routes.pipelines.agent_salvage.auto_salvage_pipeline")
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_salvage_failure_is_nonfatal(
@@ -1360,7 +1360,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_deletes_broken_worktree_without_git_marker(
@@ -1438,7 +1438,7 @@ class TestRestartPhaseLaunchesPollingThread:
 
     @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_worktree_enumeration_failure_is_nonfatal(
@@ -1493,7 +1493,7 @@ class TestRunPipelineFatalErrorOnRestart:
     """
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines.get_state_store")
     def test_run_pipeline_marks_failed_on_exception(
         self, mock_get_store, mock_get_spawner, mock_get_lock
@@ -1532,7 +1532,7 @@ class TestRestartPhaseResetsHealthMonitor:
     the dead containers' clocks."""
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_calls_reset_agent_for_each_role(
@@ -1618,7 +1618,7 @@ class TestRestartPhaseEmptyAgentsFallback:
     """
 
     @patch("routes.pipelines.threading.Thread")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_empty_agents_falls_back_to_phase_default_roster(

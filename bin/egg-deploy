@@ -39,27 +39,9 @@ _compose_deprecated() {
     exit 2
 }
 
-# Load configuration from ~/.config/egg/config.yaml via Python helper
-load_config() {
-    local config_dir="${EGG_CONFIG_DIR:-$HOME/.config/egg}"
-    local helper="$PROJECT_DIR/shared/egg_config/compose_config.py"
-
-    if [ ! -f "$helper" ]; then
-        error "compose_config.py helper not found at $helper"
-        return 1
-    fi
-
-    if [ ! -f "$config_dir/config.yaml" ]; then
-        warn "config.yaml not found in $config_dir. Run 'egg-deploy init' to create one."
-        return 1
-    fi
-
-    # Read config.yaml + secrets and export as env vars
-    eval "$(python3 "$helper" "$config_dir")"
-}
-
 # Show gateway status
 show_status() {
+    # Set GATEWAY_API_PORT in the environment to override the default port.
     local api_port="${GATEWAY_API_PORT:-9848}"
     info "Gateway health check:"
     if health_output=$(curl -sf --max-time 5 "http://localhost:$api_port/api/v1/health" 2>/dev/null); then
@@ -177,7 +159,6 @@ cmd_logs()  { _compose_deprecated; }
 cmd_build() { _compose_deprecated; }
 
 cmd_status() {
-    load_config 2>/dev/null || true
     show_status
 }
 

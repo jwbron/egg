@@ -19,13 +19,13 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
-    ContainerSpawner,
-    ContainerSpawnError,
+from gateway_client import GatewayError, GatewayHealth, SessionInfo, WorktreeResult
+from kubernetes_client import PodNotFoundError
+from kubernetes_spawner import (
+    KubernetesSpawner,
+    KubernetesSpawnError,
     SpawnedContainer,
 )
-from docker_client import ContainerNotFoundError
-from gateway_client import GatewayError, GatewayHealth, SessionInfo, WorktreeResult
 from models import AgentRole, ContainerInfo, ContainerStatus
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ def mock_gateway_client():
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -303,13 +303,13 @@ class TestWorktreeCreationErrors:
     """Tests for error handling during worktree creation."""
 
     def test_spawn_raises_on_gateway_worktree_error(self, spawner, mock_gateway_client):
-        """GatewayError during create_worktrees should propagate as ContainerSpawnError."""
+        """GatewayError during create_worktrees should propagate as KubernetesSpawnError."""
         mock_gateway_client.create_worktrees.side_effect = GatewayError(
             "Worktree creation failed",
             status_code=500,
         )
 
-        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+        with pytest.raises(KubernetesSpawnError, match="worktree creation failed"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
@@ -319,14 +319,14 @@ class TestWorktreeCreationErrors:
             )
 
     def test_spawn_raises_when_worktree_result_has_no_worktrees(self, spawner, mock_gateway_client):
-        """Empty worktree result should raise ContainerSpawnError."""
+        """Empty worktree result should raise KubernetesSpawnError."""
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=True,
             worktrees={},
             errors=[],
         )
 
-        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+        with pytest.raises(KubernetesSpawnError, match="no worktrees"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
@@ -336,14 +336,14 @@ class TestWorktreeCreationErrors:
             )
 
     def test_spawn_raises_when_worktree_result_is_failure(self, spawner, mock_gateway_client):
-        """Failed worktree result should raise ContainerSpawnError."""
+        """Failed worktree result should raise KubernetesSpawnError."""
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=False,
             worktrees={},
             errors=["Repo not found"],
         )
 
-        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+        with pytest.raises(KubernetesSpawnError, match="no worktrees"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
@@ -355,10 +355,10 @@ class TestWorktreeCreationErrors:
     def test_spawn_raises_on_unexpected_exception_during_worktree_creation(
         self, spawner, mock_gateway_client
     ):
-        """Unexpected exceptions during create_worktrees should raise ContainerSpawnError."""
+        """Unexpected exceptions during create_worktrees should raise KubernetesSpawnError."""
         mock_gateway_client.create_worktrees.side_effect = RuntimeError("Unexpected error")
 
-        with pytest.raises(ContainerSpawnError, match="Unexpected error"):
+        with pytest.raises(KubernetesSpawnError, match="Unexpected error"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
@@ -426,9 +426,7 @@ class TestRestartWorktreeIntegration:
         This covers the case where the container already exited/was removed
         before the restart — worktree creation should still happen.
         """
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
-            "already removed"
-        )
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError("already removed")
 
         result = spawner.restart_agent_container(
             pipeline_id="issue-200",
@@ -449,9 +447,7 @@ class TestRestartWorktreeIntegration:
         This ensures a transient Docker failure doesn't delete the
         pre-existing worktree containing committed work.
         """
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
-            "already removed"
-        )
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError("already removed")
 
         with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(
@@ -477,9 +473,7 @@ class TestRestartWorktreeIntegration:
         propagate through to the gateway worktree-create call, otherwise
         the worktree-absent restart path forks from the wrong ref.
         """
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
-            "already removed"
-        )
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError("already removed")
 
         with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(

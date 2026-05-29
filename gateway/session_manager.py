@@ -251,7 +251,7 @@ DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = 60
 SESSION_TOKEN_BYTES = 32  # 256 bits
 
 # Persistence file path - use a persistent volume so sessions survive gateway restarts
-# The ~/.egg-state directory is mounted from the host (see docker-compose.yml, gateway.py)
+# The ~/.egg-state directory is mounted from the host (see the gateway Deployment volume mounts, gateway.py)
 SESSION_PERSISTENCE_DIR = Path("/home/egg/.egg-state/sessions")
 SESSION_PERSISTENCE_FILE = SESSION_PERSISTENCE_DIR / "sessions.json"
 

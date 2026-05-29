@@ -33,17 +33,8 @@ try:
     from .auth import (
         get_github_token as get_github_token,
     )
-    from .config import (
-        EGG_ISOLATED_NETWORK as EGG_ISOLATED_NETWORK,
-    )
 
     # Config module exports
-    from .config import (
-        GATEWAY_CONTAINER_NAME as GATEWAY_CONTAINER_NAME,
-    )
-    from .config import (
-        GATEWAY_IMAGE_NAME as GATEWAY_IMAGE_NAME,
-    )
     from .config import (
         GATEWAY_PORT as GATEWAY_PORT,
     )
@@ -83,52 +74,12 @@ try:
         update_log_index as update_log_index,
     )
 
-    # Context module exports
-    from .context import RuntimeContext as RuntimeContext
-    from .context import get_context as get_context
-    from .context import set_context as set_context
-
-    # Docker module exports
-    from .docker import (
-        check_docker as check_docker,
-    )
-    from .docker import (
-        check_docker_permissions as check_docker_permissions,
-    )
-    from .docker import (
-        ensure_egg_network as ensure_egg_network,
-    )
-    from .docker import (
-        image_exists as image_exists,
-    )
+    # Docker build-context module exports
     from .docker import (
         is_dangerous_dir as is_dangerous_dir,
     )
     from .docker import (
         populate_build_context as populate_build_context,
-    )
-    from .docker import (
-        teardown_networks as teardown_networks,
-    )
-
-    # Gateway module exports
-    from .gateway import (
-        build_gateway_image as build_gateway_image,
-    )
-    from .gateway import (
-        cleanup_gateway as cleanup_gateway,
-    )
-    from .gateway import (
-        gateway_image_exists as gateway_image_exists,
-    )
-    from .gateway import (
-        is_gateway_running as is_gateway_running,
-    )
-    from .gateway import (
-        start_gateway_container as start_gateway_container,
-    )
-    from .gateway import (
-        wait_for_gateway_health as wait_for_gateway_health,
     )
 
     # Output module exports
@@ -149,13 +100,6 @@ try:
     )
     from .output import (
         warn as warn,
-    )
-
-    # Runtime module exports. ``run_claude`` was removed in #1762 along
-    # with the rest of interactive mode; ``exec_in_new_container`` remains
-    # for the GHA path.
-    from .runtime import (
-        exec_in_new_container as exec_in_new_container,
     )
 
     # Setup flow module exports

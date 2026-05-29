@@ -154,7 +154,7 @@ detect_high_risk_docs() {
     flags+="README_ENFORCEMENT "
   fi
 
-  if echo "$changed_files" | grep -qE '(docker-compose|bin/egg-deploy|sandbox/egg_lib/(compose|deploy))'; then
+  if echo "$changed_files" | grep -qE '(bin/egg-deploy|k8s/|orchestrator/kubernetes_)'; then
     flags+="DEPLOYMENT_GUIDE "
   fi
 

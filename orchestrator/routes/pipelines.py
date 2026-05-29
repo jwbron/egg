@@ -19,15 +19,6 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from uuid import uuid4
 
 import yaml
-
-try:
-    from docker.errors import DockerException
-except ImportError:
-
-    class DockerException(Exception):  # type: ignore[no-redef]
-        pass
-
-
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 
@@ -84,9 +75,7 @@ except ImportError:
 # Import orchestrator modules - try relative import first
 try:
     from .. import agent_salvage
-    from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
-    from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import (
         ContextBranchDiverged,
         GatewayError,
@@ -98,7 +87,11 @@ try:
         KubernetesClientError,
         PodNotFoundError,
     )
-    from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
+    from ..kubernetes_spawner import (
+        KubernetesSpawnError,
+        SpawnFailureError,
+        get_kubernetes_spawner,
+    )
     from ..models import (
         LIVE_POD_STATUSES,
         AgentExecutionStatus,
@@ -131,17 +124,7 @@ try:
     )
 except ImportError:
     import agent_salvage  # type: ignore[no-redef]
-    from container_spawner import (  # type: ignore
-        ContainerSpawnError,
-        SpawnFailureError,
-        get_container_spawner,
-    )
     from decision_queue import get_decision_queue  # type: ignore
-    from docker_client import (  # type: ignore
-        ContainerNotFoundError,
-        ContainerOperationError,
-        DockerClientError,
-    )
     from gateway_client import (  # type: ignore
         ContextBranchDiverged,
         GatewayError,
@@ -155,6 +138,7 @@ except ImportError:
     )
     from kubernetes_spawner import (  # type: ignore
         KubernetesSpawnError,
+        SpawnFailureError,
         get_kubernetes_spawner,
     )
     from models import (  # type: ignore
@@ -197,9 +181,9 @@ if TYPE_CHECKING:
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 
     try:
-        from ..container_spawner import ContainerSpawner
+        from ..kubernetes_spawner import KubernetesSpawner
     except ImportError:
-        from container_spawner import ContainerSpawner  # type: ignore
+        from kubernetes_spawner import KubernetesSpawner  # type: ignore
 
 logger = get_logger("orchestrator.pipelines")
 
@@ -440,7 +424,7 @@ def _build_minimal_status_envelope(
 
 def _check_and_respawn_overseer(
     *,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     store: StateStore,
     pipeline_id: str,
     pipeline: Pipeline,
@@ -474,8 +458,8 @@ def _check_and_respawn_overseer(
             ContainerStatus.REMOVED,
         )
         exit_code = info.exit_code
-    except ContainerNotFoundError:
-        # Container completely deleted from Docker daemon — treat as respawn trigger.
+    except PodNotFoundError:
+        # Pod completely deleted from the cluster — treat as respawn trigger.
         needs_respawn = True
         exit_code = None
         logger.warning(
@@ -711,7 +695,7 @@ def _send_brc_confirmation_nudge(
 
 
 def _teardown_phase_overseer(
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     container_id: str,
     pipeline_id: str,
     phase_label: str,
@@ -743,7 +727,7 @@ def _teardown_phase_overseer(
 
 
 # Base directory where the gateway creates per-pipeline worktrees.
-# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+# Must match the gateway's WORKTREE_BASE_DIR and the k8s Deployment volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
 # Sentinel header used in tester gap summaries. Checked in prompt-building
@@ -878,19 +862,9 @@ except ImportError:
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
-# Runtime detection: use Kubernetes spawner when EGG_RUNTIME=kubernetes
-_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
-
-
 def _get_spawner():
-    """Get the appropriate spawner for the current runtime.
-
-    Returns KubernetesSpawner when EGG_RUNTIME=kubernetes, otherwise
-    ContainerSpawner (Docker).
-    """
-    if _RUNTIME == "kubernetes":
-        return get_kubernetes_spawner()
-    return get_container_spawner()
+    """Get the Kubernetes spawner."""
+    return get_kubernetes_spawner()
 
 
 # Live-pod status filter (#2420). Hoisted to ``models.LIVE_POD_STATUSES``
@@ -2037,7 +2011,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                             status=status_value,
                             containers_removed=removed,
                         )
-                except (DockerClientError, DockerException, KubernetesClientError) as e:
+                except KubernetesClientError as e:
                     logger.warning(
                         "Failed to clean up pipeline containers",
                         pipeline_id=pid,
@@ -2211,7 +2185,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     containers_removed=removed,
                 )
-        except (DockerClientError, DockerException, KubernetesClientError) as e:
+        except KubernetesClientError as e:
             logger.warning(
                 "Failed to clean up pipeline containers",
                 pipeline_id=pipeline_id,
@@ -2806,7 +2780,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             slice_id=slice_id,
             **restart_upstream_kwargs,
         )
-    except (ContainerSpawnError, KubernetesSpawnError) as e:
+    except KubernetesSpawnError as e:
         # Revert early status update — the agent is not actually running.
         # Consensus state is intentionally NOT reset here so a failed spawn
         # preserves the agent's prior consensus participation.
@@ -5479,7 +5453,7 @@ def _read_source_branch_artifacts(
             filenames on the source branch (e.g. ``"issue-1570-v3"``).
             When set, only this prefix is tried before the ls-tree
             fallback.
-        spawner: ContainerSpawner instance for gateway-authenticated git
+        spawner: KubernetesSpawner instance for gateway-authenticated git
             operations.  When provided, the fetch uses the gateway API
             (which injects GitHub credentials) instead of a raw
             ``git fetch`` that lacks auth in the sandboxed environment.
@@ -6924,7 +6898,7 @@ def _create_sync_recovery_backup_ref(
 
 
 def _sync_worktree_with_remote(
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     pipeline_id: str,
     worktree_repo_path: Path,
     prior_phase_succeeded: bool = True,
@@ -7463,7 +7437,7 @@ class SyncRebaseAndResetFailedError(RuntimeError):
 
 
 def _rebase_pipeline_branch_onto_base(
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     pipeline_id: str,
     worktree_repo_path: Path,
     pipeline_branch: str,
@@ -7777,7 +7751,7 @@ def _rebase_pipeline_branch_onto_base(
 
 
 def _refresh_pipeline_branch_against_current_base(
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     pipeline_id: str,
     worktree_repo_path: Path,
     pipeline_branch: str,
@@ -10152,7 +10126,7 @@ def _build_pr_body(
 def _auto_create_pr(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     gateway_mode: Literal["public", "private"] = "public",
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
@@ -10365,7 +10339,7 @@ class _ExistingPRLookup(NamedTuple):
 
 
 def _lookup_existing_context_pr(
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     pipeline_id: str,
     repo: str,
     context_branch: str,
@@ -10423,7 +10397,7 @@ def _lookup_existing_context_pr(
 def _persist_context_pr_linkage_on_contract(
     *,
     pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     worktree_repo_path: Path,
     contract_id,
     context_branch: str,
@@ -10633,7 +10607,7 @@ def _gather_context_pr_files(
 
 def _open_context_pr_for_pipeline(
     pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     worktree_repo_path: Path,
     *,
     gateway_mode: Literal["public", "private"] = "public",
@@ -11279,7 +11253,7 @@ _context_pr_events_emitted_lock = threading.Lock()
 
 def _maybe_open_base_pr_for_plan_to_implement(
     pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     worktree_repo_path: Path,
     *,
     gateway_mode: Literal["public", "private"] = "public",
@@ -11544,7 +11518,7 @@ def _resolve_slice_1_context_branch_from_contract(
 
 def _commit_slice_brc_history_to_integration_branch(
     pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
+    spawner: "KubernetesSpawner",  # noqa: UP037
     worktree_repo_path: Path,
     slice_id: str,
     integration_branch: str,
@@ -18234,7 +18208,7 @@ def _run_concurrent_phase(
         # 2. Consensus reached — stop containers and return
         if consensus.get("is_complete"):
             # Recover pipeline if externally marked FAILED (issue #1273).
-            # The container_monitor reconciliation thread may have marked the
+            # The kubernetes_monitor reconciliation thread may have marked the
             # pipeline FAILED while we were polling.  Now that consensus is
             # confirmed complete, restore the pipeline to RUNNING so stored
             # state matches the successful outcome.
@@ -18379,8 +18353,6 @@ def _run_concurrent_phase(
             try:
                 info = docker_client.get_container_info(exec_info.container_id)
             except (
-                ContainerNotFoundError,
-                ContainerOperationError,
                 PodNotFoundError,
                 JobOperationError,
             ) as e:
@@ -18887,8 +18859,6 @@ def _run_concurrent_phase(
                         try:
                             info = docker_client.get_container_info(exec_info.container_id)
                         except (
-                            ContainerNotFoundError,
-                            ContainerOperationError,
                             PodNotFoundError,
                             JobOperationError,
                         ) as _wait_status_err:
@@ -19191,8 +19161,6 @@ def _spawn_and_wait(
             timeout=timeout,
         )
     except (
-        ContainerNotFoundError,
-        ContainerOperationError,
         PodNotFoundError,
         JobOperationError,
     ) as e:
@@ -21267,7 +21235,7 @@ def _run_pipeline(
         # Create a pipeline-level worktree via the gateway.  This worktree
         # is used by the orchestrator for reading/writing contracts, drafts,
         # and state files.  Individual agents get their own per-agent
-        # worktrees at spawn time (created in container_spawner.py) so
+        # worktrees at spawn time (created in kubernetes_spawner.py) so
         # concurrent agents cannot stomp on each other's uncommitted work.
         # See #1481 for the per-agent worktree isolation design.
         #
@@ -22220,7 +22188,7 @@ def _run_pipeline(
                         phase=current_phase.value,
                         container_id=overseer_container_id[:12],
                     )
-                except (ContainerSpawnError, KubernetesSpawnError) as e:
+                except KubernetesSpawnError as e:
                     # Non-fatal: pipeline can run without overseer monitoring
                     logger.warning(
                         "Failed to spawn overseer container (continuing without monitoring)",
@@ -22779,7 +22747,7 @@ def _run_pipeline(
                                 operator_directives=_phase_operator_directives,
                                 iteration_history=_phase_iteration_history,
                             )
-                    except (ContainerSpawnError, KubernetesSpawnError) as e:
+                    except KubernetesSpawnError as e:
                         with get_pipeline_state_lock(pipeline_id):
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)

@@ -58,7 +58,7 @@ def _make_pipeline():
 
 _PATCHES = [
     "routes.pipelines._emit_pipeline_event",
-    "routes.pipelines.get_container_spawner",
+    "routes.pipelines.get_kubernetes_spawner",
     "routes.pipelines.get_state_store",
     "routes.pipelines.get_pipeline_state_lock",
     "routes.pipelines.report_pipeline_status",

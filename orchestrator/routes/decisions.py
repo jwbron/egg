@@ -103,10 +103,10 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
     )
 
     try:
-        from docker_client import get_docker_client
+        from kubernetes_client import get_kubernetes_client
 
-        docker_client = get_docker_client()
-        containers = docker_client.list_containers(
+        k8s_client = get_kubernetes_client()
+        containers = k8s_client.list_containers(
             all=False,
             labels={"egg.pipeline.id": pipeline_id, "egg.agent.role": agent_role},
         )
@@ -119,7 +119,7 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
             return
 
         container = containers[0]
-        docker_client.stop_container(container.container_id, timeout=10)
+        k8s_client.stop_container(container.container_id, timeout=10)
         logger.info(
             "Stopped stalled agent container for restart",
             pipeline_id=pipeline_id,

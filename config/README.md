@@ -88,8 +88,9 @@ configuration (previously in `.env`). See `config/config.yaml.example` for a ful
 Secrets (`EGG_LAUNCHER_SECRET`, `GITHUB_USER_TOKEN`, `BOT_GITHUB_TOKEN`) are stored in
 `secrets.env` or dedicated files (`launcher-secret`, `github-token`), never in `config.yaml`.
 
-The `egg-deploy` script reads `config.yaml` via `shared/egg_config/compose_config.py`
-and exports the values as environment variables for `docker-compose.yml`.
+The `egg-deploy` script reads `config.yaml` for `egg-deploy init` / `egg-deploy status`.
+egg deploys exclusively via Kubernetes (Kustomize overlays under `k8s/`); see
+[docs/guides/deployment.md](../docs/guides/deployment.md).
 
 **Templates:**
 - `config/config.yaml.example` - Full config.yaml template with all settings

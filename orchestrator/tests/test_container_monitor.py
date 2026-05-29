@@ -29,13 +29,13 @@ if "docker" not in sys.modules:
     sys.modules["docker.errors"] = _docker_errors
 sys.modules.setdefault("docker.types", MagicMock())
 
-from container_monitor import (
+from kubernetes_client import KubernetesClientError
+from kubernetes_monitor import (
     ContainerEvent,
-    ContainerMonitor,
-    _reconcile_container_state,
+    KubernetesMonitor,
+    _reconcile_pod_state,
     create_pipeline_reconciliation_handler,
 )
-from docker_client import DockerClientError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -113,12 +113,12 @@ def _make_container_info(container_id: str, exit_code: int = 1) -> ContainerInfo
 
 
 # ---------------------------------------------------------------------------
-# Tests: _reconcile_container_state
+# Tests: _reconcile_pod_state
 # ---------------------------------------------------------------------------
 
 
 class TestReconcileContainerState:
-    """Tests for the _reconcile_container_state helper."""
+    """Tests for the _reconcile_pod_state helper."""
 
     def test_reconciles_records_without_escalating_pipeline(self):
         """A RUNNING pipeline whose container exits gets sub-records reconciled.
@@ -133,7 +133,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is True
         # Pipeline.status preserved.
@@ -151,7 +151,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id)
 
-        _reconcile_container_state(store, exited_info)
+        _reconcile_pod_state(store, exited_info)
 
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         agent = phase.agents[0]
@@ -167,7 +167,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id, exit_code=137)
 
-        _reconcile_container_state(store, exited_info)
+        _reconcile_pod_state(store, exited_info)
 
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         ci = phase.containers[0]
@@ -181,7 +181,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is False
         assert pipeline.status == PipelineStatus.RUNNING
@@ -199,7 +199,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is True
         assert pipeline.status == PipelineStatus.COMPLETE
@@ -211,7 +211,7 @@ class TestReconcileContainerState:
         store.list_pipelines.side_effect = Exception("Store unavailable")
         exited_info = _make_container_info("some_id")
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is False
 
@@ -222,7 +222,7 @@ class TestReconcileContainerState:
         store.load_pipeline.side_effect = Exception("corrupt state")
         exited_info = _make_container_info("some_id")
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is False
 
@@ -237,7 +237,7 @@ class TestReconcileContainerState:
         mock_lock = MagicMock()
         mock_get_lock.return_value = mock_lock
 
-        _reconcile_container_state(store, exited_info)
+        _reconcile_pod_state(store, exited_info)
 
         mock_get_lock.assert_called_once_with(pipeline.id)
         mock_lock.__enter__.assert_called_once()
@@ -253,7 +253,7 @@ class TestReconcileContainerState:
         store.save_pipeline.side_effect = VersionConflictError("conflict")
         exited_info = _make_container_info(container_id)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is False
 
@@ -273,7 +273,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is True
         # Pipeline status preserved — only sub-records reconciled.
@@ -300,7 +300,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id, exit_code=137)  # SIGKILL
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         # No changes should be saved — the container was skipped
         assert result is False
@@ -330,7 +330,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id, exit_code=143)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is True
         assert pipeline.status == PipelineStatus.RUNNING
@@ -357,7 +357,7 @@ class TestReconcileContainerState:
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id, exit_code=143)
 
-        result = _reconcile_container_state(store, exited_info)
+        result = _reconcile_pod_state(store, exited_info)
 
         assert result is True
         # Pipeline.status preserved — RUNNING.
@@ -424,11 +424,11 @@ class TestCreatePipelineReconciliationHandler:
 
 
 # ---------------------------------------------------------------------------
-# Tests: ContainerMonitor integration
+# Tests: KubernetesMonitor integration
 # ---------------------------------------------------------------------------
 
 
-class TestContainerMonitorDetection:
+class TestKubernetesMonitorDetection:
     """Tests that the monitor detects container state changes."""
 
     def test_monitor_detects_exited_container(self):
@@ -456,7 +456,7 @@ class TestContainerMonitorDetection:
             [exited_info],
         ]
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
@@ -491,7 +491,7 @@ class TestContainerMonitorDetection:
             [exited_info],
         ]
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
@@ -507,7 +507,7 @@ class TestContainerMonitorDetection:
         Exit code 143 during active phases must still trigger FAILED events so
         the reconciliation handler can evaluate phase state.  Phase-aware
         SIGTERM handling happens in the reconciliation loop and
-        _reconcile_container_state, NOT in the event emission path (issue #1405).
+        _reconcile_pod_state, NOT in the event emission path (issue #1405).
         """
         mock_docker = MagicMock()
         container_id = "test_container_sigterm"
@@ -530,7 +530,7 @@ class TestContainerMonitorDetection:
             [exited_info],
         ]
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
@@ -564,7 +564,7 @@ class TestContainerMonitorDetection:
             [exited_info],
         ]
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
@@ -629,7 +629,7 @@ class TestPeriodicReconciliation:
             exited_at=datetime.now(UTC),
         )
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -657,7 +657,7 @@ class TestPeriodicReconciliation:
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -678,7 +678,7 @@ class TestPeriodicReconciliation:
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -696,7 +696,7 @@ class TestPeriodicReconciliation:
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         store = MagicMock()
         store.list_pipelines.return_value = []
@@ -745,7 +745,7 @@ class TestPeriodicReconciliation:
         # Pod is gone — required to progress past the termination check.
         mock_docker.get_container_info.side_effect = PodNotFoundError("gone")
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with (
             patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile,
@@ -787,7 +787,7 @@ class TestPeriodicReconciliation:
             exited_at=datetime.now(UTC),
         )
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -820,7 +820,7 @@ class TestPeriodicReconciliation:
             exited_at=datetime.now(UTC),
         )
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -853,7 +853,7 @@ class TestPeriodicReconciliation:
         # Pod has been deleted — PodNotFoundError surfaces from the API
         mock_docker.get_container_info.side_effect = PodNotFoundError("pod gone")
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
@@ -881,9 +881,9 @@ class TestPeriodicReconciliation:
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
-        mock_docker.get_container_info.side_effect = DockerClientError("transient API error")
+        mock_docker.get_container_info.side_effect = KubernetesClientError("transient API error")
 
-        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        monitor = KubernetesMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]

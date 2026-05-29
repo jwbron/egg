@@ -1,8 +1,8 @@
 """Tests for agent-level restart functionality.
 
 Covers:
-- ContainerSpawner.restart_agent_container() method (task-1-1)
-- ContainerSpawner.get_restart_count() and reset_restart_counts() (task-1-1)
+- KubernetesSpawner.restart_agent_container() method (task-1-1)
+- KubernetesSpawner.get_restart_count() and reset_restart_counts() (task-1-1)
 - POST /<pipeline_id>/agents/<role>/restart endpoint (task-1-2)
 - Consensus state reset on restart
 - Edge cases: missing pipeline, invalid role, restart limit exceeded
@@ -16,14 +16,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
-    ContainerSpawner,
-    ContainerSpawnError,
+from gateway_client import GatewayHealth, SessionInfo
+from kubernetes_client import JobOperationError, PodNotFoundError
+from kubernetes_spawner import (
+    KubernetesSpawner,
+    KubernetesSpawnError,
     SpawnedContainer,
 )
-from docker_client import ContainerNotFoundError, ContainerOperationError
-from gateway_client import GatewayHealth, SessionInfo
-from kubernetes_client import JobOperationError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -95,14 +94,14 @@ def mock_gateway_client():
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
 
 
 # ---------------------------------------------------------------------------
-# ContainerSpawner.restart_agent_container tests (task-1-1)
+# KubernetesSpawner.restart_agent_container tests (task-1-1)
 # ---------------------------------------------------------------------------
 
 
@@ -168,11 +167,11 @@ class TestRestartAgentContainer:
         assert spawner.get_restart_count("issue-100", "coder") == 1
 
     def test_restart_limit_exceeded_raises(self, spawner, mock_docker_client, mock_gateway_client):
-        """Restart should raise ContainerSpawnError when limit is exceeded."""
+        """Restart should raise KubernetesSpawnError when limit is exceeded."""
         # Pre-set restart count to the limit
         spawner._restart_counts[("issue-100", "coder", None)] = 2
 
-        with pytest.raises(ContainerSpawnError, match="Restart limit"):
+        with pytest.raises(KubernetesSpawnError, match="Restart limit"):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -185,7 +184,7 @@ class TestRestartAgentContainer:
         """Custom max_restarts should be respected."""
         spawner._restart_counts[("issue-100", "coder", None)] = 5
 
-        with pytest.raises(ContainerSpawnError, match="Restart limit"):
+        with pytest.raises(KubernetesSpawnError, match="Restart limit"):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -220,7 +219,7 @@ class TestRestartAgentContainer:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """If the old container is already gone, restart should still proceed."""
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError("gone")
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError("gone")
 
         result = spawner.restart_agent_container(
             pipeline_id="issue-100",
@@ -235,9 +234,9 @@ class TestRestartAgentContainer:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """If spawning the new container fails, restart should raise."""
-        mock_docker_client.create_container.side_effect = ContainerOperationError("no space")
+        mock_docker_client.create_container.side_effect = JobOperationError("no space")
 
-        with pytest.raises(ContainerSpawnError):
+        with pytest.raises(KubernetesSpawnError):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -322,7 +321,7 @@ class TestRestartCountManagement:
 
     def test_restart_counts_initialized_empty(self):
         """Restart counts dict should be initialized in constructor."""
-        spawner = ContainerSpawner()
+        spawner = KubernetesSpawner()
         assert hasattr(spawner, "_restart_counts")
         assert spawner._restart_counts == {}
 
@@ -400,7 +399,7 @@ class TestRestartAgentEndpoint:
     """Tests for POST /<pipeline_id>/agents/<role>/restart endpoint."""
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_success(
@@ -494,7 +493,7 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 409
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_cancelled_pipeline_resumes(
@@ -544,7 +543,7 @@ class TestRestartAgentEndpoint:
         assert mock_store.update_pipeline.call_count >= 1
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_failed_pipeline(
@@ -587,7 +586,7 @@ class TestRestartAgentEndpoint:
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_spawner_failure_returns_500(
@@ -603,7 +602,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("Failed")
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -614,7 +613,7 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 500
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_spawner_failure_reverts_status_to_failed(
@@ -624,7 +623,7 @@ class TestRestartAgentEndpoint:
 
         Regression test for review feedback on #1594: the early status update
         sets RUNNING before the spawn attempt. If the spawn raises
-        ContainerSpawnError, the status must be reverted so monitoring doesn't
+        KubernetesSpawnError, the status must be reverted so monitoring doesn't
         see a 'running' pipeline with no running agent.
         """
         mock_repo.return_value = "/repo"
@@ -638,7 +637,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("Failed")
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -655,7 +654,7 @@ class TestRestartAgentEndpoint:
         assert mock_store.update_pipeline.call_count >= 2
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_cancelled_spawner_failure_reverts_status_to_failed(
@@ -679,7 +678,7 @@ class TestRestartAgentEndpoint:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("Failed")
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -711,7 +710,7 @@ class TestRestartAgentEndpoint:
 
     @patch("routes.pipelines._compute_gateway_mode")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_agent_uses_computed_gateway_mode(
@@ -772,7 +771,7 @@ class TestRestartAgentEndpointSliceScope:
     """``slice_id`` query / body parameter is validated and forwarded (#2410)."""
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_id_query_param_forwarded_to_spawner(
@@ -820,7 +819,7 @@ class TestRestartAgentEndpointSliceScope:
         assert get_count_call.kwargs.get("slice_id") == "slice-2"
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_id_body_field_forwarded_to_spawner(
@@ -883,7 +882,7 @@ class TestRestartAgentEndpointSliceScope:
             assert response.status_code == 400, f"slice_id={bad!r} should be rejected"
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_no_slice_id_forwards_none(
@@ -926,7 +925,7 @@ class TestRestartAgentEndpointSliceScope:
         assert get_count_call.kwargs.get("slice_id") is None
 
     @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_unknown_slice_id_returns_404(
@@ -974,7 +973,7 @@ class TestRestartAgentEndpointSliceScope:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_known_slice_id_passes_validation(
@@ -1036,7 +1035,7 @@ class TestRestartAgentEndpointSliceScope:
         assert restart_call.kwargs["slice_id"] == "slice-2"
 
     @patch("egg_contracts.loader.load_contract")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_id_rejected_for_pipeline_without_contract(
@@ -1081,7 +1080,7 @@ class TestRestartAgentEndpointSliceScope:
         mock_spawner.restart_agent_container.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_restart_passes_slice_integration_branch(
@@ -1134,7 +1133,7 @@ class TestRestartAgentEndpointSliceScope:
         assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_pipeline_level_restart_passes_pipeline_branch(
@@ -1225,7 +1224,7 @@ class TestRestartAgentEndpointSliceDerivation:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_omitted_slice_id_derived_from_single_non_complete_record(
@@ -1281,7 +1280,7 @@ class TestRestartAgentEndpointSliceDerivation:
         assert restart_call.kwargs["slice_id"] == "slice-2"
         assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
 
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_omitted_slice_id_ambiguous_rejected(
@@ -1317,7 +1316,7 @@ class TestRestartAgentEndpointSliceDerivation:
         # Never silently spawn an unscoped agent on an ambiguous restart.
         mock_spawner.restart_agent_container.assert_not_called()
 
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_omitted_slice_id_all_complete_rejected(
@@ -1350,7 +1349,7 @@ class TestRestartAgentEndpointSliceDerivation:
         mock_spawner.restart_agent_container.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_explicit_slice_id_bypasses_derivation(
@@ -1424,7 +1423,7 @@ class TestRestartAgentEndpointBaseBranch:
     """
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_pipeline_level_restart_uses_pipeline_base_branch(
@@ -1476,7 +1475,7 @@ class TestRestartAgentEndpointBaseBranch:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_root_slice_restart_uses_pipeline_base_branch(
@@ -1533,7 +1532,7 @@ class TestRestartAgentEndpointBaseBranch:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_child_slice_restart_uses_parent_slice_integration_branch(
@@ -1610,7 +1609,7 @@ class TestRestartAgentEndpointBaseBranch:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_restart_with_unloadable_contract_falls_back_to_pipeline_base(
@@ -1673,7 +1672,7 @@ class TestRestartAgentEndpointBaseBranch:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_child_slice_restart_prefers_parent_branch_at_creation(
@@ -1753,7 +1752,7 @@ class TestRestartAgentEndpointBaseBranch:
 
     @patch("egg_contracts.loader.load_contract")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_child_slice_restart_falls_back_when_parent_complete(
@@ -1906,7 +1905,7 @@ class TestRestartAgentSliceMatching:
     """``restart_agent`` mutation predicate matches on ``(role, slice_id)`` (#2422)."""
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_3_restart_does_not_mutate_slice_2_record(
@@ -1968,7 +1967,7 @@ class TestRestartAgentSliceMatching:
         assert slice3_persisted["status"] == AgentExecutionStatus.RUNNING.value
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_slice_3_restart_with_no_existing_record_appends_with_slice_id(
@@ -2123,9 +2122,9 @@ class TestPreSpawnCountIncrement:
 
         This prevents infinite retry loops when Docker consistently fails.
         """
-        mock_docker_client.create_container.side_effect = ContainerOperationError("out of disk")
+        mock_docker_client.create_container.side_effect = JobOperationError("out of disk")
 
-        with pytest.raises(ContainerSpawnError):
+        with pytest.raises(KubernetesSpawnError):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -2140,10 +2139,10 @@ class TestPreSpawnCountIncrement:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """Repeated spawn failures should eventually exhaust the restart budget."""
-        mock_docker_client.create_container.side_effect = ContainerOperationError("out of disk")
+        mock_docker_client.create_container.side_effect = JobOperationError("out of disk")
 
         # First attempt — should fail but increment count
-        with pytest.raises(ContainerSpawnError, match="out of disk|Failed"):
+        with pytest.raises(KubernetesSpawnError, match="out of disk|Failed"):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -2154,7 +2153,7 @@ class TestPreSpawnCountIncrement:
         assert spawner.get_restart_count("issue-100", "coder") == 1
 
         # Second attempt — should fail but increment count
-        with pytest.raises(ContainerSpawnError, match="out of disk|Failed"):
+        with pytest.raises(KubernetesSpawnError, match="out of disk|Failed"):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -2165,7 +2164,7 @@ class TestPreSpawnCountIncrement:
         assert spawner.get_restart_count("issue-100", "coder") == 2
 
         # Third attempt — should be rejected by limit check
-        with pytest.raises(ContainerSpawnError, match="Restart limit"):
+        with pytest.raises(KubernetesSpawnError, match="Restart limit"):
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -2275,7 +2274,7 @@ class TestRestartConcurrencyGuard:
                     max_restarts=2,
                 )
                 results.append(result)
-            except ContainerSpawnError as e:
+            except KubernetesSpawnError as e:
                 errors.append(e)
 
         t1 = threading.Thread(target=restart_agent)
@@ -2354,7 +2353,7 @@ class TestRestartLockCleanup:
 
     def test_restart_lock_initialization(self):
         """Restart lock dicts should be initialised in constructor."""
-        spawner = ContainerSpawner()
+        spawner = KubernetesSpawner()
         assert hasattr(spawner, "_restart_locks")
         assert spawner._restart_locks == {}
         assert hasattr(spawner, "_restart_locks_lock")
@@ -2370,13 +2369,13 @@ class TestConsensusResetOrdering:
     """Tests that consensus is reset AFTER successful spawn, not before (issue #1695, item 5)."""
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_spawn_failure_preserves_consensus(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):
-        """If spawner raises ContainerSpawnError, consensus state must NOT be reset.
+        """If spawner raises KubernetesSpawnError, consensus state must NOT be reset.
 
         Regression test for issue #1695 item 5: consensus reset was previously
         done before the spawn attempt, leaving orphaned consensus deletion on
@@ -2391,7 +2390,7 @@ class TestConsensusResetOrdering:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Docker error")
+        mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("Docker error")
         mock_spawner_fn.return_value = mock_spawner
 
         # Mock the consensus modules via sys.modules so the inline imports
@@ -2422,7 +2421,7 @@ class TestConsensusResetOrdering:
             mock_evaluator.remove_agent.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_successful_spawn_resets_consensus(
@@ -2487,7 +2486,7 @@ class TestRestartAgentResetsHealthMonitor:
     clock."""
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_successful_restart_calls_reset_agent(
@@ -2537,7 +2536,7 @@ class TestRestartAgentResetsHealthMonitor:
             mock_hm.reset_agent.assert_called_once_with("coder")
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_successful_restart_refreshes_started_at(
@@ -2603,7 +2602,7 @@ class TestRestartAgentResetsHealthMonitor:
         assert (datetime.now(UTC) - agent.started_at) < timedelta(seconds=30)
 
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_failed_spawn_skips_reset_agent(
@@ -2620,7 +2619,7 @@ class TestRestartAgentResetsHealthMonitor:
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("boom")
+        mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("boom")
         mock_spawner_fn.return_value = mock_spawner
 
         mock_hm = MagicMock()

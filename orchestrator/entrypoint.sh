@@ -150,7 +150,7 @@ elif [ "$(id -u)" = "0" ]; then
   # Running as root without HOST_UID/HOST_GID — refuse to continue.
   # This would create root-owned git refs that break host git operations.
   echo "ERROR: running as root but HOST_UID/HOST_GID are not set." >&2
-  echo "Cannot drop privileges. Set HOST_UID and HOST_GID in docker-compose.yml." >&2
+  echo "Cannot drop privileges. Set HOST_UID and HOST_GID in the orchestrator Deployment env." >&2
   exit 1
 else
   # Already running as non-root (e.g. docker run --user), no gosu needed.

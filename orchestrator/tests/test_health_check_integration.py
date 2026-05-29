@@ -304,7 +304,7 @@ class TestBasicHealthEndpoints:
 
 
 # ===========================================================================
-# Tests: ContainerMonitor (KubernetesMonitor) health integration
+# Tests: KubernetesMonitor (KubernetesMonitor) health integration
 # ===========================================================================
 # NOTE: set_health_check_runner and _run_runtime_tick_checks are implemented
 # on KubernetesMonitor and fire on pod state transitions.  The underlying

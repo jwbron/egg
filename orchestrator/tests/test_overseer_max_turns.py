@@ -43,9 +43,9 @@ sys.modules.setdefault("docker.types", MagicMock())
 # Conditional imports — skip if modules not yet available
 # ---------------------------------------------------------------------------
 try:
-    from container_spawner import ContainerSpawner, SpawnedContainer
-    from docker_client import ContainerNotFoundError
     from gateway_client import GatewayHealth, SessionInfo
+    from kubernetes_client import PodNotFoundError
+    from kubernetes_spawner import KubernetesSpawner, SpawnedContainer
     from models import (
         AgentRole,
         ContainerInfo,
@@ -118,8 +118,8 @@ def mock_gateway_client():
 
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
-    """Create a ContainerSpawner with mocked clients."""
-    return ContainerSpawner(
+    """Create a KubernetesSpawner with mocked clients."""
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -547,9 +547,9 @@ class TestOverseerAlertBroadcast:
     def test_broadcast_exit_code_none_for_vanished_container(
         self, mock_spawner, mock_docker_client, mock_store, running_pipeline
     ):
-        """When container vanishes (ContainerNotFoundError), exit_code is None in metadata."""
+        """When container vanishes (PodNotFoundError), exit_code is None in metadata."""
         original_id = "overseer-vanished-bcast"
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError(
             f"Container {original_id} not found"
         )
 
@@ -571,9 +571,7 @@ class TestOverseerAlertBroadcast:
             )
 
         msg = mock_msg_store.add_message.call_args[0][0]
-        assert msg.metadata["exit_code"] is None, (
-            "exit_code should be None for ContainerNotFoundError"
-        )
+        assert msg.metadata["exit_code"] is None, "exit_code should be None for PodNotFoundError"
 
     def test_respawn_still_succeeds_when_broadcast_fails(
         self, mock_spawner, mock_docker_client, mock_store, running_pipeline
@@ -729,9 +727,7 @@ class TestLogTailCapture:
             status=ContainerStatus.EXITED,
             exit_code=0,
         )
-        mock_docker_client.get_container_logs.side_effect = ContainerNotFoundError(
-            "Container purged"
-        )
+        mock_docker_client.get_container_logs.side_effect = PodNotFoundError("Container purged")
 
         mock_msg_store = MagicMock()
         mock_store_fn = MagicMock(return_value=mock_msg_store)
@@ -760,7 +756,7 @@ class TestLogTailCapture:
     def test_log_tail_fallback_on_generic_exception(
         self, mock_spawner, mock_docker_client, mock_store, running_pipeline
     ):
-        """Log tail falls back to 'unavailable' on any exception, not just ContainerNotFoundError."""
+        """Log tail falls back to 'unavailable' on any exception, not just PodNotFoundError."""
         original_id = "overseer-log-generic-fail"
         mock_docker_client.get_container_info.return_value = ContainerInfo(
             container_id=original_id,
@@ -1120,10 +1116,10 @@ class TestRespawnSkipsWhenRunEpochChanged:
     def test_skips_respawn_on_container_not_found_when_epoch_mismatches(
         self, mock_spawner, mock_docker_client, running_pipeline
     ):
-        """ContainerNotFoundError sets needs_respawn=True but epoch guard
+        """PodNotFoundError sets needs_respawn=True but epoch guard
         still prevents the respawn when epochs mismatch."""
         original_id = "overseer-deleted-stale"
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(original_id)
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError(original_id)
 
         old_epoch = datetime(2026, 4, 23, 6, 12, 0, tzinfo=UTC)
         new_epoch = datetime(2026, 4, 23, 6, 27, 0, tzinfo=UTC)

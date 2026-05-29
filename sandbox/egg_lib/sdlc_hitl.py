@@ -74,7 +74,7 @@ def _find_repo_path() -> Path:
     """
     repos_dir = Path.home() / "repos"
 
-    # Strategy 1: EGG_REPOS env var (set by exec_in_new_container)
+    # Strategy 1: EGG_REPOS env var (set on the agent pod by the spawner)
     repos = _parse_egg_repos()
     if repos:
         if len(repos) == 1:

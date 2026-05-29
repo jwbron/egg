@@ -79,7 +79,7 @@ class TestDeletePipelineBranchCleanup:
     """Tests for remote branch cleanup during pipeline deletion."""
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_cleans_up_remote_branches(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -120,7 +120,7 @@ class TestDeletePipelineBranchCleanup:
         mock_store.delete_pipeline.assert_called_once_with("test-pipeline")
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_cleans_up_shared_pipeline_branch(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -155,7 +155,7 @@ class TestDeletePipelineBranchCleanup:
         assert (call_args.kwargs.get("branch") or call_args.args[2]) == "egg/issue-1973"
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_succeeds_when_branch_cleanup_fails(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -183,7 +183,7 @@ class TestDeletePipelineBranchCleanup:
         mock_store.delete_pipeline.assert_called_once_with("test-pipeline")
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_no_branches_skips_cleanup(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -213,7 +213,7 @@ class TestDeletePipelineBranchCleanup:
         mock_gw.delete_remote_branch.assert_not_called()
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_deduplicates_container_branches(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -262,7 +262,7 @@ class TestDeletePipelineBranchCleanup:
         assert called_branches == {"egg/test", "egg/container-shared/work"}
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_treats_already_deleted_as_success(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -299,7 +299,7 @@ class TestDeletePipelineBranchCleanup:
             assert "Cleaned up remote branches" in info_messages
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_pipeline_succeeds_when_gateway_client_raises(
         self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
@@ -438,7 +438,7 @@ class TestTerminatedPipelineSyncsState:
     """Tests that terminating a pipeline marks running containers/agents as stopped."""
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cancel_marks_running_containers_as_removed(
@@ -483,7 +483,7 @@ class TestTerminatedPipelineSyncsState:
         mock_store.save_pipeline.assert_called_once_with(pipeline)
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cancel_skips_already_completed_agents(
@@ -520,7 +520,7 @@ class TestTerminatedPipelineSyncsState:
         assert pipeline.phases["refine"].containers[0].status == ContainerStatus.EXITED
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_failed_pipeline_uses_correct_error_message(
@@ -998,7 +998,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
     """
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cancel_clears_runtime_state(
@@ -1033,7 +1033,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
             assert "cancelled" in mock_clear.call_args.kwargs["reason"]
 
     @patch("routes.pipelines.get_gateway_client")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     def test_delete_clears_runtime_state(self, mock_resolve, mock_spawner_fn, mock_gw_fn, client):
         """DELETE evicts consensus + message-store state alongside the JSON file."""

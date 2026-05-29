@@ -9,8 +9,8 @@ runtime.
 
 Every route requires the lifecycle bearer token (parity with the
 fix made for #1769) because these are agent-visible via the MCP
-server. Runtime-specific routes degrade gracefully on Docker by
-returning a structured ``not_available_on_runtime`` payload.
+server. Cluster-dependent routes refuse cleanly with a structured
+``runtime_detection_failed`` payload when the apiserver is unreachable.
 """
 
 from __future__ import annotations
@@ -65,69 +65,30 @@ deployment_bp = Blueprint("deployment", __name__, url_prefix="/api/v1/deployment
 
 
 def _resolve_runtime() -> tuple[str, str]:
-    """Return ``(runtime, detection_source)``.
+    """Return ``(runtime, detection_source)``. k3s is the sole runtime.
 
-    Resolution order:
-
-    1. ``EGG_RUNTIME`` env var (``"env"`` source) — operator-configured.
-    2. ``KUBERNETES_SERVICE_HOST`` is injected into every pod by the
-       apiserver; treat its presence as a strong in-cluster signal and
-       infer ``"kubernetes"`` (``"auto:k8s-service-host"`` source).
-    3. Otherwise fall back to ``"docker"`` (``"auto:default"`` source).
-
-    Issue #1850: previously defaulted to ``"docker"`` unconditionally, so
-    in-cluster orchestrators whose manifests forgot to set ``EGG_RUNTIME``
-    silently misreported themselves as Docker and masked cluster-access
-    failures downstream. Auto-detection closes that gap without changing
-    behavior when ``EGG_RUNTIME`` is set explicitly.
+    The Docker runtime was removed in #2866, so ``runtime`` is always
+    ``"kubernetes"``. ``detection_source`` still records *how* we know
+    we're in-cluster so operators can distinguish an explicitly-configured
+    orchestrator (``"env"``) from one relying on the in-pod
+    ``KUBERNETES_SERVICE_HOST`` signal (``"auto:k8s-service-host"``). A
+    cluster that can't actually be reached is demoted to ``"unknown"``
+    downstream in :func:`_build_deployment_context_payload` (#1850).
     """
-    _KNOWN_RUNTIMES = frozenset({"kubernetes", "docker"})
-
-    explicit = os.environ.get("EGG_RUNTIME")
-    if explicit:
-        normalized = explicit.lower()
-        if normalized not in _KNOWN_RUNTIMES:
-            logger.warning(
-                "unrecognized EGG_RUNTIME value",
-                value=explicit,
-                known=sorted(_KNOWN_RUNTIMES),
-            )
-        return normalized, "env"
+    if os.environ.get("EGG_RUNTIME"):
+        return "kubernetes", "env"
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
         return "kubernetes", "auto:k8s-service-host"
-    return "docker", "auto:default"
-
-
-def _current_runtime() -> str:
-    """Return the resolved runtime label (back-compat shim)."""
-    runtime, _source = _resolve_runtime()
-    return runtime
-
-
-def _not_available_on_runtime() -> tuple[Response, int]:
-    """Return the structured 200 payload used on Docker-only builds."""
-    runtime = _current_runtime()
-    return (
-        jsonify(
-            {
-                "success": True,
-                "data": {
-                    "error": "not_available_on_runtime",
-                    "runtime": runtime,
-                },
-            }
-        ),
-        200,
-    )
+    return "kubernetes", "default"
 
 
 def _runtime_detection_failed(detail: str) -> tuple[Response, int]:
     """Return a 200 payload used when runtime detection came back ``unknown``.
 
-    Distinct from ``not_available_on_runtime`` (which means "you explicitly
-    asked for docker, this tool is k8s-only") so operators can tell
-    "apiserver unreachable / detection failed" apart from "tool doesn't
-    apply to docker" (#1850).
+    Used by gated tools to refuse cleanly when the orchestrator is running
+    in-cluster but the apiserver can't actually be reached (RBAC denial,
+    missing kubeconfig, apiserver down) so operators get an honest
+    "cluster unreachable" reason rather than a confusing failure (#1850).
     """
     return (
         jsonify(
@@ -314,25 +275,6 @@ def _build_deployment_context_payload() -> dict[str, Any]:
         "namespace": os.environ.get("EGG_K8S_NAMESPACE", "egg-system"),
     }
 
-    if runtime != "kubernetes":
-        # Degrade gracefully: return the Docker-analog fields so the
-        # MCP caller still gets an actionable structure.
-        payload.update(
-            {
-                "kubeconfig_context": None,
-                "cluster_info": {
-                    "server_version": None,
-                    "nodes": 0,
-                },
-                "cni": None,
-                "network_policy_enforcement": False,
-                "images": {},
-                "is_k3s": False,
-                "k3s_flavor_hint": None,
-            }
-        )
-        return payload
-
     try:
         from kubernetes_client import get_kubernetes_client
     except Exception as exc:  # pragma: no cover - environment wiring
@@ -467,9 +409,6 @@ def get_service_logs() -> tuple[Response, int]:
         lines: tail length, default 100, capped at _MAX_LOG_LINES.
         since_seconds: only return logs newer than this many seconds.
     """
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
-
     service = (request.args.get("service") or "").strip()
     if not service:
         return jsonify({"success": False, "message": "service is required"}), 400
@@ -782,10 +721,6 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
 @require_lifecycle_secret
 def validate_deployment_manifests() -> tuple[Response, int]:
     """Static validation of the committed kustomize overlay."""
-    runtime = _current_runtime()
-    if runtime != "kubernetes":
-        return _not_available_on_runtime()
-
     body = request.get_json(silent=True) or {}
     overlay = body.get("overlay_path") or _DEFAULT_OVERLAY
 
@@ -1203,9 +1138,6 @@ def _parse_probe_output(raw_log: str) -> dict[str, Any]:
 @require_lifecycle_secret
 def validate_network_isolation() -> tuple[Response, int]:
     """Spawn a throwaway probe Job and report isolation results."""
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
-
     body = request.get_json(silent=True) or {}
     pipeline_id = str(body.get("pipeline_id") or "manual")
     role = str(body.get("role") or "coder")
@@ -1528,7 +1460,6 @@ def rebuild_and_rollout() -> tuple[Response, int]:
     """Kick off ``make redeploy`` asynchronously and return a stream handle.
 
     Safeties:
-    - Gated on ``EGG_RUNTIME=kubernetes`` (docker returns ``not_available_on_runtime``).
     - Refuses with ``runtime_detection_failed`` when the process claims
       kubernetes but can't reach the apiserver — kicking off
       ``make redeploy`` against a nonexistent cluster just wastes cycles
@@ -1540,9 +1471,6 @@ def rebuild_and_rollout() -> tuple[Response, int]:
       FastMCP's ~60 s budget.
     """
     global _REBUILD_IN_PROGRESS, _REBUILD_ACTIVE_STREAM_ID
-
-    if _current_runtime() != "kubernetes":
-        return _not_available_on_runtime()
 
     reachable, reason = _probe_kubernetes_reachable()
     if not reachable:

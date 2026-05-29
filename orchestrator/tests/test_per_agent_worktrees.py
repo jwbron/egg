@@ -9,9 +9,9 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawner, ContainerSpawnError
-from docker_client import ContainerNotFoundError
 from gateway_client import GatewayHealth, SessionInfo, WorktreeResult
+from kubernetes_client import PodNotFoundError
+from kubernetes_spawner import KubernetesSpawner, KubernetesSpawnError
 from models import AgentRole, ContainerInfo, ContainerStatus
 
 
@@ -27,7 +27,7 @@ def mock_docker_client():
         started_at=datetime.now(UTC),
     )
     mock.list_containers.return_value = []
-    mock.get_container_info.side_effect = ContainerNotFoundError("not found")
+    mock.get_container_info.side_effect = PodNotFoundError("not found")
     return mock
 
 
@@ -56,7 +56,7 @@ def mock_gateway_client():
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -171,7 +171,7 @@ class TestWorktreeCreationFallback:
         """If per-agent worktree creation fails, spawn must abort."""
         mock_gateway_client.create_worktrees.side_effect = Exception("gateway down")
 
-        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+        with pytest.raises(KubernetesSpawnError, match="worktree creation failed"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-123",
                 agent_role=AgentRole.CODER,
@@ -192,7 +192,7 @@ class TestWorktreeCreationFallback:
             errors=["no worktrees created"],
         )
 
-        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+        with pytest.raises(KubernetesSpawnError, match="no worktrees"):
             spawner.spawn_agent_container(
                 pipeline_id="issue-123",
                 agent_role=AgentRole.CODER,

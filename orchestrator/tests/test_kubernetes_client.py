@@ -2179,7 +2179,7 @@ class TestConstants:
         assert LABEL_CONTAINER_NAME == "egg.container.name"
 
     def test_job_prefix(self):
-        """JOB_PREFIX should match DockerClient naming convention."""
+        """JOB_PREFIX should match KubernetesClient naming convention."""
         assert KubernetesClient.JOB_PREFIX == "egg-sandbox-"
 
     def test_default_sandbox_image(self):

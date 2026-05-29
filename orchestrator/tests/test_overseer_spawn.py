@@ -39,9 +39,9 @@ sys.modules.setdefault("docker.types", MagicMock())
 # Conditional imports - skip if modules not yet available
 # ---------------------------------------------------------------------------
 try:
-    from container_spawner import ContainerSpawner, SpawnedContainer
-    from docker_client import ContainerNotFoundError
     from gateway_client import GatewayHealth, SessionInfo
+    from kubernetes_client import PodNotFoundError
+    from kubernetes_spawner import KubernetesSpawner, SpawnedContainer
     from models import (
         AgentRole,
         ContainerInfo,
@@ -120,7 +120,7 @@ def mock_gateway_client():
 @pytest.fixture
 def spawner(mock_docker_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_docker_client,
         gateway_client=mock_gateway_client,
     )
@@ -645,7 +645,7 @@ class TestCleanupOnCancellation:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """Cleanup of other containers continues even if overseer stop fails."""
-        from docker_client import ContainerOperationError
+        from kubernetes_client import JobOperationError
 
         mock_docker_client.list_containers.return_value = [
             ContainerInfo(
@@ -663,7 +663,7 @@ class TestCleanupOnCancellation:
         # Overseer removal fails, coder removal succeeds
         mock_docker_client.remove_container.side_effect = [
             None,  # coder succeeds
-            ContainerOperationError("Failed to remove overseer"),  # overseer fails
+            JobOperationError("Failed to remove overseer"),  # overseer fails
         ]
 
         removed = spawner.cleanup_pipeline("issue-1000")
@@ -878,7 +878,7 @@ class TestOverseerRespawn:
         """Overseer is respawned when container is completely gone from Docker daemon."""
         original_id = "overseer-original-001"
 
-        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+        mock_docker_client.get_container_info.side_effect = PodNotFoundError(
             f"Container {original_id} not found"
         )
 

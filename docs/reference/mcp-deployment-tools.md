@@ -13,14 +13,14 @@ blind spot surfaced during the Docker → k3s migration validation
 [#1853](https://github.com/jwbron/egg/issues/1853) to cover gateway / orchestrator
 pod logs that `get_container_logs` (agent-sandbox only) does not reach.
 
-| Tool | Mutates cluster? | Runtime | Auth |
-|------|------------------|---------|------|
-| [`get_deployment_context`](#get_deployment_context) | No | multi-runtime (k8s, Docker) | `@require_lifecycle_secret` |
-| [`validate_deployment_manifests`](#validate_deployment_manifests) | No | k8s only (Docker returns `not_available_on_runtime`) | `@require_lifecycle_secret` |
-| [`prune_stale_worktrees`](#prune_stale_worktrees) | Yes (host filesystem) | k8s only | `@require_lifecycle_secret` on orchestrator proxy; gateway session token on the gateway route |
-| [`validate_network_isolation`](#validate_network_isolation) | Yes (spawns short-lived probe Job) | k8s only | `@require_lifecycle_secret` |
-| [`rebuild_and_rollout`](#rebuild_and_rollout) | Yes (rebuilds images + restarts Deployments) | k8s only | `@require_lifecycle_secret` |
-| [`get_service_logs`](#get_service_logs) | No | k8s only | `@require_lifecycle_secret` |
+| Tool | Mutates cluster? | Auth |
+|------|------------------|------|
+| [`get_deployment_context`](#get_deployment_context) | No | `@require_lifecycle_secret` |
+| [`validate_deployment_manifests`](#validate_deployment_manifests) | No | `@require_lifecycle_secret` |
+| [`prune_stale_worktrees`](#prune_stale_worktrees) | Yes (host filesystem) | `@require_lifecycle_secret` on orchestrator proxy; gateway session token on the gateway route |
+| [`validate_network_isolation`](#validate_network_isolation) | Yes (spawns short-lived probe Job) | `@require_lifecycle_secret` |
+| [`rebuild_and_rollout`](#rebuild_and_rollout) | Yes (rebuilds images + restarts Deployments) | `@require_lifecycle_secret` |
+| [`get_service_logs`](#get_service_logs) | No | `@require_lifecycle_secret` |
 
 All six tools live in `PIPELINE_TOOLS` (`orchestrator/mcp_tools.py`) with
 handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
@@ -29,36 +29,22 @@ handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
 [`/deployment-diagnose`](../../skills/deployment-diagnose/SKILL.md) and
 [`/agent-diagnose`](../../skills/agent-diagnose/SKILL.md).
 
-## Runtime Gating
+## Cluster Reachability Gating
 
-All six deployment tools branch on the `EGG_RUNTIME` env var, which is
-read at the orchestrator process boundary. When `EGG_RUNTIME` is unset,
-the orchestrator auto-detects: if `KUBERNETES_SERVICE_HOST` is present
-(injected into every pod by the apiserver) the runtime is inferred to be
-`"kubernetes"`; otherwise it defaults to `"docker"`. The resolved runtime
-and its provenance are returned on `get_deployment_context` as
-`runtime` + `detection_source` (values: `"env"`, `"auto:k8s-service-host"`,
-`"auto:default"`). Issue
-[#1850](https://github.com/jwbron/egg/issues/1850) tracked the earlier
-silent-docker-default that hid in-cluster misconfigs.
+Kubernetes is the sole runtime ([#2866](https://github.com/jwbron/egg/issues/2866)
+removed the Docker runtime). `get_deployment_context` reports `runtime`
+(always `"kubernetes"`) and a `detection_source` recording how the
+in-cluster context was resolved (`"env"` when `EGG_RUNTIME` is set,
+`"auto:k8s-service-host"` when the apiserver-injected
+`KUBERNETES_SERVICE_HOST` is present, else `"default"`).
 
-When `EGG_RUNTIME != "kubernetes"`, the five k8s-only tools return:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
-
-rather than failing the MCP call. `get_deployment_context` is portable — it
-returns a Docker-analog payload on the Docker runtime (matching the
-pre-k3s deployment model).
-
-When the orchestrator claims `"kubernetes"` but every cluster introspection
-probe fails (apiserver unreachable, RBAC denial, missing kubeconfig),
-`get_deployment_context` demotes `runtime` to `"unknown"` and attaches a
-`detection_error` field (for example `"cluster_unreachable"`,
-`"kubernetes_client_init_failed"`). `rebuild_and_rollout` refuses with a
-distinct payload so operators can tell "apiserver unreachable" apart from
-"you're on docker":
+When the orchestrator can't actually reach the cluster (apiserver
+unreachable, RBAC denial, missing kubeconfig), `get_deployment_context`
+demotes `runtime` to `"unknown"` and attaches a `detection_error` field
+(for example `"cluster_unreachable"`, `"kubernetes_client_init_failed"`).
+The cluster-mutating tools (`rebuild_and_rollout`) refuse with a distinct
+payload rather than operating against a cluster that isn't there
+([#1850](https://github.com/jwbron/egg/issues/1850)):
 
 ```json
 {"error": "runtime_detection_failed", "runtime": "unknown", "detail": "..."}
@@ -123,21 +109,15 @@ cluster with no egg workloads. Similarly, `cluster_info.nodes_unavailable: true`
 is set when the version probe succeeds but the node-list probe fails,
 distinguishing "zero nodes" from "count unknown".
 
-**Output shape** (Docker runtime — degrade-gracefully mode):
+**Output shape** (cluster unreachable — demoted to `unknown`):
 
 ```json
 {
-  "runtime": "docker",
-  "docker_version": "24.0.6",
-  "compose_project": "egg",
-  "namespace": null,
-  "cni": null,
-  "network_policy_enforcement": false,
-  "images": {
-    "orchestrator": "egg-orchestrator:local",
-    "gateway": "egg-gateway:local",
-    "agents": "egg-sandbox:local"
-  }
+  "runtime": "unknown",
+  "detection_error": "cluster_unreachable",
+  "detail": "neither VersionApi.get_code nor core_api.list_node succeeded",
+  "namespace": "egg-system",
+  "cluster_info": {"server_version": null, "nodes": 0, "nodes_unavailable": true}
 }
 ```
 
@@ -218,12 +198,6 @@ flavors those rules are skipped with a structured entry:
 
 so callers see *why* the rule did not fire.
 
-**Non-k8s runtime**:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
-
 **Example MCP call**:
 
 ```python
@@ -279,12 +253,6 @@ The orchestrator proxy calls the gateway route via `GatewayClient` because
 the gateway holds the in-process worktree mutex. Every candidate path is
 validated with `Path.resolve()` + `is_relative_to(WORKTREE_BASE_DIR)`
 before deletion (RISK-2 path-traversal guard).
-
-**Non-k8s runtime**:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
 
 **Example MCP call**:
 
@@ -358,12 +326,6 @@ NetworkPolicies, the tool returns:
 ```
 
 rather than returning misleading probe results.
-
-**Non-k8s runtime**:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
 
 **Example MCP call**:
 
@@ -445,12 +407,6 @@ rather than spawning a second `make redeploy` that would race the first.
 The guard is an in-process `asyncio.Lock` / boolean flag
 (`_REBUILD_IN_PROGRESS`); the flag clears after the inner `make redeploy`
 terminates (zero or non-zero exit), so a subsequent retry can proceed.
-
-**Non-k8s runtime**:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
 
 No subprocess is invoked in this branch.
 
@@ -542,12 +498,6 @@ listing and the log read is skipped entirely.
   selector returned zero pods (fresh rollout still coming up).
 - `500` — Kubernetes API failure (selector missing, apiserver
   unreachable).
-
-**Non-k8s runtime**:
-
-```json
-{"error": "not_available_on_runtime", "runtime": "docker"}
-```
 
 **Example MCP call** — the concrete miss from #1853, cross-referencing
 gateway logs when multiple agents hit "Connection refused" during spawn:

@@ -317,7 +317,7 @@ class TestMonitorExecuteRestartAgent:
     ):
         """When spawner returns limit exceeded error (HTTP 500), monitor should create HITL.
 
-        The restart endpoint returns HTTP 500 on ContainerSpawnError (including
+        The restart endpoint returns HTTP 500 on KubernetesSpawnError (including
         restart-limit-exceeded).  urllib raises HTTPError for non-2xx responses,
         so the monitor must catch HTTPError and parse the response body.
         """
@@ -839,7 +839,7 @@ class TestMultiAgentExhaustionEscalation:
     def _make_limit_exceeded_error(self, agent_role="coder"):
         """Create an HTTPError simulating a restart-limit-exceeded response.
 
-        The restart endpoint returns HTTP 500 on ContainerSpawnError, including
+        The restart endpoint returns HTTP 500 on KubernetesSpawnError, including
         restart-limit-exceeded.  urllib raises HTTPError for non-2xx responses.
         """
         import io

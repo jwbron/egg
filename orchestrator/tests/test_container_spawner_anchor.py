@@ -27,9 +27,9 @@ class TestAnchorEnvVars:
 
     def test_spawner_source_contains_agent_anchor_id(self):
         """Verify AGENT_ANCHOR_ID is set in spawn_agent_container."""
-        from container_spawner import ContainerSpawner
+        from kubernetes_spawner import KubernetesSpawner
 
-        source = inspect.getsource(ContainerSpawner.spawn_agent_container)
+        source = inspect.getsource(KubernetesSpawner.spawn_agent_container)
         assert "AGENT_ANCHOR_ID" in source, (
             "spawn_agent_container should set AGENT_ANCHOR_ID env var"
         )
@@ -57,9 +57,9 @@ class TestAnchorEnvVars:
 
     def test_spawner_env_dict_pattern(self):
         """Verify the spawner_env dict includes AGENT_ANCHOR_ID after construction."""
-        from container_spawner import ContainerSpawner
+        from kubernetes_spawner import KubernetesSpawner
 
-        source = inspect.getsource(ContainerSpawner.spawn_agent_container)
+        source = inspect.getsource(KubernetesSpawner.spawn_agent_container)
         # AGENT_ANCHOR_ID should be set after spawner_env construction
         # but before extra_env override
         spawner_env_pos = source.find("spawner_env")

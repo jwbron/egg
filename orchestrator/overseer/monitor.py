@@ -762,7 +762,7 @@ class OverseerMonitor:
                 )
                 await self._handle_restart_failure(agent_role, error_msg, message)
         except urllib.error.HTTPError as e:
-            # The restart endpoint returns HTTP 500 on ContainerSpawnError
+            # The restart endpoint returns HTTP 500 on KubernetesSpawnError
             # (including restart-limit-exceeded).  Parse the JSON body to
             # determine whether this is a limit-exceeded case.
             try:

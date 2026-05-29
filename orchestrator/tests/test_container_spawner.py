@@ -6,15 +6,15 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
-    ContainerSpawner,
-    ContainerSpawnError,
+from gateway_client import GatewayError, GatewayHealth, SessionInfo
+from kubernetes_client import JobOperationError
+from kubernetes_spawner import (
+    KubernetesSpawner,
+    KubernetesSpawnError,
     SpawnedContainer,
     _host_to_local_volumes,
-    get_container_spawner,
+    get_kubernetes_spawner,
 )
-from docker_client import ContainerOperationError
-from gateway_client import GatewayError, GatewayHealth, SessionInfo
 from models import AgentRole, ContainerInfo, ContainerStatus
 
 
@@ -73,25 +73,25 @@ def mock_gateway_client():
 @pytest.fixture
 def spawner(mock_k8s_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
-    return ContainerSpawner(
+    return KubernetesSpawner(
         docker_client=mock_k8s_client,
         gateway_client=mock_gateway_client,
     )
 
 
-class TestContainerSpawnerBasics:
+class TestKubernetesSpawnerBasics:
     """Basic spawner tests."""
 
     def test_lazy_client_initialization(self):
         """Test that clients are lazily initialized."""
-        spawner = ContainerSpawner()
+        spawner = KubernetesSpawner()
         # Clients should not be initialized yet
         assert spawner._k8s is None
         assert spawner._gateway is None
 
     def test_explicit_client_initialization(self, mock_k8s_client, mock_gateway_client):
         """Test explicit client initialization."""
-        spawner = ContainerSpawner(
+        spawner = KubernetesSpawner(
             docker_client=mock_k8s_client,
             gateway_client=mock_gateway_client,
         )
@@ -171,7 +171,7 @@ class TestSpawnAgentContainer:
             error="Connection refused",
         )
 
-        with pytest.raises(ContainerSpawnError) as exc_info:
+        with pytest.raises(KubernetesSpawnError) as exc_info:
             spawner.spawn_agent_container(
                 pipeline_id="issue-123",
                 agent_role=AgentRole.CODER,
@@ -198,14 +198,14 @@ class TestSpawnAgentContainer:
         assert result is not None
 
     def test_spawn_raises_on_session_failure(self, spawner, mock_gateway_client, mock_k8s_client):
-        """Test that spawn raises ContainerSpawnError if session registration fails."""
+        """Test that spawn raises KubernetesSpawnError if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
             status="healthy",
         )
         mock_gateway_client.register_session.side_effect = GatewayError("Registration failed")
 
-        with pytest.raises(ContainerSpawnError) as exc_info:
+        with pytest.raises(KubernetesSpawnError) as exc_info:
             spawner.spawn_agent_container(
                 pipeline_id="issue-123",
                 agent_role=AgentRole.CODER,
@@ -328,9 +328,9 @@ class TestRemoveAgentContainer:
 
     def test_remove_cleans_up_session_on_error(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test that session is cleaned up even if removal fails."""
-        mock_k8s_client.remove_container.side_effect = ContainerOperationError("Failed")
+        mock_k8s_client.remove_container.side_effect = JobOperationError("Failed")
 
-        with pytest.raises(ContainerOperationError):
+        with pytest.raises(JobOperationError):
             spawner.remove_agent_container("abc123")
 
         # Session should still be cleaned up
@@ -406,7 +406,7 @@ class TestCleanupPipeline:
 
         # First removal fails, second succeeds
         mock_k8s_client.remove_container.side_effect = [
-            ContainerOperationError("Failed"),
+            JobOperationError("Failed"),
             None,
         ]
 
@@ -561,14 +561,14 @@ class TestHostToLocalVolumes:
 class TestSingletonSpawner:
     """Tests for singleton spawner."""
 
-    def test_get_container_spawner_returns_singleton(self):
-        """Test that get_container_spawner returns the same instance."""
+    def test_get_kubernetes_spawner_returns_singleton(self):
+        """Test that get_kubernetes_spawner returns the same instance."""
         import kubernetes_spawner
 
         kubernetes_spawner._spawner = None
 
-        spawner1 = get_container_spawner()
-        spawner2 = get_container_spawner()
+        spawner1 = get_kubernetes_spawner()
+        spawner2 = get_kubernetes_spawner()
 
         assert spawner1 is spawner2
 

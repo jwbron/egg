@@ -112,8 +112,8 @@ class MCPServer:
     - Health check endpoint at /health
     - Rate limiting on tool calls
 
-    No authentication required — localhost-only access is enforced via
-    Docker port mapping (127.0.0.1 binding in docker-compose.yml).
+    No authentication required — localhost-only access is enforced by the
+    Deployment's port binding (127.0.0.1) and cluster NetworkPolicies.
     """
 
     def __init__(
@@ -202,9 +202,9 @@ class MCPServer:
     def run(self):
         """Start the MCP server.
 
-        Binds to 0.0.0.0 inside the container so Docker port forwarding works.
-        Host is set in the FastMCP constructor; localhost-only access is enforced
-        by the docker-compose port mapping.
+        Binds to 0.0.0.0 inside the pod so the kubelet port-forward / Service
+        reaches it. Host is set in the FastMCP constructor; localhost-only
+        access is enforced by the Deployment's port binding.
         """
         mcp = self.create_app()
         logger.info("Starting MCP server", port=self.port)

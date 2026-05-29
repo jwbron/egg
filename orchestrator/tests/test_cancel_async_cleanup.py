@@ -115,7 +115,7 @@ class TestAsyncCleanupOnCancel:
     """Tests that PATCH cancel returns immediately with async container cleanup."""
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cancel_returns_before_cleanup_completes(
@@ -172,7 +172,7 @@ class TestAsyncCleanupOnCancel:
         )
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cancel_response_includes_cleanup_pending(
@@ -206,7 +206,7 @@ class TestAsyncCleanupOnCancel:
         assert body["data"]["cleanup_pending"] is True
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_failed_response_includes_cleanup_pending(
@@ -257,7 +257,7 @@ class TestAsyncCleanupOnCancel:
         )
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_non_terminal_status_has_no_cleanup_pending(
@@ -288,7 +288,7 @@ class TestAsyncCleanupOnCancel:
         assert "cleanup_pending" not in body.get("data", {})
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_background_cleanup_runs_to_completion(
@@ -336,7 +336,7 @@ class TestAsyncCleanupOnCancel:
         )
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_state_sync_runs_before_response(
@@ -381,7 +381,7 @@ class TestAsyncCleanupOnCancel:
             assert agent.error == "Pipeline cancelled"
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cleanup_error_does_not_affect_response(
@@ -425,7 +425,7 @@ class TestAsyncCleanupOnCancel:
         assert error_raised.wait(timeout=5), "Cleanup was never called"
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_decisions_cancelled_before_response(
@@ -470,7 +470,7 @@ class TestCleanupBackgroundThreadBehavior:
     """Tests for the behavior of the background cleanup thread."""
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cleanup_thread_is_daemon(
@@ -517,7 +517,7 @@ class TestCleanupBackgroundThreadBehavior:
         assert thread_captured["thread"].name == "cleanup-test-pipeline"
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_cleanup_uses_correct_pipeline_id(
@@ -566,7 +566,7 @@ class TestCleanupBackgroundThreadBehavior:
         )
 
     @patch("routes.pipelines.get_decision_queue")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_docker_exception_in_background_handled_gracefully(

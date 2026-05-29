@@ -55,7 +55,7 @@ def _make_running_pipeline(branch="egg/issue-42"):
 #
 # - get_state_store: returns a mock store whose load_pipeline yields the
 #   test pipeline (mutable — inner code sets .status to FAILED)
-# - get_container_spawner: provides mock gateway for push_worktree_branch
+# - get_kubernetes_spawner: provides mock gateway for push_worktree_branch
 # - _spawn_and_wait: returns non-zero to trigger the failure path
 # - _build_phase_prompt: avoids filesystem access for prompt building
 # - get_pipeline_state_lock: returns a no-op context manager
@@ -66,7 +66,7 @@ def _make_running_pipeline(branch="egg/issue-42"):
 
 _COMMON_PATCHES = [
     "routes.pipelines._emit_pipeline_event",
-    "routes.pipelines.get_container_spawner",
+    "routes.pipelines.get_kubernetes_spawner",
     "routes.pipelines.get_state_store",
     "routes.pipelines._spawn_and_wait",
     "routes.pipelines.get_pipeline_state_lock",
@@ -228,7 +228,7 @@ class TestZombiePipelineSyntheticEvent:
 
         # Trigger the outer catch-all by raising a RuntimeError from
         # ``_run_concurrent_phase`` — anything other than the
-        # ``(ContainerSpawnError, KubernetesSpawnError)`` the phase loop
+        # ``(KubernetesSpawnError, KubernetesSpawnError)`` the phase loop
         # explicitly catches escapes to the outer ``except Exception``.
         in_catchall = {"flag": False}
 
