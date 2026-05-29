@@ -1630,7 +1630,7 @@ slices:
           decision-11. **The AC-9a gate below WILL fire by
           construction on the first audit pass.** Do not treat this
           as a surprise discovery — the expected resolution path is
-          AC-9a option 3 ("Mark #2570 as xfail in slice-1 and open
+          AC-9a option 3 ("Mark #2570 as xfail in slice-3 and open
           a follow-up issue co-scheduled with the #2792 work"). The
           implement-phase coder should plan for this from the start.
 
@@ -1643,7 +1643,7 @@ slices:
           `egg-exec-…/work` worktree merge sites surfaced by the
           #2570 evidence section. Document the diagnosis in a written
           audit note (commit as a checkpoint artifact under
-          `.egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md`),
+          `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`),
           THEN trigger AC-9a.
 
           If — counterfactually — the diagnosis surfaces an in-scope
@@ -1678,18 +1678,18 @@ slices:
           you MUST register an HITL via
           `mcp__sdlc__register_open_question` with three options
           before any code change: (1) "Extend scope to include the
-          OOS primitive in slice-1" — operator overrides decision-11;
-          (2) "Defer slice-1 until the #2792 work lands" — wait for
+          OOS primitive in slice-3" — operator overrides decision-11;
+          (2) "Defer slice-3 until the #2792 work lands" — wait for
           the OOS-coupled work; (3) "Mark #2570 as xfail in
-          slice-1 and open a follow-up issue for the OOS-coupled
-          fix" — ship slice-1 without the #2570 fix. Silent
+          slice-3 and open a follow-up issue for the OOS-coupled
+          fix" — ship slice-3 without the #2570 fix. Silent
           modification of an OOS primitive is a NACK-blocking
           violation per the operator's decision-11 / cq-7 directive.
           The default-recommended HITL option (per the reviewers'
           R1) is option 3 — surface this in the registered HITL.
         acceptance: |-
           - An audit note exists at
-            `.egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md`
+            `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`
             documenting which silent-rebase vectors were verified at
             HEAD and which root-cause hypothesis the audit reached.
           - EITHER (a) AC-9a fires with an HITL registered as
@@ -1714,7 +1714,7 @@ slices:
         files:
           - orchestrator/routes/pipelines.py
           - gateway/gateway.py
-          - .egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md
+          - .egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md
       - id: TASK-3-4
         role: coder
         description: |-
@@ -2090,7 +2090,7 @@ slices:
           `evaluator.clear(pipeline_id)`. If the line is still
           present, slice-2's TASK-2-6 has not landed yet — escalate
           via `mcp__sdlc__report_impasse` (category=plan_bug) and
-          wait for the slice-1 rebase before proceeding.
+          wait for the slice-2 (id=2) rebase before proceeding.
         acceptance: |-
           - `restart_phase` clears both the pipeline-level
             consensus tracker AND iterates per-slice trackers.
@@ -2212,40 +2212,42 @@ slices:
         description: |-
           Per-slice consensus tracker reconstruction in
           `startup_reconciliation.py` (closes #2409). Per the
-          architect's AC-16, the closure requires three coupled
-          changes:
+          architect's AC-16 + replan_change_log (verified at HEAD
+          and re-verified by reviewer_plan's v2 NACK audit):
+          `reconstruct_tracker_from_messages` at
+          `orchestrator/peer_consensus.py:1919-1926` ALREADY
+          accepts an optional `slice_id` keyword parameter; and
+          `orchestrator/message_store.py:407-416` ALREADY filters
+          messages by `metadata['slice_id']` (the canonical
+          metadata-based scope per #2725). Senders populate
+          `metadata['slice_id']` at write-time (see
+          `orchestrator/routes/messages.py:770`). **No schema
+          change to `Message` is required; no signature change to
+          `reconstruct_tracker_from_messages` is required.** The
+          only gap is the call site.
 
-          (1) **Add an optional `slice_id` field to
-              `message_store.Message`** in
-              `orchestrator/message_store.py` (architect v2 located
-              the dataclass there). Default None for back-compat;
-              persist when set so on-disk message history carries
-              the slice scope.
-          (2) **Extend `reconstruct_tracker_from_messages`** (find
-              the function in `peer_consensus.py` or the
-              reconstruction module) to accept an optional
-              `slice_id` parameter. When set, the replay window
-              filters to messages whose `slice_id` matches; when
-              unset, replay all messages (pipeline-level only,
-              back-compat).
-          (3) **Extend the `startup_reconciliation.py` loop** at
+          (1) **Extend the `startup_reconciliation.py` loop** at
               lines 312-376 (especially 358-367): for each
               pipeline that has slices, iterate
-              `contract.slices`, and for each slice call the
-              reconstruction primitive with the matching
-              `slice_id`. The reconstruction populates the
+              `contract.slices`, and for each slice call
+              `reconstruct_tracker_from_messages(pipeline_id,
+              graph, slice_id=s.id)` for each slice in addition
+              to the existing pipeline-level call. The
+              reconstruction populates the
               `f"{pipeline_id}/{slice_id}"` tracker key per
               `peer_consensus.py:1844`. If on-disk message
               history has no entries scoped to a given slice
-              (e.g. the slice never started), skip silently —
-              TASK-4-4's bootstrap reconciliation handles the
-              slice's runtime resumption from scratch.
-          (4) **Fix `handle_consensus_confirmed_signal`** in
+              (e.g. the slice never started), the metadata
+              filter at `message_store.py:407-416` returns an
+              empty set and reconstruction is a no-op for that
+              slice — TASK-4-4's bootstrap reconciliation handles
+              the slice's runtime resumption from scratch.
+          (2) **Fix `handle_consensus_confirmed_signal`** in
               `orchestrator/routes/signals.py` (architect v2
               AC-16): today the handler skips reconstruction when
               `slice_id` is supplied; remove the skip so
               slice-scoped confirms also reconstruct via the
-              new slice-id-filtered path.
+              existing slice-id-filtered path.
 
           AC-16 explicitly names the test bar: two concurrent
           slices, orchestrator restart between slice-1 confirming
@@ -2253,22 +2255,23 @@ slices:
           tracker does NOT contain slice-1's messages (i.e. the
           slice_id filter works). TASK-4-6 owns that test.
         acceptance: |-
-          - `message_store.Message` carries an optional `slice_id`
-            field, persisted to disk when set.
-          - `reconstruct_tracker_from_messages` accepts and
-            filters by `slice_id`.
           - `startup_reconciliation.py` reconstructs per-slice
             trackers for every pipeline with slices, keyed
-            `{pipeline_id}/{slice_id}`.
-          - AC-16 cross-slice isolation test in TASK-4-6 passes.
+            `{pipeline_id}/{slice_id}` (verified by AC-16
+            cross-slice isolation test in TASK-4-6).
           - `handle_consensus_confirmed_signal` in
             `orchestrator/routes/signals.py` no longer skips
             reconstruction when `slice_id` is supplied.
+          - **No new field added to `message_store.Message`**
+            (the metadata-based scope per #2725 is the canonical
+            mechanism).
+          - **No signature change to
+            `reconstruct_tracker_from_messages`** (the slice_id
+            kwarg already exists at HEAD per
+            `peer_consensus.py:1919-1926`).
           - #2409 is closed by this task.
         files:
           - orchestrator/startup_reconciliation.py
-          - orchestrator/peer_consensus.py
-          - orchestrator/message_store.py
           - orchestrator/routes/signals.py
       - id: TASK-4-6
         role: tester
