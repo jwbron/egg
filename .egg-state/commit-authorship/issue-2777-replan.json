@@ -1,5 +1,12 @@
 {
   "entries": {
+    "0d7f751e566abfab3e3bfb681b24d1f30b90ad36": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T22:36:57.623051+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "0dc42f4b6809f62cecd6492d1a208ef444aa1179": {
       "branch": "egg/issue-2777-replan/work",
       "pipeline_id": "issue-2777-replan",
@@ -28,6 +35,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "140b3c63d119b48bcbf64bbeba7f6f4e9aef67bc": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T22:36:57.625622+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "1dfc0250331986a9a069d4e7b63be5ef526b4403": {
       "branch": "egg/issue-2777-replan/work",
       "pipeline_id": "issue-2777-replan",
@@ -39,6 +53,20 @@
       "branch": "egg/issue-2777-replan/slice-2",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-29T05:15:40.609961+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "381f91f69ceef67a2f50e30b59ba974217072725": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T22:36:57.621181+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "46a7ef8a7242284f2bad064291cb2e2d704dbc3c": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T22:36:57.624807+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
@@ -132,6 +160,13 @@
       "registered_at": "2026-05-29T05:02:15.539781+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
+    },
+    "e0175dc4ccdf8f1a79b32281920dfc6d0c8cd571": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T22:36:57.623984+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "e7d8e8cb3b1e2b341732d80ad222797924b4c528": {
       "branch": "egg/issue-2777-replan/work",
