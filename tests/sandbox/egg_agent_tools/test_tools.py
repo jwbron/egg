@@ -175,7 +175,9 @@ class TestInvokeHandlerOutputCap:
 
         resp = _run(invoke_handler(handler, {}, tool_name="big_error"))
         assert resp["is_error"] is True
-        assert len(resp["content"][0]["text"].encode("utf-8")) <= 200 * 1024
+        # Hold the capped error to the real 100 KB cap (not a loose 2×) so a
+        # payload that lands between 100–200 KB would fail the test.
+        assert len(resp["content"][0]["text"].encode("utf-8")) <= 100 * 1024
 
 
 class TestSdkToolShape:

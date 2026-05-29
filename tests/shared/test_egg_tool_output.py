@@ -144,6 +144,17 @@ class TestSpillToFile:
         assert Path(desc["output_path"]).exists()
         assert _utf8(json.dumps(desc)) <= 1000 + 4096
 
+    def test_preview_budget_scales_with_small_cap(self, tmp_path):
+        # Under a cap smaller than the fixed 4 KB preview budget, the preview
+        # must shrink to the cap rather than staying 4 KB (which would make the
+        # descriptor dwarf the cap and risk the outer cap_text dropping
+        # output_path). The full content is still preserved on disk.
+        big = "z" * (300 * 1024)
+        desc = spill_to_file(big, tool="checkpoint_show", cap_bytes=2000, spill_dir=str(tmp_path))
+        assert desc is not None
+        assert _utf8(desc["preview"]) <= 2000
+        assert Path(desc["output_path"]).exists()
+
     def test_stale_spills_pruned(self, tmp_path, monkeypatch):
         # An old spill file is best-effort removed when a new one is written.
         stale = tmp_path / "egg-tool-out-old-deadbeef.txt"

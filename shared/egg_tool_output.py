@@ -273,9 +273,14 @@ def spill_to_file(
 
     preview = "\n".join(text.splitlines()[:preview_lines])
     # Bound the inline preview to a small fixed budget (a single huge line can
-    # otherwise blow it). The full content is on disk; this is just a sample.
-    if _utf8_len(preview) > _SPILL_PREVIEW_BYTES:
-        preview = preview.encode("utf-8")[:_SPILL_PREVIEW_BYTES].decode("utf-8", errors="ignore")
+    # otherwise blow it). Also clamp to the cap itself: under a pathologically
+    # small cap, a fixed 4 KB preview would dominate the descriptor so the
+    # caller's outer cap_text re-truncates it and drops output_path — the one
+    # field that makes the spill useful. Scaling the preview with the cap keeps
+    # the descriptor proportional. The full content is on disk; this is a sample.
+    preview_budget = min(_SPILL_PREVIEW_BYTES, limit)
+    if _utf8_len(preview) > preview_budget:
+        preview = preview.encode("utf-8")[:preview_budget].decode("utf-8", errors="ignore")
     return {
         SPILL_KEY: True,
         "tool": tool,
