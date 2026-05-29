@@ -1,0 +1,41 @@
+slices:
+  - id: 1
+    name: |-
+      Context-PR collapse + cleanup + PR-phase removal
+    goal: |-
+      Realign the slice-DAG PR topology (Goal 1) and execute the coupled
+      cleanup pass (Goal 2). Specifically: collapse egg/<id>/context onto
+      egg/<id>/work, delete the PR phase entirely (cq-4) and replace it with
+      a single hard-required idempotent up-front opener at the
+      plan->implement boundary, hard-remove the redundant PRMetadata fields
+      with a v1.1->v1.2 schema bump (cq-2), delete orchestrator/consensus.py
+      (cq-5), subsume #2389 umbrella terminology as a structural deletion
+      (cq-6), add gh-pr-list idempotency to create_slice_pr (cq-8), keep the
+      speculative #2199 SliceScheduler hooks with noqa+docs (cq-3), bundle
+      #2570 (silent work->main rebase) by diagnosing and stopping the
+      rebase, audit the BLE001 swallow-all handlers in the slice loop
+      individually (feedback Q2), collapse the slice-loop except-ImportError
+      shims to canonical orchestrator.X imports (feedback Q3), surgical
+      _is_slice_dag_mode + slice-1-base-resolver extractions (cq-10), and
+      ship the integration test for the trigger bug (feedback Q4). #2792
+      remains OUT OF SCOPE per decision-11 (now independently resolved in
+      merged PR #2797 -- still no work on the listed primitives here).
+    parent_slice_id: null
+  - id: 2
+    name: |-
+      Slice/phase restart hardening (bundles #2409)
+    goal: |-
+      Harden slice and phase restart (Goal 3) so an interrupted sliced
+      implement phase resumes correctly. Eager-persist
+      parent_branch_at_creation under the contract lock at PENDING->
+      IN_PROGRESS plus a merge-base fallback (cq-9), make restart_phase
+      iterate per-slice consensus trackers (today's pipeline-only clear is
+      asymmetric vs slice-aware restart_agent), reconstruct per-slice
+      trackers in startup_reconciliation using slice_id-tagged
+      reconstruct_tracker_from_messages calls (bundles #2409), and extend
+      bootstrap reconciliation to recognise IN_PROGRESS / BLOCKED slices
+      that did real work so they aren't silently re-yielded READY and
+      respawned. Depends on slice-1 so the restart logic reasons about the
+      post-collapse topology (no egg/<id>/context branch in scope, no
+      PR-phase route to consider).
+    parent_slice_id: 1
