@@ -778,6 +778,11 @@ class KubernetesSpawner:
                     # identical to the pre-#2769 wire shape.
                     upstream=upstream,
                     upstream_model=upstream_model,
+                    # #2869 — a transient DNS/connection blip to the gateway
+                    # during spawn-time session registration must not hard-
+                    # fail the whole pipeline; retry with bounded backoff
+                    # before raising SpawnFailureError.
+                    retry_transient=True,
                 )
                 session_token = session_info.session_token
 
