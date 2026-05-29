@@ -114,6 +114,29 @@ class AgentModelDecision:
         injects its own credentials at proxy time. The Anthropic path
         returns an empty dict so default-Claude spawns carry no extra
         env (the existing pre-#2832 wire shape).
+
+        We also redirect the other two resolution paths that would
+        otherwise emit a Claude model name the LiteLLM proxy can't
+        resolve — each 400s with ``ProxyModelNotFoundError`` on the
+        LiteLLM path, the exact symptom this covers:
+
+        - ``CLAUDE_CODE_SUBAGENT_MODEL`` — the model Claude Code uses
+          for all Task-tool subagents and agent teams. Generic Task
+          subagents inherit the main agent's model, but the **built-in**
+          subagents (``Explore`` etc.) hardcode a versioned ``haiku``
+          model in their ``model`` frontmatter; this var overrides that
+          frontmatter so they route to the configured upstream instead.
+          Pinned to the suffixed alias so subagents share the main
+          agent's 1M-context compaction profile. Mirrors the host
+          ``cllm`` wrapper's ``CLAUDE_CODE_SUBAGENT_MODEL`` export.
+        - ``ANTHROPIC_DEFAULT_HAIKU_MODEL`` (and its deprecated alias
+          ``ANTHROPIC_SMALL_FAST_MODEL``, set for older Claude Code
+          builds where the rename hasn't landed) — the model the
+          ``haiku`` alias and Claude Code's background / "small-fast"
+          helper calls resolve to. Pinned to the **bare** upstream name
+          rather than the ``[1m]`` alias: these vars are documented to
+          take a model name and the ``[1m]`` suffix is read per-variable,
+          and small/fast helper calls don't need the 1M window.
         """
         if self.upstream == UPSTREAM_ANTHROPIC or self.upstream_model is None:
             return {}
@@ -121,6 +144,9 @@ class AgentModelDecision:
             "ANTHROPIC_CUSTOM_MODEL_OPTION": self.claude_code_alias,
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": self.upstream_model,
             "ANTHROPIC_AUTH_METHOD": "api_key",
+            "CLAUDE_CODE_SUBAGENT_MODEL": self.claude_code_alias,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": self.upstream_model,
+            "ANTHROPIC_SMALL_FAST_MODEL": self.upstream_model,
         }
 
 

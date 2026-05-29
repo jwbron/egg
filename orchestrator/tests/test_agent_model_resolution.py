@@ -378,7 +378,16 @@ class TestLiteLLMClassification:
         ``ANTHROPIC_CUSTOM_MODEL_OPTION`` pair that Claude Code reads at
         startup to opt the custom model into 1M compaction math (#2832),
         plus ``ANTHROPIC_AUTH_METHOD=api_key`` to mark the LiteLLM path
-        as api-key auth for config validation / startup logging (#2832).
+        as api-key auth for config validation / startup logging (#2832),
+        plus ``CLAUDE_CODE_SUBAGENT_MODEL`` so Task-tool subagents route
+        to the same upstream, plus ``ANTHROPIC_DEFAULT_HAIKU_MODEL`` /
+        ``ANTHROPIC_SMALL_FAST_MODEL`` so the haiku alias and background
+        helper calls route there too — all to avoid defaulting to a
+        Claude model the LiteLLM proxy can't resolve
+        (ProxyModelNotFoundError 400). The subagent var carries the
+        ``[1m]`` alias; the haiku vars carry the bare upstream name
+        (the suffix is read per-variable and small/fast calls don't
+        need the 1M window).
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
@@ -391,6 +400,9 @@ class TestLiteLLMClassification:
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "qwen3-coder-30b",
             "ANTHROPIC_AUTH_METHOD": "api_key",
+            "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3-coder-30b[1m]",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-coder-30b",
+            "ANTHROPIC_SMALL_FAST_MODEL": "qwen3-coder-30b",
         }
 
     def test_anthropic_env_vars_empty(self):
