@@ -536,7 +536,8 @@
       "ckpt-4d09a59ba373389e",
       "ckpt-4d83507f53c5703c",
       "ckpt-873d5aaaf5009df6",
-      "ckpt-5850ffb840f97d63"
+      "ckpt-5850ffb840f97d63",
+      "ckpt-485722c1988c53f8"
     ]
   },
   "by_commit": {},
@@ -1106,10 +1107,17 @@
     ]
   },
   "by_pr": {},
-  "by_repo": {},
+  "by_repo": {
+    "jwbron/egg": [
+      "ckpt-485722c1988c53f8"
+    ]
+  },
   "by_session": {
     "egg-20260221-094117-325875": [
       "ckpt-04bb218610264d80"
+    ],
+    "egg-exec-20260529-205234-2999": [
+      "ckpt-485722c1988c53f8"
     ],
     "issue-1028-branch-cleanup-egg-0fae3eaffd04493905af975a5fbf140456f455a249c72dde069eea923ae1a6b5-work": [
       "ckpt-c1a677e9ed66c97b"
@@ -2308,7 +2316,8 @@
       "ckpt-4d09a59ba373389e",
       "ckpt-4d83507f53c5703c",
       "ckpt-873d5aaaf5009df6",
-      "ckpt-5850ffb840f97d63"
+      "ckpt-5850ffb840f97d63",
+      "ckpt-485722c1988c53f8"
     ]
   },
   "by_trigger": {
@@ -2848,7 +2857,8 @@
       "ckpt-4d09a59ba373389e",
       "ckpt-4d83507f53c5703c",
       "ckpt-873d5aaaf5009df6",
-      "ckpt-5850ffb840f97d63"
+      "ckpt-5850ffb840f97d63",
+      "ckpt-485722c1988c53f8"
     ]
   },
   "checkpoints": [
@@ -13035,8 +13045,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-05-29T21:11:04.850164Z",
+      "files_touched_count": 12,
+      "id": "ckpt-485722c1988c53f8",
+      "issue_number": null,
+      "message_count": 1927,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": "jwbron/egg",
+      "session_id": "egg-exec-20260529-205234-2999",
+      "session_status": "completed",
+      "tool_call_count": 70,
+      "total_tokens": 53487,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-14T16:23:00.458808Z",
+  "last_updated": "2026-05-29T21:11:05.945405Z",
   "schemaVersion": "2.0"
 }
