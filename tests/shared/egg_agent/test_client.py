@@ -11,7 +11,9 @@ from unittest.mock import patch
 import pytest
 from egg_agent.client import (
     _BUFFER_OVERFLOW_MARKER,
+    _DEFAULT_SDK_MAX_BUFFER_BYTES,
     _MAX_TOOL_CONTENT_LOG_LEN,
+    _sdk_max_buffer_bytes,
     _truncate,
     run_agent,
     run_agent_async,
@@ -106,6 +108,7 @@ except ImportError:
         setting_sources: list[str] | None = None
         disallowed_tools: list[str] = field(default_factory=list)
         can_use_tool: Any = None
+        max_buffer_size: int | None = None
 
     @dataclass
     class PermissionResultAllow:  # type: ignore[no-redef]
@@ -1070,11 +1073,47 @@ class TestBuiltinOutputCapHook:
         assert "head_limit" in decision["permissionDecisionReason"]
 
 
+class TestSdkReaderBuffer:
+    """Issue #2884: egg raises the Agent SDK stream-json reader's buffer above
+    the 1 MiB default so a metadata-heavy Edit/Write result (CC attaches the
+    whole original file as non-model-bound transcript metadata) doesn't crash
+    the reader on large files. Tunable via EGG_SDK_MAX_BUFFER_BYTES.
+    """
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_max_buffer_size_wired_by_default(self, mock_query):
+        os.environ.pop("EGG_SDK_MAX_BUFFER_BYTES", None)
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        assert opts.max_buffer_size == _DEFAULT_SDK_MAX_BUFFER_BYTES
+        # The default must clear the 1 MiB SDK default that crashes on #2884.
+        assert opts.max_buffer_size > 1024 * 1024
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_SDK_MAX_BUFFER_BYTES": "8388608"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_max_buffer_size_configurable_via_env(self, mock_query):
+        _run_async(run_agent_async("test prompt"))
+        opts = mock_query.call_args.kwargs["options"]
+        assert opts.max_buffer_size == 8 * 1024 * 1024
+
+    def test_env_resolver_rejects_invalid_values(self):
+        for bad in ("not-a-number", "0", "-5", "2mb"):
+            with patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": bad}):
+                assert _sdk_max_buffer_bytes() == _DEFAULT_SDK_MAX_BUFFER_BYTES
+
+    def test_env_resolver_accepts_valid_override(self):
+        with patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "16777216"}):
+            assert _sdk_max_buffer_bytes() == 16 * 1024 * 1024
+
+
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the
     overflow marker preserved in ``error`` — the consensus-wrapper
-    greps for that string to short-circuit retry.
+    greps for that string to short-circuit retry. With the reader buffer
+    raised (#2884) this is now a rare backstop, but must still be clean.
     """
 
     @patch("claude_agent_sdk.query")
