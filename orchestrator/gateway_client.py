@@ -1992,6 +1992,7 @@ class GatewayClient:
         *,
         integration_branch: str,
         parent_branch: str,
+        integration_base_sha: str | None = None,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
     ) -> bool:
@@ -2011,6 +2012,15 @@ class GatewayClient:
         * The integration branch tip equals the parent tip (``==`` is
           neither "merged" nor "diverged"; just a no-op state — let the
           regular create path handle it as a fast-forward no-op).
+        * ``integration_base_sha`` is supplied and the integration branch
+          tip still equals it (#2871): the branch never received a slice
+          commit, so it is *un-started* work, not merged work. Such a
+          branch is trivially an ancestor of any advanced parent (its tip
+          *is* the parent's old fork point), and treating that ancestry as
+          "merged → COMPLETE" silently skips a slice that never ran. We
+          can only make this call when the caller recorded the fork base;
+          ``None`` (slices provisioned before #2871) falls through to the
+          ancestor-only check, preserving the prior behaviour.
         * The ancestry check itself fails (gateway down, missing object
           after a flaky fetch). In that case we return False so the
           caller falls through to the existing create path rather than
@@ -2058,6 +2068,28 @@ class GatewayClient:
             if not parent_sha or not existing_sha:
                 return False
             if parent_sha == existing_sha:
+                return False
+
+            # #2871 — empty / un-started slice branch guard. When the
+            # caller recorded the fork base (the SHA the integration
+            # branch was created at) and the branch tip still equals it,
+            # the slice never received a commit. Its tip is the parent's
+            # old fork point, so it is *trivially* an ancestor of any
+            # advanced parent — but that is un-started work, not merged
+            # work. Returning True here would mark the slice COMPLETE and
+            # skip it, running dependents without their prerequisite.
+            # ``existing_sha`` and ``integration_base_sha`` both originate
+            # from ``get_remote_branch_sha`` (full 40-char SHAs), so an
+            # exact compare is correct.
+            if integration_base_sha and existing_sha == integration_base_sha:
+                logger.info(
+                    "Slice integration branch is still at its creation base "
+                    "(no slice commits) — treating as un-started, not merged (#2871)",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                    parent_branch=parent_branch,
+                    integration_base_sha=integration_base_sha,
+                )
                 return False
 
             # Both refs must be locally reachable for ``merge-base

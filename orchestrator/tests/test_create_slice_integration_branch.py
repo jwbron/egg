@@ -793,6 +793,94 @@ class TestIsSliceBranchMergedIntoParent:
             "ancestor of parent, signalling 'slice merged into parent'"
         )
 
+    def test_empty_branch_at_creation_base_is_not_merged(self, gateway_client):
+        """#2871 — the slice integration branch never received a commit:
+        its tip on origin still equals the recorded ``integration_base_sha``
+        (the parent SHA it was forked at). When the parent later advances,
+        that tip is trivially an ancestor of the new parent tip — but this
+        is *un-started* work, not merged work. The empty-branch guard must
+        return False *before* the merge-base call so the slice still runs."""
+        base_sha = "abcd1234" * 5  # parent tip at fork == empty branch tip
+        parent_sha = "ef99ef99" * 5  # parent has since advanced past the fork
+
+        merge_base_calls: list[dict] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+                # If the guard failed to short-circuit, the empty branch's
+                # base IS an ancestor of the advanced parent → would
+                # wrongly report merged.
+                return {"success": True, "data": {"returncode": 0}}
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                # Integration branch tip == base_sha (never advanced).
+                side_effect=self._setup_remotes(parent_sha, base_sha),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "issue-2777-replan",
+                "/repo",
+                integration_branch="egg/issue-2777-replan/slice-1",
+                parent_branch="egg/issue-2777-replan/work",
+                integration_base_sha=base_sha,
+            )
+
+        assert merged is False, (
+            "an empty slice branch (tip still at its creation base) is "
+            "un-started work, not merged — #2871 false-COMPLETE regression"
+        )
+        assert merge_base_calls == [], (
+            "the empty-branch guard must short-circuit before the merge-base ancestry call runs"
+        )
+
+    def test_recorded_base_does_not_block_genuinely_merged_branch(self, gateway_client):
+        """#2871 guard is additive: when the slice branch tip has moved
+        past its recorded base (it carries slice commits) and is an
+        ancestor of the parent, the merged signal still fires True. The
+        base-SHA check only suppresses the *empty* case."""
+        base_sha = "11112222" * 5  # fork base
+        existing_sha = "33334444" * 5  # slice tip with commits (!= base)
+        parent_sha = "55556666" * 5  # parent that has merged the slice
+
+        merge_base_calls: list[dict] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+                return {"success": True, "data": {"returncode": 0}}
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha, existing_sha),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+                integration_base_sha=base_sha,
+            )
+
+        assert merged is True
+        assert len(merge_base_calls) == 1
+
     def test_returns_false_when_slice_tip_diverged_from_parent(self, gateway_client):
         """Genuinely diverged history (slice has commits parent doesn't,
         or vice versa) → not merged. Caller falls through to the regular
