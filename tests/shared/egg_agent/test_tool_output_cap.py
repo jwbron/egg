@@ -58,6 +58,79 @@ class TestReadCap:
         mid = _write(tmp_path, "mid.py", 2048)
         assert check_read_output_risk({"file_path": str(mid)}, str(tmp_path)) is None
 
+    @patch.dict(os.environ, {"EGG_READ_CAP_BYTES": "0"})
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_zero_env_warns_and_falls_back_to_default(self, mock_logger, tmp_path):
+        # 0 is non-positive → invalid; fall back to the 256 KiB default and warn.
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        assert check_read_output_risk({"file_path": str(big)}, str(tmp_path)) is not None
+        small = _write(tmp_path, "small.py", 2048)
+        assert check_read_output_risk({"file_path": str(small)}, str(tmp_path)) is None
+        mock_logger.warning.assert_called()
+
+    @patch.dict(os.environ, {"EGG_READ_CAP_BYTES": "-5"})
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_negative_env_warns_and_falls_back_to_default(self, mock_logger, tmp_path):
+        small = _write(tmp_path, "small.py", 2048)
+        assert check_read_output_risk({"file_path": str(small)}, str(tmp_path)) is None
+        mock_logger.warning.assert_called()
+
+    @patch.dict(os.environ, {"EGG_READ_CAP_BYTES": "2mb"})
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_unparseable_env_warns(self, mock_logger, tmp_path):
+        # set-but-unparseable must be loud, not silently swallowed (#2876 review).
+        small = _write(tmp_path, "small.py", 2048)
+        check_read_output_risk({"file_path": str(small)}, str(tmp_path))
+        mock_logger.warning.assert_called()
+
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_unset_env_does_not_warn(self, mock_logger, tmp_path):
+        # The unset case uses the expected default — it must stay silent.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("EGG_READ_CAP_BYTES", None)
+            small = _write(tmp_path, "small.py", 1024)
+            check_read_output_risk({"file_path": str(small)}, str(tmp_path))
+        mock_logger.warning.assert_not_called()
+
+    def test_denies_oversized_limit_on_large_file(self, tmp_path):
+        # A huge limit still reads (nearly) the whole file → must be denied, not
+        # waved through on the mere presence of a limit (#2876 review item 3).
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(big), "limit": 10_000_000}, str(tmp_path))
+        assert reason is not None
+
+    def test_allows_modest_limit_on_large_file(self, tmp_path):
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        assert check_read_output_risk({"file_path": str(big), "limit": 100}, str(tmp_path)) is None
+
+    def test_non_positive_limit_treated_as_unbounded(self, tmp_path):
+        big = _write(tmp_path, "big.py", 300 * 1024)
+        assert (
+            check_read_output_risk({"file_path": str(big), "limit": 0}, str(tmp_path)) is not None
+        )
+
+    def test_pdf_deny_points_at_pages(self, tmp_path):
+        # offset/limit are line-based; for a PDF the remedy is the 'pages' param.
+        pdf = _write(tmp_path, "big.pdf", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(pdf)}, str(tmp_path))
+        assert reason is not None
+        assert "pages" in reason
+
+    def test_image_deny_does_not_suggest_line_paging(self, tmp_path):
+        png = _write(tmp_path, "big.png", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(png)}, str(tmp_path))
+        assert reason is not None
+        # offset/limit are meaningless for a binary read — must not be suggested.
+        assert "offset" not in reason and "limit" not in reason
+        assert "binary" in reason
+
+    def test_binary_limit_does_not_bypass_cap(self, tmp_path):
+        # Read returns a binary file whole, so a limit never bounds it.
+        png = _write(tmp_path, "big.png", 300 * 1024)
+        assert (
+            check_read_output_risk({"file_path": str(png), "limit": 10}, str(tmp_path)) is not None
+        )
+
 
 class TestGrepCap:
     def test_denies_unbounded_content_grep(self):
@@ -97,6 +170,9 @@ class TestGrepCap:
 
 
 class TestDispatchAndKillSwitch:
+    # Pin EGG_TOOL_OUTPUT_CAP for the cap-on dispatch cases so an ambient
+    # env that disables the cap can't make them fail spuriously (#2876 review).
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     def test_dispatch_read(self, tmp_path):
         big = _write(tmp_path, "big.py", 300 * 1024)
         assert (
@@ -104,6 +180,7 @@ class TestDispatchAndKillSwitch:
             is not None
         )
 
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     def test_dispatch_grep(self):
         assert (
             check_builtin_tool_output_risk("Grep", {"pattern": "x", "output_mode": "content"}, None)

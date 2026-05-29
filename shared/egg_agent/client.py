@@ -291,16 +291,17 @@ async def run_agent_async(
     )
 
     if not is_output_cap_disabled():
-        # Captures resolved_cwd so Read's relative file_paths resolve the same
-        # way the tool will resolve them. Returns {} (no decision) when the call
-        # is within bounds, so allowed calls fall through to the normal flow.
+        # Resolves Read's relative file_paths the same way the tool will: prefer
+        # the live cwd the SDK reports on each PreToolUse event, falling back to
+        # the launch cwd if absent. Returns {} (no decision) when the call is
+        # within bounds, so allowed calls fall through to the normal flow.
         async def _cap_builtin_tool_output(
             input_data: HookInput, tool_use_id: str | None, context: HookContext
         ) -> HookJSONOutput:
             reason = check_builtin_tool_output_risk(
                 input_data.get("tool_name", ""),
                 input_data.get("tool_input", {}) or {},
-                resolved_cwd,
+                input_data.get("cwd") or resolved_cwd,
             )
             if reason is None:
                 return {}

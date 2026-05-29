@@ -992,7 +992,7 @@ class TestBuiltinOutputCapHook:
         hooks = opts.hooks["PreToolUse"]
         return next(hm for hm in hooks if hm.matcher == matcher).hooks[0]
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_and_grep_matchers_registered_by_default(self, mock_query):
         result = _run_async(run_agent_async("test prompt"))
@@ -1012,7 +1012,7 @@ class TestBuiltinOutputCapHook:
         assert "Read" not in matchers
         assert "Grep" not in matchers
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_hook_denies_large_file(self, mock_query, tmp_path):
         big = tmp_path / "big.py"
@@ -1032,7 +1032,7 @@ class TestBuiltinOutputCapHook:
         assert decision["permissionDecision"] == "deny"
         assert "limit" in decision["permissionDecisionReason"]
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_hook_allows_small_file(self, mock_query, tmp_path):
         small = tmp_path / "small.py"
@@ -1049,7 +1049,7 @@ class TestBuiltinOutputCapHook:
         )
         assert out == {}
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_grep_hook_denies_unbounded_content_grep(self, mock_query):
         _run_async(run_agent_async("test prompt"))
