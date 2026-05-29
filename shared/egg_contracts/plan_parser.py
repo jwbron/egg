@@ -746,10 +746,10 @@ def parse_phases_from_yaml(
                     line_number=None,
                     message=(
                         f"Slice {phase_num} has unrecognized key(s) "
-                        f"{unknown_keys} — ignored by the parser. Slice "
-                        "ordering must use 'dependencies' (canonical) or "
-                        "'depends_on'; a key like 'parent_slice_id' is "
-                        "silently dropped (see #2870)."
+                        f"{unknown_keys} — ignored by the parser, so any "
+                        "data they carry (e.g. slice ordering) is silently "
+                        "dropped. Slice ordering must use 'dependencies' "
+                        "(canonical) or 'depends_on' (see #2870)."
                     ),
                     context="Allowed slice keys: " + ", ".join(sorted(_KNOWN_SLICE_KEYS)),
                 )
