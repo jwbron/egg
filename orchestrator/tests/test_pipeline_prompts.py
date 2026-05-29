@@ -2678,7 +2678,12 @@ class TestSynthesizePlanDraftNamespaced:
             "      Bootstrap\n"
             "    goal: |-\n"
             "      Stand up the new auth route\n"
-            "    parent_slice_id: null\n"
+            "  - id: 2\n"
+            "    name: |-\n"
+            "      Wire handlers\n"
+            "    goal: |-\n"
+            "      Hook the route into the dispatcher\n"
+            "    dependencies: slice-1\n"
         )
         (outputs_dir / "871-architect-slices.yaml").write_text(scaffold_yaml)
         (outputs_dir / "871-risk_analyst-output.json").write_text(
@@ -2698,7 +2703,7 @@ class TestSynthesizePlanDraftNamespaced:
         # Scaffold heading and raw YAML body (YAML falls through json.loads to raw text)
         assert "## Slice Scaffold" in content
         assert "Bootstrap" in content
-        assert "parent_slice_id: null" in content
+        assert "dependencies: slice-1" in content
         # Other agent outputs still included
         assert "Architecture analysis for issue 871" in content
         assert "Risk assessment for issue 871" in content
@@ -5884,8 +5889,11 @@ class TestPlanPhaseArchitectOwnsComposition:
         # Architect must be directed to write the scaffold at the
         # issue-prefixed path.
         assert "871-architect-slices.yaml" in prompt
-        # Scaffold schema must show parent_slice_id for forest expression.
-        assert "parent_slice_id" in prompt
+        # Scaffold must express slice ordering via the canonical
+        # ``dependencies`` key (the parser/schema key per #2779 / #2870),
+        # NOT ``parent_slice_id`` — which the parser silently drops.
+        assert "dependencies: slice-1" in prompt
+        assert "parent_slice_id" not in prompt
         # Architect must NOT enumerate tasks in the scaffold — that's
         # task_planner's role.
         scaffold_start = prompt.index("Write the slice scaffold")

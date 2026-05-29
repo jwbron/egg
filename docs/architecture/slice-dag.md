@@ -627,14 +627,14 @@ extended to teach the agents the new schema and constraints:
   declares this authority explicitly and the architect emits a binding
   `architect-slices.yaml` scaffold alongside its analysis JSON
   (`{identifier}-architect-slices.yaml` under `.egg-state/agent-outputs/`).
-  The scaffold encodes slice `id` / `name` / `goal` / `parent_slice_id`;
+  The scaffold encodes slice `id` / `name` / `goal` / `dependencies`;
   `tasks:` is intentionally omitted (that is `task_planner`'s job).
 - **Planner (`task_planner`)** — sections appended to the plan phase
   prompt:
   1. *Slice composition is NOT the planner's call* (#2809): the
      architect's `architect-slices.yaml` scaffold is binding. The
      planner copies it verbatim into the `# yaml-tasks` appendix
-     (same `id` / `name` / `goal` / `parent_slice_id`, same order) and
+     (same `id` / `name` / `goal` / `dependencies`, same order) and
      fills in `tasks:` under each slice. The planner does not
      silently re-shape slices — if a slice needs to be subdivided,
      the planner raises NACK pressure on the architect (via the
@@ -643,7 +643,8 @@ extended to teach the agents the new schema and constraints:
   2. *Forest constraint* (HARD): every slice must have ≤1 DAG parent;
      the populator hard-rejects multi-parent slices with
      `ForestValidationError`. The architect's scaffold encodes this
-     via `parent_slice_id`; the planner preserves it.
+     via a single-parent `dependencies` id (`slice-<N>`); the planner
+     preserves it.
   3. *Auto-serialization* for would-be multi-parent slices: the
      architect is responsible for serialising the upstream cluster
      and populating `serialized_chain_order` on the downstream
