@@ -92,7 +92,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/agent-outputs/{identifier}-architect-output.json` — Architectural analysis
-- `.egg-state/agent-outputs/{identifier}-architect-slices.yaml` — Binding slice scaffold (`id` / `name` / `goal` / `parent_slice_id`; no `tasks:` — that is `task_planner`'s job)
+- `.egg-state/agent-outputs/{identifier}-architect-slices.yaml` — Binding slice scaffold (`id` / `name` / `goal` / `dependencies`; no `tasks:` — that is `task_planner`'s job)
 
 **Prompt context**: Full issue body, refine analysis.
 

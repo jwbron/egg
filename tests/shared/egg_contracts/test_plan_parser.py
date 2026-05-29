@@ -1004,6 +1004,62 @@ slices:
             "'depends_on' is a bool" in w.message and "Slice 2" in w.message for w in warnings
         )
 
+    def test_parse_phases_from_yaml_warns_on_parent_slice_id(self):
+        """#2870 regression: the architect scaffold once emitted ordering
+        as ``parent_slice_id`` (a key the parser never reads), so the whole
+        slice dependency chain was silently dropped and every slice became
+        a DAG root. The parser must now surface the unrecognized key as a
+        ParseWarning so the drop is loud, not silent. The drop itself is
+        still asserted (deps stay empty) — the warning is the new net.
+        """
+        yaml_data = {
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "A",
+                    "parent_slice_id": None,
+                    "tasks": [{"id": "TASK-1-1", "description": "a", "acceptance": "ok"}],
+                },
+                {
+                    "id": 2,
+                    "name": "B",
+                    "parent_slice_id": 1,
+                    "tasks": [{"id": "TASK-2-1", "description": "b", "acceptance": "ok"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        slices = [p.to_contract_slice() for p in phases]
+        # The edge is still dropped — ``parent_slice_id`` is not a parser key.
+        assert slices[1].dependencies == []
+        # ...but it's no longer silent.
+        assert any("parent_slice_id" in w.message and "Slice 2" in w.message for w in warnings)
+
+    def test_parse_phases_from_yaml_no_warn_on_known_keys(self):
+        """The unknown-key net must not false-positive on the full set of
+        keys the parser legitimately consumes (incl. the ``depends_on``
+        alias and ``serialized_chain_order``)."""
+        yaml_data = {
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "A",
+                    "goal": "g",
+                    "exit_criteria": "done",
+                    "tasks": [{"id": "TASK-1-1", "description": "a", "acceptance": "ok"}],
+                },
+                {
+                    "id": 2,
+                    "name": "B",
+                    "depends_on": "slice-1",
+                    "serialized_chain_order": ["slice-1"],
+                    "tasks": [{"id": "TASK-2-1", "description": "b", "acceptance": "ok"}],
+                },
+            ]
+        }
+        _, warnings = parse_phases_from_yaml(yaml_data)
+        assert not any("unrecognized key" in w.message for w in warnings)
+
 
 class TestParsePhasesFromYaml:
     """Tests for parsing phases from structured YAML."""
