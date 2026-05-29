@@ -268,7 +268,8 @@ shared/
 │   ├── client.py           # run_agent(), run_agent_async()
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
-│   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
+│   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
+│   └── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls likely to overflow the 1 MB SDK buffer before they run; tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876)
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
