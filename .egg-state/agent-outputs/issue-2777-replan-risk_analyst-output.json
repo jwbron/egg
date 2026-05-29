@@ -1,0 +1,356 @@
+{
+  "issue": 2777,
+  "pipeline_id": "issue-2777-replan",
+  "phase": "plan",
+  "role": "risk_analyst",
+  "schema_version": "2",
+  "title": "Risk assessment: context-PR collapse + PR-phase deletion + slice/phase restart hardening (issue #2777 replan)",
+  "summary": "Technical-risk assessment for issue #2777 as re-scoped by decision-11 / decision-12: collapse the egg/<id>/context parallel-stack-root onto egg/<id>/work, DELETE the PR phase entirely (cq-4) with an idempotent up-front context-PR opener at the plan->implement boundary, hard-remove three PRMetadata fields and bump schemaVersion 1.1 -> 1.2 (cq-2), delete the legacy orchestrator/consensus.py ConsensusEvaluator (cq-5), drop 'umbrella' terminology (subsumes #2389; cq-6), add gh pr list idempotency to create_slice_pr (cq-8), diagnose and stop the silent rebase of egg/<id>/work onto main (#2570), and harden slice/phase restart in a second slice (cq-9 + #2409). #2792 / plan_draft_missing_on_local / _sync_worktree_with_remote / _populate_contract_from_plan* / _empty_contract_hitl_* and the three Plan*Error classes are EXPLICITLY OUT OF SCOPE per decision-11. Overall risk is HIGH because: (a) TASK-1-9's #2570 root cause lies in the OOS _sync_worktree_with_remote bare-rebase fallback (file:line evidence in R1), forcing HITL escalation; (b) cq-5 'delete ConsensusEvaluator' undercounts the call surface by two production modules (R2); (c) the cq-2 schema bump has 5 on-disk contracts that contain the removed fields plus a structural consumer (stacked_pr_reconciler.py) that the plan does not name (R3); (d) cq-4 PR-phase deletion has lock-step gateway test surface the plan does not call out (R4); (e) the plan draft's file:line citations are systematically off by 600-2000 lines on the highest-leverage primitives, which will misdirect the implement-phase coder (R5). The work is shippable in two slices as the operator selected, but reviewer_plan / architect / task_planner MUST address the blocking concerns enumerated below before plan-phase consensus.",
+  "overall_risk_level": "HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS_AND_REPLAN_TASK_1_9",
+  "recommendation_rationale": "The operator scope directive (decision-11) and slice DAG are sound. The shipping shape (slice-1 atomic, slice-2 sequential) preserves the cleanup atomicity the issue explicitly demands. The HIGH rating is driven by missed-surface findings in the existing plan draft -- not by the scope itself. Address R1 (TASK-1-9 OOS escalation gate hardened in plan, not deferred to implement), R2 (extend ConsensusEvaluator deletion to routes/phases.py + routes/signals.py), R3 (add schema migration entry + stacked_pr_reconciler rewiring task), R4 (extend test-suite rewrite list to gateway/tests/test_phase_transition.py + phase_defaults.py), R5 (architect re-pin all file:line citations against HEAD before plan-phase consensus) and the package ships safely. If R1-R5 are not addressed pre-implement-consensus, the implement-phase will surface as a cascade of expensive reviewer_code NACKs because the work targets named in the plan do not match the code that exists.",
+  "verdict_shape_for_dual_role_reviews": "ACK_or_NACK_per_proposal — see ack/nack issued via mcp__brc__ack / mcp__brc__nack when architect / task_planner propose; this artifact is the producer-side risk register, not a review of any specific proposal.",
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "TASK-1-9 (#2570 silent rebase fix) root cause lies in OOS _sync_worktree_with_remote, not _rebase_pipeline_branch_onto_base",
+      "category": "scope_collision",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "Slice-1 implement phase cannot land the #2570 fix as the plan describes without modifying an OOS primitive, forcing a HITL escalation mid-implement. Worst case the coder modifies _sync_worktree_with_remote anyway (silently violating decision-11) and triggers a contract / reviewer_plan NACK loop. Best case the HITL escalation delays slice-1 by a full operator-response cycle.",
+      "description": "The plan draft (.egg-state/drafts/issue-2777-replan-plan.md, TASK-1-9 description and AC-9a OOS-escalation gate) pins the #2570 audit on `_rebase_pipeline_branch_onto_base` at pipelines.py:6833 (sole caller pipelines.py:19873). Both line numbers are stale -- HEAD shows the function at pipelines.py:7465 with its sole production caller at pipelines.py:21446. More importantly, that helper is NOT the silent-rebase vector. The actual #2570 root cause is the bare-rebase fallback inside `_sync_worktree_with_remote` at pipelines.py:7219-7232, which the code itself documents as the '#2222 main-contamination' vector: when base_branch_for_reconcile=None, `_build_rebase_cmd` emits a plain `git rebase origin/{branch}` form that replays merge-base..HEAD on a stale tip, producing a PR full of duplicate-by-content commits. `_sync_worktree_with_remote` is on the OOS list per decision-11. The plan's AC-9a HITL escalation gate is a reasonable safety net, but the plan should not pretend the diagnosis can land safely in `_rebase_pipeline_branch_onto_base` -- the file:line audit shows TASK-1-9 will trip the gate on its first audit pass. The architect / task_planner should either (a) acknowledge in the plan that AC-9a will fire and route TASK-1-9 to an HITL by construction, (b) re-scope TASK-1-9 to a narrower fix that does not touch _sync_worktree_with_remote (e.g. add a non-rebase resume path callable from a separate, in-scope site), or (c) pull TASK-1-9 out of slice-1 entirely and ship the #2570 fix in a follow-up alongside the eventual #2792 work.",
+      "evidence_file_lines": [
+        "orchestrator/routes/pipelines.py:7219-7232 (bare-rebase fallback, comment says '#2222 contamination risk')",
+        "orchestrator/routes/pipelines.py:7465 (actual location of _rebase_pipeline_branch_onto_base; plan says 6833)",
+        "orchestrator/routes/pipelines.py:21446 (actual sole production caller; plan says 19873)",
+        "orchestrator/routes/pipelines.py:6926 (_sync_worktree_with_remote definition; OOS per decision-11)",
+        ".egg-state/drafts/issue-2777-replan-plan.md TASK-1-9 description (cites wrong file:line for both the function and its caller)"
+      ],
+      "mitigation": "BEFORE plan-phase consensus the architect / task_planner must EITHER pull TASK-1-9 out of slice-1 entirely (ship #2570 separately, possibly co-scheduled with #2792) OR explicitly state in TASK-1-9's description that AC-9a will fire by construction and the task's expected resolution is the HITL path (option (3) 'mark #2570 as xfail and open a follow-up issue'). Silent reliance on the AC-9a gate firing at implement time is unfair to the implement-phase coder. If the operator wants the #2570 fix in this pipeline, register an explicit HITL during plan phase asking whether to expand scope to include _sync_worktree_with_remote (overriding decision-11) for the rebase-fallback fix only.",
+      "rollback": "If discovered mid-implement, mark TASK-1-9 complete with a 'deferred to follow-up #<new-issue>' note and ship slice-1 without the #2570 fix. The PR phase deletion and context-PR collapse do not depend on #2570; #2570 is a parallel-but-independent regression.",
+      "flag_for_human_review": true
+    },
+    {
+      "id": "R2",
+      "title": "TASK-1-6 (delete ConsensusEvaluator) undercounts production call surface by two modules",
+      "category": "completeness",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "If the coder follows TASK-1-6 verbatim and only deletes the five clusters in pipelines.py, the import at routes/phases.py:119-124 and routes/signals.py:847-871 will fail at runtime as soon as `complete_phase` or a `READY` heartbeat signal arrives. Pipeline blocked. Reviewer_code NACK once the test suite is run.",
+      "description": "Plan TASK-1-6 enumerates 5 reference clusters in orchestrator/routes/pipelines.py (lines 1805-1808, 2844-2848, 3274-3279, 4206-4210, 4215-4219; HEAD line numbers are 1813-1816, 2859-2863, 3289-3294, 3516-3522, 4489-4502 — slight drift, recoverable). It claims `grep -rn` verified 'no other module imports from it'. HEAD audit shows TWO additional production callers: (a) orchestrator/routes/phases.py:119-124 — `complete_phase` route also imports + calls `get_consensus_evaluator().clear(pipeline_id)`; (b) orchestrator/routes/signals.py:847-871 — `READY` heartbeat handler imports + calls `get_consensus_evaluator()` for the ReadinessState transition. Both will break at import time once orchestrator/consensus.py is deleted. The plan's grep claim is wrong -- either the architect grepped against a stale checkout or interpreted `peer_consensus.py:1604` (the compatibility-alias method `ConsensusEvaluator.evaluate()`) as 'a reference but kept' without noting the two route-handler clusters.",
+      "evidence_file_lines": [
+        "orchestrator/routes/phases.py:119-124 (import + evaluator.clear() call in complete_phase route handler)",
+        "orchestrator/routes/signals.py:847-871 (import + evaluator handle in READY signal handler)",
+        "orchestrator/consensus.py:38 (ConsensusEvaluator class — delete target)",
+        ".egg-state/drafts/issue-2777-replan-plan.md TASK-1-6 description (claims 5-cluster surface complete)"
+      ],
+      "mitigation": "Extend TASK-1-6's description and files_affected to include orchestrator/routes/phases.py and orchestrator/routes/signals.py. Re-run the verification grep with the wider scope BEFORE plan-phase consensus and commit the after-grep to the plan. The plan already mandates 'commit the after-grep output in the commit message' -- enforce this with a reviewer-checkable acceptance criterion that lists the 7 clusters (5 in pipelines.py + 1 in phases.py + 1 in signals.py) and the alias method in peer_consensus.py:1604 as the only surviving reference (which itself is dead-code post-deletion and should also be removed in the same task or flagged with a follow-up).",
+      "rollback": "Restore orchestrator/consensus.py from git history; re-add the deleted clusters. Single revert commit; no schema or persisted-state impact.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "TASK-1-5 (PRMetadata v1.2 hard-remove) does not address (a) 5 on-disk contracts containing the removed fields, (b) structural consumer in stacked_pr_reconciler.py, (c) 4 read sites still in pipelines.py outside the cited delete-task scope",
+      "category": "schema_migration",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "(a) Pipelines bootstrapped from one of the 5 on-disk contract fixtures fail to load with ValidationError; if any of these contracts are operator artifacts (not test fixtures), data loss / pipeline-abort. (b) stacked_pr_reconciler.py's cascade-base fallback at line 247 silently breaks for sliced pipelines whose cascade reaches an orphaned slice -- the cascade returns wrong base, the slice PR opens against main instead of the integration branch, the PR is unmergeable. (c) The plan's `grep -rn` claim that all read sites are in TASK-1-2 / TASK-1-7 deletion scope is false: pipelines.py also reads context_branch at :10801, :10804, :10844, :11519-11542, :16755, :16781, :20193 and context_title/context_description at :11096-11097. If TASK-1-2 deletes only the named function bodies (`_open_context_pr_for_pipeline`, `_lookup_existing_context_pr`, etc.) without grep-driven sweep, these read sites become AttributeError at runtime.",
+      "description": "Plan TASK-1-5 (`shared/egg_contracts/models.py` field removal + schema bump) and feedback Q5 ('no in-flight pipelines') together rest on the premise that hard-remove is safe. Reality at HEAD: `.egg-state/contracts/issue-2777-replan.json`, `issue-2769.json`, `issue-2548.json`, `issue-2474.json`, `issue-1557-v2.json` ALL contain `context_branch` / `context_title` / `context_description`. Pydantic with `extra='forbid'` rejects these on load. Even if these are 'old / not in-flight', any tooling that loads them (BRC history readers, replay tests, this very pipeline's contract loader) will fail. Separately, `orchestrator/stacked_pr_reconciler.py:94, 112, 120, 129, 150, 157-158, 247, 275, 283` is a STRUCTURAL consumer of `context_branch` — it threads the value through cascade-fallback so a slice whose parent_branch_at_creation is empty can still resolve. Deleting the field without rewiring stacked_pr_reconciler.py removes the cascade-fallback safety net cq-9 explicitly tried to keep. Finally, `_persist_context_pr_linkage_on_contract` (pipelines.py:9791) writes the field, but multiple READERS (cited above) outside the TASK-1-2 / TASK-1-7 deletion scope will become dangling AttributeError after schema removal.",
+      "evidence_file_lines": [
+        "shared/egg_contracts/models.py:467-530 (PRMetadata field definitions)",
+        "shared/egg_contracts/models.py:762-773 (schemaVersion constant)",
+        "orchestrator/stacked_pr_reconciler.py:94, 112, 120, 129, 150, 157-158, 247, 275, 283 (structural cascade-base consumer of context_branch)",
+        "orchestrator/routes/pipelines.py:10801, 10804, 10844, 11519-11542, 16755, 16781, 20193 (additional read sites of context_branch outside the cited delete-task scope)",
+        ".egg-state/contracts/issue-2777-replan.json + 4 sibling on-disk contracts containing the removed fields"
+      ],
+      "mitigation": "Add three concrete changes to slice-1 before plan-phase consensus: (1) extend TASK-1-5 to include a `_migrate_schema_version_to_1_2` entry that DROPS the three fields on load rather than rejecting them — same shape as the existing `_migrate_schema_version_to_1_1` mechanism; (2) add a new task (TASK-1-5b) owned by `coder` to rewire `orchestrator/stacked_pr_reconciler.py`'s cascade-base resolution to read from `context_pr_number` + the new `_resolve_slice_base_branch` (from TASK-1-13) instead of `context_branch`; (3) extend TASK-1-2's `files_affected` and `grep -rn` verification scope to cover the additional read sites at pipelines.py:10801, 10804, 10844, 11519-11542, 16755, 16781, 20193 and the context_title/context_description reads at 11096-11097, OR explicitly defer these to a separate slice-1 task. The plan currently scopes TASK-1-2 to only the named function bodies; the surviving read sites outside those function bodies need explicit allocation to a task.",
+      "rollback": "Schema migration is reversible by emitting a `_migrate_schema_version_to_1_3` (no-op restore) and re-adding the field defaults. The on-disk contract problem is harder if pipelines have already been started on v1.2 — those contracts will not have the fields and re-introducing them as required would re-break them. Treat the migration entry as the load-bearing safety net.",
+      "flag_for_human_review": true
+    },
+    {
+      "id": "R4",
+      "title": "TASK-1-3 (delete PR phase) lock-step test/code surface is wider than the plan enumerates — missed sites include phase_defaults.py, gateway test_phase_transition.py, contract JSON schema",
+      "category": "completeness",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Deploying with PR phase removed from `PipelinePhase` StrEnum but with `shared/egg_contracts/phase_defaults.py:105` still listing PR and `gateway/tests/test_phase_transition.py:156, 161, 279-302, 320, 324, 342` still asserting `IMPLEMENT -> PR` causes the gateway state machine to fail at startup (KeyError on phase lookup) and ~14 tests to break under `make test`. Implement-phase NACK loop until each missed site is patched.",
+      "description": "TASK-1-3 enumerates 10 site-categories for PR phase deletion (~9 in orchestrator + 1 gateway). HEAD audit finds additional sites the plan does NOT list: (a) `shared/egg_contracts/phase_defaults.py:105` — `PhaseConfig` entry for PR; downstream callers iterate this dict and KeyError if a phase is removed from the StrEnum but kept in defaults (or vice versa). (b) `gateway/tests/test_phase_transition.py:156, 161, 279-302, 320, 324, 342` — asserts `len(VALID_TRANSITIONS[PipelinePhase.PR]) == 0` and `IMPLEMENT -> PR` is the only outbound transition. None of these are in TASK-1-15a's enumerated rewrite list (the plan delegates them to 'TASK-1-15a (gateway PR-phase tests)' but TASK-1-15a's `files_affected` lists 4 gateway test files and test_phase_transition.py specifically is NOT in that list per the contract). (c) `gateway/tests/test_session_manager.py:1127, 1170` and `gateway/tests/test_gateway.py:4371` exercise the namesake-namespace `phase='pr'` session-registration path — these MUST be PRESERVED (the namespace string survives even after `PipelinePhase.PR` is gone), but TASK-1-3's blanket `rg 'phase=.pr.'` grep verification would flag them as remaining hits and confuse the implementer. (d) The plan's TASK-1-3 description cites `gateway_client.py:2567` as a namesake carve-out site; HEAD shows line 2567 is `'pr',` inside a `gh pr list` CLI args list, NOT a `phase='pr'` session-namespace string. The actual session-namespace string lives at gateway_client.py:1441. The carve-out enumeration is partially wrong. (e) `.egg/schemas/yaml-tasks.schema.json` and `tests/test_yaml_tasks_schema.py:196-237` reference the schema; lock-step update required.",
+      "evidence_file_lines": [
+        "shared/egg_contracts/phase_defaults.py:105 (PR PhaseConfig entry — missed by plan)",
+        "gateway/tests/test_phase_transition.py:156, 161, 279-302, 320, 324, 342 (asserts IMPLEMENT->PR and PR terminal — not in TASK-1-15a's files_affected)",
+        "gateway/tests/test_session_manager.py:1127, 1170 (namesake-namespace tests — PRESERVE post-deletion)",
+        "gateway/tests/test_gateway.py:4371 (namesake-namespace — PRESERVE)",
+        "orchestrator/gateway_client.py:1441 (correct namesake carve-out site; plan says :2567 which is wrong)",
+        ".egg/schemas/yaml-tasks.schema.json (schema file references — lock-step update)"
+      ],
+      "mitigation": "Pre-consensus, the architect/task_planner should: (1) add `shared/egg_contracts/phase_defaults.py` to TASK-1-3's files_affected with a specific bullet about removing the PR row; (2) extend TASK-1-15a's files_affected to include `gateway/tests/test_phase_transition.py` and add an explicit acceptance criterion about the `IMPLEMENT -> []` terminal assertion replacing `IMPLEMENT -> [PR]`; (3) re-state the namesake-namespace carve-out with the CORRECT file:line (`gateway_client.py:1441` is the session-registration; `:2567` is the `gh pr list` CLI flag and is unrelated); (4) add an explicit acceptance criterion that the namesake-namespace tests at `test_session_manager.py:1127, 1170` and `test_gateway.py:4371` are NOT deleted; (5) add the JSON schema file to the lock-step update list.",
+      "rollback": "PR phase re-introduction would require restoring StrEnum + phase_defaults + phase_transition rows + tests. Reversible but with churn; once shipped, in-flight slice pipelines on v1.2 contracts would not have a PR phase to restart into. Recommend operator confirm pre-deploy quiescence (also relevant for R3).",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Plan draft file:line citations are systematically stale by 600-2000 lines on the highest-leverage primitives",
+      "category": "plan_quality",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "An implement-phase coder following the plan's file:line citations literally will misread context, look at the wrong code, and either (a) edit the wrong site, (b) NACK back to plan-phase for re-pin, or (c) silently work around the discrepancy without flagging it. This is a high-likelihood vector for reviewer_code NACKs and implement-phase wall-clock burn — exactly the failure class #2474 identified as expensive.",
+      "description": "Spot-check of plan's file:line citations vs HEAD: (a) `_rebase_pipeline_branch_onto_base` plan says pipelines.py:6833 — HEAD is :7465 (off by 632 lines); (b) `_rebase_pipeline_branch_onto_base` sole caller plan says pipelines.py:19873 — HEAD is :21446 (off by 1573 lines); (c) `umbrella_has_program_block` plan says pipelines.py:15615/15620 — HEAD has the symbol moved to ~:16998/17003 (off by ~1383 lines); (d) ConsensusEvaluator clusters plan says pipelines.py:1805-1808, 2844-2848, 3274-3279, 4206-4210, 4215-4219 — HEAD has 1813-1816, 2859-2863, 3289-3294, 3516-3522, 4489-4502 (off by 7-300 lines per cluster). The plan was clearly authored against a checkout that has since drifted (likely the prior pipeline run). The orchestrator/routes/pipelines.py file is 23k+ lines and changes frequently; line-number drift is the dominant failure mode for plans against this file.",
+      "evidence_file_lines": [
+        "orchestrator/routes/pipelines.py:7465 vs plan :6833 (_rebase_pipeline_branch_onto_base)",
+        "orchestrator/routes/pipelines.py:21446 vs plan :19873 (caller)",
+        "orchestrator/routes/pipelines.py:1813, 2859, 3289, 3516, 4489 vs plan 1805, 2844, 3274, 4206, 4215 (ConsensusEvaluator clusters)"
+      ],
+      "mitigation": "Architect / task_planner should re-pin EVERY file:line citation against HEAD before plan-phase consensus. The cheapest mechanism is a single grep pass per primitive name; the architect's plan should commit the grep output verbatim so reviewer_plan can re-run it. Prefer symbol-name + adjacent-text anchors over line numbers (e.g. `_rebase_pipeline_branch_onto_base` + 'rebases stale origin/<pipeline_branch>') so the plan remains durable across HEAD drift between plan-phase consensus and implement-phase start.",
+      "rollback": "None needed — this is a plan-quality risk, not a code risk. Re-pin happens in-cycle.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "_check_post_consensus_stall (#1911) readiness predicate semantics change when rewired from phases['pr'].artifacts['pr_url'] to contract.pr.context_pr_number",
+      "category": "runtime_semantics",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Today the post-consensus-stall short-circuit at orchestrator/overseer/monitor.py:1122-1160 reads phases['pr'].artifacts['pr_url'] — which is set ONLY after the PR phase opens the PR. The readiness signal cleanly distinguishes 'implement done, PR not yet attempted' from 'implement done, PR opened'. After cq-4's PR-phase deletion the context PR opens at the plan->implement boundary, so context_pr_number is set throughout the implement phase. If the monitor re-points blindly at context_pr_number, it will always see a PR URL during implement, suppressing real stall alerts (the very signal #1911 wired the short-circuit for). The semantic differs subtly: 'PR exists' no longer means 'PR-phase complete'.",
+      "description": "TASK-1-3 (4) rewires `_get_pr_url_from_pipeline` from `phases['pr'].artifacts['pr_url']` to `contract.pr.context_pr_number`. The plan does not address the analogous rewire for `_check_post_consensus_stall` at monitor.py:1122-1160, which is a getattr chain on `phases.get('pr')` and provides a stall-detection short-circuit per #1911. The semantic distinction matters: the OLD predicate (PR phase has run and recorded artifacts) is a strict superset of the NEW predicate (context PR exists), so blanket replacement weakens the stall signal. Either: (a) keep the monitor reading the PR-phase artifacts and let the rewrite remove that phase first, breaking the monitor; (b) re-derive the 'PR-phase completed' equivalent (perhaps 'all slices closed AND context_pr_number set') as the new predicate.",
+      "evidence_file_lines": [
+        "orchestrator/overseer/monitor.py:1122-1160 (post-consensus-stall short-circuit)",
+        "orchestrator/overseer/monitor.py:481, 1168-1180, 1707-1741 (the wider _check_pr_phase_outcome surface TASK-1-3 (8) marks for deletion)",
+        ".egg-state/drafts/issue-2777-replan-plan.md TASK-1-3 (4) (rewires _get_pr_url_from_pipeline but not the monitor short-circuit)"
+      ],
+      "mitigation": "Add an explicit task or extend TASK-1-3 (8) to redesign `_check_post_consensus_stall` for the post-PR-phase world. The semantic question is whether stall detection should fire on 'implement complete + context PR set + no further consensus activity' — if yes, the new predicate needs a wall-clock condition (no consensus events in the last N seconds) since context_pr_number alone is set throughout. Or: delete the short-circuit entirely if the underlying stall signal is now unreachable.",
+      "rollback": "Re-introduce the PR phase or restore the short-circuit short-handed at the next deploy. Behavioural-only risk; no data corruption.",
+      "flag_for_human_review": true
+    },
+    {
+      "id": "R7",
+      "title": "_CONTEXT_BRANCH_RE deletion leaves dangling is_context_push variable references at gateway.py:1349, 1363, 1376, 1392 — mechanical cleanup not in TASK-1-4 acceptance criteria",
+      "category": "completeness",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "Lint failure / NameError on gateway startup if the variable is referenced after the regex is deleted; or trivially-wrong audit-log tagging if the variable defaults to False everywhere. Caught by `make lint` quickly. Trivial fix, but not in the plan's acceptance.",
+      "description": "TASK-1-4 deletes `_CONTEXT_BRANCH_RE` from gateway.py:1112 and the regex references at :1350 and :1362. HEAD shows the regex is used to build `is_context_push` (gateway.py:1349, 1351, 1363) which is then referenced at :1376 and :1392 for audit-log tagging. Removing the regex alone leaves `is_context_push` referenced-but-undefined, OR the regex-removal collapses to `is_context_push = False` everywhere, silently broadening the audit-log path. The plan's acceptance criteria do not mention the audit-log variable or the four references beyond :1350/:1362.",
+      "evidence_file_lines": [
+        "gateway/gateway.py:1113 (regex definition — delete target)",
+        "gateway/gateway.py:1344-1392 (full is_context_push usage block)"
+      ],
+      "mitigation": "Extend TASK-1-4 description to explicitly remove `is_context_push` and the four downstream audit-log references; add an acceptance criterion that the post-deletion file passes `make lint` cleanly.",
+      "rollback": "Trivial revert; pre-commit hooks catch the lint failure before deploy.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Per-slice consensus tracker reconstruction in startup_reconciliation (slice-2 TASK-2-5) interacts with restart_phase per-slice tracker iteration (TASK-2-1) — ordering and shared-key correctness",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "If TASK-2-1 (restart_phase per-slice tracker clear) lands without TASK-2-5 (startup_reconciliation per-slice reconstruction), a restart-then-bootstrap sequence sees missing trackers and may either re-spawn agents (defeating the cleanup goal) or block on stale state. If TASK-2-5 reconstructs trackers using a different `_tracker_key` shape than TASK-2-1 clears, the two writers reach inconsistent keys and the bootstrap pulls a 'phantom' tracker the run loop ignores.",
+      "description": "peer_consensus.py:1844 `_tracker_key(pipeline_id, slice_id)` returns `f'{pipeline_id}/{slice_id}'` when slice_id is set, else bare `pipeline_id`. Today restart_phase clears only the pipeline-level key (pipelines.py:3289). startup_reconciliation reconstructs only the pipeline-level tracker (startup_reconciliation.py:308-376; the gap is acknowledged in comments at :333-341 and :347-357). Slice-2 fixes both. The risk: tasks 2-1 and 2-5 must agree on the key format AND on the slice-id source of truth (contract.slices[].id). The plan's slice-2 tasks describe both but the per-slice tracker-key construction is not shown verbatim — the implement-phase coder may infer the wrong shape (e.g. `_tracker_key(pipeline_id, slice.id)` vs `_tracker_key(pipeline_id, str(slice.id))`).",
+      "evidence_file_lines": [
+        "orchestrator/peer_consensus.py:1844-1900 (_tracker_key + call sites)",
+        "orchestrator/routes/pipelines.py:3289-3294 (restart_phase consensus-clear — pipeline-level only today)",
+        "orchestrator/startup_reconciliation.py:308-376 (reconstruction loop — pipeline-level only today)"
+      ],
+      "mitigation": "Pin the per-slice tracker key shape in the plan's slice-2 primitives table verbatim (`_tracker_key(pipeline_id, slice.id)` where `slice.id` is the contract.slices[].id string). Make TASK-2-1 and TASK-2-5 cross-reference each other in their `depends_on` block so the implement-phase scheduler runs them in the same change set; or merge them into a single task so they cannot land separately.",
+      "rollback": "Revert the slice-2 changes; restart_phase returns to pipeline-level clear, reconciliation returns to pipeline-level reconstruction. No persisted-state damage.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "_persist_context_pr_linkage_on_contract deletion leaves no documented writer of contract.pr.context_pr_number; TASK-1-1 must explicitly state the new writer",
+      "category": "completeness",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "If TASK-1-1's `_open_context_pr_at_implement_start` is the only writer of `context_pr_number` post-deletion but does not actually persist (e.g. forgets to call the contract-writer plumbing or writes only to local state), downstream consumers (`_get_pr_url_from_pipeline`, the new monitor predicate, MCP tools) see None and the pipeline's PR linkage is broken.",
+      "description": "TASK-1-2 deletes `_persist_context_pr_linkage_on_contract` (currently the persistence path for both `context_branch` and `context_pr_number` at pipelines.py:9791-9839). TASK-1-1 says it persists `pr_number` to `contract.pr.context_pr_number` but does not name the persistence helper used. The plan should pin the persistence call (e.g. via the existing `update_contract` helper) so the new opener's persistence semantics match what the deleted function provided.",
+      "evidence_file_lines": [
+        "orchestrator/routes/pipelines.py:9791 (_persist_context_pr_linkage_on_contract definition — delete target)",
+        "orchestrator/routes/pipelines.py:9839 (context_branch write site inside the persistence helper)",
+        ".egg-state/drafts/issue-2777-replan-plan.md TASK-1-1 (states 'persist pr_number to contract.pr.context_pr_number' without naming the helper)"
+      ],
+      "mitigation": "Add to TASK-1-1's description: 'persist via the existing `update_contract` helper at <file:line>' OR introduce a small extracted `_persist_context_pr_number(contract, pr_number)` helper that TASK-1-1's opener calls. Add an explicit acceptance criterion that the unit test for the idempotent path verifies the persistence write.",
+      "rollback": "Trivial — the only consumer that breaks is the URL helper; restoring the persistence call is a one-line fix.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "feedback Q3 'collapse 9 ImportError shims to canonical imports' assumes the shims are dead — they may be live for test-harness path-mangling",
+      "category": "test_harness_compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "If the dual-path shims are kept for test isolation (e.g. some tests sys.path-mangle to import the orchestrator as a top-level module without the package prefix), collapsing them to `from orchestrator.X import Y` breaks those tests with ImportError. Recoverable, but appears as a wide test failure under `make test` until traced.",
+      "description": "9 sites use the pattern `try: from X import Y; except ImportError: from ..X import Y`. The feedback Q3 resolution chose 'collapse to canonical `from orchestrator.X import Y` imports'. The 9 sites are at pipelines.py:15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034, 16209 — many of these are inside `_run_implement_phase_slices` and its helpers. The pattern exists because some test harnesses or container entrypoints add `orchestrator/` directly to sys.path (so `from orchestrator.X import Y` fails); the dual-path shim catches the ImportError and falls back. The plan says 'verify by running the full suite after collapse' which is the right mitigation but should be paired with a roll-back plan if the suite reveals harness brittleness.",
+      "evidence_file_lines": [
+        "orchestrator/routes/pipelines.py:15045, 15050, 15147, 15154, 15161, 15875, 16026, 16034, 16209 (the 9 shims)"
+      ],
+      "mitigation": "Make the collapse a separate sub-task with explicit rollback: if `make test-all` shows ImportError failures after the collapse, restore the shims and document the harness coupling in a follow-up issue rather than blocking slice-1.",
+      "rollback": "Restore the 9 shims; cheap.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "BLE001 handler audit (feedback Q2) — 20 sites — risk that the audit lands on bare `except Exception` replacements that are equivalent to the BLE001 pattern but uglier",
+      "category": "quality",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Aesthetic / churn — if the audit produces no real exception-narrowing the plan's stated value (specificity) is unrealized; reviewer_code may NACK the audit if the replacements don't materially constrain error handling.",
+      "description": "Plan feedback-1 Q2 chose 'Audit individually and replace with specific exception types where the failure mode is knowable; leave the rest with deliberate comments explaining what each catches and why.' The 20 sites are all in the slice run loop. The risk is that many of these sites catch errors from `gh` / git / network operations whose exception surface is broad and ill-typed; the audit may struggle to narrow them and end up with `except Exception` + a comment, which is what `# noqa: BLE001` already accomplishes with less ceremony.",
+      "evidence_file_lines": [
+        "orchestrator/routes/pipelines.py:15131, 15196, 15274, 15336, 15386, 15422, 15451, 15471, 15501, 15709, 15742, 15775, 15795, 15841, 15901, 15910, 15946, 15964, 16080, 16105 (the 20 sites)"
+      ],
+      "mitigation": "Add an explicit acceptance criterion that the BLE001 audit produces at least N narrowing replacements (e.g. N=8) plus typed-comment retention for the rest. If the implement-phase coder cannot meet the bar, NACK back and either narrow the goal or defer Q2 to a follow-up.",
+      "rollback": "Restore # noqa: BLE001 markers; cheap.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "Two slices land sequentially but slice-1 size (~1600-line plan draft, 24 tasks, ~8 files touched in the largest task) may exceed the implement-phase BRC consensus appetite",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "If slice-1 is too large to land in a single implement-phase consensus cycle, the slice may bounce through reviewer_code NACK -> coder re-propose loops, eating wall-clock. Per the orchestrator's max_cycles=3 default, three NACK cycles forces an HITL escalation. The cleanup is structurally atomic (schema bump + PR-phase removal + scaffold delete all live-or-die together), so splitting mid-stream is not safe.",
+      "description": "Slice-1 has 24 tasks, touches at least 8 distinct production files (pipelines.py, phases.py, mcp_tools.py, monitor.py, dag_visualizer.py, models.py, phase_filter.py, phase_transition.py — that's just TASK-1-3), plus 4 gateway test files, plus ~400 LOC of new code (opener + validator + helpers + tests). Aggregate diff size likely 1500-2000 lines on a single PR. Per the operator's choice (cq-1 selected 2-slice sequential), this is the chosen size — but the implement-phase BRC has a fixed appetite for review surface, and the schema bump (TASK-1-5) is structurally atomic with the field-deletion fan-out (TASK-1-2, TASK-1-7). The whole thing must land in one consensus cycle or none. Mitigation has to be at the review-pacing layer, not at the slice-decomposition layer.",
+      "evidence_file_lines": [
+        ".egg-state/contracts/issue-2777-replan.json (slice-1 has 24 tasks)",
+        "orchestrator/routes/pipelines.py (target file is 23k+ lines; TASK-1-2 alone deletes ~1300 lines)"
+      ],
+      "mitigation": "Add to the plan's manual_steps: 'Pre-implement: confirm with operator that BRC review cycle budget for slice-1 is set to 5+ (not the default 3) given the surface area.' Or: chain-of-trust on the architect's recommended deletion order (TASK-1-1 -> TASK-1-1a -> TASK-1-13 -> TASK-1-2 -> ...) so each deletion task lands its own commit and the BRC can split review across logical sub-units. The current task ordering already does this; mention it explicitly in the test_plan so reviewer_plan knows to evaluate as a series of stacked deletions, not one mega-PR.",
+      "rollback": "If slice-1 escalates to HITL after 3 NACK cycles, the operator can split it into A-only and D-only follow-ups; the scaffold can land first, the dead-code purge follows. The schema bump is the only piece that cannot trivially split — keep it with the scaffold deletion.",
+      "flag_for_human_review": false
+    },
+    {
+      "id": "R13",
+      "title": "Integration test in TASK-1-16 requires fixtures only available under integration_tests/local_pipeline/ — this is correctly flagged in the plan, but the architect/task_planner should re-confirm the gateway_url + orchestrator_url fixtures still exist at expected paths",
+      "category": "runtime_primitive_2594",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "If the architect/task_planner write TASK-1-16's integration test against fixtures the implement-phase coder cannot inject, the test cannot run and slice-1 cannot satisfy AC-16. Per #2594, this is exactly the runtime-primitive mismatch class to call out.",
+      "description": "The plan's analysis explicitly cites the trust-boundary issue per #2594: 'integration_tests/local_pipeline/conftest.py:261 (kubectl-gated via local_pipeline_stack)' is the only source of pytest fixtures `gateway_url` and `orchestrator_url`. The plan correctly mandates TASK-1-16 lives under `integration_tests/local_pipeline/`. The residual risk: if the architect doesn't carry that constraint into the plan's `files_affected` for TASK-1-16, or if the conftest signature has drifted since the analysis was written, the coder may write the test in the wrong directory.",
+      "evidence_file_lines": [
+        "integration_tests/local_pipeline/conftest.py:261 (asserted by analysis; verify at HEAD)",
+        "integration_tests/conftest.py:78 (gateway_url as EggStack attribute, NOT a fixture)"
+      ],
+      "mitigation": "Confirm at HEAD that the named fixtures still exist at the cited path. If they have moved, re-pin in the plan. Cheap check.",
+      "rollback": "Move the test file path if mis-located; trivial.",
+      "flag_for_human_review": false
+    }
+  ],
+
+  "top_3_risks": [
+    "R1: TASK-1-9 (#2570) root cause lies in OOS _sync_worktree_with_remote — HITL inevitable unless re-scoped (HIGH severity, HIGH likelihood)",
+    "R3: TASK-1-5 schema bump misses 5 on-disk contracts + stacked_pr_reconciler.py cascade-base consumer + 7 additional read sites outside TASK-1-2/1-7 scope (HIGH severity, HIGH likelihood)",
+    "R2: TASK-1-6 ConsensusEvaluator deletion misses routes/phases.py + routes/signals.py production callers — runtime ImportError post-deploy (HIGH severity, CERTAIN likelihood)"
+  ],
+
+  "areas_requiring_human_review": [
+    {
+      "area": "TASK-1-9 (#2570) scope vs decision-11 (OOS)",
+      "rationale": "The diagnosed root cause lies in an OOS primitive. Operator must choose: extend scope, defer #2570, or accept the AC-9a HITL gate firing.",
+      "register_hitl_if_unresolved_at_plan_consensus": true
+    },
+    {
+      "area": "Schema migration shape (cq-2) vs in-repo .egg-state/contracts/*.json fixtures",
+      "rationale": "Hard-remove without a migration entry will break load of 5 on-disk contracts. Operator may want either a soft-rejection mode or an explicit migration shim. The Q5 'no in-flight pipelines' answer applies to live pipelines; on-disk fixtures are a separate concern.",
+      "register_hitl_if_unresolved_at_plan_consensus": false
+    },
+    {
+      "area": "_check_post_consensus_stall (#1911) predicate semantics post-PR-phase-deletion",
+      "rationale": "The PR-phase deletion silently changes a load-bearing stall-detection signal. Operator may want explicit confirmation that the new predicate (or its removal) preserves the failure-detection contract #1911 created."
+    }
+  ],
+
+  "runtime_primitive_audit_per_2594": {
+    "in_scope_primitives_verified_at_head": [
+      {
+        "name": "_open_context_pr_at_implement_start (NEW)",
+        "creator": "TASK-1-1",
+        "execution_context": "orchestrator pod, host-side Python",
+        "trust_boundary": "trusted-CI; calls GatewayClient.create_pr which crosses into gateway service via authenticated session",
+        "risk_per_2594": "LOW — new primitive; design controls trust boundary"
+      },
+      {
+        "name": "_open_context_pr_for_pipeline (DELETE target)",
+        "location": "orchestrator/routes/pipelines.py:10002",
+        "execution_context": "orchestrator pod, host-side Python",
+        "trust_boundary": "trusted-CI",
+        "risk_per_2594": "MEDIUM — 21 silent return None paths confirmed; deletion is large and the new replacement (TASK-1-1) must cover every observable behavior of the 21 paths. Mitigation: TASK-1-15 verifies hard-required propagation."
+      },
+      {
+        "name": "_sync_worktree_with_remote (OOS but adjacent)",
+        "location": "orchestrator/routes/pipelines.py:6926",
+        "execution_context": "orchestrator pod",
+        "trust_boundary": "trusted-CI",
+        "risk_per_2594": "HIGH — bare-rebase fallback at :7219-7232 documents itself as the '#2222 contamination' vector that #2570 is reporting. OOS per decision-11. See R1."
+      },
+      {
+        "name": "_rebase_pipeline_branch_onto_base (in scope per plan, but mis-cited)",
+        "location": "orchestrator/routes/pipelines.py:7465 (plan says :6833 — OFF BY 632 LINES)",
+        "execution_context": "orchestrator pod",
+        "trust_boundary": "trusted-CI",
+        "risk_per_2594": "MEDIUM — verified at HEAD; sole production caller at :21446 (plan says :19873). NOT the actual #2570 vector — see R1."
+      },
+      {
+        "name": "PRMetadata fields (DELETE: context_branch, context_title, context_description)",
+        "location": "shared/egg_contracts/models.py:467-530",
+        "execution_context": "all pods that load contracts (orchestrator, gateway, sandbox-agent contract reads)",
+        "trust_boundary": "spans all pods — schema is a cross-pod contract",
+        "risk_per_2594": "HIGH — deletion fans out across all three execution contexts; readers must be located across all pods. See R3."
+      },
+      {
+        "name": "ConsensusEvaluator (DELETE module)",
+        "location": "orchestrator/consensus.py:38",
+        "execution_context": "orchestrator pod only",
+        "trust_boundary": "trusted-CI",
+        "risk_per_2594": "HIGH — call surface undercounted by plan; 2 production modules + ~17 tests missed. See R2."
+      },
+      {
+        "name": "_tracker_key per-slice consensus tracker keying",
+        "location": "orchestrator/peer_consensus.py:1844",
+        "execution_context": "orchestrator pod",
+        "trust_boundary": "trusted-CI",
+        "risk_per_2594": "LOW — key shape verified at HEAD: returns f'{pipeline_id}/{slice_id}' when slice_id is set; bare pipeline_id otherwise."
+      },
+      {
+        "name": "_CONTEXT_BRANCH_RE (DELETE)",
+        "location": "gateway/gateway.py:1113",
+        "execution_context": "gateway service pod",
+        "trust_boundary": "gateway is the trust border with the agent — must not silently broaden push-allow surface",
+        "risk_per_2594": "LOW — confirmed deletion is safe (work branch is on session push-allow list); but adjacent variable is_context_push needs cleanup (R7)."
+      }
+    ],
+    "out_of_scope_primitives_per_decision_11": [
+      "_sync_worktree_with_remote (orchestrator/routes/pipelines.py:6926)",
+      "_populate_contract_from_plan (pipelines.py:18408)",
+      "_populate_contract_from_plan_safe (pipelines.py:18535) — verify line at HEAD",
+      "_empty_contract_hitl_question (pipelines.py:18202)",
+      "_empty_contract_hitl_reason (pipelines.py:18287)",
+      "_emit_empty_contract_hitl (pipelines.py:14176)",
+      "PlanDraftMissingOnLocalError (pipelines.py:17987)",
+      "PlanDraftMissingOnLocalAndOriginError (pipelines.py:18000)",
+      "PopulateProducedEmptyContractError (pipelines.py:18043)"
+    ],
+    "namesake_namespace_carveouts_do_not_touch": [
+      "orchestrator/gateway_client.py:1441 (phase='pr' gateway-session namespace string; NOT the same as PipelinePhase.PR — preserve)",
+      "gateway/tests/test_session_manager.py:1127, 1170 (asserts the namespace; preserve)",
+      "gateway/tests/test_gateway.py:4371 (asserts the namespace; preserve)",
+      "orchestrator/tests/test_brc_history.py:1900 (phase='pr' slice-id keyspace; verify if namesake-collision-safe)"
+    ]
+  },
+
+  "trust_boundary_audit": {
+    "orchestrator_to_gateway": "TASK-1-1's _open_context_pr_at_implement_start crosses this boundary via GatewayClient.create_pr — hard-required failure mode (no soft-fail return None) is correct per the boundary's contract; review must verify the new ContextPrCreationError type is properly registered in the BRC NACK surface.",
+    "orchestrator_to_sandbox_agent": "PRMetadata schema bump (TASK-1-5) propagates to agent pods on contract reads; the v1.2 schema must be backward-compatible at the field-rejection layer OR a migration shim must exist (R3).",
+    "gateway_to_git_origin": "_CONTEXT_BRANCH_RE deletion (TASK-1-4) narrows the gateway's push-exempt surface — verify pipeline-session push-allow logic still covers egg/<id>/work via its existing path. Plan-mandated grep confirms but acceptance criteria should pin the verification.",
+    "operator_to_orchestrator_via_MCP": "advance_phase MCP tool definition update (TASK-1-3 (7)) removes 'pr' as valid target; operators with cached MCP schemas must refresh. Document in TASK-1-18."
+  },
+
+  "external_research_sources": [],
+  "external_research_done": "Skipped per task guidance — change is purely internal (no third-party dependency surface added or removed). Schema bump is internal to egg's Pydantic contract layer.",
+
+  "open_questions_for_plan_phase": [
+    "Confirm operator intent for TASK-1-9 (#2570) given the OOS collision in R1 — extend scope, defer, or accept HITL?",
+    "Confirm whether the 5 on-disk .egg-state/contracts/*.json fixtures need explicit migration support, or whether the documented clean-break behavior is acceptable for those (treating them as historical artifacts only)."
+  ],
+
+  "complexity_assessment": "HIGH. The atomic-by-construction nature of slice-1 (schema bump + PR-phase deletion + scaffold deletion + namesake-namespace preservation + cascade-fallback rewire) is the dominant complexity driver. Slice-2 is straightforward extension. The plan as drafted is comprehensive but has correctable gaps in 4 of the largest tasks (TASK-1-3, TASK-1-5, TASK-1-6, TASK-1-9) -- gaps that, if left, will surface as implement-phase NACKs."
+}
