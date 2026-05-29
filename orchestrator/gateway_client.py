@@ -10,14 +10,17 @@ Provides coordination between the orchestrator and gateway sidecar for:
 
 import json
 import os
+import random
 import re
 import socket
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -47,6 +50,18 @@ except ImportError:
     GATEWAY_PORT = 9848  # noqa: EGG002
 
 logger = get_logger("orchestrator.gateway_client")
+
+T = TypeVar("T")
+
+# Bounded retry budget for transient gateway connection failures (#2869).
+# Worst case ≈ 1 + 2 + 4 = 7s of backoff across 3 retries (plus jitter)
+# before giving up — enough to ride out a brief DNS/connection blip
+# without papering over a sustained gateway outage (the #2806 auto-fail
+# safety net still owns that case).
+_TRANSIENT_MAX_ATTEMPTS = 4
+_TRANSIENT_BASE_DELAY = 1.0
+_TRANSIENT_MAX_DELAY = 8.0
+_TRANSIENT_JITTER = 0.2
 
 
 _REBASE_REF_RE = re.compile(r"^[A-Za-z0-9._/+-][A-Za-z0-9._/+-]*$")
@@ -533,9 +548,78 @@ class GatewayClient:
             except json.JSONDecodeError:
                 raise GatewayError(str(e), status_code=e.code) from e
         except URLError as e:
-            raise GatewayError(f"Failed to connect to gateway: {e.reason}") from e
+            # Connection-level failure: DNS resolution failure
+            # ([Errno -3]), connection refused, host unreachable, etc.
+            # The request never reached the gateway, so it is always safe
+            # to retry regardless of HTTP-method idempotency.  Raise the
+            # GatewayConnectionError subclass so callers that opt into
+            # transient retry (spawn-time session registration,
+            # integration-branch creation — #2869) can distinguish these
+            # from permanent failures; ``except GatewayError`` handlers
+            # still catch it unchanged.
+            raise GatewayConnectionError(f"Failed to connect to gateway: {e.reason}") from e
         except TimeoutError as e:
+            # A timeout is NOT classified as transient-retryable: unlike a
+            # connection-level failure, the request may have reached the
+            # gateway and been processed, so a blind retry could duplicate
+            # a non-idempotent operation (e.g. a second session).
             raise GatewayError("Gateway request timed out") from e
+
+    def _retry_transient(
+        self,
+        fn: Callable[[], T],
+        *,
+        operation: str,
+    ) -> T:
+        """Run ``fn`` with bounded retry-with-backoff on transient gateway
+        connection failures (#2869).
+
+        Only :class:`GatewayConnectionError` (connection refused, DNS
+        resolution failure, host unreachable — the request never landed)
+        is retried; permanent failures (4xx/5xx :class:`GatewayError`,
+        auth, timeouts) propagate on the first attempt.  After the retry
+        budget is exhausted the original ``GatewayConnectionError`` is
+        re-raised so existing ``except GatewayError`` handlers keep
+        working.
+
+        Args:
+            fn: Zero-argument callable performing the gateway request.
+            operation: Short label for logging (e.g. ``"register session"``).
+        """
+        last_err: GatewayConnectionError | None = None
+        for attempt in range(_TRANSIENT_MAX_ATTEMPTS):
+            try:
+                return fn()
+            except GatewayConnectionError as e:
+                last_err = e
+                if attempt + 1 < _TRANSIENT_MAX_ATTEMPTS:
+                    delay = min(
+                        _TRANSIENT_BASE_DELAY * (2**attempt),
+                        _TRANSIENT_MAX_DELAY,
+                    )
+                    # Symmetric jitter to avoid synchronized retries when
+                    # several concurrent spawns hit the same blip.
+                    delay += delay * _TRANSIENT_JITTER * random.uniform(-1, 1)
+                    delay = max(0.0, delay)
+                    logger.warning(
+                        "Transient gateway connection failure; retrying",
+                        operation=operation,
+                        attempt=attempt + 1,
+                        max_attempts=_TRANSIENT_MAX_ATTEMPTS,
+                        delay_seconds=round(delay, 2),
+                        error=str(e),
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "Transient gateway connection failure; retries exhausted",
+                        operation=operation,
+                        attempts=attempt + 1,
+                        error=str(e),
+                    )
+        # Loop only exits without returning when every attempt raised.
+        assert last_err is not None  # narrows the type for the re-raise
+        raise last_err
 
     def check_health(self) -> GatewayHealth:
         """Check gateway health status.
@@ -620,6 +704,7 @@ class GatewayClient:
         synthetic: bool = False,
         upstream: str | None = None,
         upstream_model: str | None = None,
+        retry_transient: bool = False,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -710,12 +795,23 @@ class GatewayClient:
             request_data["upstream"] = upstream
         if upstream_model is not None:
             request_data["upstream_model"] = upstream_model
-        result = self._make_request(
-            "/api/v1/sessions/create",
-            method="POST",
-            data=request_data,
-            use_launcher_auth=True,
-        )
+
+        def _do_request() -> dict[str, Any]:
+            return self._make_request(
+                "/api/v1/sessions/create",
+                method="POST",
+                data=request_data,
+                use_launcher_auth=True,
+            )
+
+        # #2869 — spawn-time session registration tolerates a brief
+        # DNS/connection blip when the caller opts in (the spawner and
+        # slice integration-branch creation), instead of hard-failing the
+        # whole pipeline on the first transient error.
+        if retry_transient:
+            result = self._retry_transient(_do_request, operation="register gateway session")
+        else:
+            result = _do_request()
 
         if not result.get("success"):
             raise GatewayError(result.get("message", "Session registration failed"))
@@ -2163,6 +2259,10 @@ class GatewayClient:
                 agent_role=agent_role,
                 branch=integration_branch,
                 synthetic=True,
+                # #2869 — ride out a transient DNS/connection blip rather
+                # than hard-failing the slice (and cascading to the whole
+                # phase) before any agent is spawned.
+                retry_transient=True,
             )
             session_token = session.session_token
 
@@ -2180,6 +2280,7 @@ class GatewayClient:
                 args=[f"+refs/heads/{parent_branch}:refs/remotes/origin/{parent_branch}"],
                 mode=mode,
                 bearer_token=session_token,
+                retry_transient=True,
             )
 
             # Resolve the parent to a SHA on origin.  Failing fast
@@ -2191,6 +2292,7 @@ class GatewayClient:
                 f"refs/heads/{parent_branch}",
                 mode=mode,
                 bearer_token=session_token,
+                retry_transient=True,
             )
             if not parent_sha:
                 logger.warning(
@@ -2221,6 +2323,7 @@ class GatewayClient:
                 f"refs/heads/{integration_branch}",
                 mode=mode,
                 bearer_token=session_token,
+                retry_transient=True,
             )
             if existing_sha and existing_sha != parent_sha:
                 # Fetch the integration branch so its tip object is
@@ -2242,6 +2345,7 @@ class GatewayClient:
                     ],
                     mode=mode,
                     bearer_token=session_token,
+                    retry_transient=True,
                 )
                 if self._sha_is_ancestor(
                     pipeline_id,
@@ -2285,15 +2389,18 @@ class GatewayClient:
                 )
 
             refspec = f"{parent_sha}:refs/heads/{integration_branch}"
-            self._make_request(
-                "/api/v1/git/push",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "refspec": refspec,
-                },
-                bearer_token=session_token,
+            self._retry_transient(
+                lambda: self._make_request(
+                    "/api/v1/git/push",
+                    method="POST",
+                    data={
+                        "repo_path": repo_path,
+                        "remote": "origin",
+                        "refspec": refspec,
+                    },
+                    bearer_token=session_token,
+                ),
+                operation="push integration branch",
             )
             logger.info(
                 "Created slice integration branch",
@@ -2824,6 +2931,7 @@ class GatewayClient:
         mode: Literal["public", "private"] = "public",
         *,
         bearer_token: str | None = None,
+        retry_transient: bool = False,
     ) -> bool:
         """Fetch with custom args using a temporary session.
 
@@ -2859,22 +2967,29 @@ class GatewayClient:
                     mode=mode,
                     pipeline_id=pipeline_id,
                     synthetic=True,
+                    retry_transient=retry_transient,
                 )
                 session_token = session.session_token
 
             # Do NOT include container_id — repo_path is already the
             # resolved path; the synthetic container_id has no real
             # worktree and would trigger a "worktree not found" error.
-            self._make_request(
-                "/api/v1/git/fetch",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "args": args or [],
-                },
-                bearer_token=session_token,
-            )
+            def _do_fetch() -> dict[str, Any]:
+                return self._make_request(
+                    "/api/v1/git/fetch",
+                    method="POST",
+                    data={
+                        "repo_path": repo_path,
+                        "remote": "origin",
+                        "args": args or [],
+                    },
+                    bearer_token=session_token,
+                )
+
+            if retry_transient:
+                self._retry_transient(_do_fetch, operation="fetch branch")
+            else:
+                _do_fetch()
 
             logger.info(
                 "Fetched branch from remote",
@@ -2967,6 +3082,7 @@ class GatewayClient:
         mode: Literal["public", "private"] = "public",
         *,
         bearer_token: str | None = None,
+        retry_transient: bool = False,
     ) -> str | None:
         """Resolve a remote ref to its commit SHA via ``git ls-remote``.
 
@@ -2995,20 +3111,27 @@ class GatewayClient:
                     mode=mode,
                     pipeline_id=pipeline_id,
                     synthetic=True,
+                    retry_transient=retry_transient,
                 )
                 session_token = session.session_token
 
-            result = self._make_request(
-                "/api/v1/git/fetch",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "operation": "ls-remote",
-                    "args": ["--heads", ref],
-                },
-                bearer_token=session_token,
-            )
+            def _do_ls_remote() -> dict[str, Any]:
+                return self._make_request(
+                    "/api/v1/git/fetch",
+                    method="POST",
+                    data={
+                        "repo_path": repo_path,
+                        "remote": "origin",
+                        "operation": "ls-remote",
+                        "args": ["--heads", ref],
+                    },
+                    bearer_token=session_token,
+                )
+
+            if retry_transient:
+                result = self._retry_transient(_do_ls_remote, operation="resolve remote SHA")
+            else:
+                result = _do_ls_remote()
 
             stdout = result.get("data", {}).get("stdout", "")
             if not stdout.strip():
@@ -3448,6 +3571,24 @@ class GatewayError(Exception):
         self.message = message
         self.status_code = status_code
         self.details = details
+
+
+class GatewayConnectionError(GatewayError):
+    """Transient connection-level failure talking to the gateway.
+
+    Raised by :meth:`GatewayClient._make_request` for ``URLError`` —
+    connection refused, DNS resolution failure ([Errno -3]), host
+    unreachable — i.e. cases where the request never reached the gateway
+    and is therefore always safe to retry regardless of HTTP-method
+    idempotency.
+
+    Subclasses :class:`GatewayError` so callers that broadly catch
+    ``GatewayError`` (e.g. the spawner's session-registration handler)
+    keep working unchanged; callers that want bounded retry-with-backoff
+    on a brief networking blip before hard-failing (#2869) route the call
+    through :meth:`GatewayClient._retry_transient`, which retries only on
+    this subclass.
+    """
 
 
 class ContextBranchDiverged(GatewayError):
