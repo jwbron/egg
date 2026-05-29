@@ -139,6 +139,13 @@
       "registered_at": "2026-05-29T03:54:07.897999+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
+    },
+    "faaeaf904861291e85d9a1935c9c5863a71c3292": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T17:17:23.661394+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
     }
   },
   "version": 1
