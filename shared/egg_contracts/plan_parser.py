@@ -89,6 +89,30 @@ JIRA_ACTION_STATUS_VALUES = frozenset({"pending", "in_flight", "applied", "faile
 # downstream Pydantic validator. Compiled once at import.
 _JIRA_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-[0-9]+$")
 
+# Every per-slice key the parser actually consumes from the ``# yaml-tasks``
+# appendix. Mirrors the ``slice`` definition in
+# ``.egg/schemas/yaml-tasks.schema.json`` (which is ``additionalProperties:
+# false``) plus the ``depends_on`` alias the parser tolerates (#2743). A key
+# outside this set is silently ignored by the parser, so an unrecognised key
+# means the planner expressed something the contract never sees — exactly the
+# #2870 failure mode, where the architect emitted ``parent_slice_id`` and the
+# whole slice dependency chain was dropped. The schema would have rejected it,
+# but the schema is only enforced in tests, never at parse/populate time — so
+# we surface the unknown key as a parse warning here to make the drift loud
+# instead of silent.
+_KNOWN_SLICE_KEYS = frozenset(
+    {
+        "id",
+        "name",
+        "goal",
+        "dependencies",
+        "depends_on",
+        "serialized_chain_order",
+        "exit_criteria",
+        "tasks",
+    }
+)
+
 
 def _extract_jira_task_fields(
     task_data: dict[str, Any],
@@ -709,6 +733,27 @@ def parse_phases_from_yaml(
             )
             continue
         seen_phase_ids.add(phase_num)
+
+        # #2870 — flag keys the parser doesn't consume. The yaml-tasks
+        # schema is ``additionalProperties: false`` but is never validated
+        # at parse time, so a stray key (e.g. ``parent_slice_id``) is
+        # otherwise dropped silently — taking its data with it. ``id`` is
+        # always present; report the rest sorted for a stable message.
+        unknown_keys = sorted(set(phase_data) - _KNOWN_SLICE_KEYS)
+        if unknown_keys:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Slice {phase_num} has unrecognized key(s) "
+                        f"{unknown_keys} — ignored by the parser. Slice "
+                        "ordering must use 'dependencies' (canonical) or "
+                        "'depends_on'; a key like 'parent_slice_id' is "
+                        "silently dropped (see #2870)."
+                    ),
+                    context="Allowed slice keys: " + ", ".join(sorted(_KNOWN_SLICE_KEYS)),
+                )
+            )
 
         phase_name = phase_data.get("name", f"Slice {phase_num}")
         phase_goal = phase_data.get("goal", "")

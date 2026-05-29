@@ -14677,20 +14677,24 @@ def _build_agent_prompt(
                 "      <slice name>",
                 "    goal: |-",
                 "      <what this slice achieves>",
-                "    parent_slice_id: null  # root",
+                "    # root slice — omit ``dependencies``",
                 "  - id: 2",
                 "    name: |-",
                 "      <slice name>",
                 "    goal: |-",
                 "      <what this slice achieves>",
-                "    parent_slice_id: 1",
+                "    dependencies: slice-1",
                 "```",
                 "",
-                "Use ``parent_slice_id: null`` for root slices and the "
-                "parent slice's integer ``id`` otherwise. Do NOT include "
-                "``tasks:`` in the scaffold — that is task_planner's job. "
-                "Keep ``name`` and ``goal`` concise enough that "
-                "task_planner can copy them without rewording.",
+                "Omit ``dependencies`` for root slices; for every non-root "
+                "slice set ``dependencies`` to its single parent's "
+                "``slice-<id>`` (e.g. ``slice-1``). ``dependencies`` is the "
+                "canonical ordering key the plan parser reads (per "
+                "`.egg/schemas/yaml-tasks.schema.json`) — the slice DAG is a "
+                "forest, so each slice has at most one parent (one id, not a "
+                "list). Do NOT include ``tasks:`` in the scaffold — that is "
+                "task_planner's job. Keep ``name`` and ``goal`` concise "
+                "enough that task_planner can copy them without rewording.",
                 "",
                 "### File Restrictions",
                 "",
@@ -14723,7 +14727,7 @@ def _build_agent_prompt(
                 "is to enumerate ``tasks:`` within those slices, **not to re-shape "
                 "them**. Copy the architect's scaffold verbatim into the "
                 "``# yaml-tasks`` appendix (preserving slice ``id``, ``name``, "
-                "``goal``, and ``parent_slice_id``) and add ``tasks:`` under each "
+                "``goal``, and ``dependencies``) and add ``tasks:`` under each "
                 "slice with task IDs of the form ``TASK-<slice_id>-<n>``.",
                 "",
                 "If a slice has too many tasks for one BRC cycle, or you discover a "
@@ -14740,7 +14744,7 @@ def _build_agent_prompt(
                 f"1. Read the architecture analysis AND the slice scaffold at `{architect_slices_path}`",
                 "2. Copy the architect's slice scaffold verbatim into the "
                 "``# yaml-tasks`` appendix (same ``id`` / ``name`` / ``goal`` / "
-                "``parent_slice_id`` values, in the same order)",
+                "``dependencies`` values, in the same order)",
                 "3. Enumerate ``tasks:`` under each slice — discrete, "
                 "actionable, with clear acceptance criteria and dependency ordering "
                 "between tasks",
@@ -14892,7 +14896,8 @@ def _build_agent_prompt(
                 "every slice must have at most ONE DAG parent — the "
                 "implement-phase pipeline ships every slice as a stacked "
                 "PR with exactly one base branch. The architect's scaffold "
-                "encodes this via ``parent_slice_id``; preserve it.",
+                "encodes this via a single-parent ``dependencies`` id "
+                "(``slice-<N>``); preserve it.",
                 "",
                 "**Auto-serialization for would-be multi-parent slices**: "
                 "the architect is responsible for serialising would-be "
