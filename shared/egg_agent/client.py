@@ -275,6 +275,57 @@ async def run_agent_async(
                 error=str(e),
             )
 
+    # --- Predictive output cap for built-in CC tools (#2876) ---
+    # Built-in tools (Read/Grep/...) run inside the CLI; egg can't wrap their
+    # output the way it caps its own MCP @tool payloads (#2805). A result above
+    # the Agent SDK's 1 MB JSON buffer kills the agent with exit 255 (#2804) —
+    # the case that crashed the #2777 slice-1 coder on the 1.1 MB, 24k-line
+    # orchestrator/routes/pipelines.py. A PreToolUse hook can't see the result,
+    # but it can predict the overflow from the inputs and deny *before* the tool
+    # runs, telling the agent how to narrow the call. #2810's fail-fast is the
+    # backstop when a prediction misses. Always-on (the overflow hits every
+    # route, including first-party Opus); disable via EGG_TOOL_OUTPUT_CAP=false.
+    from egg_agent.tool_output_cap import (
+        check_builtin_tool_output_risk,
+        is_output_cap_disabled,
+    )
+
+    if not is_output_cap_disabled():
+        # Captures resolved_cwd so Read's relative file_paths resolve the same
+        # way the tool will resolve them. Returns {} (no decision) when the call
+        # is within bounds, so allowed calls fall through to the normal flow.
+        async def _cap_builtin_tool_output(
+            input_data: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            reason = check_builtin_tool_output_risk(
+                input_data.get("tool_name", ""),
+                input_data.get("tool_input", {}) or {},
+                resolved_cwd,
+            )
+            if reason is None:
+                return {}
+            logger.info(
+                "Predictive output cap denied built-in tool call",
+                event_type="tool_intercepted",
+                event_subtype="output_cap_deny",
+                tool_name=input_data.get("tool_name"),
+                tool_use_id=tool_use_id,
+                reason=reason,
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+
+        existing_hooks = getattr(options, "hooks", None) or {}
+        pre_tool_use = list(existing_hooks.get("PreToolUse", []))
+        pre_tool_use.append(HookMatcher(matcher="Read", hooks=[_cap_builtin_tool_output]))
+        pre_tool_use.append(HookMatcher(matcher="Grep", hooks=[_cap_builtin_tool_output]))
+        options.hooks = {**existing_hooks, "PreToolUse": pre_tool_use}
+
     # --- DuckDuckGo MCP fallback for the LiteLLM→non-Anthropic path (#2856) ---
     # On that path (signalled by ANTHROPIC_CUSTOM_MODEL_OPTION) the built-in
     # WebSearch/WebFetch tools silently no-op: LiteLLM's drop_params strips the

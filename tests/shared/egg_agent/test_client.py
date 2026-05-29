@@ -975,6 +975,101 @@ class TestDdgMcpFallback:
         assert "WebFetch" not in matchers
 
 
+class TestBuiltinOutputCapHook:
+    """Issue #2876: a PreToolUse hook predicts oversized built-in tool
+    results (Read/Grep) and denies them before they overflow the SDK's
+    1 MB buffer, telling the agent how to narrow the call. Always-on
+    (not route-gated); disabled via EGG_TOOL_OUTPUT_CAP=false.
+    """
+
+    @staticmethod
+    def _matchers(opts):
+        hooks = getattr(opts, "hooks", None) or {}
+        return [hm.matcher for hm in hooks.get("PreToolUse", [])]
+
+    @staticmethod
+    def _hook_for(opts, matcher):
+        hooks = opts.hooks["PreToolUse"]
+        return next(hm for hm in hooks if hm.matcher == matcher).hooks[0]
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_read_and_grep_matchers_registered_by_default(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._matchers(opts)
+        assert "Read" in matchers
+        assert "Grep" in matchers
+
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_kill_switch_removes_matchers(self, mock_query):
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        matchers = self._matchers(opts)
+        assert "Read" not in matchers
+        assert "Grep" not in matchers
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_read_hook_denies_large_file(self, mock_query, tmp_path):
+        big = tmp_path / "big.py"
+        big.write_bytes(b"x" * (300 * 1024))
+        _run_async(run_agent_async("test prompt", cwd=str(tmp_path)))
+        opts = mock_query.call_args.kwargs["options"]
+        hook = self._hook_for(opts, "Read")
+        out = _run_async(
+            hook(
+                {"tool_name": "Read", "tool_input": {"file_path": "big.py"}},
+                "tool-1",
+                None,
+            )
+        )
+        decision = out["hookSpecificOutput"]
+        assert decision["hookEventName"] == "PreToolUse"
+        assert decision["permissionDecision"] == "deny"
+        assert "limit" in decision["permissionDecisionReason"]
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_read_hook_allows_small_file(self, mock_query, tmp_path):
+        small = tmp_path / "small.py"
+        small.write_bytes(b"x" * 1024)
+        _run_async(run_agent_async("test prompt", cwd=str(tmp_path)))
+        opts = mock_query.call_args.kwargs["options"]
+        hook = self._hook_for(opts, "Read")
+        out = _run_async(
+            hook(
+                {"tool_name": "Read", "tool_input": {"file_path": "small.py"}},
+                "tool-1",
+                None,
+            )
+        )
+        assert out == {}
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_grep_hook_denies_unbounded_content_grep(self, mock_query):
+        _run_async(run_agent_async("test prompt"))
+        opts = mock_query.call_args.kwargs["options"]
+        hook = self._hook_for(opts, "Grep")
+        out = _run_async(
+            hook(
+                {
+                    "tool_name": "Grep",
+                    "tool_input": {"pattern": "x", "output_mode": "content"},
+                },
+                "tool-1",
+                None,
+            )
+        )
+        decision = out["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "deny"
+        assert "head_limit" in decision["permissionDecisionReason"]
+
+
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the

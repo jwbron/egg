@@ -133,6 +133,21 @@ The agent output is captured by piping stdout and stderr through `tee` into a te
 
 > **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. The real fix is tool-layer truncation of oversized payloads ([#2805](https://github.com/jwbron/egg/issues/2805)); this is the fail-fast path until that lands.
 
+### Predictive Output Cap (PreToolUse)
+
+Source: `shared/egg_agent/tool_output_cap.py`, wired in `shared/egg_agent/client.py`.
+
+The fail-fast above is a backstop, not prevention. egg caps its own MCP `@tool` payloads at the tool boundary ([#2805](https://github.com/jwbron/egg/issues/2805)), but **built-in** Claude Code tools (`Read`, `Grep`, `Edit`, `Bash`) run inside the CLI and can't be wrapped. [#2876](https://github.com/jwbron/egg/issues/2876) bounds those via a **PreToolUse** hook that fires *before* the tool runs and denies calls whose result is likely to overflow — for example a whole-file `Read` of the 1.1 MB, 24k-line `orchestrator/routes/pipelines.py` that crashed the [#2777](https://github.com/jwbron/egg/issues/2777) slice-1 coder. PostToolUse can't help here: the payload has already crossed the channel that crashes the reader ([#2810](https://github.com/jwbron/egg/issues/2810) dropped that approach).
+
+Current heuristics — predictive, so expect some false positives/negatives, with the fail-fast as the backstop when a prediction misses:
+
+| Tool | Denied when | Deny reason points at |
+|------|-------------|------------------------|
+| `Read` | No `limit` **and** target file > `EGG_READ_CAP_BYTES` (default 256 KiB) | `offset` / `limit` to page through the file |
+| `Grep` | `output_mode=content`, no `head_limit`, **and** no `path`/`glob` scope (whole-repo content dump) | `head_limit`, a `path`/`glob` scope, or `output_mode=files_with_matches` |
+
+The hook is **always-on** (the overflow hits every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold.
+
 ### Transient Exit Codes
 
 The `is_transient_crash()` function classifies these exit codes as transient:
