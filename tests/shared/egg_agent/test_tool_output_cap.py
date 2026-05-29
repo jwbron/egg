@@ -3,12 +3,23 @@
 import os
 from unittest.mock import patch
 
+import pytest
+from egg_agent import tool_output_cap
 from egg_agent.tool_output_cap import (
     check_builtin_tool_output_risk,
     check_grep_output_risk,
     check_read_output_risk,
     is_output_cap_disabled,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_cap_warning_cache():
+    # The invalid-cap warning is now once-per-value (module-level cache), so
+    # clear it between tests to keep the warn/no-warn assertions order-independent.
+    tool_output_cap._warned_cap_values.clear()
+    yield
+    tool_output_cap._warned_cap_values.clear()
 
 
 def _write(tmp_path, name, size):
@@ -83,6 +94,16 @@ class TestReadCap:
         check_read_output_risk({"file_path": str(small)}, str(tmp_path))
         mock_logger.warning.assert_called()
 
+    @patch.dict(os.environ, {"EGG_READ_CAP_BYTES": "0"})
+    @patch("egg_agent.tool_output_cap.logger")
+    def test_invalid_env_warns_only_once_across_reads(self, mock_logger, tmp_path):
+        # A steady misconfiguration must not spam one warning per Read (#2876
+        # re-review): resolve the cap several times, expect a single warning.
+        small = _write(tmp_path, "small.py", 1024)
+        for _ in range(5):
+            check_read_output_risk({"file_path": str(small)}, str(tmp_path))
+        assert mock_logger.warning.call_count == 1
+
     @patch("egg_agent.tool_output_cap.logger")
     def test_unset_env_does_not_warn(self, mock_logger, tmp_path):
         # The unset case uses the expected default — it must stay silent.
@@ -115,6 +136,32 @@ class TestReadCap:
         reason = check_read_output_risk({"file_path": str(pdf)}, str(tmp_path))
         assert reason is not None
         assert "pages" in reason
+
+    def test_pdf_with_pages_is_allowed(self, tmp_path):
+        # The deny remedy tells the agent to use 'pages'; a pages-scoped read
+        # must then be honored, not denied again (#2876 re-review). The Read
+        # tool caps a pages request at 20 pages, so it's inherently bounded.
+        pdf = _write(tmp_path, "big.pdf", 300 * 1024)
+        assert (
+            check_read_output_risk({"file_path": str(pdf), "pages": "1-5"}, str(tmp_path)) is None
+        )
+
+    def test_pdf_with_empty_pages_still_denied(self, tmp_path):
+        # An empty/whitespace 'pages' is not a real page range → still unbounded.
+        pdf = _write(tmp_path, "big.pdf", 300 * 1024)
+        assert (
+            check_read_output_risk({"file_path": str(pdf), "pages": "  "}, str(tmp_path))
+            is not None
+        )
+
+    def test_notebook_deny_suggests_jq(self, tmp_path):
+        # Read returns a notebook whole; offset/limit/pages don't help, so the
+        # remedy should point at jq cell inspection rather than file/stat.
+        nb = _write(tmp_path, "big.ipynb", 300 * 1024)
+        reason = check_read_output_risk({"file_path": str(nb)}, str(tmp_path))
+        assert reason is not None
+        assert "jq" in reason
+        assert "offset" not in reason and "limit" not in reason
 
     def test_image_deny_does_not_suggest_line_paging(self, tmp_path):
         png = _write(tmp_path, "big.png", 300 * 1024)

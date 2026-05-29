@@ -144,7 +144,8 @@ Current heuristics — predictive, so expect some false positives/negatives, wit
 | Tool | Denied when | Deny reason points at |
 |------|-------------|------------------------|
 | `Read` (text) | Target file > `EGG_READ_CAP_BYTES` (default 256 KiB) **and** the read is unbounded — no `limit`, or a `limit` whose estimated payload (`limit` × ~128 B/line) still exceeds the cap | `offset` / `limit` to page through the file (with a suggested `limit` that fits the cap) |
-| `Read` (binary) | Target image/PDF/notebook > `EGG_READ_CAP_BYTES` (`limit` does not bound a binary read, which is returned whole) | `pages` for PDFs; for images/notebooks, avoid reading whole and use Bash (`file`/`stat`) for metadata |
+| `Read` (PDF) | Target PDF > `EGG_READ_CAP_BYTES` **and** no non-empty `pages` range — a `pages`-scoped read is bounded (the Read tool caps it at 20 pages), mirroring `limit` for text | `pages` to read a bounded page range (e.g. `pages='1-5'`) |
+| `Read` (image/notebook) | Target image/notebook > `EGG_READ_CAP_BYTES` (returned whole; `offset`/`limit`/`pages` don't bound it) | images: avoid reading whole, use Bash (`file`/`stat`) for metadata; notebooks: inspect cells with `jq` (e.g. `jq '.cells[].source'`) |
 | `Grep` | `output_mode=content`, no `head_limit`, **and** no `path`/`glob` scope (whole-repo content dump) | `head_limit`, a `path`/`glob` scope, or `output_mode=files_with_matches` |
 
 The hook is **always-on** (the overflow hits every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold (a set-but-invalid value — non-integer or non-positive — is logged and ignored in favour of the default).
