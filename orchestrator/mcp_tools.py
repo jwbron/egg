@@ -1184,12 +1184,15 @@ class PipelineToolHandler:
         # Bound the result before mcp_server.py serializes it across the
         # operator's Agent SDK 1 MB reader buffer (#2805). Oversized output
         # is replaced with a head-preview marker naming how to narrow the
-        # call; bounded tools never trip this.
+        # call; bounded tools never trip this. ``indent=2`` matches
+        # mcp_server.py's ``json.dumps(result, indent=2)`` so the cap is
+        # measured against the real on-wire size, not compact JSON.
         if isinstance(result, dict):
             return cap_result_dict(
                 result,
                 tool=tool_name,
                 narrow_hint=_TOOL_NARROW_HINTS.get(tool_name),
+                indent=2,
             )
         return result
 

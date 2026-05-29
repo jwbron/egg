@@ -3059,7 +3059,9 @@ class TestToolOutputCap:
 
         assert result["_egg_truncated"] is True
         assert result["tool"] == "list_containers"
-        assert len(json.dumps(result).encode("utf-8")) <= 200 * 1024
+        # Measure against the indent=2 serialization mcp_server.py actually
+        # ships, and hold the marker to the real 100 KB cap (not a loose 2×).
+        assert len(json.dumps(result, indent=2).encode("utf-8")) <= 100 * 1024
         # The narrow-hint for this tool is surfaced in the marker note.
         assert "container" in result["note"]
 

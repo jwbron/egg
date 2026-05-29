@@ -69,8 +69,11 @@ def _success_payload(response: dict[str, Any], tool_name: str | None = None) -> 
 
 
 def _error_payload(exc: BaseException) -> dict[str, Any]:
+    # Defense-in-depth (#2805): _format_error clamps GatewayError.details but
+    # not message/hint, so a large upstream error body could still cross the
+    # 1 MB SDK reader buffer. Cap the rendered error text too.
     return {
-        "content": [{"type": "text", "text": _format_error(exc)}],
+        "content": [{"type": "text", "text": cap_text(_format_error(exc))}],
         "is_error": True,
     }
 
@@ -113,8 +116,11 @@ async def invoke_handler(
         return _error_payload(exc)
     name = tool_name or getattr(handler, "__name__", None)
     if spill:
+        # Serialize with indent=2 so the spilled file has real line breaks —
+        # the descriptor tells the agent to navigate it with Read's line-based
+        # offset/limit, which is useless against one giant physical line.
         try:
-            text = json.dumps(response, default=str)
+            text = json.dumps(response, indent=2, default=str)
         except Exception:
             text = str(response)
         descriptor = spill_to_file(text, tool=name or "tool")

@@ -33,10 +33,14 @@ Two strategies are exposed:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
+import time
 import uuid
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Default cap, well under the SDK's 1 MB reader buffer so the serialized
 # result still has headroom for the surrounding SDK/MCP framing. Override
@@ -47,21 +51,50 @@ DEFAULT_CAP_BYTES = 100 * 1024
 # fits under the cap; the preview is then shrunk to fit if needed.
 _MARKER_RESERVE_BYTES = 2048
 
+# Inline preview budget for a spill descriptor — small and fixed, so the
+# descriptor stays tiny regardless of the configured cap. The full content
+# lives in the spilled file; the preview is just a head sample.
+_SPILL_PREVIEW_BYTES = 4 * 1024
+
+# Best-effort age threshold for pruning stale spill files. Old enough that
+# the agent has almost certainly finished reading any earlier spill.
+_SPILL_TTL_SECONDS = 60 * 60
+
 # Sentinel keys so callers/tests can recognize a capped payload.
 TRUNCATION_KEY = "_egg_truncated"
 SPILL_KEY = "_egg_output_spilled"
 
 
 def cap_bytes_from_env(default: int = DEFAULT_CAP_BYTES) -> int:
-    """Resolve the configured cap, falling back to ``default`` on bad input."""
+    """Resolve the configured cap, falling back to ``default`` on bad input.
+
+    ``EGG_TOOL_OUTPUT_CAP_BYTES`` is operator-facing config; if it is set to
+    something we cannot honor we warn rather than silently swallowing it, so
+    the operator isn't left believing a cap is in effect when it isn't.
+    """
     raw = os.environ.get("EGG_TOOL_OUTPUT_CAP_BYTES")
     if not raw:
         return default
     try:
         value = int(raw)
-    except TypeError, ValueError:
+    except ValueError:
+        # ``raw`` is a non-empty str here, so int() can only raise ValueError.
+        logger.warning(
+            "Ignoring invalid EGG_TOOL_OUTPUT_CAP_BYTES=%r (not an integer); "
+            "falling back to the %d-byte default cap.",
+            raw,
+            default,
+        )
         return default
-    return value if value > 0 else default
+    if value <= 0:
+        logger.warning(
+            "Ignoring non-positive EGG_TOOL_OUTPUT_CAP_BYTES=%r; "
+            "falling back to the %d-byte default cap.",
+            raw,
+            default,
+        )
+        return default
+    return value
 
 
 def _utf8_len(text: str) -> int:
@@ -74,12 +107,15 @@ def _truncation_marker(
     cap_bytes: int,
     tool: str | None,
     narrow_hint: str | None,
+    indent: int | None = None,
 ) -> dict[str, Any]:
     """Build a structured marker dict that fits under ``cap_bytes`` serialized.
 
     The preview is the head of ``text`` shrunk (by bytes, re-checking the
     serialized size) until the whole marker fits — robust to JSON escape
-    expansion of the preview.
+    expansion of the preview. ``indent`` must match the indent the caller
+    will re-serialize the marker with (the orchestrator ships ``indent=2``),
+    so the fit check measures the real on-wire size.
     """
     original_bytes = _utf8_len(text)
     hint = narrow_hint or (
@@ -102,11 +138,22 @@ def _truncation_marker(
         "note": note,
         "preview": preview,
     }
-    # Shrink the preview until the serialized marker fits. JSON-escaping can
-    # expand the preview past the byte budget, so check the real size.
-    while _utf8_len(json.dumps(marker, default=str)) > cap_bytes and preview:
+
+    def _serialized_len() -> int:
+        return _utf8_len(json.dumps(marker, default=str, indent=indent))
+
+    # Shrink the preview until the serialized marker fits. JSON-escaping (and
+    # any indent the caller re-serializes with) can expand the preview past
+    # the byte budget, so check the real size.
+    while _serialized_len() > cap_bytes and preview:
         preview = preview[: len(preview) // 2]
         marker["preview"] = preview
+    # Pathological tiny cap: even an empty preview leaves the fixed fields
+    # over the cap. Drop the preview entirely so the marker is as small as it
+    # can be — still sub-KB, so it can never threaten the 1 MB SDK buffer the
+    # cap exists to protect.
+    if _serialized_len() > cap_bytes:
+        marker.pop("preview", None)
     return marker
 
 
@@ -135,6 +182,7 @@ def cap_result_dict(
     tool: str | None = None,
     narrow_hint: str | None = None,
     cap_bytes: int | None = None,
+    indent: int | None = None,
 ) -> dict[str, Any]:
     """Cap a result *dict* by its serialized size.
 
@@ -142,15 +190,46 @@ def cap_result_dict(
     truncation marker dict (a small, well-formed replacement). Used at the
     orchestrator MCP chokepoint, where the result is re-serialized by the
     server; the marker dict keeps that serialization small.
+
+    Pass the same ``indent`` the caller serializes with so the measurement
+    matches the real on-wire size — the orchestrator ships ``indent=2``,
+    which roughly doubles a nested payload's size versus compact JSON.
     """
     limit = cap_bytes if cap_bytes is not None else cap_bytes_from_env()
     try:
-        text = json.dumps(result, default=str)
-    except TypeError, ValueError:
+        text = json.dumps(result, default=str, indent=indent)
+    except Exception:
+        # Mirror _success_payload: any serialization failure (e.g. a
+        # non-str dict key) falls back to str() rather than crashing.
         text = str(result)
     if _utf8_len(text) <= limit:
         return result
-    return _truncation_marker(text, cap_bytes=limit, tool=tool, narrow_hint=narrow_hint)
+    return _truncation_marker(
+        text, cap_bytes=limit, tool=tool, narrow_hint=narrow_hint, indent=indent
+    )
+
+
+def _prune_old_spills(target_dir: str) -> None:
+    """Best-effort removal of stale ``egg-tool-out-*`` spill files.
+
+    Bounds accumulation over a long session. Files newer than the TTL are
+    kept (the agent may still be reading them). Never raises — pruning is a
+    courtesy, not a correctness requirement.
+    """
+    cutoff = time.time() - _SPILL_TTL_SECONDS
+    try:
+        entries = os.listdir(target_dir)
+    except OSError:
+        return
+    for name in entries:
+        if not (name.startswith("egg-tool-out-") and name.endswith(".txt")):
+            continue
+        candidate = os.path.join(target_dir, name)
+        try:
+            if os.path.getmtime(candidate) < cutoff:
+                os.remove(candidate)
+        except OSError:
+            continue
 
 
 def spill_to_file(
@@ -168,6 +247,12 @@ def spill_to_file(
     can re-read with ``Read`` (offset/limit) or ``grep`` via ``Bash``, and
     returns ``{output_path, total_bytes, preview, ...}``.
 
+    For ``Read``'s line-based ``offset``/``limit`` to be useful the spilled
+    text must have real line breaks, so callers should serialize with
+    ``indent=2`` (or spill raw multi-line content) rather than compact JSON.
+    The inline ``preview`` is a small fixed-size head sample, independent of
+    the cap, so the descriptor stays tiny.
+
     Only appropriate when the caller and the agent share a filesystem
     (in-sandbox tools). On any write failure, returns ``None`` so the
     caller falls back to truncation rather than failing the tool call.
@@ -178,6 +263,7 @@ def spill_to_file(
         return None
 
     target_dir = spill_dir or tempfile.gettempdir()
+    _prune_old_spills(target_dir)
     path = os.path.join(target_dir, f"egg-tool-out-{tool}-{uuid.uuid4().hex}.txt")
     try:
         with open(path, "w", encoding="utf-8") as fh:
@@ -186,8 +272,10 @@ def spill_to_file(
         return None
 
     preview = "\n".join(text.splitlines()[:preview_lines])
-    # Keep the preview itself under the cap (a single huge line can blow it).
-    preview = cap_text(preview, tool=tool, cap_bytes=limit)
+    # Bound the inline preview to a small fixed budget (a single huge line can
+    # otherwise blow it). The full content is on disk; this is just a sample.
+    if _utf8_len(preview) > _SPILL_PREVIEW_BYTES:
+        preview = preview.encode("utf-8")[:_SPILL_PREVIEW_BYTES].decode("utf-8", errors="ignore")
     return {
         SPILL_KEY: True,
         "tool": tool,
@@ -198,8 +286,8 @@ def spill_to_file(
             f"Result was {total_bytes} bytes (over the {limit}-byte tool-output "
             "cap), so the full output was written to `output_path` to avoid the "
             "Agent SDK 1 MB buffer crash (#2804/#2805). Read it with the `Read` "
-            "tool (use `offset`/`limit`) or `grep` it via `Bash`. Only the first "
-            f"{preview_lines} lines are inlined below."
+            "tool (use `offset`/`limit`) or `grep` it via `Bash`. A head sample "
+            "of the output is inlined below as `preview`."
         ),
         "preview": preview,
     }

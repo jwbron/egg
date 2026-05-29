@@ -130,7 +130,10 @@ class TestInvokeHandlerOutputCap:
 
         resp = _run(invoke_handler(handler, {}, tool_name="big_tool"))
         text = resp["content"][0]["text"]
-        assert len(text.encode("utf-8")) <= 200 * 1024
+        # _success_payload serializes compact; hold the marker to the real
+        # 100 KB cap (not a loose 2×) so a marker that lands between 100–200
+        # KB would fail the test.
+        assert len(text.encode("utf-8")) <= 100 * 1024
         marker = json.loads(text)
         assert marker["_egg_truncated"] is True
         assert marker["tool"] == "big_tool"
@@ -162,6 +165,17 @@ class TestInvokeHandlerOutputCap:
         resp = _run(invoke_handler(handler, {}, tool_name="checkpoint_show", spill=True))
         body = json.loads(resp["content"][0]["text"])
         assert body == {"ok": True, "transcript": "short"}
+
+    def test_oversized_error_payload_capped(self):
+        # _format_error doesn't clamp GatewayError.message/hint, so a huge
+        # upstream error body must still be bounded before it crosses the
+        # 1 MB SDK reader buffer (#2805 defense-in-depth).
+        def handler(req):
+            raise GatewayError("E" * (2 * 1024 * 1024), hint="H" * (2 * 1024 * 1024))
+
+        resp = _run(invoke_handler(handler, {}, tool_name="big_error"))
+        assert resp["is_error"] is True
+        assert len(resp["content"][0]["text"].encode("utf-8")) <= 200 * 1024
 
 
 class TestSdkToolShape:
