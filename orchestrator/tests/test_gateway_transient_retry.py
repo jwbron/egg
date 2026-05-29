@@ -85,6 +85,23 @@ class TestMakeRequestClassification:
                 gateway_client._make_request("/api/v1/health")
         assert not isinstance(exc_info.value, GatewayConnectionError)
 
+    def test_response_phase_disconnect_wrapped_but_not_transient(self, gateway_client):
+        """A response-phase disconnect (http.client.RemoteDisconnected, a
+        ``ConnectionResetError`` — an ``OSError`` but NOT a ``URLError``)
+        is wrapped as a plain ``GatewayError`` so callers' ``except
+        GatewayError`` handlers catch it, but is NOT classified transient:
+        the gateway may have already processed the request, so it must not
+        be blindly retried."""
+        from http.client import RemoteDisconnected
+
+        with patch.object(
+            gc, "urlopen", side_effect=RemoteDisconnected("Remote end closed connection")
+        ):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/health")
+        assert not isinstance(exc_info.value, GatewayConnectionError)
+        assert "Gateway connection error" in str(exc_info.value)
+
 
 class TestRetryTransientHelper:
     def test_retries_then_succeeds(self, gateway_client):
