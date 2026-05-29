@@ -6,6 +6,13 @@
       "registered_at": "2026-05-29T03:22:58.681256+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_plan"
+    },
+    "7a5334b77ee8c4d6759dfc187740c05932425c48": {
+      "branch": "egg/issue-2777-replan/work",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T03:33:51.525310+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
     }
   },
   "version": 1
