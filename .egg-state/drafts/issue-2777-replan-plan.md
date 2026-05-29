@@ -7,160 +7,145 @@
 The refine phase already produced a comprehensive analysis
 (`.egg-state/drafts/issue-2777-replan-analysis.md`) and the operator
 answered every HITL decision (cq-1..cq-10, decision-11, feedback-1
-Q1..Q5; plan-gate decision-13 approved). This plan executes those
-decisions verbatim and translates them into a 2-slice DAG.
+Q1..Q5). The operator's iteration-1 HITL kickback (see §"Iteration 1"
+below) further refined cq-1 by requiring slice-1 (A+D) to be
+sub-sliced sequentially into 1a/1b/1c. This v5 plan executes those
+decisions verbatim and translates them into a **4-slice linear-chain
+DAG** matching the architect's revised scaffold (commit `b6b58a15e`).
 
 **Re-plan note (#2809)**: this pipeline (`issue-2777-replan`) re-runs
 the plan phase against the previously approved refine artifacts.
 Slice composition is the architect's call per #2809; the architect's
 binding scaffold file
 (`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`)
-landed mid-cycle in commit `0dc42f4b6`. **The yaml-tasks appendix
-below copies the architect's slice `id`, `name`, `goal`, and
-`parent_slice_id` values verbatim from the scaffold; tasks under
-each slice are the task_planner's enumeration.** The architect's
-scaffold confirms what the contract's already-populated `slices`
-field encoded (the operator's decision-13 approval): slice-1 = A+D
-context-PR collapse + cleanup + PR-phase removal (`parent_slice_id:
-null`, the root); slice-2 = C slice/phase restart hardening
-(`parent_slice_id: 1`); #2792 OUT OF SCOPE per decision-11 (now
-independently resolved in merged PR #2797).
+was revised to 4 slices in commit `b6b58a15e` after the operator's
+iteration-1 directive. **The yaml-tasks appendix below copies the
+architect's slice `id`, `name`, `goal`, and `parent_slice_id` values
+verbatim from the revised scaffold; tasks under each slice are the
+task_planner's enumeration.** Mapping: slice-1 (id=1) = slice-1a
+opener + wiring (`parent_slice_id: null`, root); slice-2 (id=2) =
+slice-1b scaffold + PR-phase deletions (`parent_slice_id: 1`);
+slice-3 (id=3) = slice-1c cohesion-independent cleanup tail
+(`parent_slice_id: 2`); slice-4 (id=4) = slice-2 restart hardening
+(`parent_slice_id: 3`). Linear chain `1 → 2 → 3 → 4`. #2792 OUT OF
+SCOPE per decision-11 (now independently resolved in merged PR
+#2797).
 
-### Iteration 1: operator HITL kickback on slice-1 granularity — task_planner surfaces a slice-size concern for reviewers
+### Iteration 1: operator HITL kickback on slice-1 granularity — architect revised to 4 slices; task_planner re-shapes to match
 
-> **Status**: this is plan-phase iteration 1. Iteration 0 reached
-> consensus (reviewer_plan and risk_analyst both ACKed the prior
-> architect, task_planner, and risk_analyst proposals), but the
-> operator kicked the phase back via HITL with a directive on the
-> slice-1 granularity. Per the BRC framing in this role's system
-> prompt, "later directives override earlier ones."
+> **Status**: this is plan-phase iteration 1, plan v5. Iteration 0
+> reached consensus (reviewer_plan and risk_analyst both ACKed the
+> prior architect, task_planner, and risk_analyst proposals), but
+> the operator kicked the phase back via HITL with a directive that
+> slice-1 (16 coder tasks) be sub-sliced. In the first plan
+> iteration (v4, commit `870d6f29e`), I followed the architect's
+> then-binding 2-slice scaffold and surfaced the slice-size concern
+> as NACK pressure on the architect. Risk_analyst NACKed
+> task_planner v4 because the architect HAD already revised the
+> scaffold to 4 slices (commit `b6b58a15e`) in the meantime. This
+> v5 re-shapes the plan to match the architect's revised 4-slice
+> scaffold and supersedes v4.
 
-**Operator's iteration-1 directive (verbatim, abridged for the
-slice-size point — full text in the system prompt directives
-section)**:
+**Operator's iteration-1 directive (abridged — full text in the
+system prompt directives section)**:
 
 > Sub-slice slice-1. It currently carries 16 coder tasks — larger
-> than the 14-task slice-1 that wedged the prior run. Per #2809 the
-> architect owns composition and should subdivide when a slice is too
-> large for a coder to land in completable, reviewable passes; this
-> one is. […]
->
-> Split slice-1 into sequential sub-slices along its natural seams.
+> than the 14-task slice-1 that wedged the prior run. […] Split
+> slice-1 into sequential sub-slices along its natural seams.
 > Suggested shape (boundaries and dependency edges are the
 > architect's call — this is a sketch, not a mandate):
-> - slice-1a — new primitives + wiring, landed first so the primary
->   use case is reachable/reviewable on its own […]
+> - slice-1a — new primitives + wiring […]
 > - slice-1b — the scaffold + PR-phase deletions that depend on 1a's
 >   opener being live […]
 > - slice-1c — cohesion-independent cleanup […]
 >
-> Keep slice-2 (restart hardening, closes #2409) unchanged. ALL other
-> Wave 2 decisions (cq-1's [A+D]→[C] dependency direction, cq-2..cq-10,
-> feedback Q1–Q5) remain binding and unchanged — only the granularity
-> WITHIN the A+D work changes, from one slice to sequential
-> sub-slices.
+> Keep slice-2 (restart hardening, closes #2409) unchanged.
 
-**Architect's iteration-1 response (from
-`.egg-state/agent-outputs/issue-2777-replan-architect-output.json`,
-`replan_change_log` entry 4 and `recommended_approach.rejected_options_summary.further_subdivision_of_slice_1`)**:
+**Architect's iteration-1 v4 response (commit `b6b58a15e`)**:
 
-The architect preserved the 2-slice DAG without further sub-slicing.
-Their stated rationale:
+The architect adopted the operator's sketch and emitted a 4-slice
+linear-chain scaffold: `1 (slice-1a opener) → 2 (slice-1b deletes)
+→ 3 (slice-1c cleanup) → 4 (slice-2 restart)`. Forest invariant
+honoured: each slice has at most one DAG parent. The architect's
+commit message stated: "Sub-slice sizes: 1a ~5 coder tasks, 1b ~7,
+1c ~7, 2 ~5 — each fits a single BRC cycle. Intermediate dead-code
+state of `_maybe_open_base_pr_for_plan_to_implement` (zero callers
+after 1a, deleted by 1b) is explicit in INV-11 / R12 / AC-25."
 
-> "(a) operator explicitly chose option 4 in cq-1 ('Two slices with
-> dependency: [A+D] → [C]'); (b) most slice-1 components have textual
-> conflicts on `pipelines.py` — sub-slicing would create merge pain
-> inside the same function (`_run_implement_phase_slices`) and the
-> same scaffold (the ~600-line context-PR machinery); (c) the prior
-> plan with this shape was approved at the operator gate (decision-13
-> on 2026-05-27); (d) the natural seam between A's context-PR
-> collapse and D's coupled cleanup is the SAME `pipelines.py` change
-> region in nearly every case, so the right unit of review IS the
-> bundled slice-1."
+**Task_planner's response (this iteration's v5)**:
 
-And in the rejected-options summary:
+Per the role-system-prompt directive ("copy the architect's scaffold
+verbatim; tasks under each slice are the task_planner's enumeration"),
+this plan v5:
 
-> "further_subdivision_of_slice_1: Considered under #2809
-> (architect-owned slice composition). Rejected because the natural
-> seams within slice-1 (Context-PR-collapse vs PR-phase-deletion vs
-> ConsensusEvaluator-deletion vs cleanup tail) all touch the SAME
-> files (pipelines.py, gateway_client.py, gateway.py, models.py,
-> phases.py) at overlapping line ranges; further sub-slicing converts
-> intra-PR review work into cross-PR merge-conflict resolution. The
-> 2-slice shape from cq-1 stands."
+1. Adopts the architect's 4-slice scaffold verbatim (ids 1–4,
+   names, goals, `parent_slice_id`s all copied from
+   `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`
+   at HEAD `b6b58a15e`).
+2. Re-allocates the iteration-0 v3 tasks across the four slices per
+   the architect's component_breakdown + AC mapping. AC mapping:
+   slice-1/id=1 gets AC-1, AC-1a, AC-12a, AC-22, AC-25; slice-2/id=2
+   gets AC-2, AC-3, AC-3a, AC-4, AC-4a, AC-4b, AC-4c, AC-5, AC-5a,
+   AC-18, AC-19, AC-20, AC-21, AC-23; slice-3/id=3 gets AC-6, AC-6a,
+   AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11, AC-12; slice-4/id=4 gets
+   AC-13, AC-14, AC-15, AC-16, AC-17, AC-24.
+3. Re-numbers task IDs to use the slice integer id per the
+   role-system-prompt's `TASK-<slice_id>-<n>` format.
+4. Preserves all iteration-0 v3 task content (each task moved
+   verbatim with re-numbered cross-references via a single
+   simultaneous substitution pass).
 
-**Task_planner's position (this iteration, this plan)**:
+**Task-ID old→new mapping (iteration-0 v3 → iteration-1 v5)**:
 
-Per the role-system-prompt directive — *"Slice composition is NOT
-your call (#2809). architect owns slice count, slice boundaries,
-slice DAG shape, and sub-slicing — and emits the binding scaffold."*
-— **this plan enumerates tasks against the architect's binding
-2-slice scaffold without re-shaping it.** I am not silently
-re-grouping tasks into 1a/1b/1c.
+| Old ID       | New ID    | Slice | Role       |
+| ------------ | --------- | ----- | ---------- |
+| TASK-1-1a    | TASK-1-1  | 1     | coder      |
+| TASK-1-1     | TASK-1-2  | 1     | coder      |
+| TASK-1-13    | TASK-1-3  | 1     | coder      |
+| TASK-1-2     | TASK-2-1  | 2     | coder      |
+| TASK-1-3     | TASK-2-2  | 2     | coder      |
+| TASK-1-4     | TASK-2-3  | 2     | coder      |
+| TASK-1-5     | TASK-2-4  | 2     | coder      |
+| TASK-1-5b    | TASK-2-5  | 2     | coder      |
+| TASK-1-6     | TASK-2-6  | 2     | coder      |
+| TASK-1-3a    | TASK-2-7  | 2     | tester     |
+| TASK-1-4b    | TASK-2-8  | 2     | tester     |
+| TASK-1-15a   | TASK-2-9  | 2     | tester     |
+| TASK-1-5a    | TASK-2-10 | 2     | tester     |
+| TASK-1-7     | TASK-3-1  | 3     | coder      |
+| TASK-1-8     | TASK-3-2  | 3     | coder      |
+| TASK-1-9     | TASK-3-3  | 3     | coder      |
+| TASK-1-10    | TASK-3-4  | 3     | coder      |
+| TASK-1-11    | TASK-3-5  | 3     | coder      |
+| TASK-1-12    | TASK-3-6  | 3     | coder      |
+| TASK-1-14    | TASK-3-7  | 3     | coder      |
+| TASK-1-15    | TASK-3-8  | 3     | tester     |
+| TASK-1-16    | TASK-3-9  | 3     | tester     |
+| TASK-1-16a   | TASK-3-10 | 3     | tester     |
+| TASK-1-17    | TASK-3-11 | 3     | tester     |
+| TASK-1-18    | TASK-3-12 | 3     | documenter |
+| TASK-2-1     | TASK-4-1  | 4     | coder      |
+| TASK-2-2     | TASK-4-2  | 4     | coder      |
+| TASK-2-3     | TASK-4-3  | 4     | coder      |
+| TASK-2-4     | TASK-4-4  | 4     | coder      |
+| TASK-2-5     | TASK-4-5  | 4     | coder      |
+| TASK-2-6     | TASK-4-6  | 4     | tester     |
+| TASK-2-7     | TASK-4-7  | 4     | documenter |
 
-But I am also *required by that same role-system-prompt section* to
-surface the slice-size concern when I see it: *"If a slice has too
-many tasks for one BRC cycle, or you discover a natural sub-seam
-the architect missed, that is a slicing problem the architect must
-fix — surface it as NACK pressure (your peer reviewer risk_analyst
-and the structural reviewer reviewer_plan will NACK architect on
-slice_size when evidence supports it; you can also flag the concern
-in your plan prose so the reviewers pick it up)."*
+**Approximate sub-slice sizes after re-allocation**:
 
-The empirical evidence the operator cited:
+| Slice | Name             | Coder | Tester | Documenter | Total |
+| ----- | ---------------- | ----- | ------ | ---------- | ----- |
+| 1     | slice-1a opener  | 3     | 0      | 0          | 3     |
+| 2     | slice-1b deletes | 6     | 4      | 0          | 10    |
+| 3     | slice-1c cleanup | 7     | 4      | 1          | 12    |
+| 4     | slice-2 restart  | 5     | 1      | 1          | 7     |
 
-- Iteration 0's slice-1 carried 16 coder tasks (TASK-1-1, 1-1a, 1-2,
-  1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-8, 1-9, 1-10, 1-11, 1-12, 1-13,
-  1-14; plus tester tasks 1-3a, 1-4b, 1-5a, 1-15, 1-15a, 1-16, 1-16a,
-  1-17; plus documenter task 1-18 — 25 tasks total in slice-1). This
-  iteration's enumeration is unchanged (same 16 coder tasks against
-  the same scaffold).
-- The operator explicitly noted: "larger than the 14-task slice-1
-  that wedged the prior run." That prior wedge predates this
-  pipeline, but the operator's read is that the 16-task slice is
-  *worse* than a known-wedged 14-task slice.
-- The operator's natural-seam sketch (1a = primitives + wiring; 1b =
-  scaffold + PR-phase deletions that depend on 1a's opener being
-  live; 1c = cohesion-independent cleanup) directly maps to
-  topological dependencies in the existing plan's task graph:
-  TASK-1-1 / 1-1a / 1-13 produce primitives that TASK-1-2 / 1-3 /
-  1-4 / 1-5 / 1-5b / 1-6 / 1-7 / 1-14 consume; TASK-1-8 / 1-9 /
-  1-10 / 1-11 / 1-12 / 1-15a are cohesion-independent (they don't
-  depend on the scaffold deletions and don't produce the new
-  primitives). Roughly: 1a = {1-1a, 1-1, 1-13} (3 coder tasks);
-  1b = {1-2, 1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-14} (8 coder tasks);
-  1c = {1-8, 1-9, 1-10, 1-11, 1-12} (5 coder tasks); the tester /
-  documenter tasks (1-3a, 1-4b, 1-5a, 1-15, 1-15a, 1-16, 1-16a,
-  1-17, 1-18) re-anchor under whichever sub-slice their target code
-  ships in. If the architect adopts this shape, the BRC review unit
-  shrinks from one 16-coder slice to three sequential 3/8/5-coder
-  slices.
-
-The architect's counter-argument (textual conflicts inside the same
-`pipelines.py` function) is real and is on the table. The
-task_planner's role is not to adjudicate it — the **structural
-review** belongs to reviewer_plan, and the **risk weighting** belongs
-to risk_analyst. **I am flagging this so both reviewers see the
-disagreement before they vote on architect's proposal.**
-
-If reviewer_plan or risk_analyst NACKs architect on `slice_size` per
-the prompt-template's structural review rubric, the architect's
-revised scaffold (1a/1b/1c, presumably) will land, and I will
-re-propose this plan against the revised scaffold — at that point
-the per-task `id`s will be re-numbered into the sub-slices but the
-task content is largely additive (no task is removed; each task moves
-into one of {1a, 1b, 1c} based on whether it produces primitives,
-deletes scaffold downstream of those primitives, or is
-cohesion-independent cleanup).
-
-If reviewer_plan and risk_analyst ACK architect's 2-slice scaffold
-on its merits (e.g. the textual-conflict argument outweighs the
-slice-size concern), this plan stands as-is and the implement-phase
-coder takes on the 16-task slice-1 with the verification artifacts
-and re-anchoring protocol described below.
-
-**This section exists to make the disagreement visible. The plan
-itself follows architect's binding scaffold.**
+Each slice fits a single BRC cycle as the architect predicted. The
+operator's "16-task wedge" threshold is no longer crossed at any
+sub-slice (max is slice-1c at 12 tasks — but 7 are coder tasks across
+cohesion-independent components, so a NACK on one does not block the
+rest).
 
 ### Anchor SHA & re-anchoring (added per reviewer_plan v2 blocker 7)
 
@@ -204,7 +189,7 @@ TASK-1-3, TASK-1-6, TASK-1-9).
 
 ### Operator decision summary (drives every task below)
 
-- **cq-1** (slice shape): **Two slices, sequential** — `slice-1` (A+D: context-PR collapse + dead-code purge + PR-phase removal) → `slice-2` (C: slice/phase restart hardening). Goal B (#2792 / `plan_draft_missing_on_local`) is **OUT OF SCOPE** per `decision-11`; no task may touch `_sync_worktree_with_remote`, `_populate_contract_from_plan*`, `_empty_contract_hitl_*`, `_emit_empty_contract_hitl`, `PlanDraftMissingOnLocalError`, `PlanDraftMissingOnLocalAndOriginError`, or `PopulateProducedEmptyContractError`.
+- **cq-1** (slice shape, **refined by iteration-1 HITL**): **Four slices, sequential linear chain** — `slice-1` (id=1, slice-1a: opener + wiring) → `slice-2` (id=2, slice-1b: scaffold + PR-phase deletions) → `slice-3` (id=3, slice-1c: cohesion-independent cleanup) → `slice-4` (id=4, slice-2: restart hardening). The `[A+D] → [C]` dependency direction from cq-1 iteration 0 is preserved; only the granularity within A+D was further sub-sliced by the operator's iteration-1 directive. Goal B (#2792 / `plan_draft_missing_on_local`) is **OUT OF SCOPE** per `decision-11`; no task in any slice may touch `_sync_worktree_with_remote`, `_populate_contract_from_plan*`, `_empty_contract_hitl_*`, `_emit_empty_contract_hitl`, `PlanDraftMissingOnLocalError`, `PlanDraftMissingOnLocalAndOriginError`, or `PopulateProducedEmptyContractError`.
 - **cq-2** (PRMetadata schema): **Hard-remove** `context_branch`, `context_title`, `context_description`. Keep `context_pr_number`. Bump `schemaVersion` 1.1 → 1.2. Q5 confirmed no in-flight pipelines must remain compatible, so the clean break is safe.
 - **cq-3** (SliceScheduler #2199 hooks): **Keep all five** (`record_cycle`, `teardown_slice`, `respawn_slice`, `cancel_cascade`, `hitl_escalator` param) with `# noqa: ARG002` / dead-code markers and a doc-pointer to #2199. No deletion.
 - **cq-4** (PR-phase): **Delete the PR phase entirely.** Open the context PR (`egg/<id>/work → main`) up-front at the plan→implement boundary, hard-required and idempotent (one `gh pr list` + maybe one `gh pr create`). Apply uniformly to monolithic and sliced pipelines. Delete `_should_skip_pr_phase_auto_pr` and its caller, delete the PR-phase route/runner registration, shrink `_maybe_open_base_pr_for_plan_to_implement` to a single non-soft-fail call at the implement-start hook.
@@ -219,31 +204,39 @@ TASK-1-3, TASK-1-6, TASK-1-9).
 - **feedback-1 Q3** (ImportError dual-path shims, 9 sites): **Collapse to canonical `from orchestrator.X import Y` imports.** Verify by running the full suite after collapse.
 - **feedback-1 Q4** (acceptance bar for the trigger bug): **Integration test required** — exercise slice-DAG pipeline → context PR opens up-front → hard-required → idempotent path. Plus unit tests for the `gh pr list` pre-flight and the hard-required failure semantics.
 
-### Why two slices, not three (the cq-1 axis — separate from iteration-1's slice-1 sub-slicing question)
+### Why four slices, not two (the iteration-1 refinement of cq-1)
 
-This section addresses the original **cq-1 decomposition axis** —
-i.e. parallel A/B/C/D vs. sequential — which the operator answered
-in iteration 0. **It does NOT speak to iteration 1's distinct
-question of whether slice-1 (A+D) should be further sub-sliced
-sequentially into 1a/1b/1c.** That distinct question is owned by
-the architect per #2809 and surfaced above as task_planner NACK
-pressure on slice-size.
-
-The cq-1 HITL chose `[A+D] → [C]` rather than parallelising
-A/B/C/D, because:
+The original cq-1 HITL chose `[A+D] → [C]` rather than parallelising
+A/D/C, because:
 
 - A's deletions and D's dead-code purge overlap textually (most D sites live inside or adjacent to the context-PR scaffold A deletes). Parallelising would create textual merge conflicts on `pipelines.py` / `gateway_client.py`.
 - C's restart hardening references the new slice-base resolver that A creates (cq-10 surgical extraction). Sequencing A first means C consumes a stable primitive instead of a moving target.
 - #2792 is out of scope, so there is no third slice B to parallelise alongside.
 
-The operator's iteration-1 directive is **orthogonal to cq-1**: it
-preserves the `[A+D] → [C]` dependency direction and the
-out-of-scope status of #2792, and asks only that the A+D work be
-sub-sliced sequentially *within* slice-1 (so the dependency edges
-inside slice-1 become explicit PR boundaries instead of intra-PR
-ordering). The architect's iteration-1 response declined that
-sub-slicing for textual-conflict reasons. **The plan below follows
-the architect's response.**
+The operator's iteration-1 directive **preserved the `[A+D] → [C]`
+dependency direction** but asked the architect to sub-slice A+D
+sequentially along the natural seam between primitive-additions,
+deletions-that-depend-on-those-primitives, and
+cohesion-independent-cleanup. The architect's iteration-1 v4
+response (commit `b6b58a15e`) adopted this sub-slicing, producing
+the 4-slice linear chain `1a → 1b → 1c → 2` (renumbered to integer
+ids `1 → 2 → 3 → 4`) implemented by this plan v5.
+
+The cumulative effect: a smaller BRC review unit at each step
+(max 12 tasks, vs the 25 tasks-in-one-slice the operator flagged
+as too large), with the natural-seam ordering preserving the
+dependency direction:
+
+- slice-1 (id=1) ships the new primitives (opener, validator,
+  helpers) so reviewers can see them wired into real call sites
+  before any deletions arrive.
+- slice-2 (id=2) ships all the deletions, knowing the replacement
+  is already live.
+- slice-3 (id=3) ships the cohesion-independent cleanup tail
+  (idempotency, BLE001 audit, umbrella strip, #2570) — each item
+  can be NACKed independently without blocking the others.
+- slice-4 (id=4) ships restart hardening over the now-stable
+  topology.
 
 ## Primitives
 
@@ -316,14 +309,15 @@ Every primitive cited below was grep-verified against `HEAD` (`1cb235871`) befor
 
 | Primitive | file:line | Scope |
 |-----------|-----------|-------|
-| `test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker` | `orchestrator/tests/test_gateway_client.py:1493` (related asserts `1378, 1379, 1421, 1525`) | tester (rewrite in task-1-15) |
+| `test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker` | `orchestrator/tests/test_gateway_client.py:1493` (related asserts `1378, 1379, 1421, 1525`) | tester (rewrite in TASK-3-8) |
 
 ### Integration-test trust-boundary scope (#2594 §10)
 
-The integration tests in TASK-1-16 and TASK-2-6 need to spawn a
-sliced pipeline against the live local stack and assert the context
-PR is opened up-front / per-slice consensus trackers reconstruct
-across an orchestrator restart. The relevant pytest fixtures live on
+The integration tests in TASK-3-9 (slice-3 context-PR up-front) and
+TASK-4-6 (slice-4 restart hardening) need to spawn a sliced pipeline
+against the live local stack and assert the context PR is opened
+up-front / per-slice consensus trackers reconstruct across an
+orchestrator restart. The relevant pytest fixtures live on
 `integration_tests/conftest.py` (kubectl-gated via `_kubectl_available`
 at `integration_tests/conftest.py:158`; the `egg_stack` session
 fixture skips at line 347 when kubectl is unavailable, see
@@ -358,13 +352,13 @@ surviving kubectl-gated tiers are:
   up-front and restart-hardening tests are natural fits.
 - `integration_tests/sdlc/` — end-to-end SDLC pipeline tests
   (`test_happy_path.py`, `test_role_enforcement.py`,
-  `test_hitl_flow.py`, etc.). TASK-1-16a rewrites two tests here.
+  `test_hitl_flow.py`, etc.). TASK-3-10 rewrites two tests here.
 - `integration_tests/epic_pipeline/` — Jira epic SDLC pipeline tests.
   Not in scope for this plan.
 
-TASK-1-16 places its new test under `integration_tests/regression/`
+TASK-3-9 places its new test under `integration_tests/regression/`
 (slice-DAG-context-PR-up-front is a regression tier — preventing
-recurrence of #2769 / #2593 / #2744). TASK-2-6 places its new test
+recurrence of #2769 / #2593 / #2744). TASK-4-6 places its new test
 under `integration_tests/regression/` for the same reason
 (orchestrator-pod recycle is a recovery/regression test).
 
@@ -372,52 +366,95 @@ under `integration_tests/regression/` for the same reason
 
 | Primitive | Creator task | Description |
 |-----------|--------------|-------------|
-| `_open_context_pr_at_implement_start(pipeline_id)` | `(NEW — task TASK-1-1)` | Hard-required, idempotent up-front context-PR opener. One `gh pr list --head egg/<id>/work --base main --state open`; if hit, returns the PR number; if not, calls `GatewayClient.create_pr` to open `egg/<id>/work → main` and persists `context_pr_number` to `contract.pr`. Raises on failure (no soft-fail return). |
-| `_is_slice_dag_mode(contract) -> bool` | `(NEW — task TASK-1-13)` | Dedupes the 3 bare `slice_count > 1` sites (`pipelines.py:8259, 15060, 15519`). |
-| `_resolve_slice_base_branch(contract, slice_id)` | `(NEW — task TASK-1-13)` | Replacement for the deleted `_resolve_slice_1_context_branch_from_contract`. Returns the slice's parent branch — `egg/<id>/work` for root slices, the parent slice's integration branch otherwise. Reads `parent_branch_at_creation` from the contract slice record. |
-| Merge-base fallback inside `_resolve_slice_base_branch` | `(NEW — task TASK-2-3)` | When `parent_branch_at_creation` is empty (legacy / orphaned slices), derive parent from `git merge-base` against origin. Closes the drift window cq-9 references. |
+| `_open_context_pr_at_implement_start(pipeline_id)` | `(NEW — task TASK-1-2)` | Hard-required, idempotent up-front context-PR opener. One `gh pr list --head egg/<id>/work --base main --state open`; if hit, returns the PR number; if not, calls `GatewayClient.create_pr` to open `egg/<id>/work → main` and persists `context_pr_number` to `contract.pr`. Raises on failure (no soft-fail return). |
+| `_is_slice_dag_mode(contract) -> bool` | `(NEW — task TASK-1-3)` | Dedupes the 3 bare `slice_count > 1` sites (`pipelines.py:8259, 15060, 15519`). |
+| `_resolve_slice_base_branch(contract, slice_id)` | `(NEW — task TASK-1-3)` | Replacement for the deleted `_resolve_slice_1_context_branch_from_contract`. Returns the slice's parent branch — `egg/<id>/work` for root slices, the parent slice's integration branch otherwise. Reads `parent_branch_at_creation` from the contract slice record. |
+| Merge-base fallback inside `_resolve_slice_base_branch` | `(NEW — task TASK-4-3)` | When `parent_branch_at_creation` is empty (legacy / orphaned slices), derive parent from `git merge-base` against origin. Closes the drift window cq-9 references. |
+| `PlanPreflightError(BaseException)` | `(NEW — task TASK-1-1)` | Typed exception raised by the plan-phase pre-flight validator when planner output is missing yaml-tasks / pr.title / pr.description / pr.test_plan / pr.manual_steps (per AC-1a). |
+| `_persist_context_pr_number(pipeline_id, pr_number)` | `(NEW — task TASK-1-2)` | Private helper wrapping the contract write through the existing per-pipeline state-lock + `update_contract` machinery. Called exactly once by `_open_context_pr_at_implement_start` after either the `gh pr list` hit or the successful `gh pr create` (AC-22). |
+| `_migrate_schema_version_to_1_2` | `(NEW — task TASK-2-4)` | Migrator on the Contract model mirroring `_migrate_schema_version_to_1_1` at `models.py:935-936`. On v1.1 load, strips `context_branch` / `context_title` / `context_description` from `contract.pr` and bumps `schemaVersion` to `1.2` (AC-19a). |
+| `ContextPrCreationError` | `(NEW — task TASK-1-2)` | New typed exception raised by `_open_context_pr_at_implement_start` on gateway failure. NO soft-fail `return None`. |
 
-## Slice DAG
+## Slice DAG (architect's v4 binding scaffold; 4-node linear chain)
 
 ```
-slice-1 (root, parent = main)
-   │  Context-PR collapse + cleanup + PR-phase removal
-   │  Subsumes #2389, #2570
+slice-1 (id=1, "Context-PR opener + wiring (slice-1a)", root, parent = main)
+   │  ADDS new primitives only (opener, validator, helpers).
+   │  Legacy `_maybe_open_base_pr_for_plan_to_implement` is
+   │  left in place but unreferenced (TASK-2-1 deletes it).
    ▼
-slice-2 (parent = slice-1)
-   Slice/phase restart hardening
-   Closes #2409
+slice-2 (id=2, "Scaffold + PR-phase deletions (slice-1b)", parent=1)
+   │  DELETES the context-PR scaffold + PR phase + schema
+   │  fields + ConsensusEvaluator. Includes the
+   │  `stacked_pr_reconciler` cascade-base rewire.
+   ▼
+slice-3 (id=3, "Cohesion-independent cleanup tail (slice-1c)", parent=2)
+   │  cq-8 idempotency, #2570 bundle (with AC-9a HITL gate),
+   │  BLE001 audit, ImportError shim collapse, umbrella
+   │  strip (cq-6 subsumes #2389), #2199 noqa markers,
+   │  archaeology comments, end-to-end integration test (Q4).
+   ▼
+slice-4 (id=4, "Slice/phase restart hardening (slice-2)", parent=3)
+      Restart hardening (eager-persist, merge-base fallback,
+      slice-aware restart_phase, #2409 startup_reconciliation,
+      bootstrap non-COMPLETE).
 ```
 
-Forest constraint satisfied: each slice has exactly one parent. No `serialized_chain_order` needed.
+Forest constraint satisfied: linear chain `1 → 2 → 3 → 4`.
+
+**Closure links**:
+- slice-2 (id=2) closes the PR-phase concept structurally.
+- slice-3 (id=3) closes #2389 and #2570.
+- slice-4 (id=4) closes #2409.
 
 ## Test strategy
 
 ### Automated coverage (per slice)
 
-- **slice-1**:
-  - **Unit** (`orchestrator/tests/`): exercise `_open_context_pr_at_implement_start` happy path (no existing PR, opens one + persists `context_pr_number`), idempotent path (PR exists, no `gh pr create` call), and hard-required path (gateway failure raises, no swallowed `return None`). Mock `GatewayClient.create_pr` and `gh pr list`. Update `test_gateway_client.py:1378–1525` to drop the umbrella terminal-banner asserts and instead assert that the slice PR body no longer contains the `"Program-level umbrella PR"` literal. Add unit tests for the `create_slice_pr` idempotency pre-flight. Add unit tests for `_is_slice_dag_mode`. Add a regression test that asserts `_rebase_pipeline_branch_onto_base` no longer silently rebases `egg/<id>/work` onto `main` (covers #2570).
-  - **Integration** (`integration_tests/regression/`): end-to-end test that spawns a 2-slice DAG pipeline, advances to the plan→implement boundary, asserts a single PR exists with `head=egg/<id>/work base=main`, then deliberately deletes the contract's `context_pr_number` and re-triggers the implement-start hook, asserting the idempotent path finds the existing PR without opening a duplicate. (The legacy `integration_tests/local_pipeline/` directory was deleted on 2026-05-11 in commit `f7803637d1`; `regression/` is the kubectl-gated recovery/regression tier.)
-- **slice-2**:
-  - **Unit**: tests for `restart_phase`'s per-slice consensus tracker iteration (asserts `tracker.clear()` is called once per slice key); tests for eager-persist of `parent_branch_at_creation` (asserts the field is written during PENDING→IN_PROGRESS, not after `create_slice_integration_branch`); tests for the merge-base fallback in `_resolve_slice_base_branch` (asserts a slice with empty `parent_branch_at_creation` but pushed commits resolves correctly); tests for the extended bootstrap reconciliation that resumes non-COMPLETE slices without re-spawning.
-  - **Integration** (`integration_tests/regression/`): restart a sliced pipeline mid-phase; assert per-slice consensus trackers reconstruct correctly across the orchestrator-pod recycle (closes #2409).
+- **slice-1 (id=1, slice-1a opener + wiring)**:
+  - **Unit** (`orchestrator/tests/`): `_open_context_pr_at_implement_start` happy / idempotent / hard-required paths; `PlanPreflightError` validator (five rejection cases per AC-1a); `_is_slice_dag_mode`; `_resolve_slice_base_branch` (without merge-base fallback — that arm lands in slice-4).
+- **slice-2 (id=2, slice-1b scaffold + PR-phase deletions)**:
+  - **Unit**: regression tests that the deleted helpers / classes / fields no longer import; `test_dag_visualizer.py` rewritten for IMPLEMENT-terminal; `test_pr_metadata.py` rewritten for the removed fields + migration; gateway-side phase-API/filter/transition tests rewritten for default-deny on `target='pr'`; `stacked_pr_reconciler.py` cascade-base test exercises the new derivation; `_check_post_consensus_stall` test asserts the new semantic (per AC-23).
+- **slice-3 (id=3, slice-1c cleanup tail)**:
+  - **Unit**: `test_gateway_client.py` umbrella asserts removed; idempotency pre-flight test; 3-5 BLE001 sample sites; #2570 invariant test (merge-base unchanged after N≥3 phase transitions with M≥2 main PRs merged).
+  - **Integration** (`integration_tests/regression/`): end-to-end test that spawns a sliced-DAG pipeline, asserts a single context PR exists with `head=egg/<id>/work base=main`, clears `context_pr_number` and re-triggers implement-start hook, asserts the idempotent path finds the existing PR (AC-8). SDLC integration tests rewritten for implement→complete transition.
+- **slice-4 (id=4, slice-2 restart hardening)**:
+  - **Unit**: slice-aware `restart_phase`; eager-persist of `parent_branch_at_creation`; merge-base fallback in `_resolve_slice_base_branch`; bootstrap reconciliation for non-COMPLETE slices.
+  - **Integration** (`integration_tests/regression/`): orchestrator-pod recycle mid-implement; per-slice consensus trackers reconstruct (closes #2409 / AC-16).
+
+### Trust-boundary scope (per #2594 §10)
+
+All integration tests live under `integration_tests/regression/` (kubectl-gated recovery/regression tier with parent conftest's `orchestrator_url` pytest fixture and `egg_stack.gateway_url` attribute) or `integration_tests/sdlc/`. The legacy `integration_tests/local_pipeline/` directory was deleted on 2026-05-11 in commit `f7803637d1` and MUST NOT be referenced.
 
 ### Manual verification
 
-- After slice-1 lands: run a small sliced pipeline through to the implement phase boundary and confirm the context PR is opened automatically with no operator action. Confirm the PR phase no longer appears in pipeline status (it's been deleted).
-- After slice-2 lands: deliberately kill the orchestrator pod mid-implement-phase on a sliced pipeline; restart; confirm slice resumes without re-spawning agents, and per-slice consensus trackers report the prior state.
+- After slice-1 (id=1) lands: confirm `_open_context_pr_at_implement_start` is callable but no behavior change is observable yet (legacy still in place).
+- After slice-2 (id=2) lands: run a small sliced pipeline; confirm context PR opens automatically; confirm PR phase removed; confirm deleted modules don't load.
+- After slice-3 (id=3) lands: confirm `create_slice_pr` idempotency; confirm no umbrella string; confirm `make test-all` green.
+- After slice-4 (id=4) lands: kill orchestrator mid-implement; restart; confirm slice resumes without respawning.
 
 ## Manual steps
 
-**Pre-merge (slice-1)**:
-- Confirm there are NO in-flight slice-DAG pipelines in RUNNING state at deploy time. Feedback Q5 explicitly stated none exist; re-confirm at merge time. The schema bump (PRMetadata v1.1 → v1.2) is a clean break — in-flight contracts on disk will fail to load until repaired.
-- Verify the gateway's pipeline-session push-allow list already includes `egg/<id>/work` (it does — the work branch is the canonical pipeline tip), so removing `_CONTEXT_BRANCH_RE` does not leave a hole.
+**Pre-merge (slice-1, id=1)**: None. Slice-1a only ADDS code.
 
-**Pre-merge (slice-2)**: None.
+**Pre-merge (slice-2, id=2)**:
+- Confirm there are NO in-flight slice-DAG pipelines in RUNNING state at deploy time. Feedback Q5 explicitly stated none exist; re-confirm at merge time. The PRMetadata v1.1→v1.2 schema bump auto-migrates via `_migrate_schema_version_to_1_2` (per AC-19a for the 5 on-disk fixtures).
+- Verify the gateway's pipeline-session push-allow list already includes `egg/<id>/work` (it does), so removing `_CONTEXT_BRANCH_RE` does not leave a hole.
 
-**Post-merge (slice-1)**: Close #2389 (umbrella terminology rename) with a reference to slice-1. Close #2570 (work branch rebased onto main) with a reference to slice-1.
+**Pre-merge (slice-3, id=3)**:
+- The #2570 fix bundle (AC-9 / AC-9a) may surface an HITL gate via `mcp__sdlc__register_open_question` if Phase-1 diagnosis identifies the root cause inside an OOS primitive. The HITL is mid-implement, not pre-merge; slice-3 itself merges either after operator extends scope, or with AC-9 invariant test xfail'd plus a follow-up issue.
 
-**Post-merge (slice-2)**: Close #2409 (per-slice consensus tracker reconstruction) with a reference to slice-2.
+**Pre-merge (slice-4, id=4)**: None.
+
+**Post-merge (slice-1, id=1)**: None.
+
+**Post-merge (slice-2, id=2)**: None.
+
+**Post-merge (slice-3, id=3)**:
+- Close #2389 with a reference to slice-3's PR (cq-6 subsumes — structural deletion).
+- Close #2570 with a reference to slice-3's PR (AC-9 invariant test). If the AC-9a HITL was option (c) xfail-and-defer, close instead with the follow-up issue reference.
+
+**Post-merge (slice-4, id=4)**: Close #2409 with a reference to slice-4's PR.
 
 ---
 
@@ -445,57 +482,64 @@ pr:
     missed.
 
     This stack realigns the topology and trims the accumulated mess in
-    two stacked PRs:
+    four stacked PRs (linear chain 1 → 2 → 3 → 4, per the architect's
+    iteration-1 sub-slicing of A+D into 1a/1b/1c at the operator's
+    direction):
 
-    1. **Slice 1 — Context-PR collapse + cleanup + PR-phase removal.**
-       Replaces the entire `egg/<id>/context` scaffold with a single
-       idempotent up-front opener at the plan→implement boundary that
-       opens `egg/<id>/work → main` (one `gh pr list` + maybe one
-       `gh pr create`). Deletes `_open_context_pr_for_pipeline` and its
-       21 silent `return None` paths, `_lookup_existing_context_pr`,
-       `_gather_context_pr_files`, `_persist_context_pr_linkage_on_contract`,
-       `_maybe_open_base_pr_for_plan_to_implement` and its five call
-       sites, `_resolve_slice_1_context_branch_from_contract`, the
+    1. **Slice 1 (id=1, slice-1a) — Context-PR opener + wiring.**
+       ADDS new primitives only: `_open_context_pr_at_implement_start`
+       (hard-required idempotent up-front opener), a `PlanPreflightError`
+       validator at plan-phase completion, and the surgical helpers
+       `_is_slice_dag_mode` and `_resolve_slice_base_branch` (cq-10).
+       Rewires the five `_maybe_open_base_pr_for_plan_to_implement`
+       call sites at `pipelines.py:16503`, `:22132`, `:23671`, `:24666`,
+       plus `phases.py:500`. The legacy wrapper is left in place but
+       unreferenced.
+
+    2. **Slice 2 (id=2, slice-1b) — Scaffold + PR-phase deletions.**
+       DELETES the entire `egg/<id>/context` scaffold:
+       `_open_context_pr_for_pipeline` and its 21 silent return-None
+       paths, `_lookup_existing_context_pr`, `_gather_context_pr_files`,
+       `_persist_context_pr_linkage_on_contract`,
+       `_maybe_open_base_pr_for_plan_to_implement` (now unreferenced),
+       `_resolve_slice_1_context_branch_from_contract`, the
        `_context_pr_events_emitted` dedup set, the
        `create_context_branch` gateway-client method,
-       `ContextBranchDiverged`, and the `_CONTEXT_BRANCH_RE` gateway
-       push-exemption. Deletes the PR phase entirely
-       (`_should_skip_pr_phase_auto_pr` + caller + route registration).
-       Removes the `context_branch`, `context_title`, and
-       `context_description` fields from `PRMetadata` (schema v1.1 →
-       1.2; `context_pr_number` is kept). Deletes the legacy
-       `orchestrator/consensus.py` `ConsensusEvaluator` module. Drops
-       the "umbrella" terminology in `create_slice_pr` and the
-       slice-PR builder (subsumes #2389). Adds a `gh pr list`
-       idempotency pre-flight to `create_slice_pr` so a transient `gh`
-       failure no longer cascades the slice to FAILED. Diagnoses and
-       stops the silent rebase of `egg/<id>/work` onto `main` (#2570).
-       Adds `# noqa: ARG002` / dead-code markers to the five
-       `SliceScheduler` #2199 hooks (kept for the planned per-slice
-       MCP controls). Audits the 20 BLE001 swallow-all handlers and
-       replaces each with the specific exception type where the
-       failure mode is knowable. Collapses the 9 dual-path
-       `except ImportError` shims to canonical
-       `from orchestrator.X import Y` imports. Extracts two helpers:
-       `_is_slice_dag_mode` (dedupes 3 sites) and
-       `_resolve_slice_base_branch` (replaces the deleted slice-1
-       context-branch resolver).
+       `ContextBranchDiverged`, the `_CONTEXT_BRANCH_RE` gateway
+       push-exemption (plus dangling `is_context_push`). Deletes the
+       PR phase entirely (`_should_skip_pr_phase_auto_pr` + caller +
+       route registration + all `PipelinePhase.PR` reads/writes across
+       ~26 files). Removes `context_branch` / `context_title` /
+       `context_description` from `PRMetadata` (schema v1.1 → v1.2
+       with `_migrate_schema_version_to_1_2` migrator). Rewires
+       `stacked_pr_reconciler.py` cascade-base to derive from
+       `context_pr_number` + `_resolve_slice_base_branch`. Deletes
+       `orchestrator/consensus.py` and its 8 reference clusters
+       across `pipelines.py` (6), `phases.py` (1), `signals.py` (1).
+       Picks one `_check_post_consensus_stall` semantic per AC-23.
 
-    2. **Slice 2 — Slice/phase restart hardening.** Makes
-       `restart_phase` slice-aware (iterates per-slice consensus
-       trackers when clearing, mirroring `restart_agent`'s
-       slice-awareness). Eager-persists `parent_branch_at_creation` at
-       the PENDING→IN_PROGRESS transition, before
-       `create_slice_integration_branch` runs, so a crash mid-branch-
-       creation cannot leave the field empty. Adds a merge-base
-       fallback in `_resolve_slice_base_branch` for legacy/orphaned
-       slices whose `parent_branch_at_creation` was never written.
-       Extends bootstrap reconciliation to handle slices in
-       `IN_PROGRESS` / `BLOCKED` status that did real work (commits
-       pushed, consensus not reached), so they resume cleanly instead
-       of re-spawning agents from scratch. Adds per-slice consensus
-       tracker reconstruction to `startup_reconciliation` (closes
-       #2409).
+    3. **Slice 3 (id=3, slice-1c) — Cohesion-independent cleanup.**
+       Adds `gh pr list` idempotency pre-flight to `create_slice_pr`
+       (cq-8). Diagnoses and stops the silent rebase of `egg/<id>/work`
+       onto `main` (#2570 bundle), with AC-9a HITL gate if diagnosis
+       points at an OOS primitive. Audits each `# noqa: BLE001`
+       swallow-all in the slice-loop region individually (Q2).
+       Collapses the 9 dual-path `except ImportError` slice-loop shims
+       (Q3). Structurally deletes the "umbrella" terminology
+       (cq-6 subsumes #2389). Adds `# noqa: ARG002` / dead-code
+       markers and #2199 docstring banners to the SliceScheduler hooks
+       (cq-3). Deletes stale archaeology comments. Adds the end-to-end
+       integration test for the up-front context-PR open path (Q4).
+
+    4. **Slice 4 (id=4, slice-2) — Slice/phase restart hardening.**
+       Makes `restart_phase` slice-aware. Eager-persists
+       `parent_branch_at_creation` at PENDING→IN_PROGRESS. Adds a
+       merge-base fallback in `_resolve_slice_base_branch`. Extends
+       bootstrap reconciliation for IN_PROGRESS / BLOCKED slices with
+       commits-on-origin > 0. Adds per-slice consensus tracker
+       reconstruction in `startup_reconciliation` (closes #2409 —
+       threading `slice_id` into existing
+       `reconstruct_tracker_from_messages`).
 
     **Impact**: idempotent-by-construction context PR removes the
     recurring "context PR not opened" failure class (#2593, #2744,
@@ -506,24 +550,37 @@ pr:
     ~600 lines against ~200 added (new opener, new helpers,
     BLE001 audit replacements, tests).
   test_plan: |
-    - Automated (slice-1):
-      - Unit tests under `orchestrator/tests/` for
-        `_open_context_pr_at_implement_start` (happy / idempotent /
-        hard-required paths), the `create_slice_pr` idempotency
-        pre-flight, `_is_slice_dag_mode`, the `_rebase_pipeline_branch_onto_base`
-        behaviour change (#2570 regression), the PRMetadata schema
-        cleanup, the `consensus.py` deletion (no dangling imports),
-        the umbrella-deletion path in `create_slice_pr`, and the
-        per-site BLE001 replacements.
+    - Automated (slice-1, id=1, slice-1a opener + wiring):
+      - Unit tests for `_open_context_pr_at_implement_start`
+        (happy / idempotent / hard-required paths),
+        `PlanPreflightError` validator (5 rejection cases per AC-1a),
+        `_is_slice_dag_mode`, `_resolve_slice_base_branch` (without
+        merge-base fallback — lands in slice-4).
+    - Automated (slice-2, id=2, slice-1b deletions):
+      - Unit tests that the deleted helpers / class / fields no
+        longer import. `test_dag_visualizer.py` rewritten for
+        IMPLEMENT-terminal. `test_pr_metadata.py` rewritten for the
+        removed fields + migration tests for
+        `_migrate_schema_version_to_1_2`. Gateway-side test files
+        rewritten for default-deny on `target='pr'`. `stacked_pr_reconciler`
+        cascade-base test exercises the new derivation.
+        `_check_post_consensus_stall` test asserts the new semantic
+        (per AC-23 choice).
+    - Automated (slice-3, id=3, slice-1c cleanup tail):
+      - Unit tests: `create_slice_pr` idempotency pre-flight; no
+        umbrella string anywhere; 3-5 BLE001 sample sites; #2570
+        invariant test asserts merge-base unchanged after N≥3 phase
+        transitions with M≥2 main PRs merged in parallel.
       - Integration test under `integration_tests/regression/`
-        (the kubectl-gated recovery/regression tier; the legacy
+        (kubectl-gated recovery/regression tier; the legacy
         `integration_tests/local_pipeline/` directory was deleted
-        on 2026-05-11 in commit `f7803637d1`) that spawns a 2-slice
-        DAG pipeline, asserts the context PR opens automatically at
-        the plan→implement boundary with `head=egg/<id>/work
-        base=main`, then re-triggers the implement-start hook and
-        asserts no duplicate PR is opened.
-    - Automated (slice-2):
+        on 2026-05-11 in commit `f7803637d1`) that spawns a sliced-
+        DAG pipeline, asserts a single context PR exists with
+        `head=egg/<id>/work base=main`, clears `context_pr_number`
+        and re-triggers implement-start hook, asserts no duplicate
+        PR is opened (AC-8). SDLC integration tests rewritten for
+        implement→complete transition.
+    - Automated (slice-4, id=4, slice-2 restart hardening):
       - Unit tests for slice-aware `restart_phase` (per-slice tracker
         clear), eager-persist of `parent_branch_at_creation` (field
         present at PENDING→IN_PROGRESS), the merge-base fallback in
@@ -533,64 +590,85 @@ pr:
       - Integration test under `integration_tests/regression/`
         that kills the orchestrator pod mid-implement on a sliced
         pipeline, restarts, and asserts per-slice consensus trackers
-        reconstruct (#2409 closure proof).
+        reconstruct (#2409 closure proof / AC-16).
     - Manual:
-      - After slice-1 merges: run a small sliced pipeline through to
-        the implement phase boundary and confirm the context PR is
-        opened automatically with no operator action; confirm the PR
-        phase no longer appears in pipeline status.
-      - After slice-2 merges: deliberately kill the orchestrator pod
-        mid-implement-phase on a sliced pipeline; restart; confirm
-        slice resumes without re-spawning agents, and per-slice
-        consensus trackers report the prior state.
+      - After slice-1 (id=1) merges: confirm the new opener helper
+        is callable; no behavior change observable yet.
+      - After slice-2 (id=2) merges: run a small sliced pipeline;
+        confirm context PR opens automatically; confirm PR phase
+        removed.
+      - After slice-3 (id=3) merges: confirm `create_slice_pr`
+        idempotency; confirm no umbrella string; `make test-all`
+        green.
+      - After slice-4 (id=4) merges: kill orchestrator mid-implement
+        on a sliced pipeline; restart; confirm slice resumes without
+        respawning, per-slice consensus trackers report prior state.
   manual_steps: |
-    Pre-merge (slice-1):
+    Pre-merge (slice-1, id=1): None. Slice-1a only ADDS code.
+
+    Pre-merge (slice-2, id=2):
       - Confirm there are NO in-flight slice-DAG pipelines in RUNNING
         state at deploy time (feedback Q5 confirmed none; re-confirm
-        at merge). The PRMetadata schema bump (v1.1 → v1.2) is a
-        clean break — in-flight contracts on disk will fail to load
-        until repaired.
+        at merge). The PRMetadata schema bump (v1.1 → v1.2) auto-
+        migrates via `_migrate_schema_version_to_1_2`.
       - Verify the gateway's pipeline-session push-allow list already
         accepts pushes to `egg/<id>/work`; removing `_CONTEXT_BRANCH_RE`
         must not leave a hole.
 
-    Pre-merge (slice-2): None.
+    Pre-merge (slice-3, id=3):
+      - The #2570 fix bundle may surface an AC-9a HITL via
+        `mcp__sdlc__register_open_question` if Phase-1 diagnosis
+        identifies the root cause inside an OOS primitive. The HITL
+        is mid-implement, not pre-merge.
 
-    Post-merge (slice-1): Close #2389 with a reference to slice-1
-    (subsumed). Close #2570 with a reference to slice-1 (subsumed).
+    Pre-merge (slice-4, id=4): None.
 
-    Post-merge (slice-2): Close #2409 with a reference to slice-2
-    (subsumed).
+    Post-merge (slice-1, id=1): None.
+    Post-merge (slice-2, id=2): None (PR-phase concept closed
+    structurally).
+    Post-merge (slice-3, id=3): Close #2389 with a reference to
+    slice-3's PR (cq-6 subsumes). Close #2570 with a reference to
+    slice-3's PR (AC-9 invariant test); if AC-9a HITL was option (c)
+    xfail-and-defer, close instead with the follow-up issue
+    reference.
+    Post-merge (slice-4, id=4): Close #2409 with a reference to
+    slice-4's PR (subsumed).
 slices:
   - id: 1
     name: |-
-      Context-PR collapse + cleanup + PR-phase removal
+      Context-PR opener + wiring (slice-1a)
     goal: |-
-      Realign the slice-DAG PR topology (Goal 1) and execute the coupled
-      cleanup pass (Goal 2). Specifically: collapse egg/<id>/context onto
-      egg/<id>/work, delete the PR phase entirely (cq-4) and replace it with
-      a single hard-required idempotent up-front opener at the
-      plan->implement boundary, hard-remove the redundant PRMetadata fields
-      with a v1.1->v1.2 schema bump (cq-2), delete orchestrator/consensus.py
-      (cq-5), subsume #2389 umbrella terminology as a structural deletion
-      (cq-6), add gh-pr-list idempotency to create_slice_pr (cq-8), keep the
-      speculative #2199 SliceScheduler hooks with noqa+docs (cq-3), bundle
-      #2570 (silent work->main rebase) by diagnosing and stopping the
-      rebase, audit the BLE001 swallow-all handlers in the slice loop
-      individually (feedback Q2), collapse the slice-loop except-ImportError
-      shims to canonical orchestrator.X imports (feedback Q3), surgical
-      _is_slice_dag_mode + slice-1-base-resolver extractions (cq-10), and
-      ship the integration test for the trigger bug (feedback Q4). #2792
-      remains OUT OF SCOPE per decision-11 (now independently resolved in
-      merged PR #2797 -- still no work on the listed primitives here).
+      Land the new primitives and wire them in, so the primary
+      use case (up-front context-PR open at the plan->implement
+      boundary) is reachable and reviewable on its own. Scope:
+      add `_open_context_pr_at_implement_start(pipeline_id)` as
+      the single hard-required idempotent opener; add the
+      plan-phase pre-flight validator (`PlanPreflightError`)
+      that rejects malformed planner output before the
+      implement-phase entry hook fires; extract the surgical
+      helpers `_is_slice_dag_mode(contract)` and
+      `_resolve_slice_base_branch(contract, slice_id)` (cq-10);
+      and replace the five existing call sites of
+      `_maybe_open_base_pr_for_plan_to_implement`
+      (pipelines.py:16503, :22132, :23671, :24666, plus
+      orchestrator/routes/phases.py:500) with calls to the new
+      opener. The legacy `_maybe_open_base_pr_for_plan_to_implement`
+      is left in place but unreferenced -- slice-2 (id=2)
+      deletes it. This sub-slice ships the unwired-dead-code-
+      avoidance fix the prior 16-task run reproduced: the opener
+      is reachable from real call sites at end of slice-1a,
+      before any deletion lands. Out of scope for 1a: any
+      deletion of legacy scaffold; PR-phase removal; schema
+      bump; ConsensusEvaluator deletion; umbrella strip;
+      cleanup tail.
     parent_slice_id: null
     tasks:
-      - id: TASK-1-1a
+      - id: TASK-1-1
         role: coder
         description: |-
           Implement the AC-1a plan-phase pre-flight validator. The
           validator runs at plan-phase completion (before the
-          implement-phase entry hook from TASK-1-1 fires) and
+          implement-phase entry hook from TASK-1-2 fires) and
           rejects the plan with a plan-phase NACK if the planner
           output is missing the structural inputs the new
           idempotent context-PR opener depends on. Required
@@ -605,10 +683,10 @@ slices:
           `PlanPreflightError(BaseException)` with a structured
           payload naming the missing field(s) so the BRC NACK
           surface emits a clear actionable message. Unit test in
-          TASK-1-15: feed three malformed plan drafts (missing
+          TASK-3-8: feed three malformed plan drafts (missing
           yaml-tasks; missing `pr:`; missing `pr.test_plan`) and
           assert the validator raises with the expected field name.
-          Ordering: this validator MUST be in place BEFORE TASK-1-1's
+          Ordering: this validator MUST be in place BEFORE TASK-1-2's
           runtime opener — the opener depends on a well-formed
           contract — so prefer to land this first within the slice.
         acceptance: |-
@@ -616,13 +694,13 @@ slices:
             and rejects malformed planner output with a typed
             `PlanPreflightError`.
           - The five rejection cases (a)–(e) are each exercised
-            by a unit test in TASK-1-15.
+            by a unit test in TASK-3-8.
           - The NACK message names the missing field by name (not
             a generic "plan invalid").
         files:
           - shared/egg_contracts/plan_parser.py
           - orchestrator/routes/phases.py
-      - id: TASK-1-1
+      - id: TASK-1-2
         role: coder
         description: |-
           Add a new module-level helper
@@ -642,7 +720,7 @@ slices:
           `pipelines.py`) — NO soft-fail `return None`.
 
           **Persistence call site (added per reviewer_plan v2
-          blocker 5)**. After TASK-1-2 deletes
+          blocker 5)**. After TASK-2-1 deletes
           `_persist_context_pr_linkage_on_contract` (currently at
           `pipelines.py:9791` plan-anchor / `:10423` HEAD), the new
           opener becomes the SOLE writer of `context_pr_number`. To
@@ -656,8 +734,8 @@ slices:
           The opener calls `_persist_context_pr_number(...)` once,
           immediately after either the `gh pr list` hit or the
           successful `gh pr create`. The helper is single-purpose
-          (no other consumers); ordering with TASK-1-2 deletion is
-          critical — TASK-1-2 depends on TASK-1-1 having extracted
+          (no other consumers); ordering with TASK-2-1 deletion is
+          critical — TASK-2-1 depends on TASK-1-2 having extracted
           the helper before tearing down the old persistence path.
 
           Wire the opener into the single plan→implement transition
@@ -686,15 +764,15 @@ slices:
             20572, 22051, 22994` are removed.
           - The function uses `contract.pr.title` and
             `contract.pr.description` (NOT `context_title` /
-            `context_description`, which are removed in TASK-1-5).
-          - Idempotency verified by unit test in TASK-1-15: when
+            `context_description`, which are removed in TASK-2-4).
+          - Idempotency verified by unit test in TASK-3-8: when
             `gh pr list` returns an existing PR, no `gh pr create`
             is invoked AND `_persist_context_pr_number` IS still
             called with the existing PR number (the persistence
             write must be observed even on the idempotent path —
             covers the resume-from-orphaned-pipeline case where the
             contract on disk lost `context_pr_number` mid-run).
-          - A unit test (in TASK-1-15) verifies that a gateway
+          - A unit test (in TASK-3-8) verifies that a gateway
             failure surfaces as `ContextPrCreationError` and is NOT
             silently swallowed by the implement-phase entry handler
             in `phases.py` (i.e. the error propagates to the BRC
@@ -702,7 +780,78 @@ slices:
         files:
           - orchestrator/routes/pipelines.py
           - orchestrator/routes/phases.py
-      - id: TASK-1-2
+      - id: TASK-1-3
+        role: coder
+        description: |-
+          Surgical decomposition (cq-10). Two extractions only:
+          (1) Add `_is_slice_dag_mode(contract) -> bool` as a
+          module-level helper in `orchestrator/routes/pipelines.py`
+          that returns `len(contract.slices) > 1`. Replace the 3
+          bare recompute sites at `pipelines.py:8259` (inside
+          `_should_skip_pr_phase_auto_pr` — verify the site survives
+          TASK-2-2's deletion; if not, drop this replacement),
+          `pipelines.py:15060`, and `pipelines.py:15519` with calls
+          to the helper. (2) Add
+          `_resolve_slice_base_branch(contract, slice_id) -> str`
+          as a module-level helper. Reads
+          `contract.slices[<slice_id>].parent_branch_at_creation`
+          and returns it; for root slices (no upstream slice
+          dependencies), returns `f"egg/{pipeline_id}/work"`. This
+          replaces the deleted
+          `_resolve_slice_1_context_branch_from_contract` and is
+          extended by TASK-4-3 to include a merge-base fallback.
+          Wire the new helper into the slice-1 base resolution at
+          `pipelines.py:15394–15405` (note: TASK-2-1 already did
+          this wiring — this task supplies the helper that TASK-2-1
+          consumes). Ordering: TASK-1-3 must complete BEFORE
+          TASK-2-1 so that TASK-2-1 has a non-empty helper to call.
+        acceptance: |-
+          - `_is_slice_dag_mode` exists and is called at the 2 or
+            3 surviving sites (depending on TASK-2-2's outcome).
+          - `_resolve_slice_base_branch` exists, returns
+            `egg/<id>/work` for root slices and
+            `parent_branch_at_creation` otherwise.
+          - The new helpers have docstrings.
+        files:
+          - orchestrator/routes/pipelines.py
+  - id: 2
+    name: |-
+      Scaffold + PR-phase deletions (slice-1b)
+    goal: |-
+      Delete everything that the now-live slice-1a opener
+      makes redundant. Depends on slice-1 (id=1) so reviewers
+      can see the replacement is wired and working before
+      deletions land. Scope: delete the context-PR scaffold
+      (`_open_context_pr_for_pipeline`,
+      `_lookup_existing_context_pr`, `_gather_context_pr_files`,
+      `_persist_context_pr_linkage_on_contract`,
+      `_maybe_open_base_pr_for_plan_to_implement`,
+      `_resolve_slice_1_context_branch_from_contract`,
+      `_context_pr_events_emitted`); delete the PR phase
+      (`_should_skip_pr_phase_auto_pr` + sole caller; PR-phase
+      route registration; PipelinePhase.PR reads/writes across
+      ~26 files); delete `GatewayClient.create_context_branch`
+      and `ContextBranchDiverged`; delete gateway
+      `_CONTEXT_BRANCH_RE` regex and clean up the dangling
+      `is_context_push` references; hard-remove the
+      PRMetadata `context_branch` / `context_title` /
+      `context_description` fields with the schemaVersion
+      1.1->1.2 bump and the `_migrate_schema_version_to_1_2`
+      migrator (cq-2); rewire `stacked_pr_reconciler.py` to
+      derive cascade-base from `context_pr_number` +
+      `_resolve_slice_base_branch` (cq-9 prep); delete
+      `orchestrator/consensus.py` and its 8 reference
+      clusters across pipelines.py / phases.py / signals.py
+      (cq-5); delete obsolete test files
+      (test_finalize_pr_phase, test_auto_pr, test_consensus)
+      and rewrite affected test files; update
+      docs/architecture/orchestrator.md and
+      docs/guides/pipeline-health-monitoring.md. Out of scope
+      for 1b: cohesion-independent cleanup tail (lives in
+      slice-3, id=3).
+    parent_slice_id: 1
+    tasks:
+      - id: TASK-2-1
         role: coder
         description: |-
           Delete the entire `egg/<id>/context` parallel-stack-root
@@ -713,7 +862,7 @@ slices:
           `_gather_context_pr_files` (line 9896);
           `_persist_context_pr_linkage_on_contract` (line 9791);
           `_maybe_open_base_pr_for_plan_to_implement` (line 10648,
-          ~230 lines — note TASK-1-1 has replaced its single
+          ~230 lines — note TASK-1-2 has replaced its single
           surviving call site already, so this is a pure deletion);
           `_resolve_slice_1_context_branch_from_contract` (line
           10883); the `_context_pr_events_emitted` dict and lock at
@@ -729,18 +878,18 @@ slices:
           the deleted function bodies (added per reviewer_plan v2
           blocker 2)** — these are NOT inside the function deletions
           above and MUST be removed in this task or routed through
-          the new helpers from TASK-1-13:
+          the new helpers from TASK-1-3:
 
           - `pipelines.py:10801, 10804, 10844` — `context_branch`
             reads (plan-anchor lines). Re-anchor against HEAD; if
             inside a now-deleted function, drop with the function;
             if standalone, replace with the resolved parent branch
-            via `_resolve_slice_base_branch` from TASK-1-13.
+            via `_resolve_slice_base_branch` from TASK-1-3.
           - `pipelines.py:11096-11097` — `context_title` /
             `context_description` reads in slice-PR builder. After
             cq-2 these no longer exist; replace with reads of
             `contract.pr.title` and `contract.pr.description`
-            (the canonical fields used by TASK-1-1).
+            (the canonical fields used by TASK-1-2).
           - `pipelines.py:11519-11542` — `context_branch` read in
             cascade-base sub-block. Reroute through
             `_resolve_slice_base_branch`.
@@ -748,7 +897,7 @@ slices:
             outside any deleted function. Reroute through
             `_resolve_slice_base_branch` or drop if dead.
           - `pipelines.py:20193` — `context_branch` read at
-            advance-phase boundary. Drop if covered by TASK-1-1's
+            advance-phase boundary. Drop if covered by TASK-1-2's
             new opener path; otherwise reroute.
 
           The implement-phase coder MUST run the verification grep
@@ -760,7 +909,7 @@ slices:
 
           Update slice-1 base resolution in
           `pipelines.py:15394–15405` to call the new
-          `_resolve_slice_base_branch` from TASK-1-13 instead of
+          `_resolve_slice_base_branch` from TASK-1-3 instead of
           `_resolve_slice_1_context_branch_from_contract`.
 
           Verify no other references to deleted symbols remain via
@@ -768,11 +917,11 @@ slices:
           — widened scope catches leaks into gateway code, gateway
           tests, and integration tests.
 
-          Ordering note: this task `depends_on: [TASK-1-1,
-          TASK-1-1a, TASK-1-5, TASK-1-5b, TASK-1-13]` (new opener,
+          Ordering note: this task `depends_on: [TASK-1-2,
+          TASK-1-1, TASK-2-4, TASK-2-5, TASK-1-3]` (new opener,
           plan validator, schema cleanup, cascade rewire, and new
-          slice-base resolver must all exist first; TASK-1-5 +
-          TASK-1-5b clear the structural consumer ahead of this
+          slice-base resolver must all exist first; TASK-2-4 +
+          TASK-2-5 clear the structural consumer ahead of this
           deletion).
         acceptance: |-
           - The seven functions listed above are removed from
@@ -790,15 +939,15 @@ slices:
           - `grep -rn` for each deleted symbol across
             `orchestrator/ shared/ gateway/ tests/ integration_tests/`
             returns zero hits outside test files actively being
-            rewritten by TASK-1-15 / TASK-1-15a / TASK-1-17.
+            rewritten by TASK-3-8 / TASK-2-9 / TASK-3-11.
           - The post-edit verification grep
             `rg 'context_branch|context_title|context_description'
             orchestrator/routes/pipelines.py` returns zero hits.
           - Slice-1 base resolution at `pipelines.py:15394–15405`
-            now calls `_resolve_slice_base_branch` (from TASK-1-13).
+            now calls `_resolve_slice_base_branch` (from TASK-1-3).
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-1-3
+      - id: TASK-2-2
         role: coder
         description: |-
           Delete the PR phase entirely (cq-4). Per the risk-analyst's
@@ -816,7 +965,7 @@ slices:
           (4) `_get_pr_url_from_pipeline` at `pipelines.py:4067-4075`
               reads from `phases['pr'].artifacts['pr_url']`. After
               deletion, the PR URL is read directly from
-              `contract.pr.context_pr_number` (set by TASK-1-1) —
+              `contract.pr.context_pr_number` (set by TASK-1-2) —
               update this helper or remove and inline.
           (5) `PipelinePhase.PR = 'pr'` enum value at
               `shared/egg_contracts/models.py:78` (StrEnum at
@@ -922,9 +1071,9 @@ slices:
           verbatim in the commit message** so reviewer_plan can
           spot-check the delta without rerunning the audit.
 
-          Tests are owned by TASK-1-3a (schema/phase_defaults
-          tests), TASK-1-15a (gateway PR-phase tests),
-          TASK-1-17 (orchestrator PR-phase tests), and TASK-1-18
+          Tests are owned by TASK-2-7 (schema/phase_defaults
+          tests), TASK-2-9 (gateway PR-phase tests),
+          TASK-3-11 (orchestrator PR-phase tests), and TASK-3-12
           (docs).
         acceptance: |-
           - All 11 site-categories above are addressed (#10 covers
@@ -968,34 +1117,13 @@ slices:
           - shared/egg_contracts/phase_defaults.py
           - gateway/phase_filter.py
           - gateway/phase_transition.py
-      - id: TASK-1-3a
-        role: tester
-        description: |-
-          Rewrite `tests/shared/egg_contracts/test_phase_defaults.py`
-          to reflect the removal of `PipelinePhase.PR` from
-          `shared/egg_contracts/phase_defaults.py:105` (and the
-          `PipelinePhase` StrEnum at
-          `shared/egg_contracts/models.py:62-78` per TASK-1-3 (5)).
-          Specifically: drop any test that asserts PR is in the
-          phase-defaults table; assert IMPLEMENT is the terminal
-          phase with no downstream; add a default-deny coverage
-          test that asserts a planner trying to default to phase
-          'pr' is rejected. The test runs under `make test`.
-        acceptance: |-
-          - `tests/shared/egg_contracts/test_phase_defaults.py`
-            passes with the PR-phase removed.
-          - The test file no longer references `PipelinePhase.PR`.
-          - A new default-deny test asserts that 'pr' is not an
-            accepted phase string.
-        files:
-          - tests/shared/egg_contracts/test_phase_defaults.py
-      - id: TASK-1-4
+      - id: TASK-2-3
         role: coder
         description: |-
           Delete `GatewayClient.create_context_branch`
           (`orchestrator/gateway_client.py:2327`, ~90 lines) and
           `ContextBranchDiverged` (`gateway_client.py:3453`) — both
-          are dead once TASK-1-2 removes the only callers. Delete
+          are dead once TASK-2-1 removes the only callers. Delete
           `_CONTEXT_BRANCH_RE` from `gateway/gateway.py:1112` and
           remove the regex from the push-block enforcement at
           `gateway/gateway.py:1350` and `1362`. Before deletion,
@@ -1047,31 +1175,7 @@ slices:
         files:
           - orchestrator/gateway_client.py
           - gateway/gateway.py
-      - id: TASK-1-4b
-        role: tester
-        description: |-
-          Rewrite `gateway/tests/test_pipeline_push_block.py` to
-          reflect `_CONTEXT_BRANCH_RE` deletion (TASK-1-4). The
-          existing context-branch allow-test class at lines
-          994-1052 becomes obsolete because the exemption regex no
-          longer exists. Delete the class. Add a replacement
-          regression test that verifies `egg/<id>/context` pushes
-          are now BLOCKED (the exemption is gone — the branch
-          itself is gone — but a misbehaving caller might still
-          try to push to it; assert the gateway rejects the push
-          with a clear policy-violation error). Run under
-          `make test` to confirm.
-        acceptance: |-
-          - Lines 994-1052 (the context-branch allow-test class)
-            are deleted from
-            `gateway/tests/test_pipeline_push_block.py`.
-          - A replacement regression test asserts that a push to
-            `egg/<id>/context` is rejected by the gateway with a
-            policy-violation error message.
-          - `make test` passes.
-        files:
-          - gateway/tests/test_pipeline_push_block.py
-      - id: TASK-1-5
+      - id: TASK-2-4
         role: coder
         description: |-
           PRMetadata schema cleanup (cq-2 — hard-remove). In
@@ -1100,10 +1204,10 @@ slices:
           Search for all read sites of the three deleted fields
           across the codebase
           (`grep -rn 'context_branch\|context_title\|context_description'`)
-          and either delete them (if covered by TASK-1-2 or
-          TASK-1-7) or note them for the new TASK-1-5b structural
+          and either delete them (if covered by TASK-2-1 or
+          TASK-3-1) or note them for the new TASK-2-5 structural
           rewire (`stacked_pr_reconciler.py` cascade-base and the
-          seven `pipelines.py` read sites enumerated in TASK-1-2's
+          seven `pipelines.py` read sites enumerated in TASK-2-1's
           extended scope). Any read site that survives outside the
           deletion-task scope is a bug.
         acceptance: |-
@@ -1113,14 +1217,14 @@ slices:
             three removed fields from on-disk v1.1 contracts on
             load (no-op for v1.2).
           - No surviving read site of any deleted field outside
-            test files AND outside the new TASK-1-5b structural
+            test files AND outside the new TASK-2-5 structural
             rewire scope (`stacked_pr_reconciler.py`).
           - The pipeline's own contract on disk (`.egg-state/contracts/issue-2777-replan.json`)
             loads successfully under the v1.2 schema via the
             migration entry.
         files:
           - shared/egg_contracts/models.py
-      - id: TASK-1-5b
+      - id: TASK-2-5
         role: coder
         description: |-
           **NEW — added per reviewer_plan v2 blocker 2** (cascade-base
@@ -1130,16 +1234,16 @@ slices:
           — at HEAD the references are at lines 94, 112, 120, 129,
           150, 157-158, 247, 275, 283 (verified via
           `grep -n "context_branch\|context_title\|context_description" orchestrator/stacked_pr_reconciler.py`).
-          These are NOT covered by TASK-1-2's pipelines.py deletion
-          scope nor TASK-1-7's umbrella deletion. The reconciler
+          These are NOT covered by TASK-2-1's pipelines.py deletion
+          scope nor TASK-3-1's umbrella deletion. The reconciler
           threads `context_branch` through the cascade-base fallback
           for orphaned slices — exactly the safety net cq-9 tries to
-          preserve. After TASK-1-5 deletes the field, every read
+          preserve. After TASK-2-4 deletes the field, every read
           site here raises `AttributeError` at runtime.
 
           Rewire the cascade-base resolution onto the new
-          `_resolve_slice_base_branch` helper from TASK-1-13 (which
-          gains a merge-base fallback in TASK-2-3 for orphaned
+          `_resolve_slice_base_branch` helper from TASK-1-3 (which
+          gains a merge-base fallback in TASK-4-3 for orphaned
           slices). For the specific case where the reconciler today
           falls back to `context_branch` for "PR shouldn't get here"
           paths (line 150 comment), the new path resolves through
@@ -1153,69 +1257,28 @@ slices:
           - Argument-passing sites → switch to passing the resolved
             parent branch via `_resolve_slice_base_branch`.
 
-          Add a unit test in TASK-1-15 that exercises the
+          Add a unit test in TASK-3-8 that exercises the
           `stacked_pr_reconciler.py` cascade-base fallback with the
           new helper.
 
-          Ordering: `depends_on: [TASK-1-13, TASK-1-5]` —
-          `_resolve_slice_base_branch` from TASK-1-13 must exist,
-          and TASK-1-5 must have removed the schema field so the
+          Ordering: `depends_on: [TASK-1-3, TASK-2-4]` —
+          `_resolve_slice_base_branch` from TASK-1-3 must exist,
+          and TASK-2-4 must have removed the schema field so the
           rewire isn't redundant.
         acceptance: |-
           - `orchestrator/stacked_pr_reconciler.py` no longer reads
             `contract.pr.context_branch`.
           - The cascade-base resolution goes through
-            `_resolve_slice_base_branch` (from TASK-1-13 / TASK-2-3).
+            `_resolve_slice_base_branch` (from TASK-1-3 / TASK-4-3).
           - `grep -n "context_branch" orchestrator/stacked_pr_reconciler.py`
             returns zero hits.
           - The orphaned-slice safety net (cq-9 intent) is preserved
-            by routing through the merge-base fallback (TASK-2-3).
-          - Unit test in TASK-1-15 covers the new cascade-base
+            by routing through the merge-base fallback (TASK-4-3).
+          - Unit test in TASK-3-8 covers the new cascade-base
             fallback path.
         files:
           - orchestrator/stacked_pr_reconciler.py
-      - id: TASK-1-5a
-        role: tester
-        description: |-
-          Update schema and doc-terminology tests for the
-          PRMetadata field removal in TASK-1-5. Three changes:
-
-          (1) `tests/shared/egg_contracts/test_pr_metadata.py:91-142`
-              currently has ~18 asserts on the three deleted
-              fields (`context_branch`, `context_title`,
-              `context_description`). Delete those asserts; add
-              one positive test that asserts `PRMetadata` no longer
-              accepts those field names (Pydantic rejects with
-              `extra='forbid'` validation error); add one positive
-              test that asserts `context_pr_number` and
-              `deferred_actions` still work as before.
-          (2) `tests/docs/test_context_pr_doc_terminology.py:70-243`
-              has doc-terminology asserts on the deleted field
-              names (the test asserts docs mention the fields).
-              Delete those asserts; add a replacement test that
-              asserts docs DO mention `context_pr_number` (still
-              live) but do NOT mention the three removed fields
-              (regression test that docs were updated).
-          (3) Any test in `tests/` or `orchestrator/tests/` that
-              imports `context_branch` / `context_title` /
-              `context_description` from `PRMetadata` — grep
-              `tests/ orchestrator/tests/ integration_tests/`
-              before completing to catch stragglers.
-
-          Run `make test-all` to confirm a green suite.
-        acceptance: |-
-          - `test_pr_metadata.py:91-142` asserts on deleted
-            fields are removed; positive tests for the field
-            removal exist.
-          - `test_context_pr_doc_terminology.py:70-243` doc
-            asserts on deleted fields are removed; replacement
-            doc-update regression test exists.
-          - No surviving test imports the three deleted fields
-            (verified by `grep -rn 'context_branch\|context_title\|context_description' tests/ orchestrator/tests/ integration_tests/`).
-        files:
-          - tests/shared/egg_contracts/test_pr_metadata.py
-          - tests/docs/test_context_pr_doc_terminology.py
-      - id: TASK-1-6
+      - id: TASK-2-6
         role: coder
         description: |-
           Delete the legacy `ConsensusEvaluator` module (cq-5).
@@ -1333,7 +1396,163 @@ slices:
           - orchestrator/routes/phases.py
           - orchestrator/routes/signals.py
           - orchestrator/peer_consensus.py
-      - id: TASK-1-7
+      - id: TASK-2-7
+        role: tester
+        description: |-
+          Rewrite `tests/shared/egg_contracts/test_phase_defaults.py`
+          to reflect the removal of `PipelinePhase.PR` from
+          `shared/egg_contracts/phase_defaults.py:105` (and the
+          `PipelinePhase` StrEnum at
+          `shared/egg_contracts/models.py:62-78` per TASK-2-2 (5)).
+          Specifically: drop any test that asserts PR is in the
+          phase-defaults table; assert IMPLEMENT is the terminal
+          phase with no downstream; add a default-deny coverage
+          test that asserts a planner trying to default to phase
+          'pr' is rejected. The test runs under `make test`.
+        acceptance: |-
+          - `tests/shared/egg_contracts/test_phase_defaults.py`
+            passes with the PR-phase removed.
+          - The test file no longer references `PipelinePhase.PR`.
+          - A new default-deny test asserts that 'pr' is not an
+            accepted phase string.
+        files:
+          - tests/shared/egg_contracts/test_phase_defaults.py
+      - id: TASK-2-8
+        role: tester
+        description: |-
+          Rewrite `gateway/tests/test_pipeline_push_block.py` to
+          reflect `_CONTEXT_BRANCH_RE` deletion (TASK-2-3). The
+          existing context-branch allow-test class at lines
+          994-1052 becomes obsolete because the exemption regex no
+          longer exists. Delete the class. Add a replacement
+          regression test that verifies `egg/<id>/context` pushes
+          are now BLOCKED (the exemption is gone — the branch
+          itself is gone — but a misbehaving caller might still
+          try to push to it; assert the gateway rejects the push
+          with a clear policy-violation error). Run under
+          `make test` to confirm.
+        acceptance: |-
+          - Lines 994-1052 (the context-branch allow-test class)
+            are deleted from
+            `gateway/tests/test_pipeline_push_block.py`.
+          - A replacement regression test asserts that a push to
+            `egg/<id>/context` is rejected by the gateway with a
+            policy-violation error message.
+          - `make test` passes.
+        files:
+          - gateway/tests/test_pipeline_push_block.py
+      - id: TASK-2-9
+        role: tester
+        description: |-
+          Rewrite the four gateway PR-phase test files to drop
+          PR-phase assertions and add default-deny coverage for
+          `target='pr'` (architect v2 AC-4c, lock-step with
+          TASK-2-2's `PipelinePhase.PR` removal):
+
+          (1) `gateway/tests/test_phase_api.py` — drop any test
+              that asserts PR-phase advancement succeeds; add a
+              test that asserts `advance_phase target='pr'` is
+              rejected (default-deny).
+          (2) `gateway/tests/test_phase_filter.py` — drop any
+              assertion that PipelinePhase.PR exists in the
+              phase-permissions table; add a test that asserts
+              PR is not a valid permission key.
+          (3) `gateway/tests/test_phase_filter_restrictions.py` —
+              drop any assertion that PR-phase has a
+              PhaseFileRestriction entry; add a test that asserts
+              looking up restrictions for 'pr' returns the
+              default-deny.
+          (4) `gateway/tests/test_phase_transition.py` — drop any
+              assertion that IMPLEMENT → PR or PR → COMPLETE is
+              an accepted transition; add a test that asserts
+              IMPLEMENT is the terminal phase.
+
+          Run `make test` to confirm green.
+        acceptance: |-
+          - All four files updated per the above.
+          - Each file has at least one new default-deny test
+            verifying 'pr' is no longer accepted.
+          - `make test` passes.
+        files:
+          - gateway/tests/test_phase_api.py
+          - gateway/tests/test_phase_filter.py
+          - gateway/tests/test_phase_filter_restrictions.py
+          - gateway/tests/test_phase_transition.py
+      - id: TASK-2-10
+        role: tester
+        description: |-
+          Update schema and doc-terminology tests for the
+          PRMetadata field removal in TASK-2-4. Three changes:
+
+          (1) `tests/shared/egg_contracts/test_pr_metadata.py:91-142`
+              currently has ~18 asserts on the three deleted
+              fields (`context_branch`, `context_title`,
+              `context_description`). Delete those asserts; add
+              one positive test that asserts `PRMetadata` no longer
+              accepts those field names (Pydantic rejects with
+              `extra='forbid'` validation error); add one positive
+              test that asserts `context_pr_number` and
+              `deferred_actions` still work as before.
+          (2) `tests/docs/test_context_pr_doc_terminology.py:70-243`
+              has doc-terminology asserts on the deleted field
+              names (the test asserts docs mention the fields).
+              Delete those asserts; add a replacement test that
+              asserts docs DO mention `context_pr_number` (still
+              live) but do NOT mention the three removed fields
+              (regression test that docs were updated).
+          (3) Any test in `tests/` or `orchestrator/tests/` that
+              imports `context_branch` / `context_title` /
+              `context_description` from `PRMetadata` — grep
+              `tests/ orchestrator/tests/ integration_tests/`
+              before completing to catch stragglers.
+
+          Run `make test-all` to confirm a green suite.
+        acceptance: |-
+          - `test_pr_metadata.py:91-142` asserts on deleted
+            fields are removed; positive tests for the field
+            removal exist.
+          - `test_context_pr_doc_terminology.py:70-243` doc
+            asserts on deleted fields are removed; replacement
+            doc-update regression test exists.
+          - No surviving test imports the three deleted fields
+            (verified by `grep -rn 'context_branch\|context_title\|context_description' tests/ orchestrator/tests/ integration_tests/`).
+        files:
+          - tests/shared/egg_contracts/test_pr_metadata.py
+          - tests/docs/test_context_pr_doc_terminology.py
+  - id: 3
+    name: |-
+      Cohesion-independent cleanup tail (slice-1c)
+    goal: |-
+      Land the cleanup items whose correctness is independent
+      of the structural collapse in slice-1 / slice-2 but whose
+      review benefit depends on the new topology being in
+      place. Scope: add `gh pr list` idempotency pre-flight to
+      `GatewayClient.create_slice_pr` (cq-8); diagnose and
+      stop the silent `egg/<id>/work` rebase onto main (#2570
+      bundle) including the AC-9 invariant test, with the
+      AC-9a HITL gate if diagnosis points at an OOS primitive;
+      audit each `# noqa: BLE001` swallow-all handler in the
+      slice-loop region individually and replace with named
+      exception types or deliberate comments (feedback Q2);
+      collapse the slice-loop `except ImportError` dual-path
+      import shims to canonical `from orchestrator.X import Y`
+      (feedback Q3); strip the umbrella terminology -- the
+      `umbrella_has_program_block` variable, the literal
+      banner string, the docstring narrative, and the
+      `test_terminal_slice_keeps_umbrella_rollup...` positive
+      test (cq-6 subsumes #2389); add noqa markers and #2199
+      docstring banners to the speculative SliceScheduler
+      hooks (record_cycle / teardown_slice / respawn_slice /
+      cancel_cascade / hitl_escalator param) (cq-3); delete
+      stale archaeology comments in the slice-loop region;
+      add the end-to-end integration test for the up-front
+      context-PR open path (feedback Q4). Each item is
+      independent of the others, so a NACK on one does not
+      block the rest. Out of scope for 1c: restart hardening
+      (lives in slice-4, id=4).
+    parent_slice_id: 2
+    tasks:
+      - id: TASK-3-1
         role: coder
         description: |-
           Drop "umbrella" terminology (cq-6 subsumes #2389). In
@@ -1342,7 +1561,7 @@ slices:
           umbrella treatment entirely: program-level content (test
           plan, manual steps, pre-merge obligations) is no longer
           inserted into terminal slices because it now lives on the
-          `egg/<id>/work → main` context PR opened by TASK-1-1.
+          `egg/<id>/work → main` context PR opened by TASK-1-2.
           Delete the umbrella sites at `gateway_client.py:299` (lazy-
           import comment), `1523, 1539, 1542, 1550, 1569, 1600, 1611,
           1615, 1624` (docstring + body comments), `1629` (the
@@ -1359,7 +1578,7 @@ slices:
           that reference "umbrella". Search-and-fix any remaining
           "umbrella" string in non-test code via
           `grep -rn 'umbrella' orchestrator/ gateway/ shared/`. Test
-          updates are owned by TASK-1-15.
+          updates are owned by TASK-3-8.
         acceptance: |-
           - `create_slice_pr` no longer emits the terminal-banner
             string.
@@ -1369,7 +1588,7 @@ slices:
         files:
           - orchestrator/gateway_client.py
           - orchestrator/routes/pipelines.py
-      - id: TASK-1-8
+      - id: TASK-3-2
         role: coder
         description: |-
           Add idempotent `gh pr list` pre-flight to
@@ -1382,8 +1601,8 @@ slices:
           create path. Extract a private
           `_lookup_open_pr(self, head: str, base: str) -> int | None`
           helper so the same idempotency primitive can also serve
-          TASK-1-1 (the context-PR opener). Tests are owned by
-          TASK-1-15.
+          TASK-1-2 (the context-PR opener). Tests are owned by
+          TASK-3-8.
         acceptance: |-
           - `_lookup_open_pr` exists as a private helper on
             `GatewayClient`.
@@ -1392,10 +1611,10 @@ slices:
             hit.
           - A transient `gh pr create` failure that is retried after
             a partial success no longer cascades the slice to FAILED
-            — verified by unit test in TASK-1-15.
+            — verified by unit test in TASK-3-8.
         files:
           - orchestrator/gateway_client.py
-      - id: TASK-1-9
+      - id: TASK-3-3
         role: coder
         description: |-
           Diagnose and stop the silent rebase of `egg/<id>/work` onto
@@ -1439,7 +1658,7 @@ slices:
           Document the chosen fix in the commit message with a
           paragraph explaining why the alternative was rejected. In
           this counterfactual path, AC-9a does not fire and the task
-          ships a real code change. Tests are owned by TASK-1-17.
+          ships a real code change. Tests are owned by TASK-3-11.
 
           **AC-9a — OOS-scope-escalation gate (HARD REQUIREMENT)**:
           Before modifying any site discovered by the diagnosis,
@@ -1479,7 +1698,7 @@ slices:
             (option 3 → xfail + follow-up issue link is the
             default expectation), OR (b) a code change ships against
             an in-scope root cause and the regression test in
-            TASK-1-17 passes — including `git merge-base origin/main
+            TASK-3-11 passes — including `git merge-base origin/main
             origin/egg/<id>/work` equalling the pipeline-creation
             SHA after **N≥3 phase transitions** with **M≥2 main PRs
             merged in parallel** (architect AC-9 NB#1 pinning).
@@ -1496,7 +1715,7 @@ slices:
           - orchestrator/routes/pipelines.py
           - gateway/gateway.py
           - .egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md
-      - id: TASK-1-10
+      - id: TASK-3-4
         role: coder
         description: |-
           Keep the five `SliceScheduler` #2199 hooks with dead-code
@@ -1538,7 +1757,7 @@ slices:
           - Existing `test_slice_scheduler.py` tests pass unchanged.
         files:
           - orchestrator/slice_scheduler.py
-      - id: TASK-1-11
+      - id: TASK-3-5
         role: coder
         description: |-
           BLE001 audit (feedback Q2). Each of the 20
@@ -1566,7 +1785,7 @@ slices:
           - Commit message lists the per-site decisions.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-1-12
+      - id: TASK-3-6
         role: coder
         description: |-
           Collapse the 9 dual-path `except ImportError` shims at
@@ -1587,41 +1806,7 @@ slices:
             collapse.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-1-13
-        role: coder
-        description: |-
-          Surgical decomposition (cq-10). Two extractions only:
-          (1) Add `_is_slice_dag_mode(contract) -> bool` as a
-          module-level helper in `orchestrator/routes/pipelines.py`
-          that returns `len(contract.slices) > 1`. Replace the 3
-          bare recompute sites at `pipelines.py:8259` (inside
-          `_should_skip_pr_phase_auto_pr` — verify the site survives
-          TASK-1-3's deletion; if not, drop this replacement),
-          `pipelines.py:15060`, and `pipelines.py:15519` with calls
-          to the helper. (2) Add
-          `_resolve_slice_base_branch(contract, slice_id) -> str`
-          as a module-level helper. Reads
-          `contract.slices[<slice_id>].parent_branch_at_creation`
-          and returns it; for root slices (no upstream slice
-          dependencies), returns `f"egg/{pipeline_id}/work"`. This
-          replaces the deleted
-          `_resolve_slice_1_context_branch_from_contract` and is
-          extended by TASK-2-3 to include a merge-base fallback.
-          Wire the new helper into the slice-1 base resolution at
-          `pipelines.py:15394–15405` (note: TASK-1-2 already did
-          this wiring — this task supplies the helper that TASK-1-2
-          consumes). Ordering: TASK-1-13 must complete BEFORE
-          TASK-1-2 so that TASK-1-2 has a non-empty helper to call.
-        acceptance: |-
-          - `_is_slice_dag_mode` exists and is called at the 2 or
-            3 surviving sites (depending on TASK-1-3's outcome).
-          - `_resolve_slice_base_branch` exists, returns
-            `egg/<id>/work` for root slices and
-            `parent_branch_at_creation` otherwise.
-          - The new helpers have docstrings.
-        files:
-          - orchestrator/routes/pipelines.py
-      - id: TASK-1-14
+      - id: TASK-3-7
         role: coder
         description: |-
           Remove the stale archaeology comments at
@@ -1640,7 +1825,7 @@ slices:
           - Surviving comments describe current behaviour only.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-1-15
+      - id: TASK-3-8
         role: tester
         description: |-
           Update orchestrator unit tests for the context-PR
@@ -1676,44 +1861,7 @@ slices:
         files:
           - orchestrator/tests/test_gateway_client.py
           - orchestrator/tests/test_context_pr_opener.py
-      - id: TASK-1-15a
-        role: tester
-        description: |-
-          Rewrite the four gateway PR-phase test files to drop
-          PR-phase assertions and add default-deny coverage for
-          `target='pr'` (architect v2 AC-4c, lock-step with
-          TASK-1-3's `PipelinePhase.PR` removal):
-
-          (1) `gateway/tests/test_phase_api.py` — drop any test
-              that asserts PR-phase advancement succeeds; add a
-              test that asserts `advance_phase target='pr'` is
-              rejected (default-deny).
-          (2) `gateway/tests/test_phase_filter.py` — drop any
-              assertion that PipelinePhase.PR exists in the
-              phase-permissions table; add a test that asserts
-              PR is not a valid permission key.
-          (3) `gateway/tests/test_phase_filter_restrictions.py` —
-              drop any assertion that PR-phase has a
-              PhaseFileRestriction entry; add a test that asserts
-              looking up restrictions for 'pr' returns the
-              default-deny.
-          (4) `gateway/tests/test_phase_transition.py` — drop any
-              assertion that IMPLEMENT → PR or PR → COMPLETE is
-              an accepted transition; add a test that asserts
-              IMPLEMENT is the terminal phase.
-
-          Run `make test` to confirm green.
-        acceptance: |-
-          - All four files updated per the above.
-          - Each file has at least one new default-deny test
-            verifying 'pr' is no longer accepted.
-          - `make test` passes.
-        files:
-          - gateway/tests/test_phase_api.py
-          - gateway/tests/test_phase_filter.py
-          - gateway/tests/test_phase_filter_restrictions.py
-          - gateway/tests/test_phase_transition.py
-      - id: TASK-1-16
+      - id: TASK-3-9
         role: tester
         description: |-
           Add an integration test under
@@ -1750,7 +1898,7 @@ slices:
             inherited `egg_stack` fixture's skip).
         files:
           - integration_tests/regression/test_context_pr_up_front.py
-      - id: TASK-1-16a
+      - id: TASK-3-10
         role: tester
         description: |-
           Rewrite the two SDLC integration tests that assert the
@@ -1765,7 +1913,7 @@ slices:
               drop the PR-phase role-enforcement assertions; the
               PR-phase no longer exists so there is no PR-phase
               role surface to enforce. The new context-PR opener
-              in TASK-1-1 is invoked from the orchestrator-side
+              in TASK-1-2 is invoked from the orchestrator-side
               (no agent), so no role-enforcement check applies.
 
           Run under `make test-all` against the local stack.
@@ -1778,37 +1926,39 @@ slices:
         files:
           - integration_tests/sdlc/test_happy_path.py
           - integration_tests/sdlc/test_role_enforcement.py
-      - id: TASK-1-17
+      - id: TASK-3-11
         role: tester
         description: |-
           Update the remaining orchestrator unit tests affected by
-          slice-1's code changes. The named files are explicit
-          (per architect v2 AC-4b):
+          the slice-1 + slice-2 + slice-3 code changes (the original
+          A+D super-slice, now sub-sliced). The named files are
+          explicit (per architect v2 AC-4b):
 
           (1) **DELETE** `orchestrator/tests/test_finalize_pr_phase.py`
               entirely — the `_finalize_pr_phase_failed` function
-              is removed in TASK-1-3 (2).
+              is removed in TASK-2-2 (2).
           (2) **DELETE** `orchestrator/tests/test_auto_pr.py`
               entirely — the auto-PR backstop path is removed
-              with `_should_skip_pr_phase_auto_pr` in TASK-1-3 (1).
+              with `_should_skip_pr_phase_auto_pr` in TASK-2-2 (1).
           (3) **REWRITE** `orchestrator/tests/test_dag_visualizer.py`
               to assert the new DAG terminates at IMPLEMENT
-              (no PR node, no IMPLEMENT→PR edge) per TASK-1-3 (9).
+              (no PR node, no IMPLEMENT→PR edge) per TASK-2-2 (9).
           (4) `orchestrator/tests/test_consensus.py` — delete any
               test importing `ConsensusEvaluator` (the module is
-              removed in TASK-1-6).
+              removed in TASK-2-6).
           (5) `orchestrator/tests/test_restart_phase.py` — drop
               any test asserting `evaluator.clear()` is called;
-              update to mirror TASK-2-1's new slice-aware
-              semantics (which will land in slice-2; mark the
-              affected tests `xfail` if they need slice-2 behaviour
+              update to mirror TASK-4-1's new slice-aware
+              semantics (which will land in slice-4; mark the
+              affected tests `xfail` if they need slice-4 behaviour
               that hasn't landed yet, OR leave them passing under
-              slice-1's pipeline-level-only semantics).
+              slice-2's pipeline-level-only semantics post-
+              ConsensusEvaluator-removal).
           (6) `orchestrator/tests/test_rebase_pipeline_branch.py`
               (existing file dedicated to `_rebase_pipeline_branch_onto_base`
               regression tests) — extend with the #2570 regression
               test that calls `_rebase_pipeline_branch_onto_base`
-              (or its replacement from TASK-1-9) on a fixture
+              (or its replacement from TASK-3-3) on a fixture
               pipeline branch and asserts the merge-base against
               `main` does NOT change after a simulated main advance.
               **Pin N and M per AC-9 NB#1**: the test must exercise
@@ -1824,7 +1974,7 @@ slices:
               NOT exist in the current tree; pipeline tests live
               under `test_pipeline_*.py` and `test_pipelines_*.py`
               files (split by feature).
-          (7) BLE001 audit (TASK-1-11) — where TASK-1-11 narrowed
+          (7) BLE001 audit (TASK-3-5) — where TASK-3-5 narrowed
               a swallow-all handler to a specific exception, add
               a unit test that asserts the new specific exception
               triggers the documented recovery path. Sample 3-5
@@ -1843,7 +1993,7 @@ slices:
           - #2570 regression test exists in
             `orchestrator/tests/test_rebase_pipeline_branch.py`
             and passes.
-          - 3-5 BLE001-narrowing unit tests added in TASK-1-11
+          - 3-5 BLE001-narrowing unit tests added in TASK-3-5
             sample sites.
           - `make test-all` passes.
         files:
@@ -1855,7 +2005,7 @@ slices:
           - orchestrator/tests/test_dag_visualizer.py
           - orchestrator/tests/test_finalize_pr_phase.py
           - orchestrator/tests/test_auto_pr.py
-      - id: TASK-1-18
+      - id: TASK-3-12
         role: documenter
         description: |-
           Update docs to reflect the new context-PR topology and
@@ -1888,26 +2038,35 @@ slices:
           - docs/architecture/orchestrator.md
           - docs/guides/sdlc-pipeline.md
           - docs/guides/pipeline-health-monitoring.md
-  - id: 2
+  - id: 4
     name: |-
-      Slice/phase restart hardening (bundles #2409)
+      Slice/phase restart hardening (slice-2, bundles #2409)
     goal: |-
-      Harden slice and phase restart (Goal 3) so an interrupted sliced
-      implement phase resumes correctly. Eager-persist
-      parent_branch_at_creation under the contract lock at PENDING->
-      IN_PROGRESS plus a merge-base fallback (cq-9), make restart_phase
-      iterate per-slice consensus trackers (today's pipeline-only clear is
-      asymmetric vs slice-aware restart_agent), reconstruct per-slice
-      trackers in startup_reconciliation using slice_id-tagged
-      reconstruct_tracker_from_messages calls (bundles #2409), and extend
-      bootstrap reconciliation to recognise IN_PROGRESS / BLOCKED slices
-      that did real work so they aren't silently re-yielded READY and
-      respawned. Depends on slice-1 so the restart logic reasons about the
-      post-collapse topology (no egg/<id>/context branch in scope, no
-      PR-phase route to consider).
-    parent_slice_id: 1
+      Harden slice and phase restart (Goal 3) so an interrupted
+      sliced implement phase resumes correctly. Eager-persist
+      parent_branch_at_creation under the contract lock at
+      PENDING->IN_PROGRESS plus a merge-base fallback (cq-9
+      "both"); make `restart_phase` iterate `contract.slices`
+      and clear each per-slice consensus tracker via
+      `_tracker_key(pipeline_id, slice.id)`; in
+      `startup_reconciliation.py`, iterate `contract.slices`
+      and call `reconstruct_tracker_from_messages(pipeline_id,
+      graph, slice_id=s.id)` for each slice in addition to the
+      pipeline-level call -- the signature already accepts
+      slice_id at HEAD (peer_consensus.py:1919-1926) and
+      message_store filters on metadata['slice_id'] at
+      :407-416, so no schema change is needed (bundles #2409);
+      extend bootstrap reconciliation to recognise IN_PROGRESS
+      / BLOCKED slices that did real work (commits-on-origin
+      > 0) so they aren't silently re-yielded READY and
+      respawned from scratch. Depends on slice-3 (id=3) so the
+      restart logic reasons about the post-collapse topology
+      (no egg/<id>/context branch in scope, no PR-phase route
+      to consider, and the `_resolve_slice_base_branch` helper
+      is already live from slice-1 / id=1).
+    parent_slice_id: 3
     tasks:
-      - id: TASK-2-1
+      - id: TASK-4-1
         role: coder
         description: |-
           Make `restart_phase` slice-aware. In
@@ -1923,25 +2082,25 @@ slices:
           inline the format string with a comment naming the
           source of truth. Mirror the pattern from `restart_agent`
           (`pipelines.py:2255`) which is already slice-aware. Note:
-          slice-1's TASK-1-6 already removed
+          slice-2's TASK-2-6 already removed
           `evaluator.clear(pipeline_id)` from this block, so the
           slice-aware iteration is the only consensus clear left.
           **Sanity check before changes**: verify
           `pipelines.py:3279` no longer contains
           `evaluator.clear(pipeline_id)`. If the line is still
-          present, slice-1's TASK-1-6 has not landed yet — escalate
+          present, slice-2's TASK-2-6 has not landed yet — escalate
           via `mcp__sdlc__report_impasse` (category=plan_bug) and
           wait for the slice-1 rebase before proceeding.
         acceptance: |-
           - `restart_phase` clears both the pipeline-level
             consensus tracker AND iterates per-slice trackers.
           - The pattern mirrors `restart_agent`'s slice-aware path.
-          - Verified by unit test in TASK-2-6.
+          - Verified by unit test in TASK-4-6.
           - Pre-flight sanity check: `pipelines.py:3279` does NOT
             contain `evaluator.clear(pipeline_id)` at task start.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-2-2
+      - id: TASK-4-2
         role: coder
         description: |-
           Eager-persist `parent_branch_at_creation` (cq-9 part 1).
@@ -1963,17 +2122,17 @@ slices:
           - `parent_branch_at_creation` is persisted in the same
             contract write that flips a slice to IN_PROGRESS.
           - The old persist site at lines 15414–15421 is removed.
-          - Crash-recovery test in TASK-2-6 confirms the field is
+          - Crash-recovery test in TASK-4-6 confirms the field is
             present on an artificially interrupted slice.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-2-3
+      - id: TASK-4-3
         role: coder
         description: |-
           Add a merge-base fallback to `_resolve_slice_base_branch`
-          (cq-9 part 2 — depends on TASK-1-13 having created the
+          (cq-9 part 2 — depends on TASK-1-3 having created the
           helper). When `parent_branch_at_creation` is empty
-          (legacy / orphaned slices that pre-date TASK-2-2's eager
+          (legacy / orphaned slices that pre-date TASK-4-2's eager
           persist), call
           `GatewayClient.merge_base(slice_branch, origin/main)` (or
           the equivalent gateway shell command — find the existing
@@ -1981,7 +2140,7 @@ slices:
           merge-base SHA as the implicit parent. If the slice
           branch has no commits on origin yet, fall back to
           `egg/<id>/work`. The fallback is defence-in-depth; the
-          eager persist from TASK-2-2 is the correctness fix.
+          eager persist from TASK-4-2 is the correctness fix.
           Document the fallback in the helper's docstring.
         acceptance: |-
           - `_resolve_slice_base_branch` falls back to merge-base
@@ -1991,7 +2150,7 @@ slices:
           - Docstring documents the three-tier resolution.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-2-4
+      - id: TASK-4-4
         role: coder
         description: |-
           Extend bootstrap reconciliation for non-COMPLETE slices.
@@ -2003,7 +2162,7 @@ slices:
              branch** → re-yield as READY (existing path; correct).
           2. **IN_PROGRESS + commits pushed + consensus NOT
              reached** → reconstruct the per-slice
-             `PeerConsensusTracker` (via TASK-2-5's
+             `PeerConsensusTracker` (via TASK-4-5's
              reconstruction primitive), call
              `scheduler.mark_spawned(slice_id)` so the run loop
              does NOT respawn agents, and resume the BRC wait.
@@ -2012,7 +2171,7 @@ slices:
              handles it.
           3. **IN_PROGRESS + commits pushed + consensus REACHED +
              PR NOT opened** → complete the slice and call the
-             slice-PR opener (subject to TASK-1-8's idempotency
+             slice-PR opener (subject to TASK-3-2's idempotency
              pre-flight). Do not respawn agents.
           4. **BLOCKED (HITL pending)** → do NOT respawn; preserve
              the BLOCKED status until the operator resolves the
@@ -2031,7 +2190,7 @@ slices:
           (`pipelines.py:15242-15295`, marks merged-on-origin) are
           unchanged. Add the third layer immediately after Layer B
           with a comment block explaining the 5-way decision. Tests
-          in TASK-2-6 (must cover each of the 5 classifications).
+          in TASK-4-6 (must cover each of the 5 classifications).
 
           Race-condition note from R5: an orchestrator-pod recycle
           can leave the slice's agent containers dead while the
@@ -2042,13 +2201,13 @@ slices:
         acceptance: |-
           - Bootstrap reconciliation has a third layer.
           - The third layer implements the 5-way classification
-            above (verified by 5 unit tests in TASK-2-6).
+            above (verified by 5 unit tests in TASK-4-6).
           - Case 5 (unknown / corrupt state) escalates to HITL
             instead of silent re-yield.
           - Existing Layer A and Layer B are unchanged.
         files:
           - orchestrator/routes/pipelines.py
-      - id: TASK-2-5
+      - id: TASK-4-5
         role: coder
         description: |-
           Per-slice consensus tracker reconstruction in
@@ -2079,7 +2238,7 @@ slices:
               `peer_consensus.py:1844`. If on-disk message
               history has no entries scoped to a given slice
               (e.g. the slice never started), skip silently —
-              TASK-2-4's bootstrap reconciliation handles the
+              TASK-4-4's bootstrap reconciliation handles the
               slice's runtime resumption from scratch.
           (4) **Fix `handle_consensus_confirmed_signal`** in
               `orchestrator/routes/signals.py` (architect v2
@@ -2092,7 +2251,7 @@ slices:
           slices, orchestrator restart between slice-1 confirming
           and slice-2 starting, asserts the reconstructed slice-2
           tracker does NOT contain slice-1's messages (i.e. the
-          slice_id filter works). TASK-2-6 owns that test.
+          slice_id filter works). TASK-4-6 owns that test.
         acceptance: |-
           - `message_store.Message` carries an optional `slice_id`
             field, persisted to disk when set.
@@ -2101,7 +2260,7 @@ slices:
           - `startup_reconciliation.py` reconstructs per-slice
             trackers for every pipeline with slices, keyed
             `{pipeline_id}/{slice_id}`.
-          - AC-16 cross-slice isolation test in TASK-2-6 passes.
+          - AC-16 cross-slice isolation test in TASK-4-6 passes.
           - `handle_consensus_confirmed_signal` in
             `orchestrator/routes/signals.py` no longer skips
             reconstruction when `slice_id` is supplied.
@@ -2111,7 +2270,7 @@ slices:
           - orchestrator/peer_consensus.py
           - orchestrator/message_store.py
           - orchestrator/routes/signals.py
-      - id: TASK-2-6
+      - id: TASK-4-6
         role: tester
         description: |-
           Tests for restart hardening. Unit tests under
@@ -2119,21 +2278,21 @@ slices:
 
           (a) Slice-aware `restart_phase` — assert `tracker.clear()`
               is called for the pipeline-level key AND for each
-              per-slice key (TASK-2-1).
+              per-slice key (TASK-4-1).
           (b) Eager-persist of `parent_branch_at_creation` —
               assert the field is written in the same contract
               mutation as the PENDING→IN_PROGRESS status flip,
               NOT after `create_slice_integration_branch`
-              (TASK-2-2).
+              (TASK-4-2).
           (c) Merge-base fallback in `_resolve_slice_base_branch`
               — assert a slice with empty
               `parent_branch_at_creation` but pushed commits
               resolves correctly via merge-base; and a slice with
               no origin commits falls back to `egg/<id>/work`
-              (TASK-2-3).
+              (TASK-4-3).
           (d) Extended bootstrap reconciliation 5-way
               classification — FIVE separate tests, one per case
-              (TASK-2-4's matrix): (d1) IN_PROGRESS + no commits
+              (TASK-4-4's matrix): (d1) IN_PROGRESS + no commits
               → re-yield READY; (d2) IN_PROGRESS + commits +
               no consensus → reconstruct + mark_spawned, no
               respawn; (d3) IN_PROGRESS + commits + consensus +
@@ -2144,7 +2303,7 @@ slices:
               reconstruct slice-2's tracker after orchestrator
               restart between slice-1 confirming and slice-2
               starting, assert slice-2's tracker has NO slice-1
-              messages (TASK-2-5).
+              messages (TASK-4-5).
 
           Integration test under
           `integration_tests/regression/` (the kubectl-gated
@@ -2173,7 +2332,7 @@ slices:
           - orchestrator/tests/test_restart_phase.py
           - orchestrator/tests/test_startup_reconciliation.py
           - integration_tests/regression/test_restart_hardening.py
-      - id: TASK-2-7
+      - id: TASK-4-7
         role: documenter
         description: |-
           Update docs for the restart-hardening changes. (a) Update
@@ -2196,6 +2355,7 @@ slices:
         files:
           - docs/architecture/orchestrator.md
           - docs/reference/orchestrator-cli.md
+
 ```
 
 
