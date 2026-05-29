@@ -26,21 +26,169 @@ null`, the root); slice-2 = C slice/phase restart hardening
 (`parent_slice_id: 1`); #2792 OUT OF SCOPE per decision-11 (now
 independently resolved in merged PR #2797).
 
+### Iteration 1: operator HITL kickback on slice-1 granularity — task_planner surfaces a slice-size concern for reviewers
+
+> **Status**: this is plan-phase iteration 1. Iteration 0 reached
+> consensus (reviewer_plan and risk_analyst both ACKed the prior
+> architect, task_planner, and risk_analyst proposals), but the
+> operator kicked the phase back via HITL with a directive on the
+> slice-1 granularity. Per the BRC framing in this role's system
+> prompt, "later directives override earlier ones."
+
+**Operator's iteration-1 directive (verbatim, abridged for the
+slice-size point — full text in the system prompt directives
+section)**:
+
+> Sub-slice slice-1. It currently carries 16 coder tasks — larger
+> than the 14-task slice-1 that wedged the prior run. Per #2809 the
+> architect owns composition and should subdivide when a slice is too
+> large for a coder to land in completable, reviewable passes; this
+> one is. […]
+>
+> Split slice-1 into sequential sub-slices along its natural seams.
+> Suggested shape (boundaries and dependency edges are the
+> architect's call — this is a sketch, not a mandate):
+> - slice-1a — new primitives + wiring, landed first so the primary
+>   use case is reachable/reviewable on its own […]
+> - slice-1b — the scaffold + PR-phase deletions that depend on 1a's
+>   opener being live […]
+> - slice-1c — cohesion-independent cleanup […]
+>
+> Keep slice-2 (restart hardening, closes #2409) unchanged. ALL other
+> Wave 2 decisions (cq-1's [A+D]→[C] dependency direction, cq-2..cq-10,
+> feedback Q1–Q5) remain binding and unchanged — only the granularity
+> WITHIN the A+D work changes, from one slice to sequential
+> sub-slices.
+
+**Architect's iteration-1 response (from
+`.egg-state/agent-outputs/issue-2777-replan-architect-output.json`,
+`replan_change_log` entry 4 and `recommended_approach.rejected_options_summary.further_subdivision_of_slice_1`)**:
+
+The architect preserved the 2-slice DAG without further sub-slicing.
+Their stated rationale:
+
+> "(a) operator explicitly chose option 4 in cq-1 ('Two slices with
+> dependency: [A+D] → [C]'); (b) most slice-1 components have textual
+> conflicts on `pipelines.py` — sub-slicing would create merge pain
+> inside the same function (`_run_implement_phase_slices`) and the
+> same scaffold (the ~600-line context-PR machinery); (c) the prior
+> plan with this shape was approved at the operator gate (decision-13
+> on 2026-05-27); (d) the natural seam between A's context-PR
+> collapse and D's coupled cleanup is the SAME `pipelines.py` change
+> region in nearly every case, so the right unit of review IS the
+> bundled slice-1."
+
+And in the rejected-options summary:
+
+> "further_subdivision_of_slice_1: Considered under #2809
+> (architect-owned slice composition). Rejected because the natural
+> seams within slice-1 (Context-PR-collapse vs PR-phase-deletion vs
+> ConsensusEvaluator-deletion vs cleanup tail) all touch the SAME
+> files (pipelines.py, gateway_client.py, gateway.py, models.py,
+> phases.py) at overlapping line ranges; further sub-slicing converts
+> intra-PR review work into cross-PR merge-conflict resolution. The
+> 2-slice shape from cq-1 stands."
+
+**Task_planner's position (this iteration, this plan)**:
+
+Per the role-system-prompt directive — *"Slice composition is NOT
+your call (#2809). architect owns slice count, slice boundaries,
+slice DAG shape, and sub-slicing — and emits the binding scaffold."*
+— **this plan enumerates tasks against the architect's binding
+2-slice scaffold without re-shaping it.** I am not silently
+re-grouping tasks into 1a/1b/1c.
+
+But I am also *required by that same role-system-prompt section* to
+surface the slice-size concern when I see it: *"If a slice has too
+many tasks for one BRC cycle, or you discover a natural sub-seam
+the architect missed, that is a slicing problem the architect must
+fix — surface it as NACK pressure (your peer reviewer risk_analyst
+and the structural reviewer reviewer_plan will NACK architect on
+slice_size when evidence supports it; you can also flag the concern
+in your plan prose so the reviewers pick it up)."*
+
+The empirical evidence the operator cited:
+
+- Iteration 0's slice-1 carried 16 coder tasks (TASK-1-1, 1-1a, 1-2,
+  1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-8, 1-9, 1-10, 1-11, 1-12, 1-13,
+  1-14; plus tester tasks 1-3a, 1-4b, 1-5a, 1-15, 1-15a, 1-16, 1-16a,
+  1-17; plus documenter task 1-18 — 25 tasks total in slice-1). This
+  iteration's enumeration is unchanged (same 16 coder tasks against
+  the same scaffold).
+- The operator explicitly noted: "larger than the 14-task slice-1
+  that wedged the prior run." That prior wedge predates this
+  pipeline, but the operator's read is that the 16-task slice is
+  *worse* than a known-wedged 14-task slice.
+- The operator's natural-seam sketch (1a = primitives + wiring; 1b =
+  scaffold + PR-phase deletions that depend on 1a's opener being
+  live; 1c = cohesion-independent cleanup) directly maps to
+  topological dependencies in the existing plan's task graph:
+  TASK-1-1 / 1-1a / 1-13 produce primitives that TASK-1-2 / 1-3 /
+  1-4 / 1-5 / 1-5b / 1-6 / 1-7 / 1-14 consume; TASK-1-8 / 1-9 /
+  1-10 / 1-11 / 1-12 / 1-15a are cohesion-independent (they don't
+  depend on the scaffold deletions and don't produce the new
+  primitives). Roughly: 1a = {1-1a, 1-1, 1-13} (3 coder tasks);
+  1b = {1-2, 1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-14} (8 coder tasks);
+  1c = {1-8, 1-9, 1-10, 1-11, 1-12} (5 coder tasks); the tester /
+  documenter tasks (1-3a, 1-4b, 1-5a, 1-15, 1-15a, 1-16, 1-16a,
+  1-17, 1-18) re-anchor under whichever sub-slice their target code
+  ships in. If the architect adopts this shape, the BRC review unit
+  shrinks from one 16-coder slice to three sequential 3/8/5-coder
+  slices.
+
+The architect's counter-argument (textual conflicts inside the same
+`pipelines.py` function) is real and is on the table. The
+task_planner's role is not to adjudicate it — the **structural
+review** belongs to reviewer_plan, and the **risk weighting** belongs
+to risk_analyst. **I am flagging this so both reviewers see the
+disagreement before they vote on architect's proposal.**
+
+If reviewer_plan or risk_analyst NACKs architect on `slice_size` per
+the prompt-template's structural review rubric, the architect's
+revised scaffold (1a/1b/1c, presumably) will land, and I will
+re-propose this plan against the revised scaffold — at that point
+the per-task `id`s will be re-numbered into the sub-slices but the
+task content is largely additive (no task is removed; each task moves
+into one of {1a, 1b, 1c} based on whether it produces primitives,
+deletes scaffold downstream of those primitives, or is
+cohesion-independent cleanup).
+
+If reviewer_plan and risk_analyst ACK architect's 2-slice scaffold
+on its merits (e.g. the textual-conflict argument outweighs the
+slice-size concern), this plan stands as-is and the implement-phase
+coder takes on the 16-task slice-1 with the verification artifacts
+and re-anchoring protocol described below.
+
+**This section exists to make the disagreement visible. The plan
+itself follows architect's binding scaffold.**
+
 ### Anchor SHA & re-anchoring (added per reviewer_plan v2 blocker 7)
 
 Every `file:line` citation in this plan is anchored against the
 refine-phase commit `1cb235871` (the SHA the analysis was authored
-against). HEAD at the time of plan-phase consensus is
-`d5f21b498` — between those two SHAs the orchestrator codebase has
-drifted by ~600 lines on `pipelines.py` (verified at consensus
-time: `_rebase_pipeline_branch_onto_base` is at `:7465` (plan says
-`:6833`, off by 632); `_open_context_pr_for_pipeline` at `:10634`
-(plan says `:10002`, off by 632); `_persist_context_pr_linkage_on_contract`
-at `:10423` (plan says `:9791`, off by 632); the
-`umbrella_has_program_block` symbol is at ~`:16998/17003` (plan
-says `:15615/15620`); the five `ConsensusEvaluator` clusters are
-each off by 7-300 lines). The drift will continue to grow between
-plan-phase consensus and implement-phase start as `main` advances.
+against). HEAD at the time of plan-phase iteration-1 consensus is
+`28f7ef9b2` (on branch `egg/issue-2777-replan-task_planner/work`,
+with `origin/main` at `3a51f72d9`) — re-verified at iteration-1
+plan-time via direct grep against `orchestrator/routes/pipelines.py`:
+`_should_skip_pr_phase_auto_pr` at `:8854`,
+`_open_context_pr_for_pipeline` at `:10634`,
+`_maybe_open_base_pr_for_plan_to_implement` at `:11280` with call
+sites at `:16503, :22132, :23671, :24666` (plus
+`orchestrator/routes/phases.py:500`),
+`_persist_context_pr_linkage_on_contract` at `:10423` (writes
+context_branch downstream of `:10547`'s gather call), the SIX
+ConsensusEvaluator clusters in `pipelines.py` at
+`:1813-1816, :2859-2863, :3289-3293, :3516-3522, :4489-4493,
+:4498-4502` PLUS two additional clusters in
+`orchestrator/routes/phases.py:119-124` and
+`orchestrator/routes/signals.py:847-871` (eight total — see
+architect's AC-18); the three PipelinePhase.PR reference sites in
+`pipelines.py:4355, :20221, :21354` (plus phases.py:70-71); and
+PRMetadata field locations at `shared/egg_contracts/models.py:499,
+:507, :514`. Gateway primitives: `_CONTEXT_BRANCH_RE` at
+`gateway/gateway.py:1113` with adjacent `is_context_push` lifecycle
+at `:1344-1392`. The drift will continue to grow between plan-phase
+consensus and implement-phase start as `main` advances.
 
 **Mandatory implementer protocol**: before editing any cited line,
 the implement-phase coder MUST run `grep -n` against HEAD to
@@ -71,13 +219,31 @@ TASK-1-3, TASK-1-6, TASK-1-9).
 - **feedback-1 Q3** (ImportError dual-path shims, 9 sites): **Collapse to canonical `from orchestrator.X import Y` imports.** Verify by running the full suite after collapse.
 - **feedback-1 Q4** (acceptance bar for the trigger bug): **Integration test required** — exercise slice-DAG pipeline → context PR opens up-front → hard-required → idempotent path. Plus unit tests for the `gh pr list` pre-flight and the hard-required failure semantics.
 
-### Why two slices, not three
+### Why two slices, not three (the cq-1 axis — separate from iteration-1's slice-1 sub-slicing question)
 
-The HITL chose `[A+D] → [C]` rather than parallelising A/D/C, because:
+This section addresses the original **cq-1 decomposition axis** —
+i.e. parallel A/B/C/D vs. sequential — which the operator answered
+in iteration 0. **It does NOT speak to iteration 1's distinct
+question of whether slice-1 (A+D) should be further sub-sliced
+sequentially into 1a/1b/1c.** That distinct question is owned by
+the architect per #2809 and surfaced above as task_planner NACK
+pressure on slice-size.
+
+The cq-1 HITL chose `[A+D] → [C]` rather than parallelising
+A/B/C/D, because:
 
 - A's deletions and D's dead-code purge overlap textually (most D sites live inside or adjacent to the context-PR scaffold A deletes). Parallelising would create textual merge conflicts on `pipelines.py` / `gateway_client.py`.
 - C's restart hardening references the new slice-base resolver that A creates (cq-10 surgical extraction). Sequencing A first means C consumes a stable primitive instead of a moving target.
 - #2792 is out of scope, so there is no third slice B to parallelise alongside.
+
+The operator's iteration-1 directive is **orthogonal to cq-1**: it
+preserves the `[A+D] → [C]` dependency direction and the
+out-of-scope status of #2792, and asks only that the A+D work be
+sub-sliced sequentially *within* slice-1 (so the dependency edges
+inside slice-1 become explicit PR boundaries instead of intra-PR
+ordering). The architect's iteration-1 response declined that
+sub-slicing for textual-conflict reasons. **The plan below follows
+the architect's response.**
 
 ## Primitives
 
