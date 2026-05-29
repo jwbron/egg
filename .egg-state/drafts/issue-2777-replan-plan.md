@@ -1,10 +1,26 @@
 # Plan: Cleanup — sliced implementation phase (context-PR topology + slice/phase restart)
 
-> Issue: #2777 | Phase: plan | Pipeline: `issue-2777`
+> Issue: #2777 | Phase: plan | Pipeline: `issue-2777-replan`
 
 ## Approach
 
-The refine phase already produced a comprehensive analysis (`.egg-state/drafts/2777-analysis.md`) and the operator answered every HITL decision (cq-1..cq-10, decision-11, feedback-1 Q1..Q5). This plan executes those decisions verbatim and translates them into a 2-slice DAG.
+The refine phase already produced a comprehensive analysis
+(`.egg-state/drafts/issue-2777-replan-analysis.md`) and the operator
+answered every HITL decision (cq-1..cq-10, decision-11, feedback-1
+Q1..Q5; plan-gate decision-13 approved). This plan executes those
+decisions verbatim and translates them into a 2-slice DAG.
+
+**Re-plan note (#2809)**: this pipeline (`issue-2777-replan`) re-runs
+the plan phase against the previously approved refine artifacts.
+Slice composition is the architect's call per #2809; the architect's
+binding scaffold file
+(`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`)
+had not landed at the time this draft was authored. The slice
+structure below mirrors the contract's already-populated `slices`
+field (slice-1 = A+D; slice-2 = C; #2792 OUT OF SCOPE per
+decision-11), which the operator approved at decision-13. If the
+architect's scaffold differs, expect a reviewer_plan NACK and a
+re-propose against the binding scaffold.
 
 ### Operator decision summary (drives every task below)
 
@@ -106,7 +122,53 @@ Every primitive cited below was grep-verified against `HEAD` (`1cb235871`) befor
 
 ### Integration-test trust-boundary scope (#2594 §10)
 
-The integration test in task-1-16 needs to spawn a sliced pipeline and assert that the context PR is opened up-front. The only pytest fixtures that expose `gateway_url` and `orchestrator_url` live under `integration_tests/local_pipeline/conftest.py:261` (kubectl-gated via `local_pipeline_stack`). The parent `integration_tests/conftest.py` exposes `gateway_url` only as an attribute on the `EggStack` dataclass (`integration_tests/conftest.py:78`), NOT as a pytest fixture. **Therefore the new integration test MUST live under `integration_tests/local_pipeline/`** — anywhere else it cannot inject the fixtures it needs.
+The integration tests in TASK-1-16 and TASK-2-6 need to spawn a
+sliced pipeline against the live local stack and assert the context
+PR is opened up-front / per-slice consensus trackers reconstruct
+across an orchestrator restart. The relevant pytest fixtures live on
+`integration_tests/conftest.py` (kubectl-gated via `_kubectl_available`
+at `integration_tests/conftest.py:158`; the `egg_stack` session
+fixture skips at line 347 when kubectl is unavailable, see
+`docs/guides/testing.md`). The available primitives are:
+
+- `orchestrator_url` — pytest fixture at
+  `integration_tests/conftest.py:357` (session-scoped, delegates to
+  `egg_stack.orchestrator_url`).
+- `egg_stack.gateway_url` — **attribute** on the `EggStack` dataclass
+  (`integration_tests/conftest.py:78`); NOT a pytest fixture. Tests
+  that need the gateway URL inject the `egg_stack` fixture and read
+  `.gateway_url` off of it (see existing examples at
+  `integration_tests/regression/conftest.py:429–432` and
+  `integration_tests/regression/test_hitl_round_trip.py:120,128`).
+- `lifecycle_secret` — pytest fixture at
+  `integration_tests/conftest.py:362` (skips when
+  `egg_stack.lifecycle_secret` is missing).
+
+**Therefore the new integration tests MUST live under one of the
+kubectl-gated integration-tests subdirectories.** The legacy
+`integration_tests/local_pipeline/` directory was deleted on
+2026-05-11 in commit `f7803637d1` ("test: delete deprecated
+local_pipeline + squid tests"); **do not reference it.** The
+surviving kubectl-gated tiers are:
+
+- `integration_tests/regression/` — recovery, BRC, slice-restart,
+  HITL HTTP round-trip, and message-bus regression tiers. Has its
+  own conftest that reuses the parent fixtures (see
+  `integration_tests/regression/conftest.py`). The slice-restart
+  branch-invariant tests already live here
+  (`test_slice_restart_branch_invariants.py`), so the new context-PR
+  up-front and restart-hardening tests are natural fits.
+- `integration_tests/sdlc/` — end-to-end SDLC pipeline tests
+  (`test_happy_path.py`, `test_role_enforcement.py`,
+  `test_hitl_flow.py`, etc.). TASK-1-16a rewrites two tests here.
+- `integration_tests/epic_pipeline/` — Jira epic SDLC pipeline tests.
+  Not in scope for this plan.
+
+TASK-1-16 places its new test under `integration_tests/regression/`
+(slice-DAG-context-PR-up-front is a regression tier — preventing
+recurrence of #2769 / #2593 / #2744). TASK-2-6 places its new test
+under `integration_tests/regression/` for the same reason
+(orchestrator-pod recycle is a recovery/regression test).
 
 ### NEW primitives (created by this plan)
 
@@ -137,10 +199,10 @@ Forest constraint satisfied: each slice has exactly one parent. No `serialized_c
 
 - **slice-1**:
   - **Unit** (`orchestrator/tests/`): exercise `_open_context_pr_at_implement_start` happy path (no existing PR, opens one + persists `context_pr_number`), idempotent path (PR exists, no `gh pr create` call), and hard-required path (gateway failure raises, no swallowed `return None`). Mock `GatewayClient.create_pr` and `gh pr list`. Update `test_gateway_client.py:1378–1525` to drop the umbrella terminal-banner asserts and instead assert that the slice PR body no longer contains the `"Program-level umbrella PR"` literal. Add unit tests for the `create_slice_pr` idempotency pre-flight. Add unit tests for `_is_slice_dag_mode`. Add a regression test that asserts `_rebase_pipeline_branch_onto_base` no longer silently rebases `egg/<id>/work` onto `main` (covers #2570).
-  - **Integration** (`integration_tests/local_pipeline/`): end-to-end test that spawns a 2-slice DAG pipeline, advances to the plan→implement boundary, asserts a single PR exists with `head=egg/<id>/work base=main`, then deliberately deletes the contract's `context_pr_number` and re-triggers the implement-start hook, asserting the idempotent path finds the existing PR without opening a duplicate.
+  - **Integration** (`integration_tests/regression/`): end-to-end test that spawns a 2-slice DAG pipeline, advances to the plan→implement boundary, asserts a single PR exists with `head=egg/<id>/work base=main`, then deliberately deletes the contract's `context_pr_number` and re-triggers the implement-start hook, asserting the idempotent path finds the existing PR without opening a duplicate. (The legacy `integration_tests/local_pipeline/` directory was deleted on 2026-05-11 in commit `f7803637d1`; `regression/` is the kubectl-gated recovery/regression tier.)
 - **slice-2**:
   - **Unit**: tests for `restart_phase`'s per-slice consensus tracker iteration (asserts `tracker.clear()` is called once per slice key); tests for eager-persist of `parent_branch_at_creation` (asserts the field is written during PENDING→IN_PROGRESS, not after `create_slice_integration_branch`); tests for the merge-base fallback in `_resolve_slice_base_branch` (asserts a slice with empty `parent_branch_at_creation` but pushed commits resolves correctly); tests for the extended bootstrap reconciliation that resumes non-COMPLETE slices without re-spawning.
-  - **Integration** (`integration_tests/local_pipeline/`): restart a sliced pipeline mid-phase; assert per-slice consensus trackers reconstruct correctly across the orchestrator-pod recycle (closes #2409).
+  - **Integration** (`integration_tests/regression/`): restart a sliced pipeline mid-phase; assert per-slice consensus trackers reconstruct correctly across the orchestrator-pod recycle (closes #2409).
 
 ### Manual verification
 
@@ -255,11 +317,14 @@ pr:
         cleanup, the `consensus.py` deletion (no dangling imports),
         the umbrella-deletion path in `create_slice_pr`, and the
         per-site BLE001 replacements.
-      - Integration test under `integration_tests/local_pipeline/`
-        that spawns a 2-slice DAG pipeline, asserts the context PR
-        opens automatically at the plan→implement boundary with
-        `head=egg/<id>/work base=main`, then re-triggers the
-        implement-start hook and asserts no duplicate PR is opened.
+      - Integration test under `integration_tests/regression/`
+        (the kubectl-gated recovery/regression tier; the legacy
+        `integration_tests/local_pipeline/` directory was deleted
+        on 2026-05-11 in commit `f7803637d1`) that spawns a 2-slice
+        DAG pipeline, asserts the context PR opens automatically at
+        the plan→implement boundary with `head=egg/<id>/work
+        base=main`, then re-triggers the implement-start hook and
+        asserts no duplicate PR is opened.
     - Automated (slice-2):
       - Unit tests for slice-aware `restart_phase` (per-slice tracker
         clear), eager-persist of `parent_branch_at_creation` (field
@@ -267,7 +332,7 @@ pr:
         `_resolve_slice_base_branch`, and the extended bootstrap
         reconciliation that resumes non-COMPLETE slices without
         re-spawning.
-      - Integration test under `integration_tests/local_pipeline/`
+      - Integration test under `integration_tests/regression/`
         that kills the orchestrator pod mid-implement on a sliced
         pipeline, restarts, and asserts per-slice consensus trackers
         reconstruct (#2409 closure proof).
@@ -1043,9 +1108,11 @@ slices:
           tests for `_open_context_pr_at_implement_start`
           (happy / idempotent / hard-required-raises paths) in
           a new file
-          `orchestrator/tests/test_context_pr_opener.py` (or
-          inline in `test_pipelines.py` if that's the established
-          pattern — match the existing convention). Mock
+          `orchestrator/tests/test_context_pr_opener.py` (the
+          orchestrator-tests dir uses feature-split filenames —
+          `test_pipeline_*.py` / `test_pipelines_*.py`; there is
+          no monolithic `test_pipelines.py`, so the new file
+          matches the established pattern). Mock
           `GatewayClient.create_pr` and `_lookup_open_pr`. All
           tests run under `make test` (changeset-aware).
         acceptance: |-
@@ -1059,6 +1126,7 @@ slices:
             negative-assert test).
         files:
           - orchestrator/tests/test_gateway_client.py
+          - orchestrator/tests/test_context_pr_opener.py
       - id: TASK-1-15a
         role: tester
         description: |-
@@ -1100,32 +1168,39 @@ slices:
         role: tester
         description: |-
           Add an integration test under
-          `integration_tests/local_pipeline/` (the only directory
-          where `gateway_url` and `orchestrator_url` pytest fixtures
-          exist — see Primitives §"trust-boundary scope") that
-          exercises the slice-DAG → context-PR-opens-up-front →
-          idempotent path (feedback Q4). The test (a) spawns a
-          2-slice DAG pipeline against the local stack, (b) advances
-          to the plan→implement boundary, (c) asserts a single PR
-          exists with `head=egg/<id>/work base=main`, (d) extracts
-          the PR number, (e) deliberately clears
-          `contract.pr.context_pr_number` on disk, (f) re-triggers
-          the implement-start hook via `advance_phase`, (g) asserts
-          no duplicate PR is opened and the same PR number is
-          re-persisted. This is the regression test for #2769 /
-          #2593 / #2744. Mark `@pytest.mark.integration` and gate
-          via `local_pipeline_stack` fixture. Document in a docstring
-          that this test MUST live under `integration_tests/local_pipeline/`
-          because that's where the gateway/orchestrator URL fixtures
-          are exposed.
+          `integration_tests/regression/` (the kubectl-gated
+          recovery/regression tier where the parent conftest's
+          `orchestrator_url` pytest fixture and `egg_stack`
+          dataclass — with `gateway_url` attribute — are available;
+          see Primitives §"trust-boundary scope" in the plan prose;
+          the legacy `integration_tests/local_pipeline/` directory was
+          deleted on 2026-05-11 in commit `f7803637d1` and MUST NOT be
+          referenced). The new test exercises the slice-DAG →
+          context-PR-opens-up-front → idempotent path (feedback Q4).
+          The test (a) spawns a 2-slice DAG pipeline against the local
+          stack, (b) advances to the plan→implement boundary, (c)
+          asserts a single PR exists with `head=egg/<id>/work
+          base=main`, (d) extracts the PR number, (e) deliberately
+          clears `contract.pr.context_pr_number` on disk, (f)
+          re-triggers the implement-start hook via `advance_phase`,
+          (g) asserts no duplicate PR is opened and the same PR number
+          is re-persisted. This is the regression test for #2769 /
+          #2593 / #2744. Inject `orchestrator_url` and `egg_stack`
+          fixtures (kubectl-skip is automatic). Document in a
+          docstring that this test MUST live under
+          `integration_tests/regression/` because that's where the
+          recovery/regression tier lives and the parent kubectl-gated
+          fixtures are exposed.
         acceptance: |-
-          - File `integration_tests/local_pipeline/test_context_pr_up_front.py`
+          - File `integration_tests/regression/test_context_pr_up_front.py`
             (or similar) exists.
           - Test runs under `make test-all` and passes against the
             local stack.
           - Test exercises the idempotency path (steps e-g above).
+          - Test skips cleanly when `kubectl` is unavailable (via the
+            inherited `egg_stack` fixture's skip).
         files:
-          - integration_tests/local_pipeline/test_context_pr_up_front.py
+          - integration_tests/regression/test_context_pr_up_front.py
       - id: TASK-1-16a
         role: tester
         description: |-
@@ -1180,18 +1255,26 @@ slices:
               affected tests `xfail` if they need slice-2 behaviour
               that hasn't landed yet, OR leave them passing under
               slice-1's pipeline-level-only semantics).
-          (6) `orchestrator/tests/test_pipelines.py` — update or
-              remove any test of the deleted functions
-              (`_open_context_pr_for_pipeline`, etc.); add the
-              #2570 regression test that calls
-              `_rebase_pipeline_branch_onto_base` (or its
-              replacement from TASK-1-9) on a fixture pipeline
-              branch and asserts the merge-base against `main`
-              does NOT change after a simulated main advance.
-              **Pin N and M per AC-9 NB#1**: the test must
-              exercise **N≥3 phase transitions** with **M≥2 main
-              PRs merged in parallel**, then assert the merge-base
-              is still the pipeline-creation SHA.
+          (6) `orchestrator/tests/test_rebase_pipeline_branch.py`
+              (existing file dedicated to `_rebase_pipeline_branch_onto_base`
+              regression tests) — extend with the #2570 regression
+              test that calls `_rebase_pipeline_branch_onto_base`
+              (or its replacement from TASK-1-9) on a fixture
+              pipeline branch and asserts the merge-base against
+              `main` does NOT change after a simulated main advance.
+              **Pin N and M per AC-9 NB#1**: the test must exercise
+              **N≥3 phase transitions** with **M≥2 main PRs merged
+              in parallel**, then assert the merge-base is still
+              the pipeline-creation SHA. Use the surviving
+              `orchestrator/tests/test_pipeline_failure_path.py` /
+              `test_pipelines_api.py` files only to delete or update
+              tests that imported the now-removed functions
+              (`_open_context_pr_for_pipeline`, etc.) — grep for
+              those names before completing. Note: the legacy
+              monolithic `orchestrator/tests/test_pipelines.py` does
+              NOT exist in the current tree; pipeline tests live
+              under `test_pipeline_*.py` and `test_pipelines_*.py`
+              files (split by feature).
           (7) BLE001 audit (TASK-1-11) — where TASK-1-11 narrowed
               a swallow-all handler to a specific exception, add
               a unit test that asserts the new specific exception
@@ -1209,12 +1292,15 @@ slices:
           - All tests referring to `ConsensusEvaluator` are
             removed.
           - #2570 regression test exists in
-            `test_pipelines.py` and passes.
+            `orchestrator/tests/test_rebase_pipeline_branch.py`
+            and passes.
           - 3-5 BLE001-narrowing unit tests added in TASK-1-11
             sample sites.
           - `make test-all` passes.
         files:
-          - orchestrator/tests/test_pipelines.py
+          - orchestrator/tests/test_rebase_pipeline_branch.py
+          - orchestrator/tests/test_pipeline_failure_path.py
+          - orchestrator/tests/test_pipelines_api.py
           - orchestrator/tests/test_consensus.py
           - orchestrator/tests/test_restart_phase.py
           - orchestrator/tests/test_dag_visualizer.py
@@ -1508,25 +1594,32 @@ slices:
               messages (TASK-2-5).
 
           Integration test under
-          `integration_tests/local_pipeline/` (where `gateway_url`
-          / `orchestrator_url` fixtures live; this directory is
+          `integration_tests/regression/` (the kubectl-gated
+          recovery/regression tier where `orchestrator_url` is
+          available via the parent conftest fixture and `egg_stack`
+          carries `gateway_url` as an attribute; this directory is
           REQUIRED — see Primitives §"trust-boundary scope" in the
-          plan prose): kill the orchestrator pod mid-implement-
-          phase on a sliced pipeline, restart, assert per-slice
-          consensus trackers reconstruct from on-disk message
-          history (the AC-16 closure proof for #2409). Document
-          in a docstring that this test MUST live under
-          `integration_tests/local_pipeline/`.
+          plan prose; the legacy `integration_tests/local_pipeline/`
+          directory was deleted on 2026-05-11 in commit `f7803637d1`
+          and MUST NOT be referenced): kill the orchestrator pod
+          mid-implement-phase on a sliced pipeline, restart, assert
+          per-slice consensus trackers reconstruct from on-disk
+          message history (the AC-16 closure proof for #2409). Inject
+          `orchestrator_url` and `egg_stack`. Document in a docstring
+          that this test MUST live under
+          `integration_tests/regression/`.
         acceptance: |-
           - Tests (a)–(e) all pass, with case-d split into 5
             separate tests for the classification matrix.
           - Integration test for orchestrator-pod recycle passes
             and exercises cross-slice tracker isolation.
+          - Integration test skips cleanly when `kubectl` is
+            unavailable.
           - `make test-all` is green.
         files:
           - orchestrator/tests/test_restart_phase.py
           - orchestrator/tests/test_startup_reconciliation.py
-          - integration_tests/local_pipeline/test_restart_hardening.py
+          - integration_tests/regression/test_restart_hardening.py
       - id: TASK-2-7
         role: documenter
         description: |-
