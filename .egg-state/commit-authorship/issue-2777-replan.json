@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "0f78f2c577663eeffcc93686e65ca119579fd2b8": {
+      "branch": "egg/issue-2777-replan/work",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T03:22:58.681256+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_plan"
+    }
+  },
+  "version": 1
+}
