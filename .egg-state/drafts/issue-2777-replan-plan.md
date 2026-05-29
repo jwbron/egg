@@ -1053,32 +1053,45 @@ slices:
         role: coder
         description: |-
           Delete the legacy `ConsensusEvaluator` module (cq-5).
-          reviewer_plan v1→v2 verified the production call surface
-          extends beyond `pipelines.py`. There are SEVEN reference
-          clusters total — all must be removed in this task. The
-          line numbers below are the plan-anchor SHA `1cb235871`
-          baselines; the coder MUST re-anchor via `grep -n` against
-          HEAD before editing (per the global re-anchoring note in
-          §Approach) — the per-file drift between plan-anchor and
-          implement-time HEAD is ~600 lines on `pipelines.py`.
+          reviewer_plan v1→v2 + risk_analyst v2→v3 verified the
+          production call surface. There are EIGHT reference
+          clusters total — all must be removed in this task.
+          Citations below give BOTH the refine-anchor `1cb235871`
+          line range AND the HEAD line range; per the global
+          re-anchoring note in §Approach, the coder MUST re-anchor
+          again at implement-time HEAD before editing.
 
-          **In `orchestrator/routes/pipelines.py` (5 clusters)**:
-          (1) `pipelines.py:1805-1808` — import + `.clear()` call
-              (the early-cancel path).
-          (2) `pipelines.py:2844-2848` — import + `evaluator =
-              get_consensus_evaluator()` handle.
-          (3) `pipelines.py:3274-3279` — import + handle +
-              `.clear()` call (the `restart_phase` consensus-clear
-              block named by the analysis).
-          (4) `pipelines.py:4206-4210` — import + handle (nested
-              path).
-          (5) `pipelines.py:4215-4219` — second import + handle in
-              the same neighbourhood.
+          **In `orchestrator/routes/pipelines.py` (6 clusters —
+          per architect AC-18 + risk_analyst v2 blocker 1, verified
+          at HEAD via
+          `grep -n "get_consensus_evaluator|from consensus import|from ..consensus" orchestrator/routes/pipelines.py`)**:
+          (1) refine-anchor `1805-1808` / HEAD `1813-1816` — import
+              + `.clear()` call (the early-cancel path).
+          (2) refine-anchor `2844-2848` / HEAD `2859-2863` — import
+              + `evaluator = get_consensus_evaluator()` handle.
+          (3) refine-anchor `3274-3279` / HEAD `3289-3293` — import
+              + handle + `.clear()` call (the `restart_phase`
+              consensus-clear block named by the analysis).
+          (4) **refine-anchor `~3486-3496` / HEAD `3516-3526`** —
+              import + handle + `.clear()` call inside the
+              "Failed to clear legacy consensus after hard-reset
+              ack" block. **NEW — added per risk_analyst v2
+              blocker 1**; this cluster was missed in v2 and is a
+              distinct call site from (3) (the hard-reset-ack
+              path vs the restart_phase consensus-clear path).
+              Deletion of `consensus.py` without removing this
+              cluster guarantees an `ImportError` post-restart on
+              the hard-reset ack path. Verified at HEAD via
+              `sed -n '3510,3530p' orchestrator/routes/pipelines.py`.
+          (5) refine-anchor `4206-4210` / HEAD `4489-4493` —
+              import + handle (nested path).
+          (6) refine-anchor `4215-4219` / HEAD `4498-4502` —
+              second import + handle in the same neighbourhood.
 
           **In `orchestrator/routes/phases.py` (1 cluster — added
           per reviewer_plan v2 blocker 1, verified at HEAD via
           `grep -n "consensus" orchestrator/routes/phases.py`)**:
-          (6) `phases.py:119-124` — `try: from consensus import
+          (7) `phases.py:119-124` — `try: from consensus import
               get_consensus_evaluator; except ImportError: from
               ..consensus import get_consensus_evaluator` +
               `get_consensus_evaluator().clear(pipeline_id)` call
@@ -1091,8 +1104,8 @@ slices:
 
           **In `orchestrator/routes/signals.py` (1 cluster — added
           per reviewer_plan v2 blocker 1, verified at HEAD via
-          `grep -n "get_consensus_evaluator\|ConsensusEvaluator\|from consensus\|from .consensus" orchestrator/routes/signals.py`)**:
-          (7) `signals.py:847-871` — `try: from consensus import
+          `grep -n "get_consensus_evaluator|ConsensusEvaluator|from consensus|from .consensus" orchestrator/routes/signals.py`)**:
+          (8) `signals.py:847-871` — `try: from consensus import
               ReadinessState, get_consensus_evaluator; except
               ImportError: from ..consensus import ReadinessState,
               get_consensus_evaluator` + `evaluator =
@@ -1105,7 +1118,7 @@ slices:
           Each cluster has a 3-line `try: from consensus import
           get_consensus_evaluator; except ImportError: from
           ..consensus import get_consensus_evaluator` shim plus
-          the actual usage. Delete all seven clusters AND the
+          the actual usage. Delete all eight clusters AND the
           `orchestrator/consensus.py` module
           (`ConsensusEvaluator` class at line 38,
           `get_consensus_evaluator()` singleton at line 153,
@@ -1114,24 +1127,46 @@ slices:
           that no other module imports from it. The BRC
           `PeerConsensusTracker` (`orchestrator/peer_consensus.py:69`)
           is the only consensus path; nothing else needs to change.
+
+          **Notes / follow-on cleanup (added per risk_analyst v2
+          non-blocking)**: the `peer_consensus.py:1604` alias method
+          is a compatibility shim on the surviving tracker (not the
+          deleted module). It is NOT a runtime-breaker for this
+          task's deletion, but verify whether it remains dead
+          post-deletion via `grep -rn '<alias-method-name>'`. If
+          dead, remove it lockstep with this task; if reachable
+          (test scaffolding or future-#2199 hook), leave it and
+          file a follow-up issue noting the residual coupling.
+
           Commit the after-grep output in the commit message for
           reviewer_plan to spot-check.
         acceptance: |-
           - `orchestrator/consensus.py` is deleted.
-          - All SEVEN reference clusters are removed: 5 in
-            `pipelines.py` (lines 1805-1808, 2844-2848, 3274-3279,
-            4206-4210, 4215-4219), 1 in `phases.py` (119-124), 1 in
-            `signals.py` (847-871). Re-anchored against HEAD before
-            editing.
+          - All EIGHT reference clusters are removed: 6 in
+            `pipelines.py` (refine-anchored lines 1805-1808,
+            2844-2848, 3274-3279, ~3486-3496, 4206-4210, 4215-4219;
+            HEAD-anchored 1813-1816, 2859-2863, 3289-3293,
+            3516-3526, 4489-4493, 4498-4502), 1 in `phases.py`
+            (119-124), 1 in `signals.py` (847-871). Re-anchored
+            against HEAD before editing.
+          - The hard-reset-ack consensus-clear block at HEAD
+            `3516-3526` (cluster 4) is explicitly removed —
+            verified by the post-edit grep returning zero hits in
+            that line range.
           - No surviving import of the deleted module (or its
             `ReadinessState` enum) across the repo (verified by the
             widened grep).
+          - `peer_consensus.py:1604` alias method's
+            reachability is verified post-deletion; if dead,
+            removed lockstep; if reachable, noted in commit message
+            with follow-up issue link.
           - Commit message contains the after-grep output.
         files:
           - orchestrator/consensus.py
           - orchestrator/routes/pipelines.py
           - orchestrator/routes/phases.py
           - orchestrator/routes/signals.py
+          - orchestrator/peer_consensus.py
       - id: TASK-1-7
         role: coder
         description: |-
