@@ -49,6 +49,36 @@ try:
 except ImportError:
     _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
+try:
+    from egg_tool_output import cap_result_dict
+except ImportError:  # pragma: no cover - shared path always present in prod
+
+    def cap_result_dict(result, **_kwargs):  # type: ignore[no-redef]
+        return result
+
+
+# Per-tool "how to narrow this call" hints, surfaced in the truncation
+# marker when a result exceeds the tool-output cap (#2805). These tools'
+# output scales with cluster/repo state rather than the caller's params, so
+# they are the at-risk set; anything not listed gets a generic hint and, in
+# practice, never trips the cap because its output is bounded by design.
+_TOOL_NARROW_HINTS: dict[str, str] = {
+    "get_service_logs": (
+        "lower `lines` or set a smaller `since_seconds` window, or fetch a single service at a time"
+    ),
+    "get_container_logs": (
+        "lower `lines` or set a smaller `since_seconds` window, or target a single container"
+    ),
+    "list_containers": (
+        "request a single pipeline/phase if the API supports it; otherwise "
+        "this result is proportional to the running container count"
+    ),
+    "list_tasks": "use `limit` (and any status/phase filter) to page results",
+    "list_checkpoints": "use `limit` + `cursor` pagination or add filters",
+    "search_checkpoints": "use `limit` + `cursor` pagination or a narrower query",
+    "list_agent_local_commits": "target a single agent/branch or use `limit`",
+}
+
 
 logger = get_logger("orchestrator.mcp_tools")
 
@@ -1147,10 +1177,21 @@ class PipelineToolHandler:
             return {"error": f"Unknown tool: {tool_name}"}
 
         try:
-            return handler(arguments)
+            result = handler(arguments)
         except Exception as e:
             logger.error("Tool call failed", tool=tool_name, error=str(e))
             return {"error": str(e)}
+        # Bound the result before mcp_server.py serializes it across the
+        # operator's Agent SDK 1 MB reader buffer (#2805). Oversized output
+        # is replaced with a head-preview marker naming how to narrow the
+        # call; bounded tools never trip this.
+        if isinstance(result, dict):
+            return cap_result_dict(
+                result,
+                tool=tool_name,
+                narrow_hint=_TOOL_NARROW_HINTS.get(tool_name),
+            )
+        return result
 
     def _make_request(
         self,

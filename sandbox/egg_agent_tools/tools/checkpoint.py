@@ -112,7 +112,11 @@ async def checkpoint_list(args: dict[str, Any]) -> dict[str, Any]:
     _SHOW_SCHEMA,
 )
 async def checkpoint_show(args: dict[str, Any]) -> dict[str, Any]:
-    return await invoke_handler(handlers.checkpoint_show, args)
+    # A single checkpoint is a full agent transcript — unpaginated and often
+    # MB-scale, with the relevant detail anywhere in it. Spill an oversized
+    # result to a file the agent can Read/grep rather than truncating the
+    # tail away (#2805).
+    return await invoke_handler(handlers.checkpoint_show, args, spill=True)
 
 
 @tool(

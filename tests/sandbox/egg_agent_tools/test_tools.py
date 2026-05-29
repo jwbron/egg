@@ -120,6 +120,50 @@ class TestInvokeHandlerErrorTranslation:
         assert resp["is_error"] is True
 
 
+class TestInvokeHandlerOutputCap:
+    """Output-size caps (#2805): a handler returning a megabyte-scale dict
+    must never produce a tool-result that overflows the SDK reader."""
+
+    def test_oversized_result_truncated_to_marker(self):
+        def handler(req):
+            return {"rows": ["x" * 100 for _ in range(20000)]}  # ~2 MB serialized
+
+        resp = _run(invoke_handler(handler, {}, tool_name="big_tool"))
+        text = resp["content"][0]["text"]
+        assert len(text.encode("utf-8")) <= 200 * 1024
+        marker = json.loads(text)
+        assert marker["_egg_truncated"] is True
+        assert marker["tool"] == "big_tool"
+
+    def test_small_result_not_truncated(self):
+        def handler(req):
+            return {"ok": True, "value": 42}
+
+        resp = _run(invoke_handler(handler, {}))
+        assert json.loads(resp["content"][0]["text"]) == {"ok": True, "value": 42}
+
+    def test_spill_writes_file_and_returns_preview(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TMPDIR", str(tmp_path))
+
+        def handler(req):
+            return {"ok": True, "transcript": "L" * (300 * 1024)}
+
+        resp = _run(invoke_handler(handler, {}, tool_name="checkpoint_show", spill=True))
+        desc = json.loads(resp["content"][0]["text"])
+        assert desc["_egg_output_spilled"] is True
+        assert Path(desc["output_path"]).exists()
+        # The full payload is preserved on disk, not lost to truncation.
+        assert desc["total_bytes"] > 300 * 1024
+
+    def test_spill_skipped_for_small_result(self):
+        def handler(req):
+            return {"ok": True, "transcript": "short"}
+
+        resp = _run(invoke_handler(handler, {}, tool_name="checkpoint_show", spill=True))
+        body = json.loads(resp["content"][0]["text"])
+        assert body == {"ok": True, "transcript": "short"}
+
+
 class TestSdkToolShape:
     """Every registration declares a stub SDK tool (or real SdkMcpTool)
     carrying name/description/input_schema and the handler reference."""
