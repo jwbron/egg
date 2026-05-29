@@ -35,12 +35,26 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "28f7ef9b2e05e39ff641455ddb6a524e9f51e9ca": {
+      "branch": "egg/issue-2777-replan/slice-2",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T05:15:40.609961+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "7a5334b77ee8c4d6759dfc187740c05932425c48": {
       "branch": "egg/issue-2777-replan/work",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-29T03:33:51.525310+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
+    },
+    "7f611de508127bf31e6b50081227d5d50f7a44b7": {
+      "branch": "egg/issue-2777-replan/slice-2",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-29T05:15:40.593241+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "870d6f29eb35a273680318606a4ab5d6ca4cc72e": {
       "branch": "egg/issue-2777-replan/work",
