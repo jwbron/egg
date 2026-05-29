@@ -76,6 +76,7 @@ pass either.
 |-------|------|---------|---------|
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
 | `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. |
+| `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Recorded once, right after branch creation and before any agent is spawned, so the tip still equals this SHA. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
 
 ## Plan Parser & Forest Validation
 
