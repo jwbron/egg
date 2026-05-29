@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.error import HTTPError, URLError
@@ -580,9 +581,24 @@ class GatewayClient:
             # deliberately NOT a GatewayConnectionError, since a
             # response-phase disconnect may mean the gateway already
             # processed the request and so must not be blindly retried.
-            # Must stay LAST: URLError and TimeoutError both subclass
-            # OSError and are handled by their dedicated branches above.
+            # Must stay LAST among the OSError-derived branches: URLError
+            # and TimeoutError both subclass OSError and are handled by
+            # their dedicated branches above.
             raise GatewayError(f"Gateway connection error: {e}") from e
+        except HTTPException as e:
+            # Defense-in-depth for response-phase protocol errors that are
+            # NOT an OSError — most notably http.client.IncompleteRead, when
+            # the connection drops mid-``response.read()`` (line above).
+            # ``IncompleteRead``/``BadStatusLine`` subclass HTTPException,
+            # not OSError, so without this branch they would propagate raw
+            # and slip past callers' ``except GatewayError`` handlers (e.g.
+            # the spawner's KubernetesSpawnError wrap).  Wrap as a plain
+            # GatewayError — deliberately NOT a GatewayConnectionError, since
+            # a partial response means the gateway already received and may
+            # have processed the request, so it must not be blindly retried.
+            # (http.client.RemoteDisconnected is also an OSError and so is
+            # caught by the branch above before reaching here.)
+            raise GatewayError(f"Gateway response error: {e}") from e
 
     def _retry_transient(
         self,
@@ -3599,12 +3615,14 @@ class GatewayConnectionError(GatewayError):
     connection refused, DNS resolution failure ([Errno -3]), host
     unreachable — i.e. cases where the request was not delivered/processed
     and is therefore safe to retry regardless of HTTP-method idempotency.
-    A response-phase disconnect (http.client.RemoteDisconnected, a
-    ``ConnectionResetError`` — NOT a ``URLError``) deliberately does *not*
-    map to this subclass: it falls through to ``_make_request``'s trailing
-    ``except OSError`` branch as a plain :class:`GatewayError`, because such
-    a disconnect may mean the gateway already processed the request and so
-    must not be blindly retried.
+    A response-phase failure deliberately does *not* map to this subclass:
+    a disconnect (http.client.RemoteDisconnected, a ``ConnectionResetError``
+    — NOT a ``URLError``) falls through to ``_make_request``'s ``except
+    OSError`` branch, and a partial read (http.client.IncompleteRead, an
+    ``HTTPException``) falls through to the trailing ``except HTTPException``
+    branch — both as a plain :class:`GatewayError`, because such a failure
+    may mean the gateway already processed the request and so must not be
+    blindly retried.
 
     Subclasses :class:`GatewayError` so callers that broadly catch
     ``GatewayError`` (e.g. the spawner's session-registration handler)

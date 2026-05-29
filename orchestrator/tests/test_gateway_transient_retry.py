@@ -102,6 +102,22 @@ class TestMakeRequestClassification:
         assert not isinstance(exc_info.value, GatewayConnectionError)
         assert "Gateway connection error" in str(exc_info.value)
 
+    def test_incomplete_read_wrapped_but_not_transient(self, gateway_client):
+        """A connection drop *during* ``response.read()`` surfaces as
+        http.client.IncompleteRead — an ``HTTPException``, NOT an
+        ``OSError`` — so it must be wrapped as a plain ``GatewayError``
+        (caught by callers' ``except GatewayError`` handlers) rather than
+        propagating raw.  It is NOT classified transient: a partial read
+        means the gateway already received the request, so it must not be
+        blindly retried."""
+        from http.client import IncompleteRead
+
+        with patch.object(gc, "urlopen", side_effect=IncompleteRead(b"partial")):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/health")
+        assert not isinstance(exc_info.value, GatewayConnectionError)
+        assert "Gateway response error" in str(exc_info.value)
+
 
 class TestRetryTransientHelper:
     def test_retries_then_succeeds(self, gateway_client):
