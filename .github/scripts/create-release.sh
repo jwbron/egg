@@ -245,13 +245,6 @@ fi
 
 cat <<EOF
 
-### Docker Images
-
-\`\`\`bash
-docker pull ghcr.io/jwbron/egg-sandbox:$VERSION
-docker pull ghcr.io/jwbron/egg-gateway:$VERSION
-\`\`\`
-
 ### Versioned References
 
 For stability, pin to the major version:

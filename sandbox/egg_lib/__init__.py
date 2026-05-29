@@ -131,10 +131,6 @@ try:
         wait_for_gateway_health as wait_for_gateway_health,
     )
 
-    # GHA-entry re-export (relocated from .cli in #1762; interactive-mode
-    # ``main()`` was removed in the same change).
-    from .gha_exec import gha_exec as gha_exec
-
     # Output module exports
     from .output import (
         error as error,

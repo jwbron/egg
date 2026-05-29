@@ -695,9 +695,9 @@ def exec_in_new_container(
 
     # Compose-based service bring-up was removed in #1762; operators
     # running locally are expected to have the gateway + orchestrator
-    # already running (e.g. via ``kubectl apply -f k8s/``). GHA's
-    # ``gha_exec()`` flow continues to start the gateway container
-    # directly earlier in its own orchestration.
+    # already running (e.g. via ``kubectl apply -f k8s/``). The GHA
+    # PR-bot path no longer uses this Docker exec flow at all — it runs
+    # the agent as a bare process (see action/entrypoint.sh, #2866).
 
     # Generate unique container ID for this exec
     container_id = f"egg-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"

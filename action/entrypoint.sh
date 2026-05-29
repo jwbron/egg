@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# entrypoint.sh — Orchestrate the egg stack (gateway + sandbox) inside GitHub Actions
+# entrypoint.sh — Run the egg agent as a bare process in the GitHub Actions runner.
 #
-# Steps:
-#   1. Pull pre-built images from GHCR
-#   2. Generate config (via generate-config.sh)
-#   3. Run Python orchestration (gha_exec) — handles networks, gateway,
-#      session, sandbox container, and cleanup
+# There is no Docker, no gateway, and no sandbox container in this path. The
+# runner is already ephemeral and the GitHub token (scoped by the calling job's
+# permissions: block) is the capability boundary. Steps:
+#   1. Configure git/gh auth + identity for the agent's git/gh operations
+#   2. Resolve the prompt (inline or from file) and the network mode
+#   3. Run `python3 -m egg_agent` against the checked-out repo
 #   4. Capture GHA-specific output (GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
 
 set -euo pipefail
@@ -16,115 +17,116 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_ID="${GITHUB_RUN_ID:-$$}"
-
-IMAGE_TAG="${INPUT_IMAGE_TAG:-latest}"
-GATEWAY_IMAGE="ghcr.io/jwbron/egg-gateway:${IMAGE_TAG}"
-SANDBOX_IMAGE="ghcr.io/jwbron/egg-sandbox:${IMAGE_TAG}"
-
 MODEL="${INPUT_MODEL:-opus}"
+TIMEOUT_MINUTES="${INPUT_TIMEOUT:-30}"
 LOG_FILE="${RUNNER_TEMP:-/tmp}/egg-output-${RUN_ID}.log"
 
 # ---------------------------------------------------------------------------
-# Safety-net cleanup (bash-level fallback)
-# ---------------------------------------------------------------------------
-# Python handles its own cleanup via ctx.ephemeral, but if the process is
-# killed mid-flight these docker commands serve as a last resort.
-
-cleanup() {
-  echo "=== Bash cleanup ==="
-  local exit_code=$?
-  docker rm -f "egg-gha-gateway-${RUN_ID}" 2>/dev/null || true
-  docker rm -f "egg-gha-sandbox-${RUN_ID}" 2>/dev/null || true
-  docker network rm "egg-gha-isolated-${RUN_ID}" 2>/dev/null || true
-  docker network rm "egg-gha-external-${RUN_ID}" 2>/dev/null || true
-  return "$exit_code"
-}
-
-trap cleanup EXIT
-
-# ---------------------------------------------------------------------------
-# Step 1: Pull images
+# Step 1: Auth + identity
 # ---------------------------------------------------------------------------
 
-echo "=== Step 1: Pull images ==="
-echo "${INPUT_GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-docker pull "$GATEWAY_IMAGE"
-docker pull "$SANDBOX_IMAGE"
+echo "=== Step 1: Configure git/gh ==="
+
+: "${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token is required}"
+: "${INPUT_GITHUB_TOKEN:?github-token is required}"
+
+# The Claude CLI (driven by claude-agent-sdk) reads this from the environment.
+export CLAUDE_CODE_OAUTH_TOKEN="${INPUT_ANTHROPIC_OAUTH_TOKEN}"
+
+# `gh` reads GH_TOKEN; `git push`/`git fetch` use gh as the credential helper.
+export GH_TOKEN="${INPUT_GITHUB_TOKEN}"
+gh auth setup-git
+
+# Install the slim `gh` review-marker shim ahead of the real gh on PATH so the
+# agent's `gh pr review` calls carry the egg-automated-review marker the review
+# workflows parse. Resolve the real gh FIRST (before the prepend) so the shim
+# can delegate to it without recursing. See action/bin/gh.
+EGG_REAL_GH="$(command -v gh)"
+export EGG_REAL_GH
+export PATH="${SCRIPT_DIR}/bin:${PATH}"
+
+# Commit identity. github-token is a GitHub App installation token, so commits
+# the agent makes should be authored by the App's bot user (<name>[bot]) with
+# its numeric-id noreply email, matching how GitHub attributes App commits.
+# Falls back to github-actions[bot] when no bot-username is supplied (e.g.
+# read-only bots that never commit, or non-App callers).
+BOT_USERNAME="${INPUT_BOT_USERNAME:-}"
+if [[ -n "$BOT_USERNAME" ]]; then
+  BOT_LOGIN="${BOT_USERNAME}[bot]"
+  # Look up the bot user's numeric id for the noreply email; fall back to a
+  # plain noreply address if the lookup fails (e.g. restricted token).
+  BOT_ID="$(gh api "users/${BOT_LOGIN}" --jq '.id' 2>/dev/null || true)"
+  if [[ -n "$BOT_ID" ]]; then
+    BOT_EMAIL="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
+  else
+    BOT_EMAIL="${BOT_LOGIN}@users.noreply.github.com"
+  fi
+  git config --global user.name "$BOT_LOGIN"
+  git config --global user.email "$BOT_EMAIL"
+else
+  git config --global user.name "github-actions[bot]"
+  git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Generate config
+# Step 2: Resolve prompt + mode
 # ---------------------------------------------------------------------------
 
-echo "=== Step 2: Generate config ==="
-
-export INPUT_ANTHROPIC_OAUTH_TOKEN="${INPUT_ANTHROPIC_OAUTH_TOKEN:?anthropic-oauth-token is required}"
-export INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:?github-token is required}"
-export INPUT_BOT_APP_ID="${INPUT_BOT_APP_ID:-}"
-export INPUT_BOT_APP_PRIVATE_KEY="${INPUT_BOT_APP_PRIVATE_KEY:-}"
-export INPUT_BOT_APP_INSTALLATION_ID="${INPUT_BOT_APP_INSTALLATION_ID:-}"
-export INPUT_BOT_USERNAME="${INPUT_BOT_USERNAME:-}"
-
-"$SCRIPT_DIR/generate-config.sh"
-
-CONFIG_DIR="${RUNNER_TEMP:-/tmp}/egg-config-${RUN_ID}"
-
-# ---------------------------------------------------------------------------
-# Step 2b: Resolve prompt from file if needed
-# ---------------------------------------------------------------------------
+echo "=== Step 2: Resolve prompt + mode ==="
 
 if [[ -n "${INPUT_PROMPT_FILE:-}" && -f "${INPUT_PROMPT_FILE}" ]]; then
   echo "Reading prompt from file: ${INPUT_PROMPT_FILE}"
-  export INPUT_PROMPT
-  INPUT_PROMPT=$(cat "${INPUT_PROMPT_FILE}")
+  INPUT_PROMPT="$(cat "${INPUT_PROMPT_FILE}")"
   echo "Prompt loaded: ${#INPUT_PROMPT} chars"
 elif [[ -z "${INPUT_PROMPT:-}" ]]; then
   echo "ERROR: Either prompt or prompt-file input is required" >&2
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Step 3: Run Python orchestration
-# ---------------------------------------------------------------------------
-
-echo "=== Step 3: Python orchestration ==="
-
-# Set EGG_* environment variables consumed by RuntimeContext.from_environment()
-export EGG_ISOLATED_NETWORK="egg-gha-isolated-${RUN_ID}"
-export EGG_EXTERNAL_NETWORK="egg-gha-external-${RUN_ID}"
-export EGG_ISOLATED_SUBNET="auto"
-export EGG_EXTERNAL_SUBNET="auto"
-export EGG_GATEWAY_CONTAINER_NAME="egg-gha-gateway-${RUN_ID}"
-export EGG_GATEWAY_IMAGE="${GATEWAY_IMAGE}"
-export EGG_SANDBOX_IMAGE="${SANDBOX_IMAGE}"
-export EGG_SKIP_BUILD="true"
-export EGG_EPHEMERAL="true"
-export EGG_PUBLISH_GATEWAY_PORTS="false"
-export EGG_CONFIG_DIR="$CONFIG_DIR"
-EGG_LAUNCHER_SECRET="$(cat "$CONFIG_DIR/launcher-secret")"
-export EGG_LAUNCHER_SECRET
-
-# Pass through EGG_BOT_NAME if set (used by gh wrapper for review markers)
-if [[ -n "${EGG_BOT_NAME:-}" ]]; then
-  export EGG_BOT_NAME
+# Resolve network mode (auto → public/private from repo visibility). In private
+# mode egg_agent disables WebFetch/WebSearch at the SDK level (see
+# shared/egg_agent/client.py); EGG_PRIVATE_MODE is the signal it reads.
+RESOLVED_MODE="${INPUT_MODE:-auto}"
+if [[ "$RESOLVED_MODE" == "auto" ]]; then
+  REPO_VIS="${GITHUB_EVENT_REPOSITORY_VISIBILITY:-public}"
+  if [[ "$REPO_VIS" == "private" || "$REPO_VIS" == "internal" ]]; then
+    RESOLVED_MODE="private"
+  else
+    RESOLVED_MODE="public"
+  fi
 fi
-
-# Pass through EGG_COMMIT_SHA if set (used by gh wrapper for review markers
-# to pin the marker to the commit that was actually reviewed, avoiding races
-# with commits pushed during the review)
-if [[ -n "${EGG_COMMIT_SHA:-}" ]]; then
-  export EGG_COMMIT_SHA
+if [[ "$RESOLVED_MODE" == "private" ]]; then
+  export EGG_PRIVATE_MODE="true"
 fi
+echo "Resolved mode: $RESOLVED_MODE"
 
-# Add egg_lib and shared modules to Python path
-export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"
+# Land the agent in the checked-out repo on its first tool call (see
+# shared/egg_agent/client.py cwd resolution).
+export EGG_REPO_PATH="${GITHUB_WORKSPACE:-$PWD}"
+
+# ---------------------------------------------------------------------------
+# Step 3: Run the agent
+# ---------------------------------------------------------------------------
+# EGG_AGENT_ROLE, EGG_BOT_NAME, EGG_COMMIT_SHA, EGG_ISSUE_NUMBER and
+# EGG_PR_NUMBER are set by the calling workflow on the action step's env and are
+# inherited here, so egg_agent picks them up from os.environ directly.
+
+echo "=== Step 3: Run agent ==="
+
+# --max-turns 200: enough turns for explore + implement + test + comment.
+# Default (100) was observed insufficient for the PR-bot tasks.
+TIMEOUT_SECONDS=$((TIMEOUT_MINUTES * 60))
 
 set +e
-python3 -c "from egg_lib.gha_exec import gha_exec; import sys; sys.exit(gha_exec())" \
+printf '%s' "$INPUT_PROMPT" | python3 -m egg_agent \
+  --model "$MODEL" \
+  --max-turns 200 \
+  --timeout "$TIMEOUT_SECONDS" \
   2>&1 | tee "$LOG_FILE"
-SANDBOX_EXIT_CODE=${PIPESTATUS[0]}
+AGENT_EXIT_CODE=${PIPESTATUS[1]}
 set -e
 
-echo "Python orchestration exited with code: $SANDBOX_EXIT_CODE"
+echo "Agent exited with code: $AGENT_EXIT_CODE"
 
 # ---------------------------------------------------------------------------
 # Step 4: Capture output
@@ -132,9 +134,8 @@ echo "Python orchestration exited with code: $SANDBOX_EXIT_CODE"
 
 echo "=== Step 4: Capture output ==="
 
-# Write outputs to GITHUB_OUTPUT
 {
-  echo "exit-code=${SANDBOX_EXIT_CODE}"
+  echo "exit-code=${AGENT_EXIT_CODE}"
   echo "log-file=${LOG_FILE}"
 } >>"${GITHUB_OUTPUT:-/dev/null}"
 
@@ -145,23 +146,11 @@ if [[ -n "$PR_URL" ]]; then
   echo "PR created: $PR_URL"
 fi
 
-# Write to job summary
-# Resolve mode the same way Python does (auto → public/private)
-RESOLVED_MODE="${INPUT_MODE:-auto}"
-if [[ "$RESOLVED_MODE" == "auto" ]]; then
-  REPO_VIS="${GITHUB_EVENT_REPOSITORY_VISIBILITY:-public}"
-  if [[ "$REPO_VIS" == "private" || "$REPO_VIS" == "internal" ]]; then
-    RESOLVED_MODE="private"
-  else
-    RESOLVED_MODE="public"
-  fi
-fi
-
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "## egg Run Summary"
     echo ""
-    echo "**Exit code:** \`${SANDBOX_EXIT_CODE}\`"
+    echo "**Exit code:** \`${AGENT_EXIT_CODE}\`"
     echo "**Mode:** ${RESOLVED_MODE}"
     echo "**Model:** ${MODEL}"
     if [[ -n "$PR_URL" ]]; then
@@ -178,5 +167,4 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 
-# Exit with sandbox exit code
-exit "$SANDBOX_EXIT_CODE"
+exit "$AGENT_EXIT_CODE"

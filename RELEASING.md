@@ -29,9 +29,13 @@ Each release produces:
 
 | Artifact | Tags |
 |----------|------|
-| Docker images | `vX.Y.Z`, `vX.Y`, `vX`, `latest` (stable only) |
 | Git tags | `vX.Y.Z`, `vX.Y`, `vX` (floating, stable only) |
 | GitHub Release | `vX.Y.Z` with release notes |
+
+The composite action (`jwbron/egg/action@vX.Y.Z`) runs the agent as a bare
+process in the runner, so a release no longer publishes container images.
+Agent isolation for the k3s pipeline uses images built locally (`make build`
++ `make k3s-import`), not GHCR.
 
 Pre-release versions only produce the exact version tag (`vX.Y.Z-suffix`).
 
@@ -70,8 +74,6 @@ After running the script:
 4. For pre-release versions, check "Set as a pre-release"
 5. Publish the release
 
-The `release-images.yml` workflow will automatically build and push Docker images with all version tags.
-
 ## Release Checklist
 
 Before releasing:
@@ -86,11 +88,9 @@ During release:
 - [ ] Run `create-release.sh --dry-run` to verify
 - [ ] Run `create-release.sh` to create and push tags
 - [ ] Create GitHub release with release notes
-- [ ] Verify Docker images are pushed
 
 After release:
 
-- [ ] Verify `docker pull ghcr.io/jwbron/egg-sandbox:vX.Y.Z` works
 - [ ] Verify `@vX` floating tag is updated
 - [ ] Notify users of breaking changes (if any)
 

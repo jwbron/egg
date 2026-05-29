@@ -1,53 +1,37 @@
 name: egg
-description: Run egg (autonomous coding agent) in GitHub Actions
+description: Run egg (autonomous coding agent) directly in the GitHub Actions runner
 branding:
   icon: terminal
   color: orange
 
 inputs:
   prompt:
-    description: Task prompt for Claude Code (mutually exclusive with prompt-file)
+    description: Task prompt for the agent (mutually exclusive with prompt-file)
     required: false
   prompt-file:
     description: Path to file containing task prompt (for large prompts, mutually exclusive with prompt)
     required: false
   anthropic-oauth-token:
-    description: Anthropic OAuth token for Claude API
+    description: Anthropic OAuth token for the Claude API (exported as CLAUDE_CODE_OAUTH_TOKEN)
     required: true
   github-token:
-    description: GitHub token for git operations
+    description: >-
+      GitHub token the agent uses for git/gh operations (exported as GH_TOKEN).
+      Pass the bot/reviewer GitHub App installation token minted by the calling
+      workflow. The App installation's permission scope is the capability
+      boundary — there is no gateway in this path. Defaults to the workflow
+      GITHUB_TOKEN for callers that don't run as an App.
     required: true
     default: ${{ github.token }}
-  bot-app-id:
-    description: GitHub App ID for bot identity (required for bot mode)
-    required: false
-  bot-app-private-key:
-    description: GitHub App private key PEM for bot identity (required for bot mode)
-    required: false
-  bot-app-installation-id:
-    description: GitHub App installation ID for bot identity (required for bot mode)
-    required: false
-  reviewer-app-id:
-    description: GitHub App ID for reviewer identity (optional - for posting reviews with approve/request-changes)
-    required: false
-  reviewer-app-private-key:
-    description: GitHub App private key PEM for reviewer identity (optional)
-    required: false
-  reviewer-app-installation-id:
-    description: GitHub App installation ID for reviewer identity (optional)
-    required: false
-  reviewer-bot-name:
-    description: Reviewer bot GitHub username (optional - for marker detection)
+  bot-username:
+    description: >-
+      GitHub username of the bot identity (without the [bot] suffix, e.g.
+      from a repo variable). Used to set the git commit author for any commits
+      the agent makes. Optional for read-only bots that never push.
     required: false
     default: ""
-  bot-username:
-    description: Bot GitHub username for filtering self-comments (REQUIRED for bot mode)
-    required: false
-  bot-branch-prefix:
-    description: Branch name prefix for bot-owned branches (gateway allows push to <prefix>- and <prefix>/ branches, REQUIRED for bot mode)
-    required: false
   mode:
-    description: "Network mode: public, private, or auto (auto-detects from repo visibility)"
+    description: "Network mode: public, private, or auto (auto-detects from repo visibility). Controls whether web tools are disabled."
     required: false
     default: auto
   timeout:
@@ -58,24 +42,16 @@ inputs:
     description: Claude model to use
     required: false
     default: opus
-  checkpoint-repo:
-    description: "External checkpoint repo in 'owner/repo' format. Redirects checkpoint storage to a separate repository instead of the source repo. The GitHub token must have write access to both repos."
-    required: false
-    default: ""
-  image-tag:
-    description: Docker image tag to use (e.g., v1.0.0 or latest)
-    required: false
-    default: latest
 
 outputs:
   exit-code:
-    description: Sandbox container exit code (0 = success)
+    description: Agent exit code (0 = success)
     value: ${{ steps.run.outputs.exit-code }}
   pr-url:
     description: URL of created PR, if any
     value: ${{ steps.run.outputs.pr-url }}
   log-file:
-    description: Path to full Claude output log
+    description: Path to full agent output log
     value: ${{ steps.run.outputs.log-file }}
 
 runs:
@@ -86,9 +62,25 @@ runs:
       with:
         python-version: "3.14"
 
-    - name: Install Python orchestration dependencies
+    - name: Install the Claude CLI
       shell: bash
-      run: python3 -m pip install --disable-pip-version-check pyyaml
+      # Mirrors the sandbox image install (sandbox/Dockerfile): the official
+      # installer ships its own runtime, so the runner needs no separate Node.
+      run: |
+        curl -fsSL https://claude.ai/install.sh | bash -s -- stable
+        echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+
+    - name: Install Python dependencies
+      shell: bash
+      # egg_agent (from egg-shared) drives claude-agent-sdk. The SDK pin is kept
+      # in lockstep with sandbox/Dockerfile. egg_agent_tools (the SDLC/BRC MCP
+      # tools) is deliberately NOT installed — it is gateway-coupled and the
+      # one-shot PR bots use built-in tools + gh/git only; egg_agent degrades
+      # gracefully when it is absent.
+      run: |
+        python3 -m pip install --disable-pip-version-check \
+          'claude-agent-sdk>=0.1.65,<0.2' pyyaml
+        python3 -m pip install --disable-pip-version-check "${{ github.action_path }}/../shared"
 
     - name: Run egg
       id: run
@@ -98,19 +90,9 @@ runs:
         INPUT_PROMPT_FILE: ${{ inputs.prompt-file }}
         INPUT_ANTHROPIC_OAUTH_TOKEN: ${{ inputs.anthropic-oauth-token }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
-        INPUT_BOT_APP_ID: ${{ inputs.bot-app-id }}
-        INPUT_BOT_APP_PRIVATE_KEY: ${{ inputs.bot-app-private-key }}
-        INPUT_BOT_APP_INSTALLATION_ID: ${{ inputs.bot-app-installation-id }}
-        INPUT_REVIEWER_APP_ID: ${{ inputs.reviewer-app-id }}
-        INPUT_REVIEWER_APP_PRIVATE_KEY: ${{ inputs.reviewer-app-private-key }}
-        INPUT_REVIEWER_APP_INSTALLATION_ID: ${{ inputs.reviewer-app-installation-id }}
-        INPUT_REVIEWER_BOT_NAME: ${{ inputs.reviewer-bot-name }}
         INPUT_BOT_USERNAME: ${{ inputs.bot-username }}
-        INPUT_BOT_BRANCH_PREFIX: ${{ inputs.bot-branch-prefix }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_MODEL: ${{ inputs.model }}
-        INPUT_CHECKPOINT_REPO: ${{ inputs.checkpoint-repo }}
-        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
         GITHUB_EVENT_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       run: ${{ github.action_path }}/entrypoint.sh

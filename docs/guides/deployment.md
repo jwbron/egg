@@ -221,24 +221,24 @@ jobs:
 |-------|----------|-------------|
 | `prompt` | Yes* | Task prompt |
 | `prompt-file` | Yes* | Path to file containing prompt |
-| `anthropic-oauth-token` | Yes | Claude API authentication |
-| `github-token` | Yes | GitHub API access |
-| `mode` | No | Network mode: auto, public, private |
+| `anthropic-oauth-token` | Yes | Claude API authentication (exported as `CLAUDE_CODE_OAUTH_TOKEN`) |
+| `github-token` | Yes | GitHub token the agent uses for git/gh. Pass a bot/reviewer GitHub App installation token; its installation scope is the capability boundary (no gateway in this path). |
+| `bot-username` | No | Bot identity (without `[bot]`) used as the git commit author for any commits the agent makes |
+| `mode` | No | Network mode: auto, public, private (controls whether web tools are disabled) |
 | `timeout` | No | Timeout in minutes (default: 30) |
-| `image-tag` | No | Docker image version (default: latest) |
 
 *Either `prompt` or `prompt-file` is required.
 
+> The action runs the agent as a **bare process** in the runner (#2866) — no
+> Docker, gateway, or container image. See [action/README.md](../../action/README.md).
+
 ## Pre-built Images
 
-Pre-built images are available on GHCR:
-
-| Image | Description |
-|-------|-------------|
-| `ghcr.io/jwbron/egg-gateway:latest` | Gateway sidecar (latest build) |
-| `ghcr.io/jwbron/egg-sandbox:latest` | Sandbox container (latest build) |
-
-Images are built on every push to main and on releases.
+> **Note (#2866):** egg no longer publishes `egg-gateway` / `egg-sandbox`
+> images to GHCR. PR-bot CI runs the agent as a bare process, and the k3s
+> pipeline imports **locally built** images via `make build` + `make k3s-import`.
+> The GHCR-pull guidance below is retained only for the legacy host-side Docker
+> deployment runtime, which is slated for removal; build images locally instead.
 
 ### Image Versioning
 

@@ -574,12 +574,8 @@ jobs:
           prompt-file: ${{ steps.prompt.outputs.prompt-file }}
           model: ${{ steps.prompt.outputs.model }}
           anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-          bot-app-id: ${{ secrets.BOT_APP_ID }}
-          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          github-token: ${{ steps.bot-token.outputs.token }}
           bot-username: ${{ env.EGG_BOT_USERNAME }}
-          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
-          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ inputs.timeout || '30' }}
         env:
           EGG_BOT_NAME: feedback

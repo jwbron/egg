@@ -47,7 +47,8 @@ dev = [
 [project.scripts]
 # Interactive mode + the top-level ``egg`` CLI were removed in #1762.
 # Hosts (Claude Code or any MCP client) now drive the orchestrator
-# directly; GHA dispatches through ``sandbox/egg_lib/gha_exec.py``.
+# directly; PR-bot GitHub Actions run ``python3 -m egg_agent`` as a bare
+# process (see ``action/entrypoint.sh``).
 # The existing ``bin/egg-deploy``, ``bin/egg-sdlc``, ``bin/egg-status``
 # scripts remain in place for operators.
 

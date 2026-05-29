@@ -390,8 +390,8 @@ tests/
 ```
 action/
 ├── action.yml                              # GitHub Action metadata
-├── entrypoint.sh                           # Action entry point
-├── generate-config.sh                      # Runtime config generator
+├── entrypoint.sh                           # Action entry point (runs `python3 -m egg_agent` bare-process)
+├── bin/gh                                  # Slim gh shim: injects the egg-automated-review marker
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
 ├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
 ├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder (deprecated, use build-check-fixer-prompt.sh)

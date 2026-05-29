@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+#
+# Slim `gh` shim for the bare-process PR-bot path (#2866).
+#
+# The sandboxed agents used a 1309-line gateway-coupled `gh` wrapper
+# (sandbox/scripts/gh) that, among other things, injected the automated-review
+# marker that the review workflows parse:
+#
+#   <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+#
+# Bare-process PR bots have no gateway and call the real `gh` directly, so this
+# shim re-provides ONLY that review behavior. Everything except `gh pr review`
+# passes straight through to the real `gh`. There is no gateway routing, no
+# credential injection, and no policy enforcement here — auth is GH_TOKEN in the
+# environment and the capability boundary is the App installation scope.
+#
+# The real `gh` is resolved by the action entrypoint into EGG_REAL_GH (before
+# this shim's directory is prepended to PATH) to avoid recursive self-invocation.
+
+set -euo pipefail
+
+REAL_GH="${EGG_REAL_GH:-}"
+if [[ -z "$REAL_GH" || ! -x "$REAL_GH" ]]; then
+  # Fall back to the first `gh` on PATH that is not this shim.
+  self="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+  while IFS= read -r candidate; do
+    resolved="$(readlink -f "$candidate" 2>/dev/null || echo "$candidate")"
+    if [[ "$resolved" != "$self" ]]; then
+      REAL_GH="$candidate"
+      break
+    fi
+  done < <(type -ap gh)
+fi
+if [[ -z "$REAL_GH" ]]; then
+  echo "ERROR: real gh CLI not found (EGG_REAL_GH unset and none on PATH)" >&2
+  exit 127
+fi
+
+# Only intercept `gh pr review`; everything else is a pass-through.
+if [[ "${1:-}" != "pr" || "${2:-}" != "review" ]]; then
+  exec "$REAL_GH" "$@"
+fi
+
+# --- gh pr review: inject the automated-review marker + verdict ---------------
+shift 2
+ARGS=("$@")
+
+bot_name="${EGG_BOT_NAME:-egg}"
+
+pr_number="" body="" body_file="" review_type="" repo=""
+i=0
+while [[ $i -lt ${#ARGS[@]} ]]; do
+  case "${ARGS[$i]}" in
+    --body | -b)
+      i=$((i + 1)); body="${ARGS[$i]}" ;;
+    --body=*) body="${ARGS[$i]#--body=}" ;;
+    --body-file | -F)
+      i=$((i + 1)); body_file="${ARGS[$i]}" ;;
+    --body-file=*) body_file="${ARGS[$i]#--body-file=}" ;;
+    --repo | -R)
+      i=$((i + 1)); repo="${ARGS[$i]}" ;;
+    --repo=*) repo="${ARGS[$i]#--repo=}" ;;
+    --approve | -a) review_type="approve" ;;
+    --request-changes | -r) review_type="request-changes" ;;
+    --comment | -c) review_type="comment" ;;
+    [0-9]*) [[ -z "$pr_number" ]] && pr_number="${ARGS[$i]}" ;;
+  esac
+  i=$((i + 1))
+done
+
+# Default repo to the current checkout.
+if [[ -z "$repo" ]]; then
+  repo="${GITHUB_REPOSITORY:-}"
+fi
+
+if [[ -z "$pr_number" ]]; then
+  echo "ERROR: gh pr review shim: missing PR number" >&2
+  exit 1
+fi
+
+# Resolve body (--body and --body-file are mutually exclusive).
+if [[ -n "$body" && -n "$body_file" ]]; then
+  echo "ERROR: cannot use both --body and --body-file" >&2
+  exit 1
+fi
+if [[ -n "$body_file" ]]; then
+  if [[ ! -f "$body_file" ]]; then
+    echo "ERROR: file not found: $body_file" >&2
+    exit 1
+  fi
+  body="$(cat "$body_file")"
+fi
+
+repo_args=()
+[[ -n "$repo" ]] && repo_args=(--repo "$repo")
+
+# Commit SHA for the marker: prefer EGG_COMMIT_SHA (the SHA actually reviewed,
+# set by the workflow) over a live query that can race with new pushes.
+commit_sha="${EGG_COMMIT_SHA:-}"
+if [[ -z "$commit_sha" ]]; then
+  commit_sha="$("$REAL_GH" pr view "$pr_number" "${repo_args[@]}" \
+    --json headRefOid --jq '.headRefOid' 2>/dev/null | tr -d '[:space:]' || true)"
+fi
+if [[ -z "$commit_sha" ]]; then
+  echo "WARNING: could not determine commit SHA for review marker" >&2
+fi
+
+# Proactively downgrade approve/request-changes on a self-authored PR to a plain
+# comment (GitHub blocks bots from approving their own PRs). With a separate
+# reviewer App this never triggers; kept as a fallback. The verdict is preserved
+# in the marker regardless.
+original_review_type="$review_type"
+if [[ "$review_type" == "approve" || "$review_type" == "request-changes" ]]; then
+  pr_author="$("$REAL_GH" pr view "$pr_number" "${repo_args[@]}" \
+    --json author --jq '.author.login' 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ -n "$pr_author" ]]; then
+    if [[ "$pr_author" == "$bot_name" || "$pr_author" == "${bot_name}[bot]" || "$pr_author" == "app/${bot_name}" ]]; then
+      echo "INFO: self-authored PR (author=$pr_author, bot=$bot_name); downgrading --${review_type} to --comment." >&2
+      review_type="comment"
+    fi
+  fi
+fi
+
+# Build the marker. verdict preserves the original intent even if downgraded.
+verdict="${original_review_type:-${review_type:-comment}}"
+if [[ "$verdict" == "approve" && "$body" == *"<!-- has-suggestions -->"* ]]; then
+  verdict="approve-with-suggestions"
+fi
+marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
+if [[ -n "$body" ]]; then
+  body="${body}
+
+${marker}"
+else
+  body="${marker}"
+fi
+
+verdict_flag=()
+case "$review_type" in
+  approve) verdict_flag=(--approve) ;;
+  request-changes) verdict_flag=(--request-changes) ;;
+  *) verdict_flag=(--comment) ;;
+esac
+
+# Submit the review. On a self-review API error, fall back to an issue comment
+# (the verdict is still recorded in the marker, but PR approval state won't
+# change — only the Reviews API can do that).
+review_stderr="$(mktemp)"
+trap 'rm -f "$review_stderr"' EXIT
+if ! "$REAL_GH" pr review "$pr_number" "${repo_args[@]}" --body "$body" "${verdict_flag[@]}" 2>"$review_stderr"; then
+  error_msg="$(cat "$review_stderr")"
+  if echo "$error_msg" | grep -qiE "(cannot review your own|can't review your own)"; then
+    echo "WARNING: self-review detected; falling back to issue comment." >&2
+    echo "  Verdict (${verdict}) is recorded in the marker, but PR approval state is unchanged." >&2
+    "$REAL_GH" pr comment "$pr_number" "${repo_args[@]}" --body "$body"
+    echo "Review posted as comment on PR #${pr_number} (verdict: ${verdict}, self-review fallback)"
+    exit 0
+  fi
+  echo "$error_msg" >&2
+  exit 1
+fi
+echo "Review submitted on PR #${pr_number} (verdict: ${verdict})"

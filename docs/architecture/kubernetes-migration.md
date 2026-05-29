@@ -326,7 +326,7 @@ This is automated by `make k3s-setup` and `scripts/install-cilium.sh`.
 |----------|--------|-------|
 | `test-integration.yml` | `docker build` + `docker compose up` | k3s setup + `k3s ctr images import` + `kubectl apply` |
 | `test-e2e.yml` | `docker compose` for full stack | k3s cluster with dedicated test namespace |
-| `release-images.yml` | Unchanged | Unchanged (GHCR is runtime-agnostic) |
+| `release-images.yml` | Built + pushed GHCR images | Removed (#2866) — PR bots run the agent as a bare process; k3s images are built locally via `make build` + `make k3s-import` |
 | `lint.yml` | Dockerfile linting retained | Dockerfile linting retained (OCI images still built) |
 
 Integration tests use a dedicated `egg-test-agents` namespace with per-test-run setup/teardown.

@@ -4,15 +4,27 @@ Composite GitHub Action for running egg in CI/CD workflows.
 
 ## Overview
 
-This action runs the egg autonomous coding agent within GitHub Actions. It sets up the gateway sidecar and sandbox container, passes a prompt to Claude Code, and outputs results.
+This action runs the egg autonomous coding agent **directly in the GitHub
+Actions runner as a bare process** — no Docker, no gateway, no sandbox
+container (#2866). It installs the Claude CLI + `egg_agent`, then runs
+`python3 -m egg_agent` against the checked-out repo.
+
+The runner is already ephemeral, and the **GitHub token you pass as
+`github-token` is the capability boundary** — there is no gateway enforcing an
+operation allowlist. Pass a GitHub App installation token (minted by the
+calling workflow via `actions/create-github-app-token`) so the agent acts as
+your bot/reviewer identity; the App installation's permission scope is what
+bounds it. The Agent SDK's role-based write restrictions (`EGG_AGENT_ROLE`)
+still apply. (k3s pipeline agents keep the gateway; this bare-process path is
+only for the short-lived PR bots.)
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `action.yml` | Action metadata, inputs, outputs |
-| `entrypoint.sh` | Main entry point that orchestrates container setup and execution |
-| `generate-config.sh` | Generates runtime configuration from action inputs |
+| `entrypoint.sh` | Installs auth/identity, then runs `python3 -m egg_agent` |
+| `bin/gh` | Slim `gh` shim placed ahead of the real `gh` on PATH; injects the `egg-automated-review` marker into `gh pr review` (the rest passes through). Replaces the gateway-coupled sandbox `gh` wrapper for this path. |
 | **Prompt Builders** | |
 | `build-review-prompt.sh` | Builds prompts for PR review workflows |
 | `build-feedback-prompt.sh` | Builds prompts for addressing review feedback workflows |
@@ -46,16 +58,20 @@ instead of a two-dot `git diff`. This shows only PR-side commits pushed since th
 ## Quick Start
 
 ```yaml
+# Mint the bot/reviewer App token in the workflow, then hand it to the action.
+- uses: actions/create-github-app-token@v1
+  id: bot-token
+  with:
+    app-id: ${{ secrets.BOT_APP_ID }}
+    private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
 - uses: jwbron/egg/action@v0
   with:
     prompt: "Fix the failing tests"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-    # Optional: enable separate reviewer bot for PR reviews
-    # reviewer-app-id: ${{ secrets.REVIEWER_APP_ID }}
-    # reviewer-app-private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
-    # reviewer-app-installation-id: ${{ secrets.REVIEWER_APP_INSTALLATION_ID }}
-    # Optional: redirect checkpoints to separate repo for privacy
-    # checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}
+    github-token: ${{ steps.bot-token.outputs.token }}
+    # bot-username sets the git commit author for any commits the agent makes.
+    bot-username: ${{ vars.EGG_BOT_USERNAME }}
 ```
 
 > **Note:** Use `@main` until the first release (v0.1.0) creates the `@v0` tag.
@@ -71,21 +87,6 @@ For full reproducibility, pin to an exact version:
 ```yaml
 uses: jwbron/egg/action@v0.1.0
 ```
-
-## Checkpoint Repository Configuration
-
-By default, checkpoints (session transcripts and tool call data) are stored in the same repository on the `egg/checkpoints/v2` branch. To keep this data private or separate, use the `checkpoint-repo` input:
-
-```yaml
-- uses: jwbron/egg/action@v0
-  with:
-    prompt: "Task description"
-    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-    github-token: ${{ secrets.CROSS_REPO_TOKEN }}
-    checkpoint-repo: "owner/checkpoint-repo-name"
-```
-
-The value must be in `owner/repo` format. The `github-token` must have write access to both the source repository and the checkpoint repository. The default `github.token` is scoped to the current repository, so cross-repo checkpoints require a PAT or GitHub App token with access to both repositories. To configure this globally across workflows, set the `EGG_CHECKPOINT_REPO` repository variable in Settings > Secrets and variables > Actions > Variables, then reference it with `checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO }}`.
 
 ## Documentation
 
