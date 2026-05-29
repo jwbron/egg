@@ -327,7 +327,9 @@
           "jira_action_status": null
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        "slice-1"
+      ],
       "serialized_chain_order": [],
       "parent_branch_at_creation": null,
       "commit": null,
@@ -609,7 +611,9 @@
           "jira_action_status": null
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        "slice-2"
+      ],
       "serialized_chain_order": [],
       "parent_branch_at_creation": null,
       "commit": null,
@@ -776,7 +780,9 @@
           "jira_action_status": null
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        "slice-3"
+      ],
       "serialized_chain_order": [],
       "parent_branch_at_creation": null,
       "commit": null,
