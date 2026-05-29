@@ -31,6 +31,40 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Free disk space
+        # Disk-pressure flake guard. `make build` plus the
+        # `Import images into k3s` step store every egg image TWICE —
+        # once in the Docker daemon's overlay store and again in
+        # k3s/containerd — across four images × two tags (:latest and
+        # :<sha>). With the multi-GB `egg-litellm` base layered on top
+        # of the build cache, the runner's OS disk crosses kubelet's
+        # ephemeral-storage eviction threshold around deploy time;
+        # kubelet then stamps a `node.kubernetes.io/disk-pressure:
+        # NoSchedule` taint and the egg pods stay Pending until
+        # `await-egg-deploy.sh` times out (the "untolerated taint(s)"
+        # CI failure). Reclaim ~25-30 GB of preinstalled toolchains
+        # egg never uses so there is headroom for both image stores.
+        # The maintained action tracks the runner image's layout so we
+        # don't have to chase hardcoded `rm` paths as GitHub changes it.
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          # Keep the default removals (android, dotnet, haskell, large
+          # apt packages) — ~20+ GB and none of them touch egg's
+          # toolchain. Two opt-outs:
+          #   docker-images: the action's `docker-images: true` runs
+          #     `docker image prune -a`, which would evict any base
+          #     images preinstalled on the runner that `make build`
+          #     (running next) reuses as cache layers. Keep them; the
+          #     Docker store is reclaimed post-import by the "Reclaim
+          #     Docker image store" step once images are in containerd.
+          #   tool-cache: this step runs AFTER "Set up Python", so
+          #     /opt/hostedtoolcache holds the interpreter that uv's
+          #     .venv links against — wiping it would break the build
+          #     and test steps. (Left at the action's default of false,
+          #     set explicitly here to document the hazard.)
+          docker-images: false
+          tool-cache: false
+
       - name: Build containers
         # Use `make build` so CI matches local dev: same `repo-deps/`
         # marker prep, same image set (gateway/orchestrator/sandbox),
@@ -112,6 +146,26 @@ jobs:
           done
           echo "Image import failed after ${max_attempts} attempts" >&2
           exit 1
+
+      - name: Reclaim Docker image store
+        # The egg images now live in k3s/containerd, and the cluster
+        # pulls with `imagePullPolicy: IfNotPresent` (resolved from
+        # containerd) — so the Docker daemon's copies and `make build`
+        # layer cache are dead weight from here on. Drop them before
+        # `make deploy` to reclaim the disk they duplicate, keeping the
+        # node below kubelet's ephemeral-storage eviction threshold
+        # (see the disk-pressure note on the "Free disk space" step).
+        # `make build` is done and `make deploy` is kubectl-only, so
+        # `image prune -af` (all unused, not just dangling) is safe and
+        # reclaims the preinstalled base images we kept for the build.
+        run: |
+          set -x
+          docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep -E '^egg-(gateway|orchestrator|sandbox|litellm):' \
+            | xargs -r docker rmi -f || true
+          docker builder prune -af || true
+          docker image prune -af || true
+          df -h /
 
       - name: Seed local config for `make deploy`
         # `make deploy` reads `~/.config/egg/` to build the `gateway-secrets`
