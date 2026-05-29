@@ -5,7 +5,7 @@
   "branch": "egg/issue-2777-replan/work",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -68,124 +68,14 @@
   "phases": {
     "plan": {
       "phase": "plan",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-05-29T03:21:41.849061Z",
       "work_started_at": "2026-05-29T03:22:01.732260Z",
-      "completed_at": "2026-05-29T03:57:48.051867Z",
-      "containers": [
-        {
-          "container_id": "9ca83a39-5068-4a8b-aa53-5bf67aaf64e4",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-replan-task-planner",
-          "status": "exited",
-          "started_at": "2026-05-29T03:22:03.426712Z",
-          "exited_at": "2026-05-29T03:57:47.710844Z",
-          "exit_code": 0,
-          "agent_role": "task_planner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-replan-task-planner"
-        },
-        {
-          "container_id": "231aaefb-9b6a-47a0-8f34-5f334fcb897b",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-replan-architect",
-          "status": "exited",
-          "started_at": "2026-05-29T03:22:03.426737Z",
-          "exited_at": "2026-05-29T03:57:47.710848Z",
-          "exit_code": 0,
-          "agent_role": "architect",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-replan-architect"
-        },
-        {
-          "container_id": "78ba38c3-cb10-49d8-adfb-321a0495dd05",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-replan-reviewer-plan",
-          "status": "exited",
-          "started_at": "2026-05-29T03:22:03.426744Z",
-          "exited_at": "2026-05-29T03:57:47.710851Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_plan",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-replan-reviewer-plan"
-        },
-        {
-          "container_id": "76d2f78e-acc8-404a-a66e-8188817614ed",
-          "container_name": "egg-sandbox-egg-agent-issue-2777-replan-risk-analyst",
-          "status": "exited",
-          "started_at": "2026-05-29T03:22:03.426749Z",
-          "exited_at": "2026-05-29T03:57:47.710853Z",
-          "exit_code": 0,
-          "agent_role": "risk_analyst",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2777-replan-risk-analyst"
-        }
-      ],
-      "agents": [
-        {
-          "role": "task_planner",
-          "status": "complete",
-          "container_id": "9ca83a39-5068-4a8b-aa53-5bf67aaf64e4",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-29T03:22:03.426727Z",
-          "completed_at": "2026-05-29T03:57:47.710771Z",
-          "commit": "ec2a83bbdc4dba48a9883d11e215305ceca64d67",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "architect",
-          "status": "complete",
-          "container_id": "231aaefb-9b6a-47a0-8f34-5f334fcb897b",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-29T03:22:03.426741Z",
-          "completed_at": "2026-05-29T03:57:47.710811Z",
-          "commit": "0dc42f4b6809f62cecd6492d1a208ef444aa1179",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "complete",
-          "container_id": "78ba38c3-cb10-49d8-adfb-321a0495dd05",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-29T03:22:03.426746Z",
-          "completed_at": "2026-05-29T03:57:47.710819Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "risk_analyst",
-          "status": "complete",
-          "container_id": "76d2f78e-acc8-404a-a66e-8188817614ed",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-29T03:22:03.426751Z",
-          "completed_at": "2026-05-29T03:57:47.710823Z",
-          "commit": "7a5334b77ee8c4d6759dfc187740c05932425c48",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -196,8 +86,33 @@
       ],
       "artifacts": {},
       "error": null,
-      "operator_directives": [],
-      "iteration_history": [],
+      "operator_directives": [
+        {
+          "iteration_n": 0,
+          "created_at": "2026-05-29T04:13:33.541644Z",
+          "feedback_text": "Sub-slice slice-1. It currently carries 16 coder tasks — larger than the 14-task slice-1 that wedged the prior run. Per #2809 the architect owns composition and should subdivide when a slice is too large for a coder to land in completable, reviewable passes; this one is. The prior run's NACKs (reviewer_code_holistic / reviewer_contract / tester) were precisely because the coder shipped unwired WIP partial proposals it could not finish in one pass — a 16-task slice reproduces that risk even though #2804 (the crash) is now fixed.\n\nIMPORTANT — do NOT treat the sourced contract's pre-populated 2-slice `slices` field or the prior run's `decision-13` plan approval as binding the slice shape. That approval was for the prior (wedged) plan and was carried over only as artifact context; it is NOT an operator endorsement of the 2-slice granularity. The operator is now refining cq-1: A+D must be split into sequential sub-slices rather than one slice. Re-compose freely.\n\nSplit slice-1 into sequential sub-slices along its natural seams. Suggested shape (boundaries and dependency edges are the architect's call — this is a sketch, not a mandate):\n- slice-1a — new primitives + wiring, landed first so the primary use case is reachable/reviewable on its own: `_open_context_pr_at_implement_start` (TASK-1-1), the plan-phase pre-flight validator (TASK-1-1a), the surgical helper extractions `_is_slice_dag_mode` + `_resolve_slice_base_branch` (TASK-1-13), and the plan→implement wiring that replaces the five `_maybe_open_base_pr_for_plan_to_implement` call sites. This directly fixes the unwired-dead-code failure mode the prior run NACKed.\n- slice-1b — the scaffold + PR-phase deletions that depend on 1a's opener being live: delete `_open_context_pr_for_pipeline`, `_lookup_existing_context_pr`, `_gather_context_pr_files`, `_persist_context_pr_linkage_on_contract`, `_maybe_open_base_pr_for_plan_to_implement`, `_resolve_slice_1_context_branch_from_contract`, `_context_pr_events_emitted`; delete the PR phase (`_should_skip_pr_phase_auto_pr` + caller + route registration); delete `create_context_branch` / `ContextBranchDiverged` / `_CONTEXT_BRANCH_RE`; hard-remove the PRMetadata fields + bump schemaVersion 1.1→1.2 (TASK-1-5); delete `orchestrator/consensus.py` (TASK-1-6).\n- slice-1c — cohesion-independent cleanup: `create_slice_pr` idempotency pre-flight (cq-8), the #2570 silent work→main rebase fix, the BLE001 handler audit (feedback Q2), the `except ImportError` shim collapse (feedback Q3), the umbrella-terminology strip (cq-6), the SliceScheduler #2199 dead-code markers (cq-3), and the integration test (feedback Q4).\n\nKeep slice-2 (restart hardening, closes #2409) unchanged. ALL other Wave 2 decisions (cq-1's [A+D]→[C] dependency direction, cq-2..cq-10, feedback Q1–Q5) remain binding and unchanged — only the granularity WITHIN the A+D work changes, from one slice to sequential sub-slices. #2792 / Goal 4 stays OUT OF SCOPE. Keep the file:line re-anchoring protocol you added — it is good and should carry into each sub-slice."
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration_n": 0,
+          "completed_at": "2026-05-29T04:13:33.541655Z",
+          "final_proposal_commit": {
+            "risk_analyst": "7a5334b77ee8c4d6759dfc187740c05932425c48",
+            "architect": "0dc42f4b6809f62cecd6492d1a208ef444aa1179",
+            "task_planner": "ec2a83bbdc4dba48a9883d11e215305ceca64d67"
+          },
+          "verdict_matrix": {
+            "reviewer_plan->architect": "acked",
+            "reviewer_plan->task_planner": "acked",
+            "reviewer_plan->risk_analyst": "acked",
+            "risk_analyst->architect": "acked",
+            "risk_analyst->task_planner": "acked"
+          },
+          "nack_reasons": [],
+          "artifacts_snapshot": {}
+        }
+      ],
       "phase_start_sha": "0f78f2c577663eeffcc93686e65ca119579fd2b8",
       "agent_exits": []
     }
@@ -222,7 +137,7 @@
     }
   ],
   "created_at": "2026-05-29T03:21:37.072417Z",
-  "updated_at": "2026-05-29T04:13:31.483327Z",
+  "updated_at": "2026-05-29T04:13:33.542522Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -235,7 +150,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
