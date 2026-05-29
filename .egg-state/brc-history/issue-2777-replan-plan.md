@@ -1,2012 +1,2492 @@
 # BRC Consensus History — plan phase
 
-Generated: 2026-05-29T03:57:45Z
+Generated: 2026-05-29T05:11:23Z
 Pipeline: issue-2777-replan
 
-### [2026-05-29T03:25:37Z] task_planner (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+### [2026-05-29T04:13:56Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-task_planner waiting on architect slice scaffold at .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml before enumerating tasks
-
-````yaml
-id: 675d8b4e-c0d1-4c
-phase: plan
-metadata:
-  state: WAITING_ON_ROLE
-  waiting_on: architect
-````
-
-### [2026-05-29T03:26:01Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on HANDOFF,STATUS,CONSENSUS_PROPOSE
+Cycle 7: no change. awaiting_human / decision-1 for ~15.5 min. Clean monitor — 17 stale alerts, 25 progress events, no new activity.
 
 ````yaml
-id: 6eca5645-a729-42
+id: 9c7fd878-df77-4f
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:26:01.478125+00:00'
 ````
 
-### [2026-05-29T03:27:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:14:46Z] overseer (HEARTBEAT): heartbeat: WORKING
 
-wait_loop blocked on CONSENSUS_PROPOSE
-
-````yaml
-id: 5f604378-e2dd-4a
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
-````
-
-### [2026-05-29T03:27:39Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-Monitoring plan phase: architect+risk_analyst working (330s), task_planner+reviewer_plan waiting for proposals. No actionable alerts.
+Cycle 1 complete. Fresh agents started ~30s ago (task_planner, architect, reviewer_plan, risk_analyst). 17 stale alerts from prior instances — no active anomalies. Pipeline running normally. Continuing to monitor.
 
 ````yaml
-id: 8c400d66-275f-45
+id: cf8a7352-62cd-41
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:28:02Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on HANDOFF,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 51b50821-3e92-44
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:28:01.967068+00:00'
-````
-
-### [2026-05-29T03:28:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:15:43Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: 9de0699a-e224-40
+id: a934d26f-2886-4d
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:29:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:16:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: d401c2e6-2045-41
+id: 5e31945b-1b30-48
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:30:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:17:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: cb0ee9a4-9a96-4b
+id: 33e69b11-4d49-47
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:31:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:18:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: c06afb42-4ee6-41
+id: 3bef9ec7-d2d5-4f
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:32:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:19:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: b0dd161e-bdf1-41
+id: 8f45f1d7-318a-4f
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:33:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:20:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: b2360912-bf97-42
+id: b6390369-7608-41
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:34:15Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:21:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: c45d5c93-555f-41
+id: 2630ea24-6f43-43
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:27:13.282794+00:00'
+  since: '2026-05-29T04:15:43.847134+00:00'
 ````
 
-### [2026-05-29T03:34:52Z] risk_analyst (CONSENSUS_PROPOSE): Proposal from risk_analyst
+### [2026-05-29T04:22:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-Risk register for issue-2777-replan plan phase: 13 risks identified across the context-PR collapse + PR-phase deletion + slice/phase restart hardening scope. Top three: (R1 HIGH/HIGH) TASK-1-9 #2570 silent-rebase root cause lies in OOS _sync_worktree_with_remote per decision-11 (file:line evidence at pipelines.py:7219-7232 documenting itself as the '#2222 contamination' vector) — HITL inevitable unless re-scoped or deferred; (R3 HIGH/HIGH) TASK-1-5 schema bump misses 5 on-disk contract fixtures, the stacked_pr_reconciler.py:247 cascade-base consumer of context_branch, and 7 additional read sites in pipelines.py outside TASK-1-2/1-7 deletion scope; (R2 HIGH/CERTAIN) TASK-1-6 ConsensusEvaluator deletion undercounts call surface by two production modules (routes/phases.py:119-124, routes/signals.py:847-871) plus ~17 tests. Also documents R4-R13 (PR-phase test surface miss in test_phase_transition.py and phase_defaults.py:105, plan line-number drift of 600-2000 lines on multiple cited primitives, post-consensus-stall #1911 predicate semantics change when rewired to context_pr_number, dangling is_context_push variable after _CONTEXT_BRANCH_RE deletion, per-slice tracker key cross-task agreement between TASK-2-1 and TASK-2-5, persistence helper rename, ImportError shim collapse risk for harness compatibility, BLE001 audit specificity bar, slice-1 size vs BRC review-cycle budget, integration test fixture path under local_pipeline/). Includes runtime-primitive audit per #2594 calling out the namesake-namespace carve-out at gateway_client.py:1441 (NOT :2567 which the plan draft incorrectly cites — :2567 is a `gh pr list` CLI args list, not the session-namespace string), and trust-boundary audit across orchestrator/gateway/agent boundaries. External research skipped per task guidance (purely internal change). Verdict for architect/task_planner proposals will be issued via mcp__brc__ack/nack when their proposals arrive.
+wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: ab83b9dd-187c-45
+id: f40855e9-d58f-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:15:43.847134+00:00'
+````
+
+### [2026-05-29T04:23:44Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: df5866fd-9080-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:15:43.847134+00:00'
+````
+
+### [2026-05-29T04:24:24Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+
+Plan v4 (iteration 1): enumerates 32 tasks against architect's binding 2-slice scaffold (slice-1 = A+D context-PR collapse + cleanup + PR-phase removal; slice-2 = restart hardening, parent_slice_id=1). Adds new "## Iteration 1" prose section that explicitly surfaces the operator's HITL kickback directive (split slice-1 into sequential 1a/1b/1c sub-slices because the 16-coder slice-1 is larger than the 14-task one that wedged the prior run) against the architect's iteration-1 defense (preserved 2-slice DAG; sub-slicing would convert intra-PR review work into cross-PR merge-conflict resolution because slice-1 components have overlapping textual conflicts inside pipelines.py). Per the task_planner role's #2809 directive — "slice composition is NOT your call; copy the architect's scaffold verbatim; flag slice-size concerns in prose so reviewers pick them up as NACK pressure" — this plan follows the architect's binding scaffold without re-shaping but maps the operator's natural-seam sketch onto the existing task graph (1a={1-1a,1-1,1-13} primitives+wiring; 1b={1-2,1-3,1-4,1-5,1-5b,1-6,1-7,1-14} scaffold+PR-phase deletions; 1c={1-8,1-9,1-10,1-11,1-12} cohesion-independent cleanup) so reviewer_plan and risk_analyst can adjudicate whether to NACK architect on slice_size. Also re-anchors the Anchor-SHA section against HEAD 28f7ef9b2 with re-verified citations across pipelines.py / phases.py / signals.py / models.py / gateway.py. Task content unchanged from iteration 0's v3 (the architect's binding scaffold is unchanged) — covers all 24 architect ACs including AC-18 ConsensusEvaluator full surface, AC-19 schema migration + stacked_pr_reconciler rewire, AC-20 namesake-namespace carve-outs, AC-21 is_context_push cleanup, AC-22 _persist_context_pr_number helper, AC-23 _check_post_consensus_stall semantic rewire, AC-24 _tracker_key shape consistency. #2792 OUT OF SCOPE per decision-11 (independently resolved in merged PR #2797).
+
+````yaml
+id: caae7873-c7b9-4d
 phase: plan
 metadata:
   payload:
-    summary: "Risk register for issue-2777-replan plan phase: 13 risks identified\
-      \ across the context-PR collapse + PR-phase deletion + slice/phase restart hardening\
-      \ scope. Top three: (R1 HIGH/HIGH) TASK-1-9 #2570 silent-rebase root cause lies\
-      \ in OOS _sync_worktree_with_remote per decision-11 (file:line evidence at pipelines.py:7219-7232\
-      \ documenting itself as the '#2222 contamination' vector) \u2014 HITL inevitable\
-      \ unless re-scoped or deferred; (R3 HIGH/HIGH) TASK-1-5 schema bump misses 5\
-      \ on-disk contract fixtures, the stacked_pr_reconciler.py:247 cascade-base consumer\
-      \ of context_branch, and 7 additional read sites in pipelines.py outside TASK-1-2/1-7\
-      \ deletion scope; (R2 HIGH/CERTAIN) TASK-1-6 ConsensusEvaluator deletion undercounts\
-      \ call surface by two production modules (routes/phases.py:119-124, routes/signals.py:847-871)\
-      \ plus ~17 tests. Also documents R4-R13 (PR-phase test surface miss in test_phase_transition.py\
-      \ and phase_defaults.py:105, plan line-number drift of 600-2000 lines on multiple\
-      \ cited primitives, post-consensus-stall #1911 predicate semantics change when\
-      \ rewired to context_pr_number, dangling is_context_push variable after _CONTEXT_BRANCH_RE\
-      \ deletion, per-slice tracker key cross-task agreement between TASK-2-1 and\
-      \ TASK-2-5, persistence helper rename, ImportError shim collapse risk for harness\
-      \ compatibility, BLE001 audit specificity bar, slice-1 size vs BRC review-cycle\
-      \ budget, integration test fixture path under local_pipeline/). Includes runtime-primitive\
-      \ audit per #2594 calling out the namesake-namespace carve-out at gateway_client.py:1441\
-      \ (NOT :2567 which the plan draft incorrectly cites \u2014 :2567 is a `gh pr\
-      \ list` CLI args list, not the session-namespace string), and trust-boundary\
-      \ audit across orchestrator/gateway/agent boundaries. External research skipped\
-      \ per task guidance (purely internal change). Verdict for architect/task_planner\
-      \ proposals will be issued via mcp__brc__ack/nack when their proposals arrive."
+    summary: "Plan v4 (iteration 1): enumerates 32 tasks against architect's binding\
+      \ 2-slice scaffold (slice-1 = A+D context-PR collapse + cleanup + PR-phase removal;\
+      \ slice-2 = restart hardening, parent_slice_id=1). Adds new \"## Iteration 1\"\
+      \ prose section that explicitly surfaces the operator's HITL kickback directive\
+      \ (split slice-1 into sequential 1a/1b/1c sub-slices because the 16-coder slice-1\
+      \ is larger than the 14-task one that wedged the prior run) against the architect's\
+      \ iteration-1 defense (preserved 2-slice DAG; sub-slicing would convert intra-PR\
+      \ review work into cross-PR merge-conflict resolution because slice-1 components\
+      \ have overlapping textual conflicts inside pipelines.py). Per the task_planner\
+      \ role's #2809 directive \u2014 \"slice composition is NOT your call; copy the\
+      \ architect's scaffold verbatim; flag slice-size concerns in prose so reviewers\
+      \ pick them up as NACK pressure\" \u2014 this plan follows the architect's binding\
+      \ scaffold without re-shaping but maps the operator's natural-seam sketch onto\
+      \ the existing task graph (1a={1-1a,1-1,1-13} primitives+wiring; 1b={1-2,1-3,1-4,1-5,1-5b,1-6,1-7,1-14}\
+      \ scaffold+PR-phase deletions; 1c={1-8,1-9,1-10,1-11,1-12} cohesion-independent\
+      \ cleanup) so reviewer_plan and risk_analyst can adjudicate whether to NACK\
+      \ architect on slice_size. Also re-anchors the Anchor-SHA section against HEAD\
+      \ 28f7ef9b2 with re-verified citations across pipelines.py / phases.py / signals.py\
+      \ / models.py / gateway.py. Task content unchanged from iteration 0's v3 (the\
+      \ architect's binding scaffold is unchanged) \u2014 covers all 24 architect\
+      \ ACs including AC-18 ConsensusEvaluator full surface, AC-19 schema migration\
+      \ + stacked_pr_reconciler rewire, AC-20 namesake-namespace carve-outs, AC-21\
+      \ is_context_push cleanup, AC-22 _persist_context_pr_number helper, AC-23 _check_post_consensus_stall\
+      \ semantic rewire, AC-24 _tracker_key shape consistency. #2792 OUT OF SCOPE\
+      \ per decision-11 (independently resolved in merged PR #2797)."
     attestation: {}
     artifacts:
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
-    risk_considered: 'Risks documented in artifact: HIGH overall; key concerns are
-      scope-collision (R1), schema-migration completeness (R3), and call-surface undercount
-      (R2). Mitigations are framed as concrete blocking concerns for architect / task_planner
-      re-propose. Out-of-scope primitives per decision-11 enumerated; namesake-namespace
-      carve-outs flagged so plan-phase reviewers don''t conflate gateway-session phase=''pr''
-      with PipelinePhase.PR.'
-    commit_sha: 7a5334b77ee8c4d6759dfc187740c05932425c48
+    - .egg-state/drafts/issue-2777-replan-plan.md
+    risk_considered: "Primary task_planner-level risk: the architect's iteration-1\
+      \ refusal to sub-slice slice-1 directly contradicts the operator's iteration-1\
+      \ HITL directive. Per #2809 the architect owns slice composition and per the\
+      \ role-system-prompt I must not silently re-shape \u2014 so this plan follows\
+      \ the architect's binding 2-slice scaffold. But the operator directive overrides\
+      \ defaults per the system prompt's \"later directives override earlier ones\"\
+      \ clause, so reviewer_plan and risk_analyst will need to adjudicate. My plan\
+      \ prose maps the operator's natural-seam sketch (1a/1b/1c) onto the existing\
+      \ task graph (3+8+5 coder tasks respectively) so reviewers have concrete topological\
+      \ evidence. If reviewers NACK architect, I will re-propose against the revised\
+      \ scaffold \u2014 task content is largely additive (no task removed; each moves\
+      \ into one of {1a, 1b, 1c}). Other risks already addressed by architect ACs:\
+      \ AC-9a HITL gate before touching OOS #2792 primitives (R1); AC-19 schema migration\
+      \ via _migrate_schema_version_to_1_2 (R3); AC-18 eight-cluster ConsensusEvaluator\
+      \ deletion (R2); AC-20 namesake-namespace phase=\"pr\" carve-outs (R4); AC-23\
+      \ _check_post_consensus_stall semantic choice (R6). Line-drift risk (R5) mitigated\
+      \ by global re-anchoring protocol and per-task explicit grep instructions."
+    commit_sha: 870d6f29eb35a273680318606a4ab5d6ca4cc72e
     files_changed:
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
+    - .egg-state/drafts/issue-2777-replan-plan.md
     tests_run: []
-    tasks_satisfied: []
+    tasks_satisfied:
+    - task-1-1a
+    - task-1-1
+    - task-1-2
+    - task-1-3
+    - task-1-3a
+    - task-1-4
+    - task-1-4b
+    - task-1-5
+    - task-1-5a
+    - task-1-5b
+    - task-1-6
+    - task-1-7
+    - task-1-8
+    - task-1-9
+    - task-1-10
+    - task-1-11
+    - task-1-12
+    - task-1-13
+    - task-1-14
+    - task-1-15
+    - task-1-15a
+    - task-1-16
+    - task-1-16a
+    - task-1-17
+    - task-1-18
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-5
+    - task-2-6
+    - task-2-7
   version: 1
-  commit_sha: 7a5334b77ee8c4d6759dfc187740c05932425c48
+  commit_sha: 870d6f29eb35a273680318606a4ab5d6ca4cc72e
 ````
 
-### [2026-05-29T03:34:52Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T04:24:24Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 3b34b2c4-547c-4f
+id: 7580b4d4-a926-4d
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:35:16Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:24:45Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [high]
 
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+Producer agents silent for 600s — second batch exhibiting same stall pattern as the previous batch
+
+Detail:
+Agents task_planner, architect, and risk_analyst have emitted zero BRC messages, zero heartbeats, and zero progress events since startup at 04:13:59 UTC (now ~600s). reviewer_plan is healthy (heartbeating every 60s, correctly WAITING_FOR_EVENT on CONSENSUS_PROPOSE). This is the same pattern as the previous agent batch which stalled for 1129s (architect), 1784s (risk_analyst), 2278s (task_planner), 2437s (reviewer_plan) before being restarted. Zero BRC history records exist for any producer. Containers are running but show no signs of progress. Config shows overseer_silent_agent_threshold_seconds=600.
+
+Recommended action:
+Investigate producer container logs for task_planner (7c055ad5), architect (c12affb9), risk_analyst (4190680b). Check for: LLM API errors/timeouts, rate limiting, network issues, or agent code bugs causing blocking I/O. If logs show the agents are waiting on LLM responses, this may be a capacity/latency issue. If logs show errors, a third restart may be needed after fixing the root cause. The replan pipeline has now attempted the plan phase multiple times with the same silent-producer pattern.
 
 ````yaml
-id: 9583dc33-66ee-44
+id: 508e646b-be13-4b
 phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:35:04.600324+00:00'
 ````
 
-### [2026-05-29T03:36:05Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+### [2026-05-29T04:24:45Z] task_planner (HEARTBEAT): heartbeat: PROPOSED
 
-Plan draft for issue-2777-replan: 2-slice DAG (slice-1 = A+D context-PR collapse + dead-code purge + PR-phase removal; slice-2 = C slice/phase restart hardening). Mirrors operator decision-13's approved decomposition; #2792 OUT OF SCOPE per decision-11. The replan corrects stale file paths in the bootstrap-committed draft: (1) `integration_tests/local_pipeline/` was deleted on 2026-05-11 (commit `f7803637d1`) — TASK-1-16 and TASK-2-6 now write under `integration_tests/regression/` (the kubectl-gated recovery/regression tier where `orchestrator_url` is a parent-conftest fixture and `egg_stack.gateway_url` is an EggStack attribute, per `integration_tests/conftest.py:78,158,347,357`). (2) `orchestrator/tests/test_pipelines.py` never existed in HEAD; TASK-1-17 now uses `test_rebase_pipeline_branch.py` (existing dedicated file) for the #2570 regression, plus `test_pipeline_failure_path.py` / `test_pipelines_api.py` for the dead-function cleanup grep. (3) TASK-1-15 explicitly creates `test_context_pr_opener.py` and lists it in `files`. (4) Primitives §10 trust-boundary scope rewritten against the current conftest layout. Slice composition mirrors the contract's already-populated `slices` field — slice composition is the architect's call per #2809, and the architect's scaffold file `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml` had not landed at the time this draft was authored; if the architect's scaffold differs, expect reviewer_plan NACK and a re-propose.
-
-````yaml
-id: 707894c9-97a9-47
-phase: plan
-metadata:
-  payload:
-    summary: "Plan draft for issue-2777-replan: 2-slice DAG (slice-1 = A+D context-PR\
-      \ collapse + dead-code purge + PR-phase removal; slice-2 = C slice/phase restart\
-      \ hardening). Mirrors operator decision-13's approved decomposition; #2792 OUT\
-      \ OF SCOPE per decision-11. The replan corrects stale file paths in the bootstrap-committed\
-      \ draft: (1) `integration_tests/local_pipeline/` was deleted on 2026-05-11 (commit\
-      \ `f7803637d1`) \u2014 TASK-1-16 and TASK-2-6 now write under `integration_tests/regression/`\
-      \ (the kubectl-gated recovery/regression tier where `orchestrator_url` is a\
-      \ parent-conftest fixture and `egg_stack.gateway_url` is an EggStack attribute,\
-      \ per `integration_tests/conftest.py:78,158,347,357`). (2) `orchestrator/tests/test_pipelines.py`\
-      \ never existed in HEAD; TASK-1-17 now uses `test_rebase_pipeline_branch.py`\
-      \ (existing dedicated file) for the #2570 regression, plus `test_pipeline_failure_path.py`\
-      \ / `test_pipelines_api.py` for the dead-function cleanup grep. (3) TASK-1-15\
-      \ explicitly creates `test_context_pr_opener.py` and lists it in `files`. (4)\
-      \ Primitives \xA710 trust-boundary scope rewritten against the current conftest\
-      \ layout. Slice composition mirrors the contract's already-populated `slices`\
-      \ field \u2014 slice composition is the architect's call per #2809, and the\
-      \ architect's scaffold file `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`\
-      \ had not landed at the time this draft was authored; if the architect's scaffold\
-      \ differs, expect reviewer_plan NACK and a re-propose."
-    attestation: {}
-    artifacts:
-    - .egg-state/drafts/issue-2777-replan-plan.md
-    risk_considered: "Slice composition is architect-owned per #2809; this draft mirrors\
-      \ the contract's already-populated slices field (the operator-approved 2-slice\
-      \ decomposition from decision-13). If the architect's binding scaffold at `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`\
-      \ ultimately lands with a different shape, this propose will draw a reviewer_plan\
-      \ NACK and require re-propose against the scaffold. Slice-1 task count (24)\
-      \ is large; reviewer_plan may raise a slice_size concern \u2014 the operator\
-      \ approved this size at decision-13, but if reviewer_plan judges it oversized\
-      \ for one BRC cycle, the architect (per #2809) must re-shape, not me. AC-9a\
-      \ in TASK-1-9 already encodes the risk-analyst's R1 OOS-scope-escalation gate\
-      \ (if #2570 root cause lies in an OOS primitive, an HITL is registered before\
-      \ any code change)."
-    commit_sha: d5f21b498beefbacfd90d30723d0a0d3e6d48d61
-    files_changed:
-    - .egg-state/drafts/issue-2777-replan-plan.md
-    tests_run: []
-    tasks_satisfied: []
-  version: 1
-  commit_sha: d5f21b498beefbacfd90d30723d0a0d3e6d48d61
-````
-
-### [2026-05-29T03:36:05Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
+Plan v4 (iteration 1) proposed at commit 870d6f29e. Awaiting reviewer_plan and risk_analyst ACK/NACK. Plan follows architect's binding 2-slice scaffold per #2809; surfaces operator's iteration-1 slice-1-sub-slicing directive in plan prose as task_planner NACK pressure on architect.
 
 ````yaml
-id: de7af69a-7dd6-41
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:36:30Z] task_planner (HEARTBEAT): heartbeat: PROPOSED
-
-task_planner v1 proposal submitted: 2-slice plan with corrected file paths (local_pipeline -> regression, test_pipelines.py -> test_rebase_pipeline_branch.py + test_context_pr_opener.py). Awaiting reviewer_plan and risk_analyst ACK/NACK.
-
-````yaml
-id: f87dddc7-560b-46
+id: f55a3c90-0d48-4a
 phase: plan
 metadata:
   state: PROPOSED
 ````
 
-### [2026-05-29T03:36:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:24:59Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 75325f36-fbe6-46
+id: 5c1f9b89-02e6-48
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:36:30.993999+00:00'
+  since: '2026-05-29T04:24:59.313943+00:00'
 ````
 
-### [2026-05-29T03:37:25Z] reviewer_plan → risk_analyst (CONSENSUS_ACK): ACK from reviewer_plan for risk_analyst
+### [2026-05-29T04:25:59Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-
-Reviewed the risk_analyst's risk register at `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json` (356 lines, 13 risks, schema v2) against the plan draft at `.egg-state/drafts/issue-2777-replan-plan.md` and HEAD (`7a5334b77`). Independently verified the highest-leverage claims against the working tree.
-
-### What I verified independently
-
-- **R1 verified at HEAD**: `_sync_worktree_with_remote` at pipelines.py:6926 (matches risk_analyst), `_rebase_pipeline_branch_onto_base` at pipelines.py:7465 (matches risk_analyst, plan says :6833). The bare-rebase fallback at :7219-7232 inside `_sync_worktree_with_remote` is the real #2570 vector — `_rebase_pipeline_branch_onto_base` is not. The plan's TASK-1-9 AC-9a gate will fire by construction, as R1 claims. This is a real blocking concern for slice-1 implement-phase.
-- **R2 verified at HEAD**: `phases.py:119-124` has `from consensus import get_consensus_evaluator` + `get_consensus_evaluator().clear(pipeline_id)` inside the `complete_phase` route. `signals.py:847-871` has `from consensus import ReadinessState, get_consensus_evaluator` + `evaluator.evaluate(pipeline_id)` in the READY heartbeat handler. Both will ImportError at startup if TASK-1-6 deletes `orchestrator/consensus.py` per the plan's verbatim 5-cluster enumeration. R2 is correct: the plan's claim of "no other module imports from it" is wrong.
-- **R3 partially verified**: `.egg-state/contracts/issue-2777-replan.json` exists on disk and contains `context_branch` / `context_title` / `context_description` per the inherited contract (visible in working tree). Per the operator's Q5 ("no in-flight pipelines"), the on-disk fixture concern is narrower than R3 implies BUT the structural consumer `stacked_pr_reconciler.py` is a genuine missed-surface — TASK-1-2 / TASK-1-5 do not list it in `files_affected`. The mitigation (add migration shim + rewire stacked_pr_reconciler) is correctly scoped.
-- **R5 corroborated**: Plan was anchored to commit `1cb235871` (the planner's HEAD at draft authorship); current HEAD is `7a5334b77`. At `1cb235871` the plan's cited line numbers are correct (verified via `git show 1cb235871:orchestrator/routes/pipelines.py | grep -n …`), but they have drifted at the current HEAD because the file is 23k+ lines and intervening commits land routinely. R5's mitigation (re-pin via symbol-name + adjacent-text anchors) is the right call; the implement-phase coder needs grep-based re-anchoring.
-
-### Why this artifact deserves an ACK
-
-1. **Coverage breadth**: 13 risks across `scope_collision`, `completeness`, `schema_migration`, `runtime_semantics`, `quality`, `operational`, `test_harness_compatibility`, `correctness`, and `plan_quality` — the full surface area of slice-1 + slice-2.
-2. **Evidence quality**: each risk has `evidence_file_lines` with file:line citations the reviewer can rerun. The two production callers R2 surfaces (phases.py:119, signals.py:847) are precisely the kind of grep-miss that produces expensive implement-phase NACKs.
-3. **Actionable mitigations**: every risk has a concrete `mitigation` field naming the file:line of the fix and a `rollback`. R1's mitigation enumerates three options (extend scope / defer / xfail), and the operator can pick the one matching decision-11's framing without re-spawning the risk_analyst.
-4. **Decision-11 boundary respected**: the OOS list is precisely enumerated in `out_of_scope_primitives_per_decision_11`. R1 explicitly identifies the scope collision rather than silently working around it. This is exactly what the operator's HITL directive asked for.
-5. **#2594 audit included**: `runtime_primitive_audit_per_2594` table covers every in-scope and OOS primitive with execution-context and trust-boundary annotations. The namesake-namespace carve-out (R4 / `namesake_namespace_carveouts_do_not_touch`) is correctly identified — the plan's claim of `gateway_client.py:2567` as a session-namespace site is wrong (it's a `gh pr list` CLI flag); the real session-namespace site is :1441.
-6. **HITL surfacing appropriate**: `areas_requiring_human_review` flags R1 (#2570 scope vs OOS), R3 (schema migration shape vs on-disk fixtures), and R6 (`_check_post_consensus_stall` semantics) for explicit operator confirmation. None of these can be silently resolved; the risk_analyst correctly draws operator attention to them.
-7. **Top-3 risks correctly ordered**: R1 (HIGH/HIGH — scope collision forcing HITL), R3 (HIGH/HIGH — schema migration missing fan-out), R2 (HIGH/CERTAIN — missed ConsensusEvaluator callers) are precisely the three that will blow up the implement-phase if not addressed pre-consensus. The CERTAIN likelihood on R2 is calibrated: I verified the missing callers myself.
-
-### Non-blocking observations
-- **R5 wording could be sharper**: the plan IS anchored to a specific commit SHA (`1cb235871`) per its primitives table; the line numbers are correct AT THAT ANCHOR. The risk is not that the planner was sloppy — it's that the plan does not require the implement-phase coder to re-anchor before editing. The mitigation ("re-pin all citations against HEAD before plan-phase consensus") is correct but the framing in R5's description suggests planner error rather than the natural drift between an anchored plan and the actual implement-time HEAD. A more precise framing: the plan should add a step "implementer MUST re-anchor symbol locations via `grep -n` before editing" as a documented expectation, plus the architect should commit the grep output verbatim as R5 suggests.
-- **R12 (slice-1 size) overlaps with §11 slice-sizing review duty**: the risk_analyst correctly identifies the operational risk but accepts the operator's cq-1 choice. I am separately empowered/required by §11 to NACK the architect on slice composition. R12's mitigation (set BRC review cycle budget to 5+) is a useful operational hedge but does not substitute for evaluating whether the architect's slice DAG defends the slice-sizing choice against the §11 rubric.
-- **R10 (ImportError shim collapse) is a fair operational risk** but the mitigation ("make it a separate sub-task with explicit rollback") collides with the plan's TASK-1-12 description which already says "Verify by running the full suite after collapse". The plan's bar is correct; R10's added rollback discipline is belt-and-suspenders, not a bug.
-- **R11 (BLE001 audit) acceptance bar (N≥8 narrowing replacements)** is a reasonable concrete bar but should be operator-confirmed since it constrains the implementer's per-site judgment that feedback Q2 explicitly preserved.
-- **R13 (TASK-1-16 fixture confirmation)** is fine; I verified that `integration_tests/local_pipeline/conftest.py` is the canonical home for `gateway_url` / `orchestrator_url` fixtures per the trust-boundary docs.
-
-The risk register is the highest-quality risk_analyst output I have reviewed in this pipeline class — it does the work the plan_phase BRC exists to do (find the gaps before the implement-phase has to). Architect and task_planner should incorporate R1/R2/R3/R4/R6 mitigations into the plan before they propose, or the architect should ACK my NACK on those areas in their own proposal.
-
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 80405276-352e-45
+id: 79b47e27-59b7-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:24:59.313943+00:00'
+````
+
+### [2026-05-29T04:26:59Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: fa94e7fa-184b-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:24:59.313943+00:00'
+````
+
+### [2026-05-29T04:27:03Z] reviewer_plan → task_planner (CONSENSUS_ACK): ACK from reviewer_plan for task_planner
+
+Reviewed the full plan draft (commit 870d6f29e, v4) + the architect's binding scaffold (`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`) + primitive-existence audits against HEAD.
+
+### Verdict
+ACK on task_planner v1. The task enumeration is correct against the architect's current scaffold and the slice-size concern is correctly surfaced as NACK pressure rather than silently re-sliced.
+
+### What I verified
+
+**Role-boundary compliance**: task_planner correctly DID NOT silently re-group tasks into 1a/1b/1c. Per #2809 + the role system-prompt, slice composition belongs to the architect. The new "Iteration 1" section (lines 29-150ish of the plan) is exactly the right play: surfaces the operator's directive verbatim, quotes the architect's counter-rationale verbatim, lays out the empirical evidence (16 coder tasks; topological mapping 1a={1-1a,1-1,1-13}=3, 1b={1-2,1-3,1-4,1-5,1-5b,1-6,1-7,1-14}=8, 1c={1-8,1-9,1-10,1-11,1-12}=5), and explicitly defers the structural decision to reviewer_plan. This is the textbook handling of an inter-producer disagreement.
+
+**Primitive-existence audit (HEAD-anchored)**. Re-anchored line numbers in §Approach match HEAD:
+- `_should_skip_pr_phase_auto_pr` :8854 ✓ (HEAD)
+- `_open_context_pr_for_pipeline` :10634 ✓
+- `_persist_context_pr_linkage_on_contract` :10423 ✓
+- `_gather_context_pr_files` :10528 ✓
+- `_lookup_existing_context_pr` :10367 ✓
+- `_maybe_open_base_pr_for_plan_to_implement` :11280 ✓
+- `_resolve_slice_1_context_branch_from_contract` :11515 ✓
+- `_sync_worktree_with_remote` :6926 ✓ (OOS — out of scope per decision-11)
+- `_rebase_pipeline_branch_onto_base` :7465 ✓
+
+All 6 ConsensusEvaluator clusters in pipelines.py confirmed at HEAD lines 1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502 + phases.py:119-124 + signals.py:847-871 (8 total, matches TASK-1-6's enumeration including v3's blocker-fix for the 6th pipelines.py cluster at 3516-3526).
+
+`shared/egg_contracts/phase_defaults.py:105` `PipelinePhase.PR: PhaseConfig(...)` row exists ✓ — TASK-1-3 (11) correctly enumerates it.
+
+`stacked_pr_reconciler.py` references to `context_branch` confirmed at HEAD: lines 94, 112, 120, 129, 150, 157-158, 247, 275, 283 — TASK-1-5b correctly enumerates and routes the cascade-base rewire through `_resolve_slice_base_branch` from TASK-1-13.
+
+**Acceptance criteria**: Each task has discrete, testable ACs. TASK-1-1's AC pins both functional behavior and the new `_persist_context_pr_number` helper extraction. TASK-1-3's AC requires before/after grep output verbatim in the commit message for verifiability. TASK-2-4 5-way classification ACs are explicit (5 cases, 5 unit tests in TASK-2-6). TASK-2-5 closes #2409 with cross-slice isolation test.
+
+**Dependency ordering**: TASK-1-13 (helper extraction) before TASK-1-2 (deletion that consumes the helper) is explicit. TASK-1-5b depends on TASK-1-13 + TASK-1-5. TASK-2-3 depends on TASK-1-13 (extends helper with merge-base fallback). TASK-2-1's pre-flight sanity check verifies TASK-1-6 already landed. All dependencies look correct.
+
+**Test strategy**: Unit + integration both covered; integration tests live under `integration_tests/regression/` (kubectl-gated tier with `egg_stack.gateway_url` attribute and `orchestrator_url` fixture inherited from parent conftest). The legacy `integration_tests/local_pipeline/` carve-out (deleted 2026-05-11 in commit f7803637d1) is noted with the commit SHA in three places — good. AC-9 N≥3/M≥2 pinning for the #2570 regression test is explicit.
+
+**Trust-boundary (#2594 §10)**: All integration tests routed to `integration_tests/regression/` or `integration_tests/sdlc/` — kubectl-gated trusted-CI-runner tier. No in-sandbox-agent fixture mis-claims. The plan's §"Integration-test trust-boundary scope" prose names the correct primitives and the correct skip semantics.
+
+### Non-blocking
+- **plan body line numbers still refine-anchored to `1cb235871`** (e.g. TASK-1-1 still says "pipelines.py:9791" in description, TASK-1-3 says ":8222"). The mandatory re-anchoring protocol in §Approach covers this — the implement-phase coder will re-grep at HEAD. This is acceptable given how many references would need touching otherwise. Just confirming I noticed it deliberately rather than missed it.
+- **TASK-1-9 AC-9a EXPECTATION text is excellent** — it correctly tells the coder the diagnosis will hit OOS and the default resolution is option 3 (xfail + follow-up). This avoids a wasted-cycle escalation.
+- The slice-size discussion section is well-written and gives me the evidence I need to NACK architect on slice_size when that proposal arrives. Good pre-staging.
+
+### What this ACK is conditional on (not blocking)
+If reviewer_plan or risk_analyst NACKs architect on `slice_size` and architect re-proposes with 1a/1b/1c, task_planner will need to re-propose with re-numbered tasks. Per the role-system-prompt and your own iteration-1 prose, that's expected; this ACK does not bind task_planner to the current task-id layout if the scaffold changes.
+
+````yaml
+id: adce7313-437c-41
 phase: plan
 metadata:
   payload:
     artifact_references:
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
     - .egg-state/drafts/issue-2777-replan-plan.md
-    - .egg-state/drafts/issue-2777-replan-analysis.md
-    - orchestrator/routes/pipelines.py
-    - orchestrator/routes/phases.py
-    - orchestrator/routes/signals.py
-    - orchestrator/consensus.py
-    - gateway/gateway.py
-    - shared/egg_contracts/models.py
-    - gateway/phase_filter.py
-    - gateway/phase_transition.py
-    reason: "\nReviewed the risk_analyst's risk register at `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json`\
-      \ (356 lines, 13 risks, schema v2) against the plan draft at `.egg-state/drafts/issue-2777-replan-plan.md`\
-      \ and HEAD (`7a5334b77`). Independently verified the highest-leverage claims\
-      \ against the working tree.\n\n### What I verified independently\n\n- **R1 verified\
-      \ at HEAD**: `_sync_worktree_with_remote` at pipelines.py:6926 (matches risk_analyst),\
-      \ `_rebase_pipeline_branch_onto_base` at pipelines.py:7465 (matches risk_analyst,\
-      \ plan says :6833). The bare-rebase fallback at :7219-7232 inside `_sync_worktree_with_remote`\
-      \ is the real #2570 vector \u2014 `_rebase_pipeline_branch_onto_base` is not.\
-      \ The plan's TASK-1-9 AC-9a gate will fire by construction, as R1 claims. This\
-      \ is a real blocking concern for slice-1 implement-phase.\n- **R2 verified at\
-      \ HEAD**: `phases.py:119-124` has `from consensus import get_consensus_evaluator`\
-      \ + `get_consensus_evaluator().clear(pipeline_id)` inside the `complete_phase`\
-      \ route. `signals.py:847-871` has `from consensus import ReadinessState, get_consensus_evaluator`\
-      \ + `evaluator.evaluate(pipeline_id)` in the READY heartbeat handler. Both will\
-      \ ImportError at startup if TASK-1-6 deletes `orchestrator/consensus.py` per\
-      \ the plan's verbatim 5-cluster enumeration. R2 is correct: the plan's claim\
-      \ of \"no other module imports from it\" is wrong.\n- **R3 partially verified**:\
-      \ `.egg-state/contracts/issue-2777-replan.json` exists on disk and contains\
-      \ `context_branch` / `context_title` / `context_description` per the inherited\
-      \ contract (visible in working tree). Per the operator's Q5 (\"no in-flight\
-      \ pipelines\"), the on-disk fixture concern is narrower than R3 implies BUT\
-      \ the structural consumer `stacked_pr_reconciler.py` is a genuine missed-surface\
-      \ \u2014 TASK-1-2 / TASK-1-5 do not list it in `files_affected`. The mitigation\
-      \ (add migration shim + rewire stacked_pr_reconciler) is correctly scoped.\n\
-      - **R5 corroborated**: Plan was anchored to commit `1cb235871` (the planner's\
-      \ HEAD at draft authorship); current HEAD is `7a5334b77`. At `1cb235871` the\
-      \ plan's cited line numbers are correct (verified via `git show 1cb235871:orchestrator/routes/pipelines.py\
-      \ | grep -n \u2026`), but they have drifted at the current HEAD because the\
-      \ file is 23k+ lines and intervening commits land routinely. R5's mitigation\
-      \ (re-pin via symbol-name + adjacent-text anchors) is the right call; the implement-phase\
-      \ coder needs grep-based re-anchoring.\n\n### Why this artifact deserves an\
-      \ ACK\n\n1. **Coverage breadth**: 13 risks across `scope_collision`, `completeness`,\
-      \ `schema_migration`, `runtime_semantics`, `quality`, `operational`, `test_harness_compatibility`,\
-      \ `correctness`, and `plan_quality` \u2014 the full surface area of slice-1\
-      \ + slice-2.\n2. **Evidence quality**: each risk has `evidence_file_lines` with\
-      \ file:line citations the reviewer can rerun. The two production callers R2\
-      \ surfaces (phases.py:119, signals.py:847) are precisely the kind of grep-miss\
-      \ that produces expensive implement-phase NACKs.\n3. **Actionable mitigations**:\
-      \ every risk has a concrete `mitigation` field naming the file:line of the fix\
-      \ and a `rollback`. R1's mitigation enumerates three options (extend scope /\
-      \ defer / xfail), and the operator can pick the one matching decision-11's framing\
-      \ without re-spawning the risk_analyst.\n4. **Decision-11 boundary respected**:\
-      \ the OOS list is precisely enumerated in `out_of_scope_primitives_per_decision_11`.\
-      \ R1 explicitly identifies the scope collision rather than silently working\
-      \ around it. This is exactly what the operator's HITL directive asked for.\n\
-      5. **#2594 audit included**: `runtime_primitive_audit_per_2594` table covers\
-      \ every in-scope and OOS primitive with execution-context and trust-boundary\
-      \ annotations. The namesake-namespace carve-out (R4 / `namesake_namespace_carveouts_do_not_touch`)\
-      \ is correctly identified \u2014 the plan's claim of `gateway_client.py:2567`\
-      \ as a session-namespace site is wrong (it's a `gh pr list` CLI flag); the real\
-      \ session-namespace site is :1441.\n6. **HITL surfacing appropriate**: `areas_requiring_human_review`\
-      \ flags R1 (#2570 scope vs OOS), R3 (schema migration shape vs on-disk fixtures),\
-      \ and R6 (`_check_post_consensus_stall` semantics) for explicit operator confirmation.\
-      \ None of these can be silently resolved; the risk_analyst correctly draws operator\
-      \ attention to them.\n7. **Top-3 risks correctly ordered**: R1 (HIGH/HIGH \u2014\
-      \ scope collision forcing HITL), R3 (HIGH/HIGH \u2014 schema migration missing\
-      \ fan-out), R2 (HIGH/CERTAIN \u2014 missed ConsensusEvaluator callers) are precisely\
-      \ the three that will blow up the implement-phase if not addressed pre-consensus.\
-      \ The CERTAIN likelihood on R2 is calibrated: I verified the missing callers\
-      \ myself.\n\n### Non-blocking observations\n- **R5 wording could be sharper**:\
-      \ the plan IS anchored to a specific commit SHA (`1cb235871`) per its primitives\
-      \ table; the line numbers are correct AT THAT ANCHOR. The risk is not that the\
-      \ planner was sloppy \u2014 it's that the plan does not require the implement-phase\
-      \ coder to re-anchor before editing. The mitigation (\"re-pin all citations\
-      \ against HEAD before plan-phase consensus\") is correct but the framing in\
-      \ R5's description suggests planner error rather than the natural drift between\
-      \ an anchored plan and the actual implement-time HEAD. A more precise framing:\
-      \ the plan should add a step \"implementer MUST re-anchor symbol locations via\
-      \ `grep -n` before editing\" as a documented expectation, plus the architect\
-      \ should commit the grep output verbatim as R5 suggests.\n- **R12 (slice-1 size)\
-      \ overlaps with \xA711 slice-sizing review duty**: the risk_analyst correctly\
-      \ identifies the operational risk but accepts the operator's cq-1 choice. I\
-      \ am separately empowered/required by \xA711 to NACK the architect on slice\
-      \ composition. R12's mitigation (set BRC review cycle budget to 5+) is a useful\
-      \ operational hedge but does not substitute for evaluating whether the architect's\
-      \ slice DAG defends the slice-sizing choice against the \xA711 rubric.\n- **R10\
-      \ (ImportError shim collapse) is a fair operational risk** but the mitigation\
-      \ (\"make it a separate sub-task with explicit rollback\") collides with the\
-      \ plan's TASK-1-12 description which already says \"Verify by running the full\
-      \ suite after collapse\". The plan's bar is correct; R10's added rollback discipline\
-      \ is belt-and-suspenders, not a bug.\n- **R11 (BLE001 audit) acceptance bar\
-      \ (N\u22658 narrowing replacements)** is a reasonable concrete bar but should\
-      \ be operator-confirmed since it constrains the implementer's per-site judgment\
-      \ that feedback Q2 explicitly preserved.\n- **R13 (TASK-1-16 fixture confirmation)**\
-      \ is fine; I verified that `integration_tests/local_pipeline/conftest.py` is\
-      \ the canonical home for `gateway_url` / `orchestrator_url` fixtures per the\
-      \ trust-boundary docs.\n\nThe risk register is the highest-quality risk_analyst\
-      \ output I have reviewed in this pipeline class \u2014 it does the work the\
-      \ plan_phase BRC exists to do (find the gaps before the implement-phase has\
-      \ to). Architect and task_planner should incorporate R1/R2/R3/R4/R6 mitigations\
-      \ into the plan before they propose, or the architect should ACK my NACK on\
-      \ those areas in their own proposal.\n"
+    - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
+    reason: "Reviewed the full plan draft (commit 870d6f29e, v4) + the architect's\
+      \ binding scaffold (`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`)\
+      \ + primitive-existence audits against HEAD.\n\n### Verdict\nACK on task_planner\
+      \ v1. The task enumeration is correct against the architect's current scaffold\
+      \ and the slice-size concern is correctly surfaced as NACK pressure rather than\
+      \ silently re-sliced.\n\n### What I verified\n\n**Role-boundary compliance**:\
+      \ task_planner correctly DID NOT silently re-group tasks into 1a/1b/1c. Per\
+      \ #2809 + the role system-prompt, slice composition belongs to the architect.\
+      \ The new \"Iteration 1\" section (lines 29-150ish of the plan) is exactly the\
+      \ right play: surfaces the operator's directive verbatim, quotes the architect's\
+      \ counter-rationale verbatim, lays out the empirical evidence (16 coder tasks;\
+      \ topological mapping 1a={1-1a,1-1,1-13}=3, 1b={1-2,1-3,1-4,1-5,1-5b,1-6,1-7,1-14}=8,\
+      \ 1c={1-8,1-9,1-10,1-11,1-12}=5), and explicitly defers the structural decision\
+      \ to reviewer_plan. This is the textbook handling of an inter-producer disagreement.\n\
+      \n**Primitive-existence audit (HEAD-anchored)**. Re-anchored line numbers in\
+      \ \xA7Approach match HEAD:\n- `_should_skip_pr_phase_auto_pr` :8854 \u2713 (HEAD)\n\
+      - `_open_context_pr_for_pipeline` :10634 \u2713\n- `_persist_context_pr_linkage_on_contract`\
+      \ :10423 \u2713\n- `_gather_context_pr_files` :10528 \u2713\n- `_lookup_existing_context_pr`\
+      \ :10367 \u2713\n- `_maybe_open_base_pr_for_plan_to_implement` :11280 \u2713\
+      \n- `_resolve_slice_1_context_branch_from_contract` :11515 \u2713\n- `_sync_worktree_with_remote`\
+      \ :6926 \u2713 (OOS \u2014 out of scope per decision-11)\n- `_rebase_pipeline_branch_onto_base`\
+      \ :7465 \u2713\n\nAll 6 ConsensusEvaluator clusters in pipelines.py confirmed\
+      \ at HEAD lines 1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502\
+      \ + phases.py:119-124 + signals.py:847-871 (8 total, matches TASK-1-6's enumeration\
+      \ including v3's blocker-fix for the 6th pipelines.py cluster at 3516-3526).\n\
+      \n`shared/egg_contracts/phase_defaults.py:105` `PipelinePhase.PR: PhaseConfig(...)`\
+      \ row exists \u2713 \u2014 TASK-1-3 (11) correctly enumerates it.\n\n`stacked_pr_reconciler.py`\
+      \ references to `context_branch` confirmed at HEAD: lines 94, 112, 120, 129,\
+      \ 150, 157-158, 247, 275, 283 \u2014 TASK-1-5b correctly enumerates and routes\
+      \ the cascade-base rewire through `_resolve_slice_base_branch` from TASK-1-13.\n\
+      \n**Acceptance criteria**: Each task has discrete, testable ACs. TASK-1-1's\
+      \ AC pins both functional behavior and the new `_persist_context_pr_number`\
+      \ helper extraction. TASK-1-3's AC requires before/after grep output verbatim\
+      \ in the commit message for verifiability. TASK-2-4 5-way classification ACs\
+      \ are explicit (5 cases, 5 unit tests in TASK-2-6). TASK-2-5 closes #2409 with\
+      \ cross-slice isolation test.\n\n**Dependency ordering**: TASK-1-13 (helper\
+      \ extraction) before TASK-1-2 (deletion that consumes the helper) is explicit.\
+      \ TASK-1-5b depends on TASK-1-13 + TASK-1-5. TASK-2-3 depends on TASK-1-13 (extends\
+      \ helper with merge-base fallback). TASK-2-1's pre-flight sanity check verifies\
+      \ TASK-1-6 already landed. All dependencies look correct.\n\n**Test strategy**:\
+      \ Unit + integration both covered; integration tests live under `integration_tests/regression/`\
+      \ (kubectl-gated tier with `egg_stack.gateway_url` attribute and `orchestrator_url`\
+      \ fixture inherited from parent conftest). The legacy `integration_tests/local_pipeline/`\
+      \ carve-out (deleted 2026-05-11 in commit f7803637d1) is noted with the commit\
+      \ SHA in three places \u2014 good. AC-9 N\u22653/M\u22652 pinning for the #2570\
+      \ regression test is explicit.\n\n**Trust-boundary (#2594 \xA710)**: All integration\
+      \ tests routed to `integration_tests/regression/` or `integration_tests/sdlc/`\
+      \ \u2014 kubectl-gated trusted-CI-runner tier. No in-sandbox-agent fixture mis-claims.\
+      \ The plan's \xA7\"Integration-test trust-boundary scope\" prose names the correct\
+      \ primitives and the correct skip semantics.\n\n### Non-blocking\n- **plan body\
+      \ line numbers still refine-anchored to `1cb235871`** (e.g. TASK-1-1 still says\
+      \ \"pipelines.py:9791\" in description, TASK-1-3 says \":8222\"). The mandatory\
+      \ re-anchoring protocol in \xA7Approach covers this \u2014 the implement-phase\
+      \ coder will re-grep at HEAD. This is acceptable given how many references would\
+      \ need touching otherwise. Just confirming I noticed it deliberately rather\
+      \ than missed it.\n- **TASK-1-9 AC-9a EXPECTATION text is excellent** \u2014\
+      \ it correctly tells the coder the diagnosis will hit OOS and the default resolution\
+      \ is option 3 (xfail + follow-up). This avoids a wasted-cycle escalation.\n\
+      - The slice-size discussion section is well-written and gives me the evidence\
+      \ I need to NACK architect on slice_size when that proposal arrives. Good pre-staging.\n\
+      \n### What this ACK is conditional on (not blocking)\nIf reviewer_plan or risk_analyst\
+      \ NACKs architect on `slice_size` and architect re-proposes with 1a/1b/1c, task_planner\
+      \ will need to re-propose with re-numbered tasks. Per the role-system-prompt\
+      \ and your own iteration-1 prose, that's expected; this ACK does not bind task_planner\
+      \ to the current task-id layout if the scaffold changes."
     ack_version: 1
   version: 1
 ````
 
-### [2026-05-29T03:37:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:27:03Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 053cace4-60b2-48
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T04:27:09Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 1b784567-8c49-4f
+id: 9ea8523b-033d-4d
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:36:30.993999+00:00'
+  since: '2026-05-29T04:27:09.441257+00:00'
 ````
 
-### [2026-05-29T03:37:31Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:27:17Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: e7f22aae-7156-47
+id: 93c70888-5a2f-42
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:37:31.087373+00:00'
+  since: '2026-05-29T04:27:17.825225+00:00'
 ````
 
-### [2026-05-29T03:37:31Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T04:28:29Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-wait_loop exited
+wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: 303ae296-e54b-4e
+id: 8cdbc06d-5cad-4d
 phase: plan
 metadata:
-  state: WORKING
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:27:17.825225+00:00'
 ````
 
-### [2026-05-29T03:37:57Z] risk_analyst → task_planner (CONSENSUS_ACK): ACK from risk_analyst for task_planner
-
-
-Reviewed `.egg-state/drafts/issue-2777-replan-plan.md` against task_planner's commit d5f21b498 and the operator-approved contract slices (decision-13). The proposal is a tightly-scoped stale-path refresh: `integration_tests/local_pipeline/` → `integration_tests/regression/` (legacy dir deleted 2026-05-11 in `f7803637d1`), `test_pipelines.py` → `test_context_pr_opener.py` with the established feature-split convention, pipeline header `issue-2777` → `issue-2777-replan`, and an honest re-plan note that defers slice composition to the architect's binding scaffold (#2809). Substantive content matches what the operator approved at decision-13. From the **risk lens** this proposal is ACK-able: every change moves the plan closer to HEAD reality, no change introduces a new risk vector, and the residual risks I document (R1 OOS-collision, R2 ConsensusEvaluator call-surface, R3 schema-migration completeness, R4 PR-phase test surface, R5 line-number drift, R6-R13) fall on the architect / operator / implement-phase coder, not on the task_planner. The R13 concern (integration-test fixture path) is directly addressed by this proposal.
-
-### Non-blocking — concerns I flag here so they're not lost
-- **R5 not fully cured**: this proposal fixes file PATHS but not file:LINE drift. The 600-2000-line discrepancies on `_rebase_pipeline_branch_onto_base` (plan :6833 vs HEAD :7465), its caller (plan :19873 vs HEAD :21446), the `umbrella_has_program_block` symbol (plan :15615/15620 vs HEAD ~:16998/17003), and the five ConsensusEvaluator clusters (off by 7-300 lines each) remain in the v1 proposal. Architect's binding scaffold should re-pin these against HEAD or, better, replace file:line citations with symbol-name + adjacent-text anchors so the plan stays durable across drift between plan-phase consensus and implement-phase start. Not blocking your proposal because (a) you faithfully preserved operator-approved content and (b) the architect's #2809 scaffold is the canonical source — but please carry this forward in your re-propose against the architect's scaffold.
-- **R4 namesake-namespace misattribution survives**: the task description for TASK-1-3 still tells the coder "DO NOT touch `gateway_client.py:1409, 1441, 2567`" but HEAD shows `:2567` is a `gh pr list` CLI args list entry (`'pr',` inside the args list), NOT the gateway-session namespace `phase='pr'` string (which lives at `:1441` only). When the coder runs the verification grep they'll see `:2567` as a hit and likely either preserve a non-existent carve-out or flag it as an inconsistency. Architect's scaffold should drop `:2567` from the carve-out list.
-- **R1 not addressable at task_planner tier**: TASK-1-9 (#2570) has an AC-9a HITL-escalation gate, which is the right escape hatch, but the diagnosed root cause (the bare-rebase fallback at `_sync_worktree_with_remote` pipelines.py:7219-7232, self-documented as the '#2222 contamination' vector) is OOS per decision-11. The task as written will trip the AC-9a gate on the first audit pass; the architect / operator should pre-decide whether to extend scope or accept the HITL. Surfacing here so reviewer_plan sees this is a known issue inherited from the operator-approved contract, not a task_planner gap.
-- **R2 not addressable at task_planner tier**: TASK-1-6 task description in the contract enumerates 5 clusters in `pipelines.py` but the production call surface includes `routes/phases.py:119-124` and `routes/signals.py:847-871`. The architect's scaffold should widen the files_affected for TASK-1-6.
-- **R3 not addressable at task_planner tier**: TASK-1-5 schema bump as written rejects v1.1 contracts; the 5 on-disk fixtures (`.egg-state/contracts/issue-2777-replan.json`, issue-2769.json, issue-2548.json, issue-2474.json, issue-1557-v2.json) will fail to load. `stacked_pr_reconciler.py:247` is a structural consumer of `context_branch` and 7 additional read sites exist in `pipelines.py` outside the TASK-1-2 / TASK-1-7 deletion scope. Architect's scaffold should add a `_migrate_schema_version_to_1_2` entry and a TASK-1-5b for the cascade-base rewire.
-- **R6 monitor predicate semantics**: TASK-1-3 (4) rewires `_get_pr_url_from_pipeline` but the analogous `_check_post_consensus_stall` getattr chain at `monitor.py:1122-1160` is not addressed; the post-PR-phase-deletion semantics change (`context_pr_number` is set throughout implement, not after a PR-phase boundary) silently weakens #1911's stall signal. Architect's scaffold should pin the new predicate or remove the short-circuit.
-
-The non-blocking concerns above are documented in detail in `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json` (R1-R13). They are concrete revision instructions for the architect's binding scaffold and any reviewer_plan ACK of the architect should verify the scaffold addresses R1-R5 (the HIGH severity items) before plan-phase consensus closes.
-
-
-````yaml
-id: 949f0292-02fe-41
-phase: plan
-metadata:
-  payload:
-    artifact_references:
-    - .egg-state/drafts/issue-2777-replan-plan.md
-    reason: "\nReviewed `.egg-state/drafts/issue-2777-replan-plan.md` against task_planner's\
-      \ commit d5f21b498 and the operator-approved contract slices (decision-13).\
-      \ The proposal is a tightly-scoped stale-path refresh: `integration_tests/local_pipeline/`\
-      \ \u2192 `integration_tests/regression/` (legacy dir deleted 2026-05-11 in `f7803637d1`),\
-      \ `test_pipelines.py` \u2192 `test_context_pr_opener.py` with the established\
-      \ feature-split convention, pipeline header `issue-2777` \u2192 `issue-2777-replan`,\
-      \ and an honest re-plan note that defers slice composition to the architect's\
-      \ binding scaffold (#2809). Substantive content matches what the operator approved\
-      \ at decision-13. From the **risk lens** this proposal is ACK-able: every change\
-      \ moves the plan closer to HEAD reality, no change introduces a new risk vector,\
-      \ and the residual risks I document (R1 OOS-collision, R2 ConsensusEvaluator\
-      \ call-surface, R3 schema-migration completeness, R4 PR-phase test surface,\
-      \ R5 line-number drift, R6-R13) fall on the architect / operator / implement-phase\
-      \ coder, not on the task_planner. The R13 concern (integration-test fixture\
-      \ path) is directly addressed by this proposal.\n\n### Non-blocking \u2014 concerns\
-      \ I flag here so they're not lost\n- **R5 not fully cured**: this proposal fixes\
-      \ file PATHS but not file:LINE drift. The 600-2000-line discrepancies on `_rebase_pipeline_branch_onto_base`\
-      \ (plan :6833 vs HEAD :7465), its caller (plan :19873 vs HEAD :21446), the `umbrella_has_program_block`\
-      \ symbol (plan :15615/15620 vs HEAD ~:16998/17003), and the five ConsensusEvaluator\
-      \ clusters (off by 7-300 lines each) remain in the v1 proposal. Architect's\
-      \ binding scaffold should re-pin these against HEAD or, better, replace file:line\
-      \ citations with symbol-name + adjacent-text anchors so the plan stays durable\
-      \ across drift between plan-phase consensus and implement-phase start. Not blocking\
-      \ your proposal because (a) you faithfully preserved operator-approved content\
-      \ and (b) the architect's #2809 scaffold is the canonical source \u2014 but\
-      \ please carry this forward in your re-propose against the architect's scaffold.\n\
-      - **R4 namesake-namespace misattribution survives**: the task description for\
-      \ TASK-1-3 still tells the coder \"DO NOT touch `gateway_client.py:1409, 1441,\
-      \ 2567`\" but HEAD shows `:2567` is a `gh pr list` CLI args list entry (`'pr',`\
-      \ inside the args list), NOT the gateway-session namespace `phase='pr'` string\
-      \ (which lives at `:1441` only). When the coder runs the verification grep they'll\
-      \ see `:2567` as a hit and likely either preserve a non-existent carve-out or\
-      \ flag it as an inconsistency. Architect's scaffold should drop `:2567` from\
-      \ the carve-out list.\n- **R1 not addressable at task_planner tier**: TASK-1-9\
-      \ (#2570) has an AC-9a HITL-escalation gate, which is the right escape hatch,\
-      \ but the diagnosed root cause (the bare-rebase fallback at `_sync_worktree_with_remote`\
-      \ pipelines.py:7219-7232, self-documented as the '#2222 contamination' vector)\
-      \ is OOS per decision-11. The task as written will trip the AC-9a gate on the\
-      \ first audit pass; the architect / operator should pre-decide whether to extend\
-      \ scope or accept the HITL. Surfacing here so reviewer_plan sees this is a known\
-      \ issue inherited from the operator-approved contract, not a task_planner gap.\n\
-      - **R2 not addressable at task_planner tier**: TASK-1-6 task description in\
-      \ the contract enumerates 5 clusters in `pipelines.py` but the production call\
-      \ surface includes `routes/phases.py:119-124` and `routes/signals.py:847-871`.\
-      \ The architect's scaffold should widen the files_affected for TASK-1-6.\n-\
-      \ **R3 not addressable at task_planner tier**: TASK-1-5 schema bump as written\
-      \ rejects v1.1 contracts; the 5 on-disk fixtures (`.egg-state/contracts/issue-2777-replan.json`,\
-      \ issue-2769.json, issue-2548.json, issue-2474.json, issue-1557-v2.json) will\
-      \ fail to load. `stacked_pr_reconciler.py:247` is a structural consumer of `context_branch`\
-      \ and 7 additional read sites exist in `pipelines.py` outside the TASK-1-2 /\
-      \ TASK-1-7 deletion scope. Architect's scaffold should add a `_migrate_schema_version_to_1_2`\
-      \ entry and a TASK-1-5b for the cascade-base rewire.\n- **R6 monitor predicate\
-      \ semantics**: TASK-1-3 (4) rewires `_get_pr_url_from_pipeline` but the analogous\
-      \ `_check_post_consensus_stall` getattr chain at `monitor.py:1122-1160` is not\
-      \ addressed; the post-PR-phase-deletion semantics change (`context_pr_number`\
-      \ is set throughout implement, not after a PR-phase boundary) silently weakens\
-      \ #1911's stall signal. Architect's scaffold should pin the new predicate or\
-      \ remove the short-circuit.\n\nThe non-blocking concerns above are documented\
-      \ in detail in `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json`\
-      \ (R1-R13). They are concrete revision instructions for the architect's binding\
-      \ scaffold and any reviewer_plan ACK of the architect should verify the scaffold\
-      \ addresses R1-R5 (the HIGH severity items) before plan-phase consensus closes.\n"
-    ack_version: 1
-  version: 1
-````
-
-### [2026-05-29T03:37:57Z] task_planner (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: cdf6676c-7ad8-4f
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:38:03Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:28:29Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 82728bf5-a494-4e
+id: ec549bf0-b027-41
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:03.171256+00:00'
+  since: '2026-05-29T04:27:09.441257+00:00'
 ````
 
-### [2026-05-29T03:38:08Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 32016384-d798-4e
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:08.607733+00:00'
-````
-
-### [2026-05-29T03:38:08Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 2af5b2b6-9a01-41
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:38:18Z] risk_analyst (CONSENSUS_CONFIRMED): Confirmed by risk_analyst (pending_acks)
-
-Agent risk_analyst cannot confirm: producers ['architect'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.
-
-````yaml
-id: b12a105f-ea21-4f
-phase: plan
-metadata:
-  pending_acks: true
-````
-
-### [2026-05-29T03:38:25Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 69dc374a-068e-43
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:25.234278+00:00'
-````
-
-### [2026-05-29T03:38:26Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [medium]
-
-architect silent for 938s in plan phase — no CONSENSUS_PROPOSE, no slice scaffold produced
-
-Detail:
-Architect container (9ca83a39) has been running since 03:22:03 (938s elapsed at 03:37:42). It has not produced .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml nor submitted a CONSENSUS_PROPOSE. task_planner proceeded with a v1 plan draft (d5f21b498b) that mirrors the operator-approved 2-slice decomposition from decision-13, but explicitly notes that if architect's scaffold differs, reviewer_plan will NACK and require re-propose. risk_analyst and task_planner have both proposed; reviewer_plan is now reviewing. All other agents healthy. Architect has not emitted any error, impasse, or failure signals. Complex replan scope (context-PR collapse + ConsensusEvaluator deletion + schema migration + 13 resolved decisions) may account for extended work time. No automatic action taken; flagging for human awareness.
-
-Recommended action:
-Monitor for another 120s. If architect has not proposed by ~1060s elapsed (03:39:42), consider manual inspection of architect container logs or injecting a STATUS nudge via egg-orch.
-
-````yaml
-id: 59e86661-b1f4-43
-phase: plan
-````
-
-### [2026-05-29T03:38:26Z] task_planner (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: ef67964b-10ab-4a
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:38:26Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: c4206b7b-6c41-4a
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:38:30Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:29:24Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 1e15680d-818f-42
+id: 16dbb56b-6009-40
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:30.908054+00:00'
+  since: '2026-05-29T04:27:09.441257+00:00'
 ````
 
-### [2026-05-29T03:38:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:29:29Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+wait_loop blocked on CONSENSUS_PROPOSE
 
 ````yaml
-id: 6e6324ca-b206-4b
+id: af973ac5-790f-46
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:32.255892+00:00'
+  since: '2026-05-29T04:27:17.825225+00:00'
 ````
 
-### [2026-05-29T03:39:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:29:56Z] architect (CONSENSUS_PROPOSE): Proposal from architect
 
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 7b9583f6-f0f6-46
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:30.908054+00:00'
-````
-
-### [2026-05-29T03:39:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+Architect v4 (replan-iteration): Sub-slice the prior 16-coder-task slice-1 into three sequential sub-slices 1a/1b/1c per operator iteration directive, plus slice-2 unchanged. Linear DAG 1a → 1b → 1c → 2. Slice-1a only ADDS code (new `_open_context_pr_at_implement_start` opener + `PlanPreflightError` validator + `_is_slice_dag_mode` + `_resolve_slice_base_branch` helpers, plus rewires of the five `_maybe_open_base_pr_for_plan_to_implement` call sites at pipelines.py:16503/:22132/:23671/:24666 and phases.py:500). Slice-1b only DELETES (the seven context-PR scaffold helpers; PR phase across ~26 files orchestrator+gateway+schema+docs+tests; `_CONTEXT_BRANCH_RE`+`is_context_push`; PRMetadata 1.1→1.2 schema bump with `_migrate_schema_version_to_1_2`; `orchestrator/consensus.py` + 8 reference clusters; stacked_pr_reconciler cascade-base rewire). Slice-1c is cohesion-independent cleanup (cq-8 idempotency; #2570 silent-rebase fix with AC-9a HITL gate; per-site BLE001 audit; ImportError shim collapse; umbrella terminology structural deletion subsumes #2389; SliceScheduler #2199 noqa markers; integration test Q4). Slice-2 unchanged: restart hardening bundles #2409. ALL other Wave 2 decisions (cq-1..cq-10, Q1-Q5) binding and unchanged; only intra-A+D granularity changes. #2792 OOS per decision-11 (resolved independently in #2797). File:line citations re-verified at HEAD 28f7ef9b2 by sub-agent fact-check; all ~50 primitives intact; only drift corrected: _SLICE_INTEGRATION_BRANCH_RE def at gateway.py:1104. Sub-slice sizes ~5-7 coder tasks each — fits single BRC cycle. Intermediate dead-code state of `_maybe_open_base_pr_for_plan_to_implement` (zero callers after 1a, deleted by 1b) explicit in INV-11/R12/AC-25. NB: task_planner's v4 plan (870d6f29e) preserved the 2-slice scaffold and flagged this as NACK pressure; this architect re-proposal supersedes that scaffold per #2809 — task_planner will re-consume the new 4-slice scaffold on their next BRC cycle.
 
 ````yaml
-id: 318fb467-ae16-4d
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:38:32.255892+00:00'
-````
-
-### [2026-05-29T03:40:24Z] reviewer_plan → task_planner (CONSENSUS_NACK): NACK from reviewer_plan for task_planner
-
-
-Reviewed the task_planner's plan draft at `.egg-state/drafts/issue-2777-replan-plan.md` (1648 lines, 2 slices, 31 tasks) against the analysis, the risk_analyst's risk register, and HEAD (`d5f21b498`). The v1→v2 delta correctly fixed integration-test path drift (`local_pipeline/` → `regression/`) and the `test_pipelines.py`-never-existed issue. Several structural gaps remain blocking.
-
-### Blocking
-
-1. **TASK-1-6 (delete ConsensusEvaluator) misses two production callers — R2 from risk register, verified at HEAD**. I independently verified both:
-   - `orchestrator/routes/phases.py:119-124` — `from consensus import get_consensus_evaluator` + `get_consensus_evaluator().clear(pipeline_id)` inside the `complete_phase` route (`grep -n "consensus" orchestrator/routes/phases.py` confirms).
-   - `orchestrator/routes/signals.py:847-871` — `from consensus import ReadinessState, get_consensus_evaluator` + `evaluator.evaluate(pipeline_id)` in the READY heartbeat handler.
-   The task description enumerates exactly five reference clusters in `pipelines.py` (1805-1808, 2844-2848, 3274-3279, 4206-4210, 4215-4219) and claims `grep -rn 'ConsensusEvaluator|get_consensus_evaluator|from orchestrator.consensus|from .consensus' orchestrator/ shared/ gateway/ tests/ integration_tests/` verified no other module imports it. That claim is wrong — the grep in question would have surfaced both. If the coder follows TASK-1-6 verbatim, deleting `orchestrator/consensus.py` produces a CERTAIN `ImportError` at startup the moment `complete_phase` or a READY signal arrives. **Fix**: extend TASK-1-6's `description`, `files_affected`, and acceptance criteria to include `orchestrator/routes/phases.py` and `orchestrator/routes/signals.py`. List all 7 clusters (5 in `pipelines.py` + 1 in `phases.py:119-124` + 1 in `signals.py:847-871`) explicitly in the task body so the implement-phase coder cannot miss them.
-
-2. **TASK-1-5 (PRMetadata schema cleanup) misses structural consumer `stacked_pr_reconciler.py` and ~7 read sites outside the named deletion-task scope — R3 from risk register**. The plan's `grep -rn 'context_branch|context_title|context_description'` audit claim ("verify they are all in code being deleted by TASK-1-2 or TASK-1-7") is wrong. `orchestrator/stacked_pr_reconciler.py:94, 112, 120, 129, 150, 157-158, 247, 275, 283` is a STRUCTURAL consumer that threads `context_branch` through the cascade-base fallback for orphaned slices — exactly the safety net cq-9 explicitly tried to preserve. Additional read sites at `pipelines.py:10801, 10804, 10844, 11519-11542, 16755, 16781, 20193` (context_branch) and `pipelines.py:11096-11097` (context_title/context_description) are OUTSIDE the deleted function bodies in TASK-1-2 / TASK-1-7. Deleting the schema fields without rewiring these will cause `AttributeError` at runtime in non-deletion code paths. **Fix**: add a new `TASK-1-5b` (coder) to rewire `stacked_pr_reconciler.py`'s cascade-base resolution onto `context_pr_number` + the new `_resolve_slice_base_branch` from TASK-1-13. Extend TASK-1-2's `files_affected` and acceptance criteria to cover the 7 surviving read sites at the named pipelines.py lines, with grep-driven sweep as the verification bar. Also add a migration entry (`_migrate_schema_version_to_1_2`) to handle on-disk contracts that still carry the removed fields — the operator's Q5 ("no in-flight pipelines") applies to live pipelines, but `.egg-state/contracts/issue-2777-replan.json` itself contains all three deleted fields (visible in the working tree), so the contract loader for THIS very pipeline will refuse the v1.2 load.
-
-3. **TASK-1-3 (delete PR phase) misses sites — R4 from risk register**. Three specific gaps:
-   - `shared/egg_contracts/phase_defaults.py:105` carries the `PipelinePhase.PR: PhaseConfig(...)` row. Removing `PipelinePhase.PR` from the StrEnum without removing this row produces a KeyError at startup when downstream consumers iterate the defaults dict. NOT in TASK-1-3's enumerated 10 site-categories nor in TASK-1-15a's rewrite list.
-   - `gateway/tests/test_phase_transition.py` asserts `IMPLEMENT → PR` and the `PR: []` terminal row. TASK-1-15a's `files_affected` lists 4 gateway test files; `test_phase_transition.py` specifically is NOT in that list. After TASK-1-3 removes the row from `gateway/phase_transition.py`, these tests fail at collection. **Fix**: add `gateway/tests/test_phase_transition.py` to TASK-1-15a's files and ACs.
-   - TASK-1-3's "namesake-namespace carve-out" enumeration cites `gateway_client.py:1409, 1441, 2567` as preserve-targets. Verified at HEAD: `:1441` IS the session-registration namespace string, but `:2567` is a `gh pr list` CLI args list (the literal `'pr',` argument to gh), which is unrelated to `phase='pr'` session-registration. The plan's verification grep `rg 'PipelinePhase\\.PR|phases\\["pr"\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/ gateway/` would not even match `:2567` because it does not contain `phase=...`. **Fix**: drop `:2567` from the carve-out enumeration, keep `:1441` (and verify `:1409` against HEAD).
-
-4. **TASK-1-9 (#2570 silent rebase fix) targets the wrong primitive — R1 from risk register, verified at HEAD**. I independently verified: the plan describes `_rebase_pipeline_branch_onto_base` at `pipelines.py:6833` (sole caller `:19873`) as the audit target. At HEAD `d5f21b498` the function lives at `pipelines.py:7465` with its sole production caller at `:21446`. More importantly, the `_rebase_pipeline_branch_onto_base` helper is NOT the silent-rebase vector — the actual `#2570` root cause is the bare-rebase fallback inside `_sync_worktree_with_remote` at `pipelines.py:7219-7232`, which the code documents as the "#2222 contamination" vector. `_sync_worktree_with_remote` is OUT OF SCOPE per decision-11. The plan's AC-9a OOS-escalation gate WILL fire by construction on the first audit pass — but the plan does not acknowledge this. The implement-phase coder will hit the gate, register a HITL, and slice-1 will stall waiting for operator response. **Fix**: pick one — (a) explicitly state in TASK-1-9's description that AC-9a will fire by construction and the task's expected resolution is the HITL path (option 3: "xfail #2570 in slice-1 and open a follow-up issue"); (b) re-scope TASK-1-9 to a narrower fix that does not touch `_sync_worktree_with_remote` (e.g. add a non-rebase resume path callable from a separate, in-scope site); (c) pull TASK-1-9 out of slice-1 entirely and ship #2570 in a follow-up co-scheduled with the #2792 work. Silent reliance on AC-9a firing at implement time is unfair to the implement-phase coder and converts a planning decision into an unplanned HITL.
-
-5. **TASK-1-1 (new opener) does not name the persistence helper for `contract.pr.context_pr_number` after TASK-1-2 deletes `_persist_context_pr_linkage_on_contract` — R9 from risk register**. The task says it "persists `pr_number` to `contract.pr.context_pr_number`" but does not name the persistence call (e.g. `update_contract` or the new `_persist_context_pr_number` helper). After TASK-1-2 deletes `_persist_context_pr_linkage_on_contract` (currently at `pipelines.py:10423` at HEAD, was `:9791` at the plan's anchor SHA), TASK-1-1's opener becomes the SOLE writer of `context_pr_number`. If the opener writes only to local state without invoking the contract-writer plumbing, downstream consumers see None and PR linkage breaks. **Fix**: pin the persistence call in TASK-1-1's description — either (a) "persist via the existing `update_contract` helper at <file:line>" or (b) "extract a private `_persist_context_pr_number(contract, pr_number)` helper that wraps the contract write under the per-pipeline state lock". Add an explicit AC to TASK-1-15 that the idempotent-path unit test verifies the persistence write is observed.
-
-6. **TASK-1-3 misses `_check_post_consensus_stall` semantic rewire — R6 from risk register**. TASK-1-3 (4) rewires `_get_pr_url_from_pipeline` from `phases['pr'].artifacts['pr_url']` to `contract.pr.context_pr_number`. The plan does not address the analogous rewire for `_check_post_consensus_stall` at `orchestrator/overseer/monitor.py:1122-1160`, which is a stall-detection short-circuit per #1911. The semantic distinction matters: the OLD predicate ("PR phase has run and recorded artifacts") is a strict superset of the NEW predicate ("context PR exists"). Because cq-4 moves the context-PR opener to the plan→implement boundary, `context_pr_number` is set THROUGHOUT the implement phase — so blanket replacement weakens the stall signal #1911 specifically wired. **Fix**: add a sub-bullet to TASK-1-3 (8) (overseer monitor) for the post-consensus-stall predicate. Either delete the short-circuit (if the underlying stall signal becomes unreachable post-PR-phase-deletion) or re-derive the equivalent predicate (e.g. "all slices closed AND context_pr_number set AND no consensus events in last N seconds"). State the design choice in the task body so the implement-phase coder doesn't pick the weakening default.
-
-7. **Plan file:line citations are anchored to commit `1cb235871` but the current HEAD has drifted by 600-2000 lines on multiple cited primitives — R5 from risk register**. I verified at the plan's anchor SHA the cited lines are correct (`git show 1cb235871:orchestrator/routes/pipelines.py | grep -n "^def …"` matches the plan exactly). At HEAD `d5f21b498` the drift is significant: `_rebase_pipeline_branch_onto_base` is at `:7465` (plan says `:6833`, off by 632), `_open_context_pr_for_pipeline` at `:10634` (plan says `:10002`, off by 632), `_persist_context_pr_linkage_on_contract` at `:10423` (plan says `:9791`, off by 632). This is not "the planner was sloppy" — it's the natural drift between an anchored plan and the implement-time HEAD. But the plan doesn't require the implement-phase coder to re-anchor before editing, and the line numbers are baked into task descriptions and acceptance criteria. **Fix**: add a global note (in the `Approach` section or a new `Anchor SHA & re-anchoring` subsection) stating that the implement-phase coder MUST re-anchor symbol locations via `grep -n` before editing, prefer symbol-name + adjacent-text anchors over absolute line numbers, and commit the after-grep output in each task's commit message so the reviewer can rerun verification.
-
-### Non-blocking
-
-- **TASK-1-3 verification grep**: `rg 'PipelinePhase\\.PR|phases\\["pr"\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/ gateway/` will produce hits at `gateway/tests/test_session_manager.py:1127, 1170` and `gateway/tests/test_gateway.py:4371` that the implement-phase coder MUST NOT delete (they assert the gateway-session namespace `phase='pr'` which survives `PipelinePhase.PR` removal). Add an explicit "preserved hits" sub-bullet to TASK-1-3's verification AC.
-- **TASK-1-4 (delete `_CONTEXT_BRANCH_RE`)** does not address the dangling `is_context_push` variable in `gateway/gateway.py:1344-1392` — R7. Either remove the variable + four downstream audit-log references, or replace with `is_context_push = False`. Add as an AC sub-bullet.
-- **TASK-1-1a (plan-phase pre-flight validator)** is a NEW scope addition not in the analysis. The justification ("opener depends on well-formed contract") is sound, but it touches `shared/egg_contracts/plan_parser.py` and `orchestrator/routes/phases.py` — plan-phase concerns, not implement-phase. The opener's hard-required raise path (TASK-1-1) already covers the missing-field surface via the BRC NACK. Consider whether the validator is duplicative; either keep with explicit rationale, or fold the validation into TASK-1-1's opener.
-- **TASK-1-11 (BLE001 audit, 20 sites)** is heavy cognitive load for one task. Consider splitting into TASK-1-11a / 11b / 11c with ~7 sites each. Per R11, add a quantitative acceptance bar (e.g. at least N=8 narrowing replacements; typed-comment retention for the rest) so the implement-phase coder has a measurable bar.
-- **Slice-1 size (24 tasks, ~15+ file-categories, ~1500-2000 LOC) borderline §11 NACK candidate**. The operator chose cq-1 = 2 slices and the plan's "Why two slices, not three" justification (textual overlap + #2792 OOS removes parallel slice) is recorded. I am NOT NACKing the task_planner on this — slice composition is the architect's call per §11. I will assess against the architect's proposal when it arrives.
-- The re-plan note (lines 6-20) correctly flags that the architect's binding scaffold had not landed at draft-authorship time and that the slice structure mirrors the contract's already-populated `slices` field per decision-13. This is good defensive framing.
-- The trust-boundary §"Integration-test trust-boundary scope" rewrite (lines 122-170 of the v2 plan) is excellent — correctly cites `integration_tests/conftest.py:158` as the kubectl-gate and `:357` as the `orchestrator_url` fixture site, names the deletion of `integration_tests/local_pipeline/` on `2026-05-11` in commit `f7803637d1`, and routes TASK-1-16 / TASK-2-6 under `integration_tests/regression/`. Future plans in this codebase should mirror this fixture-discovery diligence.
-- TASK-2-4's 5-way bootstrap-reconciliation classification matrix is well-scoped — each of the 5 cases has explicit test ACs in TASK-2-6. The HITL escalation path for case 5 (unknown/corrupt state) is the correct default.
-
-Re-propose addressing the 7 blocking items above. The plan's overall structure (slice DAG, decision implementation, dependency ordering, test strategy, trust-boundary handling) is sound; the gaps are in completeness of named site enumerations, not in design.
-
-
-````yaml
-id: b898b891-f7de-46
+id: b8baebd2-af00-48
 phase: plan
 metadata:
   payload:
-    reason: "\nReviewed the task_planner's plan draft at `.egg-state/drafts/issue-2777-replan-plan.md`\
-      \ (1648 lines, 2 slices, 31 tasks) against the analysis, the risk_analyst's\
-      \ risk register, and HEAD (`d5f21b498`). The v1\u2192v2 delta correctly fixed\
-      \ integration-test path drift (`local_pipeline/` \u2192 `regression/`) and the\
-      \ `test_pipelines.py`-never-existed issue. Several structural gaps remain blocking.\n\
-      \n### Blocking\n\n1. **TASK-1-6 (delete ConsensusEvaluator) misses two production\
-      \ callers \u2014 R2 from risk register, verified at HEAD**. I independently\
-      \ verified both:\n   - `orchestrator/routes/phases.py:119-124` \u2014 `from\
-      \ consensus import get_consensus_evaluator` + `get_consensus_evaluator().clear(pipeline_id)`\
-      \ inside the `complete_phase` route (`grep -n \"consensus\" orchestrator/routes/phases.py`\
-      \ confirms).\n   - `orchestrator/routes/signals.py:847-871` \u2014 `from consensus\
-      \ import ReadinessState, get_consensus_evaluator` + `evaluator.evaluate(pipeline_id)`\
-      \ in the READY heartbeat handler.\n   The task description enumerates exactly\
-      \ five reference clusters in `pipelines.py` (1805-1808, 2844-2848, 3274-3279,\
-      \ 4206-4210, 4215-4219) and claims `grep -rn 'ConsensusEvaluator|get_consensus_evaluator|from\
-      \ orchestrator.consensus|from .consensus' orchestrator/ shared/ gateway/ tests/\
-      \ integration_tests/` verified no other module imports it. That claim is wrong\
-      \ \u2014 the grep in question would have surfaced both. If the coder follows\
-      \ TASK-1-6 verbatim, deleting `orchestrator/consensus.py` produces a CERTAIN\
-      \ `ImportError` at startup the moment `complete_phase` or a READY signal arrives.\
-      \ **Fix**: extend TASK-1-6's `description`, `files_affected`, and acceptance\
-      \ criteria to include `orchestrator/routes/phases.py` and `orchestrator/routes/signals.py`.\
-      \ List all 7 clusters (5 in `pipelines.py` + 1 in `phases.py:119-124` + 1 in\
-      \ `signals.py:847-871`) explicitly in the task body so the implement-phase coder\
-      \ cannot miss them.\n\n2. **TASK-1-5 (PRMetadata schema cleanup) misses structural\
-      \ consumer `stacked_pr_reconciler.py` and ~7 read sites outside the named deletion-task\
-      \ scope \u2014 R3 from risk register**. The plan's `grep -rn 'context_branch|context_title|context_description'`\
-      \ audit claim (\"verify they are all in code being deleted by TASK-1-2 or TASK-1-7\"\
-      ) is wrong. `orchestrator/stacked_pr_reconciler.py:94, 112, 120, 129, 150, 157-158,\
-      \ 247, 275, 283` is a STRUCTURAL consumer that threads `context_branch` through\
-      \ the cascade-base fallback for orphaned slices \u2014 exactly the safety net\
-      \ cq-9 explicitly tried to preserve. Additional read sites at `pipelines.py:10801,\
-      \ 10804, 10844, 11519-11542, 16755, 16781, 20193` (context_branch) and `pipelines.py:11096-11097`\
-      \ (context_title/context_description) are OUTSIDE the deleted function bodies\
-      \ in TASK-1-2 / TASK-1-7. Deleting the schema fields without rewiring these\
-      \ will cause `AttributeError` at runtime in non-deletion code paths. **Fix**:\
-      \ add a new `TASK-1-5b` (coder) to rewire `stacked_pr_reconciler.py`'s cascade-base\
-      \ resolution onto `context_pr_number` + the new `_resolve_slice_base_branch`\
-      \ from TASK-1-13. Extend TASK-1-2's `files_affected` and acceptance criteria\
-      \ to cover the 7 surviving read sites at the named pipelines.py lines, with\
-      \ grep-driven sweep as the verification bar. Also add a migration entry (`_migrate_schema_version_to_1_2`)\
-      \ to handle on-disk contracts that still carry the removed fields \u2014 the\
-      \ operator's Q5 (\"no in-flight pipelines\") applies to live pipelines, but\
-      \ `.egg-state/contracts/issue-2777-replan.json` itself contains all three deleted\
-      \ fields (visible in the working tree), so the contract loader for THIS very\
-      \ pipeline will refuse the v1.2 load.\n\n3. **TASK-1-3 (delete PR phase) misses\
-      \ sites \u2014 R4 from risk register**. Three specific gaps:\n   - `shared/egg_contracts/phase_defaults.py:105`\
-      \ carries the `PipelinePhase.PR: PhaseConfig(...)` row. Removing `PipelinePhase.PR`\
-      \ from the StrEnum without removing this row produces a KeyError at startup\
-      \ when downstream consumers iterate the defaults dict. NOT in TASK-1-3's enumerated\
-      \ 10 site-categories nor in TASK-1-15a's rewrite list.\n   - `gateway/tests/test_phase_transition.py`\
-      \ asserts `IMPLEMENT \u2192 PR` and the `PR: []` terminal row. TASK-1-15a's\
-      \ `files_affected` lists 4 gateway test files; `test_phase_transition.py` specifically\
-      \ is NOT in that list. After TASK-1-3 removes the row from `gateway/phase_transition.py`,\
-      \ these tests fail at collection. **Fix**: add `gateway/tests/test_phase_transition.py`\
-      \ to TASK-1-15a's files and ACs.\n   - TASK-1-3's \"namesake-namespace carve-out\"\
-      \ enumeration cites `gateway_client.py:1409, 1441, 2567` as preserve-targets.\
-      \ Verified at HEAD: `:1441` IS the session-registration namespace string, but\
-      \ `:2567` is a `gh pr list` CLI args list (the literal `'pr',` argument to gh),\
-      \ which is unrelated to `phase='pr'` session-registration. The plan's verification\
-      \ grep `rg 'PipelinePhase\\\\.PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase ==\
-      \ .pr.' orchestrator/ shared/ gateway/` would not even match `:2567` because\
-      \ it does not contain `phase=...`. **Fix**: drop `:2567` from the carve-out\
-      \ enumeration, keep `:1441` (and verify `:1409` against HEAD).\n\n4. **TASK-1-9\
-      \ (#2570 silent rebase fix) targets the wrong primitive \u2014 R1 from risk\
-      \ register, verified at HEAD**. I independently verified: the plan describes\
-      \ `_rebase_pipeline_branch_onto_base` at `pipelines.py:6833` (sole caller `:19873`)\
-      \ as the audit target. At HEAD `d5f21b498` the function lives at `pipelines.py:7465`\
-      \ with its sole production caller at `:21446`. More importantly, the `_rebase_pipeline_branch_onto_base`\
-      \ helper is NOT the silent-rebase vector \u2014 the actual `#2570` root cause\
-      \ is the bare-rebase fallback inside `_sync_worktree_with_remote` at `pipelines.py:7219-7232`,\
-      \ which the code documents as the \"#2222 contamination\" vector. `_sync_worktree_with_remote`\
-      \ is OUT OF SCOPE per decision-11. The plan's AC-9a OOS-escalation gate WILL\
-      \ fire by construction on the first audit pass \u2014 but the plan does not\
-      \ acknowledge this. The implement-phase coder will hit the gate, register a\
-      \ HITL, and slice-1 will stall waiting for operator response. **Fix**: pick\
-      \ one \u2014 (a) explicitly state in TASK-1-9's description that AC-9a will\
-      \ fire by construction and the task's expected resolution is the HITL path (option\
-      \ 3: \"xfail #2570 in slice-1 and open a follow-up issue\"); (b) re-scope TASK-1-9\
-      \ to a narrower fix that does not touch `_sync_worktree_with_remote` (e.g. add\
-      \ a non-rebase resume path callable from a separate, in-scope site); (c) pull\
-      \ TASK-1-9 out of slice-1 entirely and ship #2570 in a follow-up co-scheduled\
-      \ with the #2792 work. Silent reliance on AC-9a firing at implement time is\
-      \ unfair to the implement-phase coder and converts a planning decision into\
-      \ an unplanned HITL.\n\n5. **TASK-1-1 (new opener) does not name the persistence\
-      \ helper for `contract.pr.context_pr_number` after TASK-1-2 deletes `_persist_context_pr_linkage_on_contract`\
-      \ \u2014 R9 from risk register**. The task says it \"persists `pr_number` to\
-      \ `contract.pr.context_pr_number`\" but does not name the persistence call (e.g.\
-      \ `update_contract` or the new `_persist_context_pr_number` helper). After TASK-1-2\
-      \ deletes `_persist_context_pr_linkage_on_contract` (currently at `pipelines.py:10423`\
-      \ at HEAD, was `:9791` at the plan's anchor SHA), TASK-1-1's opener becomes\
-      \ the SOLE writer of `context_pr_number`. If the opener writes only to local\
-      \ state without invoking the contract-writer plumbing, downstream consumers\
-      \ see None and PR linkage breaks. **Fix**: pin the persistence call in TASK-1-1's\
-      \ description \u2014 either (a) \"persist via the existing `update_contract`\
-      \ helper at <file:line>\" or (b) \"extract a private `_persist_context_pr_number(contract,\
-      \ pr_number)` helper that wraps the contract write under the per-pipeline state\
-      \ lock\". Add an explicit AC to TASK-1-15 that the idempotent-path unit test\
-      \ verifies the persistence write is observed.\n\n6. **TASK-1-3 misses `_check_post_consensus_stall`\
-      \ semantic rewire \u2014 R6 from risk register**. TASK-1-3 (4) rewires `_get_pr_url_from_pipeline`\
-      \ from `phases['pr'].artifacts['pr_url']` to `contract.pr.context_pr_number`.\
-      \ The plan does not address the analogous rewire for `_check_post_consensus_stall`\
-      \ at `orchestrator/overseer/monitor.py:1122-1160`, which is a stall-detection\
-      \ short-circuit per #1911. The semantic distinction matters: the OLD predicate\
-      \ (\"PR phase has run and recorded artifacts\") is a strict superset of the\
-      \ NEW predicate (\"context PR exists\"). Because cq-4 moves the context-PR opener\
-      \ to the plan\u2192implement boundary, `context_pr_number` is set THROUGHOUT\
-      \ the implement phase \u2014 so blanket replacement weakens the stall signal\
-      \ #1911 specifically wired. **Fix**: add a sub-bullet to TASK-1-3 (8) (overseer\
-      \ monitor) for the post-consensus-stall predicate. Either delete the short-circuit\
-      \ (if the underlying stall signal becomes unreachable post-PR-phase-deletion)\
-      \ or re-derive the equivalent predicate (e.g. \"all slices closed AND context_pr_number\
-      \ set AND no consensus events in last N seconds\"). State the design choice\
-      \ in the task body so the implement-phase coder doesn't pick the weakening default.\n\
-      \n7. **Plan file:line citations are anchored to commit `1cb235871` but the current\
-      \ HEAD has drifted by 600-2000 lines on multiple cited primitives \u2014 R5\
-      \ from risk register**. I verified at the plan's anchor SHA the cited lines\
-      \ are correct (`git show 1cb235871:orchestrator/routes/pipelines.py | grep -n\
-      \ \"^def \u2026\"` matches the plan exactly). At HEAD `d5f21b498` the drift\
-      \ is significant: `_rebase_pipeline_branch_onto_base` is at `:7465` (plan says\
-      \ `:6833`, off by 632), `_open_context_pr_for_pipeline` at `:10634` (plan says\
-      \ `:10002`, off by 632), `_persist_context_pr_linkage_on_contract` at `:10423`\
-      \ (plan says `:9791`, off by 632). This is not \"the planner was sloppy\" \u2014\
-      \ it's the natural drift between an anchored plan and the implement-time HEAD.\
-      \ But the plan doesn't require the implement-phase coder to re-anchor before\
-      \ editing, and the line numbers are baked into task descriptions and acceptance\
-      \ criteria. **Fix**: add a global note (in the `Approach` section or a new `Anchor\
-      \ SHA & re-anchoring` subsection) stating that the implement-phase coder MUST\
-      \ re-anchor symbol locations via `grep -n` before editing, prefer symbol-name\
-      \ + adjacent-text anchors over absolute line numbers, and commit the after-grep\
-      \ output in each task's commit message so the reviewer can rerun verification.\n\
-      \n### Non-blocking\n\n- **TASK-1-3 verification grep**: `rg 'PipelinePhase\\\
-      \\.PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/\
-      \ gateway/` will produce hits at `gateway/tests/test_session_manager.py:1127,\
-      \ 1170` and `gateway/tests/test_gateway.py:4371` that the implement-phase coder\
-      \ MUST NOT delete (they assert the gateway-session namespace `phase='pr'` which\
-      \ survives `PipelinePhase.PR` removal). Add an explicit \"preserved hits\" sub-bullet\
-      \ to TASK-1-3's verification AC.\n- **TASK-1-4 (delete `_CONTEXT_BRANCH_RE`)**\
-      \ does not address the dangling `is_context_push` variable in `gateway/gateway.py:1344-1392`\
-      \ \u2014 R7. Either remove the variable + four downstream audit-log references,\
-      \ or replace with `is_context_push = False`. Add as an AC sub-bullet.\n- **TASK-1-1a\
-      \ (plan-phase pre-flight validator)** is a NEW scope addition not in the analysis.\
-      \ The justification (\"opener depends on well-formed contract\") is sound, but\
-      \ it touches `shared/egg_contracts/plan_parser.py` and `orchestrator/routes/phases.py`\
-      \ \u2014 plan-phase concerns, not implement-phase. The opener's hard-required\
-      \ raise path (TASK-1-1) already covers the missing-field surface via the BRC\
-      \ NACK. Consider whether the validator is duplicative; either keep with explicit\
-      \ rationale, or fold the validation into TASK-1-1's opener.\n- **TASK-1-11 (BLE001\
-      \ audit, 20 sites)** is heavy cognitive load for one task. Consider splitting\
-      \ into TASK-1-11a / 11b / 11c with ~7 sites each. Per R11, add a quantitative\
-      \ acceptance bar (e.g. at least N=8 narrowing replacements; typed-comment retention\
-      \ for the rest) so the implement-phase coder has a measurable bar.\n- **Slice-1\
-      \ size (24 tasks, ~15+ file-categories, ~1500-2000 LOC) borderline \xA711 NACK\
-      \ candidate**. The operator chose cq-1 = 2 slices and the plan's \"Why two slices,\
-      \ not three\" justification (textual overlap + #2792 OOS removes parallel slice)\
-      \ is recorded. I am NOT NACKing the task_planner on this \u2014 slice composition\
-      \ is the architect's call per \xA711. I will assess against the architect's\
-      \ proposal when it arrives.\n- The re-plan note (lines 6-20) correctly flags\
-      \ that the architect's binding scaffold had not landed at draft-authorship time\
-      \ and that the slice structure mirrors the contract's already-populated `slices`\
-      \ field per decision-13. This is good defensive framing.\n- The trust-boundary\
-      \ \xA7\"Integration-test trust-boundary scope\" rewrite (lines 122-170 of the\
-      \ v2 plan) is excellent \u2014 correctly cites `integration_tests/conftest.py:158`\
-      \ as the kubectl-gate and `:357` as the `orchestrator_url` fixture site, names\
-      \ the deletion of `integration_tests/local_pipeline/` on `2026-05-11` in commit\
-      \ `f7803637d1`, and routes TASK-1-16 / TASK-2-6 under `integration_tests/regression/`.\
-      \ Future plans in this codebase should mirror this fixture-discovery diligence.\n\
-      - TASK-2-4's 5-way bootstrap-reconciliation classification matrix is well-scoped\
-      \ \u2014 each of the 5 cases has explicit test ACs in TASK-2-6. The HITL escalation\
-      \ path for case 5 (unknown/corrupt state) is the correct default.\n\nRe-propose\
-      \ addressing the 7 blocking items above. The plan's overall structure (slice\
-      \ DAG, decision implementation, dependency ordering, test strategy, trust-boundary\
-      \ handling) is sound; the gaps are in completeness of named site enumerations,\
-      \ not in design.\n"
-    artifact_references:
-    - .egg-state/drafts/issue-2777-replan-plan.md
-    - .egg-state/drafts/issue-2777-replan-analysis.md
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
-    - orchestrator/routes/pipelines.py
-    - orchestrator/routes/phases.py
-    - orchestrator/routes/signals.py
-    - orchestrator/consensus.py
-    - orchestrator/stacked_pr_reconciler.py
-    - shared/egg_contracts/models.py
-    - shared/egg_contracts/phase_defaults.py
-    - gateway/gateway.py
-    - gateway/phase_transition.py
-    - gateway/tests/test_phase_transition.py
-    nack_version: 1
-  reason: "\nReviewed the task_planner's plan draft at `.egg-state/drafts/issue-2777-replan-plan.md`\
-    \ (1648 lines, 2 slices, 31 tasks) against the analysis, the risk_analyst's risk\
-    \ register, and HEAD (`d5f21b498`). The v1\u2192v2 delta correctly fixed integration-test\
-    \ path drift (`local_pipeline/` \u2192 `regression/`) and the `test_pipelines.py`-never-existed\
-    \ issue. Several structural gaps remain blocking.\n\n### Blocking\n\n1. **TASK-1-6\
-    \ (delete ConsensusEvaluator) misses two production callers \u2014 R2 from risk\
-    \ register, verified at HEAD**. I independently verified both:\n   - `orchestrator/routes/phases.py:119-124`\
-    \ \u2014 `from consensus import get_consensus_evaluator` + `get_consensus_evaluator().clear(pipeline_id)`\
-    \ inside the `complete_phase` route (`grep -n \"consensus\" orchestrator/routes/phases.py`\
-    \ confirms).\n   - `orchestrator/routes/signals.py:847-871` \u2014 `from consensus\
-    \ import ReadinessState, get_consensus_evaluator` + `evaluator.evaluate(pipeline_id)`\
-    \ in the READY heartbeat handler.\n   The task description enumerates exactly\
-    \ five reference clusters in `pipelines.py` (1805-1808, 2844-2848, 3274-3279,\
-    \ 4206-4210, 4215-4219) and claims `grep -rn 'ConsensusEvaluator|get_consensus_evaluator|from\
-    \ orchestrator.consensus|from .consensus' orchestrator/ shared/ gateway/ tests/\
-    \ integration_tests/` verified no other module imports it. That claim is wrong\
-    \ \u2014 the grep in question would have surfaced both. If the coder follows TASK-1-6\
-    \ verbatim, deleting `orchestrator/consensus.py` produces a CERTAIN `ImportError`\
-    \ at startup the moment `complete_phase` or a READY signal arrives. **Fix**: extend\
-    \ TASK-1-6's `description`, `files_affected`, and acceptance criteria to include\
-    \ `orchestrator/routes/phases.py` and `orchestrator/routes/signals.py`. List all\
-    \ 7 clusters (5 in `pipelines.py` + 1 in `phases.py:119-124` + 1 in `signals.py:847-871`)\
-    \ explicitly in the task body so the implement-phase coder cannot miss them.\n\
-    \n2. **TASK-1-5 (PRMetadata schema cleanup) misses structural consumer `stacked_pr_reconciler.py`\
-    \ and ~7 read sites outside the named deletion-task scope \u2014 R3 from risk\
-    \ register**. The plan's `grep -rn 'context_branch|context_title|context_description'`\
-    \ audit claim (\"verify they are all in code being deleted by TASK-1-2 or TASK-1-7\"\
-    ) is wrong. `orchestrator/stacked_pr_reconciler.py:94, 112, 120, 129, 150, 157-158,\
-    \ 247, 275, 283` is a STRUCTURAL consumer that threads `context_branch` through\
-    \ the cascade-base fallback for orphaned slices \u2014 exactly the safety net\
-    \ cq-9 explicitly tried to preserve. Additional read sites at `pipelines.py:10801,\
-    \ 10804, 10844, 11519-11542, 16755, 16781, 20193` (context_branch) and `pipelines.py:11096-11097`\
-    \ (context_title/context_description) are OUTSIDE the deleted function bodies\
-    \ in TASK-1-2 / TASK-1-7. Deleting the schema fields without rewiring these will\
-    \ cause `AttributeError` at runtime in non-deletion code paths. **Fix**: add a\
-    \ new `TASK-1-5b` (coder) to rewire `stacked_pr_reconciler.py`'s cascade-base\
-    \ resolution onto `context_pr_number` + the new `_resolve_slice_base_branch` from\
-    \ TASK-1-13. Extend TASK-1-2's `files_affected` and acceptance criteria to cover\
-    \ the 7 surviving read sites at the named pipelines.py lines, with grep-driven\
-    \ sweep as the verification bar. Also add a migration entry (`_migrate_schema_version_to_1_2`)\
-    \ to handle on-disk contracts that still carry the removed fields \u2014 the operator's\
-    \ Q5 (\"no in-flight pipelines\") applies to live pipelines, but `.egg-state/contracts/issue-2777-replan.json`\
-    \ itself contains all three deleted fields (visible in the working tree), so the\
-    \ contract loader for THIS very pipeline will refuse the v1.2 load.\n\n3. **TASK-1-3\
-    \ (delete PR phase) misses sites \u2014 R4 from risk register**. Three specific\
-    \ gaps:\n   - `shared/egg_contracts/phase_defaults.py:105` carries the `PipelinePhase.PR:\
-    \ PhaseConfig(...)` row. Removing `PipelinePhase.PR` from the StrEnum without\
-    \ removing this row produces a KeyError at startup when downstream consumers iterate\
-    \ the defaults dict. NOT in TASK-1-3's enumerated 10 site-categories nor in TASK-1-15a's\
-    \ rewrite list.\n   - `gateway/tests/test_phase_transition.py` asserts `IMPLEMENT\
-    \ \u2192 PR` and the `PR: []` terminal row. TASK-1-15a's `files_affected` lists\
-    \ 4 gateway test files; `test_phase_transition.py` specifically is NOT in that\
-    \ list. After TASK-1-3 removes the row from `gateway/phase_transition.py`, these\
-    \ tests fail at collection. **Fix**: add `gateway/tests/test_phase_transition.py`\
-    \ to TASK-1-15a's files and ACs.\n   - TASK-1-3's \"namesake-namespace carve-out\"\
-    \ enumeration cites `gateway_client.py:1409, 1441, 2567` as preserve-targets.\
-    \ Verified at HEAD: `:1441` IS the session-registration namespace string, but\
-    \ `:2567` is a `gh pr list` CLI args list (the literal `'pr',` argument to gh),\
-    \ which is unrelated to `phase='pr'` session-registration. The plan's verification\
-    \ grep `rg 'PipelinePhase\\\\.PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase == .pr.'\
-    \ orchestrator/ shared/ gateway/` would not even match `:2567` because it does\
-    \ not contain `phase=...`. **Fix**: drop `:2567` from the carve-out enumeration,\
-    \ keep `:1441` (and verify `:1409` against HEAD).\n\n4. **TASK-1-9 (#2570 silent\
-    \ rebase fix) targets the wrong primitive \u2014 R1 from risk register, verified\
-    \ at HEAD**. I independently verified: the plan describes `_rebase_pipeline_branch_onto_base`\
-    \ at `pipelines.py:6833` (sole caller `:19873`) as the audit target. At HEAD `d5f21b498`\
-    \ the function lives at `pipelines.py:7465` with its sole production caller at\
-    \ `:21446`. More importantly, the `_rebase_pipeline_branch_onto_base` helper is\
-    \ NOT the silent-rebase vector \u2014 the actual `#2570` root cause is the bare-rebase\
-    \ fallback inside `_sync_worktree_with_remote` at `pipelines.py:7219-7232`, which\
-    \ the code documents as the \"#2222 contamination\" vector. `_sync_worktree_with_remote`\
-    \ is OUT OF SCOPE per decision-11. The plan's AC-9a OOS-escalation gate WILL fire\
-    \ by construction on the first audit pass \u2014 but the plan does not acknowledge\
-    \ this. The implement-phase coder will hit the gate, register a HITL, and slice-1\
-    \ will stall waiting for operator response. **Fix**: pick one \u2014 (a) explicitly\
-    \ state in TASK-1-9's description that AC-9a will fire by construction and the\
-    \ task's expected resolution is the HITL path (option 3: \"xfail #2570 in slice-1\
-    \ and open a follow-up issue\"); (b) re-scope TASK-1-9 to a narrower fix that\
-    \ does not touch `_sync_worktree_with_remote` (e.g. add a non-rebase resume path\
-    \ callable from a separate, in-scope site); (c) pull TASK-1-9 out of slice-1 entirely\
-    \ and ship #2570 in a follow-up co-scheduled with the #2792 work. Silent reliance\
-    \ on AC-9a firing at implement time is unfair to the implement-phase coder and\
-    \ converts a planning decision into an unplanned HITL.\n\n5. **TASK-1-1 (new opener)\
-    \ does not name the persistence helper for `contract.pr.context_pr_number` after\
-    \ TASK-1-2 deletes `_persist_context_pr_linkage_on_contract` \u2014 R9 from risk\
-    \ register**. The task says it \"persists `pr_number` to `contract.pr.context_pr_number`\"\
-    \ but does not name the persistence call (e.g. `update_contract` or the new `_persist_context_pr_number`\
-    \ helper). After TASK-1-2 deletes `_persist_context_pr_linkage_on_contract` (currently\
-    \ at `pipelines.py:10423` at HEAD, was `:9791` at the plan's anchor SHA), TASK-1-1's\
-    \ opener becomes the SOLE writer of `context_pr_number`. If the opener writes\
-    \ only to local state without invoking the contract-writer plumbing, downstream\
-    \ consumers see None and PR linkage breaks. **Fix**: pin the persistence call\
-    \ in TASK-1-1's description \u2014 either (a) \"persist via the existing `update_contract`\
-    \ helper at <file:line>\" or (b) \"extract a private `_persist_context_pr_number(contract,\
-    \ pr_number)` helper that wraps the contract write under the per-pipeline state\
-    \ lock\". Add an explicit AC to TASK-1-15 that the idempotent-path unit test verifies\
-    \ the persistence write is observed.\n\n6. **TASK-1-3 misses `_check_post_consensus_stall`\
-    \ semantic rewire \u2014 R6 from risk register**. TASK-1-3 (4) rewires `_get_pr_url_from_pipeline`\
-    \ from `phases['pr'].artifacts['pr_url']` to `contract.pr.context_pr_number`.\
-    \ The plan does not address the analogous rewire for `_check_post_consensus_stall`\
-    \ at `orchestrator/overseer/monitor.py:1122-1160`, which is a stall-detection\
-    \ short-circuit per #1911. The semantic distinction matters: the OLD predicate\
-    \ (\"PR phase has run and recorded artifacts\") is a strict superset of the NEW\
-    \ predicate (\"context PR exists\"). Because cq-4 moves the context-PR opener\
-    \ to the plan\u2192implement boundary, `context_pr_number` is set THROUGHOUT the\
-    \ implement phase \u2014 so blanket replacement weakens the stall signal #1911\
-    \ specifically wired. **Fix**: add a sub-bullet to TASK-1-3 (8) (overseer monitor)\
-    \ for the post-consensus-stall predicate. Either delete the short-circuit (if\
-    \ the underlying stall signal becomes unreachable post-PR-phase-deletion) or re-derive\
-    \ the equivalent predicate (e.g. \"all slices closed AND context_pr_number set\
-    \ AND no consensus events in last N seconds\"). State the design choice in the\
-    \ task body so the implement-phase coder doesn't pick the weakening default.\n\
-    \n7. **Plan file:line citations are anchored to commit `1cb235871` but the current\
-    \ HEAD has drifted by 600-2000 lines on multiple cited primitives \u2014 R5 from\
-    \ risk register**. I verified at the plan's anchor SHA the cited lines are correct\
-    \ (`git show 1cb235871:orchestrator/routes/pipelines.py | grep -n \"^def \u2026\
-    \"` matches the plan exactly). At HEAD `d5f21b498` the drift is significant: `_rebase_pipeline_branch_onto_base`\
-    \ is at `:7465` (plan says `:6833`, off by 632), `_open_context_pr_for_pipeline`\
-    \ at `:10634` (plan says `:10002`, off by 632), `_persist_context_pr_linkage_on_contract`\
-    \ at `:10423` (plan says `:9791`, off by 632). This is not \"the planner was sloppy\"\
-    \ \u2014 it's the natural drift between an anchored plan and the implement-time\
-    \ HEAD. But the plan doesn't require the implement-phase coder to re-anchor before\
-    \ editing, and the line numbers are baked into task descriptions and acceptance\
-    \ criteria. **Fix**: add a global note (in the `Approach` section or a new `Anchor\
-    \ SHA & re-anchoring` subsection) stating that the implement-phase coder MUST\
-    \ re-anchor symbol locations via `grep -n` before editing, prefer symbol-name\
-    \ + adjacent-text anchors over absolute line numbers, and commit the after-grep\
-    \ output in each task's commit message so the reviewer can rerun verification.\n\
-    \n### Non-blocking\n\n- **TASK-1-3 verification grep**: `rg 'PipelinePhase\\\\\
-    .PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/ gateway/`\
-    \ will produce hits at `gateway/tests/test_session_manager.py:1127, 1170` and\
-    \ `gateway/tests/test_gateway.py:4371` that the implement-phase coder MUST NOT\
-    \ delete (they assert the gateway-session namespace `phase='pr'` which survives\
-    \ `PipelinePhase.PR` removal). Add an explicit \"preserved hits\" sub-bullet to\
-    \ TASK-1-3's verification AC.\n- **TASK-1-4 (delete `_CONTEXT_BRANCH_RE`)** does\
-    \ not address the dangling `is_context_push` variable in `gateway/gateway.py:1344-1392`\
-    \ \u2014 R7. Either remove the variable + four downstream audit-log references,\
-    \ or replace with `is_context_push = False`. Add as an AC sub-bullet.\n- **TASK-1-1a\
-    \ (plan-phase pre-flight validator)** is a NEW scope addition not in the analysis.\
-    \ The justification (\"opener depends on well-formed contract\") is sound, but\
-    \ it touches `shared/egg_contracts/plan_parser.py` and `orchestrator/routes/phases.py`\
-    \ \u2014 plan-phase concerns, not implement-phase. The opener's hard-required\
-    \ raise path (TASK-1-1) already covers the missing-field surface via the BRC NACK.\
-    \ Consider whether the validator is duplicative; either keep with explicit rationale,\
-    \ or fold the validation into TASK-1-1's opener.\n- **TASK-1-11 (BLE001 audit,\
-    \ 20 sites)** is heavy cognitive load for one task. Consider splitting into TASK-1-11a\
-    \ / 11b / 11c with ~7 sites each. Per R11, add a quantitative acceptance bar (e.g.\
-    \ at least N=8 narrowing replacements; typed-comment retention for the rest) so\
-    \ the implement-phase coder has a measurable bar.\n- **Slice-1 size (24 tasks,\
-    \ ~15+ file-categories, ~1500-2000 LOC) borderline \xA711 NACK candidate**. The\
-    \ operator chose cq-1 = 2 slices and the plan's \"Why two slices, not three\"\
-    \ justification (textual overlap + #2792 OOS removes parallel slice) is recorded.\
-    \ I am NOT NACKing the task_planner on this \u2014 slice composition is the architect's\
-    \ call per \xA711. I will assess against the architect's proposal when it arrives.\n\
-    - The re-plan note (lines 6-20) correctly flags that the architect's binding scaffold\
-    \ had not landed at draft-authorship time and that the slice structure mirrors\
-    \ the contract's already-populated `slices` field per decision-13. This is good\
-    \ defensive framing.\n- The trust-boundary \xA7\"Integration-test trust-boundary\
-    \ scope\" rewrite (lines 122-170 of the v2 plan) is excellent \u2014 correctly\
-    \ cites `integration_tests/conftest.py:158` as the kubectl-gate and `:357` as\
-    \ the `orchestrator_url` fixture site, names the deletion of `integration_tests/local_pipeline/`\
-    \ on `2026-05-11` in commit `f7803637d1`, and routes TASK-1-16 / TASK-2-6 under\
-    \ `integration_tests/regression/`. Future plans in this codebase should mirror\
-    \ this fixture-discovery diligence.\n- TASK-2-4's 5-way bootstrap-reconciliation\
-    \ classification matrix is well-scoped \u2014 each of the 5 cases has explicit\
-    \ test ACs in TASK-2-6. The HITL escalation path for case 5 (unknown/corrupt state)\
-    \ is the correct default.\n\nRe-propose addressing the 7 blocking items above.\
-    \ The plan's overall structure (slice DAG, decision implementation, dependency\
-    \ ordering, test strategy, trust-boundary handling) is sound; the gaps are in\
-    \ completeness of named site enumerations, not in design.\n"
-  revision_count: 1
-````
-
-### [2026-05-29T03:40:24Z] task_planner (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 5bd51bc0-e4eb-47
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:40:32Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [high]
-
-ESCALATION: architect completely dark for 1060s — zero BRC records, zero checkpoints, zero output files; container still running
-
-Detail:
-Architect container 231aaefb (plan phase) has been running since 03:22:03 UTC. At 1060s elapsed (03:39:43), ALL evidence channels show zero activity: (1) BRC history: mcp__brc__read_peer_artifact returns total_available=0 — architect has sent NO heartbeats, no proposals, no messages of any kind via BRC since pipeline start. (2) Checkpoints: mcp__checkpoint__list returns total_available=0 — no checkpoints captured for architect in plan phase. (3) Output files: .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml does not exist; only 2769-* (previous pipeline) files present. (4) Container orchestrator reports status=running with elapsed_seconds=1060. This pattern is consistent with either: (A) architect in an extremely long code-reading/tool-use sequence with no natural pause points — plausible given the complex replan scope but exceptional at 17+ minutes; or (B) architect stuck in a non-terminating state (infinite loop, blocked tool call, MCP connectivity issue) without error reporting. Medium-priority alert was sent at 03:38:26 (59e86661). Upgrading to HIGH. task_planner has already proposed a plan draft without the scaffold; reviewer_plan is in REVIEWING state. If architect never proposes, BRC consensus cannot complete (all producers must propose).
-
-Recommended action:
-Operator action advised: (1) Inspect architect container logs for the 231aaefb container to determine if it is making progress or stuck. (2) If stuck: consider issuing a STATUS nudge via egg-orch message send to architect, or force-terminating and restarting the container. (3) If making progress: no action needed, continue monitoring. The plan phase will deadlock permanently if architect never proposes. The other 3 agents are healthy and waiting.
-
-````yaml
-id: ac41138c-ebe7-4f
-phase: plan
-````
-
-### [2026-05-29T03:40:32Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 524554f7-b7b3-4e
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:40:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW
-
-````yaml
-id: 481f6bb5-b43c-48
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:37.985909+00:00'
-````
-
-### [2026-05-29T03:40:39Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 0b56915c-190c-4b
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:39.881707+00:00'
-````
-
-### [2026-05-29T03:41:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW
-
-````yaml
-id: 2980ff3d-654c-48
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:37.985909+00:00'
-````
-
-### [2026-05-29T03:41:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 2251428f-3bb7-41
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:39.881707+00:00'
-````
-
-### [2026-05-29T03:42:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW
-
-````yaml
-id: 3dd548c2-8777-43
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:37.985909+00:00'
-````
-
-### [2026-05-29T03:42:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: fc32f700-9f9e-49
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:39.881707+00:00'
-````
-
-### [2026-05-29T03:43:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW
-
-````yaml
-id: 6fc136a6-cd91-4d
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:37.985909+00:00'
-````
-
-### [2026-05-29T03:43:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: b2e1bc5d-20ad-4b
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:39.881707+00:00'
-````
-
-### [2026-05-29T03:44:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW
-
-````yaml
-id: 478c1807-83e1-47
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:37.985909+00:00'
-````
-
-### [2026-05-29T03:44:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 39df9143-114f-48
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:40:39.881707+00:00'
-````
-
-### [2026-05-29T03:45:15Z] architect (CONSENSUS_PROPOSE): Proposal from architect
-
-Architect (replan) for issue #2777: two-slice sequential cleanup DAG against current HEAD. Slice-1 (A+D+PR-phase-removal) collapses egg/<id>/context onto egg/<id>/work, deletes the PR phase entirely (cq-4), hard-removes 3 PRMetadata fields with v1.1->v1.2 schema bump (cq-2), deletes orchestrator/consensus.py (cq-5; expanded to 8 reference clusters across pipelines.py + phases.py + signals.py per risk_analyst R2), subsumes #2389 umbrella terminology as structural deletion (cq-6), adds gh-pr-list idempotency to create_slice_pr (cq-8), bundles #2570 silent-rebase fix (proactive plan-phase HITL gate per R1 since the verified root cause is in OOS _sync_worktree_with_remote at pipelines.py:7219-7239), audits slice-loop BLE001 handlers (Q2), collapses slice-loop ImportError shims (Q3), surgical _is_slice_dag_mode + _resolve_slice_base_branch helpers (cq-10). Slice-2 (C, depends on slice-1) hardens slice/phase restart: eager-persists parent_branch_at_creation + merge-base fallback (cq-9), iterates per-slice consensus trackers on restart_phase, and threads slice_id through startup_reconciliation's reconstruct_tracker_from_messages call (#2409 — narrower than prior plan since peer_consensus.py:1919 already accepts slice_id and message_store already filters on metadata['slice_id']). #2792 OUT OF SCOPE per decision-11 (now also independently resolved by merged PR #2797). All 13 risk_analyst findings integrated as ACs (32 total ACs). All file:line citations refreshed against HEAD on egg/issue-2777-replan-architect/work (pipelines.py has drifted ~+1383 lines in the slice-loop region since the prior plan). #2809 acknowledged: 2-slice DAG retained without further sub-slicing because natural seams within slice-1 all touch overlapping line ranges in pipelines.py.
-
-````yaml
-id: 2d3e3f21-5152-4c
-phase: plan
-metadata:
-  payload:
-    summary: "Architect (replan) for issue #2777: two-slice sequential cleanup DAG\
-      \ against current HEAD. Slice-1 (A+D+PR-phase-removal) collapses egg/<id>/context\
-      \ onto egg/<id>/work, deletes the PR phase entirely (cq-4), hard-removes 3 PRMetadata\
-      \ fields with v1.1->v1.2 schema bump (cq-2), deletes orchestrator/consensus.py\
-      \ (cq-5; expanded to 8 reference clusters across pipelines.py + phases.py +\
-      \ signals.py per risk_analyst R2), subsumes #2389 umbrella terminology as structural\
-      \ deletion (cq-6), adds gh-pr-list idempotency to create_slice_pr (cq-8), bundles\
-      \ #2570 silent-rebase fix (proactive plan-phase HITL gate per R1 since the verified\
-      \ root cause is in OOS _sync_worktree_with_remote at pipelines.py:7219-7239),\
-      \ audits slice-loop BLE001 handlers (Q2), collapses slice-loop ImportError shims\
-      \ (Q3), surgical _is_slice_dag_mode + _resolve_slice_base_branch helpers (cq-10).\
-      \ Slice-2 (C, depends on slice-1) hardens slice/phase restart: eager-persists\
-      \ parent_branch_at_creation + merge-base fallback (cq-9), iterates per-slice\
-      \ consensus trackers on restart_phase, and threads slice_id through startup_reconciliation's\
-      \ reconstruct_tracker_from_messages call (#2409 \u2014 narrower than prior plan\
-      \ since peer_consensus.py:1919 already accepts slice_id and message_store already\
-      \ filters on metadata['slice_id']). #2792 OUT OF SCOPE per decision-11 (now\
-      \ also independently resolved by merged PR #2797). All 13 risk_analyst findings\
-      \ integrated as ACs (32 total ACs). All file:line citations refreshed against\
-      \ HEAD on egg/issue-2777-replan-architect/work (pipelines.py has drifted ~+1383\
-      \ lines in the slice-loop region since the prior plan). #2809 acknowledged:\
-      \ 2-slice DAG retained without further sub-slicing because natural seams within\
-      \ slice-1 all touch overlapping line ranges in pipelines.py."
+    summary: "Architect v4 (replan-iteration): Sub-slice the prior 16-coder-task slice-1\
+      \ into three sequential sub-slices 1a/1b/1c per operator iteration directive,\
+      \ plus slice-2 unchanged. Linear DAG 1a \u2192 1b \u2192 1c \u2192 2. Slice-1a\
+      \ only ADDS code (new `_open_context_pr_at_implement_start` opener + `PlanPreflightError`\
+      \ validator + `_is_slice_dag_mode` + `_resolve_slice_base_branch` helpers, plus\
+      \ rewires of the five `_maybe_open_base_pr_for_plan_to_implement` call sites\
+      \ at pipelines.py:16503/:22132/:23671/:24666 and phases.py:500). Slice-1b only\
+      \ DELETES (the seven context-PR scaffold helpers; PR phase across ~26 files\
+      \ orchestrator+gateway+schema+docs+tests; `_CONTEXT_BRANCH_RE`+`is_context_push`;\
+      \ PRMetadata 1.1\u21921.2 schema bump with `_migrate_schema_version_to_1_2`;\
+      \ `orchestrator/consensus.py` + 8 reference clusters; stacked_pr_reconciler\
+      \ cascade-base rewire). Slice-1c is cohesion-independent cleanup (cq-8 idempotency;\
+      \ #2570 silent-rebase fix with AC-9a HITL gate; per-site BLE001 audit; ImportError\
+      \ shim collapse; umbrella terminology structural deletion subsumes #2389; SliceScheduler\
+      \ #2199 noqa markers; integration test Q4). Slice-2 unchanged: restart hardening\
+      \ bundles #2409. ALL other Wave 2 decisions (cq-1..cq-10, Q1-Q5) binding and\
+      \ unchanged; only intra-A+D granularity changes. #2792 OOS per decision-11 (resolved\
+      \ independently in #2797). File:line citations re-verified at HEAD 28f7ef9b2\
+      \ by sub-agent fact-check; all ~50 primitives intact; only drift corrected:\
+      \ _SLICE_INTEGRATION_BRANCH_RE def at gateway.py:1104. Sub-slice sizes ~5-7\
+      \ coder tasks each \u2014 fits single BRC cycle. Intermediate dead-code state\
+      \ of `_maybe_open_base_pr_for_plan_to_implement` (zero callers after 1a, deleted\
+      \ by 1b) explicit in INV-11/R12/AC-25. NB: task_planner's v4 plan (870d6f29e)\
+      \ preserved the 2-slice scaffold and flagged this as NACK pressure; this architect\
+      \ re-proposal supersedes that scaffold per #2809 \u2014 task_planner will re-consume\
+      \ the new 4-slice scaffold on their next BRC cycle."
     attestation: {}
     artifacts:
     - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
     - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
-    risk_considered: "HIGH overall risk. R1 (HIGH/HIGH): #2570 root cause is in OOS\
-      \ _sync_worktree_with_remote \u2014 addressed via proactive plan-phase HITL\
-      \ gate (AC-9a) rather than relying on implement-phase trip-wire. R2 (HIGH/CERTAIN):\
-      \ ConsensusEvaluator surface undercount addressed via AC-18 expanding to 8 clusters.\
-      \ R3 (HIGH/HIGH): schema migration + stacked_pr_reconciler.py rewiring + additional\
-      \ read sites addressed via AC-19. R4 (MEDIUM/HIGH): PR-phase gateway test surface\
-      \ + namesake-namespace preservation addressed via AC-20. R7 (LOW/CERTAIN): is_context_push\
-      \ cleanup added to AC-21. R9 (LOW/MEDIUM): persistence helper named in AC-22.\
-      \ R6 (MEDIUM/MEDIUM): _check_post_consensus_stall semantics addressed via AC-23.\
-      \ R8 (MEDIUM/MEDIUM): _tracker_key shape consistency pinned via AC-24. R12 (MEDIUM/MEDIUM):\
-      \ slice-1 size \u2014 operator-chosen per cq-1, manual_steps note recommends\
-      \ max_cycles=5+. Scope-violation risk on OOS primitives mitigated via AC-9a\
-      \ HITL gate."
-    commit_sha: 0dc42f4b6809f62cecd6492d1a208ef444aa1179
+    risk_considered: "Sub-slicing introduces an intermediate dead-code state (`_maybe_open_base_pr_for_plan_to_implement`\
+      \ has zero callers after 1a, before 1b deletes it). Surfaced explicitly in INV-11\
+      \ / R12 / AC-25. Linear chain 1a\u21921b\u21921c\u21922 honours forest invariant.\
+      \ Cross-sub-slice dependency surface kept narrow: 1b consumes 1a's opener +\
+      \ `_resolve_slice_base_branch` helper; 1c consumes 1a's helpers + 1b's post-deletion\
+      \ state; 2 consumes 1c's stable post-cleanup state + 1a's `_resolve_slice_base_branch`\
+      \ (extended in 2). PR-body assembleability still validated at plan-phase completion\
+      \ (slice-1a's PlanPreflightError), avoiding the soft-fail path BLOCK#4 surfaced.\
+      \ AC-9a HITL gate fires in slice-1c (#2570 root cause likely in OOS `_sync_worktree_with_remote`).\
+      \ New risks R12/R13/R14 added: R12 documents intermediate dead-code state; R13\
+      \ covers PlanPreflightError causing NACKs on previously-tolerated plans; R14\
+      \ covers cross-sub-slice merge timing if 1b delays."
+    commit_sha: b6b58a15e
     files_changed:
     - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
     - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
     tests_run: []
     tasks_satisfied: []
   version: 1
-  commit_sha: 0dc42f4b6809f62cecd6492d1a208ef444aa1179
+  commit_sha: b6b58a15e
 ````
 
-### [2026-05-29T03:45:15Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T04:29:56Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 324be5d8-c82e-45
+id: 544b76c5-1158-49
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:45:15Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: d114a2a2-7fe8-46
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:45:37Z] architect (HEARTBEAT): heartbeat: WAITING_ON_ROLE
-
-architect v1 proposed; waiting on reviewer_plan + risk_analyst ACK/NACK
-
-````yaml
-id: 926b0ac4-d2bf-42
-phase: plan
-metadata:
-  state: WAITING_ON_ROLE
-  waiting_on: reviewer_plan
-````
-
-### [2026-05-29T03:45:40Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:30:22Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 627bf460-7860-4a
+id: 8da3db96-74f7-4c
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:45:40.566074+00:00'
+  since: '2026-05-29T04:30:22.025732+00:00'
 ````
 
-### [2026-05-29T03:46:40Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:30:24Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: f192188c-4d97-48
+id: 857c7df7-ffc7-43
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:45:40.566074+00:00'
+  since: '2026-05-29T04:27:09.441257+00:00'
 ````
 
-### [2026-05-29T03:47:40Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:31:30Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: d25cb9fe-575d-4a
+id: f0d898a3-fe48-4a
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:45:40.566074+00:00'
+  since: '2026-05-29T04:30:22.025732+00:00'
 ````
 
-### [2026-05-29T03:47:57Z] risk_analyst → architect (CONSENSUS_ACK): ACK from risk_analyst for architect
+### [2026-05-29T04:31:30Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-
-Reviewed `.egg-state/agent-outputs/issue-2777-replan-architect-output.json` (604 lines, schema v2, 32 acceptance criteria) and `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml` (2-slice DAG, slice-2 parent_slice_id:1) against my risk register and the operator-approved contract. From the **risk lens** this is a clean ACK: the architect integrated every one of R1-R13 by name and verified each finding against HEAD before responding, often improving on my mitigations.
-
-### Risk-by-risk integration verified at HEAD
-- **R1 (HIGH/HIGH OOS-collision)**: AC-9a expanded to mandate **plan-phase** HITL registration (proactive) rather than relying on a runtime trip-wire. The architect explicitly recommends option (a) — narrow rebase-fallback scope override on `_sync_worktree_with_remote` — and the `risk_analyst_findings_integrated.R1_2570_root_cause_in_OOS.architect_response` puts the choice in front of the operator before slice-1 implement starts. Additional constraint ties #2570 fix to #2797's auto-recovery semantics (since the architect verified at HEAD that #2797 / commit 99f8a008a8 is now merged on origin/main — I independently confirmed this via `git log`). Risk meaningfully reduced.
-- **R2 (HIGH/CERTAIN ConsensusEvaluator surface)**: AC-18 enumerates the FULL 8-cluster surface across 3 production modules: 6 in pipelines.py (1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502), 1 in phases.py:119-124, 1 in signals.py:847-871. I re-verified each cluster at HEAD via Grep — every one is real. AC-18's mandate that the coder commit the before-and-after grep as a PR artifact closes the loop.
-- **R3 (HIGH/HIGH schema-migration completeness)**: AC-19 adds three concrete remedies: (a) implement `_migrate_schema_version_to_1_2` mirroring `_migrate_schema_version_to_1_1` at models.py:935-936 — the architect correctly recommends migration-on-load over hard-reject because of the 5 on-disk fixture contracts (including `.egg-state/contracts/issue-2777-replan.json` itself); (b) rewire `stacked_pr_reconciler.py` cascade-base resolution (file:line at :94, 112, 120, 129, 150, 157-158, 247, 275, 283) to use `context_pr_number + _resolve_slice_base_branch` instead of `context_branch`; (c) enumerate additional read sites at :16755, :16781, :20193 as outliers requiring explicit task allocation. The choice of migration-on-load vs hard-reject is correctly delegated to the planner with cq-2 context preserved.
-- **R4 (PR-phase completeness)**: AC-20 adds `gateway/tests/test_phase_transition.py` to the gateway test rewrite list AND corrects the namesake-namespace carve-out from the prior plan's `gateway_client.py:2567` (wrong — it's a `gh pr list` CLI flag) to `:1409, :1441` (correct — the session-namespace string). AC-4a's grep verification artifact distinguishes PipelinePhase.PR (delete) from `phase="pr"` strings (preserve when namespaced).
-- **R5 (line drift)**: All file:line citations refreshed against HEAD on egg/issue-2777-replan-architect/work. Runtime primitive inventory addendum carries the refreshed lines (e.g. `_open_context_pr_for_pipeline` :10634, `_should_skip_pr_phase_auto_pr` :8854, `restart_phase` :2983, etc.). Symbol-anchor principle recommended for the plan's task descriptions.
-- **R6 (#1911 post-consensus-stall semantics)**: AC-23 mandates either (a) re-derive a 'PR-phase completed equivalent' predicate or (b) delete the short-circuit; the choice is given to the planner with a test bar (assert the new behaviour against the original #1911 failure mode).
-- **R7 (is_context_push cleanup)**: AC-21 explicitly requires the four downstream audit-log references at gateway.py:1344-1392 be cleaned up. I verified at HEAD: `is_context_push` is defined at :1349, assigned at :1363, read at :1376 and :1392 — architect's enumeration is exact.
-- **R8 (tracker-key shape)**: AC-24 pins `_tracker_key(pipeline_id, slice.id)` with `slice.id` as the contract.slices[].id string; cross-references AC-15 and AC-16 in `depends_on` so the implement-phase coder cannot land them with inconsistent shapes.
-- **R9 (persistence helper)**: AC-22 explicitly names the persistence path (the same plumbing the deleted `_persist_context_pr_linkage_on_contract` used at :10437-10473) with a unit-test bar.
-- **R10**: Acknowledged; existing component framing covers full-suite run validation.
-- **R11 (BLE001 audit bar)**: Architect rejects my proposed N≥8 narrowing-count bar as distorting the audit's purpose. **Fair point** — per-site judgment is exactly what feedback Q2 preserved; an artificial minimum count would push the coder toward churn-for-its-own-sake. Withdrawing the N≥8 framing from the risk register's implied bar; the per-site review record in commit messages or PR description (AC-10) is the correct accountability mechanism.
-- **R12 (slice-1 size)**: Acknowledged; manual_steps gets the max_cycles=5+ recommendation. Architect retains the 2-slice DAG against the #2809 slice-composition authority and documents the rejection rationale for further sub-slicing (textual conflicts within `pipelines.py` would convert intra-PR review into cross-PR merge resolution).
-- **R13 (integration test fixture path)**: AC-8 leaves the test path to the planner; task_planner already addressed via `integration_tests/regression/` in d5f21b498b.
-
-### New value beyond the risk register
-- **AC-1a plan-phase pre-flight validator**: an additional safety belt that fails loudly at plan-phase completion if `yaml-tasks`, `test_plan`, or `manual_steps` are missing — prevents the up-front opener from ever hitting a degraded body at runtime. Architectural improvement.
-- **Slice-2 narrowing per #2409**: architect verified at HEAD that `reconstruct_tracker_from_messages` already accepts `slice_id` (peer_consensus.py:1919-1926) and `message_store.metadata['slice_id']` already filters (:407-416). Slice-2 only needs the caller threading change in `startup_reconciliation.py:312`. This is meaningfully smaller than the prior plan's framing.
-- **#2797 status update**: architect notes #2792 has been independently resolved by merged PR #2797 / commit 99f8a008a8 (I independently verified — "Fix #2792: auto-recover from sync divergence with HITL ack" by James on 2026-05-27). OOS rationale is updated from "to be handled separately" to "has already been handled independently"; OOS list itself unchanged. The AC-9a ADDITIONAL CONSTRAINT correctly ties any TASK-1-9 fix back to #2797's auto-recovery semantics.
-- **10 explicit invariants (INV-1 through INV-10)** make post-implementation verification mechanical for reviewer_code in the implement phase. The architect's framing is consistent with how #2474 recommended #2594 audits be carried forward.
-
-### Non-blocking observations (do not block consensus)
-- **#2797 invariant re-confirmation**: I confirmed via `git show 99f8a008a8` that #2797 modifies `_sync_worktree_with_remote` (the OOS primitive) to pin local-only commits under a backup ref and emit an HITL ack on rebase autoresolve failure. This does NOT invalidate any prior plan invariant in scope here — the in-scope primitives (`_open_context_pr_at_implement_start`, `_rebase_pipeline_branch_onto_base`, `_resolve_slice_base_branch`, slice-restart trackers) do not interact with `_sync_worktree_with_remote`'s recovery semantics. The OOS list stays correct.
-- **AC-3 INV-3 framing**: INV-3 still says "Loader rejects 1.1 payloads (or migrates them upward by stripping; planner picks — operator preferred hard-reject per cq-2)". AC-19 strongly recommends migration-on-load given the on-disk fixture set. The two are not in conflict — INV-3 documents the choice space; AC-19 documents the recommendation. Planner should pick migration-on-load and verify against the 5 fixture contracts at task time. Reviewer_plan should verify the choice is consistent across INV-3 / AC-3 / AC-19 in the planner's task descriptions.
-- **AC-19 (c) genuine outliers**: architect lists :16755, :16781, :20193 as the read sites needing explicit task allocation outside the named-function deletion scope. Planner must allocate these to specific tasks; reviewer_plan verifies the allocation is complete.
-
-This is the most thorough risk-finding integration I've reviewed in this pipeline class. The architect has not just acknowledged the risks — they have surfaced the right operator-decision gates (AC-9a plan-phase HITL), corrected my own minor over-reaches (R11 N≥8 bar), and added a structural improvement (AC-1a plan-phase pre-flight) that addresses a class of soft-fail re-introduction the risk register did not name. Plan-phase consensus closes cleanly from the risk lens with this proposal.
-
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 0b45560a-5092-40
+id: 8b425ccd-cfc4-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:27:09.441257+00:00'
+````
+
+### [2026-05-29T04:31:35Z] risk_analyst (CONSENSUS_PROPOSE): Proposal from risk_analyst
+
+risk_analyst iteration-1 risk register for issue-2777-replan. Carries forward R1-R13 from iteration-0 and re-anchors against the operator-directed sub-slice composition (slice-1a new primitives + wiring, slice-1b scaffold + PR-phase deletions, slice-1c cohesion-independent cleanup, slice-2 restart hardening unchanged). R12 (slice size exceeds appetite) and R13 (integration-test fixture) are RESOLVED by the structural sub-slicing. Six NEW risks N1-N6 specific to the sub-sliced delivery shape: N1 inter-slice dead-code window between 1a and 1b (LOW); N2 gateway phase='pr' namespace coupling — verified at gateway/gateway.py:3680-3710 that filter_operation ValueError is caught and request allowed via backward-compat fallthrough, surfaces as 'Invalid session phase value' WARNING log noise on every PR open post-1b, NOT a structural break (MEDIUM, CERTAIN); N3 feedback-Q4 integration test placement in 1c vs 1a (MEDIUM); N4 slices.yaml parent_slice_id encoding for 1a→1b→1c→2 ordering invariant (MEDIUM); N5 _resolve_slice_base_branch helper signature lockdown between 1a and 1b (LOW); N6 sequential PR merge / rebase conflict risk (LOW). Overall risk drops MEDIUM_HIGH (from HIGH). Top 3: R1 (TASK-1-9 #2570 OOS escalation, now isolated to 1c — operational benefit), R3 (TASK-1-5 schema bump in 1b misses stacked_pr_reconciler.py + 5 on-disk contracts + 7 read sites), N4 (slice DAG parent encoding). Three NACK-shaped concerns for architect: pick N2 mitigation, decide N3 test placement, encode N4 slice DAG. Three NACK-shaped concerns for task_planner: preserve R3/R4 enumerations in 1b's TASK-1-5/TASK-1-3 ACs and lock N5 helper signature in 1a. Verified all referenced primitives at HEAD via grep + Read on phases.py:485-517, pipelines.py call sites, gateway/phase_filter.py:741-986, gateway/gateway.py:3675-4666, gateway_client.py:1400-1486. Artifact: .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json. Satisfies risk_analyst plan-phase contract task.
+
+````yaml
+id: 3db59bf3-cc65-4b
+phase: plan
+metadata:
+  payload:
+    summary: "risk_analyst iteration-1 risk register for issue-2777-replan. Carries\
+      \ forward R1-R13 from iteration-0 and re-anchors against the operator-directed\
+      \ sub-slice composition (slice-1a new primitives + wiring, slice-1b scaffold\
+      \ + PR-phase deletions, slice-1c cohesion-independent cleanup, slice-2 restart\
+      \ hardening unchanged). R12 (slice size exceeds appetite) and R13 (integration-test\
+      \ fixture) are RESOLVED by the structural sub-slicing. Six NEW risks N1-N6 specific\
+      \ to the sub-sliced delivery shape: N1 inter-slice dead-code window between\
+      \ 1a and 1b (LOW); N2 gateway phase='pr' namespace coupling \u2014 verified\
+      \ at gateway/gateway.py:3680-3710 that filter_operation ValueError is caught\
+      \ and request allowed via backward-compat fallthrough, surfaces as 'Invalid\
+      \ session phase value' WARNING log noise on every PR open post-1b, NOT a structural\
+      \ break (MEDIUM, CERTAIN); N3 feedback-Q4 integration test placement in 1c vs\
+      \ 1a (MEDIUM); N4 slices.yaml parent_slice_id encoding for 1a\u21921b\u2192\
+      1c\u21922 ordering invariant (MEDIUM); N5 _resolve_slice_base_branch helper\
+      \ signature lockdown between 1a and 1b (LOW); N6 sequential PR merge / rebase\
+      \ conflict risk (LOW). Overall risk drops MEDIUM_HIGH (from HIGH). Top 3: R1\
+      \ (TASK-1-9 #2570 OOS escalation, now isolated to 1c \u2014 operational benefit),\
+      \ R3 (TASK-1-5 schema bump in 1b misses stacked_pr_reconciler.py + 5 on-disk\
+      \ contracts + 7 read sites), N4 (slice DAG parent encoding). Three NACK-shaped\
+      \ concerns for architect: pick N2 mitigation, decide N3 test placement, encode\
+      \ N4 slice DAG. Three NACK-shaped concerns for task_planner: preserve R3/R4\
+      \ enumerations in 1b's TASK-1-5/TASK-1-3 ACs and lock N5 helper signature in\
+      \ 1a. Verified all referenced primitives at HEAD via grep + Read on phases.py:485-517,\
+      \ pipelines.py call sites, gateway/phase_filter.py:741-986, gateway/gateway.py:3675-4666,\
+      \ gateway_client.py:1400-1486. Artifact: .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json.\
+      \ Satisfies risk_analyst plan-phase contract task."
+    attestation: {}
+    artifacts:
+    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
+    risk_considered: "Technical risks across sub-sliced 1a/1b/1c/2: HIGH R1 (TASK-1-9\
+      \ #2570 may escalate to HITL due to OOS root cause), HIGH R3 (schema bump fanout\
+      \ to stacked_pr_reconciler + on-disk fixtures + 7 read sites), MEDIUM R4 (PR-phase\
+      \ deletion 11-site lock-step surface), MEDIUM R6 (#1911 stall predicate semantic\
+      \ rewire), MEDIUM N2 (gateway phase='pr' namespace coupling \u2014 verified\
+      \ non-blocking but observability noisy), MEDIUM N3 (integration test placement\
+      \ 1a vs 1c), MEDIUM N4 (slice DAG parent encoding). Lower-severity: R5 file:line\
+      \ drift, R7 _CONTEXT_BRANCH_RE dangling refs, R8 per-slice tracker key collision,\
+      \ R9 single-writer invariant, R10 ImportError shim collapse, R11 BLE001 audit,\
+      \ N1 inter-slice dead-code, N5 helper signature lockdown, N6 sequential PR rebase.\
+      \ Trust-boundary audit covers orchestrator\u2194gateway, orchestrator\u2194\
+      sandbox-agent, gateway\u2194git-origin, MCP, and shared-enum-across-pods deployment\
+      \ ordering."
+    commit_sha: 1329963b4e351e5dc9af73209eda57d9979a2e0a
+    files_changed:
+    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 1329963b4e351e5dc9af73209eda57d9979a2e0a
+````
+
+### [2026-05-29T04:32:30Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 65a76efe-aa6e-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:30:22.025732+00:00'
+````
+
+### [2026-05-29T04:32:30Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 21dcaecd-b14c-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:27:09.441257+00:00'
+````
+
+### [2026-05-29T04:33:30Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 721160eb-db67-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:30:22.025732+00:00'
+````
+
+### [2026-05-29T04:33:30Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6af1934b-36b7-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:27:09.441257+00:00'
+````
+
+### [2026-05-29T04:34:31Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: aad7b8f8-4d62-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:30:22.025732+00:00'
+````
+
+### [2026-05-29T04:34:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e613fe15-8594-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:27:09.441257+00:00'
+````
+
+### [2026-05-29T04:34:37Z] reviewer_plan → architect (CONSENSUS_ACK): ACK from reviewer_plan for architect
+
+Reviewed the architect's v1 proposal (commit b6b58a15e): the binding slice scaffold (`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`) and the full architect-output JSON (34 acceptance criteria, operator-directives-acknowledged, OOS list, recommended_approach, component_breakdown, runtime_primitive_inventory_addendum).
+
+### Verdict
+ACK on architect v1. The architect cleanly complied with operator iteration-1 directive: slice-1 sub-sliced into three sequential sub-slices (1a/1b/1c) along the operator-sketched seams, plus slice-2 unchanged. All Wave 2 decisions preserved. Each sub-slice is right-sized for a single BRC cycle.
+
+### Slice DAG (verified — forest constraint satisfied)
+```
+slice-1 (1a, parent=null)  → primitives + wiring (additive only)
+   ↓
+slice-2 (1b, parent=1)     → scaffold + PR-phase deletions
+   ↓
+slice-3 (1c, parent=2)     → cohesion-independent cleanup
+   ↓
+slice-4 (slice-2, parent=3) → restart hardening (closes #2409)
+```
+Linear sequential chain. Each node has exactly one parent. No `serialized_chain_order` needed.
+
+### What I verified
+
+**Operator directive 1 compliance (the central reason for this re-spawn)**: the architect's `operator_directives_acknowledged.iteration_directive` quotes the directive verbatim and the `recommended_approach.option_id = "A-subdivided"` is exactly the operator's 1a/1b/1c sketch. The `rejected_options_summary` explicitly names and rejects (a) monolithic A+D single slice, (b) parallel 1a/1b/1c, with concrete textual-conflict reasoning. The architect did not silently revert to the 2-slice shape; they engaged the directive.
+
+**Slice sizing per criteria §11 (judgment-based)**:
+- **slice-1a** (~3-5 coder tasks: opener + validator + 2 helpers + 5 call-site rewires). Single file category (orchestrator). Reachable use case at end-of-1a. Small. ✓
+- **slice-1b** (~7-8 coder tasks across orchestrator + gateway + shared schema + tests + docs — five file categories). Bundles ~26 PipelinePhase.PR sites, 7 context-PR helpers, 8 ConsensusEvaluator clusters, schema bump + migration, stacked_pr_reconciler rewire. **Operator-endorsed grouping** ("slice-1b — the scaffold + PR-phase deletions that depend on 1a's opener being live"). Per §11, operator-deliberate-override accepted. The deletions are tightly coupled (schema bump cannot ship without the field-read rewires; gateway phase_filter/transition removal must lock-step with PipelinePhase.PR enum removal or the gateway state machine breaks). ✓
+- **slice-1c** (~7 coder tasks of cohesion-independent items). Each is independent per architect's own framing ("a NACK on one does not block the rest"). ✓
+- **slice-2** (~5 coder tasks). Standard size. ✓
+
+**Primitive-existence audit (HEAD-anchored, hard NACK rubric §9)**:
+- `_maybe_open_base_pr_for_plan_to_implement` 5 call sites confirmed at HEAD: `pipelines.py:11280` (def), `:16503`, `:22132`, `:23671`, `:24666`, `phases.py:500`. ✓ matches AC-1.
+- `_is_slice_dag_mode` runtime sites at `pipelines.py:8907, :22628` ✓ matches AC-12a (architect correctly excluded `:8907`-style usage inside `_should_skip_pr_phase_auto_pr` per 1b deletion scope).
+- `_open_context_pr_at_implement_start` `(NEW — slice-1a, AC-1)` — annotated as new, dependency ordering: 1b deletions depend on it being live. ✓
+- `PlanPreflightError` `(NEW — slice-1a, AC-1a)` — annotated as new. ✓
+- `_resolve_slice_base_branch` `(NEW — slice-1a, AC-12a; extended in slice-2 AC-14)` — annotated as new, signature lock-down between slices flagged in risk N5. ✓
+- `_migrate_schema_version_to_1_2` `(NEW — slice-1b, AC-3, mirrors _migrate_schema_version_to_1_1 at models.py:908)` — annotated as new. ✓
+- `reconstruct_tracker_from_messages` accepts `slice_id` at HEAD `peer_consensus.py:1919-1926` ✓ — architect correctly identified this is NOT a NEW primitive (matches the existing signature). The accompanying replan-change-log entry "no schema change to Message required" is correct: I verified `message_store.py:407-416` already filters on `metadata['slice_id']`. This narrows slice-2's #2409 work meaningfully vs the prior plan's "add slice_id field to Message" framing — that obsolete framing now sits in task_planner's TASK-2-5(1) for task_planner to drop in their re-propose.
+- `PipelinePhase.PR` 143 occurrences across 33 files at HEAD. AC-4's named-site enumeration (`pipelines.py:4355/20221/21354`, `phases.py:70/71/849`, `dag_visualizer.py:53/61`, `phase_defaults.py:105`, `gateway/phase_transition.py:53/54`, `gateway/phase_filter.py:526/642`, `overseer/monitor.py:481/1707/1739/1741`) — verified at HEAD with minor line-drift on monitor.py (architect cites :1179, grep shows :1168 for the artifacts comment; close enough for the re-anchoring protocol to recover). ✓
+- `stacked_pr_reconciler.py` cascade-base sites at HEAD lines 94, 112, 120, 129, 150, 157-158, 247, 275, 283 ✓ matches AC-19(b).
+- 6 ConsensusEvaluator clusters in `pipelines.py` at HEAD lines 1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502 + 1 in `phases.py:119-124` + 1 in `signals.py:847-871` = 8 total ✓ matches AC-2 / AC-18.
+
+**Trust-boundary audit (criteria §10)**: AC-8's integration test correctly placed in slice-1c (final touch on the up-front opener behaviour, runs against the full post-collapse topology); the risk_analyst's N3 challenges this placement (saying 1a would also be valid as the place where the opener is introduced), but the architect's positioning in 1c is defensible — the test exercises the *full* post-collapse behaviour including absence of PR-phase, which only holds end-of-1b. Acceptable. AC-9's #2570 invariant test correctly placed in 1c (with the AC-9a HITL gate when diagnosis points at OOS `_sync_worktree_with_remote`). Integration tests are all `integration_tests/regression/` (trusted-CI-runner tier, kubectl-gated). No in-sandbox-agent fixture mis-claims.
+
+**OOS list preserved** (`explicitly_out_of_scope.files_or_symbols`): `_sync_worktree_with_remote`, `_populate_contract_from_plan*`, `_empty_contract_hitl_*`, `_emit_empty_contract_hitl`, `PlanDraftMissingOnLocalError`, `PlanDraftMissingOnLocalAndOriginError`, `PopulateProducedEmptyContractError`, issues #2627 and #2792, and "aggressive decomposition of _run_implement_phase_slices (~1000 lines at HEAD) — left for #2261". Matches decision-11 + cq-7 verbatim. ✓ AC-9a hard-gate routing through `mcp__sdlc__register_open_question` is correct.
+
+**Dependency ordering**: 1a (additive only — primary use case reachable end-of-1a) → 1b (deletions against working replacement) → 1c (cleanup against post-collapse topology) → 2 (restart hardening, helpers already live). AC-25 explicitly addresses the intermediate dead-code state of `_maybe_open_base_pr_for_plan_to_implement` end-of-1a (TODO comment + test asserting zero callers). AC-24 pins `_tracker_key` shape consistency between AC-15 (slice-2 restart_phase iteration) and AC-16 (slice-2 startup_reconciliation reconstruction). ✓
+
+**Bundled-issue handling**: #2389 closed in slice-1c (AC-6a). #2570 closed in slice-1c with AC-9 invariant + AC-9a HITL gate. #2409 closed in slice-2 (AC-16). #2792 OUT OF SCOPE (now independently resolved in #2797). ✓
+
+### Non-blocking
+- AC-25 says "test asserts the function is NOT called by any production code path" — that's a static-grep test, not a runtime test. Worth being explicit in task_planner's task description (the test framework should be a `make test` invocation, not a runtime assertion in the production loop).
+- N2 risk (gateway phase='pr' namespace coupling) is real but architect's response — "the namesake `phase='pr'` carve-out at orchestrator/gateway_client.py:1441 PRESERVE" (AC-20) — is correct. The "WARNING log noise" is observability, not correctness.
+- The architect's slice-id mapping (slice-1=1a, slice-2=1b, slice-3=1c, slice-4=slice-2/restart) renumbers the operator's "slice-2" (restart) to integer id=4. This is a presentation detail — the contract gateway treats slice IDs as opaque integers. Worth task_planner cross-referencing in their next propose so the "slice-2 unchanged per operator" semantics is visible to the human merger.
+- For slice-1c's deletion of `test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker`: AC-6 says replacement assertions verify (a) per-slice PR bodies have no program-level rollup AND (b) the work→main PR body does carry it. (b) is the right symmetry — addresses R8 from the risk-analyst (program-level content ends up SOMEWHERE post-collapse).
+
+### What this ACK does NOT bind
+The architect's scaffold is binding for slice composition only. Task_planner's task enumeration against the new scaffold will need to drop the now-obsolete TASK-2-5(1) "add slice_id field to message_store.Message" framing — the architect's runtime_primitive_inventory_addendum confirmed the field already exists in metadata. That reconciliation is task_planner's job in their next propose.
+
+````yaml
+id: badf8e17-197e-49
 phase: plan
 metadata:
   payload:
     artifact_references:
-    - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
     - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
-    reason: "\nReviewed `.egg-state/agent-outputs/issue-2777-replan-architect-output.json`\
-      \ (604 lines, schema v2, 32 acceptance criteria) and `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`\
-      \ (2-slice DAG, slice-2 parent_slice_id:1) against my risk register and the\
-      \ operator-approved contract. From the **risk lens** this is a clean ACK: the\
-      \ architect integrated every one of R1-R13 by name and verified each finding\
-      \ against HEAD before responding, often improving on my mitigations.\n\n###\
-      \ Risk-by-risk integration verified at HEAD\n- **R1 (HIGH/HIGH OOS-collision)**:\
-      \ AC-9a expanded to mandate **plan-phase** HITL registration (proactive) rather\
-      \ than relying on a runtime trip-wire. The architect explicitly recommends option\
-      \ (a) \u2014 narrow rebase-fallback scope override on `_sync_worktree_with_remote`\
-      \ \u2014 and the `risk_analyst_findings_integrated.R1_2570_root_cause_in_OOS.architect_response`\
-      \ puts the choice in front of the operator before slice-1 implement starts.\
-      \ Additional constraint ties #2570 fix to #2797's auto-recovery semantics (since\
-      \ the architect verified at HEAD that #2797 / commit 99f8a008a8 is now merged\
-      \ on origin/main \u2014 I independently confirmed this via `git log`). Risk\
-      \ meaningfully reduced.\n- **R2 (HIGH/CERTAIN ConsensusEvaluator surface)**:\
-      \ AC-18 enumerates the FULL 8-cluster surface across 3 production modules: 6\
-      \ in pipelines.py (1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502),\
-      \ 1 in phases.py:119-124, 1 in signals.py:847-871. I re-verified each cluster\
-      \ at HEAD via Grep \u2014 every one is real. AC-18's mandate that the coder\
-      \ commit the before-and-after grep as a PR artifact closes the loop.\n- **R3\
-      \ (HIGH/HIGH schema-migration completeness)**: AC-19 adds three concrete remedies:\
-      \ (a) implement `_migrate_schema_version_to_1_2` mirroring `_migrate_schema_version_to_1_1`\
-      \ at models.py:935-936 \u2014 the architect correctly recommends migration-on-load\
-      \ over hard-reject because of the 5 on-disk fixture contracts (including `.egg-state/contracts/issue-2777-replan.json`\
-      \ itself); (b) rewire `stacked_pr_reconciler.py` cascade-base resolution (file:line\
-      \ at :94, 112, 120, 129, 150, 157-158, 247, 275, 283) to use `context_pr_number\
-      \ + _resolve_slice_base_branch` instead of `context_branch`; (c) enumerate additional\
-      \ read sites at :16755, :16781, :20193 as outliers requiring explicit task allocation.\
-      \ The choice of migration-on-load vs hard-reject is correctly delegated to the\
-      \ planner with cq-2 context preserved.\n- **R4 (PR-phase completeness)**: AC-20\
-      \ adds `gateway/tests/test_phase_transition.py` to the gateway test rewrite\
-      \ list AND corrects the namesake-namespace carve-out from the prior plan's `gateway_client.py:2567`\
-      \ (wrong \u2014 it's a `gh pr list` CLI flag) to `:1409, :1441` (correct \u2014\
-      \ the session-namespace string). AC-4a's grep verification artifact distinguishes\
-      \ PipelinePhase.PR (delete) from `phase=\"pr\"` strings (preserve when namespaced).\n\
-      - **R5 (line drift)**: All file:line citations refreshed against HEAD on egg/issue-2777-replan-architect/work.\
-      \ Runtime primitive inventory addendum carries the refreshed lines (e.g. `_open_context_pr_for_pipeline`\
-      \ :10634, `_should_skip_pr_phase_auto_pr` :8854, `restart_phase` :2983, etc.).\
-      \ Symbol-anchor principle recommended for the plan's task descriptions.\n- **R6\
-      \ (#1911 post-consensus-stall semantics)**: AC-23 mandates either (a) re-derive\
-      \ a 'PR-phase completed equivalent' predicate or (b) delete the short-circuit;\
-      \ the choice is given to the planner with a test bar (assert the new behaviour\
-      \ against the original #1911 failure mode).\n- **R7 (is_context_push cleanup)**:\
-      \ AC-21 explicitly requires the four downstream audit-log references at gateway.py:1344-1392\
-      \ be cleaned up. I verified at HEAD: `is_context_push` is defined at :1349,\
-      \ assigned at :1363, read at :1376 and :1392 \u2014 architect's enumeration\
-      \ is exact.\n- **R8 (tracker-key shape)**: AC-24 pins `_tracker_key(pipeline_id,\
-      \ slice.id)` with `slice.id` as the contract.slices[].id string; cross-references\
-      \ AC-15 and AC-16 in `depends_on` so the implement-phase coder cannot land them\
-      \ with inconsistent shapes.\n- **R9 (persistence helper)**: AC-22 explicitly\
-      \ names the persistence path (the same plumbing the deleted `_persist_context_pr_linkage_on_contract`\
-      \ used at :10437-10473) with a unit-test bar.\n- **R10**: Acknowledged; existing\
-      \ component framing covers full-suite run validation.\n- **R11 (BLE001 audit\
-      \ bar)**: Architect rejects my proposed N\u22658 narrowing-count bar as distorting\
-      \ the audit's purpose. **Fair point** \u2014 per-site judgment is exactly what\
-      \ feedback Q2 preserved; an artificial minimum count would push the coder toward\
-      \ churn-for-its-own-sake. Withdrawing the N\u22658 framing from the risk register's\
-      \ implied bar; the per-site review record in commit messages or PR description\
-      \ (AC-10) is the correct accountability mechanism.\n- **R12 (slice-1 size)**:\
-      \ Acknowledged; manual_steps gets the max_cycles=5+ recommendation. Architect\
-      \ retains the 2-slice DAG against the #2809 slice-composition authority and\
-      \ documents the rejection rationale for further sub-slicing (textual conflicts\
-      \ within `pipelines.py` would convert intra-PR review into cross-PR merge resolution).\n\
-      - **R13 (integration test fixture path)**: AC-8 leaves the test path to the\
-      \ planner; task_planner already addressed via `integration_tests/regression/`\
-      \ in d5f21b498b.\n\n### New value beyond the risk register\n- **AC-1a plan-phase\
-      \ pre-flight validator**: an additional safety belt that fails loudly at plan-phase\
-      \ completion if `yaml-tasks`, `test_plan`, or `manual_steps` are missing \u2014\
-      \ prevents the up-front opener from ever hitting a degraded body at runtime.\
-      \ Architectural improvement.\n- **Slice-2 narrowing per #2409**: architect verified\
-      \ at HEAD that `reconstruct_tracker_from_messages` already accepts `slice_id`\
-      \ (peer_consensus.py:1919-1926) and `message_store.metadata['slice_id']` already\
-      \ filters (:407-416). Slice-2 only needs the caller threading change in `startup_reconciliation.py:312`.\
-      \ This is meaningfully smaller than the prior plan's framing.\n- **#2797 status\
-      \ update**: architect notes #2792 has been independently resolved by merged\
-      \ PR #2797 / commit 99f8a008a8 (I independently verified \u2014 \"Fix #2792:\
-      \ auto-recover from sync divergence with HITL ack\" by James on 2026-05-27).\
-      \ OOS rationale is updated from \"to be handled separately\" to \"has already\
-      \ been handled independently\"; OOS list itself unchanged. The AC-9a ADDITIONAL\
-      \ CONSTRAINT correctly ties any TASK-1-9 fix back to #2797's auto-recovery semantics.\n\
-      - **10 explicit invariants (INV-1 through INV-10)** make post-implementation\
-      \ verification mechanical for reviewer_code in the implement phase. The architect's\
-      \ framing is consistent with how #2474 recommended #2594 audits be carried forward.\n\
-      \n### Non-blocking observations (do not block consensus)\n- **#2797 invariant\
-      \ re-confirmation**: I confirmed via `git show 99f8a008a8` that #2797 modifies\
-      \ `_sync_worktree_with_remote` (the OOS primitive) to pin local-only commits\
-      \ under a backup ref and emit an HITL ack on rebase autoresolve failure. This\
-      \ does NOT invalidate any prior plan invariant in scope here \u2014 the in-scope\
-      \ primitives (`_open_context_pr_at_implement_start`, `_rebase_pipeline_branch_onto_base`,\
-      \ `_resolve_slice_base_branch`, slice-restart trackers) do not interact with\
-      \ `_sync_worktree_with_remote`'s recovery semantics. The OOS list stays correct.\n\
-      - **AC-3 INV-3 framing**: INV-3 still says \"Loader rejects 1.1 payloads (or\
-      \ migrates them upward by stripping; planner picks \u2014 operator preferred\
-      \ hard-reject per cq-2)\". AC-19 strongly recommends migration-on-load given\
-      \ the on-disk fixture set. The two are not in conflict \u2014 INV-3 documents\
-      \ the choice space; AC-19 documents the recommendation. Planner should pick\
-      \ migration-on-load and verify against the 5 fixture contracts at task time.\
-      \ Reviewer_plan should verify the choice is consistent across INV-3 / AC-3 /\
-      \ AC-19 in the planner's task descriptions.\n- **AC-19 (c) genuine outliers**:\
-      \ architect lists :16755, :16781, :20193 as the read sites needing explicit\
-      \ task allocation outside the named-function deletion scope. Planner must allocate\
-      \ these to specific tasks; reviewer_plan verifies the allocation is complete.\n\
-      \nThis is the most thorough risk-finding integration I've reviewed in this pipeline\
-      \ class. The architect has not just acknowledged the risks \u2014 they have\
-      \ surfaced the right operator-decision gates (AC-9a plan-phase HITL), corrected\
-      \ my own minor over-reaches (R11 N\u22658 bar), and added a structural improvement\
-      \ (AC-1a plan-phase pre-flight) that addresses a class of soft-fail re-introduction\
-      \ the risk register did not name. Plan-phase consensus closes cleanly from the\
-      \ risk lens with this proposal.\n"
+    - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
+    reason: "Reviewed the architect's v1 proposal (commit b6b58a15e): the binding\
+      \ slice scaffold (`.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`)\
+      \ and the full architect-output JSON (34 acceptance criteria, operator-directives-acknowledged,\
+      \ OOS list, recommended_approach, component_breakdown, runtime_primitive_inventory_addendum).\n\
+      \n### Verdict\nACK on architect v1. The architect cleanly complied with operator\
+      \ iteration-1 directive: slice-1 sub-sliced into three sequential sub-slices\
+      \ (1a/1b/1c) along the operator-sketched seams, plus slice-2 unchanged. All\
+      \ Wave 2 decisions preserved. Each sub-slice is right-sized for a single BRC\
+      \ cycle.\n\n### Slice DAG (verified \u2014 forest constraint satisfied)\n```\n\
+      slice-1 (1a, parent=null)  \u2192 primitives + wiring (additive only)\n   \u2193\
+      \nslice-2 (1b, parent=1)     \u2192 scaffold + PR-phase deletions\n   \u2193\
+      \nslice-3 (1c, parent=2)     \u2192 cohesion-independent cleanup\n   \u2193\n\
+      slice-4 (slice-2, parent=3) \u2192 restart hardening (closes #2409)\n```\nLinear\
+      \ sequential chain. Each node has exactly one parent. No `serialized_chain_order`\
+      \ needed.\n\n### What I verified\n\n**Operator directive 1 compliance (the central\
+      \ reason for this re-spawn)**: the architect's `operator_directives_acknowledged.iteration_directive`\
+      \ quotes the directive verbatim and the `recommended_approach.option_id = \"\
+      A-subdivided\"` is exactly the operator's 1a/1b/1c sketch. The `rejected_options_summary`\
+      \ explicitly names and rejects (a) monolithic A+D single slice, (b) parallel\
+      \ 1a/1b/1c, with concrete textual-conflict reasoning. The architect did not\
+      \ silently revert to the 2-slice shape; they engaged the directive.\n\n**Slice\
+      \ sizing per criteria \xA711 (judgment-based)**:\n- **slice-1a** (~3-5 coder\
+      \ tasks: opener + validator + 2 helpers + 5 call-site rewires). Single file\
+      \ category (orchestrator). Reachable use case at end-of-1a. Small. \u2713\n\
+      - **slice-1b** (~7-8 coder tasks across orchestrator + gateway + shared schema\
+      \ + tests + docs \u2014 five file categories). Bundles ~26 PipelinePhase.PR\
+      \ sites, 7 context-PR helpers, 8 ConsensusEvaluator clusters, schema bump +\
+      \ migration, stacked_pr_reconciler rewire. **Operator-endorsed grouping** (\"\
+      slice-1b \u2014 the scaffold + PR-phase deletions that depend on 1a's opener\
+      \ being live\"). Per \xA711, operator-deliberate-override accepted. The deletions\
+      \ are tightly coupled (schema bump cannot ship without the field-read rewires;\
+      \ gateway phase_filter/transition removal must lock-step with PipelinePhase.PR\
+      \ enum removal or the gateway state machine breaks). \u2713\n- **slice-1c**\
+      \ (~7 coder tasks of cohesion-independent items). Each is independent per architect's\
+      \ own framing (\"a NACK on one does not block the rest\"). \u2713\n- **slice-2**\
+      \ (~5 coder tasks). Standard size. \u2713\n\n**Primitive-existence audit (HEAD-anchored,\
+      \ hard NACK rubric \xA79)**:\n- `_maybe_open_base_pr_for_plan_to_implement`\
+      \ 5 call sites confirmed at HEAD: `pipelines.py:11280` (def), `:16503`, `:22132`,\
+      \ `:23671`, `:24666`, `phases.py:500`. \u2713 matches AC-1.\n- `_is_slice_dag_mode`\
+      \ runtime sites at `pipelines.py:8907, :22628` \u2713 matches AC-12a (architect\
+      \ correctly excluded `:8907`-style usage inside `_should_skip_pr_phase_auto_pr`\
+      \ per 1b deletion scope).\n- `_open_context_pr_at_implement_start` `(NEW \u2014\
+      \ slice-1a, AC-1)` \u2014 annotated as new, dependency ordering: 1b deletions\
+      \ depend on it being live. \u2713\n- `PlanPreflightError` `(NEW \u2014 slice-1a,\
+      \ AC-1a)` \u2014 annotated as new. \u2713\n- `_resolve_slice_base_branch` `(NEW\
+      \ \u2014 slice-1a, AC-12a; extended in slice-2 AC-14)` \u2014 annotated as new,\
+      \ signature lock-down between slices flagged in risk N5. \u2713\n- `_migrate_schema_version_to_1_2`\
+      \ `(NEW \u2014 slice-1b, AC-3, mirrors _migrate_schema_version_to_1_1 at models.py:908)`\
+      \ \u2014 annotated as new. \u2713\n- `reconstruct_tracker_from_messages` accepts\
+      \ `slice_id` at HEAD `peer_consensus.py:1919-1926` \u2713 \u2014 architect correctly\
+      \ identified this is NOT a NEW primitive (matches the existing signature). The\
+      \ accompanying replan-change-log entry \"no schema change to Message required\"\
+      \ is correct: I verified `message_store.py:407-416` already filters on `metadata['slice_id']`.\
+      \ This narrows slice-2's #2409 work meaningfully vs the prior plan's \"add slice_id\
+      \ field to Message\" framing \u2014 that obsolete framing now sits in task_planner's\
+      \ TASK-2-5(1) for task_planner to drop in their re-propose.\n- `PipelinePhase.PR`\
+      \ 143 occurrences across 33 files at HEAD. AC-4's named-site enumeration (`pipelines.py:4355/20221/21354`,\
+      \ `phases.py:70/71/849`, `dag_visualizer.py:53/61`, `phase_defaults.py:105`,\
+      \ `gateway/phase_transition.py:53/54`, `gateway/phase_filter.py:526/642`, `overseer/monitor.py:481/1707/1739/1741`)\
+      \ \u2014 verified at HEAD with minor line-drift on monitor.py (architect cites\
+      \ :1179, grep shows :1168 for the artifacts comment; close enough for the re-anchoring\
+      \ protocol to recover). \u2713\n- `stacked_pr_reconciler.py` cascade-base sites\
+      \ at HEAD lines 94, 112, 120, 129, 150, 157-158, 247, 275, 283 \u2713 matches\
+      \ AC-19(b).\n- 6 ConsensusEvaluator clusters in `pipelines.py` at HEAD lines\
+      \ 1813-1816, 2859-2863, 3289-3293, 3516-3522, 4489-4493, 4498-4502 + 1 in `phases.py:119-124`\
+      \ + 1 in `signals.py:847-871` = 8 total \u2713 matches AC-2 / AC-18.\n\n**Trust-boundary\
+      \ audit (criteria \xA710)**: AC-8's integration test correctly placed in slice-1c\
+      \ (final touch on the up-front opener behaviour, runs against the full post-collapse\
+      \ topology); the risk_analyst's N3 challenges this placement (saying 1a would\
+      \ also be valid as the place where the opener is introduced), but the architect's\
+      \ positioning in 1c is defensible \u2014 the test exercises the *full* post-collapse\
+      \ behaviour including absence of PR-phase, which only holds end-of-1b. Acceptable.\
+      \ AC-9's #2570 invariant test correctly placed in 1c (with the AC-9a HITL gate\
+      \ when diagnosis points at OOS `_sync_worktree_with_remote`). Integration tests\
+      \ are all `integration_tests/regression/` (trusted-CI-runner tier, kubectl-gated).\
+      \ No in-sandbox-agent fixture mis-claims.\n\n**OOS list preserved** (`explicitly_out_of_scope.files_or_symbols`):\
+      \ `_sync_worktree_with_remote`, `_populate_contract_from_plan*`, `_empty_contract_hitl_*`,\
+      \ `_emit_empty_contract_hitl`, `PlanDraftMissingOnLocalError`, `PlanDraftMissingOnLocalAndOriginError`,\
+      \ `PopulateProducedEmptyContractError`, issues #2627 and #2792, and \"aggressive\
+      \ decomposition of _run_implement_phase_slices (~1000 lines at HEAD) \u2014\
+      \ left for #2261\". Matches decision-11 + cq-7 verbatim. \u2713 AC-9a hard-gate\
+      \ routing through `mcp__sdlc__register_open_question` is correct.\n\n**Dependency\
+      \ ordering**: 1a (additive only \u2014 primary use case reachable end-of-1a)\
+      \ \u2192 1b (deletions against working replacement) \u2192 1c (cleanup against\
+      \ post-collapse topology) \u2192 2 (restart hardening, helpers already live).\
+      \ AC-25 explicitly addresses the intermediate dead-code state of `_maybe_open_base_pr_for_plan_to_implement`\
+      \ end-of-1a (TODO comment + test asserting zero callers). AC-24 pins `_tracker_key`\
+      \ shape consistency between AC-15 (slice-2 restart_phase iteration) and AC-16\
+      \ (slice-2 startup_reconciliation reconstruction). \u2713\n\n**Bundled-issue\
+      \ handling**: #2389 closed in slice-1c (AC-6a). #2570 closed in slice-1c with\
+      \ AC-9 invariant + AC-9a HITL gate. #2409 closed in slice-2 (AC-16). #2792 OUT\
+      \ OF SCOPE (now independently resolved in #2797). \u2713\n\n### Non-blocking\n\
+      - AC-25 says \"test asserts the function is NOT called by any production code\
+      \ path\" \u2014 that's a static-grep test, not a runtime test. Worth being explicit\
+      \ in task_planner's task description (the test framework should be a `make test`\
+      \ invocation, not a runtime assertion in the production loop).\n- N2 risk (gateway\
+      \ phase='pr' namespace coupling) is real but architect's response \u2014 \"\
+      the namesake `phase='pr'` carve-out at orchestrator/gateway_client.py:1441 PRESERVE\"\
+      \ (AC-20) \u2014 is correct. The \"WARNING log noise\" is observability, not\
+      \ correctness.\n- The architect's slice-id mapping (slice-1=1a, slice-2=1b,\
+      \ slice-3=1c, slice-4=slice-2/restart) renumbers the operator's \"slice-2\"\
+      \ (restart) to integer id=4. This is a presentation detail \u2014 the contract\
+      \ gateway treats slice IDs as opaque integers. Worth task_planner cross-referencing\
+      \ in their next propose so the \"slice-2 unchanged per operator\" semantics\
+      \ is visible to the human merger.\n- For slice-1c's deletion of `test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker`:\
+      \ AC-6 says replacement assertions verify (a) per-slice PR bodies have no program-level\
+      \ rollup AND (b) the work\u2192main PR body does carry it. (b) is the right\
+      \ symmetry \u2014 addresses R8 from the risk-analyst (program-level content\
+      \ ends up SOMEWHERE post-collapse).\n\n### What this ACK does NOT bind\nThe\
+      \ architect's scaffold is binding for slice composition only. Task_planner's\
+      \ task enumeration against the new scaffold will need to drop the now-obsolete\
+      \ TASK-2-5(1) \"add slice_id field to message_store.Message\" framing \u2014\
+      \ the architect's runtime_primitive_inventory_addendum confirmed the field already\
+      \ exists in metadata. That reconciliation is task_planner's job in their next\
+      \ propose."
     ack_version: 1
   version: 1
 ````
 
-### [2026-05-29T03:47:57Z] orchestrator → risk_analyst (STATUS): Ready to confirm — all confirm preconditions satisfied
-
-Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
-
-````yaml
-id: 35d53d5f-abcc-43
-phase: plan
-metadata:
-  ready_to_confirm: true
-  version: 1
-````
-
-### [2026-05-29T03:47:57Z] architect (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T04:34:37Z] architect (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 43c5f93a-1206-47
+id: 904c6c1c-9f65-4d
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:48:02Z] risk_analyst (CONSENSUS_CONFIRMED): Confirmed by risk_analyst
-
-````yaml
-id: 93a2d4ba-b86c-41
-phase: plan
-metadata:
-  consensus_reached: false
-````
-
-### [2026-05-29T03:48:03Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:34:43Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 43684640-3271-4b
+id: 18207aae-2399-4f
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:48:03.242889+00:00'
+  since: '2026-05-29T04:34:43.216342+00:00'
 ````
 
-### [2026-05-29T03:48:14Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
-
-````yaml
-id: e6cf6870-76e1-4e
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:48:14.837357+00:00'
-````
-
-### [2026-05-29T03:49:03Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:35:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: a7d7e97c-dac6-47
+id: 312d161c-5667-41
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:48:03.242889+00:00'
+  since: '2026-05-29T04:27:09.441257+00:00'
 ````
 
-### [2026-05-29T03:49:10Z] reviewer_plan → architect (CONSENSUS_ACK): ACK from reviewer_plan for architect
+### [2026-05-29T04:35:35Z] risk_analyst → architect (CONSENSUS_ACK): ACK from risk_analyst for architect
 
+Reviewed architect v4 (commit b6b58a15e) — slices.yaml (4 slices) + architect-output.json (acceptance_criteria_for_task_planner, risk_analyst_findings_integrated, technical_decisions). Verified gateway+orchestrator primitives at HEAD against AC-4a/AC-4c grep targets, the AC-12a helper signatures, and the AC-20 namesake-namespace carve-out at gateway_client.py:1441 + gateway/gateway.py:3680-3710 backward-compat fallthrough.
 
-Reviewed the architect's proposal at `.egg-state/agent-outputs/issue-2777-replan-architect-output.json` (604 lines, schema v2) and `architect-slices.yaml` (forest-clean: slice-1 root parent=null, slice-2 parent_slice_id=1) against the analysis, the risk_analyst's risk register, the operator decision set (cq-1..cq-10 + decision-11/12/13 + feedback-1 Q1..Q5), the plan draft v2, and HEAD on the architect's branch.
+ACK on architect v4 — the 4-slice composition is the correct response to the operator's iteration-1 sub-slicing directive (#2809) and the risk-lens evaluation passes.
 
-### What this proposal does that earns the ACK
+### What I verified
+1. **slices.yaml parent_slice_id encoding (N4 addressed)** — linear chain 1 (root, slice-1a) → 2 (parent=1, slice-1b) → 3 (parent=2, slice-1c) → 4 (parent=3, slice-2). Forest invariant honoured. Out-of-order merge of 1b before 1a is structurally prevented.
+2. **1a authors primitives BEFORE 1b deletes (R9, N1 addressed)** — AC-1 wires the new opener at all 5 call sites (phases.py:500 + pipelines.py:16503/22132/23671/24666) in 1a; AC-22 ensures _persist_context_pr_number is the named helper in 1a; the legacy _maybe_open_base_pr_for_plan_to_implement def at pipelines.py:11280 survives 1a as zero-caller dead code and is deleted only in 1b. This eliminates the unwired-WIP-partial failure mode the prior 16-task run NACKed.
+3. **AC-12a helper signatures (N5 addressed)** — `_resolve_slice_base_branch(contract, slice_id) -> str` and `_is_slice_dag_mode(contract) -> bool`. Consumers in 1b's stacked_pr_reconciler rewire, 1c's #2570 fix, and slice-2's merge-base fallback are explicitly named. The deterministic-`egg/<pipeline_id>/work`-in-1a-then-merge-base-fallback-in-slice-2 pattern is correctly sequenced.
+4. **R1 #2570 isolation to 1c** — net operational benefit confirmed. AC-9a HITL gate preserved. If diagnosis lands on OOS `_sync_worktree_with_remote`, 1c can NACK on AC-9a without blocking 1a/1b.
+5. **R2 ConsensusEvaluator surface widened to 8 clusters** — architect verified `phases.py:119-124` and `signals.py:847-871` at HEAD via sub-agent fact-check (citation #11). AC-18/AC-2 enumerates all 8.
+6. **R3 PRMetadata fanout** — AC-3 introduces `_migrate_schema_version_to_1_2` migrator mirroring `_migrate_schema_version_to_1_1` at models.py:908; AC-19 covers the three remedies (migrator + stacked_pr_reconciler rewire + additional read-site enumeration). Routed to 1b.
+7. **R4 PR-phase deletion completeness** — AC-4 enumerates the full surface across pipelines.py / phases.py / mcp_tools.py / overseer / dag_visualizer / gateway. AC-4a captures BOTH before-and-after grep as a PR artifact. AC-4c covers gateway lock-step deletions and the 4 gateway test files.
+8. **R6 _check_post_consensus_stall semantic rewire (#1911)** — AC-23 routes to 1b alongside the deletion.
+9. **R7 is_context_push cleanup** — AC-21 explicitly enumerates the 4 references at gateway.py:1349/1363/1376/1392 and requires `make lint` green post-deletion.
+10. **N3 integration-test placement in 1c** — architect honored the operator's sketch (AC-8 places the end-to-end test in 1c). The architect explicitly notes this in the slice-1c goal: 'the end-to-end integration test for the up-front context-PR open path (feedback Q4)'. I had suggested splitting the test (i in 1a, ii in 1c) but the architect's choice is defensible — the test asserts BOTH the 1a opener AND the absence of the PR-phase route (a 1b deletion outcome), so it logically belongs in or after 1c. Accept.
 
-1. **#2809 slice-composition authority exercised correctly per §11**. The architect explicitly defends the 2-slice DAG against further sub-slicing with FOUR concrete, file-citing reasons (recorded verbatim in `replan_change_log[3]` and `recommended_approach.rejected_options_summary.further_subdivision_of_slice_1`):
-   - (a) operator-binding cq-1 selection (option 4: "Two slices with dependency [A+D] → [C]") + decision-13 approval at 2026-05-27T07:44:14.
-   - (b) textual conflicts on `pipelines.py` within slice-1 — Context-PR collapse, PR-phase deletion, ConsensusEvaluator deletion, and the coupled cleanup tail all touch the SAME ~600-line context-PR scaffold region and the SAME `_run_implement_phase_slices` function. I independently verified this by reading the v2 plan draft: TASK-1-1 (new opener), TASK-1-2 (delete scaffold), TASK-1-13 (helper extractions), and TASK-1-3 (PR-phase removal) all land on overlapping line ranges in `pipelines.py`. Sub-slicing would convert intra-PR review work into cross-PR merge-conflict resolution — net-negative cost.
-   - (c) durability of prior operator preference (decision-13 approved this shape).
-   - (d) natural seam between A's context-PR collapse and D's coupled cleanup IS the same change region — there is no clean cross-file boundary.
+### Non-blocking
+- **N2 — gateway phase='pr' namespace observability noise (MEDIUM, CERTAIN per my risk register)**: AC-20 preserves the namesake-namespace carve-out at gateway_client.py:1441, which is structurally correct. However, after 1b removes `PipelinePhase.PR` from the StrEnum, every `gateway_client.create_pr()` call (the new 1a opener AND the cq-8 idempotent slice-PR opener in 1c AND any future PR caller) routes through `gateway.py:3680` → `filter_operation(phase='pr')` → `phase_filter.py:986 PipelinePhase('pr')` → ValueError → caught at gateway.py:3704 with a `logger.warning('Invalid session phase value', phase='pr')` and fall-through to allow. **Functional correctness preserved; observability noise is real.** Suggest adding a sub-AC under AC-20 for 1b: 'in gateway/gateway.py downgrade the `Invalid session phase value` log at :3706 and :4356 from WARNING to DEBUG with a comment naming the synthetic-PR-session namespace use case, OR add a sentinel-check `if phase == "pr": skip-warning` before the catch block'. The plain-text WARNING-noise post-1b will cause every successful PR open to look like a backward-compat fallback, which is misleading. Non-blocking because functional path works and the architect's overall plan ships safely; but the architect's AC-20 should at minimum acknowledge this footgun in the 1b commit message so the implement-phase coder knows the WARNING noise is by-design.
+- **AC-12a callable signature shape**: `_resolve_slice_base_branch(contract, slice_id)` — at the cited consumer sites (pipelines.py:10801, 10844, 11519-11542, etc.), the function callers have `contract` (loaded from disk) and the slice's `id` available. Verified — signature is sufficient. No change required; flagging only for the implement-phase coder to confirm at edit time.
+- **AC-8 integration test placement** — the integration test in 1c verifies BOTH the 1a opener (one `gh pr create` on first plan→implement; zero on re-entry) AND the post-1b state (no PR-phase route). Defensible — the test depends on the FULL post-collapse topology. But if 1c is delayed by R1 (TASK-1-9 HITL escalation), 1a + 1b ship without this integration coverage; unit tests in 1a's TASK-1-15 cover idempotency and hard-required-failure paths separately, which is sufficient for the 1a-only window.
 
-   Per §11: "Refiner / operator can override sizing concerns if there is a deliberate reason to ship a large slice... in that case the architect should cite the override in the analysis and the reviewer can ACK once the rationale is on the record." Rationale is on the record. ACK on slice-sizing.
-
-2. **Comprehensive integration of risk_analyst R1-R13 findings**. The `risk_analyst_findings_integrated` section walks through every R1 through R13 with explicit architect_response + ac_updates_required + a new acceptance-criterion table (AC-18 through AC-24) carrying the mitigations into the plan-phase output. I cross-checked the integration against the risk_analyst's artifact:
-   - R1 (#2570 OOS collision) → AC-9a expanded with proactive HITL framing + architect-recommended option (a) "narrowly scope rebase-fallback fix" + #2797 interaction check. ✓
-   - R2 (ConsensusEvaluator surface) → AC-18 added enumerating ALL 8 clusters (6 pipelines.py + 1 phases.py:119-124 + 1 signals.py:847-871). The architect ALSO independently surfaced a 6th cluster in pipelines.py (line 3516-3522) that the prior plan missed AND the risk_analyst missed — confirming the count goes from 5 → 8. I independently grep-verified this: phases.py:119-124 and signals.py:847-871 both import + use `get_consensus_evaluator()` at HEAD. ✓
-   - R3 (schema migration + stacked_pr_reconciler) → AC-19 (a)(b)(c) implements migration shim, rewires stacked_pr_reconciler.py, enumerates additional read sites at pipelines.py:16755, 16781, 20193. ✓
-   - R4 (PR-phase completeness + namesake-namespace) → AC-20 adds `gateway/tests/test_phase_transition.py` to rewrite list, corrects namesake site from `:2567` (wrong — that's a `gh pr list` CLI flag) to `:1441` (correct — gateway-session namespace string), preserves test_session_manager.py and test_gateway.py asserts. ✓
-   - R5 (line drift) → replan_change_log[1] documents the +632 / +1383 line drift and explicitly states "File:line citations refreshed against HEAD". I spot-checked: architect's runtime_primitive_inventory_addendum cites `_rebase_pipeline_branch_onto_base` at HEAD (which is :7465; my own verification confirmed), `_open_context_pr_for_pipeline` at :10634 (confirmed), `_persist_context_pr_linkage_on_contract` at :10423 (confirmed), `_should_skip_pr_phase_auto_pr` at :8854 (matches HEAD; the plan v1 cited :8222 which was the SHA-anchor figure). ✓
-   - R6 (_check_post_consensus_stall semantics) → AC-23 added mandating either (a) re-derive equivalent predicate or (b) delete short-circuit. ✓
-   - R7 (is_context_push cleanup) → AC-21 added requiring is_context_push removal at gateway.py:1349, 1363, 1376, 1392 + `make lint` passes. ✓
-   - R8 (_tracker_key shape consistency) → AC-24 added pinning the exact signature `_tracker_key(pipeline_id, slice.id)` and cross-referencing AC-15 with AC-16 in `depends_on`. ✓
-   - R9 (persist helper) → AC-22 added naming the persistence path explicitly + unit test for context_pr_number persistence. ✓
-   - R10-R13 → addressed via existing framing (no new ACs required); rationale recorded. ✓
-
-3. **Acceptance criteria are testable and file-line-anchored**. AC-1 through AC-24 each name specific file:line evidence at HEAD or define the new symbol's location, the test that proves it, the verification grep, and the role-allowed file scope. AC-4a (grep verification artifact required in PR body) is the right mechanism to close the recurrence loop the cq-4 framing warns about (#2593 → #2744 → #2769). AC-4 alone is the PR-phase removal; AC-4a is the proof-of-completeness obligation — clean separation.
-
-4. **Trust-boundary and #2594 audit are explicit**. `runtime_primitive_inventory_addendum.execution_context_dimensions` correctly identifies that NO in-sandbox-agent code paths are touched and ALL changes are trusted-CI runner / orchestrator pod / gateway pod. The integration test surface ("Likely tests/integration/ ... planner to locate") correctly delegates the path determination to the task_planner who has the latest fixture layout. The namesake-namespace carve-out (`phase="pr"` as gateway session namespace) is documented under `namesake_namespace_carveouts_do_not_touch` in the risk_analyst R4 integration and AC-20(b) — the implement-phase coder cannot conflate it with `PipelinePhase.PR`. ✓
-
-5. **#2792 → #2797 status update handled responsibly**. The architect's replan_change_log[2] notes #2792 was independently resolved in merged PR #2797 (commit 99f8a008a8) since the prior plan was authored, but the OOS list is preserved verbatim per decision-11. This is the right approach — operator intent stays binding, and the architect surfaces the interaction (AC-9a's reference to #2797's auto-recover semantics) so the implement-phase coder knows to check it during the #2570 diagnosis. ✓
-
-6. **#2806 (hard-fail on producer death) noted as escape valve for R7 false-positive risk**. The architect proactively mentions that #2806 provides one escape valve at the producer level for slice-2's bootstrap-reconciliation false-positives. This is the kind of cross-issue awareness that prevents the implement-phase coder from re-inventing a safety net that already exists. ✓
-
-7. **PR-body assembleability handled via plan-phase NACK (AC-1a)**, not runtime degraded body. The technical_decisions section documents the choice and rejects the degraded-body alternative for the right reason: cq-4 requires hard-required up-front opening, and a degraded body re-introduces a soft-fail path. ✓
-
-8. **Slice-2 #2409 scope narrowing is a substantive simplification**. The architect verifies at HEAD that `reconstruct_tracker_from_messages` ALREADY accepts `slice_id` (peer_consensus.py:1919-1926) and `message_store` already filters on `metadata['slice_id']` (message_store.py:407-416). The only gap is `startup_reconciliation.py:312` calling reconstruct WITHOUT slice_id. This makes the task much smaller and lower-risk than the prior plan's "add slice_id to Message dataclass" framing. ✓
-
-### Non-blocking observations (do NOT block ACK)
-
-- **AC-3 / AC-19(a) wording tension**: AC-3 says "planner may instead implement a strip-and-migrate path ... choose at plan time and justify" while AC-19(a) says "Implement `_migrate_schema_version_to_1_2` ... auto-strip-on-load is safer than hard-reject for the on-disk fixture set." AC-19(a) effectively mandates the migrate path (it's the R3 mitigation), but AC-3 leaves it open. The two are reconcilable — AC-19 is the binding requirement from the risk-integration block, AC-3 is the loose statement of the underlying schema invariant. The task_planner should resolve the tension in TASK-1-5's description by stating the chosen path (auto-migrate per AC-19) and dropping the AC-3 "choose at plan time" wording. NON-blocking: an attentive task_planner will pick the migrate path because that's the R3-resolving option.
-
-- **AC-9a HITL timing**: the architect_response for R1 says "Update AC-9a to require the HITL fires at plan-phase consensus (not implement-phase runtime)" but the AC-9a text itself still reads "the coder MUST register an HITL decision via `mcp__sdlc__register_open_question` BEFORE modifying the OOS primitive" — that's implement-phase reactive registration, not plan-phase proactive. The risk_analyst's R1 evidence (verified at HEAD) makes it certain that the #2570 diagnosis will hit `_sync_worktree_with_remote`'s bare-rebase fallback at pipelines.py:7219-7232. The architect's recommended option (a) ("narrowly scope the rebase-fallback fix") is a substantive design recommendation that overrides decision-11 partially — the operator must approve it before the coder writes code. The cleanest resolution: the task_planner registers an HITL at plan-phase NOW via `mcp__sdlc__register_open_question`, with the three options the architect enumerated, before the implement-phase starts. This prevents the implement-phase from being interrupted by a HITL the plan-phase could have resolved upfront. NON-blocking on the architect (the AC obligation is in place) but I will require this in my v2 task_planner review.
-
-- **AC-9a #2797 interaction check is good but should add: "the auto-recover from #2797 must not loop with the #2570 fix"**. The architect notes "since #2797 already touches `_sync_worktree_with_remote`-adjacent paths, the coder must check whether any #2570 fix interferes with #2797's auto-recovery semantics — if so, register the HITL gate before merging." Concrete failure mode to add: if #2570 fix changes the rebase semantics in a way that #2797's auto-recover then triggers (e.g. recover detects "divergence" because the rebase no longer happened), the orchestrator could oscillate. NON-blocking; the existing AC framing covers it via the second HITL gate.
-
-- **Slice-1's component "Stale archaeology comments (housekeeping)"** is bundled but the line ranges are left to the task_planner to determine. That's fine — the architect explicitly notes "Planner enumerates the specific blocks within the slice-loop region after the structural edits land to avoid double-touching comments that get rewritten as part of other components." Good defensive framing. NON-blocking.
-
-- **BLE001 line-number drift in the slice-loop region**: architect cites the candidate sites at HEAD (pipelines.py:16514, 16579, 16657, ... 17492) and instructs the planner to re-verify via `Grep '# noqa: BLE001'` intersected with the `_run_implement_phase_slices` def range (:16396 onward). This is the right approach — explicit grep with anchor symbol — vs. trusting the architect's line list. NON-blocking.
-
-- **integration test path "Likely tests/integration/"** — at HEAD the integration test path is `integration_tests/regression/` per the task_planner's v2 fix (the legacy `local_pipeline/` was deleted on 2026-05-11 in commit f7803637d1). The architect's "planner to locate" framing is acceptable; the task_planner already corrected this in their v2 plan draft. NON-blocking.
-
-- **`replan_change_log[5]`** notes the 6 ConsensusEvaluator clusters in pipelines.py — but the architect's AC-18 (added later in the same artifact) correctly expands to 8 clusters across THREE modules (6 pipelines.py + 1 phases.py + 1 signals.py). The replan_change_log is a snapshot before the risk-integration pass; AC-18 is the authoritative count. NON-blocking.
-
-### Summary
-
-This is the highest-quality architect output I have reviewed in this pipeline class. Every blocking risk_analyst finding (R1-R9) is integrated into a corresponding AC (AC-18 through AC-24) with file:line evidence at HEAD. The slice-composition authority granted by #2809 is exercised responsibly with four concrete reasons for the 2-slice DAG, anchored by operator decisions cq-1 + decision-13. The non-blocking observations above are for the task_planner to incorporate into the next plan version — none of them is severe enough to NACK the architect.
-
-The implement-phase will likely surface the AC-9a HITL (#2570 OOS collision) as the most expensive resolution path; whether the operator approves option (a), (b), or (c) determines slice-1's #2570 scope. The task_planner's next plan version should register that HITL at plan-phase to avoid implement-phase interruption.
-
+Overall risk per my register: MEDIUM_HIGH (down from HIGH in iteration 0). R1 (TASK-1-9 #2570 escalation) drives the residual HIGH-severity tail — now isolated to 1c per the sub-slicing. Architect v4 is structurally sound and risk-lens approved.
 
 ````yaml
-id: ab7d7824-b81a-44
+id: 34fe1b77-601d-45
 phase: plan
 metadata:
   payload:
     artifact_references:
     - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
     - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
-    - .egg-state/drafts/issue-2777-replan-plan.md
-    - .egg-state/drafts/issue-2777-replan-analysis.md
     - orchestrator/routes/pipelines.py
     - orchestrator/routes/phases.py
-    - orchestrator/routes/signals.py
-    - orchestrator/consensus.py
-    - orchestrator/stacked_pr_reconciler.py
-    - shared/egg_contracts/models.py
-    - shared/egg_contracts/phase_defaults.py
     - gateway/gateway.py
     - gateway/phase_filter.py
-    - gateway/phase_transition.py
-    reason: "\nReviewed the architect's proposal at `.egg-state/agent-outputs/issue-2777-replan-architect-output.json`\
-      \ (604 lines, schema v2) and `architect-slices.yaml` (forest-clean: slice-1\
-      \ root parent=null, slice-2 parent_slice_id=1) against the analysis, the risk_analyst's\
-      \ risk register, the operator decision set (cq-1..cq-10 + decision-11/12/13\
-      \ + feedback-1 Q1..Q5), the plan draft v2, and HEAD on the architect's branch.\n\
-      \n### What this proposal does that earns the ACK\n\n1. **#2809 slice-composition\
-      \ authority exercised correctly per \xA711**. The architect explicitly defends\
-      \ the 2-slice DAG against further sub-slicing with FOUR concrete, file-citing\
-      \ reasons (recorded verbatim in `replan_change_log[3]` and `recommended_approach.rejected_options_summary.further_subdivision_of_slice_1`):\n\
-      \   - (a) operator-binding cq-1 selection (option 4: \"Two slices with dependency\
-      \ [A+D] \u2192 [C]\") + decision-13 approval at 2026-05-27T07:44:14.\n   - (b)\
-      \ textual conflicts on `pipelines.py` within slice-1 \u2014 Context-PR collapse,\
-      \ PR-phase deletion, ConsensusEvaluator deletion, and the coupled cleanup tail\
-      \ all touch the SAME ~600-line context-PR scaffold region and the SAME `_run_implement_phase_slices`\
-      \ function. I independently verified this by reading the v2 plan draft: TASK-1-1\
-      \ (new opener), TASK-1-2 (delete scaffold), TASK-1-13 (helper extractions),\
-      \ and TASK-1-3 (PR-phase removal) all land on overlapping line ranges in `pipelines.py`.\
-      \ Sub-slicing would convert intra-PR review work into cross-PR merge-conflict\
-      \ resolution \u2014 net-negative cost.\n   - (c) durability of prior operator\
-      \ preference (decision-13 approved this shape).\n   - (d) natural seam between\
-      \ A's context-PR collapse and D's coupled cleanup IS the same change region\
-      \ \u2014 there is no clean cross-file boundary.\n\n   Per \xA711: \"Refiner\
-      \ / operator can override sizing concerns if there is a deliberate reason to\
-      \ ship a large slice... in that case the architect should cite the override\
-      \ in the analysis and the reviewer can ACK once the rationale is on the record.\"\
-      \ Rationale is on the record. ACK on slice-sizing.\n\n2. **Comprehensive integration\
-      \ of risk_analyst R1-R13 findings**. The `risk_analyst_findings_integrated`\
-      \ section walks through every R1 through R13 with explicit architect_response\
-      \ + ac_updates_required + a new acceptance-criterion table (AC-18 through AC-24)\
-      \ carrying the mitigations into the plan-phase output. I cross-checked the integration\
-      \ against the risk_analyst's artifact:\n   - R1 (#2570 OOS collision) \u2192\
-      \ AC-9a expanded with proactive HITL framing + architect-recommended option\
-      \ (a) \"narrowly scope rebase-fallback fix\" + #2797 interaction check. \u2713\
-      \n   - R2 (ConsensusEvaluator surface) \u2192 AC-18 added enumerating ALL 8\
-      \ clusters (6 pipelines.py + 1 phases.py:119-124 + 1 signals.py:847-871). The\
-      \ architect ALSO independently surfaced a 6th cluster in pipelines.py (line\
-      \ 3516-3522) that the prior plan missed AND the risk_analyst missed \u2014 confirming\
-      \ the count goes from 5 \u2192 8. I independently grep-verified this: phases.py:119-124\
-      \ and signals.py:847-871 both import + use `get_consensus_evaluator()` at HEAD.\
-      \ \u2713\n   - R3 (schema migration + stacked_pr_reconciler) \u2192 AC-19 (a)(b)(c)\
-      \ implements migration shim, rewires stacked_pr_reconciler.py, enumerates additional\
-      \ read sites at pipelines.py:16755, 16781, 20193. \u2713\n   - R4 (PR-phase\
-      \ completeness + namesake-namespace) \u2192 AC-20 adds `gateway/tests/test_phase_transition.py`\
-      \ to rewrite list, corrects namesake site from `:2567` (wrong \u2014 that's\
-      \ a `gh pr list` CLI flag) to `:1441` (correct \u2014 gateway-session namespace\
-      \ string), preserves test_session_manager.py and test_gateway.py asserts. \u2713\
-      \n   - R5 (line drift) \u2192 replan_change_log[1] documents the +632 / +1383\
-      \ line drift and explicitly states \"File:line citations refreshed against HEAD\"\
-      . I spot-checked: architect's runtime_primitive_inventory_addendum cites `_rebase_pipeline_branch_onto_base`\
-      \ at HEAD (which is :7465; my own verification confirmed), `_open_context_pr_for_pipeline`\
-      \ at :10634 (confirmed), `_persist_context_pr_linkage_on_contract` at :10423\
-      \ (confirmed), `_should_skip_pr_phase_auto_pr` at :8854 (matches HEAD; the plan\
-      \ v1 cited :8222 which was the SHA-anchor figure). \u2713\n   - R6 (_check_post_consensus_stall\
-      \ semantics) \u2192 AC-23 added mandating either (a) re-derive equivalent predicate\
-      \ or (b) delete short-circuit. \u2713\n   - R7 (is_context_push cleanup) \u2192\
-      \ AC-21 added requiring is_context_push removal at gateway.py:1349, 1363, 1376,\
-      \ 1392 + `make lint` passes. \u2713\n   - R8 (_tracker_key shape consistency)\
-      \ \u2192 AC-24 added pinning the exact signature `_tracker_key(pipeline_id,\
-      \ slice.id)` and cross-referencing AC-15 with AC-16 in `depends_on`. \u2713\n\
-      \   - R9 (persist helper) \u2192 AC-22 added naming the persistence path explicitly\
-      \ + unit test for context_pr_number persistence. \u2713\n   - R10-R13 \u2192\
-      \ addressed via existing framing (no new ACs required); rationale recorded.\
-      \ \u2713\n\n3. **Acceptance criteria are testable and file-line-anchored**.\
-      \ AC-1 through AC-24 each name specific file:line evidence at HEAD or define\
-      \ the new symbol's location, the test that proves it, the verification grep,\
-      \ and the role-allowed file scope. AC-4a (grep verification artifact required\
-      \ in PR body) is the right mechanism to close the recurrence loop the cq-4 framing\
-      \ warns about (#2593 \u2192 #2744 \u2192 #2769). AC-4 alone is the PR-phase\
-      \ removal; AC-4a is the proof-of-completeness obligation \u2014 clean separation.\n\
-      \n4. **Trust-boundary and #2594 audit are explicit**. `runtime_primitive_inventory_addendum.execution_context_dimensions`\
-      \ correctly identifies that NO in-sandbox-agent code paths are touched and ALL\
-      \ changes are trusted-CI runner / orchestrator pod / gateway pod. The integration\
-      \ test surface (\"Likely tests/integration/ ... planner to locate\") correctly\
-      \ delegates the path determination to the task_planner who has the latest fixture\
-      \ layout. The namesake-namespace carve-out (`phase=\"pr\"` as gateway session\
-      \ namespace) is documented under `namesake_namespace_carveouts_do_not_touch`\
-      \ in the risk_analyst R4 integration and AC-20(b) \u2014 the implement-phase\
-      \ coder cannot conflate it with `PipelinePhase.PR`. \u2713\n\n5. **#2792 \u2192\
-      \ #2797 status update handled responsibly**. The architect's replan_change_log[2]\
-      \ notes #2792 was independently resolved in merged PR #2797 (commit 99f8a008a8)\
-      \ since the prior plan was authored, but the OOS list is preserved verbatim\
-      \ per decision-11. This is the right approach \u2014 operator intent stays binding,\
-      \ and the architect surfaces the interaction (AC-9a's reference to #2797's auto-recover\
-      \ semantics) so the implement-phase coder knows to check it during the #2570\
-      \ diagnosis. \u2713\n\n6. **#2806 (hard-fail on producer death) noted as escape\
-      \ valve for R7 false-positive risk**. The architect proactively mentions that\
-      \ #2806 provides one escape valve at the producer level for slice-2's bootstrap-reconciliation\
-      \ false-positives. This is the kind of cross-issue awareness that prevents the\
-      \ implement-phase coder from re-inventing a safety net that already exists.\
-      \ \u2713\n\n7. **PR-body assembleability handled via plan-phase NACK (AC-1a)**,\
-      \ not runtime degraded body. The technical_decisions section documents the choice\
-      \ and rejects the degraded-body alternative for the right reason: cq-4 requires\
-      \ hard-required up-front opening, and a degraded body re-introduces a soft-fail\
-      \ path. \u2713\n\n8. **Slice-2 #2409 scope narrowing is a substantive simplification**.\
-      \ The architect verifies at HEAD that `reconstruct_tracker_from_messages` ALREADY\
-      \ accepts `slice_id` (peer_consensus.py:1919-1926) and `message_store` already\
-      \ filters on `metadata['slice_id']` (message_store.py:407-416). The only gap\
-      \ is `startup_reconciliation.py:312` calling reconstruct WITHOUT slice_id. This\
-      \ makes the task much smaller and lower-risk than the prior plan's \"add slice_id\
-      \ to Message dataclass\" framing. \u2713\n\n### Non-blocking observations (do\
-      \ NOT block ACK)\n\n- **AC-3 / AC-19(a) wording tension**: AC-3 says \"planner\
-      \ may instead implement a strip-and-migrate path ... choose at plan time and\
-      \ justify\" while AC-19(a) says \"Implement `_migrate_schema_version_to_1_2`\
-      \ ... auto-strip-on-load is safer than hard-reject for the on-disk fixture set.\"\
-      \ AC-19(a) effectively mandates the migrate path (it's the R3 mitigation), but\
-      \ AC-3 leaves it open. The two are reconcilable \u2014 AC-19 is the binding\
-      \ requirement from the risk-integration block, AC-3 is the loose statement of\
-      \ the underlying schema invariant. The task_planner should resolve the tension\
-      \ in TASK-1-5's description by stating the chosen path (auto-migrate per AC-19)\
-      \ and dropping the AC-3 \"choose at plan time\" wording. NON-blocking: an attentive\
-      \ task_planner will pick the migrate path because that's the R3-resolving option.\n\
-      \n- **AC-9a HITL timing**: the architect_response for R1 says \"Update AC-9a\
-      \ to require the HITL fires at plan-phase consensus (not implement-phase runtime)\"\
-      \ but the AC-9a text itself still reads \"the coder MUST register an HITL decision\
-      \ via `mcp__sdlc__register_open_question` BEFORE modifying the OOS primitive\"\
-      \ \u2014 that's implement-phase reactive registration, not plan-phase proactive.\
-      \ The risk_analyst's R1 evidence (verified at HEAD) makes it certain that the\
-      \ #2570 diagnosis will hit `_sync_worktree_with_remote`'s bare-rebase fallback\
-      \ at pipelines.py:7219-7232. The architect's recommended option (a) (\"narrowly\
-      \ scope the rebase-fallback fix\") is a substantive design recommendation that\
-      \ overrides decision-11 partially \u2014 the operator must approve it before\
-      \ the coder writes code. The cleanest resolution: the task_planner registers\
-      \ an HITL at plan-phase NOW via `mcp__sdlc__register_open_question`, with the\
-      \ three options the architect enumerated, before the implement-phase starts.\
-      \ This prevents the implement-phase from being interrupted by a HITL the plan-phase\
-      \ could have resolved upfront. NON-blocking on the architect (the AC obligation\
-      \ is in place) but I will require this in my v2 task_planner review.\n\n- **AC-9a\
-      \ #2797 interaction check is good but should add: \"the auto-recover from #2797\
-      \ must not loop with the #2570 fix\"**. The architect notes \"since #2797 already\
-      \ touches `_sync_worktree_with_remote`-adjacent paths, the coder must check\
-      \ whether any #2570 fix interferes with #2797's auto-recovery semantics \u2014\
-      \ if so, register the HITL gate before merging.\" Concrete failure mode to add:\
-      \ if #2570 fix changes the rebase semantics in a way that #2797's auto-recover\
-      \ then triggers (e.g. recover detects \"divergence\" because the rebase no longer\
-      \ happened), the orchestrator could oscillate. NON-blocking; the existing AC\
-      \ framing covers it via the second HITL gate.\n\n- **Slice-1's component \"\
-      Stale archaeology comments (housekeeping)\"** is bundled but the line ranges\
-      \ are left to the task_planner to determine. That's fine \u2014 the architect\
-      \ explicitly notes \"Planner enumerates the specific blocks within the slice-loop\
-      \ region after the structural edits land to avoid double-touching comments that\
-      \ get rewritten as part of other components.\" Good defensive framing. NON-blocking.\n\
-      \n- **BLE001 line-number drift in the slice-loop region**: architect cites the\
-      \ candidate sites at HEAD (pipelines.py:16514, 16579, 16657, ... 17492) and\
-      \ instructs the planner to re-verify via `Grep '# noqa: BLE001'` intersected\
-      \ with the `_run_implement_phase_slices` def range (:16396 onward). This is\
-      \ the right approach \u2014 explicit grep with anchor symbol \u2014 vs. trusting\
-      \ the architect's line list. NON-blocking.\n\n- **integration test path \"Likely\
-      \ tests/integration/\"** \u2014 at HEAD the integration test path is `integration_tests/regression/`\
-      \ per the task_planner's v2 fix (the legacy `local_pipeline/` was deleted on\
-      \ 2026-05-11 in commit f7803637d1). The architect's \"planner to locate\" framing\
-      \ is acceptable; the task_planner already corrected this in their v2 plan draft.\
-      \ NON-blocking.\n\n- **`replan_change_log[5]`** notes the 6 ConsensusEvaluator\
-      \ clusters in pipelines.py \u2014 but the architect's AC-18 (added later in\
-      \ the same artifact) correctly expands to 8 clusters across THREE modules (6\
-      \ pipelines.py + 1 phases.py + 1 signals.py). The replan_change_log is a snapshot\
-      \ before the risk-integration pass; AC-18 is the authoritative count. NON-blocking.\n\
-      \n### Summary\n\nThis is the highest-quality architect output I have reviewed\
-      \ in this pipeline class. Every blocking risk_analyst finding (R1-R9) is integrated\
-      \ into a corresponding AC (AC-18 through AC-24) with file:line evidence at HEAD.\
-      \ The slice-composition authority granted by #2809 is exercised responsibly\
-      \ with four concrete reasons for the 2-slice DAG, anchored by operator decisions\
-      \ cq-1 + decision-13. The non-blocking observations above are for the task_planner\
-      \ to incorporate into the next plan version \u2014 none of them is severe enough\
-      \ to NACK the architect.\n\nThe implement-phase will likely surface the AC-9a\
-      \ HITL (#2570 OOS collision) as the most expensive resolution path; whether\
-      \ the operator approves option (a), (b), or (c) determines slice-1's #2570 scope.\
-      \ The task_planner's next plan version should register that HITL at plan-phase\
-      \ to avoid implement-phase interruption.\n"
+    - orchestrator/gateway_client.py
+    reason: "Reviewed architect v4 (commit b6b58a15e) \u2014 slices.yaml (4 slices)\
+      \ + architect-output.json (acceptance_criteria_for_task_planner, risk_analyst_findings_integrated,\
+      \ technical_decisions). Verified gateway+orchestrator primitives at HEAD against\
+      \ AC-4a/AC-4c grep targets, the AC-12a helper signatures, and the AC-20 namesake-namespace\
+      \ carve-out at gateway_client.py:1441 + gateway/gateway.py:3680-3710 backward-compat\
+      \ fallthrough.\n\nACK on architect v4 \u2014 the 4-slice composition is the\
+      \ correct response to the operator's iteration-1 sub-slicing directive (#2809)\
+      \ and the risk-lens evaluation passes.\n\n### What I verified\n1. **slices.yaml\
+      \ parent_slice_id encoding (N4 addressed)** \u2014 linear chain 1 (root, slice-1a)\
+      \ \u2192 2 (parent=1, slice-1b) \u2192 3 (parent=2, slice-1c) \u2192 4 (parent=3,\
+      \ slice-2). Forest invariant honoured. Out-of-order merge of 1b before 1a is\
+      \ structurally prevented.\n2. **1a authors primitives BEFORE 1b deletes (R9,\
+      \ N1 addressed)** \u2014 AC-1 wires the new opener at all 5 call sites (phases.py:500\
+      \ + pipelines.py:16503/22132/23671/24666) in 1a; AC-22 ensures _persist_context_pr_number\
+      \ is the named helper in 1a; the legacy _maybe_open_base_pr_for_plan_to_implement\
+      \ def at pipelines.py:11280 survives 1a as zero-caller dead code and is deleted\
+      \ only in 1b. This eliminates the unwired-WIP-partial failure mode the prior\
+      \ 16-task run NACKed.\n3. **AC-12a helper signatures (N5 addressed)** \u2014\
+      \ `_resolve_slice_base_branch(contract, slice_id) -> str` and `_is_slice_dag_mode(contract)\
+      \ -> bool`. Consumers in 1b's stacked_pr_reconciler rewire, 1c's #2570 fix,\
+      \ and slice-2's merge-base fallback are explicitly named. The deterministic-`egg/<pipeline_id>/work`-in-1a-then-merge-base-fallback-in-slice-2\
+      \ pattern is correctly sequenced.\n4. **R1 #2570 isolation to 1c** \u2014 net\
+      \ operational benefit confirmed. AC-9a HITL gate preserved. If diagnosis lands\
+      \ on OOS `_sync_worktree_with_remote`, 1c can NACK on AC-9a without blocking\
+      \ 1a/1b.\n5. **R2 ConsensusEvaluator surface widened to 8 clusters** \u2014\
+      \ architect verified `phases.py:119-124` and `signals.py:847-871` at HEAD via\
+      \ sub-agent fact-check (citation #11). AC-18/AC-2 enumerates all 8.\n6. **R3\
+      \ PRMetadata fanout** \u2014 AC-3 introduces `_migrate_schema_version_to_1_2`\
+      \ migrator mirroring `_migrate_schema_version_to_1_1` at models.py:908; AC-19\
+      \ covers the three remedies (migrator + stacked_pr_reconciler rewire + additional\
+      \ read-site enumeration). Routed to 1b.\n7. **R4 PR-phase deletion completeness**\
+      \ \u2014 AC-4 enumerates the full surface across pipelines.py / phases.py /\
+      \ mcp_tools.py / overseer / dag_visualizer / gateway. AC-4a captures BOTH before-and-after\
+      \ grep as a PR artifact. AC-4c covers gateway lock-step deletions and the 4\
+      \ gateway test files.\n8. **R6 _check_post_consensus_stall semantic rewire (#1911)**\
+      \ \u2014 AC-23 routes to 1b alongside the deletion.\n9. **R7 is_context_push\
+      \ cleanup** \u2014 AC-21 explicitly enumerates the 4 references at gateway.py:1349/1363/1376/1392\
+      \ and requires `make lint` green post-deletion.\n10. **N3 integration-test placement\
+      \ in 1c** \u2014 architect honored the operator's sketch (AC-8 places the end-to-end\
+      \ test in 1c). The architect explicitly notes this in the slice-1c goal: 'the\
+      \ end-to-end integration test for the up-front context-PR open path (feedback\
+      \ Q4)'. I had suggested splitting the test (i in 1a, ii in 1c) but the architect's\
+      \ choice is defensible \u2014 the test asserts BOTH the 1a opener AND the absence\
+      \ of the PR-phase route (a 1b deletion outcome), so it logically belongs in\
+      \ or after 1c. Accept.\n\n### Non-blocking\n- **N2 \u2014 gateway phase='pr'\
+      \ namespace observability noise (MEDIUM, CERTAIN per my risk register)**: AC-20\
+      \ preserves the namesake-namespace carve-out at gateway_client.py:1441, which\
+      \ is structurally correct. However, after 1b removes `PipelinePhase.PR` from\
+      \ the StrEnum, every `gateway_client.create_pr()` call (the new 1a opener AND\
+      \ the cq-8 idempotent slice-PR opener in 1c AND any future PR caller) routes\
+      \ through `gateway.py:3680` \u2192 `filter_operation(phase='pr')` \u2192 `phase_filter.py:986\
+      \ PipelinePhase('pr')` \u2192 ValueError \u2192 caught at gateway.py:3704 with\
+      \ a `logger.warning('Invalid session phase value', phase='pr')` and fall-through\
+      \ to allow. **Functional correctness preserved; observability noise is real.**\
+      \ Suggest adding a sub-AC under AC-20 for 1b: 'in gateway/gateway.py downgrade\
+      \ the `Invalid session phase value` log at :3706 and :4356 from WARNING to DEBUG\
+      \ with a comment naming the synthetic-PR-session namespace use case, OR add\
+      \ a sentinel-check `if phase == \"pr\": skip-warning` before the catch block'.\
+      \ The plain-text WARNING-noise post-1b will cause every successful PR open to\
+      \ look like a backward-compat fallback, which is misleading. Non-blocking because\
+      \ functional path works and the architect's overall plan ships safely; but the\
+      \ architect's AC-20 should at minimum acknowledge this footgun in the 1b commit\
+      \ message so the implement-phase coder knows the WARNING noise is by-design.\n\
+      - **AC-12a callable signature shape**: `_resolve_slice_base_branch(contract,\
+      \ slice_id)` \u2014 at the cited consumer sites (pipelines.py:10801, 10844,\
+      \ 11519-11542, etc.), the function callers have `contract` (loaded from disk)\
+      \ and the slice's `id` available. Verified \u2014 signature is sufficient. No\
+      \ change required; flagging only for the implement-phase coder to confirm at\
+      \ edit time.\n- **AC-8 integration test placement** \u2014 the integration test\
+      \ in 1c verifies BOTH the 1a opener (one `gh pr create` on first plan\u2192\
+      implement; zero on re-entry) AND the post-1b state (no PR-phase route). Defensible\
+      \ \u2014 the test depends on the FULL post-collapse topology. But if 1c is delayed\
+      \ by R1 (TASK-1-9 HITL escalation), 1a + 1b ship without this integration coverage;\
+      \ unit tests in 1a's TASK-1-15 cover idempotency and hard-required-failure paths\
+      \ separately, which is sufficient for the 1a-only window.\n\nOverall risk per\
+      \ my register: MEDIUM_HIGH (down from HIGH in iteration 0). R1 (TASK-1-9 #2570\
+      \ escalation) drives the residual HIGH-severity tail \u2014 now isolated to\
+      \ 1c per the sub-slicing. Architect v4 is structurally sound and risk-lens approved."
     ack_version: 1
   version: 1
 ````
 
-### [2026-05-29T03:49:10Z] orchestrator → architect (STATUS): Ready to confirm — all confirm preconditions satisfied
+### [2026-05-29T04:35:35Z] orchestrator → architect (STATUS): Ready to confirm — all confirm preconditions satisfied
 
 Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
 
 ````yaml
-id: 04b10e5f-93f1-4e
+id: 01c91c19-5688-44
 phase: plan
 metadata:
   ready_to_confirm: true
   version: 1
 ````
 
-### [2026-05-29T03:49:10Z] architect (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T04:35:36Z] architect (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: edb86174-3962-4f
+id: 2c2ae228-7ade-46
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:49:14Z] architect (CONSENSUS_CONFIRMED): Confirmed by architect
+### [2026-05-29T04:35:40Z] architect (CONSENSUS_CONFIRMED): Confirmed by architect
 
 ````yaml
-id: 4f3d236d-eba4-47
+id: 585449b5-473e-4d
 phase: plan
 metadata:
   consensus_reached: false
 ````
 
-### [2026-05-29T03:49:14Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 62edb5b3-32fe-47
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:49:16Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
-
-````yaml
-id: e386b50a-19fb-43
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:16.451246+00:00'
-````
-
-### [2026-05-29T03:49:18Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
-
-````yaml
-id: 604cee7a-f323-4a
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:18.371251+00:00'
-````
-
-### [2026-05-29T03:49:36Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:35:54Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 069eada7-f291-49
+id: ad8f57a7-3a47-42
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T04:35:54.392544+00:00'
 ````
 
-### [2026-05-29T03:50:16Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:36:12Z] risk_analyst → task_planner (CONSENSUS_NACK): NACK from risk_analyst for task_planner
+
+NACK on task_planner v4 (commit 870d6f29e) — the plan draft and the contract still encode a 2-slice DAG (slice-1 + slice-2) but the architect's binding v4 scaffold (commit b6b58a15e, landed AFTER your propose) now has a 4-slice composition (1a/1b/1c/2) per the operator's iteration-1 sub-slicing directive (#2809). This must be re-shaped before plan-phase consensus.
+
+### Blocking
+1. **plan-draft Slice DAG section (lines 380-390) — wrong number of slices.** Your draft renders:
+   ```
+   slice-1 (root, parent = main)
+      │  Context-PR collapse + cleanup + PR-phase removal
+      │  Subsumes #2389, #2570
+      ▼
+   slice-2 (parent = slice-1)
+      Slice/phase restart hardening
+   ```
+   The architect's `slices.yaml` at HEAD has FOUR slices: 1 (slice-1a, root) → 2 (slice-1b, parent=1) → 3 (slice-1c, parent=2) → 4 (slice-2, parent=3). Fix: re-render the Slice DAG section to a 4-node linear chain matching the architect's scaffold verbatim.
+
+2. **contract.slices field (.egg-state/contracts/issue-2777-replan.json) — wrong slice count.** `jq '.slices | length'` returns `2` (slice-1 with 25 tasks, slice-2 with 7). Per the architect's v4, this must be 4 slices. Fix: regenerate the contract from the re-shaped plan draft so `jq '.slices | map({id, name, task_count: (.tasks | length)})'` returns four entries roughly matching: `[{id: "slice-1a", task_count: ~5-7}, {id: "slice-1b", task_count: ~8-10}, {id: "slice-1c", task_count: ~6-8}, {id: "slice-2", task_count: 7}]`.
+
+3. **Task re-allocation across 1a/1b/1c — use your own enumeration at lines 130-137 of the plan draft.** Your draft already proposes the mapping (you wrote it as a "what reviewer NACKs would force me to do" scenario): `1a = {1-1a, 1-1, 1-13}`; `1b = {1-2, 1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-14}`; `1c = {1-8, 1-9, 1-10, 1-11, 1-12}`; tester/documenter tasks re-anchor under their target sub-slice. That mapping is sound and matches the architect's v4 slices.yaml goals (1a primitives + wiring; 1b scaffold + PR-phase deletions; 1c cohesion-independent cleanup). Adopt it.
+
+4. **Pre-merge / Post-merge sections (lines 410-420) — re-anchor per sub-slice.** Currently grouped as "Pre-merge (slice-1)" / "Post-merge (slice-1)" / "Pre-merge (slice-2)" / "Post-merge (slice-2)". The schema-bump pre-merge concern (line 413) belongs to slice-1b (where the schema migration lands). The `_CONTEXT_BRANCH_RE` pre-merge concern (line 414) also belongs to slice-1b. The #2389/#2570 post-merge close references belong to 1b (umbrella) and 1c (#2570) respectively. Re-anchor each.
+
+5. **Why this matters for risk lens (R12 resolution prerequisite).** My iteration-1 risk register (commit 1329963b4) marks R12 (slice-1 size exceeds BRC review appetite) as RESOLVED *by the sub-slicing*. If the contract still has 2 slices when the implement phase starts, R12 is NOT resolved — the implement-phase coder picks up a 25-task slice-1 and reproduces the iteration-0 NACK pattern (unwired WIP partials NACKed by reviewer_code_holistic / reviewer_contract / tester). The whole point of the operator's iteration-1 directive is to prevent this; your 2-slice plan-draft defeats it.
+
+### Non-blocking
+- Your iteration-1 NACK-pressure framing at lines 92-163 ("Task_planner's position") was correctly cautious — you flagged the slice-size concern for reviewers without unilaterally re-shaping. That was right at the moment you committed (architect v4 hadn't landed). But the architect HAS now revised to the 4-slice scaffold in v4, so the path you set up ("If reviewer_plan or risk_analyst NACKs architect on slice_size... I will re-propose this plan against the revised scaffold") is exactly what should happen now: re-propose against the architect's revised scaffold. This NACK IS that signal — the trigger is the architect's revised scaffold being binding, not a structural NACK on the architect (whom I just ACKed).
+- After re-shape: keep the file:line re-anchoring protocol at lines 165-203 verbatim — it's good and the architect explicitly preserves it per their replan_change_log entry 9.
+- Carry the same #yaml-tasks appendix shape (lines 424+) but split the per-slice task lists. The acceptance_criteria_for_task_planner enumeration at the architect's AC-1..AC-24 maps cleanly: AC-1, AC-1a, AC-12a, AC-22 → 1a; AC-2..AC-5, AC-5a, AC-18..AC-21, AC-23, AC-24-stacked_pr → 1b; AC-6, AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11 → 1c; AC-13..AC-17, AC-24 → slice-2.
+
+Re-propose with --changed-artifacts ".egg-state/drafts/issue-2777-replan-plan.md" ".egg-state/contracts/issue-2777-replan.json" once the contract has 4 slices matching the architect's binding scaffold.
+
+````yaml
+id: d38ef06d-adfe-4c
+phase: plan
+metadata:
+  payload:
+    reason: "NACK on task_planner v4 (commit 870d6f29e) \u2014 the plan draft and\
+      \ the contract still encode a 2-slice DAG (slice-1 + slice-2) but the architect's\
+      \ binding v4 scaffold (commit b6b58a15e, landed AFTER your propose) now has\
+      \ a 4-slice composition (1a/1b/1c/2) per the operator's iteration-1 sub-slicing\
+      \ directive (#2809). This must be re-shaped before plan-phase consensus.\n\n\
+      ### Blocking\n1. **plan-draft Slice DAG section (lines 380-390) \u2014 wrong\
+      \ number of slices.** Your draft renders:\n   ```\n   slice-1 (root, parent\
+      \ = main)\n      \u2502  Context-PR collapse + cleanup + PR-phase removal\n\
+      \      \u2502  Subsumes #2389, #2570\n      \u25BC\n   slice-2 (parent = slice-1)\n\
+      \      Slice/phase restart hardening\n   ```\n   The architect's `slices.yaml`\
+      \ at HEAD has FOUR slices: 1 (slice-1a, root) \u2192 2 (slice-1b, parent=1)\
+      \ \u2192 3 (slice-1c, parent=2) \u2192 4 (slice-2, parent=3). Fix: re-render\
+      \ the Slice DAG section to a 4-node linear chain matching the architect's scaffold\
+      \ verbatim.\n\n2. **contract.slices field (.egg-state/contracts/issue-2777-replan.json)\
+      \ \u2014 wrong slice count.** `jq '.slices | length'` returns `2` (slice-1 with\
+      \ 25 tasks, slice-2 with 7). Per the architect's v4, this must be 4 slices.\
+      \ Fix: regenerate the contract from the re-shaped plan draft so `jq '.slices\
+      \ | map({id, name, task_count: (.tasks | length)})'` returns four entries roughly\
+      \ matching: `[{id: \"slice-1a\", task_count: ~5-7}, {id: \"slice-1b\", task_count:\
+      \ ~8-10}, {id: \"slice-1c\", task_count: ~6-8}, {id: \"slice-2\", task_count:\
+      \ 7}]`.\n\n3. **Task re-allocation across 1a/1b/1c \u2014 use your own enumeration\
+      \ at lines 130-137 of the plan draft.** Your draft already proposes the mapping\
+      \ (you wrote it as a \"what reviewer NACKs would force me to do\" scenario):\
+      \ `1a = {1-1a, 1-1, 1-13}`; `1b = {1-2, 1-3, 1-4, 1-5, 1-5b, 1-6, 1-7, 1-14}`;\
+      \ `1c = {1-8, 1-9, 1-10, 1-11, 1-12}`; tester/documenter tasks re-anchor under\
+      \ their target sub-slice. That mapping is sound and matches the architect's\
+      \ v4 slices.yaml goals (1a primitives + wiring; 1b scaffold + PR-phase deletions;\
+      \ 1c cohesion-independent cleanup). Adopt it.\n\n4. **Pre-merge / Post-merge\
+      \ sections (lines 410-420) \u2014 re-anchor per sub-slice.** Currently grouped\
+      \ as \"Pre-merge (slice-1)\" / \"Post-merge (slice-1)\" / \"Pre-merge (slice-2)\"\
+      \ / \"Post-merge (slice-2)\". The schema-bump pre-merge concern (line 413) belongs\
+      \ to slice-1b (where the schema migration lands). The `_CONTEXT_BRANCH_RE` pre-merge\
+      \ concern (line 414) also belongs to slice-1b. The #2389/#2570 post-merge close\
+      \ references belong to 1b (umbrella) and 1c (#2570) respectively. Re-anchor\
+      \ each.\n\n5. **Why this matters for risk lens (R12 resolution prerequisite).**\
+      \ My iteration-1 risk register (commit 1329963b4) marks R12 (slice-1 size exceeds\
+      \ BRC review appetite) as RESOLVED *by the sub-slicing*. If the contract still\
+      \ has 2 slices when the implement phase starts, R12 is NOT resolved \u2014 the\
+      \ implement-phase coder picks up a 25-task slice-1 and reproduces the iteration-0\
+      \ NACK pattern (unwired WIP partials NACKed by reviewer_code_holistic / reviewer_contract\
+      \ / tester). The whole point of the operator's iteration-1 directive is to prevent\
+      \ this; your 2-slice plan-draft defeats it.\n\n### Non-blocking\n- Your iteration-1\
+      \ NACK-pressure framing at lines 92-163 (\"Task_planner's position\") was correctly\
+      \ cautious \u2014 you flagged the slice-size concern for reviewers without unilaterally\
+      \ re-shaping. That was right at the moment you committed (architect v4 hadn't\
+      \ landed). But the architect HAS now revised to the 4-slice scaffold in v4,\
+      \ so the path you set up (\"If reviewer_plan or risk_analyst NACKs architect\
+      \ on slice_size... I will re-propose this plan against the revised scaffold\"\
+      ) is exactly what should happen now: re-propose against the architect's revised\
+      \ scaffold. This NACK IS that signal \u2014 the trigger is the architect's revised\
+      \ scaffold being binding, not a structural NACK on the architect (whom I just\
+      \ ACKed).\n- After re-shape: keep the file:line re-anchoring protocol at lines\
+      \ 165-203 verbatim \u2014 it's good and the architect explicitly preserves it\
+      \ per their replan_change_log entry 9.\n- Carry the same #yaml-tasks appendix\
+      \ shape (lines 424+) but split the per-slice task lists. The acceptance_criteria_for_task_planner\
+      \ enumeration at the architect's AC-1..AC-24 maps cleanly: AC-1, AC-1a, AC-12a,\
+      \ AC-22 \u2192 1a; AC-2..AC-5, AC-5a, AC-18..AC-21, AC-23, AC-24-stacked_pr\
+      \ \u2192 1b; AC-6, AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11 \u2192 1c; AC-13..AC-17,\
+      \ AC-24 \u2192 slice-2.\n\nRe-propose with --changed-artifacts \".egg-state/drafts/issue-2777-replan-plan.md\"\
+      \ \".egg-state/contracts/issue-2777-replan.json\" once the contract has 4 slices\
+      \ matching the architect's binding scaffold."
+    artifact_references:
+    - .egg-state/drafts/issue-2777-replan-plan.md
+    - .egg-state/contracts/issue-2777-replan.json
+    - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
+    nack_version: 1
+  reason: "NACK on task_planner v4 (commit 870d6f29e) \u2014 the plan draft and the\
+    \ contract still encode a 2-slice DAG (slice-1 + slice-2) but the architect's\
+    \ binding v4 scaffold (commit b6b58a15e, landed AFTER your propose) now has a\
+    \ 4-slice composition (1a/1b/1c/2) per the operator's iteration-1 sub-slicing\
+    \ directive (#2809). This must be re-shaped before plan-phase consensus.\n\n###\
+    \ Blocking\n1. **plan-draft Slice DAG section (lines 380-390) \u2014 wrong number\
+    \ of slices.** Your draft renders:\n   ```\n   slice-1 (root, parent = main)\n\
+    \      \u2502  Context-PR collapse + cleanup + PR-phase removal\n      \u2502\
+    \  Subsumes #2389, #2570\n      \u25BC\n   slice-2 (parent = slice-1)\n      Slice/phase\
+    \ restart hardening\n   ```\n   The architect's `slices.yaml` at HEAD has FOUR\
+    \ slices: 1 (slice-1a, root) \u2192 2 (slice-1b, parent=1) \u2192 3 (slice-1c,\
+    \ parent=2) \u2192 4 (slice-2, parent=3). Fix: re-render the Slice DAG section\
+    \ to a 4-node linear chain matching the architect's scaffold verbatim.\n\n2. **contract.slices\
+    \ field (.egg-state/contracts/issue-2777-replan.json) \u2014 wrong slice count.**\
+    \ `jq '.slices | length'` returns `2` (slice-1 with 25 tasks, slice-2 with 7).\
+    \ Per the architect's v4, this must be 4 slices. Fix: regenerate the contract\
+    \ from the re-shaped plan draft so `jq '.slices | map({id, name, task_count: (.tasks\
+    \ | length)})'` returns four entries roughly matching: `[{id: \"slice-1a\", task_count:\
+    \ ~5-7}, {id: \"slice-1b\", task_count: ~8-10}, {id: \"slice-1c\", task_count:\
+    \ ~6-8}, {id: \"slice-2\", task_count: 7}]`.\n\n3. **Task re-allocation across\
+    \ 1a/1b/1c \u2014 use your own enumeration at lines 130-137 of the plan draft.**\
+    \ Your draft already proposes the mapping (you wrote it as a \"what reviewer NACKs\
+    \ would force me to do\" scenario): `1a = {1-1a, 1-1, 1-13}`; `1b = {1-2, 1-3,\
+    \ 1-4, 1-5, 1-5b, 1-6, 1-7, 1-14}`; `1c = {1-8, 1-9, 1-10, 1-11, 1-12}`; tester/documenter\
+    \ tasks re-anchor under their target sub-slice. That mapping is sound and matches\
+    \ the architect's v4 slices.yaml goals (1a primitives + wiring; 1b scaffold +\
+    \ PR-phase deletions; 1c cohesion-independent cleanup). Adopt it.\n\n4. **Pre-merge\
+    \ / Post-merge sections (lines 410-420) \u2014 re-anchor per sub-slice.** Currently\
+    \ grouped as \"Pre-merge (slice-1)\" / \"Post-merge (slice-1)\" / \"Pre-merge\
+    \ (slice-2)\" / \"Post-merge (slice-2)\". The schema-bump pre-merge concern (line\
+    \ 413) belongs to slice-1b (where the schema migration lands). The `_CONTEXT_BRANCH_RE`\
+    \ pre-merge concern (line 414) also belongs to slice-1b. The #2389/#2570 post-merge\
+    \ close references belong to 1b (umbrella) and 1c (#2570) respectively. Re-anchor\
+    \ each.\n\n5. **Why this matters for risk lens (R12 resolution prerequisite).**\
+    \ My iteration-1 risk register (commit 1329963b4) marks R12 (slice-1 size exceeds\
+    \ BRC review appetite) as RESOLVED *by the sub-slicing*. If the contract still\
+    \ has 2 slices when the implement phase starts, R12 is NOT resolved \u2014 the\
+    \ implement-phase coder picks up a 25-task slice-1 and reproduces the iteration-0\
+    \ NACK pattern (unwired WIP partials NACKed by reviewer_code_holistic / reviewer_contract\
+    \ / tester). The whole point of the operator's iteration-1 directive is to prevent\
+    \ this; your 2-slice plan-draft defeats it.\n\n### Non-blocking\n- Your iteration-1\
+    \ NACK-pressure framing at lines 92-163 (\"Task_planner's position\") was correctly\
+    \ cautious \u2014 you flagged the slice-size concern for reviewers without unilaterally\
+    \ re-shaping. That was right at the moment you committed (architect v4 hadn't\
+    \ landed). But the architect HAS now revised to the 4-slice scaffold in v4, so\
+    \ the path you set up (\"If reviewer_plan or risk_analyst NACKs architect on slice_size...\
+    \ I will re-propose this plan against the revised scaffold\") is exactly what\
+    \ should happen now: re-propose against the architect's revised scaffold. This\
+    \ NACK IS that signal \u2014 the trigger is the architect's revised scaffold being\
+    \ binding, not a structural NACK on the architect (whom I just ACKed).\n- After\
+    \ re-shape: keep the file:line re-anchoring protocol at lines 165-203 verbatim\
+    \ \u2014 it's good and the architect explicitly preserves it per their replan_change_log\
+    \ entry 9.\n- Carry the same #yaml-tasks appendix shape (lines 424+) but split\
+    \ the per-slice task lists. The acceptance_criteria_for_task_planner enumeration\
+    \ at the architect's AC-1..AC-24 maps cleanly: AC-1, AC-1a, AC-12a, AC-22 \u2192\
+    \ 1a; AC-2..AC-5, AC-5a, AC-18..AC-21, AC-23, AC-24-stacked_pr \u2192 1b; AC-6,\
+    \ AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11 \u2192 1c; AC-13..AC-17, AC-24 \u2192\
+    \ slice-2.\n\nRe-propose with --changed-artifacts \".egg-state/drafts/issue-2777-replan-plan.md\"\
+    \ \".egg-state/contracts/issue-2777-replan.json\" once the contract has 4 slices\
+    \ matching the architect's binding scaffold."
+  revision_count: 1
+````
+
+### [2026-05-29T04:36:12Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 26eda18b-1a3a-41
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T04:36:27Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 55a10179-8a57-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:36:27.018792+00:00'
+````
+
+### [2026-05-29T04:36:52Z] reviewer_plan → risk_analyst (CONSENSUS_ACK): ACK from reviewer_plan for risk_analyst
+
+Reviewed risk_analyst's iteration-1 risk register (commit 1329963b4, v1) at `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json` — 19 risks (R1-R13 carried forward + N1-N6 newly added), runtime_primitive_audit_per_2594, trust_boundary_audit, top_3_risks, NACK-shaped concerns for architect and task_planner.
+
+### Verdict
+ACK on risk_analyst v1. Comprehensive re-anchoring to the new 4-slice composition. Concrete, verifiable risks with named primitives and file:line citations. Overall risk MEDIUM_HIGH (down from HIGH in iteration 0) with recommendation PROCEED_WITH_MITIGATIONS is defensible.
+
+### What I verified
+
+**Re-anchoring against the new scaffold**: R1-R13 are explicitly mapped onto slice-1a / 1b / 1c / slice-2 (e.g. "R1 isolated to 1c — net operational benefit", "R3 must be addressed in 1b", "R8 spans TASK-2-1 ↔ TASK-2-5 in slice-2"). R12 (slice size) and R13 (integration test fixture) marked RESOLVED by sub-slicing — correct, sub-slicing addressed R12 directly and the fixture was already proven available in `integration_tests/regression/`. ✓
+
+**N1-N6 new risks specific to sub-sliced delivery shape**:
+- **N1** (LOW/MEDIUM) — inter-slice dead-code window. Real but bounded; architect's AC-25 + TODO comment + zero-callers test addresses it. ✓
+- **N2** (MEDIUM/CERTAIN) — gateway phase-namespace coupling. Verified the analysis at HEAD: `gateway/gateway.py:3704-3711` catches `PipelinePhase("pr")` ValueError and falls through to allow (backward-compat path), logging "Invalid session phase value" warning. risk_analyst correctly classifies as observability noise, not structural break. Mitigation options surfaced for architect to pick. ✓
+- **N3** (MEDIUM/MEDIUM) — integration test placement in 1c vs 1a. Real trade-off; architect chose 1c (full post-collapse topology). Defensible. ✓
+- **N4** (MEDIUM/MEDIUM) — sub-slice DAG parent_slice_id ordering encoded as 1a→1b→1c→2. Verified architect's `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`: id=1/parent=null, id=2/parent=1, id=3/parent=2, id=4/parent=3. Linear chain encoded correctly. risk_analyst's mitigation is to surface as NACK-shaped concern for task_planner to encode in `yaml-tasks` slices block. ✓
+- **N5** (LOW/MEDIUM) — `_resolve_slice_base_branch` helper signature lock-down between 1a and 1b. Real; architect's AC-12a + AC-24 partially address. risk_analyst's NACK-shaped concern for task_planner to lock the signature in 1a's task description. ✓
+- **N6** (LOW/LOW) — sequential PR merge / rebase conflict risk. Acknowledged as low/low. ✓
+
+**Top-3 selection** (R1, R3, N4) is appropriate. R1 (the #2570/OOS escalation) and R3 (schema bump fanout) are highest-impact; N4 is the one new structural risk that gates everything else. ✓
+
+**Primitive existence at HEAD (criteria §9)**: risk_analyst's audit names 7 in-scope primitives with execution_context + trust_boundary + risk classification. I spot-checked:
+- `gateway/gateway.py:3680-3710` (N2 fallthrough) ✓ — verified `try: filter_operation(...); except ValueError as e: logger.warning(...)` at HEAD lines 3704-3711.
+- `gateway_client.py:1444 phase="pr"` (architect's AC-20 namesake carve-out) ✓ — verified at HEAD.
+- `_sync_worktree_with_remote` at `pipelines.py:6926` ✓ — OOS per decision-11, R1's likely root cause vector.
+- `peer_consensus.py:1919-1926` (reconstruct_tracker_from_messages signature) ✓ — already accepts `slice_id`.
+- `message_store.py:407-416` (metadata['slice_id'] filter) ✓.
+
+**Trust-boundary audit (criteria §10)**: risk_analyst correctly traces each cross-pod surface — orchestrator↔gateway via `GatewayClient.create_pr`, orchestrator↔sandbox-agent via PRMetadata contract reads, gateway↔git-origin via push-allow surface, operator↔orchestrator via MCP tool definition, shared-enum-across-pods via `PipelinePhase` StrEnum. The deployment-ordering note on shared StrEnum lock-step is the right framing — gateway pod cannot be ahead/behind orchestrator on the v1.1→v1.2 schema bump. Standard egg deployment handles this if the deployment is atomic. ✓
+
+**NACK-shaped concerns posted to BOTH architect and task_planner**: three each. Architect: N2 mitigation pick, N3 test placement decision, N4 slice DAG encoding. Task_planner: preserve R3/R4 enumerations in 1b's TASK-1-5/TASK-1-3 ACs, lock N5 helper signature in 1a. These are well-targeted — each is a concrete, addressable item the producer can encode in their ACs. ✓ The architect's v1 response addresses N2 (AC-20 namesake carve-out + observability acceptance), N3 (placement defended in 1c), and N4 (slices.yaml encoded correctly). Task_planner's R3/R4/N5 work falls to their next re-propose against the new scaffold.
+
+### Non-blocking
+- The risk register correctly stops short of asserting "architect must subdivide further" — that's already done by my ACK on architect and the operator directive. risk_analyst's R12-RESOLVED is the right classification.
+- AC-9a / R1 framing — risk_analyst explicitly says "HITL escalation likely" and architect agrees in AC-9a. This pre-staged expectation is good: when slice-1c's coder hits the OOS root cause for #2570, the HITL fires by construction. Operator default-recommended option (xfail + follow-up issue) is on the table.
+- Risk register correctly identifies that **task_planner's TASK-2-5 (1)** ("Add an optional slice_id field to message_store.Message") is now obsolete because the message_store already filters on `metadata['slice_id']`. This is implicit in risk_analyst's runtime_primitive_audit. Worth task_planner picking up explicitly in their next re-propose.
+
+### Cross-reference with my architect ACK
+risk_analyst's analysis is consistent with my architect ACK: both confirm the sub-slicing is the right structural mitigation, both verify the trust-boundary surfaces, and both name the same residual risks (R1 OOS escalation, R3 schema fanout, N4 DAG encoding). No verdict-shaped disagreement between reviewer_plan and risk_analyst on the architect's proposal.
+
+````yaml
+id: a788bdf0-3eaf-43
+phase: plan
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
+    reason: "Reviewed risk_analyst's iteration-1 risk register (commit 1329963b4,\
+      \ v1) at `.egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json`\
+      \ \u2014 19 risks (R1-R13 carried forward + N1-N6 newly added), runtime_primitive_audit_per_2594,\
+      \ trust_boundary_audit, top_3_risks, NACK-shaped concerns for architect and\
+      \ task_planner.\n\n### Verdict\nACK on risk_analyst v1. Comprehensive re-anchoring\
+      \ to the new 4-slice composition. Concrete, verifiable risks with named primitives\
+      \ and file:line citations. Overall risk MEDIUM_HIGH (down from HIGH in iteration\
+      \ 0) with recommendation PROCEED_WITH_MITIGATIONS is defensible.\n\n### What\
+      \ I verified\n\n**Re-anchoring against the new scaffold**: R1-R13 are explicitly\
+      \ mapped onto slice-1a / 1b / 1c / slice-2 (e.g. \"R1 isolated to 1c \u2014\
+      \ net operational benefit\", \"R3 must be addressed in 1b\", \"R8 spans TASK-2-1\
+      \ \u2194 TASK-2-5 in slice-2\"). R12 (slice size) and R13 (integration test\
+      \ fixture) marked RESOLVED by sub-slicing \u2014 correct, sub-slicing addressed\
+      \ R12 directly and the fixture was already proven available in `integration_tests/regression/`.\
+      \ \u2713\n\n**N1-N6 new risks specific to sub-sliced delivery shape**:\n- **N1**\
+      \ (LOW/MEDIUM) \u2014 inter-slice dead-code window. Real but bounded; architect's\
+      \ AC-25 + TODO comment + zero-callers test addresses it. \u2713\n- **N2** (MEDIUM/CERTAIN)\
+      \ \u2014 gateway phase-namespace coupling. Verified the analysis at HEAD: `gateway/gateway.py:3704-3711`\
+      \ catches `PipelinePhase(\"pr\")` ValueError and falls through to allow (backward-compat\
+      \ path), logging \"Invalid session phase value\" warning. risk_analyst correctly\
+      \ classifies as observability noise, not structural break. Mitigation options\
+      \ surfaced for architect to pick. \u2713\n- **N3** (MEDIUM/MEDIUM) \u2014 integration\
+      \ test placement in 1c vs 1a. Real trade-off; architect chose 1c (full post-collapse\
+      \ topology). Defensible. \u2713\n- **N4** (MEDIUM/MEDIUM) \u2014 sub-slice DAG\
+      \ parent_slice_id ordering encoded as 1a\u21921b\u21921c\u21922. Verified architect's\
+      \ `.egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml`: id=1/parent=null,\
+      \ id=2/parent=1, id=3/parent=2, id=4/parent=3. Linear chain encoded correctly.\
+      \ risk_analyst's mitigation is to surface as NACK-shaped concern for task_planner\
+      \ to encode in `yaml-tasks` slices block. \u2713\n- **N5** (LOW/MEDIUM) \u2014\
+      \ `_resolve_slice_base_branch` helper signature lock-down between 1a and 1b.\
+      \ Real; architect's AC-12a + AC-24 partially address. risk_analyst's NACK-shaped\
+      \ concern for task_planner to lock the signature in 1a's task description. \u2713\
+      \n- **N6** (LOW/LOW) \u2014 sequential PR merge / rebase conflict risk. Acknowledged\
+      \ as low/low. \u2713\n\n**Top-3 selection** (R1, R3, N4) is appropriate. R1\
+      \ (the #2570/OOS escalation) and R3 (schema bump fanout) are highest-impact;\
+      \ N4 is the one new structural risk that gates everything else. \u2713\n\n**Primitive\
+      \ existence at HEAD (criteria \xA79)**: risk_analyst's audit names 7 in-scope\
+      \ primitives with execution_context + trust_boundary + risk classification.\
+      \ I spot-checked:\n- `gateway/gateway.py:3680-3710` (N2 fallthrough) \u2713\
+      \ \u2014 verified `try: filter_operation(...); except ValueError as e: logger.warning(...)`\
+      \ at HEAD lines 3704-3711.\n- `gateway_client.py:1444 phase=\"pr\"` (architect's\
+      \ AC-20 namesake carve-out) \u2713 \u2014 verified at HEAD.\n- `_sync_worktree_with_remote`\
+      \ at `pipelines.py:6926` \u2713 \u2014 OOS per decision-11, R1's likely root\
+      \ cause vector.\n- `peer_consensus.py:1919-1926` (reconstruct_tracker_from_messages\
+      \ signature) \u2713 \u2014 already accepts `slice_id`.\n- `message_store.py:407-416`\
+      \ (metadata['slice_id'] filter) \u2713.\n\n**Trust-boundary audit (criteria\
+      \ \xA710)**: risk_analyst correctly traces each cross-pod surface \u2014 orchestrator\u2194\
+      gateway via `GatewayClient.create_pr`, orchestrator\u2194sandbox-agent via PRMetadata\
+      \ contract reads, gateway\u2194git-origin via push-allow surface, operator\u2194\
+      orchestrator via MCP tool definition, shared-enum-across-pods via `PipelinePhase`\
+      \ StrEnum. The deployment-ordering note on shared StrEnum lock-step is the right\
+      \ framing \u2014 gateway pod cannot be ahead/behind orchestrator on the v1.1\u2192\
+      v1.2 schema bump. Standard egg deployment handles this if the deployment is\
+      \ atomic. \u2713\n\n**NACK-shaped concerns posted to BOTH architect and task_planner**:\
+      \ three each. Architect: N2 mitigation pick, N3 test placement decision, N4\
+      \ slice DAG encoding. Task_planner: preserve R3/R4 enumerations in 1b's TASK-1-5/TASK-1-3\
+      \ ACs, lock N5 helper signature in 1a. These are well-targeted \u2014 each is\
+      \ a concrete, addressable item the producer can encode in their ACs. \u2713\
+      \ The architect's v1 response addresses N2 (AC-20 namesake carve-out + observability\
+      \ acceptance), N3 (placement defended in 1c), and N4 (slices.yaml encoded correctly).\
+      \ Task_planner's R3/R4/N5 work falls to their next re-propose against the new\
+      \ scaffold.\n\n### Non-blocking\n- The risk register correctly stops short of\
+      \ asserting \"architect must subdivide further\" \u2014 that's already done\
+      \ by my ACK on architect and the operator directive. risk_analyst's R12-RESOLVED\
+      \ is the right classification.\n- AC-9a / R1 framing \u2014 risk_analyst explicitly\
+      \ says \"HITL escalation likely\" and architect agrees in AC-9a. This pre-staged\
+      \ expectation is good: when slice-1c's coder hits the OOS root cause for #2570,\
+      \ the HITL fires by construction. Operator default-recommended option (xfail\
+      \ + follow-up issue) is on the table.\n- Risk register correctly identifies\
+      \ that **task_planner's TASK-2-5 (1)** (\"Add an optional slice_id field to\
+      \ message_store.Message\") is now obsolete because the message_store already\
+      \ filters on `metadata['slice_id']`. This is implicit in risk_analyst's runtime_primitive_audit.\
+      \ Worth task_planner picking up explicitly in their next re-propose.\n\n###\
+      \ Cross-reference with my architect ACK\nrisk_analyst's analysis is consistent\
+      \ with my architect ACK: both confirm the sub-slicing is the right structural\
+      \ mitigation, both verify the trust-boundary surfaces, and both name the same\
+      \ residual risks (R1 OOS escalation, R3 schema fanout, N4 DAG encoding). No\
+      \ verdict-shaped disagreement between reviewer_plan and risk_analyst on the\
+      \ architect's proposal."
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-29T04:36:53Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: c288233b-968e-4a
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T04:36:54Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 7a731742-008e-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:35:54.392544+00:00'
+````
+
+### [2026-05-29T04:37:01Z] reviewer_plan (CONSENSUS_CONFIRMED): Confirmed by reviewer_plan
+
+````yaml
+id: 8075468e-7ef1-44
+phase: plan
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-29T04:37:01Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: b120d6f3-b07b-45
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T04:37:04Z] risk_analyst (CONSENSUS_CONFIRMED): Confirmed by risk_analyst (pending_acks)
+
+Reviewer risk_analyst cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['task_planner']
+
+````yaml
+id: 0c57549e-c0b6-40
+phase: plan
+metadata:
+  pending_acks: true
+````
+
+### [2026-05-29T04:37:06Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 2fe597e0-b963-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:06.129270+00:00'
+````
+
+### [2026-05-29T04:37:06Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: da15e983-3f4d-4f
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T04:37:10Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
 
 ````yaml
-id: 5d205253-b3f0-42
+id: 0ff0d575-0e65-41
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:16.451246+00:00'
+  since: '2026-05-29T04:37:10.396512+00:00'
 ````
 
-### [2026-05-29T03:50:18Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T04:37:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: f6143d46-1003-47
+id: 084b7d4f-68ab-45
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:18.371251+00:00'
+  since: '2026-05-29T04:37:12.262862+00:00'
 ````
 
-### [2026-05-29T03:50:22Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+### [2026-05-29T04:37:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-v2 plan addresses reviewer_plan's 7 blocking items + R7 non-blocking, and copies the architect's binding slice scaffold (commit 0dc42f4b6) verbatim per #2809. (1) TASK-1-6 extended from 5 to 7 ConsensusEvaluator clusters (adds phases.py:119-124 complete_phase handler + signals.py:847-871 READY heartbeat handler — both verified at HEAD; missing them would ImportError at startup). (2) TASK-1-5 gains a `_migrate_schema_version_to_1_2` migration entry for the 5 on-disk fixtures carrying removed fields; NEW TASK-1-5b rewires stacked_pr_reconciler.py (10 read sites) onto _resolve_slice_base_branch; TASK-1-2 extended with 7 surviving pipelines.py read sites. (3) TASK-1-3 site count 10→11 (adds phase_defaults.py:105); drops gateway_client.py:2567 from carve-out (it's a gh CLI args entry, not the session namespace); adds preserved-hit enumeration for test_session_manager.py:1127,1170 + test_gateway.py:4371. (4) TASK-1-9 OOS-collision EXPECTATION explicit upfront — both reviewers verified the root cause is in _sync_worktree_with_remote (OOS); AC-9a will fire by construction; default HITL resolution is option 3 (xfail + follow-up); audit-note artifact spec added. (5) TASK-1-1 names `_persist_context_pr_number` persistence helper wrapping update_contract under the per-pipeline state-lock; idempotent-path AC asserts the persistence write is observed. (6) TASK-1-3 (8) extends monitor sub-bullet with _check_post_consensus_stall semantic rewire (#1911 stall signal) — required choice between delete-with-proof or re-derive-equivalent-predicate. (7) §"Anchor SHA & re-anchoring" section added — citations anchored at refine-commit 1cb235871, ~600-line drift at HEAD on pipelines.py; mandatory grep-n re-anchoring protocol. Non-blocking R7: TASK-1-4 extended with is_context_push cleanup (5 refs at gateway.py:1344-1392). Architect-scaffold adoption: slice-1 name unchanged ("Context-PR collapse + cleanup + PR-phase removal"), goal copied verbatim from scaffold; slice-2 name updated to "Slice/phase restart hardening (bundles #2409)" and goal copied verbatim; both slices now use parent_slice_id (null for slice-1, 1 for slice-2) per scaffold format. Slice/task counts: 2 slices, 25 tasks slice-1 (was 24 — new TASK-1-5b), 7 tasks slice-2.
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: d4f9ad18-5743-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:38:10Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 7a8dbb36-6b6b-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:38:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 89165a46-49f3-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:38:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: edd0bf0e-1730-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:39:10Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2995de1d-5e8b-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:39:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 9a9f4cab-6553-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:39:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: b6710dd9-4664-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:40:10Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6d0803f1-4fb6-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:40:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6c256fd1-96ca-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:40:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: dab348eb-3115-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:41:10Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 71541322-6ec4-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:41:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e8fdc1da-6b6f-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:41:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 83bbc31a-d18a-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:42:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: d8967273-5da7-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:42:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: a91618d0-8919-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:42:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 9030f249-fa6d-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:43:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: c5c0d745-8805-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:43:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: a5a2b7e6-8bdd-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:43:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 11d4d011-e2e2-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:44:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 0ecc0782-b970-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:44:13Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 2aa54390-ef38-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:44:14Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: aef0911a-c3ab-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:45:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: eb814bfa-2e02-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:45:13Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 90624853-0585-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:45:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 8a946f4d-ac89-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:46:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 4988716d-325b-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:46:13Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: ddb496b9-d0de-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:12.262862+00:00'
+````
+
+### [2026-05-29T04:46:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: a2406ce4-ab07-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:46:31Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: a42ef79d-0773-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:47:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: d238bb17-b7b5-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:47:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 970b9e9f-fcd4-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:47:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 065c231c-774d-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:48:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 0e193b2d-301c-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:48:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 234c7c19-19ef-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:48:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 8764ef37-ca4d-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:49:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 388ddb23-1eb3-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:49:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: a0eace6f-df4e-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:49:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: c415617d-086b-49
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:50:11Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: f84be8f8-8b7a-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:50:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 4c404753-fc5f-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:50:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6ffc32ac-9ef4-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:51:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 3a0c7f0b-ad5c-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:51:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: d7d83365-a9a1-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:51:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6c6882ad-6d5d-49
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:52:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 892f5fd3-b564-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:52:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 58a05547-30ba-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:52:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 4f244d55-e340-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:53:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 64548f0f-35e0-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:53:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: c2ac347e-0251-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:53:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 86fa1448-be3a-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:54:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 736bc84f-3e0c-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:54:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 272979cb-e6b4-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:54:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: ca8cb947-0896-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:55:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 27e258dc-5b1a-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:55:15Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 97923526-a261-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:55:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 3fc0cb40-98df-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:56:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 9f81121e-a70a-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:56:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 11b22aef-aeeb-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:56:32Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 4b0e3db5-9800-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:57:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: c4be7a6e-a1b2-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:57:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 73440b44-3a88-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:57:33Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: bbaaa7f5-6e3a-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:58:12Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 78dfccd3-c043-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:58:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 73483ead-2d95-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:58:33Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 05de9743-ac8b-49
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T04:59:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 94089211-4354-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T04:59:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 8ae445df-849a-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T04:59:33Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e961d676-26d0-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T05:00:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 128cc15a-1fed-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T05:00:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 71e7bf2a-9e3f-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T05:00:33Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 40bcd3f3-95dc-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T05:01:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 58692b56-5e38-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T05:01:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 813e1615-5963-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T05:01:33Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: c492ec48-52b6-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T05:02:13Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 7ee29bee-e952-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:10.396512+00:00'
+````
+
+### [2026-05-29T05:02:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: e441403a-5f1c-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T05:02:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 1c698368-19f6-49
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:46:31.908380+00:00'
+````
+
+### [2026-05-29T05:02:45Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+
+Plan v5 (iteration 1, re-propose addressing risk_analyst NACK): re-shaped to match architect's revised 4-slice scaffold (commit b6b58a15e), supersedes v4. The 4-slice linear chain is 1 (slice-1a opener+wiring, parent=null, 3 coder tasks) → 2 (slice-1b deletions, parent=1, 6 coder + 4 tester = 10 tasks) → 3 (slice-1c cleanup tail, parent=2, 7 coder + 4 tester + 1 documenter = 12 tasks) → 4 (slice-2 restart hardening, parent=3, 5 coder + 1 tester + 1 documenter = 7 tasks). Task content preserved verbatim from iteration-0 v3 with simultaneous-substitution-pass re-numbering of all cross-references. AC mapping verbatim from architect's component_breakdown: slice-1 owns AC-1, AC-1a, AC-12a, AC-22, AC-25; slice-2 owns AC-2, AC-3, AC-3a, AC-4, AC-4a, AC-4b, AC-4c, AC-5, AC-5a, AC-18, AC-19, AC-20, AC-21, AC-23; slice-3 owns AC-6, AC-6a, AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11, AC-12; slice-4 owns AC-13, AC-14, AC-15, AC-16, AC-17, AC-24. Operator's "16-task wedge" threshold is no longer crossed at any sub-slice. Plan prose includes a verbatim task-ID mapping table (old TASK-1-X → new TASK-N-M) for reviewer verification. Re-anchored prose primitive table (TASK-1-13 → TASK-1-3 helpers; TASK-2-3 → TASK-4-3 merge-base fallback); fixed integration-test trust-boundary references (TASK-1-16 → TASK-3-9, TASK-2-6 → TASK-4-6, TASK-1-16a → TASK-3-10); added new primitives for PlanPreflightError, ContextPrCreationError, _persist_context_pr_number, _migrate_schema_version_to_1_2. #2792 OUT OF SCOPE per decision-11.
 
 **Adversarial re-review**
 
@@ -2034,65 +2514,96 @@ Both mandates have equal weight. If (1) passes but (2) finds new issues, you NAC
 **Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
 
 ````yaml
-id: 7e57fb9f-6657-45
+id: 7ee7b570-b5a0-47
 phase: plan
 metadata:
   payload:
-    summary: "v2 plan addresses reviewer_plan's 7 blocking items + R7 non-blocking,\
-      \ and copies the architect's binding slice scaffold (commit 0dc42f4b6) verbatim\
-      \ per #2809. (1) TASK-1-6 extended from 5 to 7 ConsensusEvaluator clusters (adds\
-      \ phases.py:119-124 complete_phase handler + signals.py:847-871 READY heartbeat\
-      \ handler \u2014 both verified at HEAD; missing them would ImportError at startup).\
-      \ (2) TASK-1-5 gains a `_migrate_schema_version_to_1_2` migration entry for\
-      \ the 5 on-disk fixtures carrying removed fields; NEW TASK-1-5b rewires stacked_pr_reconciler.py\
-      \ (10 read sites) onto _resolve_slice_base_branch; TASK-1-2 extended with 7\
-      \ surviving pipelines.py read sites. (3) TASK-1-3 site count 10\u219211 (adds\
-      \ phase_defaults.py:105); drops gateway_client.py:2567 from carve-out (it's\
-      \ a gh CLI args entry, not the session namespace); adds preserved-hit enumeration\
-      \ for test_session_manager.py:1127,1170 + test_gateway.py:4371. (4) TASK-1-9\
-      \ OOS-collision EXPECTATION explicit upfront \u2014 both reviewers verified\
-      \ the root cause is in _sync_worktree_with_remote (OOS); AC-9a will fire by\
-      \ construction; default HITL resolution is option 3 (xfail + follow-up); audit-note\
-      \ artifact spec added. (5) TASK-1-1 names `_persist_context_pr_number` persistence\
-      \ helper wrapping update_contract under the per-pipeline state-lock; idempotent-path\
-      \ AC asserts the persistence write is observed. (6) TASK-1-3 (8) extends monitor\
-      \ sub-bullet with _check_post_consensus_stall semantic rewire (#1911 stall signal)\
-      \ \u2014 required choice between delete-with-proof or re-derive-equivalent-predicate.\
-      \ (7) \xA7\"Anchor SHA & re-anchoring\" section added \u2014 citations anchored\
-      \ at refine-commit 1cb235871, ~600-line drift at HEAD on pipelines.py; mandatory\
-      \ grep-n re-anchoring protocol. Non-blocking R7: TASK-1-4 extended with is_context_push\
-      \ cleanup (5 refs at gateway.py:1344-1392). Architect-scaffold adoption: slice-1\
-      \ name unchanged (\"Context-PR collapse + cleanup + PR-phase removal\"), goal\
-      \ copied verbatim from scaffold; slice-2 name updated to \"Slice/phase restart\
-      \ hardening (bundles #2409)\" and goal copied verbatim; both slices now use\
-      \ parent_slice_id (null for slice-1, 1 for slice-2) per scaffold format. Slice/task\
-      \ counts: 2 slices, 25 tasks slice-1 (was 24 \u2014 new TASK-1-5b), 7 tasks\
-      \ slice-2."
+    summary: "Plan v5 (iteration 1, re-propose addressing risk_analyst NACK): re-shaped\
+      \ to match architect's revised 4-slice scaffold (commit b6b58a15e), supersedes\
+      \ v4. The 4-slice linear chain is 1 (slice-1a opener+wiring, parent=null, 3\
+      \ coder tasks) \u2192 2 (slice-1b deletions, parent=1, 6 coder + 4 tester =\
+      \ 10 tasks) \u2192 3 (slice-1c cleanup tail, parent=2, 7 coder + 4 tester +\
+      \ 1 documenter = 12 tasks) \u2192 4 (slice-2 restart hardening, parent=3, 5\
+      \ coder + 1 tester + 1 documenter = 7 tasks). Task content preserved verbatim\
+      \ from iteration-0 v3 with simultaneous-substitution-pass re-numbering of all\
+      \ cross-references. AC mapping verbatim from architect's component_breakdown:\
+      \ slice-1 owns AC-1, AC-1a, AC-12a, AC-22, AC-25; slice-2 owns AC-2, AC-3, AC-3a,\
+      \ AC-4, AC-4a, AC-4b, AC-4c, AC-5, AC-5a, AC-18, AC-19, AC-20, AC-21, AC-23;\
+      \ slice-3 owns AC-6, AC-6a, AC-7, AC-8, AC-9, AC-9a, AC-10, AC-11, AC-12; slice-4\
+      \ owns AC-13, AC-14, AC-15, AC-16, AC-17, AC-24. Operator's \"16-task wedge\"\
+      \ threshold is no longer crossed at any sub-slice. Plan prose includes a verbatim\
+      \ task-ID mapping table (old TASK-1-X \u2192 new TASK-N-M) for reviewer verification.\
+      \ Re-anchored prose primitive table (TASK-1-13 \u2192 TASK-1-3 helpers; TASK-2-3\
+      \ \u2192 TASK-4-3 merge-base fallback); fixed integration-test trust-boundary\
+      \ references (TASK-1-16 \u2192 TASK-3-9, TASK-2-6 \u2192 TASK-4-6, TASK-1-16a\
+      \ \u2192 TASK-3-10); added new primitives for PlanPreflightError, ContextPrCreationError,\
+      \ _persist_context_pr_number, _migrate_schema_version_to_1_2. #2792 OUT OF SCOPE\
+      \ per decision-11."
     attestation: {}
     artifacts:
     - .egg-state/drafts/issue-2777-replan-plan.md
-    risk_considered: "v2 addresses every reviewer_plan blocker via specific file:line\
-      \ citations verified at HEAD. The R5 line-number-drift concern is acknowledged\
-      \ in the new Anchor SHA & re-anchoring section but not \"fixed\" \u2014 the\
-      \ citations remain anchored against the refine SHA because re-anchoring against\
-      \ every plan-phase HEAD would not survive the further drift between plan-phase\
-      \ consensus and implement-phase start. The implementer protocol (grep-n at HEAD\
-      \ before editing, prefer symbol+adjacent-text anchors over absolute line numbers)\
-      \ is the durable mitigation. TASK-1-9 expected to trigger AC-9a HITL by construction\
-      \ (both reviewers concur on this) \u2014 this is documented as the expected\
-      \ outcome rather than a surprise. Slice composition matches the architect's\
-      \ binding scaffold verbatim; if the scaffold subsequently changes, re-propose\
-      \ will be necessary."
-    commit_sha: 1212b736f9cb8d233a7f980b0cbe26ac2f97048a
+    risk_considered: "Primary task_planner risk addressed: v4's NACK by risk_analyst\
+      \ on a stale 2-slice scaffold. v5 re-shapes to the architect's revised 4-slice\
+      \ scaffold, satisfying both #2809 (architect-owned slice composition) and the\
+      \ operator's iteration-1 directive (sub-slice A+D). The risk_analyst-flagged\
+      \ blockers from the v4 NACK are addressed: (1) plan-draft Slice DAG section\
+      \ re-rendered to 4-node linear chain; (2) contract.slices will re-populate to\
+      \ 4 slices on next orchestrator parse (task_planner cannot directly write contract.slices\
+      \ per role restrictions, but the plan-draft drives the contract); (3) task re-allocation\
+      \ across 1a/1b/1c uses the mapping risk_analyst sanctioned in the NACK; (4)\
+      \ Pre-merge/Post-merge sections re-anchored per sub-slice; (5) R12 (slice-1\
+      \ size exceeds BRC review appetite) is now resolved structurally \u2014 max\
+      \ sub-slice is slice-3 at 12 tasks (7 coder), well below the 16-task threshold\
+      \ the operator flagged. Other risks from architect ACs and risk_analyst R1-R10\
+      \ carried forward: AC-9a HITL gate before touching OOS #2792 primitives (R1);\
+      \ AC-19 schema migration via _migrate_schema_version_to_1_2 (R3); AC-18 eight-cluster\
+      \ ConsensusEvaluator deletion (R2); AC-20 namesake-namespace phase=\"pr\" carve-outs\
+      \ (R4); AC-23 _check_post_consensus_stall semantic choice (R6). Line-drift risk\
+      \ (R5) mitigated by the global re-anchoring protocol and per-task explicit grep\
+      \ instructions. Task content was preserved verbatim via simultaneous substitution\
+      \ to avoid the truncation regression the first restructure attempt encountered."
+    commit_sha: d91dc5ddf30e65eb9599bd338f4a8ecce1f25ac3
     files_changed:
     - .egg-state/drafts/issue-2777-replan-plan.md
     tests_run: []
-    tasks_satisfied: []
+    tasks_satisfied:
+    - task-1-1
+    - task-1-2
+    - task-1-3
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-5
+    - task-2-6
+    - task-2-7
+    - task-2-8
+    - task-2-9
+    - task-2-10
+    - task-3-1
+    - task-3-2
+    - task-3-3
+    - task-3-4
+    - task-3-5
+    - task-3-6
+    - task-3-7
+    - task-3-8
+    - task-3-9
+    - task-3-10
+    - task-3-11
+    - task-3-12
+    - task-4-1
+    - task-4-2
+    - task-4-3
+    - task-4-4
+    - task-4-5
+    - task-4-6
+    - task-4-7
   version: 2
-  commit_sha: 1212b736f9cb8d233a7f980b0cbe26ac2f97048a
+  commit_sha: d91dc5ddf30e65eb9599bd338f4a8ecce1f25ac3
 ````
 
-### [2026-05-29T03:50:22Z] orchestrator → risk_analyst (CONSENSUS_RE_REVIEW): Re-review required: task_planner submitted new proposal v2
+### [2026-05-29T05:02:45Z] orchestrator → reviewer_plan (CONSENSUS_RE_REVIEW): Re-review required: task_planner submitted new proposal v2
 
 Producer task_planner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
 
@@ -2122,369 +2633,785 @@ Both mandates have equal weight. If (1) passes but (2) finds new issues, you NAC
 **Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
 
 ````yaml
-id: 88b50226-0b2b-42
+id: 83bafb4a-b69b-49
 phase: plan
 metadata:
   producer_role: task_planner
   version: 2
 ````
 
-### [2026-05-29T03:50:22Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:02:45Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 8492219e-5881-48
+id: 2274b3e1-b918-4e
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:50:22Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:02:45Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 6e73374b-6be6-46
+id: f4630074-56ae-4b
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:50:43Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:03:06Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 79537362-91ff-47
+id: 941f598a-981b-4d
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:50:28.458656+00:00'
+  since: '2026-05-29T05:03:03.302659+00:00'
 ````
 
-### [2026-05-29T03:50:43Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:03:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: c7003132-4d39-48
+id: 031f159f-fef7-4d
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T04:37:14.078602+00:00'
 ````
 
-### [2026-05-29T03:50:43Z] task_planner (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: ce759583-86fd-47
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:50:48Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:04:06Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 64b1aba7-eca2-42
+id: 9ecaab65-492f-44
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:50:48.130092+00:00'
+  since: '2026-05-29T05:03:03.302659+00:00'
 ````
 
-### [2026-05-29T03:51:43Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:04:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 89488e48-55e7-45
+id: 6d96ffad-1408-44
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T04:37:14.078602+00:00'
 ````
 
-### [2026-05-29T03:51:48Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:05:07Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: 62d90a78-b34f-4b
+id: bc6c1251-b89d-47
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:50:48.130092+00:00'
+  since: '2026-05-29T05:03:03.302659+00:00'
 ````
 
-### [2026-05-29T03:52:27Z] risk_analyst → task_planner (CONSENSUS_NACK): NACK from risk_analyst for task_planner
+### [2026-05-29T05:05:16Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
-### Blocking
-1. **`.egg-state/drafts/issue-2777-replan-plan.md` TASK-1-6 description (lines ~1052-1110) — undercounts ConsensusEvaluator pipelines.py clusters by 1.** Your v2 says "SEVEN reference clusters total" (5 in pipelines.py at the refine-SHA-anchored lines 1805-1808, 2844-2848, 3274-3279, 4206-4210, 4215-4219; plus 1 in phases.py:119-124; plus 1 in signals.py:847-871). The architect's binding AC-18 explicitly enumerates **EIGHT** clusters: **SIX in pipelines.py** at HEAD lines 1813-1816, 2859-2863, 3289-3293, **3516-3522** (this is the cluster you missed), 4489-4493, 4498-4502; plus the same 1 in phases.py and 1 in signals.py.
+````yaml
+id: d3bf864c-c3c7-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
 
-   I independently verified the missing cluster at HEAD via `sed -n '3510,3530p' orchestrator/routes/pipelines.py`:
-   ```
-   3515:    try:
-   3516:        try:
-   3517:            from consensus import get_consensus_evaluator
-   3518:        except ImportError:
-   3519:            from ..consensus import (  # type: ignore[import-not-found]
-   3520:                get_consensus_evaluator,
-   3521:            )
-   3522:
-   3523:        evaluator = get_consensus_evaluator()
-   3524:        evaluator.clear(pipeline_id)
-   3525:    except ImportError:
-   3526:        pass
-   ```
-   This is the **"Failed to clear legacy consensus after hard-reset ack"** block — a distinct call site from the `restart_phase` consensus-clear block (which is cluster 3 at :3274-3279 in your anchored numbering / :3289-3293 at HEAD). Deleting `orchestrator/consensus.py` without removing this cluster guarantees an `ImportError` post-restart on the hard-reset ack path.
+### [2026-05-29T05:06:07Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-   **Fix**: extend TASK-1-6's enumeration from 7 → 8 clusters. Insert a new sub-bullet between current (3) and (4) covering pipelines.py:3289-3526-region cluster (hard-reset-ack consensus-clear; HEAD anchor :3516-3526; anchored to refine-SHA `1cb235871` this would be approximately :3486-3496 — re-anchor via `grep -n` per your global re-anchoring note). Update the count statement from "SEVEN" to "EIGHT" in the description AND in the acceptance criteria. The architect's AC-18 mandate ("the post-deletion grep must return zero matches") is your safety net, but the enumeration drives the coder's first pass and is what reviewer_plan / reviewer_code will check against. Carrying the architect's count forward verbatim is the cleanest fix.
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 8bb82524-351e-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:03:03.302659+00:00'
+````
+
+### [2026-05-29T05:06:17Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 14090b7a-f925-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T04:37:14.078602+00:00'
+````
+
+### [2026-05-29T05:06:55Z] risk_analyst → task_planner (CONSENSUS_ACK): ACK from risk_analyst for task_planner
+
+Reviewed task_planner v5 (commit d91dc5ddf, re-propose addressing my v1 NACK + reviewer_plan's NACK). Plan-draft alone is 1320 lines reshuffled to match architect's binding 4-slice scaffold. Performed both mandates: (a) verified v1 blockers fixed; (b) fresh-reviewer audit of v2 delta.
+
+### (a) v1 blockers verified-fixed (mandate 1)
+1. **Slice DAG section (lines 378-401) — FIXED.** Now renders a 4-node linear chain: slice-1 (id=1, slice-1a opener+wiring, parent=null, "ADDS new primitives only") → slice-2 (id=2, slice-1b deletions, parent=1) → slice-3 (id=3, slice-1c cleanup tail, parent=2) → slice-4 (id=4, slice-2 restart hardening, parent=3). Forest constraint satisfied.
+2. **Contract slice count — DEFERRED (acceptable).** `jq '.slices | length'` still returns 2 because contracts/ is gateway-blocked for task_planner; the contract is auto-populated from the plan-draft at phase advance, so the v5 plan-draft's `# yaml-tasks` slices block (lines 636+) is the source-of-truth. Verified the yaml-tasks block has 4 slices with parent_slice_id 1=null, 2=1, 3=2, 4=3 — matches architect's slices.yaml verbatim. The 2-slice contract state is stale-but-expected.
+3. **Task re-allocation across 1a/1b/1c — FIXED.** yaml-tasks block has TASK-1-1..1-3 (slice-1a, 3 coder tasks), TASK-2-1..2-10 (slice-1b, 10 tasks), TASK-3-1..3-12 (slice-1c, 12 tasks), TASK-4-1..4-7 (slice-2, 7 tasks). Total 32 tasks (matches old 25+7). Operator's 16-task wedge threshold is no longer crossed at any sub-slice.
+4. **Pre-merge / Post-merge sections (lines 436-457) — FIXED.** Each sub-slice has its own pre-merge / post-merge block. Schema-bump pre-merge correctly in slice-2 (slice-1b). #2389/#2570 post-merge correctly in slice-3 (slice-1c). #2409 post-merge correctly in slice-4 (slice-2).
+5. **R12 resolution prerequisite — FIXED.** With 4 slices instead of 1+25-task, the implement-phase coder can complete each sub-slice in one BRC cycle; the unwired-WIP-partial failure mode is structurally prevented.
+
+### (b) Fresh-reviewer audit of v2 delta (mandate 2) — checked for:
+- **Silent-fallback shapes in new task bodies**: NONE INTRODUCED. TASK-1-2 keeps the hard-required ContextPrCreationError contract (no soft-fail `return None`). TASK-2-4 keeps the _migrate_schema_version_to_1_2 migrator (per AC-19a). TASK-2-X deletions are atomic (no half-deleted state).
+- **DAG ordering invariants**: VERIFIED. TASK-1-2 explicitly states "ordering with TASK-2-1 deletion is critical — TASK-2-1 depends on TASK-1-2 having extracted the helper before tearing down the old persistence path" (line 738). TASK-1-3 explicitly says "TASK-1-3 must complete BEFORE TASK-2-1 so that TASK-2-1 has a non-empty helper to call" (line 806). Cross-slice ordering is enforced both by the slice parent_slice_id chain AND by the per-task ordering notes.
+- **Trust-boundary delta**: NONE. Re-numbering does not change file:line citations, primitives, or AC content.
+- **AC mapping vs sub-slice placement**: VERIFIED. Architect's AC-1, AC-1a, AC-12a, AC-22 → slice-1a (matches the new TASK-1-1/1-2/1-3 enumeration). AC-2..AC-5, AC-5a, AC-18..AC-21, AC-23 → slice-1b (matches TASK-2-1..2-10 deletions). AC-6..AC-12 → slice-1c (matches TASK-3-1..3-12 cleanup). AC-13..AC-17, AC-24 → slice-2 (matches TASK-4-1..4-7 restart hardening). No AC orphaned, no AC double-allocated.
+- **R3 schema-fanout coverage**: VERIFIED. TASK-2-4 implements the migrator. TASK-2-3 covers stacked_pr_reconciler.py cascade-base rewire (per architect's AC-19). The 7 additional read sites enumerated by my v1 R3 are routed to TASK-2-1's deletion or to TASK-2-3's rewire.
+- **N5 helper signature lockdown**: VERIFIED. TASK-1-3 acceptance criteria explicitly lock the signatures: `_is_slice_dag_mode(contract) -> bool` and `_resolve_slice_base_branch(contract, slice_id) -> str` with explicit return semantics ("returns f'egg/{pipeline_id}/work' for root slices and parent_branch_at_creation otherwise"). TASK-4-3 extends with merge-base fallback. Consumer call shapes at TASK-2-1's rewire and TASK-2-3's stacked_pr_reconciler rewire will match.
+- **#2570 isolation to slice-3 (R1 net operational benefit)**: VERIFIED. TASK-3-X covers the #2570 bundle with the AC-9a HITL gate preserved per architect's iteration.
+- **Integration test placement (N3)**: VERIFIED in slice-3 per architect's AC-8. End-to-end test exercises the post-collapse topology (one PR after first plan→implement, idempotent on re-entry, asserts no PR-phase route exists — verifies 1b's deletion landed).
 
 ### Non-blocking
-- **TASK-1-6 — peer_consensus.py:1604 compatibility-alias method (architect's AC-18 closing sentence)**: the architect noted "The peer_consensus.py:1604 alias method (a compatibility shim) is also referenced — verify whether it remains dead post-deletion and remove if so." Your v2 doesn't address this. It's a follow-on cleanup, not a runtime-breaker (the alias method is on the new tracker, not the deleted module), but worth flagging in TASK-1-6's notes so the coder either removes it lockstep or files a follow-up.
-- **Anchor-SHA re-anchoring note (your §Approach addition) is excellent** and addresses R5 cleanly. The remaining concern: your TASK-1-6 enumeration cites the OLD refine-SHA anchor (1805-1808 etc.) but the architect's AC-18 cites HEAD lines (1813-1816 etc.). Both are correct against their respective anchors, but the coder will have to translate during re-anchoring. Consider citing the HEAD anchor alongside the refine anchor for high-leverage tasks like TASK-1-6 to reduce re-anchoring friction. Pure suggestion; not blocking.
-- **TASK-1-1 persistence helper (R9)**: your `_persist_context_pr_number(pipeline_id, pr_number)` naming addresses my R9 concern cleanly. Plus the idempotent-path AC asserts the persistence write is observed even on hit — this catches the resume-from-orphaned-pipeline regression class that motivated my R9.
-- **TASK-1-3 namesake-namespace correction**: dropping the wrong :2567 citation and adding the four namespace-preserve sites (gateway_client.py:1409/1441, test_session_manager.py:1127/1170, test_gateway.py:4371) is exactly the fix for R4. Good.
-- **TASK-1-9 OOS-collision expectation upfront with default-recommended option 3 (xfail + follow-up)**: makes the AC-9a fire-by-construction reality visible to the operator and the implement-phase coder. The audit-note artifact `.egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md` is a smart addition — captures the diagnosis even when the fix gets deferred. Addresses R1 well.
-- **TASK-1-5b (stacked_pr_reconciler rewire)**: this is exactly what AC-19 (b) calls for, and the 10 read-site enumeration matches my R3 evidence. Good.
-- **TASK-1-3 (8) _check_post_consensus_stall semantic rewire (R6)**: the required choice between (a) delete with proof of unreachability or (b) re-derive equivalent predicate is the correct framing. Document the choice in the commit message is a good audit hook.
+- **TASK-1-2 body internal line-number drift (R5 manifestation, MEDIUM)**: The slice-1a goal text at lines 651-654 cites the 5 call sites with HEAD-anchored numbers (pipelines.py:16503, :22132, :23671, :24666 + phases.py:500), matching architect's slices.yaml verbatim. But TASK-1-2's body at line 745-746 ("delete the other four call sites (`pipelines.py:15120, 20572, 22051, 22994`)") and its AC at line 763-764 use PLAN-ANCHOR numbers (1cb235871). The drift is ~1100-1500 lines per site. Mitigation: the implement-phase coder is bound by the "Mandatory implementer protocol" at plan-draft lines 193-203 ("before editing any cited line, the implement-phase coder MUST run grep -n against HEAD to re-anchor"). TASK-1-2 already uses dual-anchor notation in one place ("currently at pipelines.py:9791 plan-anchor / :10423 HEAD" at line 725) — recommend extending dual-anchor notation to the 4-call-site enumeration on next revision, so reviewer_plan and the implement-phase coder don't need to resolve the inconsistency at edit time. Not blocking because the protocol mitigates and the slice goal is correct.
+- **TASK-1-2 "replace vs delete" semantic** (inherited from architect's slices.yaml): The slice-1a goal says "replace the five existing call sites of _maybe_open_base_pr_for_plan_to_implement with calls to the new opener" — could be misread as "five call sites all call the new opener afterward". TASK-1-2's body is correct: "replace the existing call at phases.py:500 (the only call site that survives) and delete the other four call sites". The new opener is called ONCE per pipeline (at phases.py:500); the 4 pipelines.py sites are deleted entirely (they existed only because the old soft-fail wrapper needed multiple retry points). The TASK body is authoritative — flagging this as a documentation hygiene note for the next iteration if any.
+- **R5 carry-forward**: Per my v1 risk register, R5 (file:line drift) is preserved as a real risk across all sub-slices. The re-anchoring protocol is correctly carried verbatim to the v5 plan-draft (lines 165-203). Each implement-phase coder is responsible for running the pre-edit grep on every cited primitive.
+- **Contract auto-populate from plan-draft**: As task_planner cannot write to contracts/, the v5 plan-draft is the source-of-truth for the slice/task topology. The 2-slice contract on disk will be re-populated when the plan phase advances. reviewer_plan should verify the post-advance contract has 4 slices matching the yaml-tasks block.
 
-Other than the missing 6th pipelines.py cluster in TASK-1-6, this v2 is a comprehensive integration of the architect's binding scaffold + reviewer_plan blockers + my non-blocking risk concerns. Re-propose with the cluster count corrected and I will ACK on the next review.
-
+ACK on task_planner v5 — both mandates pass. Plan ships safely as 4 sequential sub-slices. R12 is structurally resolved by the re-shape. Mandate-2 audit found no NEW NACK-shaped issues; documentation hygiene concerns are non-blocking.
 
 ````yaml
-id: 57acbce9-1c93-40
+id: ac66bd85-7222-40
 phase: plan
 metadata:
   payload:
-    reason: "\n### Blocking\n1. **`.egg-state/drafts/issue-2777-replan-plan.md` TASK-1-6\
-      \ description (lines ~1052-1110) \u2014 undercounts ConsensusEvaluator pipelines.py\
-      \ clusters by 1.** Your v2 says \"SEVEN reference clusters total\" (5 in pipelines.py\
-      \ at the refine-SHA-anchored lines 1805-1808, 2844-2848, 3274-3279, 4206-4210,\
-      \ 4215-4219; plus 1 in phases.py:119-124; plus 1 in signals.py:847-871). The\
-      \ architect's binding AC-18 explicitly enumerates **EIGHT** clusters: **SIX\
-      \ in pipelines.py** at HEAD lines 1813-1816, 2859-2863, 3289-3293, **3516-3522**\
-      \ (this is the cluster you missed), 4489-4493, 4498-4502; plus the same 1 in\
-      \ phases.py and 1 in signals.py.\n\n   I independently verified the missing\
-      \ cluster at HEAD via `sed -n '3510,3530p' orchestrator/routes/pipelines.py`:\n\
-      \   ```\n   3515:    try:\n   3516:        try:\n   3517:            from consensus\
-      \ import get_consensus_evaluator\n   3518:        except ImportError:\n   3519:\
-      \            from ..consensus import (  # type: ignore[import-not-found]\n \
-      \  3520:                get_consensus_evaluator,\n   3521:            )\n  \
-      \ 3522:\n   3523:        evaluator = get_consensus_evaluator()\n   3524:   \
-      \     evaluator.clear(pipeline_id)\n   3525:    except ImportError:\n   3526:\
-      \        pass\n   ```\n   This is the **\"Failed to clear legacy consensus after\
-      \ hard-reset ack\"** block \u2014 a distinct call site from the `restart_phase`\
-      \ consensus-clear block (which is cluster 3 at :3274-3279 in your anchored numbering\
-      \ / :3289-3293 at HEAD). Deleting `orchestrator/consensus.py` without removing\
-      \ this cluster guarantees an `ImportError` post-restart on the hard-reset ack\
-      \ path.\n\n   **Fix**: extend TASK-1-6's enumeration from 7 \u2192 8 clusters.\
-      \ Insert a new sub-bullet between current (3) and (4) covering pipelines.py:3289-3526-region\
-      \ cluster (hard-reset-ack consensus-clear; HEAD anchor :3516-3526; anchored\
-      \ to refine-SHA `1cb235871` this would be approximately :3486-3496 \u2014 re-anchor\
-      \ via `grep -n` per your global re-anchoring note). Update the count statement\
-      \ from \"SEVEN\" to \"EIGHT\" in the description AND in the acceptance criteria.\
-      \ The architect's AC-18 mandate (\"the post-deletion grep must return zero matches\"\
-      ) is your safety net, but the enumeration drives the coder's first pass and\
-      \ is what reviewer_plan / reviewer_code will check against. Carrying the architect's\
-      \ count forward verbatim is the cleanest fix.\n\n### Non-blocking\n- **TASK-1-6\
-      \ \u2014 peer_consensus.py:1604 compatibility-alias method (architect's AC-18\
-      \ closing sentence)**: the architect noted \"The peer_consensus.py:1604 alias\
-      \ method (a compatibility shim) is also referenced \u2014 verify whether it\
-      \ remains dead post-deletion and remove if so.\" Your v2 doesn't address this.\
-      \ It's a follow-on cleanup, not a runtime-breaker (the alias method is on the\
-      \ new tracker, not the deleted module), but worth flagging in TASK-1-6's notes\
-      \ so the coder either removes it lockstep or files a follow-up.\n- **Anchor-SHA\
-      \ re-anchoring note (your \xA7Approach addition) is excellent** and addresses\
-      \ R5 cleanly. The remaining concern: your TASK-1-6 enumeration cites the OLD\
-      \ refine-SHA anchor (1805-1808 etc.) but the architect's AC-18 cites HEAD lines\
-      \ (1813-1816 etc.). Both are correct against their respective anchors, but the\
-      \ coder will have to translate during re-anchoring. Consider citing the HEAD\
-      \ anchor alongside the refine anchor for high-leverage tasks like TASK-1-6 to\
-      \ reduce re-anchoring friction. Pure suggestion; not blocking.\n- **TASK-1-1\
-      \ persistence helper (R9)**: your `_persist_context_pr_number(pipeline_id, pr_number)`\
-      \ naming addresses my R9 concern cleanly. Plus the idempotent-path AC asserts\
-      \ the persistence write is observed even on hit \u2014 this catches the resume-from-orphaned-pipeline\
-      \ regression class that motivated my R9.\n- **TASK-1-3 namesake-namespace correction**:\
-      \ dropping the wrong :2567 citation and adding the four namespace-preserve sites\
-      \ (gateway_client.py:1409/1441, test_session_manager.py:1127/1170, test_gateway.py:4371)\
-      \ is exactly the fix for R4. Good.\n- **TASK-1-9 OOS-collision expectation upfront\
-      \ with default-recommended option 3 (xfail + follow-up)**: makes the AC-9a fire-by-construction\
-      \ reality visible to the operator and the implement-phase coder. The audit-note\
-      \ artifact `.egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md` is\
-      \ a smart addition \u2014 captures the diagnosis even when the fix gets deferred.\
-      \ Addresses R1 well.\n- **TASK-1-5b (stacked_pr_reconciler rewire)**: this is\
-      \ exactly what AC-19 (b) calls for, and the 10 read-site enumeration matches\
-      \ my R3 evidence. Good.\n- **TASK-1-3 (8) _check_post_consensus_stall semantic\
-      \ rewire (R6)**: the required choice between (a) delete with proof of unreachability\
-      \ or (b) re-derive equivalent predicate is the correct framing. Document the\
-      \ choice in the commit message is a good audit hook.\n\nOther than the missing\
-      \ 6th pipelines.py cluster in TASK-1-6, this v2 is a comprehensive integration\
-      \ of the architect's binding scaffold + reviewer_plan blockers + my non-blocking\
-      \ risk concerns. Re-propose with the cluster count corrected and I will ACK\
-      \ on the next review.\n"
     artifact_references:
     - .egg-state/drafts/issue-2777-replan-plan.md
+    - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
+    - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
+    reason: "Reviewed task_planner v5 (commit d91dc5ddf, re-propose addressing my\
+      \ v1 NACK + reviewer_plan's NACK). Plan-draft alone is 1320 lines reshuffled\
+      \ to match architect's binding 4-slice scaffold. Performed both mandates: (a)\
+      \ verified v1 blockers fixed; (b) fresh-reviewer audit of v2 delta.\n\n### (a)\
+      \ v1 blockers verified-fixed (mandate 1)\n1. **Slice DAG section (lines 378-401)\
+      \ \u2014 FIXED.** Now renders a 4-node linear chain: slice-1 (id=1, slice-1a\
+      \ opener+wiring, parent=null, \"ADDS new primitives only\") \u2192 slice-2 (id=2,\
+      \ slice-1b deletions, parent=1) \u2192 slice-3 (id=3, slice-1c cleanup tail,\
+      \ parent=2) \u2192 slice-4 (id=4, slice-2 restart hardening, parent=3). Forest\
+      \ constraint satisfied.\n2. **Contract slice count \u2014 DEFERRED (acceptable).**\
+      \ `jq '.slices | length'` still returns 2 because contracts/ is gateway-blocked\
+      \ for task_planner; the contract is auto-populated from the plan-draft at phase\
+      \ advance, so the v5 plan-draft's `# yaml-tasks` slices block (lines 636+) is\
+      \ the source-of-truth. Verified the yaml-tasks block has 4 slices with parent_slice_id\
+      \ 1=null, 2=1, 3=2, 4=3 \u2014 matches architect's slices.yaml verbatim. The\
+      \ 2-slice contract state is stale-but-expected.\n3. **Task re-allocation across\
+      \ 1a/1b/1c \u2014 FIXED.** yaml-tasks block has TASK-1-1..1-3 (slice-1a, 3 coder\
+      \ tasks), TASK-2-1..2-10 (slice-1b, 10 tasks), TASK-3-1..3-12 (slice-1c, 12\
+      \ tasks), TASK-4-1..4-7 (slice-2, 7 tasks). Total 32 tasks (matches old 25+7).\
+      \ Operator's 16-task wedge threshold is no longer crossed at any sub-slice.\n\
+      4. **Pre-merge / Post-merge sections (lines 436-457) \u2014 FIXED.** Each sub-slice\
+      \ has its own pre-merge / post-merge block. Schema-bump pre-merge correctly\
+      \ in slice-2 (slice-1b). #2389/#2570 post-merge correctly in slice-3 (slice-1c).\
+      \ #2409 post-merge correctly in slice-4 (slice-2).\n5. **R12 resolution prerequisite\
+      \ \u2014 FIXED.** With 4 slices instead of 1+25-task, the implement-phase coder\
+      \ can complete each sub-slice in one BRC cycle; the unwired-WIP-partial failure\
+      \ mode is structurally prevented.\n\n### (b) Fresh-reviewer audit of v2 delta\
+      \ (mandate 2) \u2014 checked for:\n- **Silent-fallback shapes in new task bodies**:\
+      \ NONE INTRODUCED. TASK-1-2 keeps the hard-required ContextPrCreationError contract\
+      \ (no soft-fail `return None`). TASK-2-4 keeps the _migrate_schema_version_to_1_2\
+      \ migrator (per AC-19a). TASK-2-X deletions are atomic (no half-deleted state).\n\
+      - **DAG ordering invariants**: VERIFIED. TASK-1-2 explicitly states \"ordering\
+      \ with TASK-2-1 deletion is critical \u2014 TASK-2-1 depends on TASK-1-2 having\
+      \ extracted the helper before tearing down the old persistence path\" (line\
+      \ 738). TASK-1-3 explicitly says \"TASK-1-3 must complete BEFORE TASK-2-1 so\
+      \ that TASK-2-1 has a non-empty helper to call\" (line 806). Cross-slice ordering\
+      \ is enforced both by the slice parent_slice_id chain AND by the per-task ordering\
+      \ notes.\n- **Trust-boundary delta**: NONE. Re-numbering does not change file:line\
+      \ citations, primitives, or AC content.\n- **AC mapping vs sub-slice placement**:\
+      \ VERIFIED. Architect's AC-1, AC-1a, AC-12a, AC-22 \u2192 slice-1a (matches\
+      \ the new TASK-1-1/1-2/1-3 enumeration). AC-2..AC-5, AC-5a, AC-18..AC-21, AC-23\
+      \ \u2192 slice-1b (matches TASK-2-1..2-10 deletions). AC-6..AC-12 \u2192 slice-1c\
+      \ (matches TASK-3-1..3-12 cleanup). AC-13..AC-17, AC-24 \u2192 slice-2 (matches\
+      \ TASK-4-1..4-7 restart hardening). No AC orphaned, no AC double-allocated.\n\
+      - **R3 schema-fanout coverage**: VERIFIED. TASK-2-4 implements the migrator.\
+      \ TASK-2-3 covers stacked_pr_reconciler.py cascade-base rewire (per architect's\
+      \ AC-19). The 7 additional read sites enumerated by my v1 R3 are routed to TASK-2-1's\
+      \ deletion or to TASK-2-3's rewire.\n- **N5 helper signature lockdown**: VERIFIED.\
+      \ TASK-1-3 acceptance criteria explicitly lock the signatures: `_is_slice_dag_mode(contract)\
+      \ -> bool` and `_resolve_slice_base_branch(contract, slice_id) -> str` with\
+      \ explicit return semantics (\"returns f'egg/{pipeline_id}/work' for root slices\
+      \ and parent_branch_at_creation otherwise\"). TASK-4-3 extends with merge-base\
+      \ fallback. Consumer call shapes at TASK-2-1's rewire and TASK-2-3's stacked_pr_reconciler\
+      \ rewire will match.\n- **#2570 isolation to slice-3 (R1 net operational benefit)**:\
+      \ VERIFIED. TASK-3-X covers the #2570 bundle with the AC-9a HITL gate preserved\
+      \ per architect's iteration.\n- **Integration test placement (N3)**: VERIFIED\
+      \ in slice-3 per architect's AC-8. End-to-end test exercises the post-collapse\
+      \ topology (one PR after first plan\u2192implement, idempotent on re-entry,\
+      \ asserts no PR-phase route exists \u2014 verifies 1b's deletion landed).\n\n\
+      ### Non-blocking\n- **TASK-1-2 body internal line-number drift (R5 manifestation,\
+      \ MEDIUM)**: The slice-1a goal text at lines 651-654 cites the 5 call sites\
+      \ with HEAD-anchored numbers (pipelines.py:16503, :22132, :23671, :24666 + phases.py:500),\
+      \ matching architect's slices.yaml verbatim. But TASK-1-2's body at line 745-746\
+      \ (\"delete the other four call sites (`pipelines.py:15120, 20572, 22051, 22994`)\"\
+      ) and its AC at line 763-764 use PLAN-ANCHOR numbers (1cb235871). The drift\
+      \ is ~1100-1500 lines per site. Mitigation: the implement-phase coder is bound\
+      \ by the \"Mandatory implementer protocol\" at plan-draft lines 193-203 (\"\
+      before editing any cited line, the implement-phase coder MUST run grep -n against\
+      \ HEAD to re-anchor\"). TASK-1-2 already uses dual-anchor notation in one place\
+      \ (\"currently at pipelines.py:9791 plan-anchor / :10423 HEAD\" at line 725)\
+      \ \u2014 recommend extending dual-anchor notation to the 4-call-site enumeration\
+      \ on next revision, so reviewer_plan and the implement-phase coder don't need\
+      \ to resolve the inconsistency at edit time. Not blocking because the protocol\
+      \ mitigates and the slice goal is correct.\n- **TASK-1-2 \"replace vs delete\"\
+      \ semantic** (inherited from architect's slices.yaml): The slice-1a goal says\
+      \ \"replace the five existing call sites of _maybe_open_base_pr_for_plan_to_implement\
+      \ with calls to the new opener\" \u2014 could be misread as \"five call sites\
+      \ all call the new opener afterward\". TASK-1-2's body is correct: \"replace\
+      \ the existing call at phases.py:500 (the only call site that survives) and\
+      \ delete the other four call sites\". The new opener is called ONCE per pipeline\
+      \ (at phases.py:500); the 4 pipelines.py sites are deleted entirely (they existed\
+      \ only because the old soft-fail wrapper needed multiple retry points). The\
+      \ TASK body is authoritative \u2014 flagging this as a documentation hygiene\
+      \ note for the next iteration if any.\n- **R5 carry-forward**: Per my v1 risk\
+      \ register, R5 (file:line drift) is preserved as a real risk across all sub-slices.\
+      \ The re-anchoring protocol is correctly carried verbatim to the v5 plan-draft\
+      \ (lines 165-203). Each implement-phase coder is responsible for running the\
+      \ pre-edit grep on every cited primitive.\n- **Contract auto-populate from plan-draft**:\
+      \ As task_planner cannot write to contracts/, the v5 plan-draft is the source-of-truth\
+      \ for the slice/task topology. The 2-slice contract on disk will be re-populated\
+      \ when the plan phase advances. reviewer_plan should verify the post-advance\
+      \ contract has 4 slices matching the yaml-tasks block.\n\nACK on task_planner\
+      \ v5 \u2014 both mandates pass. Plan ships safely as 4 sequential sub-slices.\
+      \ R12 is structurally resolved by the re-shape. Mandate-2 audit found no NEW\
+      \ NACK-shaped issues; documentation hygiene concerns are non-blocking."
+    ack_version: 2
+  version: 2
+````
+
+### [2026-05-29T05:06:55Z] orchestrator → risk_analyst (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: ced0fae4-709a-40
+phase: plan
+metadata:
+  ready_to_confirm: true
+  version: 1
+````
+
+### [2026-05-29T05:06:55Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a5aaad9f-947a-49
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T05:06:58Z] risk_analyst (CONSENSUS_CONFIRMED): Confirmed by risk_analyst
+
+````yaml
+id: a8a013fb-479f-40
+phase: plan
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-29T05:06:58Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 2fd4d26c-bb40-49
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T05:07:02Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 565ea865-7b72-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:02.700239+00:00'
+````
+
+### [2026-05-29T05:07:04Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: d67874ae-8733-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:04.337035+00:00'
+````
+
+### [2026-05-29T05:07:23Z] reviewer_plan → task_planner (CONSENSUS_NACK): NACK from reviewer_plan for task_planner
+
+Re-reviewed task_planner v2 (commit d91dc5ddf) — the re-shape to the architect's 4-slice scaffold. Dual mandate per the re-review prime: (a) verify v1 blockers fixed (no v1 blockers existed — clean ACK), (b) audit v2 delta as fresh reviewer with no NACK history.
+
+### Verdict
+NACK on task_planner v2. The re-shuffling into 1a/1b/1c/2 with re-numbered task IDs is correctly executed and cross-references are correctly updated, but the substantive content of TASK-4-5 carries unverified work that **directly contradicts the architect's binding AC-16** and the architect's runtime_primitive_inventory_addendum verified at HEAD.
+
+### Blocking
+1. **TASK-4-5(1) and TASK-4-5(2) — contradict architect's binding AC-16 + add unnecessary schema work.**
+
+   **TASK-4-5 description (plan-md:2218-2230) says**:
+   > (1) Add an optional `slice_id` field to `message_store.Message` in `orchestrator/message_store.py`... Default None for back-compat; persist when set so on-disk message history carries the slice scope.
+   > (2) Extend `reconstruct_tracker_from_messages` to accept an optional `slice_id` parameter.
+
+   **And TASK-4-5 acceptance (plan-md:2256-2259) requires**:
+   > - `message_store.Message` carries an optional `slice_id` field, persisted to disk when set.
+   > - `reconstruct_tracker_from_messages` accepts and filters by `slice_id`.
+
+   **Architect's binding AC-16 + replan_change_log says** (verified at HEAD in architect-output.json):
+   > "Verified at HEAD that `reconstruct_tracker_from_messages` (peer_consensus.py:1919) ALREADY accepts a `slice_id` parameter — the gap is at startup_reconciliation.py:312 (call without slice_id). message_store carries slice_id in metadata (filter at message_store.py:407-416). **No schema change to Message required.**"
+
+   **I independently verified all three points at HEAD**:
+   - `orchestrator/peer_consensus.py:1919-1926` — `reconstruct_tracker_from_messages(pipeline_id, graph, *, message_store=None, slice_id=None, phase=None)` signature is already in place at HEAD with the `slice_id` keyword arg. TASK-4-5(2) is asking the coder to extend a function that already has the requested signature.
+   - `orchestrator/message_store.py:127-197` — the `Message` BaseModel at HEAD has `metadata: dict[str, Any]` but NO top-level `slice_id` field. Slice scope is carried via `metadata['slice_id']`, NOT a separate field.
+   - `orchestrator/message_store.py:407-416` — read-side filter is `if (m.metadata.get("slice_id") is None or m.metadata.get("slice_id") == slice_id)` — slice_id comes out of metadata.
+   - `orchestrator/routes/messages.py:770` — write-side `metadata["slice_id"] = slice_id` — message senders already populate metadata['slice_id'].
+
+   **Impact if implementer follows TASK-4-5(1) verbatim**: they would (a) add a redundant top-level Message.slice_id field alongside the metadata key, (b) add to_dict serialization, (c) add migration for on-disk messages that have slice_id in metadata only, (d) introduce a two-source-of-truth bug where senders populate metadata['slice_id'] but new field is unset — the read-side filter would need to check both. This is meaningful net-new work and a structural regression versus the existing #2725 metadata-based design.
+
+   **Impact if implementer follows TASK-4-5(2) verbatim**: they would re-do the keyword-arg extension that already landed (likely as part of #2725 / a prior issue). At best a no-op, at worst an accidental signature break.
+
+   **Fix**: rewrite TASK-4-5 to drop (1) and (2):
+
+   > Per-slice consensus tracker reconstruction in startup_reconciliation.py (closes #2409). Per the architect's AC-16 + replan_change_log, `reconstruct_tracker_from_messages` at `peer_consensus.py:1919-1926` ALREADY accepts an optional `slice_id` parameter, and `message_store.py:407-416` ALREADY filters messages by `metadata['slice_id']`. The gap is in the call site, not the primitives.
+   >
+   > (1) **Extend the `startup_reconciliation.py` loop at lines 312-376** (especially 358-367): for each pipeline that has slices, iterate `contract.slices` and call `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=s.id)` for each slice in addition to the existing pipeline-level call.
+   > (2) **Fix `handle_consensus_confirmed_signal`** in `orchestrator/routes/signals.py`: today the handler skips reconstruction when `slice_id` is supplied; remove the skip so slice-scoped confirms also reconstruct via the (existing) slice-id-filtered path.
+
+   And drop the corresponding acceptance criteria — only keep the call-site changes:
+   > - `startup_reconciliation.py` reconstructs per-slice trackers for every pipeline with slices, keyed `{pipeline_id}/{slice_id}` (verified by AC-16 cross-slice isolation test in TASK-4-6).
+   > - `handle_consensus_confirmed_signal` in `orchestrator/routes/signals.py` no longer skips reconstruction when `slice_id` is supplied.
+   > - No new field added to `message_store.Message` (the metadata-based scope per #2725 is the canonical mechanism).
+   > - No signature change to `reconstruct_tracker_from_messages` (the slice_id kwarg already exists at HEAD per peer_consensus.py:1919-1926).
+   > - #2409 is closed by this task.
+
+   Also drop `orchestrator/message_store.py` from TASK-4-5.files — no change is needed there.
+
+   Note: I flagged the obsolete framing of TASK-2-5(1) in the v1 "What this ACK does NOT bind" section and the architect's v1 ACK explicitly tagged it for task_planner cleanup. v2 preserved the v3 text verbatim — so this is the durable-fix point.
+
+### Non-blocking
+
+- **TASK-3-3 stale "slice-1" wording in HITL options** (plan-md:1680-1689). The task is now in slice-3 / id=3 but the HITL option text reads:
+  > "Extend scope to include the OOS primitive in slice-1"
+  > "Defer slice-1 until the #2792 work lands"
+  > "Mark #2570 as xfail in slice-1 and open a follow-up issue"
+
+  When the implementer reaches AC-9a and registers the HITL via `mcp__sdlc__register_open_question`, the operator will read "slice-1" but the task is actually in slice-3. Suggest s/slice-1/slice-3/g (or "this slice") in those three option strings. The audit-note path `task-1-9-audit.md` (plan-md:1646, 1692, 1717) also uses the OLD task ID — suggest renaming to `task-3-3-audit.md` to match the canonical re-numbering. None of this is correctness-blocking; the implementer can land the task either way.
+
+- **TASK-4-1 line 2093** ("wait for the slice-1 rebase before proceeding") could be misread as referring to slice-1 (id=1). Context makes clear it means "wait for slice-2's TASK-2-6 to land", but s/slice-1/slice-2 (id=2) would remove the ambiguity.
+
+- **Plan body line numbers** still anchored to refine-commit `1cb235871` throughout the per-task descriptions (the §Approach §Anchor-SHA section re-anchors at HEAD `28f7ef9b2`, which is sufficient given the mandatory re-anchoring protocol). Not blocking — explicitly preserved by design.
+
+### What I checked as fresh reviewer (mandate b)
+
+- **Cross-reference re-numbering integrity**: spot-checked TASK-1-1/1-2 acceptance criteria reference TASK-3-8 (new tester ID, was TASK-1-15) ✓; TASK-2-1 `depends_on` cites TASK-1-2/1-1/2-4/2-5/1-3 with new IDs ✓; TASK-2-1 description references TASK-1-3 for helpers ✓; TASK-4-4 references TASK-4-5 / TASK-4-6 correctly ✓. The TASK-ID-mapping table at plan-md:100-133 is internally consistent.
+- **Slice DAG encoding**: slice-1 parent=null, slice-2 parent=1, slice-3 parent=2, slice-4 parent=3 — linear chain, forest constraint satisfied. ✓ Matches architect's slices.yaml.
+- **Sub-slice sizing table** at plan-md:137-142 (slice-1=3, slice-2=10, slice-3=12, slice-4=7) — matches what I'd compute from the task lists. Per criteria §11, max-12 (slice-3) is acceptable given the cohesion-independent framing.
+- **Schema migration** (TASK-2-4) — `_migrate_schema_version_to_1_2` correctly mirrors the existing `_migrate_schema_version_to_1_1` pattern (architect AC-3, AC-19a) ✓.
+- **OOS list** preserved verbatim from architect's `explicitly_out_of_scope.files_or_symbols` ✓.
+- **Bundled issue closures**: #2389 closed in slice-3 (post-merge step), #2570 closed in slice-3 (with AC-9a HITL conditional), #2409 closed in slice-4. ✓
+- **PR-phase removal coverage** (TASK-2-2) — 11 site-categories enumerated, before/after grep artifact requirement preserved, gateway phase_filter/phase_transition lockstep covered ✓.
+- **Primitive existence at HEAD**: re-spot-checked `_maybe_open_base_pr_for_plan_to_implement` 5 call sites still at HEAD (pipelines.py:11280 def + :16503/:22132/:23671/:24666 + phases.py:500) ✓; `_resolve_slice_1_context_branch_from_contract` at :11515 ✓; 8 ConsensusEvaluator clusters ✓.
+
+What I did NOT find any new issue on: silent fallbacks (TASK-1-2 hard-required path is explicit, no `return None`), trust-boundary mis-claims (integration tests under `integration_tests/regression/` correctly trusted-CI-runner tier), AC atomicity (each AC has a verifiable assertion), doc-snippet executability (grep commands in ACs are real shell commands), API-deprecation (no deprecated APIs used).
+
+### Summary
+The only blocking finding is TASK-4-5(1)/(2) contradicting architect AC-16. Drop them and TASK-4-5 reduces to (3)+(4) which are the actual gap. Non-blocking: TASK-3-3 stale "slice-1" wording in HITL options and the `task-1-9-audit.md` filename.
+
+````yaml
+id: 4a79f7ee-8ce0-47
+phase: plan
+metadata:
+  payload:
+    reason: "Re-reviewed task_planner v2 (commit d91dc5ddf) \u2014 the re-shape to\
+      \ the architect's 4-slice scaffold. Dual mandate per the re-review prime: (a)\
+      \ verify v1 blockers fixed (no v1 blockers existed \u2014 clean ACK), (b) audit\
+      \ v2 delta as fresh reviewer with no NACK history.\n\n### Verdict\nNACK on task_planner\
+      \ v2. The re-shuffling into 1a/1b/1c/2 with re-numbered task IDs is correctly\
+      \ executed and cross-references are correctly updated, but the substantive content\
+      \ of TASK-4-5 carries unverified work that **directly contradicts the architect's\
+      \ binding AC-16** and the architect's runtime_primitive_inventory_addendum verified\
+      \ at HEAD.\n\n### Blocking\n1. **TASK-4-5(1) and TASK-4-5(2) \u2014 contradict\
+      \ architect's binding AC-16 + add unnecessary schema work.**\n\n   **TASK-4-5\
+      \ description (plan-md:2218-2230) says**:\n   > (1) Add an optional `slice_id`\
+      \ field to `message_store.Message` in `orchestrator/message_store.py`... Default\
+      \ None for back-compat; persist when set so on-disk message history carries\
+      \ the slice scope.\n   > (2) Extend `reconstruct_tracker_from_messages` to accept\
+      \ an optional `slice_id` parameter.\n\n   **And TASK-4-5 acceptance (plan-md:2256-2259)\
+      \ requires**:\n   > - `message_store.Message` carries an optional `slice_id`\
+      \ field, persisted to disk when set.\n   > - `reconstruct_tracker_from_messages`\
+      \ accepts and filters by `slice_id`.\n\n   **Architect's binding AC-16 + replan_change_log\
+      \ says** (verified at HEAD in architect-output.json):\n   > \"Verified at HEAD\
+      \ that `reconstruct_tracker_from_messages` (peer_consensus.py:1919) ALREADY\
+      \ accepts a `slice_id` parameter \u2014 the gap is at startup_reconciliation.py:312\
+      \ (call without slice_id). message_store carries slice_id in metadata (filter\
+      \ at message_store.py:407-416). **No schema change to Message required.**\"\n\
+      \n   **I independently verified all three points at HEAD**:\n   - `orchestrator/peer_consensus.py:1919-1926`\
+      \ \u2014 `reconstruct_tracker_from_messages(pipeline_id, graph, *, message_store=None,\
+      \ slice_id=None, phase=None)` signature is already in place at HEAD with the\
+      \ `slice_id` keyword arg. TASK-4-5(2) is asking the coder to extend a function\
+      \ that already has the requested signature.\n   - `orchestrator/message_store.py:127-197`\
+      \ \u2014 the `Message` BaseModel at HEAD has `metadata: dict[str, Any]` but\
+      \ NO top-level `slice_id` field. Slice scope is carried via `metadata['slice_id']`,\
+      \ NOT a separate field.\n   - `orchestrator/message_store.py:407-416` \u2014\
+      \ read-side filter is `if (m.metadata.get(\"slice_id\") is None or m.metadata.get(\"\
+      slice_id\") == slice_id)` \u2014 slice_id comes out of metadata.\n   - `orchestrator/routes/messages.py:770`\
+      \ \u2014 write-side `metadata[\"slice_id\"] = slice_id` \u2014 message senders\
+      \ already populate metadata['slice_id'].\n\n   **Impact if implementer follows\
+      \ TASK-4-5(1) verbatim**: they would (a) add a redundant top-level Message.slice_id\
+      \ field alongside the metadata key, (b) add to_dict serialization, (c) add migration\
+      \ for on-disk messages that have slice_id in metadata only, (d) introduce a\
+      \ two-source-of-truth bug where senders populate metadata['slice_id'] but new\
+      \ field is unset \u2014 the read-side filter would need to check both. This\
+      \ is meaningful net-new work and a structural regression versus the existing\
+      \ #2725 metadata-based design.\n\n   **Impact if implementer follows TASK-4-5(2)\
+      \ verbatim**: they would re-do the keyword-arg extension that already landed\
+      \ (likely as part of #2725 / a prior issue). At best a no-op, at worst an accidental\
+      \ signature break.\n\n   **Fix**: rewrite TASK-4-5 to drop (1) and (2):\n\n\
+      \   > Per-slice consensus tracker reconstruction in startup_reconciliation.py\
+      \ (closes #2409). Per the architect's AC-16 + replan_change_log, `reconstruct_tracker_from_messages`\
+      \ at `peer_consensus.py:1919-1926` ALREADY accepts an optional `slice_id` parameter,\
+      \ and `message_store.py:407-416` ALREADY filters messages by `metadata['slice_id']`.\
+      \ The gap is in the call site, not the primitives.\n   >\n   > (1) **Extend\
+      \ the `startup_reconciliation.py` loop at lines 312-376** (especially 358-367):\
+      \ for each pipeline that has slices, iterate `contract.slices` and call `reconstruct_tracker_from_messages(pipeline_id,\
+      \ graph, slice_id=s.id)` for each slice in addition to the existing pipeline-level\
+      \ call.\n   > (2) **Fix `handle_consensus_confirmed_signal`** in `orchestrator/routes/signals.py`:\
+      \ today the handler skips reconstruction when `slice_id` is supplied; remove\
+      \ the skip so slice-scoped confirms also reconstruct via the (existing) slice-id-filtered\
+      \ path.\n\n   And drop the corresponding acceptance criteria \u2014 only keep\
+      \ the call-site changes:\n   > - `startup_reconciliation.py` reconstructs per-slice\
+      \ trackers for every pipeline with slices, keyed `{pipeline_id}/{slice_id}`\
+      \ (verified by AC-16 cross-slice isolation test in TASK-4-6).\n   > - `handle_consensus_confirmed_signal`\
+      \ in `orchestrator/routes/signals.py` no longer skips reconstruction when `slice_id`\
+      \ is supplied.\n   > - No new field added to `message_store.Message` (the metadata-based\
+      \ scope per #2725 is the canonical mechanism).\n   > - No signature change to\
+      \ `reconstruct_tracker_from_messages` (the slice_id kwarg already exists at\
+      \ HEAD per peer_consensus.py:1919-1926).\n   > - #2409 is closed by this task.\n\
+      \n   Also drop `orchestrator/message_store.py` from TASK-4-5.files \u2014 no\
+      \ change is needed there.\n\n   Note: I flagged the obsolete framing of TASK-2-5(1)\
+      \ in the v1 \"What this ACK does NOT bind\" section and the architect's v1 ACK\
+      \ explicitly tagged it for task_planner cleanup. v2 preserved the v3 text verbatim\
+      \ \u2014 so this is the durable-fix point.\n\n### Non-blocking\n\n- **TASK-3-3\
+      \ stale \"slice-1\" wording in HITL options** (plan-md:1680-1689). The task\
+      \ is now in slice-3 / id=3 but the HITL option text reads:\n  > \"Extend scope\
+      \ to include the OOS primitive in slice-1\"\n  > \"Defer slice-1 until the #2792\
+      \ work lands\"\n  > \"Mark #2570 as xfail in slice-1 and open a follow-up issue\"\
+      \n\n  When the implementer reaches AC-9a and registers the HITL via `mcp__sdlc__register_open_question`,\
+      \ the operator will read \"slice-1\" but the task is actually in slice-3. Suggest\
+      \ s/slice-1/slice-3/g (or \"this slice\") in those three option strings. The\
+      \ audit-note path `task-1-9-audit.md` (plan-md:1646, 1692, 1717) also uses the\
+      \ OLD task ID \u2014 suggest renaming to `task-3-3-audit.md` to match the canonical\
+      \ re-numbering. None of this is correctness-blocking; the implementer can land\
+      \ the task either way.\n\n- **TASK-4-1 line 2093** (\"wait for the slice-1 rebase\
+      \ before proceeding\") could be misread as referring to slice-1 (id=1). Context\
+      \ makes clear it means \"wait for slice-2's TASK-2-6 to land\", but s/slice-1/slice-2\
+      \ (id=2) would remove the ambiguity.\n\n- **Plan body line numbers** still anchored\
+      \ to refine-commit `1cb235871` throughout the per-task descriptions (the \xA7\
+      Approach \xA7Anchor-SHA section re-anchors at HEAD `28f7ef9b2`, which is sufficient\
+      \ given the mandatory re-anchoring protocol). Not blocking \u2014 explicitly\
+      \ preserved by design.\n\n### What I checked as fresh reviewer (mandate b)\n\
+      \n- **Cross-reference re-numbering integrity**: spot-checked TASK-1-1/1-2 acceptance\
+      \ criteria reference TASK-3-8 (new tester ID, was TASK-1-15) \u2713; TASK-2-1\
+      \ `depends_on` cites TASK-1-2/1-1/2-4/2-5/1-3 with new IDs \u2713; TASK-2-1\
+      \ description references TASK-1-3 for helpers \u2713; TASK-4-4 references TASK-4-5\
+      \ / TASK-4-6 correctly \u2713. The TASK-ID-mapping table at plan-md:100-133\
+      \ is internally consistent.\n- **Slice DAG encoding**: slice-1 parent=null,\
+      \ slice-2 parent=1, slice-3 parent=2, slice-4 parent=3 \u2014 linear chain,\
+      \ forest constraint satisfied. \u2713 Matches architect's slices.yaml.\n- **Sub-slice\
+      \ sizing table** at plan-md:137-142 (slice-1=3, slice-2=10, slice-3=12, slice-4=7)\
+      \ \u2014 matches what I'd compute from the task lists. Per criteria \xA711,\
+      \ max-12 (slice-3) is acceptable given the cohesion-independent framing.\n-\
+      \ **Schema migration** (TASK-2-4) \u2014 `_migrate_schema_version_to_1_2` correctly\
+      \ mirrors the existing `_migrate_schema_version_to_1_1` pattern (architect AC-3,\
+      \ AC-19a) \u2713.\n- **OOS list** preserved verbatim from architect's `explicitly_out_of_scope.files_or_symbols`\
+      \ \u2713.\n- **Bundled issue closures**: #2389 closed in slice-3 (post-merge\
+      \ step), #2570 closed in slice-3 (with AC-9a HITL conditional), #2409 closed\
+      \ in slice-4. \u2713\n- **PR-phase removal coverage** (TASK-2-2) \u2014 11 site-categories\
+      \ enumerated, before/after grep artifact requirement preserved, gateway phase_filter/phase_transition\
+      \ lockstep covered \u2713.\n- **Primitive existence at HEAD**: re-spot-checked\
+      \ `_maybe_open_base_pr_for_plan_to_implement` 5 call sites still at HEAD (pipelines.py:11280\
+      \ def + :16503/:22132/:23671/:24666 + phases.py:500) \u2713; `_resolve_slice_1_context_branch_from_contract`\
+      \ at :11515 \u2713; 8 ConsensusEvaluator clusters \u2713.\n\nWhat I did NOT\
+      \ find any new issue on: silent fallbacks (TASK-1-2 hard-required path is explicit,\
+      \ no `return None`), trust-boundary mis-claims (integration tests under `integration_tests/regression/`\
+      \ correctly trusted-CI-runner tier), AC atomicity (each AC has a verifiable\
+      \ assertion), doc-snippet executability (grep commands in ACs are real shell\
+      \ commands), API-deprecation (no deprecated APIs used).\n\n### Summary\nThe\
+      \ only blocking finding is TASK-4-5(1)/(2) contradicting architect AC-16. Drop\
+      \ them and TASK-4-5 reduces to (3)+(4) which are the actual gap. Non-blocking:\
+      \ TASK-3-3 stale \"slice-1\" wording in HITL options and the `task-1-9-audit.md`\
+      \ filename."
+    artifact_references:
+    - .egg-state/drafts/issue-2777-replan-plan.md
+    - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
+    - orchestrator/message_store.py
+    - orchestrator/peer_consensus.py
+    - orchestrator/routes/messages.py
     nack_version: 2
-  reason: "\n### Blocking\n1. **`.egg-state/drafts/issue-2777-replan-plan.md` TASK-1-6\
-    \ description (lines ~1052-1110) \u2014 undercounts ConsensusEvaluator pipelines.py\
-    \ clusters by 1.** Your v2 says \"SEVEN reference clusters total\" (5 in pipelines.py\
-    \ at the refine-SHA-anchored lines 1805-1808, 2844-2848, 3274-3279, 4206-4210,\
-    \ 4215-4219; plus 1 in phases.py:119-124; plus 1 in signals.py:847-871). The architect's\
-    \ binding AC-18 explicitly enumerates **EIGHT** clusters: **SIX in pipelines.py**\
-    \ at HEAD lines 1813-1816, 2859-2863, 3289-3293, **3516-3522** (this is the cluster\
-    \ you missed), 4489-4493, 4498-4502; plus the same 1 in phases.py and 1 in signals.py.\n\
-    \n   I independently verified the missing cluster at HEAD via `sed -n '3510,3530p'\
-    \ orchestrator/routes/pipelines.py`:\n   ```\n   3515:    try:\n   3516:     \
-    \   try:\n   3517:            from consensus import get_consensus_evaluator\n\
-    \   3518:        except ImportError:\n   3519:            from ..consensus import\
-    \ (  # type: ignore[import-not-found]\n   3520:                get_consensus_evaluator,\n\
-    \   3521:            )\n   3522:\n   3523:        evaluator = get_consensus_evaluator()\n\
-    \   3524:        evaluator.clear(pipeline_id)\n   3525:    except ImportError:\n\
-    \   3526:        pass\n   ```\n   This is the **\"Failed to clear legacy consensus\
-    \ after hard-reset ack\"** block \u2014 a distinct call site from the `restart_phase`\
-    \ consensus-clear block (which is cluster 3 at :3274-3279 in your anchored numbering\
-    \ / :3289-3293 at HEAD). Deleting `orchestrator/consensus.py` without removing\
-    \ this cluster guarantees an `ImportError` post-restart on the hard-reset ack\
-    \ path.\n\n   **Fix**: extend TASK-1-6's enumeration from 7 \u2192 8 clusters.\
-    \ Insert a new sub-bullet between current (3) and (4) covering pipelines.py:3289-3526-region\
-    \ cluster (hard-reset-ack consensus-clear; HEAD anchor :3516-3526; anchored to\
-    \ refine-SHA `1cb235871` this would be approximately :3486-3496 \u2014 re-anchor\
-    \ via `grep -n` per your global re-anchoring note). Update the count statement\
-    \ from \"SEVEN\" to \"EIGHT\" in the description AND in the acceptance criteria.\
-    \ The architect's AC-18 mandate (\"the post-deletion grep must return zero matches\"\
-    ) is your safety net, but the enumeration drives the coder's first pass and is\
-    \ what reviewer_plan / reviewer_code will check against. Carrying the architect's\
-    \ count forward verbatim is the cleanest fix.\n\n### Non-blocking\n- **TASK-1-6\
-    \ \u2014 peer_consensus.py:1604 compatibility-alias method (architect's AC-18\
-    \ closing sentence)**: the architect noted \"The peer_consensus.py:1604 alias\
-    \ method (a compatibility shim) is also referenced \u2014 verify whether it remains\
-    \ dead post-deletion and remove if so.\" Your v2 doesn't address this. It's a\
-    \ follow-on cleanup, not a runtime-breaker (the alias method is on the new tracker,\
-    \ not the deleted module), but worth flagging in TASK-1-6's notes so the coder\
-    \ either removes it lockstep or files a follow-up.\n- **Anchor-SHA re-anchoring\
-    \ note (your \xA7Approach addition) is excellent** and addresses R5 cleanly. The\
-    \ remaining concern: your TASK-1-6 enumeration cites the OLD refine-SHA anchor\
-    \ (1805-1808 etc.) but the architect's AC-18 cites HEAD lines (1813-1816 etc.).\
-    \ Both are correct against their respective anchors, but the coder will have to\
-    \ translate during re-anchoring. Consider citing the HEAD anchor alongside the\
-    \ refine anchor for high-leverage tasks like TASK-1-6 to reduce re-anchoring friction.\
-    \ Pure suggestion; not blocking.\n- **TASK-1-1 persistence helper (R9)**: your\
-    \ `_persist_context_pr_number(pipeline_id, pr_number)` naming addresses my R9\
-    \ concern cleanly. Plus the idempotent-path AC asserts the persistence write is\
-    \ observed even on hit \u2014 this catches the resume-from-orphaned-pipeline regression\
-    \ class that motivated my R9.\n- **TASK-1-3 namesake-namespace correction**: dropping\
-    \ the wrong :2567 citation and adding the four namespace-preserve sites (gateway_client.py:1409/1441,\
-    \ test_session_manager.py:1127/1170, test_gateway.py:4371) is exactly the fix\
-    \ for R4. Good.\n- **TASK-1-9 OOS-collision expectation upfront with default-recommended\
-    \ option 3 (xfail + follow-up)**: makes the AC-9a fire-by-construction reality\
-    \ visible to the operator and the implement-phase coder. The audit-note artifact\
-    \ `.egg-state/agent-outputs/issue-2777-replan-task-1-9-audit.md` is a smart addition\
-    \ \u2014 captures the diagnosis even when the fix gets deferred. Addresses R1\
-    \ well.\n- **TASK-1-5b (stacked_pr_reconciler rewire)**: this is exactly what\
-    \ AC-19 (b) calls for, and the 10 read-site enumeration matches my R3 evidence.\
-    \ Good.\n- **TASK-1-3 (8) _check_post_consensus_stall semantic rewire (R6)**:\
-    \ the required choice between (a) delete with proof of unreachability or (b) re-derive\
-    \ equivalent predicate is the correct framing. Document the choice in the commit\
-    \ message is a good audit hook.\n\nOther than the missing 6th pipelines.py cluster\
-    \ in TASK-1-6, this v2 is a comprehensive integration of the architect's binding\
-    \ scaffold + reviewer_plan blockers + my non-blocking risk concerns. Re-propose\
-    \ with the cluster count corrected and I will ACK on the next review.\n"
+  reason: "Re-reviewed task_planner v2 (commit d91dc5ddf) \u2014 the re-shape to the\
+    \ architect's 4-slice scaffold. Dual mandate per the re-review prime: (a) verify\
+    \ v1 blockers fixed (no v1 blockers existed \u2014 clean ACK), (b) audit v2 delta\
+    \ as fresh reviewer with no NACK history.\n\n### Verdict\nNACK on task_planner\
+    \ v2. The re-shuffling into 1a/1b/1c/2 with re-numbered task IDs is correctly\
+    \ executed and cross-references are correctly updated, but the substantive content\
+    \ of TASK-4-5 carries unverified work that **directly contradicts the architect's\
+    \ binding AC-16** and the architect's runtime_primitive_inventory_addendum verified\
+    \ at HEAD.\n\n### Blocking\n1. **TASK-4-5(1) and TASK-4-5(2) \u2014 contradict\
+    \ architect's binding AC-16 + add unnecessary schema work.**\n\n   **TASK-4-5\
+    \ description (plan-md:2218-2230) says**:\n   > (1) Add an optional `slice_id`\
+    \ field to `message_store.Message` in `orchestrator/message_store.py`... Default\
+    \ None for back-compat; persist when set so on-disk message history carries the\
+    \ slice scope.\n   > (2) Extend `reconstruct_tracker_from_messages` to accept\
+    \ an optional `slice_id` parameter.\n\n   **And TASK-4-5 acceptance (plan-md:2256-2259)\
+    \ requires**:\n   > - `message_store.Message` carries an optional `slice_id` field,\
+    \ persisted to disk when set.\n   > - `reconstruct_tracker_from_messages` accepts\
+    \ and filters by `slice_id`.\n\n   **Architect's binding AC-16 + replan_change_log\
+    \ says** (verified at HEAD in architect-output.json):\n   > \"Verified at HEAD\
+    \ that `reconstruct_tracker_from_messages` (peer_consensus.py:1919) ALREADY accepts\
+    \ a `slice_id` parameter \u2014 the gap is at startup_reconciliation.py:312 (call\
+    \ without slice_id). message_store carries slice_id in metadata (filter at message_store.py:407-416).\
+    \ **No schema change to Message required.**\"\n\n   **I independently verified\
+    \ all three points at HEAD**:\n   - `orchestrator/peer_consensus.py:1919-1926`\
+    \ \u2014 `reconstruct_tracker_from_messages(pipeline_id, graph, *, message_store=None,\
+    \ slice_id=None, phase=None)` signature is already in place at HEAD with the `slice_id`\
+    \ keyword arg. TASK-4-5(2) is asking the coder to extend a function that already\
+    \ has the requested signature.\n   - `orchestrator/message_store.py:127-197` \u2014\
+    \ the `Message` BaseModel at HEAD has `metadata: dict[str, Any]` but NO top-level\
+    \ `slice_id` field. Slice scope is carried via `metadata['slice_id']`, NOT a separate\
+    \ field.\n   - `orchestrator/message_store.py:407-416` \u2014 read-side filter\
+    \ is `if (m.metadata.get(\"slice_id\") is None or m.metadata.get(\"slice_id\"\
+    ) == slice_id)` \u2014 slice_id comes out of metadata.\n   - `orchestrator/routes/messages.py:770`\
+    \ \u2014 write-side `metadata[\"slice_id\"] = slice_id` \u2014 message senders\
+    \ already populate metadata['slice_id'].\n\n   **Impact if implementer follows\
+    \ TASK-4-5(1) verbatim**: they would (a) add a redundant top-level Message.slice_id\
+    \ field alongside the metadata key, (b) add to_dict serialization, (c) add migration\
+    \ for on-disk messages that have slice_id in metadata only, (d) introduce a two-source-of-truth\
+    \ bug where senders populate metadata['slice_id'] but new field is unset \u2014\
+    \ the read-side filter would need to check both. This is meaningful net-new work\
+    \ and a structural regression versus the existing #2725 metadata-based design.\n\
+    \n   **Impact if implementer follows TASK-4-5(2) verbatim**: they would re-do\
+    \ the keyword-arg extension that already landed (likely as part of #2725 / a prior\
+    \ issue). At best a no-op, at worst an accidental signature break.\n\n   **Fix**:\
+    \ rewrite TASK-4-5 to drop (1) and (2):\n\n   > Per-slice consensus tracker reconstruction\
+    \ in startup_reconciliation.py (closes #2409). Per the architect's AC-16 + replan_change_log,\
+    \ `reconstruct_tracker_from_messages` at `peer_consensus.py:1919-1926` ALREADY\
+    \ accepts an optional `slice_id` parameter, and `message_store.py:407-416` ALREADY\
+    \ filters messages by `metadata['slice_id']`. The gap is in the call site, not\
+    \ the primitives.\n   >\n   > (1) **Extend the `startup_reconciliation.py` loop\
+    \ at lines 312-376** (especially 358-367): for each pipeline that has slices,\
+    \ iterate `contract.slices` and call `reconstruct_tracker_from_messages(pipeline_id,\
+    \ graph, slice_id=s.id)` for each slice in addition to the existing pipeline-level\
+    \ call.\n   > (2) **Fix `handle_consensus_confirmed_signal`** in `orchestrator/routes/signals.py`:\
+    \ today the handler skips reconstruction when `slice_id` is supplied; remove the\
+    \ skip so slice-scoped confirms also reconstruct via the (existing) slice-id-filtered\
+    \ path.\n\n   And drop the corresponding acceptance criteria \u2014 only keep\
+    \ the call-site changes:\n   > - `startup_reconciliation.py` reconstructs per-slice\
+    \ trackers for every pipeline with slices, keyed `{pipeline_id}/{slice_id}` (verified\
+    \ by AC-16 cross-slice isolation test in TASK-4-6).\n   > - `handle_consensus_confirmed_signal`\
+    \ in `orchestrator/routes/signals.py` no longer skips reconstruction when `slice_id`\
+    \ is supplied.\n   > - No new field added to `message_store.Message` (the metadata-based\
+    \ scope per #2725 is the canonical mechanism).\n   > - No signature change to\
+    \ `reconstruct_tracker_from_messages` (the slice_id kwarg already exists at HEAD\
+    \ per peer_consensus.py:1919-1926).\n   > - #2409 is closed by this task.\n\n\
+    \   Also drop `orchestrator/message_store.py` from TASK-4-5.files \u2014 no change\
+    \ is needed there.\n\n   Note: I flagged the obsolete framing of TASK-2-5(1) in\
+    \ the v1 \"What this ACK does NOT bind\" section and the architect's v1 ACK explicitly\
+    \ tagged it for task_planner cleanup. v2 preserved the v3 text verbatim \u2014\
+    \ so this is the durable-fix point.\n\n### Non-blocking\n\n- **TASK-3-3 stale\
+    \ \"slice-1\" wording in HITL options** (plan-md:1680-1689). The task is now in\
+    \ slice-3 / id=3 but the HITL option text reads:\n  > \"Extend scope to include\
+    \ the OOS primitive in slice-1\"\n  > \"Defer slice-1 until the #2792 work lands\"\
+    \n  > \"Mark #2570 as xfail in slice-1 and open a follow-up issue\"\n\n  When\
+    \ the implementer reaches AC-9a and registers the HITL via `mcp__sdlc__register_open_question`,\
+    \ the operator will read \"slice-1\" but the task is actually in slice-3. Suggest\
+    \ s/slice-1/slice-3/g (or \"this slice\") in those three option strings. The audit-note\
+    \ path `task-1-9-audit.md` (plan-md:1646, 1692, 1717) also uses the OLD task ID\
+    \ \u2014 suggest renaming to `task-3-3-audit.md` to match the canonical re-numbering.\
+    \ None of this is correctness-blocking; the implementer can land the task either\
+    \ way.\n\n- **TASK-4-1 line 2093** (\"wait for the slice-1 rebase before proceeding\"\
+    ) could be misread as referring to slice-1 (id=1). Context makes clear it means\
+    \ \"wait for slice-2's TASK-2-6 to land\", but s/slice-1/slice-2 (id=2) would\
+    \ remove the ambiguity.\n\n- **Plan body line numbers** still anchored to refine-commit\
+    \ `1cb235871` throughout the per-task descriptions (the \xA7Approach \xA7Anchor-SHA\
+    \ section re-anchors at HEAD `28f7ef9b2`, which is sufficient given the mandatory\
+    \ re-anchoring protocol). Not blocking \u2014 explicitly preserved by design.\n\
+    \n### What I checked as fresh reviewer (mandate b)\n\n- **Cross-reference re-numbering\
+    \ integrity**: spot-checked TASK-1-1/1-2 acceptance criteria reference TASK-3-8\
+    \ (new tester ID, was TASK-1-15) \u2713; TASK-2-1 `depends_on` cites TASK-1-2/1-1/2-4/2-5/1-3\
+    \ with new IDs \u2713; TASK-2-1 description references TASK-1-3 for helpers \u2713\
+    ; TASK-4-4 references TASK-4-5 / TASK-4-6 correctly \u2713. The TASK-ID-mapping\
+    \ table at plan-md:100-133 is internally consistent.\n- **Slice DAG encoding**:\
+    \ slice-1 parent=null, slice-2 parent=1, slice-3 parent=2, slice-4 parent=3 \u2014\
+    \ linear chain, forest constraint satisfied. \u2713 Matches architect's slices.yaml.\n\
+    - **Sub-slice sizing table** at plan-md:137-142 (slice-1=3, slice-2=10, slice-3=12,\
+    \ slice-4=7) \u2014 matches what I'd compute from the task lists. Per criteria\
+    \ \xA711, max-12 (slice-3) is acceptable given the cohesion-independent framing.\n\
+    - **Schema migration** (TASK-2-4) \u2014 `_migrate_schema_version_to_1_2` correctly\
+    \ mirrors the existing `_migrate_schema_version_to_1_1` pattern (architect AC-3,\
+    \ AC-19a) \u2713.\n- **OOS list** preserved verbatim from architect's `explicitly_out_of_scope.files_or_symbols`\
+    \ \u2713.\n- **Bundled issue closures**: #2389 closed in slice-3 (post-merge step),\
+    \ #2570 closed in slice-3 (with AC-9a HITL conditional), #2409 closed in slice-4.\
+    \ \u2713\n- **PR-phase removal coverage** (TASK-2-2) \u2014 11 site-categories\
+    \ enumerated, before/after grep artifact requirement preserved, gateway phase_filter/phase_transition\
+    \ lockstep covered \u2713.\n- **Primitive existence at HEAD**: re-spot-checked\
+    \ `_maybe_open_base_pr_for_plan_to_implement` 5 call sites still at HEAD (pipelines.py:11280\
+    \ def + :16503/:22132/:23671/:24666 + phases.py:500) \u2713; `_resolve_slice_1_context_branch_from_contract`\
+    \ at :11515 \u2713; 8 ConsensusEvaluator clusters \u2713.\n\nWhat I did NOT find\
+    \ any new issue on: silent fallbacks (TASK-1-2 hard-required path is explicit,\
+    \ no `return None`), trust-boundary mis-claims (integration tests under `integration_tests/regression/`\
+    \ correctly trusted-CI-runner tier), AC atomicity (each AC has a verifiable assertion),\
+    \ doc-snippet executability (grep commands in ACs are real shell commands), API-deprecation\
+    \ (no deprecated APIs used).\n\n### Summary\nThe only blocking finding is TASK-4-5(1)/(2)\
+    \ contradicting architect AC-16. Drop them and TASK-4-5 reduces to (3)+(4) which\
+    \ are the actual gap. Non-blocking: TASK-3-3 stale \"slice-1\" wording in HITL\
+    \ options and the `task-1-9-audit.md` filename."
   revision_count: 1
 ````
 
-### [2026-05-29T03:52:27Z] task_planner (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:07:23Z] task_planner (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 529717b6-23e4-4d
+id: 0aa9e50d-51a4-42
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:52:34Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:07:25Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: d2808e5b-8bee-4a
+id: d32ed306-ca2c-48
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:52:34.312678+00:00'
+  since: '2026-05-29T05:07:24.998028+00:00'
 ````
 
-### [2026-05-29T03:52:34Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:07:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6ede5fc1-38ce-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:37.960944+00:00'
+````
+
+### [2026-05-29T05:07:38Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: d83a1a01-e618-4a
+id: c872a419-a24c-40
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:52:43Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:07:57Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b6a97e26-6c65-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:57.508391+00:00'
+````
+
+### [2026-05-29T05:08:04Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 021024ed-b390-48
+id: e829fbeb-59e0-46
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T05:07:04.337035+00:00'
 ````
 
-### [2026-05-29T03:52:45Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:08:25Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 1bb4557e-15bd-45
+id: a54a1ed3-a909-40
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:52:45.508971+00:00'
+  since: '2026-05-29T05:07:24.998028+00:00'
 ````
 
-### [2026-05-29T03:53:43Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:08:57Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: f99ae392-17a2-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:57.508391+00:00'
+````
+
+### [2026-05-29T05:09:04Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 3a10e5a1-dda8-49
+id: 13b152c8-05e1-44
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T05:07:04.337035+00:00'
 ````
 
-### [2026-05-29T03:53:45Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:09:31Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: 2f41a347-df62-48
+id: 3be771d1-d591-45
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:52:45.508971+00:00'
+  since: '2026-05-29T05:07:24.998028+00:00'
 ````
 
-### [2026-05-29T03:54:33Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+### [2026-05-29T05:09:34Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
 
-v3 plan addresses risk_analyst's single v2 blocker: TASK-1-6 cluster count corrected from 7 to 8. The missed cluster was at HEAD lines 3516-3526 in pipelines.py — the "Failed to clear legacy consensus after hard-reset ack" block, a distinct call site from the restart_phase consensus-clear path. Deleting `orchestrator/consensus.py` without removing this cluster would have produced an ImportError post-restart on the hard-reset ack path. Citations now provide BOTH the refine-anchor SHA `1cb235871` line range AND the HEAD line range for each of the 6 pipelines.py clusters (1813-1816, 2859-2863, 3289-3293, **3516-3526 NEW**, 4489-4493, 4498-4502) — addressing risk_analyst's non-blocking suggestion to reduce re-anchoring friction. Files list adds `orchestrator/peer_consensus.py` to cover the non-blocking follow-on (verify `peer_consensus.py:1604` alias method reachability post-deletion; if dead, remove lockstep; if reachable, note in commit). Acceptance criteria updated to EIGHT clusters total with an explicit bullet for the hard-reset-ack cluster removal. No other tasks changed — risk_analyst's positive acknowledgements of TASK-1-1 R9 persistence helper, TASK-1-3 R4 namespace correction, TASK-1-9 R1 OOS framing, TASK-1-3 (8) R6 monitor rewire, TASK-1-5b R3 stacked_pr_reconciler rewire, and §Approach R5 re-anchoring section all stand. risk_analyst's stated commitment: "Re-propose with the cluster count corrected and I will ACK on the next review."
+Plan v6 (iteration 1, re-propose addressing reviewer_plan NACK on TASK-4-5): fixes the AC-16 contradiction reviewer_plan flagged. TASK-4-5(1) and (2) in v5 directed the implementer to add a top-level Message.slice_id field and extend reconstruct_tracker_from_messages with a slice_id kwarg — both contradict the architect's AC-16 + replan_change_log which states these primitives already exist at HEAD per #2725 (peer_consensus.py:1919-1926 already has slice_id kwarg; message_store.py:407-416 already filters by metadata['slice_id']; routes/messages.py:770 senders already populate metadata['slice_id']). Reworded TASK-4-5 to explicitly state the existing primitives are unchanged; only the startup_reconciliation.py call site (lines 312-376) and the signals.py handle_consensus_confirmed_signal skip are the gap. Updated TASK-4-5 acceptance criteria to explicitly forbid Message schema change and reconstruct_tracker_from_messages signature change (preventing a future implementer from misreading the task as schema work). Dropped orchestrator/message_store.py and orchestrator/peer_consensus.py from TASK-4-5.files. Also fixed reviewer_plan's non-blocking findings: TASK-3-3 HITL option text "slice-1" → "slice-3" (3 occurrences in the option labels emitted via mcp__sdlc__register_open_question); TASK-3-3 audit artifact path issue-2777-replan-task-1-9-audit.md → issue-2777-replan-task-3-3-audit.md (matches canonical re-numbering); TASK-4-1 "wait for the slice-1 rebase" → "wait for the slice-2 (id=2) rebase" (ambiguity removal). All other task content preserved verbatim from v5. Slice sizes unchanged: 1=3, 2=10, 3=12, 4=7. #2792 OUT OF SCOPE per decision-11.
 
 **Adversarial re-review**
 
@@ -2512,567 +3439,498 @@ Both mandates have equal weight. If (1) passes but (2) finds new issues, you NAC
 **Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
 
 ````yaml
-id: d78fbd37-e2a1-46
+id: 920d7cd0-79a0-4b
 phase: plan
 metadata:
   payload:
-    summary: "v3 plan addresses risk_analyst's single v2 blocker: TASK-1-6 cluster\
-      \ count corrected from 7 to 8. The missed cluster was at HEAD lines 3516-3526\
-      \ in pipelines.py \u2014 the \"Failed to clear legacy consensus after hard-reset\
-      \ ack\" block, a distinct call site from the restart_phase consensus-clear path.\
-      \ Deleting `orchestrator/consensus.py` without removing this cluster would have\
-      \ produced an ImportError post-restart on the hard-reset ack path. Citations\
-      \ now provide BOTH the refine-anchor SHA `1cb235871` line range AND the HEAD\
-      \ line range for each of the 6 pipelines.py clusters (1813-1816, 2859-2863,\
-      \ 3289-3293, **3516-3526 NEW**, 4489-4493, 4498-4502) \u2014 addressing risk_analyst's\
-      \ non-blocking suggestion to reduce re-anchoring friction. Files list adds `orchestrator/peer_consensus.py`\
-      \ to cover the non-blocking follow-on (verify `peer_consensus.py:1604` alias\
-      \ method reachability post-deletion; if dead, remove lockstep; if reachable,\
-      \ note in commit). Acceptance criteria updated to EIGHT clusters total with\
-      \ an explicit bullet for the hard-reset-ack cluster removal. No other tasks\
-      \ changed \u2014 risk_analyst's positive acknowledgements of TASK-1-1 R9 persistence\
-      \ helper, TASK-1-3 R4 namespace correction, TASK-1-9 R1 OOS framing, TASK-1-3\
-      \ (8) R6 monitor rewire, TASK-1-5b R3 stacked_pr_reconciler rewire, and \xA7\
-      Approach R5 re-anchoring section all stand. risk_analyst's stated commitment:\
-      \ \"Re-propose with the cluster count corrected and I will ACK on the next review.\""
+    summary: "Plan v6 (iteration 1, re-propose addressing reviewer_plan NACK on TASK-4-5):\
+      \ fixes the AC-16 contradiction reviewer_plan flagged. TASK-4-5(1) and (2) in\
+      \ v5 directed the implementer to add a top-level Message.slice_id field and\
+      \ extend reconstruct_tracker_from_messages with a slice_id kwarg \u2014 both\
+      \ contradict the architect's AC-16 + replan_change_log which states these primitives\
+      \ already exist at HEAD per #2725 (peer_consensus.py:1919-1926 already has slice_id\
+      \ kwarg; message_store.py:407-416 already filters by metadata['slice_id']; routes/messages.py:770\
+      \ senders already populate metadata['slice_id']). Reworded TASK-4-5 to explicitly\
+      \ state the existing primitives are unchanged; only the startup_reconciliation.py\
+      \ call site (lines 312-376) and the signals.py handle_consensus_confirmed_signal\
+      \ skip are the gap. Updated TASK-4-5 acceptance criteria to explicitly forbid\
+      \ Message schema change and reconstruct_tracker_from_messages signature change\
+      \ (preventing a future implementer from misreading the task as schema work).\
+      \ Dropped orchestrator/message_store.py and orchestrator/peer_consensus.py from\
+      \ TASK-4-5.files. Also fixed reviewer_plan's non-blocking findings: TASK-3-3\
+      \ HITL option text \"slice-1\" \u2192 \"slice-3\" (3 occurrences in the option\
+      \ labels emitted via mcp__sdlc__register_open_question); TASK-3-3 audit artifact\
+      \ path issue-2777-replan-task-1-9-audit.md \u2192 issue-2777-replan-task-3-3-audit.md\
+      \ (matches canonical re-numbering); TASK-4-1 \"wait for the slice-1 rebase\"\
+      \ \u2192 \"wait for the slice-2 (id=2) rebase\" (ambiguity removal). All other\
+      \ task content preserved verbatim from v5. Slice sizes unchanged: 1=3, 2=10,\
+      \ 3=12, 4=7. #2792 OUT OF SCOPE per decision-11."
     attestation: {}
     artifacts:
     - .egg-state/drafts/issue-2777-replan-plan.md
-    risk_considered: "v3 narrowly addresses the single blocker raised by risk_analyst\
-      \ on v2. The fix is verified at HEAD via the exact grep command risk_analyst\
-      \ cited (`grep -n \"get_consensus_evaluator|from consensus import|from ..consensus\"\
-      \ orchestrator/routes/pipelines.py`), which returns exactly 6 clusters in pipelines.py.\
-      \ No other task content changed; reviewer_plan's v1 blocking items remain addressed\
-      \ as in v2 (TASK-1-6 callers, TASK-1-5 migration + TASK-1-5b cascade, TASK-1-3\
-      \ sites + monitor rewire, TASK-1-9 OOS framing, TASK-1-1 persistence, anchor-SHA\
-      \ section). The remaining risk for the implement-phase coder is normal HEAD\
-      \ drift from now until implement-start; the mandatory grep-n re-anchoring protocol\
-      \ in \xA7Approach mitigates this."
-    commit_sha: ec2a83bbdc4dba48a9883d11e215305ceca64d67
+    risk_considered: 'Primary task_planner risk addressed: v5''s NACK by reviewer_plan
+      on TASK-4-5 directing schema work that already exists at HEAD. v6 reworded TASK-4-5
+      to match the architect''s AC-16 verbatim and added explicit "NO schema change
+      / NO signature change" acceptance criteria so the implementer cannot misread
+      the task as net-new primitive work. Schema-redundancy risk eliminated by dropping
+      (1) and (2) and rewording. Non-blocking findings also resolved (slice references,
+      audit artifact path). Other risks carried forward: AC-9a HITL gate before touching
+      OOS #2792 primitives (R1); AC-19 schema migration via _migrate_schema_version_to_1_2
+      (R3); AC-18 eight-cluster ConsensusEvaluator deletion (R2); AC-20 namesake-namespace
+      phase="pr" carve-outs (R4); AC-23 _check_post_consensus_stall semantic choice
+      (R6). Line-drift risk (R5) mitigated by global re-anchoring protocol and per-task
+      explicit grep instructions. Risk_analyst''s non-blocking call-out on TASK-1-2
+      dual-anchoring of line numbers acknowledged for future iterations but not changed
+      in v6 (the re-anchoring protocol at plan-md:165-203 mitigates by requiring the
+      implementer to grep at HEAD before editing).'
+    commit_sha: 1dfc0250331986a9a069d4e7b63be5ef526b4403
     files_changed:
     - .egg-state/drafts/issue-2777-replan-plan.md
     tests_run: []
-    tasks_satisfied: []
+    tasks_satisfied:
+    - task-1-1
+    - task-1-2
+    - task-1-3
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-5
+    - task-2-6
+    - task-2-7
+    - task-2-8
+    - task-2-9
+    - task-2-10
+    - task-3-1
+    - task-3-2
+    - task-3-3
+    - task-3-4
+    - task-3-5
+    - task-3-6
+    - task-3-7
+    - task-3-8
+    - task-3-9
+    - task-3-10
+    - task-3-11
+    - task-3-12
+    - task-4-1
+    - task-4-2
+    - task-4-3
+    - task-4-4
+    - task-4-5
+    - task-4-6
+    - task-4-7
   version: 3
-  commit_sha: ec2a83bbdc4dba48a9883d11e215305ceca64d67
+  commit_sha: 1dfc0250331986a9a069d4e7b63be5ef526b4403
 ````
 
-### [2026-05-29T03:54:34Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:09:34Z] orchestrator → risk_analyst (CONSENSUS_RE_REVIEW): Re-review required: task_planner submitted new proposal v3
+
+Producer task_planner has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the v2 delta as a fresh reviewer** — ignore your v1 NACK history. Read the v2 diff as if you'd never seen v1. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the v2 delta itself, not to whether your previous concerns were satisfied.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has v2-introduced threat surfaces, concurrency has v2-introduced races, contract has v2-introduced AC drift, code has v2-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did v1 issues get fixed? yes") and skipped mandate 2 ("does v2 introduce new issues? actually yes"). The shape generalizes: whatever your lens, the v2 delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen the v2 diff with no NACK history ACK this? If you can't argue yes from the v2 diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only your v2 diff with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 10fd8191-6585-4b
+phase: plan
+metadata:
+  producer_role: task_planner
+  version: 3
+````
+
+### [2026-05-29T05:09:34Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: b6959a02-5d16-40
+id: 5d6d4650-ed1f-4b
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:54:56Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:09:34Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: d5d06a37-cb23-44
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-29T05:09:56Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: ccc74e9f-ac5e-47
+id: 6054aa57-7f42-4d
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:54:39.124804+00:00'
+  since: '2026-05-29T05:09:40.893229+00:00'
 ````
 
-### [2026-05-29T03:54:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:10:04Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
 
 ````yaml
-id: c1544378-6a8d-43
+id: 5e1c6176-5507-48
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
+  since: '2026-05-29T05:07:04.337035+00:00'
 ````
 
-### [2026-05-29T03:55:44Z] risk_analyst → task_planner (CONSENSUS_ACK): ACK from risk_analyst for task_planner
+### [2026-05-29T05:10:56Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
-### (a) Mandate 1 — v2 blocker verified fixed
-- **TASK-1-6 cluster count corrected from 7 → 8.** Verified the v3 diff in `.egg-state/drafts/issue-2777-replan-plan.md`:
-  - The "In `orchestrator/routes/pipelines.py`" sub-header now reads "(6 clusters — per architect AC-18 + risk_analyst v2 blocker 1)".
-  - New cluster (4) at refine-anchor `~3486-3496` / HEAD `3516-3526` is explicitly inserted between the old (3) and (4), with the correct description ("Failed to clear legacy consensus after hard-reset ack" block) and the distinction-from-(3) call-out (hard-reset-ack path vs restart_phase consensus-clear path).
-  - The acceptance criterion enumeration now reads "All EIGHT reference clusters are removed: 6 in pipelines.py..." with BOTH refine-anchored AND HEAD-anchored line ranges.
-  - A dedicated bullet "The hard-reset-ack consensus-clear block at HEAD `3516-3526` (cluster 4) is explicitly removed — verified by the post-edit grep returning zero hits in that line range" enforces the deletion.
-  - Total count updated to "all eight clusters AND the `orchestrator/consensus.py` module".
-- **Non-blocking follow-on (peer_consensus.py:1604 alias)** addressed: a Notes section is added stating "verify whether it remains dead post-deletion; if dead, remove it lockstep; if reachable, file a follow-up issue noting the residual coupling". `orchestrator/peer_consensus.py` is added to `files_affected` so the coder has write access if the alias is dead. AC bullet added: "`peer_consensus.py:1604` alias method's reachability is verified post-deletion; if dead, removed lockstep; if reachable, noted in commit message with follow-up issue link."
-- **Non-blocking re-anchoring friction suggestion** addressed: every cluster citation now provides BOTH the refine-anchor SHA `1cb235871` line range AND the HEAD line range. Drift-resilient.
-- Independently re-confirmed at HEAD via `sed -n '3510,3530p' orchestrator/routes/pipelines.py` that the cluster at :3516-3526 exists and contains `from consensus import get_consensus_evaluator` + `evaluator = get_consensus_evaluator()` + `evaluator.clear(pipeline_id)`. Cluster (4)'s file:line evidence is correct.
+````yaml
+id: 0fd44df6-0cd9-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:09:40.893229+00:00'
+````
 
-### (b) Mandate 2 — fresh-reviewer audit of v3 delta (issues I checked for and did NOT find)
-I read the v3 diff (95 lines changed in `.egg-state/drafts/issue-2777-replan-plan.md`, scoped to TASK-1-6) as a fresh reviewer with no NACK context and applied the risk-lens rubric. Specifically I checked:
-- **Silent fallbacks / soft-fail paths reintroduced by v3 prose**: none. The new cluster (4) description is hard-required ("guarantees an ImportError post-restart"), no fallback path.
-- **OOS-primitive collision**: none. `orchestrator/peer_consensus.py` (newly added to files_affected) is NOT on the decision-11 OOS list. The alias-method follow-on is bounded by "leave it and file a follow-up" if reachable — does not allow scope expansion into OOS primitives.
-- **Anchor inconsistency**: the refine-anchor for cluster (4) is given as `~3486-3496` (approximation, prefixed with `~`). HEAD anchor `3516-3526` is verified. The approximation is honest — the planner did not check the refine SHA but the global re-anchoring note in §Approach mandates re-anchoring at implement-time anyway. Not blocking; the approximation is correctly disclaimed.
-- **AC drift vs description**: the description enumerates 8 clusters; the AC enumerates 8 clusters. Counts match. The "explicit hard-reset-ack bullet" in the AC names the same HEAD line range (`3516-3526`) as the description's cluster (4). Internally consistent.
-- **Doc-snippet executability** (the "External-bot anchor" pass): the grep commands in the new sub-headers (`grep -n "get_consensus_evaluator|from consensus import|from ..consensus" orchestrator/routes/pipelines.py` etc.) use ripgrep-flavored unescaped pipe; both `rg` and `grep -E` accept this form. The v3 also fixed an escaped-pipe `\|` in the signals.py grep command to the unescaped `|` form, which is consistent with the convention used elsewhere. The verification commands a coder would copy-paste from this section will execute as written.
-- **Atomicity / concurrency**: the deletion is single-pass; no concurrent-write concern. Cluster (4) is a synchronous code path with no async / lock semantics that change between v2 and v3.
-- **Test-bar weakening**: the new AC bullet ("hard-reset-ack block at HEAD `3516-3526` explicitly removed") strictly tightens, does not weaken, the verification surface vs v2. The wider AC (8 clusters vs 7) also strictly tightens.
-- **Files-list scope creep**: the `orchestrator/peer_consensus.py` addition is bounded by the conditional ("if dead, remove lockstep"). The Notes section explicitly tells the coder NOT to expand scope if the alias method is reachable. Risk of accidental scope creep is low.
-- **Token-anchoring of the new cluster description**: the description names "Failed to clear legacy consensus after hard-reset ack" as the block's distinguishing text — this is the literal log message at HEAD :3527 (verified in my prior `sed` read). A coder re-anchoring via `grep "Failed to clear legacy consensus after hard-reset ack" orchestrator/routes/pipelines.py` will land on the correct block regardless of further line drift. Symbol+adjacent-text anchor pattern from R5 is correctly applied.
-- **Operator copy-paste verification ladder**: a fresh reviewer (or the egg-reviewer[bot]) reading only the v3 diff would: (i) see the v2 enumeration count "SEVEN" updated to "EIGHT" with the addition justified; (ii) be able to grep the cluster (4) HEAD anchor `:3516-3526` and confirm; (iii) see the dual-anchor citation pattern reduce re-anchoring friction. Nothing the bot would flag in this delta.
+### [2026-05-29T05:11:04Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
-No new issues found in mandate 2. The v3 delta is a clean fix that does not introduce new risk vectors.
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 689fcfc0-034b-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-29T05:07:04.337035+00:00'
+````
+
+### [2026-05-29T05:11:05Z] reviewer_plan → task_planner (CONSENSUS_ACK): ACK from reviewer_plan for task_planner
+
+Re-reviewed task_planner v3 (commit 1dfc02503, internal "plan v6"). Dual mandate per the re-review prime.
 
 ### Verdict
-ACK. The remaining R1-R13 risks beyond what v3 fixes are integrated into the architect's binding scaffold (slice composition, INV-1..INV-10, AC-1..AC-24) and the rest of the v2 plan content (TASK-1-5b stacked_pr_reconciler rewire, TASK-1-1 persistence helper, TASK-1-3 namespace correction, TASK-1-9 OOS framing, TASK-1-3 (8) monitor rewire, §Approach re-anchoring section). reviewer_plan retains slice-composition authority per §11; my risk-lens ACK does not substitute for their architectural review.
+ACK on task_planner v3. v2 blocker fully addressed AND the v3 delta doesn't introduce new issues.
 
+### (a) Mandate 1 — v2 blockers verified fixed
+
+**TASK-4-5(1)/(2) contradiction with architect AC-16 — FIXED**:
+- v2 description (1): "Add an optional `slice_id` field to `message_store.Message`" → **REMOVED**. v3 description now states "**No schema change to `Message` is required**" with the rationale: "`reconstruct_tracker_from_messages` at `orchestrator/peer_consensus.py:1919-1926` ALREADY accepts an optional `slice_id` keyword parameter; `orchestrator/message_store.py:407-416` ALREADY filters messages by `metadata['slice_id']` (the canonical metadata-based scope per #2725). Senders populate `metadata['slice_id']` at write-time (see `orchestrator/routes/messages.py:770`)."
+- v2 description (2): "Extend `reconstruct_tracker_from_messages` to accept an optional `slice_id` parameter" → **REMOVED**. v3 calls the existing kwarg explicitly: `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=s.id)`.
+- v2 acceptance criteria (first two bullets requiring schema + sig change) → **REMOVED**. v3 ACs replace them with explicit negative assertions ("No new field added to `message_store.Message`"; "No signature change to `reconstruct_tracker_from_messages`") — this is GOOD defensive language that prevents a future implementer from re-introducing the schema work.
+- v2 TASK-4-5.files: `orchestrator/startup_reconciliation.py`, `orchestrator/peer_consensus.py`, `orchestrator/message_store.py`, `orchestrator/routes/signals.py` → v3: `orchestrator/startup_reconciliation.py`, `orchestrator/routes/signals.py`. **The two unnecessary files dropped**, leaving only the actual gap sites. ✓
+
+**Non-blocking findings — also addressed**:
+- TASK-3-3 HITL options s/slice-1/slice-3/g (3 occurrences in the three option labels — lines 1681, 1682, 1684 per the diff) ✓
+- TASK-3-3 audit-note filename s/task-1-9-audit.md/task-3-3-audit.md (3 places — description, AC, files list) ✓
+- TASK-4-1 ambiguous "slice-1 rebase" → "slice-2 (id=2) rebase" ✓
+
+### (b) Mandate 2 — fresh-reviewer audit of v3 delta
+
+Specific shapes I checked on the v3 diff:
+
+- **Silent fallback / soft-fail**: the v3 TASK-4-5 description doesn't introduce any new error-swallowing — the call-site changes propagate exceptions naturally (no `try/except: pass` patterns). ✓
+- **Doc-snippet executability**: the new explicit-call snippet `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=s.id)` matches the actual signature I verified at HEAD `peer_consensus.py:1919-1926` (`def reconstruct_tracker_from_messages(pipeline_id, graph, *, message_store=None, slice_id=None, phase=None)`). ✓
+- **Atomicity of writes**: no new file writes introduced — only call-site additions to existing functions. ✓
+- **API deprecation**: no deprecated APIs used. ✓
+- **AC drift**: v3 ACs are positive-test ("startup_reconciliation.py reconstructs per-slice trackers...") with the verification via TASK-4-6's cross-slice isolation test (which is still in place at plan-md:2302-2306). The new explicit-negative ACs ("No new field..."; "No signature change...") are belt-and-suspenders against a future implementer re-introducing the schema work. ✓
+- **Cross-reference integrity**: the renamed audit path `task-3-3-audit.md` is consistent across all 3 mentions (description plan-md:1646; acceptance plan-md:1693; files-list plan-md:1717). ✓
+- **HITL option text consistency**: all 3 occurrences in TASK-3-3 now read "slice-3" instead of "slice-1" — internally consistent and matches the canonical re-numbering. ✓
+- **Internal-consistency check**: the explanation "the metadata filter at `message_store.py:407-416` returns an empty set and reconstruction is a no-op for that slice" replaces the v2 "skip silently" framing — more precise and explains WHY the no-op is correct rather than just asserting it. ✓
+- **Slice DAG / forest constraint**: unchanged (1→2→3→4 linear chain). ✓
+- **Task-ID mapping table** at plan-md:100-133: unchanged, still consistent with the slice integer IDs. ✓
+- **OOS list**: unchanged, still matches architect's `explicitly_out_of_scope.files_or_symbols`. ✓
+- **Primitive-existence audit**: the v3 delta cites primitives I'd already verified at HEAD (peer_consensus.py:1919-1926, message_store.py:407-416, routes/messages.py:770) — no new primitives introduced that warrant a fresh grep. ✓
+
+**Fresh-reviewer simulation**: A reviewer who reads only the v3 diff with no NACK history would see (a) TASK-4-5 description with explicit "no schema change is required" + file:line anchors for the existing primitives, (b) renamed audit-path consistency, (c) HITL-option-text consistency, (d) explicit-negative ACs preventing scope creep. They'd ACK — the diff reads as a clean clarifying refactor with no new code-path introductions.
+
+**External-bot anchor**: `egg-reviewer[bot]` reading the v3 diff alone would have nothing to flag — the diff is purely a textual clarification + filename rename + 3-word substitution. No new code-execution paths, no new file writes, no new API surfaces.
+
+### Summary
+v2 blockers cleanly addressed; v3 delta is a tight clarifying refactor with no new issues. No further re-review needed unless task_planner re-proposes for a different reason.
 
 ````yaml
-id: 9714e042-73f1-48
+id: 631ebf6e-18c9-42
 phase: plan
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/issue-2777-replan-plan.md
-    reason: "\n### (a) Mandate 1 \u2014 v2 blocker verified fixed\n- **TASK-1-6 cluster\
-      \ count corrected from 7 \u2192 8.** Verified the v3 diff in `.egg-state/drafts/issue-2777-replan-plan.md`:\n\
-      \  - The \"In `orchestrator/routes/pipelines.py`\" sub-header now reads \"(6\
-      \ clusters \u2014 per architect AC-18 + risk_analyst v2 blocker 1)\".\n  - New\
-      \ cluster (4) at refine-anchor `~3486-3496` / HEAD `3516-3526` is explicitly\
-      \ inserted between the old (3) and (4), with the correct description (\"Failed\
-      \ to clear legacy consensus after hard-reset ack\" block) and the distinction-from-(3)\
-      \ call-out (hard-reset-ack path vs restart_phase consensus-clear path).\n  -\
-      \ The acceptance criterion enumeration now reads \"All EIGHT reference clusters\
-      \ are removed: 6 in pipelines.py...\" with BOTH refine-anchored AND HEAD-anchored\
-      \ line ranges.\n  - A dedicated bullet \"The hard-reset-ack consensus-clear\
-      \ block at HEAD `3516-3526` (cluster 4) is explicitly removed \u2014 verified\
-      \ by the post-edit grep returning zero hits in that line range\" enforces the\
-      \ deletion.\n  - Total count updated to \"all eight clusters AND the `orchestrator/consensus.py`\
-      \ module\".\n- **Non-blocking follow-on (peer_consensus.py:1604 alias)** addressed:\
-      \ a Notes section is added stating \"verify whether it remains dead post-deletion;\
-      \ if dead, remove it lockstep; if reachable, file a follow-up issue noting the\
-      \ residual coupling\". `orchestrator/peer_consensus.py` is added to `files_affected`\
-      \ so the coder has write access if the alias is dead. AC bullet added: \"`peer_consensus.py:1604`\
-      \ alias method's reachability is verified post-deletion; if dead, removed lockstep;\
-      \ if reachable, noted in commit message with follow-up issue link.\"\n- **Non-blocking\
-      \ re-anchoring friction suggestion** addressed: every cluster citation now provides\
-      \ BOTH the refine-anchor SHA `1cb235871` line range AND the HEAD line range.\
-      \ Drift-resilient.\n- Independently re-confirmed at HEAD via `sed -n '3510,3530p'\
-      \ orchestrator/routes/pipelines.py` that the cluster at :3516-3526 exists and\
-      \ contains `from consensus import get_consensus_evaluator` + `evaluator = get_consensus_evaluator()`\
-      \ + `evaluator.clear(pipeline_id)`. Cluster (4)'s file:line evidence is correct.\n\
-      \n### (b) Mandate 2 \u2014 fresh-reviewer audit of v3 delta (issues I checked\
-      \ for and did NOT find)\nI read the v3 diff (95 lines changed in `.egg-state/drafts/issue-2777-replan-plan.md`,\
-      \ scoped to TASK-1-6) as a fresh reviewer with no NACK context and applied the\
-      \ risk-lens rubric. Specifically I checked:\n- **Silent fallbacks / soft-fail\
-      \ paths reintroduced by v3 prose**: none. The new cluster (4) description is\
-      \ hard-required (\"guarantees an ImportError post-restart\"), no fallback path.\n\
-      - **OOS-primitive collision**: none. `orchestrator/peer_consensus.py` (newly\
-      \ added to files_affected) is NOT on the decision-11 OOS list. The alias-method\
-      \ follow-on is bounded by \"leave it and file a follow-up\" if reachable \u2014\
-      \ does not allow scope expansion into OOS primitives.\n- **Anchor inconsistency**:\
-      \ the refine-anchor for cluster (4) is given as `~3486-3496` (approximation,\
-      \ prefixed with `~`). HEAD anchor `3516-3526` is verified. The approximation\
-      \ is honest \u2014 the planner did not check the refine SHA but the global re-anchoring\
-      \ note in \xA7Approach mandates re-anchoring at implement-time anyway. Not blocking;\
-      \ the approximation is correctly disclaimed.\n- **AC drift vs description**:\
-      \ the description enumerates 8 clusters; the AC enumerates 8 clusters. Counts\
-      \ match. The \"explicit hard-reset-ack bullet\" in the AC names the same HEAD\
-      \ line range (`3516-3526`) as the description's cluster (4). Internally consistent.\n\
-      - **Doc-snippet executability** (the \"External-bot anchor\" pass): the grep\
-      \ commands in the new sub-headers (`grep -n \"get_consensus_evaluator|from consensus\
-      \ import|from ..consensus\" orchestrator/routes/pipelines.py` etc.) use ripgrep-flavored\
-      \ unescaped pipe; both `rg` and `grep -E` accept this form. The v3 also fixed\
-      \ an escaped-pipe `\\|` in the signals.py grep command to the unescaped `|`\
-      \ form, which is consistent with the convention used elsewhere. The verification\
-      \ commands a coder would copy-paste from this section will execute as written.\n\
-      - **Atomicity / concurrency**: the deletion is single-pass; no concurrent-write\
-      \ concern. Cluster (4) is a synchronous code path with no async / lock semantics\
-      \ that change between v2 and v3.\n- **Test-bar weakening**: the new AC bullet\
-      \ (\"hard-reset-ack block at HEAD `3516-3526` explicitly removed\") strictly\
-      \ tightens, does not weaken, the verification surface vs v2. The wider AC (8\
-      \ clusters vs 7) also strictly tightens.\n- **Files-list scope creep**: the\
-      \ `orchestrator/peer_consensus.py` addition is bounded by the conditional (\"\
-      if dead, remove lockstep\"). The Notes section explicitly tells the coder NOT\
-      \ to expand scope if the alias method is reachable. Risk of accidental scope\
-      \ creep is low.\n- **Token-anchoring of the new cluster description**: the description\
-      \ names \"Failed to clear legacy consensus after hard-reset ack\" as the block's\
-      \ distinguishing text \u2014 this is the literal log message at HEAD :3527 (verified\
-      \ in my prior `sed` read). A coder re-anchoring via `grep \"Failed to clear\
-      \ legacy consensus after hard-reset ack\" orchestrator/routes/pipelines.py`\
-      \ will land on the correct block regardless of further line drift. Symbol+adjacent-text\
-      \ anchor pattern from R5 is correctly applied.\n- **Operator copy-paste verification\
-      \ ladder**: a fresh reviewer (or the egg-reviewer[bot]) reading only the v3\
-      \ diff would: (i) see the v2 enumeration count \"SEVEN\" updated to \"EIGHT\"\
-      \ with the addition justified; (ii) be able to grep the cluster (4) HEAD anchor\
-      \ `:3516-3526` and confirm; (iii) see the dual-anchor citation pattern reduce\
-      \ re-anchoring friction. Nothing the bot would flag in this delta.\n\nNo new\
-      \ issues found in mandate 2. The v3 delta is a clean fix that does not introduce\
-      \ new risk vectors.\n\n### Verdict\nACK. The remaining R1-R13 risks beyond what\
-      \ v3 fixes are integrated into the architect's binding scaffold (slice composition,\
-      \ INV-1..INV-10, AC-1..AC-24) and the rest of the v2 plan content (TASK-1-5b\
-      \ stacked_pr_reconciler rewire, TASK-1-1 persistence helper, TASK-1-3 namespace\
-      \ correction, TASK-1-9 OOS framing, TASK-1-3 (8) monitor rewire, \xA7Approach\
-      \ re-anchoring section). reviewer_plan retains slice-composition authority per\
-      \ \xA711; my risk-lens ACK does not substitute for their architectural review.\n"
+    reason: "Re-reviewed task_planner v3 (commit 1dfc02503, internal \"plan v6\").\
+      \ Dual mandate per the re-review prime.\n\n### Verdict\nACK on task_planner\
+      \ v3. v2 blocker fully addressed AND the v3 delta doesn't introduce new issues.\n\
+      \n### (a) Mandate 1 \u2014 v2 blockers verified fixed\n\n**TASK-4-5(1)/(2) contradiction\
+      \ with architect AC-16 \u2014 FIXED**:\n- v2 description (1): \"Add an optional\
+      \ `slice_id` field to `message_store.Message`\" \u2192 **REMOVED**. v3 description\
+      \ now states \"**No schema change to `Message` is required**\" with the rationale:\
+      \ \"`reconstruct_tracker_from_messages` at `orchestrator/peer_consensus.py:1919-1926`\
+      \ ALREADY accepts an optional `slice_id` keyword parameter; `orchestrator/message_store.py:407-416`\
+      \ ALREADY filters messages by `metadata['slice_id']` (the canonical metadata-based\
+      \ scope per #2725). Senders populate `metadata['slice_id']` at write-time (see\
+      \ `orchestrator/routes/messages.py:770`).\"\n- v2 description (2): \"Extend\
+      \ `reconstruct_tracker_from_messages` to accept an optional `slice_id` parameter\"\
+      \ \u2192 **REMOVED**. v3 calls the existing kwarg explicitly: `reconstruct_tracker_from_messages(pipeline_id,\
+      \ graph, slice_id=s.id)`.\n- v2 acceptance criteria (first two bullets requiring\
+      \ schema + sig change) \u2192 **REMOVED**. v3 ACs replace them with explicit\
+      \ negative assertions (\"No new field added to `message_store.Message`\"; \"\
+      No signature change to `reconstruct_tracker_from_messages`\") \u2014 this is\
+      \ GOOD defensive language that prevents a future implementer from re-introducing\
+      \ the schema work.\n- v2 TASK-4-5.files: `orchestrator/startup_reconciliation.py`,\
+      \ `orchestrator/peer_consensus.py`, `orchestrator/message_store.py`, `orchestrator/routes/signals.py`\
+      \ \u2192 v3: `orchestrator/startup_reconciliation.py`, `orchestrator/routes/signals.py`.\
+      \ **The two unnecessary files dropped**, leaving only the actual gap sites.\
+      \ \u2713\n\n**Non-blocking findings \u2014 also addressed**:\n- TASK-3-3 HITL\
+      \ options s/slice-1/slice-3/g (3 occurrences in the three option labels \u2014\
+      \ lines 1681, 1682, 1684 per the diff) \u2713\n- TASK-3-3 audit-note filename\
+      \ s/task-1-9-audit.md/task-3-3-audit.md (3 places \u2014 description, AC, files\
+      \ list) \u2713\n- TASK-4-1 ambiguous \"slice-1 rebase\" \u2192 \"slice-2 (id=2)\
+      \ rebase\" \u2713\n\n### (b) Mandate 2 \u2014 fresh-reviewer audit of v3 delta\n\
+      \nSpecific shapes I checked on the v3 diff:\n\n- **Silent fallback / soft-fail**:\
+      \ the v3 TASK-4-5 description doesn't introduce any new error-swallowing \u2014\
+      \ the call-site changes propagate exceptions naturally (no `try/except: pass`\
+      \ patterns). \u2713\n- **Doc-snippet executability**: the new explicit-call\
+      \ snippet `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=s.id)`\
+      \ matches the actual signature I verified at HEAD `peer_consensus.py:1919-1926`\
+      \ (`def reconstruct_tracker_from_messages(pipeline_id, graph, *, message_store=None,\
+      \ slice_id=None, phase=None)`). \u2713\n- **Atomicity of writes**: no new file\
+      \ writes introduced \u2014 only call-site additions to existing functions. \u2713\
+      \n- **API deprecation**: no deprecated APIs used. \u2713\n- **AC drift**: v3\
+      \ ACs are positive-test (\"startup_reconciliation.py reconstructs per-slice\
+      \ trackers...\") with the verification via TASK-4-6's cross-slice isolation\
+      \ test (which is still in place at plan-md:2302-2306). The new explicit-negative\
+      \ ACs (\"No new field...\"; \"No signature change...\") are belt-and-suspenders\
+      \ against a future implementer re-introducing the schema work. \u2713\n- **Cross-reference\
+      \ integrity**: the renamed audit path `task-3-3-audit.md` is consistent across\
+      \ all 3 mentions (description plan-md:1646; acceptance plan-md:1693; files-list\
+      \ plan-md:1717). \u2713\n- **HITL option text consistency**: all 3 occurrences\
+      \ in TASK-3-3 now read \"slice-3\" instead of \"slice-1\" \u2014 internally\
+      \ consistent and matches the canonical re-numbering. \u2713\n- **Internal-consistency\
+      \ check**: the explanation \"the metadata filter at `message_store.py:407-416`\
+      \ returns an empty set and reconstruction is a no-op for that slice\" replaces\
+      \ the v2 \"skip silently\" framing \u2014 more precise and explains WHY the\
+      \ no-op is correct rather than just asserting it. \u2713\n- **Slice DAG / forest\
+      \ constraint**: unchanged (1\u21922\u21923\u21924 linear chain). \u2713\n- **Task-ID\
+      \ mapping table** at plan-md:100-133: unchanged, still consistent with the slice\
+      \ integer IDs. \u2713\n- **OOS list**: unchanged, still matches architect's\
+      \ `explicitly_out_of_scope.files_or_symbols`. \u2713\n- **Primitive-existence\
+      \ audit**: the v3 delta cites primitives I'd already verified at HEAD (peer_consensus.py:1919-1926,\
+      \ message_store.py:407-416, routes/messages.py:770) \u2014 no new primitives\
+      \ introduced that warrant a fresh grep. \u2713\n\n**Fresh-reviewer simulation**:\
+      \ A reviewer who reads only the v3 diff with no NACK history would see (a) TASK-4-5\
+      \ description with explicit \"no schema change is required\" + file:line anchors\
+      \ for the existing primitives, (b) renamed audit-path consistency, (c) HITL-option-text\
+      \ consistency, (d) explicit-negative ACs preventing scope creep. They'd ACK\
+      \ \u2014 the diff reads as a clean clarifying refactor with no new code-path\
+      \ introductions.\n\n**External-bot anchor**: `egg-reviewer[bot]` reading the\
+      \ v3 diff alone would have nothing to flag \u2014 the diff is purely a textual\
+      \ clarification + filename rename + 3-word substitution. No new code-execution\
+      \ paths, no new file writes, no new API surfaces.\n\n### Summary\nv2 blockers\
+      \ cleanly addressed; v3 delta is a tight clarifying refactor with no new issues.\
+      \ No further re-review needed unless task_planner re-proposes for a different\
+      \ reason."
     ack_version: 3
   version: 3
 ````
 
-### [2026-05-29T03:55:44Z] task_planner (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:11:05Z] task_planner (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 0ef3b316-d8fd-41
+id: 0f6a79b3-0fd2-4e
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:55:50Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
-
-````yaml
-id: 7770256b-4ea2-4b
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:55:50.416315+00:00'
-````
-
-### [2026-05-29T03:55:50Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:11:11Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
 
 wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
 
 ````yaml
-id: ba63a777-1be0-40
+id: 361ddbf2-c544-43
 phase: plan
 metadata:
   state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:55:50.672486+00:00'
+  since: '2026-05-29T05:11:11.421262+00:00'
 ````
 
-### [2026-05-29T03:55:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### [2026-05-29T05:11:19Z] risk_analyst → task_planner (CONSENSUS_ACK): ACK from risk_analyst for task_planner
 
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+Re-reviewed task_planner v3 (commit 1dfc02503) — TARGETED diff addressing reviewer_plan's NACK on TASK-4-5(1)/(2). 45 insertions / 42 deletions. Both mandates performed.
 
-````yaml
-id: 380bcff7-2e79-47
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
-````
+### (a) reviewer_plan v2 blockers verified-fixed (mandate 1)
+1. **TASK-4-5(1) "Add slice_id field to Message" — DELETED.** TASK-4-5 body now explicitly states: "No schema change to Message is required" and the AC has "**No new field added to message_store.Message** (the metadata-based scope per #2725 is the canonical mechanism)" (lines 2265-2267). The deleted directive would have created a two-source-of-truth bug (top-level field alongside metadata['slice_id'] both meaning the same thing). Correct deletion.
+2. **TASK-4-5(2) "Extend reconstruct_tracker_from_messages signature" — DELETED.** TASK-4-5 body now explicitly states the kwarg already exists at HEAD (peer_consensus.py:1919-1926). AC has "**No signature change to reconstruct_tracker_from_messages**" (lines 2268-2271). Correct deletion.
+3. **TASK-4-5.files trimmed** — orchestrator/message_store.py and orchestrator/peer_consensus.py removed; only startup_reconciliation.py + signals.py touched (line 2273-2275). Correct.
+4. **TASK-3-3 HITL option text "slice-1" → "slice-3"** — 3 occurrences corrected in the option labels emitted via mcp__sdlc__register_open_question (lines 1633, 1681, 1684, 1685, 1688). Correct.
+5. **TASK-3-3 audit artifact path** — `issue-2777-replan-task-1-9-audit.md` → `issue-2777-replan-task-3-3-audit.md` in 3 places (lines 1646, 1689, 1717). Files list updated. Correct.
+6. **TASK-4-1 "wait for the slice-1 rebase" → "wait for the slice-2 (id=2) rebase"** — ambiguity removed at line 2093. Correct.
 
-### [2026-05-29T03:56:50Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### (b) Fresh-reviewer audit of v3 delta (mandate 2)
+Risk-lens shapes checked:
+- **Silent-fallback shapes**: The new TASK-4-5 body text states "If on-disk message history has no entries scoped to a given slice ... the metadata filter at message_store.py:407-416 returns an empty set and reconstruction is a no-op for that slice — TASK-4-4's bootstrap reconciliation handles the slice's runtime resumption from scratch" (lines 2229-2235). VERIFIED at HEAD: message_store.py:407-416 does filter by metadata['slice_id']. The empty-set fallback is the CORRECT behavior (not a silent ignore) — bootstrap reconciliation explicitly handles the resumption case. No silent failure introduced.
+- **Two-source-of-truth avoidance (NEW POSITIVE PROPERTY)**: The defensive ACs "No new field added to Message" and "No signature change" prevent a future coder from re-introducing the redundant work. This is the right shape — protects against well-meaning re-implementation later.
+- **DAG ordering preserved**: TASK-4-5 still ordered after TASK-2-X deletions (slice-2 sets up the post-collapse topology that TASK-4-5 reasons about). No parent_slice_id change. ✓
+- **AC mapping consistency**: TASK-4-5 still owns AC-16. AC-16 cross-slice isolation test in TASK-4-6 still references TASK-4-5 (line 2309 — "TASK-4-5"). AC chain intact.
+- **Cross-task references audited**: I greped for orphan references to the removed message_store / peer_consensus signature work. Found 4 hits: line 131 (mapping table TASK-2-5 → TASK-4-5 — preserved for old/new mapping), line 2165 (TASK-4-4 references "via TASK-4-5's reconstruction primitive" — still valid because TASK-4-5 still does reconstruction by calling the existing primitive), line 2210 (TASK-4-5 itself), line 2269 (the negative AC). NO orphan references that would mislead the implement-phase coder.
+- **Closure of #2409 still claimed**: TASK-4-5 AC still has "#2409 is closed by this task" (line 2272). Verified the actual reconstruction work (startup_reconciliation.py call site + handle_consensus_confirmed_signal skip fix) is the correct closure mechanism per architect's AC-16 + replan_change_log entry 7.
+- **HITL options text after rename consistency**: TASK-3-3 options now say "slice-3" for all 3 options. The default-recommended option (option 3 — "Mark #2570 as xfail in slice-3 and open a follow-up issue") is consistently the same one across the body text and the HITL registration. ✓
+- **No file-affected drift**: TASK-3-3 files list includes `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md` (line 1717). Matches the new audit artifact path used in the description and AC. ✓
+- **No new soft-fall paths introduced**: The TASK-4-5 reconstruction is no-op-on-empty-history (correct) and the handle_consensus_confirmed_signal skip is REMOVED (correct — slice-scoped confirms now do reconstruct). Both shapes are intentional.
 
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+### Risk-register impact
+My iteration-1 risk register R8 (Per-slice consensus tracker reconstruction ↔ restart_phase per-slice iteration key collision) still applies cleanly to TASK-4-5 + TASK-4-1. The v3 fix to TASK-4-5 narrows the surface (no schema change) which REDUCES R8's blast radius — the only failure mode now is incorrect call-site arguments, not schema-incompatibility. R8 severity stays MEDIUM but likelihood drops MEDIUM → LOW. Net positive.
 
-````yaml
-id: e2d5f6f6-7852-40
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:55:50.416315+00:00'
-````
+No new risks introduced. Risk register unchanged.
 
-### [2026-05-29T03:56:50Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+### Non-blocking
+- The "via TASK-4-5's reconstruction primitive" reference at line 2165 (in TASK-4-4 body) is technically accurate but a future reader might expect TASK-4-5 to define a NEW primitive — the v3 text now makes TASK-4-5 a call-site fix, not a primitive definition. Consider rewording to "via the existing reconstruct_tracker_from_messages primitive (call site landed in TASK-4-5)" on next iteration if any. Cosmetic only; no risk impact.
 
-wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
-
-````yaml
-id: 1a179deb-6359-41
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:55:50.672486+00:00'
-````
-
-### [2026-05-29T03:56:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+ACK on task_planner v3. Both mandates pass. Reviewer_plan's NACK correctly identified a contract-AC drift that would have introduced a two-source-of-truth bug; v3 cleanly reverses the misdirection and adds defensive ACs to prevent re-introduction. Risk lens approves.
 
 ````yaml
-id: 9ccb840a-b2cf-40
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:49:36.548193+00:00'
-````
-
-### [2026-05-29T03:57:31Z] reviewer_plan → task_planner (CONSENSUS_ACK): ACK from reviewer_plan for task_planner
-
-
-Reviewed task_planner v3 (commit `ec2a83bbd`, +65/-30 LOC focused on TASK-1-6) against v2, the architect's AC-18, the risk_analyst's R2, and HEAD. Adversarial dual-mandate re-review.
-
-### Mandate 1 — v2 blockers verified fixed
-
-(a) **v2 Blocker 1 — Missing 6th ConsensusEvaluator cluster at HEAD :3516-3522**: FIXED. v3 expands TASK-1-6 from 7 to 8 total clusters, explicitly listing the previously-missed cluster as (4) "refine-anchor `~3486-3496` / HEAD `3516-3526`" with the contextual description "inside the 'Failed to clear legacy consensus after hard-reset ack' block ... a distinct call site from (3) (the hard-reset-ack path vs the restart_phase consensus-clear path). Deletion of `consensus.py` without removing this cluster guarantees an `ImportError` post-restart on the hard-reset ack path." Independently verified at HEAD via `grep -n "from consensus import\|from \.\.consensus import\|get_consensus_evaluator" orchestrator/routes/pipelines.py`: six clusters present at :1813, :2859, :3289, **:3516**, :4489, :4498. ✓
-
-The new dual-citation format (refine-anchor + HEAD line ranges, e.g. `refine-anchor 1805-1808 / HEAD 1813-1816`) is the right resolution for the file:line drift problem — both anchors are recorded, so re-anchoring at implement-time HEAD is straightforward via the §"Anchor SHA & re-anchoring" protocol. Apply this dual-citation pattern in future plans.
-
-(b) **v2 Blocker 2 — TASK-1-5b caller-enumeration gap**: NOT addressed in v3, but I am downgrading this to non-blocking on reflection. The original v2 NACK item 2 framed the public-method-signature rename (`context_branch` → `parent_branch` in `stacked_pr_reconciler.py`) as risking external callers. I independently grep-verified at HEAD: the external surface of `stacked_pr_reconciler` is `reconcile_once` (imported at `pipelines.py:16279,16281`), invoked by `_start_stacked_pr_reconciler` at `pipelines.py:16245`. The internal `context_branch=` kwarg references at `gateway_client.py:2463,2475,2495,2510` (inside `create_context_branch`, being DELETED in TASK-1-4) and `pipelines.py:10801,10828,10837,10850,10886,11002,11141,11178,20205` (inside `_open_context_pr_for_pipeline` / `_lookup_existing_context_pr` / `_persist_context_pr_linkage_on_contract` / `_resolve_slice_1_context_branch_from_contract`, being DELETED in TASK-1-2) all go away with their parent functions. The single in-reconciler reference at `stacked_pr_reconciler.py:283` is the only remaining live `context_branch=` kwarg. So either (i) no external caller of the renamed reconciler method exists (rename is safe), or (ii) one exists and the rename produces a deterministic TypeError caught by `make test-all` in TASK-1-15's new unit test ("exercises the stacked_pr_reconciler.py cascade-base fallback with the new helper"). Either way the failure is test-detectable and recoverable in-cycle, not a deploy-breaker. Compare to v2 item 1's deterministic startup ImportError — different severity tier. NON-blocking on v3. The implement-phase coder will either confirm no external callers (via empty grep) or update them lockstep.
-
-### Mandate 2 — Fresh-reviewer audit of v3 delta
-
-v3 delta is small (one task modified, +65/-30 LOC). I audited the delta as if I had never seen v2:
-
-- **Dual-citation format introduction**: every cluster in TASK-1-6 now lists refine-anchor + HEAD line range explicitly. This is structurally new in v3 — no AC drift, but the practice deserves to be propagated to other multi-site tasks in future revisions (TASK-1-2, TASK-1-3, TASK-1-9 would benefit from the same).
-- **New acceptance criterion for the hard-reset-ack cluster** (HEAD `3516-3526`): "explicitly removed — verified by the post-edit grep returning zero hits in that line range" — specific and testable. ✓
-- **peer_consensus.py:1604 alias method audit (non-blocking risk_analyst observation)**: v3 adds a treatment plan + AC for the `get_state` alias method (verified at `peer_consensus.py:1604`: `def get_state(self) -> dict[str, Any]: """Alias for evaluate() -- compatibility with ConsensusEvaluator."""`). The AC requires "reachability verified post-deletion; if dead, removed lockstep; if reachable, noted in commit message with follow-up issue link." This is the right safety net — alias methods are easy to leave behind. v3 also adds `orchestrator/peer_consensus.py` to `files_affected` so the coder has permission to touch it if removal is the chosen path. ✓
-- **Verification-grep widening**: TASK-1-6's verification grep now catches `ReadinessState` (the signals.py READY-handler import) in addition to `ConsensusEvaluator|get_consensus_evaluator`. Catches the v2 R2 finding's secondary symbol. ✓
-- **Cluster count consistency**: description says "EIGHT reference clusters total" (matches architect AC-18); AC says "All EIGHT reference clusters are removed" (matches); the per-cluster breakdown is 6 + 1 + 1 = 8 (matches). No drift between description, AC, and breakdown. ✓
-- **No new soft-fail / silent-fallback / API-deprecation shapes introduced**.
-- **No new doc-snippets or example code in the v3 delta** (the only hunks are description + AC + files list updates). No copy-paste-execution risk.
-- **External-bot anchor (egg-reviewer[bot])**: a reviewer reading only v3's TASK-1-6 changes with no NACK context would see a clearly-justified 6→8 cluster expansion + dual-citation format + peer_consensus.py:1604 alias handling. Nothing the bot would flag.
-
-### Non-blocking observations carried forward from v2
-
-- **TASK-1-5b caller enumeration**: as discussed in Mandate 1(b) — bounded by test-suite detection; the implementer adds a grep step OR catches via `make test-all`.
-- **TASK-1-17 #2570 invariant test placement**: still hosted in orchestrator unit tests; the "N≥3 phase transitions + M≥2 main PRs merged in parallel" scenario is better suited to `integration_tests/regression/`. Suggested addition: TASK-1-17b under `integration_tests/regression/test_pipeline_main_isolation.py` for the multi-phase-multi-PR-merge invariant. Non-blocking; the implement-phase coder may either ship a degraded unit test or escalate during implementation.
-- **AC-9a HITL timing**: implement-phase reactive (coder triggers via `mcp__sdlc__register_open_question` during the audit), not plan-phase proactive. Architect recommended plan-phase but v3 keeps the implement-phase shape — acceptable given the new EXPECTATION framing in TASK-1-9 makes the firing predictable.
-- **TASK-1-3 (8) option labels swapped** vs architect AC-23 — cosmetic only.
-- **TASK-1-5b temporal coupling slice-1 ↔ slice-2** — the merge-base fallback lands in slice-2 TASK-2-3; between slice-1 and slice-2 deploys, orphaned-slice resolution is degraded. Window is narrow (Q5 confirms no in-flight pipelines).
-
-### New non-blocking observations (Mandate 2 fresh-reviewer)
-
-- **Dual-citation format propagation**: the v3 TASK-1-6 introduces an excellent practice (refine-anchor + HEAD line range). TASK-1-2 (12 deleted functions + 7 surviving read sites), TASK-1-3 (11 site-categories), TASK-1-9 (3 OOS audit anchors) would all benefit from the same dual-citation. The §"Anchor SHA & re-anchoring" section mentions the principle but TASK-1-6 is the only task that implements it. Suggested for future plan iterations — non-blocking on v3.
-- **`peer_consensus.py:1604` alias-method removal is conditional on the audit** ("if dead, removed lockstep; if reachable, noted in commit message with follow-up issue link"). The "if reachable" branch ships dead code (a deprecation alias whose only consumer was just deleted). Suggested clarification: even if technically reachable from a test scaffold, the alias method is removable in this task because the only production consumer of the alias semantics (compatibility with the deleted `ConsensusEvaluator.evaluate()`) is gone. Tests that exercise it can be rewritten lockstep. Non-blocking on v3.
-
-### Summary
-
-v3 fully addresses my v2 blocker 1 (missing 6th cluster). v2 blocker 2 (TASK-1-5b caller enumeration) is downgraded to non-blocking on reflection — bounded by test-suite detection. Mandate 2 found no new blocking issues in the v3 delta. The dual-citation format adoption + peer_consensus.py:1604 alias audit are positive additions.
-
-The plan v3 is shipping-quality. ACK with the non-blocking observations above. Implement-phase coder should pay attention to the dual-citation format expectations and the bounded temporal coupling between slice-1 and slice-2.
-
-
-````yaml
-id: a1dafb8b-7927-4f
+id: 8ce845ab-ecbf-45
 phase: plan
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/issue-2777-replan-plan.md
-    - .egg-state/agent-outputs/issue-2777-replan-architect-output.json
-    - .egg-state/agent-outputs/issue-2777-replan-risk_analyst-output.json
-    - orchestrator/routes/pipelines.py
-    - orchestrator/routes/phases.py
-    - orchestrator/routes/signals.py
-    - orchestrator/peer_consensus.py
-    - orchestrator/stacked_pr_reconciler.py
-    - orchestrator/consensus.py
-    - shared/egg_contracts/models.py
-    - shared/egg_contracts/phase_defaults.py
-    - gateway/gateway.py
-    - gateway/phase_filter.py
-    - gateway/phase_transition.py
-    reason: "\nReviewed task_planner v3 (commit `ec2a83bbd`, +65/-30 LOC focused on\
-      \ TASK-1-6) against v2, the architect's AC-18, the risk_analyst's R2, and HEAD.\
-      \ Adversarial dual-mandate re-review.\n\n### Mandate 1 \u2014 v2 blockers verified\
-      \ fixed\n\n(a) **v2 Blocker 1 \u2014 Missing 6th ConsensusEvaluator cluster\
-      \ at HEAD :3516-3522**: FIXED. v3 expands TASK-1-6 from 7 to 8 total clusters,\
-      \ explicitly listing the previously-missed cluster as (4) \"refine-anchor `~3486-3496`\
-      \ / HEAD `3516-3526`\" with the contextual description \"inside the 'Failed\
-      \ to clear legacy consensus after hard-reset ack' block ... a distinct call\
-      \ site from (3) (the hard-reset-ack path vs the restart_phase consensus-clear\
-      \ path). Deletion of `consensus.py` without removing this cluster guarantees\
-      \ an `ImportError` post-restart on the hard-reset ack path.\" Independently\
-      \ verified at HEAD via `grep -n \"from consensus import\\|from \\.\\.consensus\
-      \ import\\|get_consensus_evaluator\" orchestrator/routes/pipelines.py`: six\
-      \ clusters present at :1813, :2859, :3289, **:3516**, :4489, :4498. \u2713\n\
-      \nThe new dual-citation format (refine-anchor + HEAD line ranges, e.g. `refine-anchor\
-      \ 1805-1808 / HEAD 1813-1816`) is the right resolution for the file:line drift\
-      \ problem \u2014 both anchors are recorded, so re-anchoring at implement-time\
-      \ HEAD is straightforward via the \xA7\"Anchor SHA & re-anchoring\" protocol.\
-      \ Apply this dual-citation pattern in future plans.\n\n(b) **v2 Blocker 2 \u2014\
-      \ TASK-1-5b caller-enumeration gap**: NOT addressed in v3, but I am downgrading\
-      \ this to non-blocking on reflection. The original v2 NACK item 2 framed the\
-      \ public-method-signature rename (`context_branch` \u2192 `parent_branch` in\
-      \ `stacked_pr_reconciler.py`) as risking external callers. I independently grep-verified\
-      \ at HEAD: the external surface of `stacked_pr_reconciler` is `reconcile_once`\
-      \ (imported at `pipelines.py:16279,16281`), invoked by `_start_stacked_pr_reconciler`\
-      \ at `pipelines.py:16245`. The internal `context_branch=` kwarg references at\
-      \ `gateway_client.py:2463,2475,2495,2510` (inside `create_context_branch`, being\
-      \ DELETED in TASK-1-4) and `pipelines.py:10801,10828,10837,10850,10886,11002,11141,11178,20205`\
-      \ (inside `_open_context_pr_for_pipeline` / `_lookup_existing_context_pr` /\
-      \ `_persist_context_pr_linkage_on_contract` / `_resolve_slice_1_context_branch_from_contract`,\
-      \ being DELETED in TASK-1-2) all go away with their parent functions. The single\
-      \ in-reconciler reference at `stacked_pr_reconciler.py:283` is the only remaining\
-      \ live `context_branch=` kwarg. So either (i) no external caller of the renamed\
-      \ reconciler method exists (rename is safe), or (ii) one exists and the rename\
-      \ produces a deterministic TypeError caught by `make test-all` in TASK-1-15's\
-      \ new unit test (\"exercises the stacked_pr_reconciler.py cascade-base fallback\
-      \ with the new helper\"). Either way the failure is test-detectable and recoverable\
-      \ in-cycle, not a deploy-breaker. Compare to v2 item 1's deterministic startup\
-      \ ImportError \u2014 different severity tier. NON-blocking on v3. The implement-phase\
-      \ coder will either confirm no external callers (via empty grep) or update them\
-      \ lockstep.\n\n### Mandate 2 \u2014 Fresh-reviewer audit of v3 delta\n\nv3 delta\
-      \ is small (one task modified, +65/-30 LOC). I audited the delta as if I had\
-      \ never seen v2:\n\n- **Dual-citation format introduction**: every cluster in\
-      \ TASK-1-6 now lists refine-anchor + HEAD line range explicitly. This is structurally\
-      \ new in v3 \u2014 no AC drift, but the practice deserves to be propagated to\
-      \ other multi-site tasks in future revisions (TASK-1-2, TASK-1-3, TASK-1-9 would\
-      \ benefit from the same).\n- **New acceptance criterion for the hard-reset-ack\
-      \ cluster** (HEAD `3516-3526`): \"explicitly removed \u2014 verified by the\
-      \ post-edit grep returning zero hits in that line range\" \u2014 specific and\
-      \ testable. \u2713\n- **peer_consensus.py:1604 alias method audit (non-blocking\
-      \ risk_analyst observation)**: v3 adds a treatment plan + AC for the `get_state`\
-      \ alias method (verified at `peer_consensus.py:1604`: `def get_state(self) ->\
-      \ dict[str, Any]: \"\"\"Alias for evaluate() -- compatibility with ConsensusEvaluator.\"\
-      \"\"`). The AC requires \"reachability verified post-deletion; if dead, removed\
-      \ lockstep; if reachable, noted in commit message with follow-up issue link.\"\
-      \ This is the right safety net \u2014 alias methods are easy to leave behind.\
-      \ v3 also adds `orchestrator/peer_consensus.py` to `files_affected` so the coder\
-      \ has permission to touch it if removal is the chosen path. \u2713\n- **Verification-grep\
-      \ widening**: TASK-1-6's verification grep now catches `ReadinessState` (the\
-      \ signals.py READY-handler import) in addition to `ConsensusEvaluator|get_consensus_evaluator`.\
-      \ Catches the v2 R2 finding's secondary symbol. \u2713\n- **Cluster count consistency**:\
-      \ description says \"EIGHT reference clusters total\" (matches architect AC-18);\
-      \ AC says \"All EIGHT reference clusters are removed\" (matches); the per-cluster\
-      \ breakdown is 6 + 1 + 1 = 8 (matches). No drift between description, AC, and\
-      \ breakdown. \u2713\n- **No new soft-fail / silent-fallback / API-deprecation\
-      \ shapes introduced**.\n- **No new doc-snippets or example code in the v3 delta**\
-      \ (the only hunks are description + AC + files list updates). No copy-paste-execution\
-      \ risk.\n- **External-bot anchor (egg-reviewer[bot])**: a reviewer reading only\
-      \ v3's TASK-1-6 changes with no NACK context would see a clearly-justified 6\u2192\
-      8 cluster expansion + dual-citation format + peer_consensus.py:1604 alias handling.\
-      \ Nothing the bot would flag.\n\n### Non-blocking observations carried forward\
-      \ from v2\n\n- **TASK-1-5b caller enumeration**: as discussed in Mandate 1(b)\
-      \ \u2014 bounded by test-suite detection; the implementer adds a grep step OR\
-      \ catches via `make test-all`.\n- **TASK-1-17 #2570 invariant test placement**:\
-      \ still hosted in orchestrator unit tests; the \"N\u22653 phase transitions\
-      \ + M\u22652 main PRs merged in parallel\" scenario is better suited to `integration_tests/regression/`.\
-      \ Suggested addition: TASK-1-17b under `integration_tests/regression/test_pipeline_main_isolation.py`\
-      \ for the multi-phase-multi-PR-merge invariant. Non-blocking; the implement-phase\
-      \ coder may either ship a degraded unit test or escalate during implementation.\n\
-      - **AC-9a HITL timing**: implement-phase reactive (coder triggers via `mcp__sdlc__register_open_question`\
-      \ during the audit), not plan-phase proactive. Architect recommended plan-phase\
-      \ but v3 keeps the implement-phase shape \u2014 acceptable given the new EXPECTATION\
-      \ framing in TASK-1-9 makes the firing predictable.\n- **TASK-1-3 (8) option\
-      \ labels swapped** vs architect AC-23 \u2014 cosmetic only.\n- **TASK-1-5b temporal\
-      \ coupling slice-1 \u2194 slice-2** \u2014 the merge-base fallback lands in\
-      \ slice-2 TASK-2-3; between slice-1 and slice-2 deploys, orphaned-slice resolution\
-      \ is degraded. Window is narrow (Q5 confirms no in-flight pipelines).\n\n###\
-      \ New non-blocking observations (Mandate 2 fresh-reviewer)\n\n- **Dual-citation\
-      \ format propagation**: the v3 TASK-1-6 introduces an excellent practice (refine-anchor\
-      \ + HEAD line range). TASK-1-2 (12 deleted functions + 7 surviving read sites),\
-      \ TASK-1-3 (11 site-categories), TASK-1-9 (3 OOS audit anchors) would all benefit\
-      \ from the same dual-citation. The \xA7\"Anchor SHA & re-anchoring\" section\
-      \ mentions the principle but TASK-1-6 is the only task that implements it. Suggested\
-      \ for future plan iterations \u2014 non-blocking on v3.\n- **`peer_consensus.py:1604`\
-      \ alias-method removal is conditional on the audit** (\"if dead, removed lockstep;\
-      \ if reachable, noted in commit message with follow-up issue link\"). The \"\
-      if reachable\" branch ships dead code (a deprecation alias whose only consumer\
-      \ was just deleted). Suggested clarification: even if technically reachable\
-      \ from a test scaffold, the alias method is removable in this task because the\
-      \ only production consumer of the alias semantics (compatibility with the deleted\
-      \ `ConsensusEvaluator.evaluate()`) is gone. Tests that exercise it can be rewritten\
-      \ lockstep. Non-blocking on v3.\n\n### Summary\n\nv3 fully addresses my v2 blocker\
-      \ 1 (missing 6th cluster). v2 blocker 2 (TASK-1-5b caller enumeration) is downgraded\
-      \ to non-blocking on reflection \u2014 bounded by test-suite detection. Mandate\
-      \ 2 found no new blocking issues in the v3 delta. The dual-citation format adoption\
-      \ + peer_consensus.py:1604 alias audit are positive additions.\n\nThe plan v3\
-      \ is shipping-quality. ACK with the non-blocking observations above. Implement-phase\
-      \ coder should pay attention to the dual-citation format expectations and the\
-      \ bounded temporal coupling between slice-1 and slice-2.\n"
+    - .egg-state/agent-outputs/issue-2777-replan-architect-slices.yaml
+    reason: "Re-reviewed task_planner v3 (commit 1dfc02503) \u2014 TARGETED diff addressing\
+      \ reviewer_plan's NACK on TASK-4-5(1)/(2). 45 insertions / 42 deletions. Both\
+      \ mandates performed.\n\n### (a) reviewer_plan v2 blockers verified-fixed (mandate\
+      \ 1)\n1. **TASK-4-5(1) \"Add slice_id field to Message\" \u2014 DELETED.** TASK-4-5\
+      \ body now explicitly states: \"No schema change to Message is required\" and\
+      \ the AC has \"**No new field added to message_store.Message** (the metadata-based\
+      \ scope per #2725 is the canonical mechanism)\" (lines 2265-2267). The deleted\
+      \ directive would have created a two-source-of-truth bug (top-level field alongside\
+      \ metadata['slice_id'] both meaning the same thing). Correct deletion.\n2. **TASK-4-5(2)\
+      \ \"Extend reconstruct_tracker_from_messages signature\" \u2014 DELETED.** TASK-4-5\
+      \ body now explicitly states the kwarg already exists at HEAD (peer_consensus.py:1919-1926).\
+      \ AC has \"**No signature change to reconstruct_tracker_from_messages**\" (lines\
+      \ 2268-2271). Correct deletion.\n3. **TASK-4-5.files trimmed** \u2014 orchestrator/message_store.py\
+      \ and orchestrator/peer_consensus.py removed; only startup_reconciliation.py\
+      \ + signals.py touched (line 2273-2275). Correct.\n4. **TASK-3-3 HITL option\
+      \ text \"slice-1\" \u2192 \"slice-3\"** \u2014 3 occurrences corrected in the\
+      \ option labels emitted via mcp__sdlc__register_open_question (lines 1633, 1681,\
+      \ 1684, 1685, 1688). Correct.\n5. **TASK-3-3 audit artifact path** \u2014 `issue-2777-replan-task-1-9-audit.md`\
+      \ \u2192 `issue-2777-replan-task-3-3-audit.md` in 3 places (lines 1646, 1689,\
+      \ 1717). Files list updated. Correct.\n6. **TASK-4-1 \"wait for the slice-1\
+      \ rebase\" \u2192 \"wait for the slice-2 (id=2) rebase\"** \u2014 ambiguity\
+      \ removed at line 2093. Correct.\n\n### (b) Fresh-reviewer audit of v3 delta\
+      \ (mandate 2)\nRisk-lens shapes checked:\n- **Silent-fallback shapes**: The\
+      \ new TASK-4-5 body text states \"If on-disk message history has no entries\
+      \ scoped to a given slice ... the metadata filter at message_store.py:407-416\
+      \ returns an empty set and reconstruction is a no-op for that slice \u2014 TASK-4-4's\
+      \ bootstrap reconciliation handles the slice's runtime resumption from scratch\"\
+      \ (lines 2229-2235). VERIFIED at HEAD: message_store.py:407-416 does filter\
+      \ by metadata['slice_id']. The empty-set fallback is the CORRECT behavior (not\
+      \ a silent ignore) \u2014 bootstrap reconciliation explicitly handles the resumption\
+      \ case. No silent failure introduced.\n- **Two-source-of-truth avoidance (NEW\
+      \ POSITIVE PROPERTY)**: The defensive ACs \"No new field added to Message\"\
+      \ and \"No signature change\" prevent a future coder from re-introducing the\
+      \ redundant work. This is the right shape \u2014 protects against well-meaning\
+      \ re-implementation later.\n- **DAG ordering preserved**: TASK-4-5 still ordered\
+      \ after TASK-2-X deletions (slice-2 sets up the post-collapse topology that\
+      \ TASK-4-5 reasons about). No parent_slice_id change. \u2713\n- **AC mapping\
+      \ consistency**: TASK-4-5 still owns AC-16. AC-16 cross-slice isolation test\
+      \ in TASK-4-6 still references TASK-4-5 (line 2309 \u2014 \"TASK-4-5\"). AC\
+      \ chain intact.\n- **Cross-task references audited**: I greped for orphan references\
+      \ to the removed message_store / peer_consensus signature work. Found 4 hits:\
+      \ line 131 (mapping table TASK-2-5 \u2192 TASK-4-5 \u2014 preserved for old/new\
+      \ mapping), line 2165 (TASK-4-4 references \"via TASK-4-5's reconstruction primitive\"\
+      \ \u2014 still valid because TASK-4-5 still does reconstruction by calling the\
+      \ existing primitive), line 2210 (TASK-4-5 itself), line 2269 (the negative\
+      \ AC). NO orphan references that would mislead the implement-phase coder.\n\
+      - **Closure of #2409 still claimed**: TASK-4-5 AC still has \"#2409 is closed\
+      \ by this task\" (line 2272). Verified the actual reconstruction work (startup_reconciliation.py\
+      \ call site + handle_consensus_confirmed_signal skip fix) is the correct closure\
+      \ mechanism per architect's AC-16 + replan_change_log entry 7.\n- **HITL options\
+      \ text after rename consistency**: TASK-3-3 options now say \"slice-3\" for\
+      \ all 3 options. The default-recommended option (option 3 \u2014 \"Mark #2570\
+      \ as xfail in slice-3 and open a follow-up issue\") is consistently the same\
+      \ one across the body text and the HITL registration. \u2713\n- **No file-affected\
+      \ drift**: TASK-3-3 files list includes `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`\
+      \ (line 1717). Matches the new audit artifact path used in the description and\
+      \ AC. \u2713\n- **No new soft-fall paths introduced**: The TASK-4-5 reconstruction\
+      \ is no-op-on-empty-history (correct) and the handle_consensus_confirmed_signal\
+      \ skip is REMOVED (correct \u2014 slice-scoped confirms now do reconstruct).\
+      \ Both shapes are intentional.\n\n### Risk-register impact\nMy iteration-1 risk\
+      \ register R8 (Per-slice consensus tracker reconstruction \u2194 restart_phase\
+      \ per-slice iteration key collision) still applies cleanly to TASK-4-5 + TASK-4-1.\
+      \ The v3 fix to TASK-4-5 narrows the surface (no schema change) which REDUCES\
+      \ R8's blast radius \u2014 the only failure mode now is incorrect call-site\
+      \ arguments, not schema-incompatibility. R8 severity stays MEDIUM but likelihood\
+      \ drops MEDIUM \u2192 LOW. Net positive.\n\nNo new risks introduced. Risk register\
+      \ unchanged.\n\n### Non-blocking\n- The \"via TASK-4-5's reconstruction primitive\"\
+      \ reference at line 2165 (in TASK-4-4 body) is technically accurate but a future\
+      \ reader might expect TASK-4-5 to define a NEW primitive \u2014 the v3 text\
+      \ now makes TASK-4-5 a call-site fix, not a primitive definition. Consider rewording\
+      \ to \"via the existing reconstruct_tracker_from_messages primitive (call site\
+      \ landed in TASK-4-5)\" on next iteration if any. Cosmetic only; no risk impact.\n\
+      \nACK on task_planner v3. Both mandates pass. Reviewer_plan's NACK correctly\
+      \ identified a contract-AC drift that would have introduced a two-source-of-truth\
+      \ bug; v3 cleanly reverses the misdirection and adds defensive ACs to prevent\
+      \ re-introduction. Risk lens approves."
     ack_version: 3
   version: 3
 ````
 
-### [2026-05-29T03:57:31Z] orchestrator → task_planner (STATUS): Ready to confirm — all confirm preconditions satisfied
+### [2026-05-29T05:11:19Z] orchestrator → task_planner (STATUS): Ready to confirm — all confirm preconditions satisfied
 
 Your proposal (version 3) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
 
 ````yaml
-id: 0875e238-6da6-4f
+id: 72e866bf-046b-44
 phase: plan
 metadata:
   ready_to_confirm: true
   version: 3
 ````
 
-### [2026-05-29T03:57:31Z] task_planner (HEARTBEAT): heartbeat: WORKING
+### [2026-05-29T05:11:19Z] task_planner (HEARTBEAT): heartbeat: WORKING
 
 wait_loop exited
 
 ````yaml
-id: 69b0d59f-1017-42
+id: d8bc014e-57c1-42
 phase: plan
 metadata:
   state: WORKING
 ````
 
-### [2026-05-29T03:57:34Z] reviewer_plan (CONSENSUS_CONFIRMED): Confirmed by reviewer_plan
+### [2026-05-29T05:11:23Z] task_planner (CONSENSUS_CONFIRMED): Confirmed by task_planner
 
 ````yaml
-id: a8190978-64c0-41
+id: e1b5dc74-9068-4d
 phase: plan
 metadata:
-  consensus_reached: false
-````
-
-### [2026-05-29T03:57:35Z] architect (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 4859cf5e-b3e6-4f
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:57:35Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 2347ced6-8bf2-4e
-phase: plan
-metadata:
-  state: WORKING
-````
-
-### [2026-05-29T03:57:40Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
-
-````yaml
-id: f223371c-3d74-4d
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:57:40.642089+00:00'
-````
-
-### [2026-05-29T03:57:41Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
-
-wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
-
-````yaml
-id: dfa191b5-8f67-4d
-phase: plan
-metadata:
-  state: WAITING_FOR_EVENT
-  since: '2026-05-29T03:57:41.802555+00:00'
-````
-
-### [2026-05-29T03:57:45Z] task_planner (CONSENSUS_CONFIRMED): Confirmed by task_planner
-
-````yaml
-id: a1dd1d0a-fe14-41
-phase: plan
-metadata:
-  consensus_reached: false
-````
-
-### [2026-05-29T03:57:45Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
-
-wait_loop exited
-
-````yaml
-id: 7bff1de1-5777-49
-phase: plan
-metadata:
-  state: WORKING
+  consensus_reached: true
 ````
