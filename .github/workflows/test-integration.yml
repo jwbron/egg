@@ -44,15 +44,24 @@ jobs:
         # `await-egg-deploy.sh` times out (the "untolerated taint(s)"
         # CI failure). Reclaim ~25-30 GB of preinstalled toolchains
         # egg never uses so there is headroom for both image stores.
-        run: |
-          set -x
-          sudo rm -rf /usr/share/dotnet \
-                      /usr/local/lib/android \
-                      /opt/ghc \
-                      /opt/hostedtoolcache/CodeQL \
-                      /usr/local/share/boost \
-                      "$AGENT_TOOLSDIRECTORY" || true
-          df -h /
+        # The maintained action tracks the runner image's layout so we
+        # don't have to chase hardcoded `rm` paths as GitHub changes it.
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          # Keep the default removals (android, dotnet, haskell, large
+          # apt packages) — ~20+ GB and none of them touch egg's
+          # toolchain. Two opt-outs:
+          #   docker-images: `make build` runs next and needs its layer
+          #     cache; the Docker store is reclaimed post-import by the
+          #     "Reclaim Docker image store" step once images are in
+          #     containerd.
+          #   tool-cache: this step runs AFTER "Set up Python", so
+          #     /opt/hostedtoolcache holds the interpreter that uv's
+          #     .venv links against — wiping it would break the build
+          #     and test steps. (Left at the action's default of false,
+          #     set explicitly here to document the hazard.)
+          docker-images: false
+          tool-cache: false
 
       - name: Build containers
         # Use `make build` so CI matches local dev: same `repo-deps/`
