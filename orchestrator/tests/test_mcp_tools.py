@@ -3043,3 +3043,39 @@ class TestPipelineToolsSchemasForDeployment:
         tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
         props = tools_by_name["rebuild_and_rollout"]["inputSchema"]["properties"]
         assert props["wait"]["default"] is False
+
+
+class TestToolOutputCap:
+    """Output-size caps (#2805): handle_tool_call must bound any result
+    before mcp_server.py serializes it across the operator's 1 MB SDK
+    reader buffer."""
+
+    def test_oversized_result_truncated_to_marker(self, handler):
+        # A list_containers result proportional to a huge cluster.
+        huge = {"containers": [{"id": f"c{i}", "log": "x" * 200} for i in range(20000)]}
+        handler._handle_list_containers = lambda args: huge  # type: ignore[assignment]
+
+        result = handler.handle_tool_call("list_containers", {})
+
+        assert result["_egg_truncated"] is True
+        assert result["tool"] == "list_containers"
+        # Measure against the indent=2 serialization mcp_server.py actually
+        # ships, and hold the marker to the real 100 KB cap (not a loose 2×).
+        assert len(json.dumps(result, indent=2).encode("utf-8")) <= 100 * 1024
+        # The narrow-hint for this tool is surfaced in the marker note.
+        assert "container" in result["note"]
+
+    def test_small_result_passes_through(self, handler):
+        small = {"containers": [{"id": "c1"}]}
+        handler._handle_list_containers = lambda args: small  # type: ignore[assignment]
+
+        result = handler.handle_tool_call("list_containers", {})
+        assert result == small
+
+    def test_error_dict_not_inflated(self, handler):
+        def boom(args):
+            raise RuntimeError("kaboom")
+
+        handler._handle_list_containers = boom  # type: ignore[assignment]
+        result = handler.handle_tool_call("list_containers", {})
+        assert result == {"error": "kaboom"}

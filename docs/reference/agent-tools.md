@@ -212,6 +212,26 @@ sized to keep a worst-case page under the SDK's 60 s MCP timeout; if
 you know your dataset is small, raise `limit` to skip the second
 round-trip.
 
+### Output-size cap (`EGG_TOOL_OUTPUT_CAP_BYTES`, #2805)
+
+Every egg-owned tool result is bounded before it crosses the Claude
+Agent SDK's hard 1 MB JSON reader buffer — an oversized result kills the
+agent with exit 255 (#2804). The cap is applied at two chokepoints: the
+orchestrator MCP server (`handle_tool_call` → `cap_result_dict`) and
+every sandbox `@tool` wrapper (`invoke_handler` → `cap_text`), both via
+the shared `shared/egg_tool_output.py` helper.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `EGG_TOOL_OUTPUT_CAP_BYTES` | `102400` (100 KB) | Max serialized size of a single tool result. Output above the cap is replaced with a structured head-preview marker (`_egg_truncated`) that names how to narrow the call, or — for unpaginated content like a full checkpoint transcript — spilled to a temp file (`_egg_output_spilled`) the agent can `Read`/`grep`, with a small inline preview. |
+
+The default leaves ~10× headroom under the 1 MB buffer. A non-positive
+or non-integer value is **ignored with a logged warning** (the operator
+is not left believing a cap is in effect when it isn't); the helper
+falls back to the 100 KB default. The orchestrator measures the cap
+against `indent=2`-serialized JSON (matching what its MCP server ships),
+so raising the cap toward the buffer size stays safe.
+
 ### `cli_command=None` rationale pattern (decision-13)
 
 A `ToolRegistration` declares `cli_command=None` for verbs that have
