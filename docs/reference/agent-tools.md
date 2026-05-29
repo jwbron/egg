@@ -232,6 +232,15 @@ falls back to the 100 KB default. The orchestrator measures the cap
 against `indent=2`-serialized JSON (matching what its MCP server ships),
 so raising the cap toward the buffer size stays safe.
 
+**Built-in tool cap (complementary):** The cap above covers egg-owned MCP
+`@tool` payloads. Built-in Claude Code tools (`Read`, `Grep`, etc.) run
+inside the CLI and can't be wrapped the same way. [#2876](https://github.com/jwbron/egg/issues/2876)
+adds a PreToolUse hook that predicts overflows *before* the tool runs and
+denies the call with a narrowing hint. See
+[Agent Recovery → Predictive Output Cap](agent-recovery.md#predictive-output-cap-pretooluse)
+for the heuristic table and the `EGG_TOOL_OUTPUT_CAP` / `EGG_READ_CAP_BYTES`
+operator knobs.
+
 ### `cli_command=None` rationale pattern (decision-13)
 
 A `ToolRegistration` declares `cli_command=None` for verbs that have
