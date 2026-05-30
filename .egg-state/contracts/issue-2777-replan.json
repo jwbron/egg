@@ -12,7 +12,7 @@
     {
       "id": "slice-1",
       "name": "Context-PR opener + wiring (slice-1a)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -22,7 +22,7 @@
           "id": "task-1-1",
           "description": "Implement the AC-1a plan-phase pre-flight validator. The\nvalidator runs at plan-phase completion (before the\nimplement-phase entry hook from TASK-1-2 fires) and\nrejects the plan with a plan-phase NACK if the planner\noutput is missing the structural inputs the new\nidempotent context-PR opener depends on. Required\nrejections: (a) `yaml-tasks` block missing or unparseable;\n(b) `pr.title` missing or empty; (c) `pr.description`\nmissing or empty; (d) `pr.test_plan` missing or empty;\n(e) `pr.manual_steps` missing (empty string is allowed).\nThe validator lives in `shared/egg_contracts/plan_parser.py`\n(or `orchestrator/routes/phases.py` if the planner parser\nis invoked through the phase router; locate by searching\nfor `# yaml-tasks` parsing). Raise a typed\n`PlanPreflightError(BaseException)` with a structured\npayload naming the missing field(s) so the BRC NACK\nsurface emits a clear actionable message. Unit test in\nTASK-3-8: feed three malformed plan drafts (missing\nyaml-tasks; missing `pr:`; missing `pr.test_plan`) and\nassert the validator raises with the expected field name.\nOrdering: this validator MUST be in place BEFORE TASK-1-2's\nruntime opener \u2014 the opener depends on a well-formed\ncontract \u2014 so prefer to land this first within the slice.",
           "status": "pending",
-          "commit": null,
+          "commit": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- A pre-flight validator exists at plan-phase completion\n  and rejects malformed planner output with a typed\n  `PlanPreflightError`.\n- The five rejection cases (a)\u2013(e) are each exercised\n  by a unit test in TASK-3-8.\n- The NACK message names the missing field by name (not\n  a generic \"plan invalid\").",
@@ -44,7 +44,7 @@
           "id": "task-1-2",
           "description": "Add a new module-level helper\n`_open_context_pr_at_implement_start(pipeline_id: str) -> int`\nin `orchestrator/routes/pipelines.py`. The helper is the\nsingle up-front context-PR opener for the plan\u2192implement\nboundary. Behaviour: (1) call\n`gh pr list --head egg/<pipeline_id>/work --base main --state open --json number`\nvia `GatewayClient.create_pr`'s existing `gh` plumbing\n(extract a `_gh_pr_list_for_head_base` helper if needed);\n(2) on hit, persist `pr_number` to `contract.pr.context_pr_number`\nand return it; (3) on miss, call `GatewayClient.create_pr`\nwith title/description from `contract.pr.title` and\n`contract.pr.description` (existing fields), persist\n`context_pr_number`, return; (4) on gateway failure, raise\n`ContextPrCreationError` (new typed exception, top-level in\n`pipelines.py`) \u2014 NO soft-fail `return None`.\n\n**Persistence call site (added per reviewer_plan v2\nblocker 5)**. After TASK-2-1 deletes\n`_persist_context_pr_linkage_on_contract` (currently at\n`pipelines.py:9791` plan-anchor / `:10423` HEAD), the new\nopener becomes the SOLE writer of `context_pr_number`. To\navoid making the opener a non-transactional state mutator,\nextract a private helper\n`_persist_context_pr_number(pipeline_id: str, pr_number: int) -> None`\nthat wraps the contract write through the existing\nper-pipeline state-lock + `update_contract` machinery in\n`pipelines.py` (locate the existing pattern via\n`grep -n \"update_contract\\|_update_contract\\|with _pipeline_state_lock\" orchestrator/routes/pipelines.py | head -20`).\nThe opener calls `_persist_context_pr_number(...)` once,\nimmediately after either the `gh pr list` hit or the\nsuccessful `gh pr create`. The helper is single-purpose\n(no other consumers); ordering with TASK-2-1 deletion is\ncritical \u2014 TASK-2-1 depends on TASK-1-2 having extracted\nthe helper before tearing down the old persistence path.\n\nWire the opener into the single plan\u2192implement transition\nsite: replace the existing\n`_maybe_open_base_pr_for_plan_to_implement` call at\n`phases.py:500` (the only call site that survives) and\ndelete the other four call sites (`pipelines.py:15120,\n20572, 22051, 22994`) \u2014 those existed only because the\nsoft-fail wrapper needed multiple retry points. Document\nthe new helper with a docstring stating \"hard-required;\nraises on failure; idempotent via gh pr list pre-flight\".",
           "status": "pending",
-          "commit": null,
+          "commit": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `_open_context_pr_at_implement_start` exists in\n  `pipelines.py`, raises `ContextPrCreationError` on\n  gateway failure, no `return None` swallow path.\n- `_persist_context_pr_number` exists as a private helper\n  in `pipelines.py`, wraps `update_contract` (or the\n  equivalent under the per-pipeline state-lock pattern\n  named by `grep -n \"update_contract\" pipelines.py`), and\n  is called exactly once by `_open_context_pr_at_implement_start`\n  (after either the `gh pr list` hit or the successful\n  `gh pr create`).\n- The function is called exactly once per plan\u2192implement\n  transition (via `phases.py:500` advance_phase).\n- The four soft-fail call sites at `pipelines.py:15120,\n  20572, 22051, 22994` are removed.\n- The function uses `contract.pr.title` and\n  `contract.pr.description` (NOT `context_title` /\n  `context_description`, which are removed in TASK-2-4).\n- Idempotency verified by unit test in TASK-3-8: when\n  `gh pr list` returns an existing PR, no `gh pr create`\n  is invoked AND `_persist_context_pr_number` IS still\n  called with the existing PR number (the persistence\n  write must be observed even on the idempotent path \u2014\n  covers the resume-from-orphaned-pipeline case where the\n  contract on disk lost `context_pr_number` mid-run).\n- A unit test (in TASK-3-8) verifies that a gateway\n  failure surfaces as `ContextPrCreationError` and is NOT\n  silently swallowed by the implement-phase entry handler\n  in `phases.py` (i.e. the error propagates to the BRC\n  surface, not into a `return None` path).",
@@ -66,7 +66,7 @@
           "id": "task-1-3",
           "description": "Surgical decomposition (cq-10). Two extractions only:\n(1) Add `_is_slice_dag_mode(contract) -> bool` as a\nmodule-level helper in `orchestrator/routes/pipelines.py`\nthat returns `len(contract.slices) > 1`. Replace the 3\nbare recompute sites at `pipelines.py:8259` (inside\n`_should_skip_pr_phase_auto_pr` \u2014 verify the site survives\nTASK-2-2's deletion; if not, drop this replacement),\n`pipelines.py:15060`, and `pipelines.py:15519` with calls\nto the helper. (2) Add\n`_resolve_slice_base_branch(contract, slice_id) -> str`\nas a module-level helper. Reads\n`contract.slices[<slice_id>].parent_branch_at_creation`\nand returns it; for root slices (no upstream slice\ndependencies), returns `f\"egg/{pipeline_id}/work\"`. This\nreplaces the deleted\n`_resolve_slice_1_context_branch_from_contract` and is\nextended by TASK-4-3 to include a merge-base fallback.\nWire the new helper into the slice-1 base resolution at\n`pipelines.py:15394\u201315405` (note: TASK-2-1 already did\nthis wiring \u2014 this task supplies the helper that TASK-2-1\nconsumes). Ordering: TASK-1-3 must complete BEFORE\nTASK-2-1 so that TASK-2-1 has a non-empty helper to call.",
           "status": "pending",
-          "commit": null,
+          "commit": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `_is_slice_dag_mode` exists and is called at the 2 or\n  3 surviving sites (depending on TASK-2-2's outcome).\n- `_resolve_slice_base_branch` exists, returns\n  `egg/<id>/work` for root slices and\n  `parent_branch_at_creation` otherwise.\n- The new helpers have docstrings.",
@@ -86,14 +86,15 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
+      "parent_branch_at_creation": "egg/issue-2777-replan/work",
+      "integration_base_sha": "d5778784cfe0926e15be0798a261e1446e0c359c",
       "commit": null,
       "review_feedback": []
     },
     {
       "id": "slice-2",
       "name": "Scaffold + PR-phase deletions (slice-1b)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -102,8 +103,8 @@
         {
           "id": "task-2-1",
           "description": "Delete the entire `egg/<id>/context` parallel-stack-root\nscaffold in `orchestrator/routes/pipelines.py`. Specifically\ndelete: `_open_context_pr_for_pipeline` (line 10002, ~640\nlines including the 21 silent `return None` paths);\n`_lookup_existing_context_pr` (line 9735, ~150 lines);\n`_gather_context_pr_files` (line 9896);\n`_persist_context_pr_linkage_on_contract` (line 9791);\n`_maybe_open_base_pr_for_plan_to_implement` (line 10648,\n~230 lines \u2014 note TASK-1-2 has replaced its single\nsurviving call site already, so this is a pure deletion);\n`_resolve_slice_1_context_branch_from_contract` (line\n10883); the `_context_pr_events_emitted` dict and lock at\nlines 10644\u201310645 and their touch sites at 1850, 1851,\n10801, 10802; the `context_pr.skipped` and\n`context_pr.failed` event-bus entries at lines 291\u2013292 and\n1036\u20131037 (and `EventType.CONTEXT_PR_SKIPPED` /\n`CONTEXT_PR_FAILED` if they exist in\n`orchestrator/events.py`).\n\n**Surviving `context_branch` / `context_title` /\n`context_description` read sites in `pipelines.py` outside\nthe deleted function bodies (added per reviewer_plan v2\nblocker 2)** \u2014 these are NOT inside the function deletions\nabove and MUST be removed in this task or routed through\nthe new helpers from TASK-1-3:\n\n- `pipelines.py:10801, 10804, 10844` \u2014 `context_branch`\n  reads (plan-anchor lines). Re-anchor against HEAD; if\n  inside a now-deleted function, drop with the function;\n  if standalone, replace with the resolved parent branch\n  via `_resolve_slice_base_branch` from TASK-1-3.\n- `pipelines.py:11096-11097` \u2014 `context_title` /\n  `context_description` reads in slice-PR builder. After\n  cq-2 these no longer exist; replace with reads of\n  `contract.pr.title` and `contract.pr.description`\n  (the canonical fields used by TASK-1-2).\n- `pipelines.py:11519-11542` \u2014 `context_branch` read in\n  cascade-base sub-block. Reroute through\n  `_resolve_slice_base_branch`.\n- `pipelines.py:16755, 16781` \u2014 `context_branch` reads\n  outside any deleted function. Reroute through\n  `_resolve_slice_base_branch` or drop if dead.\n- `pipelines.py:20193` \u2014 `context_branch` read at\n  advance-phase boundary. Drop if covered by TASK-1-2's\n  new opener path; otherwise reroute.\n\nThe implement-phase coder MUST run the verification grep\n`rg 'context_branch\\|context_title\\|context_description'\norchestrator/routes/pipelines.py` BEFORE editing to\nre-anchor each of the named lines against HEAD (per the\nglobal re-anchoring note in \u00a7Approach) and AGAIN after\nediting to confirm zero hits outside test scaffolding.\n\nUpdate slice-1 base resolution in\n`pipelines.py:15394\u201315405` to call the new\n`_resolve_slice_base_branch` from TASK-1-3 instead of\n`_resolve_slice_1_context_branch_from_contract`.\n\nVerify no other references to deleted symbols remain via\n`grep -rn '<symbol>' orchestrator/ shared/ gateway/ tests/ integration_tests/`\n\u2014 widened scope catches leaks into gateway code, gateway\ntests, and integration tests.\n\nOrdering note: this task `depends_on: [TASK-1-2,\nTASK-1-1, TASK-2-4, TASK-2-5, TASK-1-3]` (new opener,\nplan validator, schema cleanup, cascade rewire, and new\nslice-base resolver must all exist first; TASK-2-4 +\nTASK-2-5 clear the structural consumer ahead of this\ndeletion).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The seven functions listed above are removed from\n  `pipelines.py`.\n- The `_context_pr_events_emitted` dict, lock, and all four\n  touch sites are removed.\n- The `context_pr.skipped` / `context_pr.failed` event-bus\n  entries are removed (along with their `EventType` members\n  if present).\n- Each of the seven enumerated surviving read sites\n  (10801, 10804, 10844, 11096-11097, 11519-11542, 16755,\n  16781, 20193) is either removed or rerouted through\n  `_resolve_slice_base_branch` / `contract.pr.title /\n  description`.\n- `grep -rn` for each deleted symbol across\n  `orchestrator/ shared/ gateway/ tests/ integration_tests/`\n  returns zero hits outside test files actively being\n  rewritten by TASK-3-8 / TASK-2-9 / TASK-3-11.\n- The post-edit verification grep\n  `rg 'context_branch|context_title|context_description'\n  orchestrator/routes/pipelines.py` returns zero hits.\n- Slice-1 base resolution at `pipelines.py:15394\u201315405`\n  now calls `_resolve_slice_base_branch` (from TASK-1-3).",
@@ -123,8 +124,8 @@
         {
           "id": "task-2-2",
           "description": "Delete the PR phase entirely (cq-4). Per the risk-analyst's\nR1 audit, the actual surface is ~9 sites \u2014 not just the\nfour named by cq-4. Touch ALL of these in one task so the\ndelete is atomic:\n\n(1) `_should_skip_pr_phase_auto_pr` def `pipelines.py:8222`\n    and its sole caller `pipelines.py:20844`.\n(2) `_finalize_pr_phase_failed` at `pipelines.py:8280, 21024`\n    (owns HEAD-recovery semantics post-PR-phase-failure;\n    becomes obsolete).\n(3) Two further `PipelinePhase.PR` references in pipelines:\n    `pipelines.py:18747` and `pipelines.py:19843`.\n(4) `_get_pr_url_from_pipeline` at `pipelines.py:4067-4075`\n    reads from `phases['pr'].artifacts['pr_url']`. After\n    deletion, the PR URL is read directly from\n    `contract.pr.context_pr_number` (set by TASK-1-2) \u2014\n    update this helper or remove and inline.\n(5) `PipelinePhase.PR = 'pr'` enum value at\n    `shared/egg_contracts/models.py:78` (StrEnum at\n    line 62). Hard-remove per Q5 (no in-flight pipelines).\n(6) Phase-graph constants at\n    `orchestrator/routes/phases.py:70-71`:\n    `PipelinePhase.IMPLEMENT: [PipelinePhase.PR]` and\n    `PipelinePhase.PR: []`. Change IMPLEMENT's downstream\n    list to `[]` (terminal), drop the PR row entirely.\n    Also fix the `'next_phase': 'pr'` response payload at\n    `orchestrator/routes/phases.py:849`.\n(7) `mcp_tools.py:728` advance_phase MCP tool definition\n    advertises 'pr' as a valid `target` value \u2014 remove.\n    `mcp_tools.py:1409` reads `phases['pr'].artifacts` for\n    the PR URL on completion \u2014 re-point at\n    `contract.pr.context_pr_number`.\n(8) Overseer monitor: `_check_pr_phase_outcome` and the\n    `pr_phase_no_pr` alert at\n    `orchestrator/overseer/monitor.py:481, 1168-1180,\n    1707-1741`. Delete the probe, the alert wiring, and\n    the alert-type registration. After deletion there is\n    no `pr` phase to check; an alert that would now never\n    fire is dead code.\n    **Plus `_check_post_consensus_stall` semantic rewire\n    (added per reviewer_plan v2 blocker 6)**: at\n    `orchestrator/overseer/monitor.py:1122-1160` the\n    post-consensus-stall predicate short-circuits on the\n    old \"PR phase has run and recorded artifacts\" signal\n    via a `getattr` chain through `phases['pr'].artifacts`.\n    That signal is a STRICT SUPERSET of the new\n    \"context PR exists\" signal (`context_pr_number is not\n    None`), because cq-4 moves the context PR to the\n    plan\u2192implement boundary \u2014 so `context_pr_number` is\n    set throughout implement, not after a PR-phase\n    boundary. A blanket find/replace would silently weaken\n    the #1911 stall signal the predicate was wired to\n    produce. **Required choice**: either (a) DELETE the\n    short-circuit entirely if the underlying stall signal\n    becomes unreachable post-PR-phase-deletion (verify via\n    code-walk; document the proof in the commit message),\n    OR (b) re-derive the equivalent predicate \u2014 e.g.\n    \"all slices closed AND context_pr_number is set AND no\n    consensus events in last N seconds\" \u2014 preserving the\n    superset semantics. **Pick one explicitly in the\n    commit message and state why**; silent acceptance of\n    the weaker predicate is a regression on #1911.\n(9) `dag_visualizer.py:53, 61` \u2014 `PipelinePhase.PR` as a\n    node in the visualizer's graph. Remove the node and\n    the edge from IMPLEMENT to PR.\n(10) **Gateway-side PR-phase entries (lock-step with\n     orchestrator)**: `gateway/phase_filter.py:526`\n     (`PipelinePhase.PR: PhasePermissions(...)`) and\n     `gateway/phase_filter.py:642`\n     (`PR: PhaseFileRestriction(...)`); the PR-phase row\n     in the state-machine transition table in\n     `gateway/phase_transition.py`. Removing PipelinePhase.PR\n     from orchestrator without lock-step gateway removal\n     leaves the gateway state machine inconsistent \u2014 a\n     v1.1 contract load post-deploy, or any test that\n     invokes `advance_phase target='pr'`, surfaces the\n     mismatch. Delete both sites in the same task so\n     the deploy is atomic.\n(11) **`shared/egg_contracts/phase_defaults.py:105` row\n     removal (added per reviewer_plan v2 blocker 3)**:\n     the `PipelinePhase.PR: PhaseConfig(...)` row in the\n     phase-defaults table. Removing `PipelinePhase.PR`\n     from the StrEnum without removing this row produces\n     a `KeyError` at startup when downstream consumers\n     iterate the defaults dict. Verified at HEAD via\n     `grep -n \"PipelinePhase.PR\\|'pr'\" shared/egg_contracts/phase_defaults.py`.\n\nDO NOT touch `gateway_client.py:1441` where `create_pr`\nregisters a temp gateway session with `phase='pr'`. That\nis the **gateway session-namespace** phase string used so\nthe gateway accepts the `gh pr create` op; it is NOT the\nsame as `PipelinePhase.PR`. **Note (added per\nreviewer_plan v2 blocker 3)**: the prior plan also listed\n`gateway_client.py:1409` and `:2567` in the carve-out.\nVerified at HEAD: `:1409` is in the same namesake region\nand remains preserved; `:2567` is unrelated \u2014 it's a\n`gh pr list` CLI args list entry (the literal `'pr',`\nargument to `gh`) and **MUST NOT be in the carve-out\nenumeration**. Drop `:2567` from the preserve list and\nre-anchor `:1409` against HEAD before editing (per the\nglobal re-anchoring note in \u00a7Approach).\n\n**Additional preserve targets** (added per reviewer_plan\nv2 non-blocking note): `gateway/tests/test_session_manager.py:1127, 1170`\nand `gateway/tests/test_gateway.py:4371` are namesake hits\nthat assert the gateway-session namespace `phase='pr'`\nsurvives `PipelinePhase.PR` removal. They MUST NOT be\ndeleted by this task's grep sweep.\n\nVerification artifact: run\n`rg 'PipelinePhase\\\\.PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/ gateway/`\nBEFORE the task starts AND AFTER all 11 site-categories\nare addressed; the after-grep must show only the\ngateway-session `phase='pr'` hits in `gateway_client.py`\n(`:1409`, `:1441`) and the namesake test hits in\n`gateway/tests/test_session_manager.py` and\n`gateway/tests/test_gateway.py` (the documented carve-out).\n**Commit BOTH the before-grep and the after-grep output\nverbatim in the commit message** so reviewer_plan can\nspot-check the delta without rerunning the audit.\n\nTests are owned by TASK-2-7 (schema/phase_defaults\ntests), TASK-2-9 (gateway PR-phase tests),\nTASK-3-11 (orchestrator PR-phase tests), and TASK-3-12\n(docs).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- All 11 site-categories above are addressed (#10 covers\n  the gateway-side phase_filter + phase_transition\n  entries; #11 covers `shared/egg_contracts/phase_defaults.py:105`).\n- Verification grep\n  `rg 'PipelinePhase\\\\.PR|phases\\\\[\"pr\"\\\\]|phase=.pr.|phase == .pr.' orchestrator/ shared/ gateway/`\n  returns ONLY the gateway-session `phase='pr'` hits in\n  `gateway_client.py` (`:1409`, `:1441`) and the namesake\n  test hits in `gateway/tests/test_session_manager.py:1127, 1170`\n  and `gateway/tests/test_gateway.py:4371`. `:2567` is NOT\n  in the carve-out (it's a `gh pr list` CLI args list,\n  not the session namespace).\n- `PipelinePhase.PR` enum member removed from BOTH\n  `shared/egg_contracts/models.py` AND\n  `shared/egg_contracts/phase_defaults.py` AND\n  `gateway/phase_filter.py` AND\n  `gateway/phase_transition.py`.\n- Phase graph `IMPLEMENT: []` is terminal.\n- Overseer `_check_pr_phase_outcome` and its alert wiring\n  are removed.\n- `_check_post_consensus_stall` semantic rewire is\n  addressed per #8: either the short-circuit is deleted\n  (with proof of unreachability in commit message) or the\n  equivalent stall predicate is re-derived from\n  `contract.pr.context_pr_number` + slice-closure +\n  consensus-quiescence. The choice and rationale are\n  stated in the commit message.\n- `dag_visualizer` no longer renders a PR node.\n- The advance_phase MCP definition no longer accepts\n  `target='pr'`.\n- **Commit message contains BOTH the BEFORE and AFTER\n  output of the verification grep**, verbatim.",
@@ -152,8 +153,8 @@
         {
           "id": "task-2-3",
           "description": "Delete `GatewayClient.create_context_branch`\n(`orchestrator/gateway_client.py:2327`, ~90 lines) and\n`ContextBranchDiverged` (`gateway_client.py:3453`) \u2014 both\nare dead once TASK-2-1 removes the only callers. Delete\n`_CONTEXT_BRANCH_RE` from `gateway/gateway.py:1112` and\nremove the regex from the push-block enforcement at\n`gateway/gateway.py:1350` and `1362`. Before deletion,\nconfirm via grep that the gateway's pipeline-session\npush-allow list already accepts `egg/<id>/work` pushes (it\ndoes \u2014 the work branch is the canonical pipeline tip\ntracked by the session). If a pipeline session does NOT\nalready cover `egg/<id>/work` on slice-loop entry, surface\nan impasse instead of silently leaving a hole.\n\n**`is_context_push` cleanup (added per reviewer_plan v2\nnon-blocking R7)**: `gateway/gateway.py:1344-1392`\ncarries a dangling `is_context_push` variable that becomes\nunreachable once `_CONTEXT_BRANCH_RE` is removed (the\nregex was the only thing that ever flipped it to True).\nLocate the variable's full lifecycle via\n`grep -n \"is_context_push\" gateway/gateway.py` (currently\n~5 hits: line 1344 narrative comment, line 1349\n`is_context_push = False` initializer, line 1363\n`is_context_push = bool(_CONTEXT_BRANCH_RE.match(branch))`\nassignment, line 1376 read inside conditional, line 1392\n`elif is_context_push:` branch). Two acceptable\ntreatments: (a) hard-replace with `is_context_push = False`\neverywhere (preserves the narrative comment and the\nconditional structure, makes dead-codepath status\nobvious), OR (b) remove the variable entirely along with\nits narrative comment and downstream conditional branches\n(collapses dead branches and net-negative LOC). Pick (b)\nunless an audit reveals the variable is referenced by\ncallers/audit-log emitters outside this file.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `create_context_branch` and `ContextBranchDiverged`\n  removed from `gateway_client.py`.\n- `_CONTEXT_BRANCH_RE` removed from `gateway/gateway.py`;\n  both push-block call sites updated to no longer reference\n  it.\n- `is_context_push` variable + narrative comment + the\n  four downstream conditional references at\n  `gateway/gateway.py:1344-1392` are either removed\n  entirely (preferred) or hard-pinned to `False` with a\n  comment explaining the residual is intentional\n  scaffolding.\n- `grep -rn 'ContextBranchDiverged\\|create_context_branch\\|is_context_push'`\n  returns zero hits outside test files (or only the\n  hard-pinned-False if option (a) is chosen).\n- Gateway pipeline-session push-allow logic still permits\n  `egg/<id>/work` pushes (manual verification step in\n  commit message).",
@@ -174,8 +175,8 @@
         {
           "id": "task-2-4",
           "description": "PRMetadata schema cleanup (cq-2 \u2014 hard-remove). In\n`shared/egg_contracts/models.py`: delete the `context_branch`,\n`context_title`, and `context_description` fields from the\n`PRMetadata` class (currently at lines 499\u2013531). KEEP\n`context_pr_number` (still used as the PR number of the\n`egg/<id>/work \u2192 main` PR). KEEP `deferred_actions`. Bump\nthe schema version constant at line 763 from `\"1.1\"` to\n`\"1.2\"`.\n\n**Add a `_migrate_schema_version_to_1_2` migration entry**\n(per reviewer_plan v2 blocker 2): the operator's Q5\nconfirms no in-flight pipelines, but on-disk fixtures\n(`.egg-state/contracts/issue-2777-replan.json`, `issue-2769.json`,\n`issue-2548.json`, `issue-2474.json`, `issue-1557-v2.json`)\ncarry the three removed fields. The contract loader for\nTHIS very pipeline will refuse the v1.2 load without\nmigration. The migration entry must (a) drop the three\nfields when present on load, (b) preserve `context_pr_number`\nand `deferred_actions`, (c) leave fresh-v1.2 contracts\nuntouched (no-op). The existing migration registry pattern\nis the precedent \u2014 locate it via `grep -rn\n\"schemaVersion\\|_migrate\" shared/egg_contracts/`.\n\nSearch for all read sites of the three deleted fields\nacross the codebase\n(`grep -rn 'context_branch\\|context_title\\|context_description'`)\nand either delete them (if covered by TASK-2-1 or\nTASK-3-1) or note them for the new TASK-2-5 structural\nrewire (`stacked_pr_reconciler.py` cascade-base and the\nseven `pipelines.py` read sites enumerated in TASK-2-1's\nextended scope). Any read site that survives outside the\ndeletion-task scope is a bug.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The three fields are removed from `PRMetadata`.\n- `schemaVersion` default is `\"1.2\"`.\n- `_migrate_schema_version_to_1_2` exists and drops the\n  three removed fields from on-disk v1.1 contracts on\n  load (no-op for v1.2).\n- No surviving read site of any deleted field outside\n  test files AND outside the new TASK-2-5 structural\n  rewire scope (`stacked_pr_reconciler.py`).\n- The pipeline's own contract on disk (`.egg-state/contracts/issue-2777-replan.json`)\n  loads successfully under the v1.2 schema via the\n  migration entry.",
@@ -195,8 +196,8 @@
         {
           "id": "task-2-5",
           "description": "**NEW \u2014 added per reviewer_plan v2 blocker 2** (cascade-base\nrewire from `context_branch` to `context_pr_number`).\n`orchestrator/stacked_pr_reconciler.py` is a STRUCTURAL\nconsumer of the deleted `contract.pr.context_branch` field\n\u2014 at HEAD the references are at lines 94, 112, 120, 129,\n150, 157-158, 247, 275, 283 (verified via\n`grep -n \"context_branch\\|context_title\\|context_description\" orchestrator/stacked_pr_reconciler.py`).\nThese are NOT covered by TASK-2-1's pipelines.py deletion\nscope nor TASK-3-1's umbrella deletion. The reconciler\nthreads `context_branch` through the cascade-base fallback\nfor orphaned slices \u2014 exactly the safety net cq-9 tries to\npreserve. After TASK-2-4 deletes the field, every read\nsite here raises `AttributeError` at runtime.\n\nRewire the cascade-base resolution onto the new\n`_resolve_slice_base_branch` helper from TASK-1-3 (which\ngains a merge-base fallback in TASK-4-3 for orphaned\nslices). For the specific case where the reconciler today\nfalls back to `context_branch` for \"PR shouldn't get here\"\npaths (line 150 comment), the new path resolves through\n`_resolve_slice_base_branch` instead. Replace each read\nsite with the appropriate helper call:\n\n- Default-argument `context_branch: str | None = None` \u2192\n  replace with `parent_branch: str | None = None`.\n- Docstring + comment references \u2192 update to describe the\n  new cascade-base contract.\n- Argument-passing sites \u2192 switch to passing the resolved\n  parent branch via `_resolve_slice_base_branch`.\n\nAdd a unit test in TASK-3-8 that exercises the\n`stacked_pr_reconciler.py` cascade-base fallback with the\nnew helper.\n\nOrdering: `depends_on: [TASK-1-3, TASK-2-4]` \u2014\n`_resolve_slice_base_branch` from TASK-1-3 must exist,\nand TASK-2-4 must have removed the schema field so the\nrewire isn't redundant.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `orchestrator/stacked_pr_reconciler.py` no longer reads\n  `contract.pr.context_branch`.\n- The cascade-base resolution goes through\n  `_resolve_slice_base_branch` (from TASK-1-3 / TASK-4-3).\n- `grep -n \"context_branch\" orchestrator/stacked_pr_reconciler.py`\n  returns zero hits.\n- The orphaned-slice safety net (cq-9 intent) is preserved\n  by routing through the merge-base fallback (TASK-4-3).\n- Unit test in TASK-3-8 covers the new cascade-base\n  fallback path.",
@@ -216,8 +217,8 @@
         {
           "id": "task-2-6",
           "description": "Delete the legacy `ConsensusEvaluator` module (cq-5).\nreviewer_plan v1\u2192v2 + risk_analyst v2\u2192v3 verified the\nproduction call surface. There are EIGHT reference\nclusters total \u2014 all must be removed in this task.\nCitations below give BOTH the refine-anchor `1cb235871`\nline range AND the HEAD line range; per the global\nre-anchoring note in \u00a7Approach, the coder MUST re-anchor\nagain at implement-time HEAD before editing.\n\n**In `orchestrator/routes/pipelines.py` (6 clusters \u2014\nper architect AC-18 + risk_analyst v2 blocker 1, verified\nat HEAD via\n`grep -n \"get_consensus_evaluator|from consensus import|from ..consensus\" orchestrator/routes/pipelines.py`)**:\n(1) refine-anchor `1805-1808` / HEAD `1813-1816` \u2014 import\n    + `.clear()` call (the early-cancel path).\n(2) refine-anchor `2844-2848` / HEAD `2859-2863` \u2014 import\n    + `evaluator = get_consensus_evaluator()` handle.\n(3) refine-anchor `3274-3279` / HEAD `3289-3293` \u2014 import\n    + handle + `.clear()` call (the `restart_phase`\n    consensus-clear block named by the analysis).\n(4) **refine-anchor `~3486-3496` / HEAD `3516-3526`** \u2014\n    import + handle + `.clear()` call inside the\n    \"Failed to clear legacy consensus after hard-reset\n    ack\" block. **NEW \u2014 added per risk_analyst v2\n    blocker 1**; this cluster was missed in v2 and is a\n    distinct call site from (3) (the hard-reset-ack\n    path vs the restart_phase consensus-clear path).\n    Deletion of `consensus.py` without removing this\n    cluster guarantees an `ImportError` post-restart on\n    the hard-reset ack path. Verified at HEAD via\n    `sed -n '3510,3530p' orchestrator/routes/pipelines.py`.\n(5) refine-anchor `4206-4210` / HEAD `4489-4493` \u2014\n    import + handle (nested path).\n(6) refine-anchor `4215-4219` / HEAD `4498-4502` \u2014\n    second import + handle in the same neighbourhood.\n\n**In `orchestrator/routes/phases.py` (1 cluster \u2014 added\nper reviewer_plan v2 blocker 1, verified at HEAD via\n`grep -n \"consensus\" orchestrator/routes/phases.py`)**:\n(7) `phases.py:119-124` \u2014 `try: from consensus import\n    get_consensus_evaluator; except ImportError: from\n    ..consensus import get_consensus_evaluator` +\n    `get_consensus_evaluator().clear(pipeline_id)` call\n    inside the `complete_phase` route's\n    \"Clear ephemeral message store and consensus state on\n    phase transition\" block. Deletion of `consensus.py`\n    without removing this cluster guarantees an\n    `ImportError` at startup the first time\n    `complete_phase` is invoked.\n\n**In `orchestrator/routes/signals.py` (1 cluster \u2014 added\nper reviewer_plan v2 blocker 1, verified at HEAD via\n`grep -n \"get_consensus_evaluator|ConsensusEvaluator|from consensus|from .consensus\" orchestrator/routes/signals.py`)**:\n(8) `signals.py:847-871` \u2014 `try: from consensus import\n    ReadinessState, get_consensus_evaluator; except\n    ImportError: from ..consensus import ReadinessState,\n    get_consensus_evaluator` + `evaluator =\n    get_consensus_evaluator()` + `evaluator.evaluate(...)`\n    call in the READY heartbeat handler. Deletion of\n    `consensus.py` without removing this cluster\n    guarantees an `ImportError` the first time a READY\n    signal fires.\n\nEach cluster has a 3-line `try: from consensus import\nget_consensus_evaluator; except ImportError: from\n..consensus import get_consensus_evaluator` shim plus\nthe actual usage. Delete all eight clusters AND the\n`orchestrator/consensus.py` module\n(`ConsensusEvaluator` class at line 38,\n`get_consensus_evaluator()` singleton at line 153,\n`ReadinessState` enum). Verify via\n`grep -rn 'ConsensusEvaluator|get_consensus_evaluator|ReadinessState|from consensus|from .consensus|from orchestrator.consensus' orchestrator/ shared/ gateway/ tests/ integration_tests/`\nthat no other module imports from it. The BRC\n`PeerConsensusTracker` (`orchestrator/peer_consensus.py:69`)\nis the only consensus path; nothing else needs to change.\n\n**Notes / follow-on cleanup (added per risk_analyst v2\nnon-blocking)**: the `peer_consensus.py:1604` alias method\nis a compatibility shim on the surviving tracker (not the\ndeleted module). It is NOT a runtime-breaker for this\ntask's deletion, but verify whether it remains dead\npost-deletion via `grep -rn '<alias-method-name>'`. If\ndead, remove it lockstep with this task; if reachable\n(test scaffolding or future-#2199 hook), leave it and\nfile a follow-up issue noting the residual coupling.\n\nCommit the after-grep output in the commit message for\nreviewer_plan to spot-check.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "3a57e7394",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `orchestrator/consensus.py` is deleted.\n- All EIGHT reference clusters are removed: 6 in\n  `pipelines.py` (refine-anchored lines 1805-1808,\n  2844-2848, 3274-3279, ~3486-3496, 4206-4210, 4215-4219;\n  HEAD-anchored 1813-1816, 2859-2863, 3289-3293,\n  3516-3526, 4489-4493, 4498-4502), 1 in `phases.py`\n  (119-124), 1 in `signals.py` (847-871). Re-anchored\n  against HEAD before editing.\n- The hard-reset-ack consensus-clear block at HEAD\n  `3516-3526` (cluster 4) is explicitly removed \u2014\n  verified by the post-edit grep returning zero hits in\n  that line range.\n- No surviving import of the deleted module (or its\n  `ReadinessState` enum) across the repo (verified by the\n  widened grep).\n- `peer_consensus.py:1604` alias method's\n  reachability is verified post-deletion; if dead,\n  removed lockstep; if reachable, noted in commit message\n  with follow-up issue link.\n- Commit message contains the after-grep output.",
@@ -331,14 +332,15 @@
         "slice-1"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
+      "parent_branch_at_creation": "egg/issue-2777-replan/slice-1",
+      "integration_base_sha": "18591b741ad41b362bdc72e4ecd792743508a7ba",
       "commit": null,
       "review_feedback": []
     },
     {
       "id": "slice-3",
       "name": "Cohesion-independent cleanup tail (slice-1c)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -347,8 +349,8 @@
         {
           "id": "task-3-1",
           "description": "Drop \"umbrella\" terminology (cq-6 subsumes #2389). In\n`orchestrator/gateway_client.py`, restructure\n`create_slice_pr` (starts at line 1491) to remove the\numbrella treatment entirely: program-level content (test\nplan, manual steps, pre-merge obligations) is no longer\ninserted into terminal slices because it now lives on the\n`egg/<id>/work \u2192 main` context PR opened by TASK-1-2.\nDelete the umbrella sites at `gateway_client.py:299` (lazy-\nimport comment), `1523, 1539, 1542, 1550, 1569, 1600, 1611,\n1615, 1624` (docstring + body comments), `1629` (the\nliteral banner string `\"> **Program-level umbrella PR \u2014\nterminal slice of pipeline `{pipeline_id}`.**\"`), and\n`1670, 1692` (obligation-on-umbrella error messages \u2014 the\nobligation now goes on the context PR; emit a normal error\ninstead). In `orchestrator/routes/pipelines.py`, delete\n`umbrella_has_program_block` (assigned line 15615, read\nline 15620) and collapse the\n`is_terminal or not umbrella_has_program_block` condition\nto whatever remains. Delete narrative comments at\n`pipelines.py:9010, 9038, 9047, 15608, 15610, 15686, 15691`\nthat reference \"umbrella\". Search-and-fix any remaining\n\"umbrella\" string in non-test code via\n`grep -rn 'umbrella' orchestrator/ gateway/ shared/`. Test\nupdates are owned by TASK-3-8.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7b1373af6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `create_slice_pr` no longer emits the terminal-banner\n  string.\n- `umbrella_has_program_block` and its condition removed.\n- `grep -rn 'umbrella' orchestrator/ gateway/ shared/`\n  returns zero hits outside test files.",
@@ -369,8 +371,8 @@
         {
           "id": "task-3-2",
           "description": "Add idempotent `gh pr list` pre-flight to\n`GatewayClient.create_slice_pr`\n(`orchestrator/gateway_client.py:1491`, cq-8). Before the\nexisting `gh pr create` call, run\n`gh pr list --head <slice_branch> --base <parent> --state open --json number`.\nOn hit, return the existing PR number without invoking\n`gh pr create`. On miss, fall through to the existing\ncreate path. Extract a private\n`_lookup_open_pr(self, head: str, base: str) -> int | None`\nhelper so the same idempotency primitive can also serve\nTASK-1-2 (the context-PR opener). Tests are owned by\nTASK-3-8.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7b1373af6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `_lookup_open_pr` exists as a private helper on\n  `GatewayClient`.\n- `create_slice_pr` calls `_lookup_open_pr` before\n  `gh pr create` and returns the existing PR number on\n  hit.\n- A transient `gh pr create` failure that is retried after\n  a partial success no longer cascades the slice to FAILED\n  \u2014 verified by unit test in TASK-3-8.",
@@ -393,7 +395,7 @@
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Audit complete (commit 4e727642c). Root cause of #2570 silent rebase confirmed to lie inside `_sync_worktree_with_remote` at orchestrator/routes/pipelines.py:6872, specifically the bare-rebase fallback under the `local_ahead > 0 and remote_ahead > 0 + base_branch_for_reconcile=None` branch (the function's own comment identifies the vector and tags it `#2222 contamination risk`). `_sync_worktree_with_remote` is OUT OF SCOPE per refine decision-11 / cq-7. AC-9a hard requirement fires. HITL registered as decision cq-11 with three options; default recommendation is option 3 (xfail #2570 in slice-3, follow-up issue co-scheduled with #2792). No code change to the OOS primitive from this slice. Audit artifact: .egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md. Task complete = TRUE once HITL resolves; pending operator decision.",
           "acceptance_criteria": "- An audit note exists at\n  `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`\n  documenting which silent-rebase vectors were verified at\n  HEAD and which root-cause hypothesis the audit reached.\n- EITHER (a) AC-9a fires with an HITL registered as\n  expected, the HITL resolves to one of the three options,\n  and the task is marked complete per the resolution\n  (option 3 \u2192 xfail + follow-up issue link is the\n  default expectation), OR (b) a code change ships against\n  an in-scope root cause and the regression test in\n  TASK-3-11 passes \u2014 including `git merge-base origin/main\n  origin/egg/<id>/work` equalling the pipeline-creation\n  SHA after **N\u22653 phase transitions** with **M\u22652 main PRs\n  merged in parallel** (architect AC-9 NB#1 pinning).\n- Commit message names the audit outcome and the chosen\n  resolution path with rationale.\n- **If diagnosis hits an OOS primitive (the expected\n  outcome), an HITL decision is registered via\n  `mcp__sdlc__register_open_question` BEFORE any code\n  change** (AC-9a hard requirement).\n- If the HITL resolves to xfail / defer, the task is\n  marked complete with a follow-up issue link instead of\n  a code change.",
           "files_affected": [
             "orchestrator/routes/pipelines.py",
@@ -413,8 +415,8 @@
         {
           "id": "task-3-4",
           "description": "Keep the five `SliceScheduler` #2199 hooks with dead-code\nmarkers (cq-3). Per the architect's AC-12 NB#2 noqa\nprecision: parameters are USED internally by the four\nmethods (so they do not warrant `# noqa: ARG002`); only\nthe `hitl_escalator` constructor param at line 153\ncarries an unused-arg lint. Specifically:\n\n(a) `record_cycle` at `slice_scheduler.py:299` \u2014 add a\n    docstring banner pointing at #2199: \"Reserved for\n    per-slice MCP controls landing in #2199; not wired in\n    the production run loop.\" No `# noqa: ARG002` (all\n    params used internally).\n(b) `teardown_slice` at `slice_scheduler.py:417` \u2014 same\n    docstring banner. No `# noqa: ARG002`.\n(c) `respawn_slice` at `slice_scheduler.py:434` \u2014 same\n    docstring banner. No `# noqa: ARG002`.\n(d) `cancel_cascade` at `slice_scheduler.py:375` \u2014 same\n    docstring banner. No `# noqa: ARG002`.\n(e) `hitl_escalator` param in `SliceScheduler.__init__`\n    at `slice_scheduler.py:153` \u2014 add `# noqa: ARG002` +\n    inline comment `# TODO(#2199): wired-but-not-called`.\n    This is the only unused-arg lint in the file.\n\nVerify the existing unit tests in\n`orchestrator/tests/test_slice_scheduler.py` still pass\nunchanged. Do NOT delete; do NOT add `# noqa` suppression\nto the four methods (they are tested and the tests\nexercise them). Note: `poll_cascades` (line 380) is\nLIVE \u2014 do not touch its docstring.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "4e727642c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- All five hooks retain their bodies (no deletion).\n- The `hitl_escalator` param has `# noqa: ARG002` +\n  TODO(#2199) comment.\n- The four methods have docstring banners naming #2199.\n- No `# noqa: ARG002` on the four methods (their params\n  are used internally).\n- Existing `test_slice_scheduler.py` tests pass unchanged.",
@@ -434,8 +436,8 @@
         {
           "id": "task-3-5",
           "description": "BLE001 audit (feedback Q2). Each of the 20\n`# noqa: BLE001` swallow-all handlers at\n`pipelines.py:15131, 15196, 15274, 15336, 15386, 15422,\n15451, 15471, 15501, 15709, 15742, 15775, 15795, 15841,\n15901, 15910, 15946, 15964, 16080, 16105` is reviewed\nindividually. For each site: read the protected call,\nidentify the concrete exception types the call can raise\n(consulting the called function's signature/docstring),\nand replace `except Exception` with a tuple of those\ntypes. Where the failure mode is genuinely unknowable\n(e.g. unbounded third-party callbacks), leave the bare\nhandler with an explanatory comment naming what it\ncatches and why (one sentence minimum, not \"swallow\nall\"). The acceptance bar is per-site clarity, not blanket\nreplacement. Commit message should list the per-site\ndecisions inline.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "4e727642c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Each of the 20 sites is either narrowed to a specific\n  exception tuple or carries an explanatory comment\n  naming the catch rationale.\n- No site retains a bare `# noqa: BLE001` without either\n  (a) narrowing or (b) a comment.\n- Commit message lists the per-site decisions.",
@@ -455,8 +457,8 @@
         {
           "id": "task-3-6",
           "description": "Collapse the 9 dual-path `except ImportError` shims at\n`pipelines.py:15045, 15050, 15147, 15154, 15161, 15875,\n16026, 16034, 16209` (feedback Q3). Each currently has\nthe shape `try: from orchestrator.X import Y; except\nImportError: from X import Y`. Collapse to the canonical\n`from orchestrator.X import Y` form (the in-package\nimport). After collapse, run `make test-all` and confirm\nall tests pass; if any test relies on the flat-layout\nfallback (unlikely but worth checking), revisit. Do NOT\ntouch the existing import structure beyond these 9 sites.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "4e727642c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- All 9 shim sites are collapsed to single canonical\n  imports.\n- `make test-all` passes after the collapse.\n- No new test failures attributable to the import\n  collapse.",
@@ -476,8 +478,8 @@
         {
           "id": "task-3-7",
           "description": "Remove the stale archaeology comments at\n`pipelines.py:15073\u201315080, 15099\u201315119, 15204\u201315228` that\nnarrate closed-issue history rather than current\nbehaviour. Replace with brief comments that describe what\nthe surrounding code does NOW; if a comment block has no\nsurviving descriptive value, delete it. Do NOT touch\ncomments that document current behaviour (only the stale\nhistorical narratives are targets). One-line summary in\nthe commit message of what was removed.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "4e727642c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The named line ranges no longer contain multi-paragraph\n  archaeology narrating closed issues (#2137, #2548,\n  #2593, #2744 closures specifically).\n- Surviving comments describe current behaviour only.",
@@ -615,14 +617,15 @@
         "slice-2"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
+      "parent_branch_at_creation": "egg/issue-2777-replan/slice-2",
+      "integration_base_sha": "5c6e07e2c7445de14372830bbdc7ecc3e3fcf818",
       "commit": null,
       "review_feedback": []
     },
     {
       "id": "slice-4",
       "name": "Slice/phase restart hardening (slice-2, bundles #2409)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -784,7 +787,8 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
+      "parent_branch_at_creation": "egg/issue-2777-replan/slice-3",
+      "integration_base_sha": "06d90bd6e82e540ed0db6801faa4137d5c02f63f",
       "commit": null,
       "review_feedback": []
     }
@@ -966,6 +970,39 @@
       "resolution": "Plan approved. Begin implement: slice-1 (context-PR collapse + cleanup + PR-phase removal, subsuming #2389 and #2570) starts at the plan->implement boundary with the new up-front context PR opener; slice-2 (restart hardening, closes #2409) follows after slice-1 lands. All Wave 2 decisions honored. #2792 OUT OF SCOPE \u2014 no work on _sync_worktree_with_remote, _populate_contract_from_plan*, _empty_contract_hitl_*, PlanDraftMissing* exceptions.",
       "resolved_by": "human",
       "resolved_at": "2026-05-27T07:44:14.096449Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-11",
+      "question": "slice-3 task-3-3 (#2570) audit found the silent-rebase root cause is the bare-rebase fallback inside `_sync_worktree_with_remote` (orchestrator/routes/pipelines.py:6872, `local_ahead > 0 and remote_ahead > 0` branch with `base_branch_for_reconcile=None`). `_sync_worktree_with_remote` is OUT OF SCOPE per refine decision-11 / cq-7 \u2014 modifying it requires operator approval. Pick the resolution path: (1) extend slice-3 scope to include the OOS primitive (operator overrides decision-11; #2792 work pulls forward); (2) defer slice-3 until the #2792 work lands (slice-3 waits); (3) mark #2570 as xfail in slice-3 and open a follow-up issue co-scheduled with #2792. Default recommendation per slice-3 plan \u00a7AC-9a R1 is option 3 \u2014 slice-3's other deliverables (cq-6 umbrella drop, cq-8 idempotency, BLE001 audit, ImportError collapse, #2199 noqa markers, archaeology pruning) are cohesion-independent and ship cleanly on top of the existing #2570 behaviour. Audit artifact: `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`.",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark #2570 as xfail in slice-3 and open a follow-up issue co-scheduled with #2792 (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Extend slice-3 scope to include the OOS _sync_worktree_with_remote primitive \u2014 operator overrides decision-11",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer slice-3 until the #2792 work lands",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -1235,6 +1272,390 @@
         "debounce_until": null
       },
       "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:55:02.481367Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "reason": "Linked commit 1b309df to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:55:05.416816Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "reason": "Linked commit 1b309df to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:55:08.562822Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "reason": "Linked commit 1b309df to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:59:05.568303Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "new_value": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
+      "reason": "Linked commit 3c0b122 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:59:08.792460Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "new_value": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
+      "reason": "Linked commit 3c0b122 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T02:59:11.932356Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "1b309dfe34a96926bf8dc7a19dc1dfea4b46d74e",
+      "new_value": "3c0b1220cafaa1e8217fe9ee294a900f01d0f526",
+      "reason": "Linked commit 3c0b122 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:06.038440Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:06.047706Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:10.442191Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:10.468489Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:15.015317Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:15.047408Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:18.676935Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:18.687469Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:22.063292Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:22.086888Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:25.126218Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": null,
+      "new_value": "3a57e7394",
+      "reason": "Linked commit 3a57e73 to task-2-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T04:56:25.140629Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:40:29.480661Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-11",
+        "question": "slice-3 task-3-3 (#2570) audit found the silent-rebase root cause is the bare-rebase fallback inside `_sync_worktree_with_remote` (orchestrator/routes/pipelines.py:6872, `local_ahead > 0 and remote_ahead > 0` branch with `base_branch_for_reconcile=None`). `_sync_worktree_with_remote` is OUT OF SCOPE per refine decision-11 / cq-7 \u2014 modifying it requires operator approval. Pick the resolution path: (1) extend slice-3 scope to include the OOS primitive (operator overrides decision-11; #2792 work pulls forward); (2) defer slice-3 until the #2792 work lands (slice-3 waits); (3) mark #2570 as xfail in slice-3 and open a follow-up issue co-scheduled with #2792. Default recommendation per slice-3 plan \u00a7AC-9a R1 is option 3 \u2014 slice-3's other deliverables (cq-6 umbrella drop, cq-8 idempotency, BLE001 audit, ImportError collapse, #2199 noqa markers, archaeology pruning) are cohesion-independent and ship cleanly on top of the existing #2570 behaviour. Audit artifact: `.egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md`.",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Mark #2570 as xfail in slice-3 and open a follow-up issue co-scheduled with #2792 (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Extend slice-3 scope to include the OOS _sync_worktree_with_remote primitive \u2014 operator overrides decision-11",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer slice-3 until the #2792 work lands",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: slice-3 task-3-3 (#2570) audit found the silent-re...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:21.666336Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "7b1373af6",
+      "reason": "Linked commit 7b1373a to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:21.694354Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:24.891678Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "7b1373af6",
+      "reason": "Linked commit 7b1373a to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:24.912061Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:28.035015Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": null,
+      "new_value": "4e727642c",
+      "reason": "Linked commit 4e72764 to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:28.076168Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:31.663176Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": null,
+      "new_value": "4e727642c",
+      "reason": "Linked commit 4e72764 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:31.687764Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:34.574779Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.commit",
+      "old_value": null,
+      "new_value": "4e727642c",
+      "reason": "Linked commit 4e72764 to task-3-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:34.599349Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:37.863865Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.commit",
+      "old_value": null,
+      "new_value": "4e727642c",
+      "reason": "Linked commit 4e72764 to task-3-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:37.894899Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T06:42:46.741811Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.notes",
+      "old_value": "",
+      "new_value": "Audit complete (commit 4e727642c). Root cause of #2570 silent rebase confirmed to lie inside `_sync_worktree_with_remote` at orchestrator/routes/pipelines.py:6872, specifically the bare-rebase fallback under the `local_ahead > 0 and remote_ahead > 0 + base_branch_for_reconcile=None` branch (the function's own comment identifies the vector and tags it `#2222 contamination risk`). `_sync_worktree_with_remote` is OUT OF SCOPE per refine decision-11 / cq-7. AC-9a hard requirement fires. HITL registered as decision cq-11 with three options; default recommendation is option 3 (xfail #2570 in slice-3, follow-up issue co-scheduled with #2792). No code change to the OOS primitive from this slice. Audit artifact: .egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md. Task complete = TRUE once HITL resolves; pending operator decision.",
+      "reason": "Updated notes for task-3-3",
       "checkpoint_id": null
     }
   ],
