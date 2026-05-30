@@ -1,5 +1,12 @@
 {
   "entries": {
+    "01d36ba3ff1ca05f2940a469272b699c4ff1c184": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T07:16:30.802400+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
+    },
     "04fe37cbe395b794b9bb8a700c22f0c567d4f44c": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -553,6 +560,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "7a7990e33bc994ae72e307d19f98f44cc1679113": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T07:16:30.794456+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
+    },
     "7a83b5eeb57f7d0c37f8a0221ea9d9a56ae27658": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -994,6 +1008,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "db69b4af625e8a6db16b17d1fb5a50efda7aeadc": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T07:16:30.780559+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
+    },
     "dbc9a8a8ac42888aab61e18e528359c8b45f7d13": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -1042,6 +1063,13 @@
       "registered_at": "2026-05-30T04:01:58.334339+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
+    },
+    "e4d0ddd1d8636d07e296eec0ca009b8cee2d65b2": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T07:16:30.805484+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
     },
     "e7d8e8cb3b1e2b341732d80ad222797924b4c528": {
       "branch": "egg/issue-2777-replan/work",
