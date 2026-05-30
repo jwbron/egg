@@ -441,6 +441,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_contract"
     },
+    "38f0d27d466b80beecf3422bc49aa34c3a42ae3a": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:57:17.304552+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
     "39ce596f1eac227b0d381443aae1175112266117": {
       "branch": "egg/issue-2777-replan/slice-3",
       "pipeline_id": "issue-2777-replan",
@@ -587,6 +594,13 @@
       "registered_at": "2026-05-30T07:16:54.452291+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "50086af6c9263a255ef7a517d8b6f6e8a8858032": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:57:20.715687+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
     },
     "53693eb3e288355ad97c6c16acd7328deb8f023a": {
       "branch": "egg/issue-2777-replan/slice-3",
@@ -910,6 +924,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "7f217ddfd17f91216fd05fb40d4f5a3c3175ad57": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:57:17.309691+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
     "7f611de508127bf31e6b50081227d5d50f7a44b7": {
       "branch": "egg/issue-2777-replan/slice-2",
       "pipeline_id": "issue-2777-replan",
@@ -1028,6 +1049,13 @@
       "registered_at": "2026-05-30T17:37:27.038313+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_contract"
+    },
+    "8da35e3f533079dd4e3b99bb9555d248ebb01f5e": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:57:17.307253+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
     },
     "8e078d1f78d1fccecf91133db218be16746e5393": {
       "branch": "egg/issue-2777-replan/slice-3",
