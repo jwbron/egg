@@ -154,6 +154,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
     },
+    "1f2918a556e07af57f12c0967de6b6f4bbcc027a": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:58:46.841988+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "213dfb4fe9c2083fb3995c31a3d821941af3f4fd": {
       "branch": "egg/issue-2777-replan/slice-3",
       "pipeline_id": "issue-2777-replan",
@@ -441,6 +448,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "62932740311b794f864516438715fc2353bb881f": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:58:46.812221+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "633751b3716f12448eb936091517d05d2c8de981": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -489,6 +503,13 @@
       "registered_at": "2026-05-30T05:45:36.018302+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "708b79cba6e6fd3f68e63992cb692ddec771eedd": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:58:46.827711+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "7403472fee40e58c44f93c5c06a8c0c05a5c42c2": {
       "branch": "egg/issue-2777-replan/slice-3",
@@ -833,6 +854,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "cad09fd24cb4f1c311d0e042264b8af35f27fea4": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:58:46.870318+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "cd488d5e4e804934a2959e4d423fdd21d68dd125": {
       "branch": "egg/issue-2777-replan/slice-3",
       "pipeline_id": "issue-2777-replan",
@@ -921,6 +949,13 @@
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-30T03:00:47.613057+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "ddcdf8b3c1637bd1f725daa2cf4c14e317a8f005": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:58:46.856149+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
