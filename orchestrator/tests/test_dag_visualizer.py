@@ -132,15 +132,20 @@ class TestRenderPipelineDag:
     """Tests for render_pipeline_dag function."""
 
     def test_basic_dag_structure(self):
-        """Test that DAG contains all phases."""
+        """Test that DAG contains the surviving phases.
+
+        The PR phase was hard-removed in #2777 (cq-4 / TASK-2-2); IMPLEMENT
+        is now terminal. The negative assertion below pins the new shape so
+        a future re-introduction of a PR node trips this test.
+        """
         pipeline = create_test_pipeline()
         result = render_pipeline_dag(pipeline)
 
-        # Check all phases are present. The PR phase was removed in #2777
-        # (slice-2); IMPLEMENT is terminal.
+        # Check all surviving phases are present
         assert "Refine" in result
         assert "Plan" in result
         assert "Implement" in result
+        # PR phase was removed in #2777 — IMPLEMENT terminates the DAG.
         assert "PR" not in result
 
     def test_current_phase_marker(self):
@@ -314,19 +319,59 @@ class TestRenderPipelineDag:
         assert "Status: awaiting approval" in result
         assert "Status: awaiting_human" not in result
 
+    def test_implement_is_terminal_phase(self):
+        """#2777 cq-4 / TASK-2-2: IMPLEMENT terminates the linear DAG.
+
+        Pins the new shape three ways: (a) ``PHASE_ORDER`` contains no
+        ``PR`` entry; (b) ``Implement`` is the last phase name rendered;
+        and (c) the rendered DAG has no IMPLEMENT→PR edge marker (no
+        ``-> PR`` / ``→ PR``). A future re-introduction of a PR node
+        would fail all three.
+        """
+        from models import PipelinePhase as _PipelinePhase
+
+        # (a) ``PHASE_ORDER`` does not include the removed ``PR`` enum row.
+        assert _PipelinePhase.IMPLEMENT in PHASE_ORDER
+        # ``PipelinePhase.PR`` was removed in #2777; verify it does not exist.
+        assert not hasattr(_PipelinePhase, "PR"), (
+            "PipelinePhase.PR was hard-removed in #2777 cq-4 / TASK-2-2; "
+            "the enum row must not be resurrected."
+        )
+
+        # (b) IMPLEMENT renders last on the DAG strip.
+        pipeline = create_test_pipeline(current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+        implement_idx = result.rfind("Implement")
+        # No phase label appears AFTER Implement on the strip.
+        for label in ("Refine", "Plan", "Apply"):
+            label_idx = result.rfind(label)
+            assert label_idx < implement_idx or label_idx == -1, (
+                f"Label {label!r} renders after Implement; IMPLEMENT must be terminal."
+            )
+
+        # (c) No IMPLEMENT→PR transition marker.
+        assert "→ PR" not in result
+        assert "-> PR" not in result
+        # And the standalone "PR" token never appears.
+        assert "PR" not in result
+
 
 class TestRenderCompactStatus:
     """Tests for render_compact_status function."""
 
     def test_all_phases_shown(self):
-        """Test that all phases are shown in compact view."""
+        """Test that all surviving phases are shown in compact view.
+
+        The PR phase was removed in #2777 (cq-4 / TASK-2-2); IMPLEMENT
+        terminates the compact strip. Negative-assert ``PR`` to lock
+        the new shape in.
+        """
         pipeline = create_test_pipeline()
         result = render_compact_status(pipeline)
 
         assert "Refine" in result
         assert "Plan" in result
         assert "Implement" in result
-        # PR phase removed in #2777 (slice-2).
         assert "PR" not in result
 
     def test_current_phase_bracketed(self):
@@ -357,19 +402,31 @@ class TestRenderProgressBar:
     """Tests for render_progress_bar function."""
 
     def test_empty_progress(self):
-        """Test progress bar with no completed phases."""
+        """Test progress bar with no completed phases.
+
+        With PHASE_ORDER trimmed to 3 phases in #2777 cq-4
+        (Refine → Plan → Implement), no-complete + REFINE-in-progress
+        renders as a low percentage. The exact value (16% = 0.5/3
+        when the current phase counts as half-complete) is brittle to
+        the renderer's rounding, so accept the small range below.
+        """
         pipeline = create_test_pipeline(
             current_phase=PipelinePhase.REFINE,
             status=PipelineStatus.PENDING,
         )
         result = render_progress_bar(pipeline, width=20)
 
-        # Should show a low percentage. With the 3-phase order (PR removed
-        # in #2777), the in-progress current phase contributes 0.5/3 ≈ 16%.
-        assert "0%" in result or "16%" in result
+        # Should show 0%, 16%, 17%, or similar low percentage.
+        assert any(token in result for token in ("0%", "16%", "17%"))
 
     def test_partial_progress(self):
-        """Test progress bar with some completed phases."""
+        """Test progress bar with some completed phases.
+
+        With PHASE_ORDER trimmed to 3 phases in #2777 cq-4
+        (Refine → Plan → Implement), two completed + IMPLEMENT-in-progress
+        renders as ~83% (2.5/3). Previously the 4-phase order yielded
+        ~62% — the new shape pins the new arithmetic.
+        """
         phases = {
             "refine": PhaseExecution(
                 phase=PipelinePhase.REFINE,
@@ -386,12 +443,16 @@ class TestRenderProgressBar:
         )
         result = render_progress_bar(pipeline, width=20)
 
-        # With the 3-phase order (PR removed in #2777): 2 complete + half
-        # for the in-progress IMPLEMENT phase → (2 + 0.5)/3 ≈ 83%.
-        assert "83%" in result or "50%" in result
+        # Should show approximately 83% (2/3 complete + half for current).
+        assert "83%" in result
 
     def test_complete_progress(self):
-        """Test progress bar when all phases complete."""
+        """Test progress bar when all phases complete.
+
+        Per #2777 cq-4, IMPLEMENT is the terminal phase: ``current_phase``
+        stays on ``IMPLEMENT`` after the slice DAG finishes. There is no
+        post-IMPLEMENT phase to advance to.
+        """
         phases = {
             phase.value: PhaseExecution(
                 phase=phase,
@@ -421,11 +482,18 @@ class TestRenderPhaseDetail:
     """Tests for render_phase_detail function."""
 
     def test_not_started_phase(self):
-        """Test detail view for phase not yet started."""
-        pipeline = create_test_pipeline(current_phase=PipelinePhase.PLAN)
-        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
+        """Test detail view for phase not yet started.
 
-        assert "Phase: Refine" in result
+        The legacy ``PipelinePhase.PR`` enum row was removed in #2777 cq-4;
+        ``APPLY`` (the conditional epic-mode phase) replaces it as the
+        canonical "not yet started" test case because a non-epic pipeline
+        skips it entirely.
+        """
+        pipeline = create_test_pipeline()
+        result = render_phase_detail(pipeline, PipelinePhase.APPLY)
+
+        # Render uses the StrEnum value ("apply") not the capitalized name.
+        assert "Phase: apply" in result
         assert "Not started" in result
 
     def test_phase_with_all_details(self):
@@ -770,13 +838,16 @@ class TestWaveGrouping:
         )
 
     def test_compute_wave_order_unknown_phase_falls_back(self):
-        """Phases without defined roles fall back to a single group."""
+        """Phases without defined roles fall back to a single group.
+
+        ``PipelinePhase.PR`` was removed in #2777 cq-4; ``APPLY`` is the
+        surviving enum row whose ``_compute_wave_order`` map has no entry
+        (epic-only phases skip the regular agent topology), so it is the
+        right vehicle for the fallback assertion.
+        """
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.RUNNING),
         ]
-        # APPLY has no multi-wave role structure, so it falls back to a
-        # single group (the PR phase, formerly used here, was removed in
-        # #2777 slice-2).
         waves = _compute_wave_order(PipelinePhase.APPLY, agents)
 
         # Should return single group (fallback)

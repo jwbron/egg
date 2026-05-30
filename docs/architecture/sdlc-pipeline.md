@@ -116,23 +116,71 @@ The contract is a JSON document tracking the complete state of an issue through 
 > existing imports. See [Slice-DAG Implement Phase](slice-dag.md) for
 > the full design.
 
-> **Schema 1.1 (#2548)** added four optional `pr.context_*` fields on
-> `PRMetadata` (`context_title`, `context_description`, `context_branch`,
-> `context_pr_number`) for a dedicated `egg/<pipeline_id>/context` branch
-> mechanism.
+> **Schema 1.1 (#2548)**: `schemaVersion` was bumped from `1.0` to `1.1`
+> to track the addition of four optional `pr.context_*` fields on
+> `PRMetadata` used by the dedicated context-PR mechanism. The bump was
+> purely additive at the time. The two-branch topology these fields
+> supported was collapsed in #2777 (see schema 1.2 below); three of the
+> four fields are now hard-removed and only `pr.context_pr_number`
+> remains.
 >
-> **Schema 1.2 (#2777)**: `schemaVersion` was bumped to `"1.2"` when the
-> three split fields (`context_branch`, `context_title`,
-> `context_description`) were hard-removed. Under the new topology, the
-> context PR opens on the work branch (`egg/<pipeline_id>/work → main`)
-> directly at the plan→implement boundary via
-> `_open_context_pr_at_implement_start`, so separate branch/title/description
-> fields are no longer needed. `context_pr_number` survives as the single
-> surviving field that tracks the opened PR's number. Pre-1.2 contracts on
-> disk load transparently: a `model_validator(mode="wrap")` migration strips
-> the three removed keys before Pydantic constructs `PRMetadata` and bumps
-> `schemaVersion` to `"1.2"`. The PR phase enum row (`PipelinePhase.PR`) was
-> also hard-removed in #2777 — `IMPLEMENT` is now the terminal phase.
+> **Schema 1.2 (#2777)**: `schemaVersion` was bumped from `1.1` to `1.2`
+> to **hard-remove** three redundant fields on `PRMetadata`:
+> `pr.context_branch`, `pr.context_title`, and `pr.context_description`.
+> Under the new topology (#2777) the context PR is
+> `egg/<pipeline_id>/work → main`, so `context_branch` is always
+> derivable as `egg/<pipeline_id>/work` and the program-level title and
+> description live on the standard `pr.title` / `pr.description`. The
+> sole remaining context-PR field is `pr.context_pr_number` (still the
+> PR number of the `egg/<pipeline_id>/work → main` context PR). Pre-1.2
+> contracts on disk load transparently: a `model_validator(mode="wrap")`
+> migration (`Contract._migrate_schema_version_to_1_2`) strips the three
+> removed keys before Pydantic constructs `PRMetadata` and bumps
+> `schemaVersion` to `"1.2"`; the new value is persisted on the next
+> save. See [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
+>
+> **Context-PR mechanism (#2777 collapse).** The context PR is opened
+> **up-front at the plan→implement boundary**, **hard-required** and
+> **idempotent**, against the pipeline work branch (`egg/<pipeline_id>/work
+> → main`). The legacy `egg/<pipeline_id>/context` doc-only branch and
+> the multi-step soft-fail open path were deleted (#2777). The PR phase
+> as a separate pipeline stage was also deleted; there is no terminal
+> backstop because the up-front open is hard-required and idempotent.
+> Slice-1's `parent_branch` resolves to `egg/<id>/work`; the stacked-PR
+> reconciler uses the work branch as the canonical fallback when
+> retargeting orphaned children.
+
+### Schema v1.1 → v1.2 migration note (#2777)
+
+`PRMetadata` lost three redundant fields in v1.2:
+
+| Removed field | Replacement |
+|---------------|-------------|
+| `pr.context_branch` | Derived: always `egg/<pipeline_id>/work`. The orchestrator computes the head branch from the pipeline ID; nothing reads `pr.context_branch` from the contract anymore. |
+| `pr.context_title` | Use `pr.title`. Program-level framing now reuses the standard title. |
+| `pr.context_description` | Use `pr.description`. Program-level narrative now reuses the standard description. |
+
+Operational impact:
+
+- **In-flight contracts on disk** that still contain any of the three
+  removed fields load transparently under v1.2: the
+  `Contract._migrate_schema_version_to_1_2` wrap-mode migration strips
+  the three removed keys before Pydantic constructs `PRMetadata` and
+  bumps `schemaVersion` to `"1.2"`. The new value is persisted on the
+  next contract save. New pipelines start at v1.2 and never write the
+  removed fields.
+- **Planner authoring**: plan YAML must no longer emit
+  `pr.context_title` or `pr.context_description` — those keys are
+  rejected at parse time. Use `pr.title` and `pr.description` to frame
+  the work→main context PR.
+- **PR-phase removal**: there is no longer a separate "PR" pipeline
+  stage. The context PR opens up-front at plan→implement boundary
+  (hard-required, idempotent via `GatewayClient.list_open_prs` with a
+  client-side head+base filter) and per-slice PRs are opened inline by
+  `create_slice_pr` (also idempotent via the narrower
+  `GatewayClient._lookup_open_pr` server-side filter, #2777 cq-8). The
+  legacy `_should_skip_pr_phase_auto_pr` skip gate and the PR-phase
+  route/runner were removed.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
@@ -196,7 +244,7 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 | Contract schema | `.egg/schemas/contract.schema.json` |
 | Contract instances | `.egg-state/contracts/{identifier}.json` |
 | Phase drafts | `.egg-state/drafts/{identifier}-{analysis\|plan}.md` (preserved on PR branch as pipeline artifacts) |
-| BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` (written at each phase boundary; `.md` is human-readable with YAML metadata blocks, `.json` is machine-readable) |
+| BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` (committed by each phase as it completes; `.md` is human-readable with YAML metadata blocks, `.json` is machine-readable) |
 | Review verdicts | `.egg-state/reviews/{identifier}-{phase}-{reviewer}.json` |
 | Contract library | `shared/egg_contracts/` |
 | Gateway endpoints | `gateway/contract_api.py` (proxy), `gateway/phase_api.py` |

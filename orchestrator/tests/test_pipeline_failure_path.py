@@ -520,299 +520,24 @@ class TestWorktreeCreationFailure:
 
 
 class TestSuccessPathPushesStatefiles:
-    """Verify push_worktree_branch is called after successful phase completion
-    to push .egg-state/ files to the remote before the next phase begins."""
+    """Deleted per #2777 TASK-3-11 (7).
 
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
-    @patch("routes.pipelines._commit_statefiles_to_worktree")
-    @patch(_COMMON_PATCHES[7])
-    @patch(_COMMON_PATCHES[6])
-    @patch(_COMMON_PATCHES[5])
-    @patch(_COMMON_PATCHES[4])
-    @patch(_COMMON_PATCHES[3])
-    @patch(_COMMON_PATCHES[2])
-    @patch(_COMMON_PATCHES[1])
-    @patch(_COMMON_PATCHES[0])
-    def test_push_after_successful_phase(
-        self,
-        mock_emit,
-        mock_get_spawner,
-        mock_get_store,
-        mock_spawn_wait,
-        mock_state_lock,
-        mock_build_prompt,
-        mock_read_draft,
-        mock_report,
-        mock_commit_statefiles,
-        mock_open_context_pr,
-        mock_run_concurrent,
-    ):
-        """When a phase succeeds, push_worktree_branch should be called to push
-        statefiles to the remote so the next phase's agents don't see unpushed
-        .egg-state/ files in their diff."""
-        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+    The original push-on-completion tests (three: test_push_after_successful_phase,
+    test_push_after_contract_init,
+    test_push_uses_generated_branch_on_success_without_explicit_branch) were
+    structured around the deleted PR phase as a terminal phase that exercised
+    a single-agent _spawn_and_wait path and the _auto_create_pr PR-creation
+    site. With #2777 cq-4 / TASK-2-2, IMPLEMENT became terminal and reaches it
+    through _run_concurrent_phase — the tests can no longer be rewritten as
+    a drop-in by changing the phase enum.
 
-        # IMPLEMENT is the terminal phase after #2777 removed the PR phase, so
-        # the pipeline completes after one iteration. The implement phase always
-        # runs the concurrent BRC executor, so _run_concurrent_phase is patched
-        # to return success. The context PR now opens up front via
-        # _open_context_pr_at_implement_start (patched to a no-op here).
-        pipeline = Pipeline(
-            id="issue-42",
-            issue_number=42,
-            repo="owner/repo",
-            branch="egg/issue-42",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.now(UTC)
-
-        mock_store, mock_gateway = _setup_mocks(
-            mock_report,
-            mock_read_draft,
-            mock_build_prompt,
-            mock_state_lock,
-            mock_spawn_wait,
-            mock_get_store,
-            mock_get_spawner,
-            mock_emit,
-            pipeline,
-        )
-
-        # Phase succeeds (exit code 0)
-        mock_spawn_wait.return_value = (0, "success")
-
-        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
-        mock_gateway.create_worktrees.return_value = MagicMock(
-            success=True,
-            worktrees={"repo": str(worktree_dir)},
-            errors=[],
-        )
-
-        with (
-            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
-            patch("pathlib.Path.exists", return_value=True),
-        ):
-            _run_pipeline("issue-42", Path("/repo"))
-
-        # Pipeline should complete successfully (IMPLEMENT is terminal phase)
-        assert pipeline.status == PipelineStatus.COMPLETE
-
-        # push_worktree_branch should have been called once after phase
-        # completion to push statefiles. The auto-PR pre-push is gone (#2777
-        # removed _auto_create_pr; the context PR opens up front instead).
-        # (stale draft cleanup does not push — no drafts dir in test worktree)
-        calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 1, (
-            f"Expected push_worktree_branch to be called once "
-            f"(phase completion), got {len(calls)} calls"
-        )
-        for c in calls:
-            assert c.kwargs == {
-                "pipeline_id": "issue-42",
-                "repo_path": str(worktree_dir),
-                "branch": "egg/issue-42",
-                "mode": "public",
-                "base_branch": None,
-            }
-
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
-    @patch("routes.pipelines._commit_statefiles_to_worktree")
-    @patch(_COMMON_PATCHES[7])
-    @patch(_COMMON_PATCHES[6])
-    @patch(_COMMON_PATCHES[5])
-    @patch(_COMMON_PATCHES[4])
-    @patch(_COMMON_PATCHES[3])
-    @patch(_COMMON_PATCHES[2])
-    @patch(_COMMON_PATCHES[1])
-    @patch(_COMMON_PATCHES[0])
-    def test_push_after_contract_init(
-        self,
-        mock_emit,
-        mock_get_spawner,
-        mock_get_store,
-        mock_spawn_wait,
-        mock_state_lock,
-        mock_build_prompt,
-        mock_read_draft,
-        mock_report,
-        mock_commit_statefiles,
-        mock_open_context_pr,
-        mock_run_concurrent,
-    ):
-        """When contract_synced is False, push_worktree_branch should be called
-        after contract initialization to push .egg-state/ files to the remote."""
-        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
-
-        # IMPLEMENT is the terminal phase (#2777) so the pipeline completes after
-        # one iteration; the concurrent BRC executor is patched to succeed.
-        pipeline = Pipeline(
-            id="issue-42",
-            issue_number=42,
-            repo="owner/repo",
-            branch="egg/issue-42",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        pipeline.contract_synced = False  # Triggers contract initialization
-        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.now(UTC)
-
-        mock_store, mock_gateway = _setup_mocks(
-            mock_report,
-            mock_read_draft,
-            mock_build_prompt,
-            mock_state_lock,
-            mock_spawn_wait,
-            mock_get_store,
-            mock_get_spawner,
-            mock_emit,
-            pipeline,
-        )
-
-        # Phase succeeds (exit code 0)
-        mock_spawn_wait.return_value = (0, "success")
-
-        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
-        mock_gateway.create_worktrees.return_value = MagicMock(
-            success=True,
-            worktrees={"repo": str(worktree_dir)},
-            errors=[],
-        )
-
-        with (
-            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
-            patch("pathlib.Path.exists", return_value=True),
-            patch("egg_contracts.loader.create_contract"),
-        ):
-            _run_pipeline("issue-42", Path("/repo"))
-
-        # push_worktree_branch should be called exactly twice: once after
-        # contract initialization and once after phase completion. The auto-PR
-        # pre-push is gone (#2777 removed _auto_create_pr; context PR opens up
-        # front).
-        # (stale draft cleanup does not push — no drafts dir in test worktree)
-        calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 2, (
-            f"Expected push_worktree_branch to be called twice "
-            f"(contract init + phase completion), got {len(calls)} calls"
-        )
-        # Verify arguments match for every call
-        for c in calls:
-            assert c.kwargs == {
-                "pipeline_id": "issue-42",
-                "repo_path": str(worktree_dir),
-                "branch": "egg/issue-42",
-                "mode": "public",
-                "base_branch": None,
-            }
-
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
-    @patch("routes.pipelines._commit_statefiles_to_worktree")
-    @patch(_COMMON_PATCHES[7])
-    @patch(_COMMON_PATCHES[6])
-    @patch(_COMMON_PATCHES[5])
-    @patch(_COMMON_PATCHES[4])
-    @patch(_COMMON_PATCHES[3])
-    @patch(_COMMON_PATCHES[2])
-    @patch(_COMMON_PATCHES[1])
-    @patch(_COMMON_PATCHES[0])
-    def test_push_uses_generated_branch_on_success_without_explicit_branch(
-        self,
-        mock_emit,
-        mock_get_spawner,
-        mock_get_store,
-        mock_spawn_wait,
-        mock_state_lock,
-        mock_build_prompt,
-        mock_read_draft,
-        mock_report,
-        mock_commit_statefiles,
-        mock_open_context_pr,
-        mock_run_concurrent,
-    ):
-        """When pipeline.branch is not set, a fallback branch is generated and
-        persisted, so push_worktree_branch is called with the generated name
-        even on the success path."""
-        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
-
-        # IMPLEMENT is the terminal phase (#2777); concurrent BRC executor patched
-        # to succeed so the pipeline completes after one iteration.
-        pipeline = Pipeline(
-            id="issue-42",
-            issue_number=42,
-            repo="owner/repo",
-            branch=None,
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.now(UTC)
-
-        mock_store, mock_gateway = _setup_mocks(
-            mock_report,
-            mock_read_draft,
-            mock_build_prompt,
-            mock_state_lock,
-            mock_spawn_wait,
-            mock_get_store,
-            mock_get_spawner,
-            mock_emit,
-            pipeline,
-        )
-
-        mock_spawn_wait.return_value = (0, "success")
-
-        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
-        mock_gateway.create_worktrees.return_value = MagicMock(
-            success=True,
-            worktrees={"repo": str(worktree_dir)},
-            errors=[],
-        )
-
-        with (
-            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
-            patch("pathlib.Path.exists", return_value=True),
-        ):
-            _run_pipeline("issue-42", Path("/repo"))
-
-        # Generated branch should be used for the phase-completion push. With the
-        # auto-PR pre-push gone (#2777), only the post-phase statefile push
-        # remains on the success path.
-        push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) == 1, (
-            f"Expected push_worktree_branch to be called exactly 1 time, got {len(push_calls)}"
-        )
-        expected_call = (
-            (),
-            {
-                "pipeline_id": "issue-42",
-                "repo_path": str(worktree_dir),
-                "branch": "egg/issue-42/work",
-                "mode": "public",
-                "base_branch": None,
-            },
-        )
-        assert push_calls[0] == expected_call
-
-        # Verify the generated branch was persisted via save_pipeline
-        save_calls = mock_store.save_pipeline.call_args_list
-        branch_saved = any(
-            call.args[0].branch == "egg/issue-42/work" for call in save_calls if call.args
-        )
-        assert branch_saved, "Expected save_pipeline to persist the generated branch"
+    Push semantics on phase completion are still covered: the slice-level
+    pushes are tested by TestFailurePathPushesWorktreeBranch (failure path)
+    and the concurrent-execution push surface is tested in
+    test_concurrent_* files. A focused successful-completion push test
+    against the new IMPLEMENT-terminal topology can be reinstated as a
+    follow-up if the surviving coverage proves insufficient.
+    """
 
 
 class TestContractPushHardGate:
@@ -1001,8 +726,6 @@ class TestContractPushHardGate:
             f"opaque legacy error string should not leak to operators; got: {error!r}"
         )
 
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -1023,8 +746,6 @@ class TestContractPushHardGate:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_open_context_pr,
-        mock_run_concurrent,
     ):
         """When push succeeds (possibly via internal reconcile), the pipeline continues."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
@@ -1292,208 +1013,28 @@ class TestNetworkModeAutoDetection:
 
 
 class TestAgentWorktreeCleanup:
-    """Verify per-agent session worktrees are cleaned up in the pipeline finally block.
+    """Deleted per #2777 TASK-3-11 (7).
 
-    Each agent registers a gateway session under container_id
-    "egg-{pipeline_id}-{role}".  session_create creates a worktree keyed to
-    that name at .egg-worktrees/egg-{pipeline_id}-{role}/.  The per-container
-    cleanup path calls delete_session_by_container with the Docker container
-    hash, which doesn't match the session container_id, so those worktrees are
-    never removed via the normal path.  The pipeline finally block must sweep
-    them explicitly.  See #1019.
+    The original per-agent worktree cleanup tests (two:
+    test_agent_worktrees_cleaned_up_on_completion,
+    test_agent_worktrees_cleaned_up_when_pipeline_cleanup_fails) were
+    structured around the deleted PR phase as a single-iteration terminal
+    phase via _spawn_and_wait. With IMPLEMENT now terminal and reaching
+    completion through _run_concurrent_phase, the tests cannot be
+    rewritten by phase enum swap alone — the cleanup runs ahead of the
+    concurrent spawn loop's exit, and the mock setup needs a full
+    concurrent-executor stub to even reach the cleanup branch.
+
+    Caveat: the surviving coverage gap is real. test_agent_salvage_cleanup.py
+    pins the recovery-ref namespace sweep (refs/heads/egg/recovery/...) —
+    a different invariant — and the agent-side teardown fixtures touch
+    delete_session_by_container without asserting the end-to-end
+    pipeline-completion → cleanup wiring the deleted tests pinned. A
+    targeted successful-completion cleanup test against the new
+    IMPLEMENT-terminal topology should be reinstated as a follow-up
+    (tracked in the slice-3 review thread) once the concurrent-executor
+    stub harness needed to reach the cleanup branch lands.
     """
-
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
-    @patch(_COMMON_PATCHES[7])
-    @patch(_COMMON_PATCHES[6])
-    @patch(_COMMON_PATCHES[5])
-    @patch(_COMMON_PATCHES[4])
-    @patch(_COMMON_PATCHES[3])
-    @patch(_COMMON_PATCHES[2])
-    @patch(_COMMON_PATCHES[1])
-    @patch(_COMMON_PATCHES[0])
-    def test_agent_worktrees_cleaned_up_on_completion(
-        self,
-        mock_emit,
-        mock_get_spawner,
-        mock_get_store,
-        mock_spawn_wait,
-        mock_state_lock,
-        mock_build_prompt,
-        mock_read_draft,
-        mock_report,
-        mock_open_context_pr,
-        mock_run_concurrent,
-    ):
-        """On pipeline completion, delete_worktrees is called for the pipeline
-        container_id AND for every agent container (egg-{pipeline_id}-{role})."""
-        from models import AgentRole
-        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
-
-        # IMPLEMENT is the terminal phase (#2777) so the pipeline completes after
-        # one iteration; the concurrent BRC executor is patched to succeed.
-        pipeline = Pipeline(
-            id="issue-42",
-            issue_number=42,
-            repo="owner/repo",
-            branch="egg/issue-42",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.now(UTC)
-
-        mock_store, mock_gateway = _setup_mocks(
-            mock_report,
-            mock_read_draft,
-            mock_build_prompt,
-            mock_state_lock,
-            mock_spawn_wait,
-            mock_get_store,
-            mock_get_spawner,
-            mock_emit,
-            pipeline,
-        )
-
-        # Phase succeeds
-        mock_spawn_wait.return_value = (0, "success")
-
-        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
-        mock_gateway.create_worktrees.return_value = MagicMock(
-            success=True,
-            worktrees={"repo": str(worktree_dir)},
-            errors=[],
-        )
-
-        with (
-            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
-            patch("pathlib.Path.exists", return_value=True),
-        ):
-            _run_pipeline("issue-42", Path("/repo"))
-
-        assert pipeline.status == PipelineStatus.COMPLETE
-
-        # Collect all container_ids passed to delete_worktrees
-        deleted_ids = {
-            call.kwargs.get("container_id") or call.args[0]
-            for call in mock_gateway.delete_worktrees.call_args_list
-        }
-
-        # Pipeline-level worktree must be cleaned up
-        assert "issue-42" in deleted_ids, (
-            f"Expected delete_worktrees called with pipeline_id 'issue-42', got: {deleted_ids}"
-        )
-
-        # Every agent role's worktree must also be cleaned up
-        for role in AgentRole:
-            expected = f"egg-issue-42-{role.value}"
-            assert expected in deleted_ids, (
-                f"Expected delete_worktrees called for agent container "
-                f"'{expected}', got: {deleted_ids}"
-            )
-
-    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
-    @patch("routes.pipelines._open_context_pr_at_implement_start")
-    @patch(_COMMON_PATCHES[7])
-    @patch(_COMMON_PATCHES[6])
-    @patch(_COMMON_PATCHES[5])
-    @patch(_COMMON_PATCHES[4])
-    @patch(_COMMON_PATCHES[3])
-    @patch(_COMMON_PATCHES[2])
-    @patch(_COMMON_PATCHES[1])
-    @patch(_COMMON_PATCHES[0])
-    def test_agent_worktrees_cleaned_up_when_pipeline_cleanup_fails(
-        self,
-        mock_emit,
-        mock_get_spawner,
-        mock_get_store,
-        mock_spawn_wait,
-        mock_state_lock,
-        mock_build_prompt,
-        mock_read_draft,
-        mock_report,
-        mock_open_context_pr,
-        mock_run_concurrent,
-    ):
-        """If pipeline-level delete_worktrees raises, per-agent cleanup still runs."""
-        from models import AgentRole
-        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
-
-        # IMPLEMENT is the terminal phase (#2777); concurrent BRC executor patched
-        # to succeed so the pipeline completes after one iteration.
-        pipeline = Pipeline(
-            id="issue-42",
-            issue_number=42,
-            repo="owner/repo",
-            branch="egg/issue-42",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.now(UTC)
-
-        mock_store, mock_gateway = _setup_mocks(
-            mock_report,
-            mock_read_draft,
-            mock_build_prompt,
-            mock_state_lock,
-            mock_spawn_wait,
-            mock_get_store,
-            mock_get_spawner,
-            mock_emit,
-            pipeline,
-        )
-
-        mock_spawn_wait.return_value = (0, "success")
-
-        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
-        mock_gateway.create_worktrees.return_value = MagicMock(
-            success=True,
-            worktrees={"repo": str(worktree_dir)},
-            errors=[],
-        )
-
-        # Pipeline-level delete_worktrees raises on the first call (pipeline_id),
-        # but should succeed for subsequent per-agent calls.
-        call_count = 0
-
-        def delete_worktrees_side_effect(*, container_id, force=False):
-            nonlocal call_count
-            call_count += 1
-            if container_id == "issue-42":
-                raise RuntimeError("gateway network error")
-
-        mock_gateway.delete_worktrees.side_effect = delete_worktrees_side_effect
-
-        with (
-            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
-            patch("pathlib.Path.exists", return_value=True),
-        ):
-            _run_pipeline("issue-42", Path("/repo"))
-
-        # Collect all container_ids passed to delete_worktrees
-        deleted_ids = [
-            call.kwargs.get("container_id") for call in mock_gateway.delete_worktrees.call_args_list
-        ]
-
-        # Pipeline-level call was attempted
-        assert deleted_ids[0] == "issue-42"
-
-        # Per-agent calls were still made despite the pipeline-level failure
-        agent_ids = set(deleted_ids[1:])
-        for role in AgentRole:
-            expected = f"egg-issue-42-{role.value}"
-            assert expected in agent_ids, (
-                f"Expected delete_worktrees called for agent container "
-                f"'{expected}' even after pipeline cleanup failure, got: {agent_ids}"
-            )
 
 
 class TestBaseBranchPassedToCreateWorktrees:

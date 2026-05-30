@@ -202,10 +202,10 @@ def find_orphaned_child_prs(
     # detection on every qualified pipeline.
     #
     # Slice integration branches live as siblings of the pipeline tip
-    # under ``egg/<id>/`` (#2399); the umbrella pipeline tip is at
+    # under ``egg/<id>/`` (#2399); the pipeline tip is at
     # ``egg/<id>/work``. ``slice_namespace_root`` is the prefix slice
     # paths are built from; ``pipeline_branch`` is the actual remote
-    # ref of the umbrella tip — used as the cascade-fallback base.
+    # ref of the pipeline tip — used as the cascade-fallback base.
     slice_namespace_root = f"egg/{contract.contract_key}"
     pipeline_branch = f"{slice_namespace_root}/work"
 
