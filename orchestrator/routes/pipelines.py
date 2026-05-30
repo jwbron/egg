@@ -9775,277 +9775,6 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
     return "\n".join(lines)
 
 
-def _build_pr_body(
-    pipeline: Pipeline,
-    worktree_repo_path: Path,
-) -> tuple[str, str, bool]:
-    """Build a PR title and body from contract state.
-
-    Uses the planner-generated PR metadata from the contract when available,
-    falling back to the plan draft on disk (#1829) and then to the issue
-    title.  Commit logs and diff stats are omitted because GitHub already
-    displays them natively on the PR page, and including them caused
-    body-size blowups (see #1374).
-
-    Args:
-        pipeline: The pipeline state
-        worktree_repo_path: Path to the worktree repo directory
-
-    Returns:
-        Tuple of (title, body, used_stub_fallback).  ``used_stub_fallback``
-        is True when neither the contract nor the plan draft produced a
-        PR title and the implementation dropped through to the issue
-        title / generic stub (see #1975).  Callers use this to mark the
-        PR as draft so reviewers notice the planner metadata is missing.
-    """
-    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
-    pr_title: str | None = None
-    pr_description: str | None = None
-    pr_test_plan: str = ""
-    pr_manual_steps: str = ""
-    pr_deferred_actions: list[Any] = []
-    issue_title: str | None = None
-    plan_draft_warnings: list[str] = []
-    plan_draft_path: str | None = None
-    parsed_plan_draft: bool = False
-
-    # Tier 1: load PR metadata from the contract (populated by the plan agent).
-    # Contracts are keyed by pipeline_id after key unification (#1773).
-    try:
-        from egg_contracts.loader import load_contract
-
-        contract = load_contract(pipeline.id, worktree_repo_path)
-        if contract.pr:
-            pr_title = contract.pr.title
-            pr_description = contract.pr.description
-            pr_test_plan = contract.pr.test_plan
-            pr_manual_steps = contract.pr.manual_steps
-            pr_deferred_actions = list(contract.pr.deferred_actions)
-        if contract.issue:
-            issue_title = contract.issue.title
-    except Exception as e:
-        logger.debug(
-            "Could not load contract for PR metadata",
-            pipeline_id=pipeline.id,
-            error=str(e),
-        )
-
-    # Tier 2: parse the plan draft directly when the contract has no PR
-    # metadata.  The draft is reliably on the branch even when the
-    # contract write didn't land (#1829).
-    if not pr_title:
-        parsed_plan_draft = True
-        (
-            draft_title,
-            draft_desc,
-            draft_test_plan,
-            draft_manual_steps,
-            plan_draft_warnings,
-            plan_draft_path,
-        ) = _pr_metadata_from_plan_draft(
-            worktree_repo_path,
-            issue_number=pipeline.issue_number,
-            pipeline_id=pipeline.id,
-        )
-        if draft_title:
-            pr_title = draft_title
-            pr_description = draft_desc
-            pr_test_plan = draft_test_plan
-            pr_manual_steps = draft_manual_steps
-
-    # Tier 3: issue title, then generic stub
-    used_stub_fallback = False
-    if not pr_title:
-        used_stub_fallback = True
-        pr_title = issue_title or f"Implementation for pipeline {pipeline.id}"
-
-    # Assemble body
-    body_parts: list[str] = []
-
-    # Fallback banner: when tier-3 fired, surface the failure loudly on
-    # the PR itself so reviewers don't silently merge a PR whose title is
-    # just "Issue #N" (see #1975). Parse warnings from the tier-2
-    # attempt (if any) are listed verbatim so the reader can see the
-    # specific yaml-tasks problem instead of only finding it in
-    # orchestrator logs.
-    if used_stub_fallback:
-        banner_lines = [
-            "> ⚠️ **Automated PR metadata fell back to the issue title.**",
-            "> The plan draft's `pr:` block was missing or could not be parsed,",
-            "> so this PR body is a stub. Opened as a draft to block merge.",
-        ]
-        if plan_draft_path:
-            banner_lines.append(f"> Draft: `{plan_draft_path}`")
-        if plan_draft_warnings:
-            banner_lines.append("> Parse warnings:")
-            for msg in plan_draft_warnings:
-                banner_lines.append(f"> - {msg}")
-        elif parsed_plan_draft and plan_draft_path:
-            banner_lines.append("> No `pr.title` found in the plan draft's yaml-tasks block.")
-        banner_lines.append("> Repair the plan draft and re-run `populate_contract` (see #1974).")
-        body_parts.append("\n".join(banner_lines))
-
-    if pr_description:
-        body_parts.append(pr_description)
-    elif pipeline.issue_number:
-        body_parts.append(f"Closes #{pipeline.issue_number}")
-
-    # Pre-merge obligations from conditional ACKs (issue #1998, #2004).
-    # Rendered high in the body so the merger sees them before skimming
-    # past the test plan. Prefer the contract-persisted list (written when
-    # the #2004 HITL gate resolves as approve+accept) so obligations
-    # survive tracker teardown; fall back to the live tracker for the
-    # transitional case where the gate hasn't resolved yet.
-    deferred_section = _build_pre_merge_obligations_section(
-        pipeline.id,
-        contract_deferred_actions=pr_deferred_actions,
-    )
-    if deferred_section:
-        body_parts.append(deferred_section)
-
-    # Test plan section (always present — placeholder if missing)
-    if pr_test_plan:
-        body_parts.append(f"## Test Plan\n\n{pr_test_plan}")
-    else:
-        body_parts.append("## Test Plan\n\n_No test plan provided by the planner._")
-
-    # Auto-generated step for `.github-staging/` (issue #2508): the
-    # gateway blocks every producer role from pushing to `.github/`,
-    # so agents drop proposed CI workflow / CODEOWNERS changes into
-    # top-level `.github-staging/` instead. Detect them here and
-    # surface a step the human reviewer must complete before merge.
-    github_staging_step = _build_github_staging_manual_step(worktree_repo_path)
-
-    # Manual steps section: planner-supplied steps and the staging-dir
-    # auto-step are rendered together so reviewers see one block.
-    manual_step_chunks: list[str] = []
-    if pr_manual_steps:
-        manual_step_chunks.append(pr_manual_steps)
-    if github_staging_step:
-        manual_step_chunks.append(github_staging_step)
-    if manual_step_chunks:
-        body_parts.append("## Manual Steps\n\n" + "\n\n".join(manual_step_chunks))
-
-    # Add pipeline context section
-    if pipeline.id or pipeline.issue_number:
-        context_parts = ["## Pipeline Context\n"]
-        if pipeline.id:
-            context_parts.append(f"Pipeline: `{pipeline.id}`")
-        if pipeline.issue_number:
-            context_parts.append(f"Issue: #{pipeline.issue_number}")
-        body_parts.append("\n".join(context_parts))
-
-    # One-line pointer to committed BRC history transcripts.  The full
-    # per-phase record lives on the PR branch under .egg-state/brc-history/
-    # (see #1828 for why the old inline BRC Consensus Summary was removed).
-    brc_link_line = _build_brc_history_link_line(worktree_repo_path, identifier)
-    if brc_link_line:
-        body_parts.append(brc_link_line)
-
-    body_parts.append("Authored-by: egg")
-
-    body = "\n\n".join(body_parts)
-
-    return pr_title, body, used_stub_fallback
-
-
-def _auto_create_pr(
-    pipeline: Pipeline,
-    worktree_repo_path: Path,
-    spawner: "ContainerSpawner",  # noqa: UP037
-    gateway_mode: Literal["public", "private"] = "public",
-) -> str | None:
-    """Auto-create a PR for a pipeline without spawning an agent.
-
-    Builds the PR title/body from contract state, then creates the PR
-    via the gateway.
-
-    Args:
-        pipeline: The pipeline state
-        worktree_repo_path: Path to the worktree repo directory
-        spawner: Container spawner (used to access gateway client)
-        gateway_mode: Session mode for the gateway ("public" or "private")
-
-    Returns:
-        PR URL if creation succeeded, None otherwise
-    """
-    if not pipeline.repo or not pipeline.branch:
-        logger.warning(
-            "Cannot auto-create PR: missing repo or branch",
-            pipeline_id=pipeline.id,
-        )
-        return None
-
-    # Resolve base branch: explicit > auto-detected from repo
-    base = pipeline.base_branch
-    if not base:
-        base = get_default_branch(worktree_repo_path)
-
-    title, body, used_stub_fallback = _build_pr_body(pipeline, worktree_repo_path)
-
-    # Force draft when PR metadata fell through to the generic stub
-    # (see #1975).  A draft PR is the loudest signal GitHub offers to
-    # stop a human from silently merging a planner-broken PR whose
-    # title is just "Issue #N".
-    draft = (gateway_mode == "private") or used_stub_fallback
-    if used_stub_fallback:
-        logger.warning(
-            "Auto PR opened as draft: planner metadata fallback used",
-            pipeline_id=pipeline.id,
-        )
-
-    # Refresh the pipeline branch against current
-    # ``origin/<base_branch>`` so the PR opens with a clean linear
-    # diff (#2224 PR 2).  Phase-start rebases
-    # (``_rebase_pipeline_branch_onto_base``) only run once per phase
-    # iteration; if ``base_branch`` advanced *during* the PR phase,
-    # the pipeline branch is now behind.  The helper is best-effort —
-    # on any failure (rebase conflict, push reject, transient gateway
-    # error) the PR still opens against the un-rebased tip and the
-    # divergence becomes visible to the human reviewer.  Only
-    # ``pipeline.branch`` is rewritten; ``base_branch`` is never
-    # modified or pushed to.
-    try:
-        _refresh_pipeline_branch_against_current_base(
-            spawner=spawner,
-            pipeline_id=pipeline.id,
-            worktree_repo_path=worktree_repo_path,
-            pipeline_branch=pipeline.branch,
-            base_branch=base,
-            gateway_mode=gateway_mode,
-        )
-    except Exception as e:
-        # Defensive — the helper already swallows its own errors, but a
-        # bug in the helper itself must not block PR creation.
-        logger.warning(
-            "pr-open rebase helper raised; opening PR against un-rebased tip",
-            pipeline_id=pipeline.id,
-            error=str(e),
-        )
-
-    try:
-        pr_url = spawner.gateway.create_pr(
-            pipeline_id=pipeline.id,
-            repo=pipeline.repo,
-            title=title,
-            body=body,
-            head=pipeline.branch,
-            base=base,
-            issue_number=pipeline.issue_number,
-            agent_role="orchestrator",
-            mode=gateway_mode,
-            draft=draft,
-        )
-        return pr_url
-    except Exception as e:
-        logger.error(
-            "Auto PR creation failed",
-            pipeline_id=pipeline.id,
-            error=str(e),
-        )
-        return None
-
-
 
 def _derive_producer_roles_with_tasks(
     pipeline_id: str,
@@ -10131,8 +9860,9 @@ def _persist_context_pr_number(
     *,
     worktree_repo_path: Path,
     identifier: int | str,
+    pr_url: str | None = None,
 ) -> None:
-    """Persist ``contract.pr.context_pr_number`` for an up-front context PR (#2777).
+    """Persist context-PR linkage on both the contract and the pipeline (#2777).
 
     Single-purpose helper extracted so the new
     :func:`_open_context_pr_at_implement_start` opener is not a
@@ -10149,6 +9879,32 @@ def _persist_context_pr_number(
     the idempotent path so a resume-from-orphaned-pipeline where the
     contract lost ``context_pr_number`` mid-run still recovers (the
     unit test in TASK-3-8 asserts this).
+
+    In slice-2 (#2777 TASK-2-2 cross-reviewer NACK fix) the helper was
+    extended to ALSO write ``pipeline.pr_url`` and ``pipeline.pr_number``
+    on the pipeline record. Three downstream consumers depend on these
+    pipeline-level fields:
+
+    * :func:`_get_pr_info` at the pipeline-status endpoint
+      (``/api/v1/pipelines/<id>/status``) reports them.
+    * :meth:`PipelineToolHandler._make_pipeline_summary` (the MCP
+      ``get_pipeline_status`` tool) reports them.
+    * ``orchestrator.jira_reassess.pipelines_for_ticket_pr_url`` powers
+      the #1557 reverse-index in-flight detection that prevents the
+      Jira reassess sweep from re-mutating issues whose parent egg run
+      still has an open PR.
+
+    Before this rewire the dedicated writer for the pipeline fields was
+    the deleted ``_finalize_pr_phase_failed`` (TASK-2-2 of #2777
+    deleted it lock-step with the PR phase). Without the explicit
+    rewrite each of the three consumers above would silently report
+    ``None``.
+
+    ``pr_url`` is synthesised from ``pipeline.repo`` + ``pr_number``
+    when not supplied (the idempotent ``gh pr list`` hit only carries
+    the number; the create_pr path knows the URL directly from gh's
+    stdout). The synthesis mirrors GitHub's canonical PR URL shape and
+    keeps ``_get_pr_info``'s regex parse working unchanged.
 
     Raises:
         ContextPrCreationError: when the contract cannot be loaded or
@@ -10181,6 +9937,50 @@ def _persist_context_pr_number(
                 )
             contract_local.pr.context_pr_number = pr_number
             save_contract(contract_local, worktree_repo_path)
+
+            # Pipeline-level mirror (#2777 cross-reviewer NACK fix).
+            # Load → mutate → save under the same lock so the contract
+            # write and pipeline write are atomic for downstream
+            # observers (status endpoint, MCP tool, jira_reassess).
+            # Pull the state store via the same lazy-import pattern the
+            # rest of pipelines.py uses; the soft-fail import shape is
+            # intentional so a stripped-down test harness that mocks
+            # only the contract loader does not crash here.
+            try:
+                from state_store import get_state_store  # type: ignore[no-redef]
+            except ImportError:
+                from ..state_store import get_state_store  # type: ignore[no-redef]
+            store = get_state_store()
+            try:
+                reloaded = store.load_pipeline(pipeline_id)
+            except Exception as pipe_load_err:  # noqa: BLE001
+                # Don't fail the whole opener because the pipeline
+                # mirror couldn't be loaded — the contract write
+                # already succeeded above. Log + continue so the
+                # context PR opens; the mirror will be re-applied
+                # on the next idempotent opener tick.
+                logger.warning(
+                    "Context PR opener: could not mirror pipeline.pr_url / "
+                    "pipeline.pr_number (continuing — contract write succeeded)",
+                    pipeline_id=pipeline_id,
+                    pr_number=pr_number,
+                    error=str(pipe_load_err),
+                )
+                return
+            mirror_url = pr_url
+            if mirror_url is None:
+                # Idempotent path (``gh pr list`` hit) only carries the
+                # number; synthesise the canonical PR URL from
+                # pipeline.repo + pr_number so all three consumers
+                # still see a populated ``pr_url`` string. Skip the
+                # synthesis when ``repo`` is unset (local-mode
+                # pipelines have no remote PR).
+                if reloaded.repo:
+                    mirror_url = f"https://github.com/{reloaded.repo}/pull/{pr_number}"
+            reloaded.pr_number = pr_number
+            if mirror_url:
+                reloaded.pr_url = mirror_url
+            store.save_pipeline(reloaded)
     except ContextPrCreationError:
         raise
     except Exception as save_err:  # noqa: BLE001
@@ -10454,6 +10254,7 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
         new_pr_number,
         worktree_repo_path=worktree_repo_path,
         identifier=identifier,
+        pr_url=pr_url,
     )
 
     logger.info(
@@ -10493,14 +10294,15 @@ def _resolve_slice_base_branch(
     *,
     pipeline_id: str,
     pipeline_branch: str,
+    extant_branches: set[str] | None = None,
 ) -> str:
     """Return the parent branch for a slice's integration branch (#2777, cq-9).
 
-    Replaces the deleted ``_resolve_slice_1_context_branch_from_contract``
-    helper (removed by slice-2 TASK-2-1) with a single resolver that
-    handles both root and non-root slices.
+    Replaces the deleted slice-1 resolver helper (removed by slice-2
+    TASK-2-1) with a single resolver that handles both root and
+    non-root slices.
 
-    Resolution order:
+    Resolution order (default — ``extant_branches is None``):
 
     1. If the slice record has ``parent_branch_at_creation`` set
        (eager-persisted at PENDING→IN_PROGRESS in slice-4's TASK-4-2),
@@ -10516,7 +10318,20 @@ def _resolve_slice_base_branch(
     Slice-4's TASK-4-3 extends this helper with a merge-base fallback
     for orphaned slices whose ``parent_branch_at_creation`` is empty
     AND that pre-date the eager-persist landing in slice-4 — that arm
-    is intentionally not present yet in slice-1.
+    is intentionally not present yet in slice-2.
+
+    **Orphan-reconciler mode (``extant_branches`` non-None)**: the
+    stacked-PR reconciler at ``orchestrator/stacked_pr_reconciler.py``
+    needs the resolver to SKIP ancestors whose branches are no longer
+    on origin (the primary trigger for orphan reconciliation is "parent
+    branch was deleted by the cascade merge"). When ``extant_branches``
+    is supplied, each candidate (including ``parent_branch_at_creation``
+    and any walked ancestor) is filtered against the set; if no extant
+    candidate is found the resolver falls back to ``pipeline_branch``
+    (which is always extant — root-targeted branches are never deleted
+    by the stacked-PR flow). TASK-4-3's merge-base fallback when it
+    lands will automatically benefit the reconciler through this same
+    code path.
 
     Args:
         contract: The pipeline contract (must carry ``slices``).
@@ -10525,7 +10340,14 @@ def _resolve_slice_base_branch(
             NOT consult the state store.
         pipeline_branch: The pipeline's work branch (``egg/<id>/work``).
             Returned for root slices when no
-            ``parent_branch_at_creation`` is recorded.
+            ``parent_branch_at_creation`` is recorded, and as the
+            final fallback in orphan-reconciler mode.
+        extant_branches: Optional set of branch names known to exist
+            on origin. When supplied, the resolver filters every
+            candidate (recorded parent + walked ancestors) against
+            this set and skips any that are absent. The reconciler
+            uses this to escape from the deleted parent branch up the
+            DAG until an extant ancestor is reached.
 
     Returns:
         The branch name to use as the slice integration branch's
@@ -10545,21 +10367,31 @@ def _resolve_slice_base_branch(
             f"{[s.id for s in slices]}"
         )
 
+    def _extant(candidate: str) -> bool:
+        """True when ``candidate`` passes the orphan-reconciler filter.
+
+        When ``extant_branches`` is None, every non-empty candidate
+        passes (the default resolver doesn't validate liveness).
+        """
+        if not candidate:
+            return False
+        if extant_branches is None:
+            return True
+        return candidate in extant_branches
+
     # (1) Eager-persisted parent (post-slice-4 TASK-4-2). Treated as
     # authoritative regardless of root-status: if the persist landed,
-    # it's the resolved parent.
+    # it's the resolved parent — UNLESS the orphan-reconciler caller
+    # told us this branch was deleted on origin (extant_branches
+    # filter).
     parent_recorded = getattr(slice_record, "parent_branch_at_creation", None) or ""
-    if parent_recorded:
+    if parent_recorded and _extant(parent_recorded):
         return parent_recorded
 
-    # Derive the parent slice id from ``slice.dependencies[0]``. After
-    # the #2137 forest constraint each slice has at most one DAG
-    # parent (see ``shared/egg_contracts/models.py:341``); the existing
-    # slice-loop already follows this convention at
-    # ``slice_scheduler.py:245`` and ``pipelines.py:2598`` (reviewer_code
-    # v2 NACK blocker 2 — v1/v2 read a non-existent ``parent_slice_id``
-    # attribute, which always returned ``None`` and silently routed
-    # non-root slices to ``pipeline_branch``).
+    # Build the slice-id → slice-record lookup once for the DAG walk
+    # below (used in both the default and orphan-reconciler modes).
+    slices_by_id = {s.id: s for s in slices}
+
     deps = getattr(slice_record, "dependencies", None) or []
     parent_slice_id = deps[0] if deps else None
 
@@ -10573,7 +10405,32 @@ def _resolve_slice_base_branch(
     # the existing ``f"{issue_branch}/{parent_slice_id}"`` convention
     # at the legacy slice-loop call site.
     issue_branch = _slice_namespace_root(pipeline_branch)
-    return f"{issue_branch}/{parent_slice_id}"
+
+    # Default mode (no extant filter): return the immediate parent
+    # branch synthesised from the slice DAG. This is the unchanged
+    # pre-extant-kwarg behaviour.
+    if extant_branches is None:
+        return f"{issue_branch}/{parent_slice_id}"
+
+    # Orphan-reconciler mode: walk up the DAG via ``dependencies[0]``
+    # until an extant ancestor branch is found. The forest constraint
+    # at ``shared/egg_contracts/models.py:341`` guarantees ≤1 parent
+    # per slice, so a single traversal pointer suffices.
+    cursor: str | None = parent_slice_id
+    while cursor:
+        candidate = f"{issue_branch}/{cursor}"
+        if _extant(candidate):
+            return candidate
+        cursor_slice = slices_by_id.get(cursor)
+        if cursor_slice is None:
+            break
+        next_deps = getattr(cursor_slice, "dependencies", None) or []
+        cursor = next_deps[0] if next_deps else None
+
+    # Every ancestor's branch has been deleted (cascading merge). Fall
+    # back to the pipeline branch — stable across the stacked-PR flow
+    # because root-targeted branches are never deleted by the cascade.
+    return pipeline_branch
 
 
 

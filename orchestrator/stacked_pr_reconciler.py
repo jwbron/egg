@@ -85,62 +85,51 @@ class OrphanedChildPR:
 
 
 def _resolve_extant_new_base(
-    slice_,
-    slices_by_id,
+    contract: Contract,
+    slice_id: str,
     extant_branches: set[str],
-    slice_namespace_root: str,
     pipeline_branch: str,
 ) -> str:
-    """Walk up the slice DAG until an extant branch is found.
+    """Resolve a slice's new base after the cascade deleted its parent (#2777, cq-9).
 
-    The orphan reconciler is triggered when a child slice's PR base
-    has been deleted on origin. ``Slice.parent_branch_at_creation``
-    points at that same just-deleted branch in the merge-cascade
-    case (the *primary* trigger), so retargeting to it would be a
-    no-op. Walk up via ``dependencies[0]`` (the forest constraint
-    guarantees ≤1 parent per slice) and return the first ancestor
-    whose branch is still on origin.
+    Thin wrapper around the shared
+    :func:`orchestrator.routes.pipelines._resolve_slice_base_branch`
+    helper (slice-1's cq-10 extraction). The shared resolver handles
+    both the default path (eager-persisted ``parent_branch_at_creation``
+    or DAG-derived parent) and an orphan-reconciler mode triggered by
+    passing ``extant_branches``: every candidate (including
+    ``parent_branch_at_creation`` and any walked ancestor) is filtered
+    against the set, and the resolver falls back to ``pipeline_branch``
+    when every ancestor's branch is gone.
 
-    Resolution order (post-#2777, cq-2 / cq-4):
+    Routing the reconciler through the shared helper means slice-4's
+    TASK-4-3 merge-base fallback will automatically benefit orphan
+    reconciliation — no parallel walker to keep in sync.
 
-    1. Walk the slice DAG via ``dependencies[0]`` until an extant
-       ancestor branch is found.
-    2. Final fallback: the pipeline branch (``egg/<id>/work``).
-       Root-targeted branches are stable across the stacked-PR
-       flow because they are never deleted by the cascade. The
-       legacy ``egg/<id>/context`` branch (and the ``contract.pr.context_branch``
-       field that named it) were removed in #2777 — the context PR
-       now opens on ``egg/<id>/work → main`` directly, so slice-1
-       stacks on the work branch like every other root slice.
-
-    ``slice_namespace_root`` is the prefix slice paths are built from
-    (``egg/<id>``, no ``/work`` suffix); ``pipeline_branch`` is the
-    actual remote ref of the umbrella pipeline tip (``egg/<id>/work``,
-    after #2399). They differ by exactly the ``/work`` suffix — see
-    :func:`routes.pipelines._ensure_pipeline_work_ref`.
+    The lazy import sidesteps a circular dependency:
+    ``orchestrator/routes/pipelines.py`` already imports
+    :func:`reconcile_once` from this module at slice-loop start
+    (``pipelines.py:15077``), so a top-level ``from orchestrator.routes.pipelines
+    import _resolve_slice_base_branch`` would form a cycle.
     """
-    # ``dependencies[0]`` is the canonical parent under the forest
-    # constraint enforced at plan ingestion. ``serialized_chain_order``
-    # only matters for would-be multi-parent slices that were
-    # serialised into a chain at planning time — and once serialised,
-    # the chain's first element becomes ``dependencies[0]``.
-    parent_id = slice_.dependencies[0] if slice_.dependencies else None
-    while parent_id:
-        parent_slice = slices_by_id.get(parent_id)
-        if parent_slice is None:
-            break
-        candidate = f"{slice_namespace_root}/{parent_slice.id}"
-        if candidate in extant_branches:
-            return candidate
-        # This ancestor's branch is also gone (cascading merge).
-        # Walk one more level up.
-        parent_id = parent_slice.dependencies[0] if parent_slice.dependencies else None
-    # Either the slice has no dependencies (it's a root whose own
-    # PR shouldn't get here — roots target ``pipeline_branch``
-    # directly, which is stable across the cascade) or every
-    # ancestor's branch has been deleted. Fall back to the pipeline
-    # branch in both cases.
-    return pipeline_branch
+    try:
+        from orchestrator.routes.pipelines import _resolve_slice_base_branch
+    except ImportError:
+        from routes.pipelines import _resolve_slice_base_branch  # type: ignore[no-redef]
+
+    # Derive pipeline_id from the contract for the helper's logging.
+    # ``contract.contract_key`` is the canonical id for every supported
+    # contract shape (issue-driven, qualified, JIRA); see the comment
+    # at ``find_orphaned_child_prs`` line ~239 for the rationale.
+    pipeline_id = contract.contract_key
+
+    return _resolve_slice_base_branch(
+        contract,
+        slice_id,
+        pipeline_id=pipeline_id,
+        pipeline_branch=pipeline_branch,
+        extant_branches=extant_branches,
+    )
 
 
 @dataclass(frozen=True)
@@ -219,7 +208,6 @@ def find_orphaned_child_prs(
     # ref of the umbrella tip — used as the cascade-fallback base.
     slice_namespace_root = f"egg/{contract.contract_key}"
     pipeline_branch = f"{slice_namespace_root}/work"
-    slices_by_id = {s.id: s for s in contract.slices}
 
     for slice_ in contract.slices:
         parent = slice_.parent_branch_at_creation
@@ -243,18 +231,21 @@ def find_orphaned_child_prs(
                 extra={"slice_id": slice_.id, "head": slice_branch, "raw_number": raw_number},
             )
             continue
-        # Walk up the DAG to find an extant ancestor. The merge
-        # cascade is the primary trigger for orphan detection, and
-        # in that case ``parent_branch_at_creation`` points at the
-        # same just-deleted branch we're trying to escape from.
-        # Final fallback is ``pipeline_branch`` (``egg/<id>/work``)
-        # — the legacy context branch was removed in #2777, so the
-        # work branch is the canonical stack root for every slice.
+        # Walk up the DAG to find an extant ancestor via the shared
+        # _resolve_slice_base_branch helper (slice-1's cq-10
+        # extraction). The merge cascade is the primary trigger for
+        # orphan detection, and in that case ``parent_branch_at_creation``
+        # points at the same just-deleted branch we're trying to escape
+        # from — passing ``extant_branches`` to the resolver routes
+        # both the recorded parent AND each walked ancestor through
+        # the extant filter, falling back to ``pipeline_branch`` when
+        # the chain is exhausted. The legacy context branch was
+        # removed in #2777 (cq-2 / cq-4), so the work branch is now
+        # the canonical stack root for every slice.
         new_base = _resolve_extant_new_base(
-            slice_,
-            slices_by_id,
+            contract,
+            slice_.id,
             extant_branches,
-            slice_namespace_root,
             pipeline_branch,
         )
         orphans.append(

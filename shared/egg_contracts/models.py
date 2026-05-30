@@ -70,24 +70,21 @@ class PipelinePhase(StrEnum):
     (epic-Description writes, child-ticket creates, issue-link creates)
     on operator approval of the refine and plan HITL gates.
 
-    ``PR`` is retained as a **vestigial gateway-session namespace
-    only** after #2777 (cq-4 / TASK-2-2). The PR pipeline-phase itself
-    was removed — ``IMPLEMENT`` is now terminal — and ``PR`` is no
-    longer a valid transition target in ``PHASE_TRANSITIONS`` /
-    ``VALID_TRANSITIONS``, no longer renders in the DAG visualizer,
-    and no longer carries a ``PhaseConfig`` row in
-    ``phase_defaults.py``. The single surviving use is the synthetic
-    gateway session that the orchestrator's
-    ``GatewayClient.create_pr`` registers with ``phase="pr"`` so the
-    gateway's phase_filter allows ``gh pr create``; tightly scoped to
-    the up-front context-PR opener flow.
+    The legacy ``PR`` phase was hard-removed in #2777 (cq-4 / TASK-2-2);
+    ``IMPLEMENT`` is now terminal. The context PR opens up-front at the
+    plan→implement boundary via ``_open_context_pr_at_implement_start``
+    and slice PRs stack on it. The orchestrator's
+    ``GatewayClient.create_pr`` synthetic session now registers without
+    a ``phase`` value (the gateway's gh_pr_create handler treats a
+    phase-less synthetic session as the explicit opt-out path), so the
+    ``PR`` enum row is no longer needed even as a gateway-session
+    namespace.
     """
 
     REFINE = "refine"
     PLAN = "plan"
     APPLY = "apply"
     IMPLEMENT = "implement"
-    PR = "pr"  # vestigial gateway-session namespace; see class docstring
 
 
 class DecisionType(StrEnum):
@@ -509,7 +506,17 @@ class PRMetadata(EggContractBaseModel):
     load cleanly: ``Contract._migrate_schema_version_to_1_2`` strips them
     from the ``pr`` payload before pydantic constructs ``PRMetadata`` and
     bumps ``schemaVersion`` to ``1.2``.
+
+    ``extra="forbid"`` (overrides the base ``ConfigDict``) so a direct
+    construction with a stale field name (planner-prompt regression,
+    hand-edited test fixture) fails LOUDLY rather than silently
+    round-tripping. The migration shim covers the on-disk legacy path —
+    by the time pydantic sees the dict the three removed keys are gone
+    — so this strictness only catches new code that should not be
+    emitting the removed fields.
     """
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
     description: str = Field(default="", description="PR description/body")

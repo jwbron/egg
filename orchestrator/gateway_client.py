@@ -1537,8 +1537,19 @@ class GatewayClient:
     ) -> str | None:
         """Create a pull request via the gateway using a temporary session.
 
-        Registers a temp session with phase="pr" (so the gateway allows the
-        operation), creates the PR, then cleans up the session.
+        Registers a synthetic temp session WITHOUT a phase value (#2777
+        TASK-2-2): the gateway's gh_pr_create handler treats a
+        ``session_phase`` of ``None`` as the explicit-opt-out path and
+        skips phase-filter consultation entirely ("No phase set - allow
+        by default for backward compatibility" branch at
+        ``gateway/gateway.py:3685``). Prior to #2777 the carve-out used
+        ``phase="pr"`` paired with the now-removed ``PipelinePhase.PR``
+        enum row; that coupling was deleted lock-step so the orchestrator
+        no longer has any pipeline-graph reference to a PR phase.
+        The synthetic-session trust gate (``synthetic=True`` is only
+        settable by the launcher-authenticated ``register_session``
+        path) is unchanged and remains the load-bearing protection
+        against a sandboxed agent reaching this surface.
 
         Args:
             pipeline_id: Pipeline ID (used as container_id for the temp session)
@@ -1569,7 +1580,10 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
-                phase="pr",
+                # phase=None (#2777 TASK-2-2): the synthetic-session
+                # carve-out for gh_pr_create no longer goes through
+                # PipelinePhase.PR — the gateway treats a phase-less
+                # synthetic session as explicit opt-out. See docstring.
                 repos=[repo],
                 issue_number=issue_number,
                 agent_role=agent_role,
