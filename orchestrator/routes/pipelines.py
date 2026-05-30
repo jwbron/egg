@@ -99,9 +99,26 @@ class ContextPrCreationError(Exception):
         super().__init__(message)
         # Coerce-and-validate the reason against the closed
         # enumeration. Passing a string that is not a known reason
-        # raises ``ValueError`` at construction so a typo cannot
-        # silently slip a new ``reason=`` into production.
-        self.reason: str = ContextPrCreationReason(reason).value
+        # would normally raise ``ValueError`` from the ``StrEnum``
+        # constructor — but the four ``except ContextPrCreationError``
+        # handlers at every call site would not match that
+        # ``ValueError``, so a typo would surface as a 500 instead of
+        # the typed 422 the handlers contract on
+        # (egg-reviewer non-blocking #4). Catch and coerce to
+        # ``UNKNOWN`` so the typed-exception contract holds, and log
+        # the bad reason loudly so the typo is still visible in the
+        # operator's logs and CI grep — silent coercion would hide
+        # the programming error.
+        try:
+            self.reason: str = ContextPrCreationReason(reason).value
+        except ValueError:
+            logger.warning(
+                "ContextPrCreationError received unknown reason; "
+                "coercing to UNKNOWN (#2777, egg-reviewer non-blocking #4)",
+                bad_reason=repr(reason),
+                error_message=message,
+            )
+            self.reason = ContextPrCreationReason.UNKNOWN.value
         self.cause: BaseException | None = cause
 
 
@@ -10514,6 +10531,17 @@ def _persist_context_pr_linkage_on_contract(
     """Write ``context_branch`` / ``context_pr_number`` onto the contract
     and commit + push the contract update to the work branch.
 
+    **Deleted in slice-2 TASK-2-1** (egg-reviewer non-blocking #6,
+    #2777): unreferenced as of slice-1 — the new
+    :func:`_persist_context_pr_number` is the sole writer of
+    ``context_pr_number``, and the legacy ``context_branch`` field is
+    removed by slice-2's PRMetadata schema bump
+    (v1.1 → v1.2). This function and its caller
+    ``_open_context_pr_for_pipeline`` are kept in place through
+    slice-1 only because deleting them would have expanded slice-1's
+    diff into the scaffold-deletion work that slice-2 owns. If
+    slice-2 slips, the tombstone above is the marker to grep for.
+
     Called from two sites in :func:`_open_context_pr_for_pipeline`:
     the top-of-hook GitHub-state recovery path (when ``list_open_prs``
     surfaces an existing PR for our head) and the happy path after a
@@ -11366,11 +11394,11 @@ def _persist_context_pr_number(
 
     Single-purpose helper extracted so the new
     :func:`_open_context_pr_at_implement_start` opener is not a
-    non-transactional state mutator. Wraps the contract write through
-    the existing per-pipeline state-lock + ``save_contract`` machinery
-    that every other context-PR / slice-PR persistence path uses
-    (mirrors ``_persist_context_pr_linkage_on_contract``'s lock + save
-    pattern from #2548, minus the now-deleted ``context_branch`` field).
+    non-transactional state mutator. Wraps the contract write under
+    the existing per-pipeline state lock so concurrent advance_phase /
+    backstop callers serialise on the same lock instance the rest of
+    the orchestrator uses, then calls ``save_contract`` to atomically
+    rewrite ``.egg-state/contracts/...`` on disk.
 
     The helper is the SOLE writer of ``context_pr_number`` after
     slice-2 (TASK-2-1) deletes the legacy
@@ -11381,6 +11409,28 @@ def _persist_context_pr_number(
     the idempotent path so a resume-from-orphaned-pipeline where the
     contract lost ``context_pr_number`` mid-run still recovers (the
     unit test in TASK-3-8 asserts this).
+
+    Persistence surface (egg-reviewer non-blocking #3):
+
+        ``save_contract`` is a file-level atomic write — it rewrites
+        the contract on disk but does NOT commit-and-push it to the
+        worktree branch. The legacy
+        ``_persist_context_pr_linkage_on_contract`` (slice-2 deletes
+        it) wrapped the save in
+        ``_commit_statefiles_to_worktree`` + ``push_worktree_branch``;
+        the new opener intentionally does NOT, because the opener
+        runs at the canonical advance_phase REST site BEFORE
+        ``_spawn_pipeline_run_thread`` spawns the runner. That makes
+        the on-disk write durable for the runner's first read, but
+        the runner's ``_sync_worktree_with_remote`` has hard-reset
+        paths that can later wipe an uncommitted contract change.
+        Convergence is by the four runner-side backstops (slice-loop
+        entry, implement-entry backstop, ``_run_pipeline`` auto-
+        advance, HITL resume), which call the opener again — its
+        ``gh pr list`` idempotency hit re-persists ``context_pr_number``
+        on disk after a reset. Across the full lifecycle the persisted
+        value converges; within a single advance_phase call the helper
+        is best-effort-on-disk-pending-runner-commit, not transactional.
 
     Raises:
         ContextPrCreationError: when the contract cannot be loaded or
@@ -11730,6 +11780,14 @@ def _resolve_slice_base_branch(
     Replaces the deleted :func:`_resolve_slice_1_context_branch_from_contract`
     with a single resolver that handles both root and non-root slices.
 
+    **Consumed by slice-2 TASK-2-1** (egg-reviewer non-blocking #5):
+    helper lands in slice-1 ahead of its caller so the stacked-PR
+    ordering keeps each PR readable on its own. The slice-2 PR
+    rewrites the slice-loop's base-branch derivation to call this
+    helper at ``pipelines.py:15394-15405``. Until slice-2 lands this
+    function has no caller within this PR; the test surface lives in
+    slice-3 (TASK-3-8) per the same staging.
+
     Resolution order:
 
     1. If the slice record has ``parent_branch_at_creation`` set
@@ -11815,6 +11873,14 @@ def _maybe_open_base_pr_for_plan_to_implement(
     source: str,
 ) -> None:
     """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
+
+    **Deleted in slice-2 TASK-2-1** (egg-reviewer non-blocking #6,
+    #2777): unreferenced as of slice-1. Every former call site now
+    routes through :func:`_open_context_pr_at_implement_start`. The
+    wrapper survives slice-1 only so the stacked-PR ordering keeps
+    each diff readable on its own; slice-2 drops it along with the
+    rest of the ``egg/<id>/context`` scaffold. If slice-2 slips, the
+    tombstone above is the marker to grep for.
 
     Shared wrapper for every plan→implement code path:
 

@@ -594,7 +594,22 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Only fires on plan→implement; other target phases (e.g.
             # plan→pr force-advance) skip the opener because there
             # is no slice stack to root on a context PR.
-            if target_phase == PipelinePhase.IMPLEMENT:
+            #
+            # reviewer egg-reviewer blocker #1 fix: gated on
+            # ``not force`` to match the validator's force gate above.
+            # The exact failure modes operators reach for ``force`` to
+            # bypass (gateway outage, ``gh`` auth churn, GitHub rate-
+            # limit window) are also exactly the failure modes of the
+            # opener, so a force-advance designed to unstick a sick
+            # gateway must not itself be blocked by that same sick
+            # gateway. Convergence on force=True still happens via
+            # the four runner-side backstops (slice-loop entry,
+            # implement-entry backstop, ``_run_pipeline`` auto-
+            # advance, HITL resume) once the gateway recovers; those
+            # call sites log-and-continue (best-effort), so they will
+            # retry the opener every time the implement phase enters
+            # the runner.
+            if target_phase == PipelinePhase.IMPLEMENT and not force:
                 try:
                     from routes.pipelines import (
                         ContextPrCreationError,
