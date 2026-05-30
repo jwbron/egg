@@ -527,10 +527,21 @@ class GatewayClient:
         except HTTPError as e:
             try:
                 error_data = json.loads(e.read().decode())
+                # ``make_error`` on the gateway side puts error details
+                # under ``"data"`` (via ``make_response(success=False,
+                # ..., data=details, ...)``). Read ``"data"`` first and
+                # fall back to ``"details"`` for callers / routes that
+                # emit the key directly (e.g. ``mode_gate`` private-mode
+                # 403). Without this fallback, the downstream
+                # ``exc.details`` is always ``None`` for /api/v1/git/execute
+                # failures and the ``returncode != 1`` warning gate in
+                # ``merge_base`` / ``_sha_is_ancestor`` fires noisily on
+                # every legitimate exit-1 (no common ancestor / not-an-
+                # ancestor) case. Reviewer feedback on PR #2895.
                 raise GatewayError(
                     error_data.get("message", str(e)),
                     status_code=e.code,
-                    details=error_data.get("details"),
+                    details=error_data.get("data") or error_data.get("details"),
                 )
             except json.JSONDecodeError:
                 raise GatewayError(str(e), status_code=e.code) from e

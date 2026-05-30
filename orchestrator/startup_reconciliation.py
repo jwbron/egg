@@ -306,75 +306,85 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                 continue
             if not is_concurrent_execution(pipeline, pipeline.current_phase):
                 continue
-            if get_peer_consensus_tracker(pipeline_id) is not None:
-                continue
 
             graph = get_review_graph_for_phase(pipeline.current_phase.value, repo=pipeline.repo)
-            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
-            if tracker:
-                logger.info(
-                    "Startup reconciliation: reconstructed consensus tracker",
-                    pipeline_id=pipeline_id,
-                )
 
-                # If consensus was already complete before the restart,
-                # mark agents and phase COMPLETE so the pipeline can advance.
-                try:
-                    evaluation = tracker.evaluate()
-                    if evaluation.get("is_complete"):
-                        logger.warning(
-                            "Startup reconciliation: consensus already complete, "
-                            "marking phase complete for recovery",
-                            pipeline_id=pipeline_id,
-                        )
-                        from models import AgentExecutionStatus
-
-                        phase_exec = pipeline.phases.get(pipeline.current_phase.value)
-                        if phase_exec is not None:
-                            # The reconstructed tracker is the pipeline-level
-                            # one (``get_peer_consensus_tracker(pipeline_id)``
-                            # — no slice arg), so only mark pipeline-level
-                            # agents COMPLETE. Per-slice tracker
-                            # reconstruction would have to evaluate each
-                            # slice's tracker separately; flipping every
-                            # agent regardless of slice would prematurely
-                            # complete agents whose slice-scoped consensus
-                            # hadn't actually reached terminal state (#2422).
-                            for agent in phase_exec.agents:
-                                if getattr(agent, "slice_id", None) is not None:
-                                    continue
-                                if agent.status == AgentExecutionStatus.RUNNING:
-                                    agent.status = AgentExecutionStatus.COMPLETE
-                                    agent.completed_at = datetime.now(UTC)
-                            # Phase-level mutations are scoped to "no
-                            # other slice still active": the
-                            # reconstructed tracker is the pipeline-level
-                            # one, so only ``slice_id is None`` agents
-                            # were flipped above. If sibling slice-scoped
-                            # agents are still non-terminal, their
-                            # per-slice trackers haven't been
-                            # reconstructed here yet — leave the phase
-                            # RUNNING so they aren't prematurely marked
-                            # COMPLETE (#2441).
-                            other_slice_active = any(
-                                getattr(agent, "slice_id", None) is not None
-                                and agent.status
-                                not in (
-                                    AgentExecutionStatus.COMPLETE,
-                                    AgentExecutionStatus.FAILED,
-                                )
-                                for agent in phase_exec.agents
-                            )
-                            if not other_slice_active:
-                                phase_exec.status = PipelineStatus.COMPLETE
-                                phase_exec.completed_at = datetime.now(UTC)
-                            store.save_pipeline(pipeline)
-                except Exception as eval_err:
-                    logger.warning(
-                        "Startup reconciliation: consensus evaluation failed",
+            # Pipeline-level reconstruction is guarded by a tracker-
+            # existence check so a second invocation of
+            # ``reconcile_stale_containers`` (mid-run hook, future test)
+            # does not redo the work — but the per-slice loop below is
+            # NOT short-circuited by the pipeline-level tracker
+            # existing, because slice trackers are registered under
+            # nested ``{pipeline_id}/{slice_id}`` keys and may be
+            # missing even when the pipeline-level tracker is present.
+            # Reviewer feedback on PR #2895: hardening against silent
+            # data gaps if this function is ever re-invoked.
+            if get_peer_consensus_tracker(pipeline_id) is None:
+                tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+                if tracker:
+                    logger.info(
+                        "Startup reconciliation: reconstructed consensus tracker",
                         pipeline_id=pipeline_id,
-                        error=str(eval_err),
                     )
+
+                    # If consensus was already complete before the restart,
+                    # mark agents and phase COMPLETE so the pipeline can advance.
+                    try:
+                        evaluation = tracker.evaluate()
+                        if evaluation.get("is_complete"):
+                            logger.warning(
+                                "Startup reconciliation: consensus already complete, "
+                                "marking phase complete for recovery",
+                                pipeline_id=pipeline_id,
+                            )
+                            from models import AgentExecutionStatus
+
+                            phase_exec = pipeline.phases.get(pipeline.current_phase.value)
+                            if phase_exec is not None:
+                                # The reconstructed tracker is the pipeline-level
+                                # one (``get_peer_consensus_tracker(pipeline_id)``
+                                # — no slice arg), so only mark pipeline-level
+                                # agents COMPLETE. Per-slice tracker
+                                # reconstruction would have to evaluate each
+                                # slice's tracker separately; flipping every
+                                # agent regardless of slice would prematurely
+                                # complete agents whose slice-scoped consensus
+                                # hadn't actually reached terminal state (#2422).
+                                for agent in phase_exec.agents:
+                                    if getattr(agent, "slice_id", None) is not None:
+                                        continue
+                                    if agent.status == AgentExecutionStatus.RUNNING:
+                                        agent.status = AgentExecutionStatus.COMPLETE
+                                        agent.completed_at = datetime.now(UTC)
+                                # Phase-level mutations are scoped to "no
+                                # other slice still active": the
+                                # reconstructed tracker is the pipeline-level
+                                # one, so only ``slice_id is None`` agents
+                                # were flipped above. If sibling slice-scoped
+                                # agents are still non-terminal, their
+                                # per-slice trackers haven't been
+                                # reconstructed here yet — leave the phase
+                                # RUNNING so they aren't prematurely marked
+                                # COMPLETE (#2441).
+                                other_slice_active = any(
+                                    getattr(agent, "slice_id", None) is not None
+                                    and agent.status
+                                    not in (
+                                        AgentExecutionStatus.COMPLETE,
+                                        AgentExecutionStatus.FAILED,
+                                    )
+                                    for agent in phase_exec.agents
+                                )
+                                if not other_slice_active:
+                                    phase_exec.status = PipelineStatus.COMPLETE
+                                    phase_exec.completed_at = datetime.now(UTC)
+                                store.save_pipeline(pipeline)
+                    except Exception as eval_err:
+                        logger.warning(
+                            "Startup reconciliation: consensus evaluation failed",
+                            pipeline_id=pipeline_id,
+                            error=str(eval_err),
+                        )
 
             # Slice-4 TASK-4-5 (closes #2409): per-slice consensus
             # tracker reconstruction. Iterate the pipeline's contract
@@ -395,8 +405,14 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             # ``metadata.slice_id is None`` messages so OVERSEER_ALERTs
             # fan out across slices — so the peer_consensus filter is
             # the actual isolation enforcer for reconstruction.
-            _slice_objs = _enumerate_contract_slices(pipeline, store)
-            for _slice_id in _slice_objs:
+            # Sibling loop to the pipeline-level reconstruction above:
+            # NOT nested under the pipeline-level tracker-existence
+            # guard, because slice trackers live under their own
+            # ``{pipeline_id}/{slice_id}`` keys and a present
+            # pipeline-level tracker does not imply slice trackers
+            # exist (reviewer feedback on PR #2895).
+            _slice_ids = _enumerate_contract_slices(pipeline, store)
+            for _slice_id in _slice_ids:
                 try:
                     if get_peer_consensus_tracker(pipeline.id, slice_id=_slice_id) is not None:
                         continue
