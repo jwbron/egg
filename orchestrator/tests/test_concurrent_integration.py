@@ -696,37 +696,12 @@ class TestNoImplicitReadyOnCleanExit:
     must not fake consensus on behalf of agents.
     """
 
-    def test_clean_exit_does_not_register_ready(self):
-        """Container exiting with code 0 should NOT auto-register as READY."""
-        from consensus import ReadinessState, get_consensus_evaluator
-
-        evaluator = get_consensus_evaluator()
-        pipeline_id = "test-no-implicit-ready"
-
-        # Register an agent as WORKING
-        evaluator.register_agent(pipeline_id, "tester")
-        state = evaluator.evaluate(pipeline_id)
-        assert not state["is_complete"]
-        assert "tester" in state["blocking_agents"]
-
-        # The orchestrator should NOT auto-register READY on clean exit.
-        # The agent must remain blocking until it explicitly signals.
-        state = evaluator.evaluate(pipeline_id)
-        assert not state["is_complete"]
-        assert "tester" in state["blocking_agents"]
-
-        # Only explicit READY from the agent should complete consensus
-        evaluator.update_readiness(
-            pipeline_id,
-            "tester",
-            ReadinessState.READY,
-            reason="Agent explicitly signaled READY",
-        )
-        state = evaluator.evaluate(pipeline_id)
-        assert state["is_complete"]
-
-        # Cleanup
-        evaluator.clear(pipeline_id)
+    # NOTE: the former ``test_clean_exit_does_not_register_ready`` exercised
+    # the legacy ``consensus`` readiness evaluator (``get_consensus_evaluator``
+    # / ``register_agent`` / ``evaluate`` / ``update_readiness``) that #2777
+    # (slice-2) deleted. The "orchestrator must not fake consensus" invariant
+    # is now enforced by the BRC peer-consensus protocol, not an
+    # orchestrator-side readiness evaluator.
 
     def test_wrapper_contains_restart_logic(self):
         """The consensus wrapper should restart agents, not auto-signal READY."""
@@ -1018,22 +993,16 @@ class TestConsensusConfirmedDedupRegression:
         import tempfile
         from unittest.mock import MagicMock
 
-        from consensus import ReadinessState, get_consensus_evaluator
         from message_store import get_message_store
 
         pipeline_id = "issue-task-8-2"
         agent_role = "coder"
         N = 10
 
-        # Seed the evaluator so the confirmed handler has state to work with.
-        evaluator = get_consensus_evaluator()
-        evaluator.register_agent(pipeline_id, agent_role)
-        evaluator.update_readiness(
-            pipeline_id,
-            agent_role,
-            ReadinessState.READY,
-            reason="setup",
-        )
+        # The dedup is enforced by the CONSENSUS_CONFIRMED signal handler
+        # against the BRC peer-consensus tracker (mocked below) and the
+        # message store. The legacy ``consensus`` evaluator seeding was
+        # removed in #2777 (slice-2 deleted ``orchestrator/consensus.py``).
 
         client = deduce_app.test_client()
 
@@ -1084,9 +1053,6 @@ class TestConsensusConfirmedDedupRegression:
             for m in messages
             if m.from_role == agent_role and str(m.message_type) == "CONSENSUS_CONFIRMED"
         ]
-
-        # Cleanup
-        evaluator.clear(pipeline_id)
 
         assert len(confirmed_from_role) == 1, (
             f"N={N} consensus_confirmed calls produced "

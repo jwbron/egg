@@ -147,7 +147,7 @@ class TestAdvancePhaseLaunchesThread:
     ):
         """force=true advance must also launch a thread."""
         pipeline = _make_pipeline(
-            phase=PipelinePhase.IMPLEMENT,
+            phase=PipelinePhase.PLAN,
             phase_status=PipelineStatus.RUNNING,
         )
 
@@ -159,7 +159,7 @@ class TestAdvancePhaseLaunchesThread:
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
-            json={"target_phase": "pr", "force": True},
+            json={"target_phase": "implement", "force": True},
         )
 
         assert response.status_code == 200
@@ -484,12 +484,14 @@ class TestPostBrcBandSwallowsErrors:
         # the broader handler.  Find every call to the helper and assert
         # the immediately-following ``except`` clause is ``Exception``.
         call_sites = list(re.finditer(r"_commit_statefiles_to_worktree\(", source))
-        # Five known call sites in ``_run_pipeline``: initial statefile
-        # commit, pre-PR commit, pre-sync commit (#2488), post-phase
-        # commit, post-HITL-resolution commit.  Pin the count so a future
-        # move/delete is caught rather than silently degrading coverage.
-        assert len(call_sites) == 5, (
-            f"Expected 5 _commit_statefiles_to_worktree call sites in "
+        # Four known call sites in ``_run_pipeline``: initial statefile
+        # commit, pre-sync commit (#2488), post-phase commit, and
+        # post-HITL-resolution commit.  The former pre-PR commit was
+        # removed in #2777 (slice-2) along with the PR phase.  Pin the
+        # count so a future move/delete is caught rather than silently
+        # degrading coverage.
+        assert len(call_sites) == 4, (
+            f"Expected 4 _commit_statefiles_to_worktree call sites in "
             f"_run_pipeline, found {len(call_sites)}.  If a call was "
             f"intentionally added/removed, update this count and the "
             f"comment above."

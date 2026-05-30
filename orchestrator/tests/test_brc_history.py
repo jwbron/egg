@@ -1,10 +1,15 @@
 """
-Tests for BRC history persistence: _write_brc_history and the PR-body
-one-line pointer to committed transcripts.
+Tests for BRC history persistence: _write_brc_history and the
+one-line transcript pointer helper.
 
 Covers:
 - _write_brc_history: file creation with BRC messages, no-op on empty store
-- _build_pr_body: one-line link to committed brc-history/*.md files (#1828)
+- _build_brc_history_link_line: one-line link to committed
+  brc-history/*.md files (#1828). NOTE: the PR-body assembler
+  ``_build_pr_body`` that consumed this line was removed in #2777
+  (slice-2); the context PR now uses ``contract.pr.description``
+  directly. The link-line helper survives and is covered by
+  ``TestBrcHistoryLinkLine``.
 - Edge cases: mixed message types, multiple phases
 """
 
@@ -37,7 +42,7 @@ def _make_pipeline(
         branch=branch,
         mode="issue",
         status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.PR,
+        current_phase=PipelinePhase.IMPLEMENT,
     )
 
 
@@ -1504,60 +1509,6 @@ class TestBuildBrcHistoryLinkLine:
         result = _build_brc_history_link_line(tmp_path, 42)
         # Canonical phase (plan) must appear before the non-canonical one
         assert result.index("plan") < result.index("custom")
-
-
-class TestBuildPrBodyBrcLink:
-    """Integration tests: _build_pr_body includes the one-line link when transcripts exist."""
-
-    def test_body_includes_link_line_when_history_files_exist(self, tmp_path):
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-        history_dir = tmp_path / ".egg-state" / "brc-history"
-        history_dir.mkdir(parents=True)
-        (history_dir / "42-plan.md").write_text("stub")
-        # #2548: implement is per-slice — the aggregate file is gone.
-        impl_file = f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        (history_dir / impl_file).write_text("stub")
-
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-
-        assert "_Per-phase BRC transcripts:" in body
-        assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in body
-        assert (
-            f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`](./.egg-state/brc-history/{impl_file})"
-        ) in body
-        # The dropped inline summary must not reappear
-        assert "## BRC Consensus Summary" not in body
-        # Existing sections still present
-        assert "Authored-by: egg" in body
-        assert title == "Fix authentication bypass in login flow"
-
-    def test_body_omits_link_line_when_no_history_files(self, tmp_path):
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-
-        assert "Per-phase BRC transcripts" not in body
-        assert "Authored-by: egg" in body
-
-    def test_link_line_appears_before_authored_by(self, tmp_path):
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-        history_dir = tmp_path / ".egg-state" / "brc-history"
-        history_dir.mkdir(parents=True)
-        # #2548: per-slice implement file replaces the aggregate.
-        (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").write_text("stub")
-
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-
-        assert body.index("Per-phase BRC transcripts") < body.index("Authored-by: egg")
 
 
 # ---------------------------------------------------------------------------

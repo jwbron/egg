@@ -136,11 +136,12 @@ class TestRenderPipelineDag:
         pipeline = create_test_pipeline()
         result = render_pipeline_dag(pipeline)
 
-        # Check all phases are present
+        # Check all phases are present. The PR phase was removed in #2777
+        # (slice-2); IMPLEMENT is terminal.
         assert "Refine" in result
         assert "Plan" in result
         assert "Implement" in result
-        assert "PR" in result
+        assert "PR" not in result
 
     def test_current_phase_marker(self):
         """Test that current phase is marked."""
@@ -325,7 +326,8 @@ class TestRenderCompactStatus:
         assert "Refine" in result
         assert "Plan" in result
         assert "Implement" in result
-        assert "PR" in result
+        # PR phase removed in #2777 (slice-2).
+        assert "PR" not in result
 
     def test_current_phase_bracketed(self):
         """Test that current phase is bracketed."""
@@ -362,8 +364,9 @@ class TestRenderProgressBar:
         )
         result = render_progress_bar(pipeline, width=20)
 
-        # Should show 0% or very low percentage
-        assert "0%" in result or "12%" in result
+        # Should show a low percentage. With the 3-phase order (PR removed
+        # in #2777), the in-progress current phase contributes 0.5/3 ≈ 16%.
+        assert "0%" in result or "16%" in result
 
     def test_partial_progress(self):
         """Test progress bar with some completed phases."""
@@ -383,8 +386,9 @@ class TestRenderProgressBar:
         )
         result = render_progress_bar(pipeline, width=20)
 
-        # Should show approximately 50% (2/4 complete + half for current)
-        assert "62%" in result or "50%" in result
+        # With the 3-phase order (PR removed in #2777): 2 complete + half
+        # for the in-progress IMPLEMENT phase → (2 + 0.5)/3 ≈ 83%.
+        assert "83%" in result or "50%" in result
 
     def test_complete_progress(self):
         """Test progress bar when all phases complete."""
@@ -397,7 +401,7 @@ class TestRenderProgressBar:
         }
         pipeline = create_test_pipeline(
             phases=phases,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
             status=PipelineStatus.COMPLETE,
         )
         result = render_progress_bar(pipeline, width=20)
@@ -418,10 +422,10 @@ class TestRenderPhaseDetail:
 
     def test_not_started_phase(self):
         """Test detail view for phase not yet started."""
-        pipeline = create_test_pipeline()
-        result = render_phase_detail(pipeline, PipelinePhase.PR)
+        pipeline = create_test_pipeline(current_phase=PipelinePhase.PLAN)
+        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
 
-        assert "Phase: PR" in result
+        assert "Phase: Refine" in result
         assert "Not started" in result
 
     def test_phase_with_all_details(self):
@@ -770,7 +774,10 @@ class TestWaveGrouping:
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.RUNNING),
         ]
-        waves = _compute_wave_order(PipelinePhase.PR, agents)
+        # APPLY has no multi-wave role structure, so it falls back to a
+        # single group (the PR phase, formerly used here, was removed in
+        # #2777 slice-2).
+        waves = _compute_wave_order(PipelinePhase.APPLY, agents)
 
         # Should return single group (fallback)
         assert len(waves) == 1

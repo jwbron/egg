@@ -495,7 +495,6 @@ class TestResumeHelperResetsConsensusAndHealth:
 
         mock_spawner = MagicMock()
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
         mock_hm = MagicMock()
 
         with (
@@ -510,9 +509,6 @@ class TestResumeHelperResetsConsensusAndHealth:
                     "peer_consensus": MagicMock(
                         get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
                     ),
-                    "consensus": MagicMock(
-                        get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
-                    ),
                     "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
                 },
             ),
@@ -525,8 +521,10 @@ class TestResumeHelperResetsConsensusAndHealth:
             )
 
         assert ok is True
+        # The legacy ``consensus`` evaluator clear was removed in #2777
+        # (slice-2 deleted ``orchestrator/consensus.py``); only the
+        # peer-consensus (BRC) tracker is cleared on resume now.
         mock_tracker.clear.assert_called_once()
-        mock_evaluator.clear.assert_called_once_with("issue-2792")
         mock_spawner.reset_restart_counts.assert_called_once_with("issue-2792")
         reset_calls = {call.args[0] for call in mock_hm.reset_agent.call_args_list}
         assert reset_calls == {"coder", "tester", "documenter"}
@@ -586,9 +584,6 @@ class TestResumeHelperResetsConsensusAndHealth:
                     "peer_consensus": MagicMock(
                         get_peer_consensus_tracker=MagicMock(return_value=None)
                     ),
-                    "consensus": MagicMock(
-                        get_consensus_evaluator=MagicMock(return_value=MagicMock())
-                    ),
                     "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
                     "egg_contracts.agent_roles": fake_roles_module,
                 },
@@ -616,7 +611,6 @@ class TestResumeHelperResetsConsensusAndHealth:
         mock_store.repo_path = Path("/repo")
 
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
 
         with (
             patch("routes.pipelines.get_repo_path", return_value=Path("/repo")),
@@ -629,9 +623,6 @@ class TestResumeHelperResetsConsensusAndHealth:
                 {
                     "peer_consensus": MagicMock(
                         get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                    ),
-                    "consensus": MagicMock(
-                        get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
                     ),
                 },
             ),
@@ -646,7 +637,6 @@ class TestResumeHelperResetsConsensusAndHealth:
 
         assert ok is False
         mock_tracker.clear.assert_not_called()
-        mock_evaluator.clear.assert_not_called()
         mock_get_spawner.assert_not_called()
         mock_spawn.assert_not_called()
 
