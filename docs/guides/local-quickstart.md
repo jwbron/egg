@@ -97,7 +97,7 @@ With no arguments, this starts a **prompt-driven pipeline**. The agent will:
 3. Create a pipeline in the orchestrator
 4. Run through refine → plan → implement phases (the context PR opens up-front at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777))
 
-During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. At the plan→implement boundary, the orchestrator auto-creates the context PR (`egg/<id>/work → main`) using metadata from the plan, commit log, and diff stats — no agent is spawned and the open is idempotent (`gh pr list` pre-flight via `GatewayClient._lookup_open_pr`). The legacy terminal "PR phase" as a separate pipeline stage was deleted in #2777.
+During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. At the plan→implement boundary, the orchestrator auto-creates the context PR (`egg/<id>/work → main`) using metadata from the plan, commit log, and diff stats — no agent is spawned and the open is idempotent (`GatewayClient.list_open_prs` pre-flight with client-side head+base filter). The legacy terminal "PR phase" as a separate pipeline stage was deleted in #2777.
 
 **Pipeline phases:**
 
@@ -161,7 +161,7 @@ Here's what the issue pipeline creates and when:
 
 **Nothing is merged automatically.** The gateway enforces merge blocking — only humans can merge PRs via the GitHub UI.
 
-Prompt-driven pipelines open the context PR up-front at the plan→implement boundary (idempotent, via `GatewayClient._lookup_open_pr` + `GatewayClient.create_pr()`) but do not interact with GitHub issues. No agent is spawned for PR creation, and the legacy terminal "PR phase" was deleted in [#2777](https://github.com/jwbron/egg/issues/2777).
+Prompt-driven pipelines open the context PR up-front at the plan→implement boundary (idempotent, via `GatewayClient.list_open_prs` client-side filter + `GatewayClient.create_pr()`) but do not interact with GitHub issues. No agent is spawned for PR creation, and the legacy terminal "PR phase" was deleted in [#2777](https://github.com/jwbron/egg/issues/2777).
 
 The pipeline stores its internal state in `.egg-state/` on the feature branch (not on main). This includes the contract JSON, draft documents, and review verdicts.
 

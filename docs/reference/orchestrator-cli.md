@@ -478,9 +478,9 @@ The contract's `PRMetadata` was simplified in schema v1.2 ([#2777](https://githu
 | `pr.description` | v1.0+ | Planner | Body for the Context PR (program-level narrative). |
 | `pr.context_pr_number` | v1.1+ | Orchestrator | GitHub PR number of the `egg/<id>/work → main` Context PR — populated when the PR is opened. |
 
-The orchestrator manages the Context PR end-to-end (open up-front at the plan→implement boundary, idempotently via `GatewayClient._lookup_open_pr` + `GatewayClient.create_pr()`). There are no `egg-orch` verbs for opening or closing it manually.
+The orchestrator manages the Context PR end-to-end (open up-front at the plan→implement boundary, idempotently via `GatewayClient.list_open_prs` client-side filter + `GatewayClient.create_pr()`). There are no `egg-orch` verbs for opening or closing it manually.
 
-**Observability:** The context-PR open is wrapped in idempotency: `GatewayClient._lookup_open_pr("egg/<id>/work", base)` runs `gh pr list --head ... --base ... --state open --json number` before any `gh pr create` call, so transient `gh pr create` failures that are retried after a partial success no longer cascade the pipeline to FAILED. If the open fails outright (idempotent pre-flight returns no existing PR *and* `gh pr create` itself fails), the pipeline is marked **FAILED** — there is no terminal back-stop because the PR phase as a separate pipeline stage was deleted in #2777.
+**Observability:** The context-PR open is wrapped in idempotency: `GatewayClient.list_open_prs` is called and filtered client-side for a PR whose head is `egg/<id>/work` and base is the target branch, before any `gh pr create` call, so transient `gh pr create` failures that are retried after a partial success no longer cascade the pipeline to FAILED. If the open fails outright (idempotent pre-flight returns no existing PR *and* `gh pr create` itself fails), the pipeline is marked **FAILED** — there is no terminal back-stop because the PR phase as a separate pipeline stage was deleted in #2777.
 
 **Pipeline deletion does not clean up Context PRs:** `egg-orch pipeline delete <id>` only removes the pipeline tip branch (`egg/<id>/work`) and per-container worktree branches. Under #2777 the work branch is itself the Context PR's head; closing the PR therefore happens whenever the branch is deleted. To remove an unwanted Context PR explicitly:
 
