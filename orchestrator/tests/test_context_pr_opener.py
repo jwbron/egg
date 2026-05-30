@@ -131,9 +131,7 @@ class TestOpenContextPrHappyPath:
         # parseable URL.
         spawner = MagicMock()
         spawner.gateway.list_open_prs.return_value = []
-        spawner.gateway.create_pr.return_value = (
-            f"https://github.com/{pipeline.repo}/pull/4242"
-        )
+        spawner.gateway.create_pr.return_value = f"https://github.com/{pipeline.repo}/pull/4242"
 
         with (
             patch(
@@ -182,9 +180,7 @@ class TestOpenContextPrHappyPath:
         contract = _make_contract()
         spawner = MagicMock()
         spawner.gateway.list_open_prs.return_value = []
-        spawner.gateway.create_pr.return_value = (
-            "https://github.com/owner/repo/pull/777"
-        )
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/777"
 
         with (
             patch(
@@ -294,9 +290,7 @@ class TestOpenContextPrIdempotent:
                 "base_ref": pipeline.base_branch,
             },
         ]
-        spawner.gateway.create_pr.return_value = (
-            "https://github.com/owner/repo/pull/3"
-        )
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
 
         with (
             patch(
@@ -423,10 +417,7 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason
-            == ContextPrCreationReason.MISSING_PR_METADATA.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.MISSING_PR_METADATA.value
         # ``create_pr`` MUST NOT have been called — the contract guard
         # short-circuits before the gateway request.
         spawner.gateway.create_pr.assert_not_called()
@@ -463,9 +454,7 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason == ContextPrCreationReason.LOOKUP_FAILED.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.LOOKUP_FAILED.value
         # No duplicate PR creation attempt.
         spawner.gateway.create_pr.assert_not_called()
 
@@ -502,9 +491,7 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason == ContextPrCreationReason.GATEWAY_ERROR.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.GATEWAY_ERROR.value
 
     def test_create_pr_returns_no_url_raises_gateway_no_url(self, tmp_path):
         """A ``create_pr`` that returns ``None`` (gh succeeded but printed
@@ -538,9 +525,7 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason == ContextPrCreationReason.GATEWAY_NO_URL.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.GATEWAY_NO_URL.value
 
     @pytest.mark.parametrize(
         "bad_url",
@@ -550,9 +535,7 @@ class TestOpenContextPrHardRequiredRaises:
             "https://github.com/owner/repo/pull/abc",
         ],
     )
-    def test_unparseable_create_pr_url_raises_gateway_bad_url(
-        self, tmp_path, bad_url
-    ):
+    def test_unparseable_create_pr_url_raises_gateway_bad_url(self, tmp_path, bad_url):
         """A URL the regex cannot lift a number out of (or whose suffix
         is not a valid PR path boundary) raises ``gateway_bad_url``. The
         trailing-boundary regex must not let a digit-suffixed slug like
@@ -586,9 +569,7 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason == ContextPrCreationReason.GATEWAY_BAD_URL.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.GATEWAY_BAD_URL.value
 
     def test_malformed_list_open_prs_entry_raises_lookup_bad_response(self, tmp_path):
         """If the gateway returns an entry with a missing or non-numeric
@@ -627,7 +608,4 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert (
-            exc_info.value.reason
-            == ContextPrCreationReason.LOOKUP_BAD_RESPONSE.value
-        )
+        assert exc_info.value.reason == ContextPrCreationReason.LOOKUP_BAD_RESPONSE.value
