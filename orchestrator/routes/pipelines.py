@@ -11735,11 +11735,13 @@ def _resolve_slice_base_branch(
     1. If the slice record has ``parent_branch_at_creation`` set
        (eager-persisted at PENDING→IN_PROGRESS in slice-4's TASK-4-2),
        return it. This is the primary path post-slice-4.
-    2. Otherwise, for root slices (``parent_slice_id is None``), return
-       ``pipeline_branch`` (``egg/<id>/work``) — the canonical
+    2. Otherwise, for root slices (no entries in ``slice.dependencies``),
+       return ``pipeline_branch`` (``egg/<id>/work``) — the canonical
        context-PR head under the new topology.
-    3. For non-root slices, derive
-       ``egg/<id>/<parent_slice_id>`` from the parent_slice_id.
+    3. For non-root slices, derive ``egg/<id>/<parent_slice_id>`` from
+       ``slice.dependencies[0]``. After the #2137 forest constraint
+       each slice has at most one DAG parent
+       (``shared/egg_contracts/models.py:341``).
 
     Slice-4's TASK-4-3 extends this helper with a merge-base fallback
     for orphaned slices whose ``parent_branch_at_creation`` is empty
@@ -11780,16 +11782,26 @@ def _resolve_slice_base_branch(
     if parent_recorded:
         return parent_recorded
 
+    # Derive the parent slice id from ``slice.dependencies[0]``. After
+    # the #2137 forest constraint each slice has at most one DAG
+    # parent (see ``shared/egg_contracts/models.py:341``); the existing
+    # slice-loop already follows this convention at
+    # ``slice_scheduler.py:245`` and ``pipelines.py:2598`` (reviewer_code
+    # v2 NACK blocker 2 — v1/v2 read a non-existent ``parent_slice_id``
+    # attribute, which always returned ``None`` and silently routed
+    # non-root slices to ``pipeline_branch``).
+    deps = getattr(slice_record, "dependencies", None) or []
+    parent_slice_id = deps[0] if deps else None
+
     # (2) Root slice — under the new topology (cq-4), the context PR
     # is ``egg/<id>/work → main`` so root slices stack directly on the
     # work branch rather than a separate ``egg/<id>/context`` branch.
-    parent_slice_id = getattr(slice_record, "parent_slice_id", None)
     if parent_slice_id is None:
         return pipeline_branch
 
-    # (3) Non-root slice — derive from parent_slice_id. Mirrors the
-    # existing ``f"{issue_branch}/{parent_slice_id}"`` convention at
-    # the legacy slice-loop call site.
+    # (3) Non-root slice — derive from the first dependency. Mirrors
+    # the existing ``f"{issue_branch}/{parent_slice_id}"`` convention
+    # at the legacy slice-loop call site.
     issue_branch = _slice_namespace_root(pipeline_branch)
     return f"{issue_branch}/{parent_slice_id}"
 

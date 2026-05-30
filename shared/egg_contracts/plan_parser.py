@@ -1900,12 +1900,20 @@ def validate_plan_preflight(content: str) -> None:
         missing.append("pr.test_plan")
 
     # (e) manual_steps: an empty string IS allowed (contract default),
-    # so we only reject when the key is absent from the YAML entirely.
-    # ``pr_manual_steps is None`` distinguishes "key missing" from
-    # "key present with empty value" — the parser preserves that
-    # distinction by mapping a missing key to ``None`` and an empty
-    # value to ``""``.
-    if result.pr_manual_steps is None:
+    # so we only reject when the key is ABSENT from the parsed YAML
+    # entirely. ``ParseResult.pr_manual_steps`` cannot distinguish
+    # "key missing" from "key present with empty value" because
+    # ``extract_pr_metadata_from_yaml`` normalises both via
+    # ``_normalize_optional_string`` which maps ``None`` → ``""``.
+    # Inspect ``raw_yaml`` directly so the key-presence check is
+    # structural rather than value-shape-dependent (reviewer_code v2
+    # NACK blocker 1).
+    raw_pr_block: dict[str, Any] = {}
+    if isinstance(result.raw_yaml, dict):
+        candidate = result.raw_yaml.get("pr")
+        if isinstance(candidate, dict):
+            raw_pr_block = candidate
+    if "manual_steps" not in raw_pr_block:
         missing.append("pr.manual_steps")
 
     if missing:
