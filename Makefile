@@ -568,6 +568,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		echo "ERROR: envsubst not found. Install GNU gettext: 'dnf install gettext' or 'brew install gettext'." >&2; \
 		exit 1; \
 	}
+	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	export EGG_HOST_HOME="$${EGG_HOST_HOME:-$$HOME}" && \
 	export EGG_HOST_REPO_MAP="$${EGG_HOST_REPO_MAP:-$$(scripts/build-host-repo-map.py)}" && \
