@@ -1477,7 +1477,12 @@ class PipelineToolHandler:
             "pipeline": pipeline_info,
         }
 
-        # Extract agent info from phases
+        # Extract agent info from phases. ``phases`` was previously
+        # also used for PR-info extraction above, but that lookup was
+        # rewired in #2777 to read ``pipeline_data["pr_url"]`` /
+        # ``pipeline_data["pr_number"]`` directly. The per-phase agent
+        # iteration below still needs the phases map, so bind it here.
+        phases = pipeline_data.get("phases") or {}
         current_phase_key = pipeline_data.get("current_phase", "")
         phase_data = phases.get(current_phase_key, {})
         agents = phase_data.get("agents", [])
