@@ -56,13 +56,22 @@ The issue body's numbers match HEAD exactly. The seventeen entries in `scripts/f
 
 ### Test patch surface (still load-bearing)
 
-- 51 distinct `patch("routes.pipelines.<sym>")` targets across the test suite. The barrel re-export is the contract that keeps these working.
-- 6 distinct `patch("gateway.gateway.<sym>")` targets (smaller surface than `pipelines.py` but the gateway file is 10,690 lines and has its own concentration of Flask `@app.route(...)` registrations).
-- `mcp_tools` tests do not currently use `patch("…mcp_tools.<sym>")` — they construct handlers directly. The patch-target invariant from the issue body and the pattern doc still applies (class identity stays in `__init__.py`, helpers move to `_dispatch.py` / `_status.py` / etc.).
+Counts reproducible with `grep -rhE 'patch\("(orchestrator\.)?routes\.pipelines\.[_a-zA-Z0-9]+' --include='*.py' .` and analogous patterns for `gateway.gateway.` and `mcp_tools.`:
+
+- **49 distinct symbols** patched at `(orchestrator.)?routes.pipelines.<sym>` after collapsing `routes.pipelines.X` and `orchestrator.routes.pipelines.X` onto the suffix; **51 distinct full patch-target strings** when both prefix forms are counted separately. The barrel re-export is the contract that keeps both shapes working.
+- **6 distinct full patch-target strings** at `(gateway\.)?gateway.gateway.<sym>` (smaller surface than `pipelines.py` but the gateway file is 10,690 lines and has its own concentration of Flask `@app.route(...)` registrations).
+- `mcp_tools` tests do not currently `patch("…mcp_tools.<sym>")` — they construct handlers directly (zero matches). The patch-target invariant from the issue body and the pattern doc still applies (class identity stays in `__init__.py`, helpers move to `_dispatch.py` / `_status.py` / etc.).
 
 ### Production-importer surface
 
-- 92 distinct `from routes.pipelines import …` / `from orchestrator.routes.pipelines import …` import lines across `orchestrator/`, `gateway/`, `sandbox/`, `shared/`. Many use the dual `try: from ..foo / except ImportError: from foo` shape mandated by non-negotiable #4. Symbols include `_read_phase_draft`, `_pipeline_identifier`, `_run_pipeline`, `WORKTREE_BASE_DIR`, `PipelinePhase`, `PopulateOutcome`, `_populate_contract_from_plan`, `_resolve_slice_base_branch`, `_build_agent_prompt`, etc. — far broader than the four importers the issue body explicitly names. The pattern doc's section (d) "External-importer audit recipe" applies and must run per slice.
+Counts reproducible with `grep -rEln '^[[:space:]]*from[[:space:]]+((orchestrator\.)?routes\.pipelines|\.\.routes\.pipelines)[[:space:]]+import' --include='*.py' .` and variants:
+
+- **87 files** (production + tests) import from `routes.pipelines` / `orchestrator.routes.pipelines` / relative `..routes.pipelines`.
+- **9 non-test source files** under `orchestrator/`, `gateway/`, `sandbox/`, `shared/`, `scripts/`, `integration_tests/` import from `routes.pipelines` (i.e. production importers, exclusive of `tests/` and `test_*.py`).
+- **447 total import statements** across the 87 files.
+- **95 unique `from … import …` import-line strings** across all files (collapsing duplicates within and across files; ~94 of these reach a non-test file at least once).
+
+Many use the dual `try: from ..foo / except ImportError: from foo` shape mandated by non-negotiable #4. Symbols include `_read_phase_draft`, `_pipeline_identifier`, `_run_pipeline`, `WORKTREE_BASE_DIR`, `PipelinePhase`, `PopulateOutcome`, `_populate_contract_from_plan`, `_resolve_slice_base_branch`, `_build_agent_prompt`, etc. — far broader than the four importers the issue body explicitly names. The pattern doc's section (d) "External-importer audit recipe" applies and must run per slice.
 - `routes/phases.py` does **in-function lazy imports** of `routes.pipelines` symbols to break a cycle (the issue body and prior analysis flag this; verified by spot-grepping `from routes.pipelines import` inside `routes/phases.py`). After `pipelines.py` becomes a sub-package, those lazy imports continue to resolve through the barrel — the cycle-breaking mechanism is preserved.
 - `gateway/gateway.py`'s production importers (e.g. `from gateway.gateway import get_anthropic_client`, `get_credentials_manager`, app factory hooks) are smaller in number; the routes-handling convention in the pattern doc (section (f), HITL decision-8 of #2261) keeps `@app.route(...)` decorators in `__init__.py`, so route registration order, error-handler scoping, and `before_request` semantics do not change.
 
@@ -130,23 +139,16 @@ These primitives all exist today; the plan phase's Primitive-Existence audit sho
 
 ## Options Considered
 
-Most decisions are locked by the issue body and the pattern doc. Two questions remain where alternatives are worth surfacing for the planner's consideration.
+Most decisions are locked by the issue body and the merged pattern doc. The two genuinely open dimensions surfaced below are **scope** decisions (whether the program touches the surface at all) — packaging of the work into slices, if it does, is the planner's call. Two specific packaging options are sketched below the (Y) section as **planner-owned context** only.
 
-### (X) Updating stale `#2261` references
+### (X) Updating stale `#2261` references — pure scope question
 
-The pattern doc, CLAUDE.md seam tables, and several allowlist-yaml comments still reference `#2261`, which is closed and superseded by this issue. Two reasonable shapes:
+The pattern doc, both CLAUDE.md seam tables, and several allowlist-yaml comments still reference `#2261`, which is closed and superseded by this issue. The operator-only decision is **whether the program absorbs that doc-hygiene churn at all**, registered as `cq-6` (which supersedes `cq-1` — see the Open Questions section for the deprecation note). Two options:
 
-**Option X1: Mass refresh in a docs-only slice up front.** First slice of the program updates `docs/guides/decomposition-pattern.md`, the seam-table comments in both CLAUDE.md files, and the allowlist comment blocks. Adds missing rows for `kubernetes_spawner.py` and `routes/phases.py` as TBD placeholders. Adds `sandbox/CLAUDE.md` seam table and (if scoped in) `shared/CLAUDE.md`. Subsequent slices fill in concrete layouts as they land.
+- **Update them as part of this work.** Pattern doc, CLAUDE.md seam tables, and allowlist-yaml comments cite `#2817` once a slice that touches each surface lands. Adds missing rows for `kubernetes_spawner.py` and `routes/phases.py` as TBD placeholders.
+- **Leave them as historical pointers.** `#2261` is reachable through the GitHub supersession chain; the program does not absorb the churn.
 
-**Pros**: One coherent docs-state to read once; reviewers and downstream slices see consistent references. Cheap to land.
-
-**Cons**: Adds a slice that doesn't drop any allowlist entries — pure refactor administration. Conflicts with parallel slices if they touch the same CLAUDE.md sections (mitigable: stagger and pre-merge the docs slice).
-
-**Option X2: Inline as each slice lands.** Each file decomposition's PR updates the seam-table row and (the first one to need them) replaces the `#2261` references touched along the way. Sandbox/shared seam tables only get added if the file being decomposed lives there.
-
-**Pros**: No "extra" slice; less coordination overhead.
-
-**Cons**: Stale references linger until late slices. Reviewers reading the pattern doc in slice-2 still see `#2261` even though they're working on #2817. Risk of inconsistency between which slices updated which references.
+How updates get packaged across slices — separate docs-only slice up front vs inline within each file decomposition vs hybrid — is **explicitly a planner-phase decision** (slice-DAG shape / sequencing). Refine does not pre-commit a packaging shape, and the planner is free to evaluate the two packaging shapes below as informational context, not as operator-approved options.
 
 ### (Y) Pattern-doc updates for new in-scope wrinkles
 
@@ -164,17 +166,26 @@ The merged pattern doc is locked but two wrinkles in this refresh aren't directl
 
 **Cons**: Agents who load only the pattern doc (e.g. for a future, unrelated decomposition) won't see the relaxation. The pattern then accumulates corrections-by-reference rather than direct edits.
 
+### Packaging context for the planner (advisory)
+
+If the operator chooses to update stale `#2261` references (cq-6, option 1), the planner has two natural packaging shapes; both are informational here and either is acceptable from refine's perspective:
+
+- *Docs-only slice up front* — one coherent docs-state at the top of the program; reviewers read consistent references on slice-2 onward; costs an extra slice that drops no allowlist entries.
+- *Inlined per slice* — no extra slice; stale references linger until late slices; risk of inconsistency across which slices touched which references.
+
+The planner is the authority on which shape (or a hybrid) is chosen. Refine does not recommend or pre-commit either.
+
 ## Recommended Approach
 
 Use the established pattern from #2335 (no alternatives) and apply it across all 17 files. The two open dimensions above are both legitimately the operator's call, not the refiner's — they're registered as open questions below.
 
 Recommended posture for the planner to inherit:
 
-1. **The plan phase owns slice-DAG shape, sequencing, sub-stacking inside `pipelines.py`, and concurrency budget.** Refine does not pre-commit to "one slice per file vs. cohorts vs. sub-stack" — that was #2261's analysis and #2817's planner should re-derive it from current file sizes and the operator's chosen closing criterion (Q3).
-2. **`docs/guides/decomposition-pattern.md` is input, not work.** Each slice copies the recipe; the planner only schedules a docs-update slice if Q1 / Q4 land in favor of mass-refreshing `#2261` references and seam tables.
+1. **The plan phase owns slice-DAG shape, sequencing, sub-stacking inside `pipelines.py`, and concurrency budget.** Refine does not pre-commit to "one slice per file vs. cohorts vs. sub-stack" — that was #2261's analysis and #2817's planner should re-derive it from current file sizes and the operator's chosen closing criterion (`cq-3`).
+2. **`docs/guides/decomposition-pattern.md` is input, not work.** Each slice copies the recipe. Whether to also update the pattern doc for the relaxed non-negotiable #10 is operator-owned (`cq-4`). Whether to refresh stale `#2261` references in the pattern doc / CLAUDE.md seam tables / allowlist comments is operator-owned (`cq-6`, supersedes `cq-1`); how that update gets packaged across slices is planner-owned.
 3. **`_run_pipeline` is in scope as a per-phase refactor.** The seam-table TBDs already sketch the shape (`_run_loop/_run_refine.py`, `_run_plan.py`, `_run_implement.py`, `_run_pr.py` + thin orchestration loop). Function has grown to ~2,937 lines, but the strategy is unchanged.
 4. **Production-importer audits and test-patch-surface audits run per slice** using `docs/guides/decomposition-pattern.md` §(d)'s `git grep` recipe. Every external-referenced symbol gets re-exported.
-5. **Sandbox / shared seam-table scaffolding is in scope contingent on Q2.** If the operator answers "yes, add a seam table to `sandbox/CLAUDE.md` and create `shared/CLAUDE.md`," that work folds into the relevant decomposition slices. If "no, only orchestrator and gateway have seam tables," the `sandbox/entrypoint.py` / `sandbox/egg_lib/orch_cli.py` / `shared/egg_contracts/checkpoint_cli.py` slices land without seam-table rows (acceptable per non-negotiable #6's literal wording, which only names the two CLAUDE.md files that already exist).
+5. **Sandbox / shared seam-table scaffolding is in scope contingent on `cq-2`.** If the operator answers "yes, add a seam table to `sandbox/CLAUDE.md` and create `shared/CLAUDE.md`," that work folds into the relevant decomposition slices. If "no, only orchestrator and gateway have seam tables," the `sandbox/entrypoint.py` / `sandbox/egg_lib/orch_cli.py` / `shared/egg_contracts/checkpoint_cli.py` slices land without seam-table rows (acceptable per non-negotiable #6's literal wording, which only names the two CLAUDE.md files that already exist).
 
 ## Open Questions
 
@@ -184,17 +195,27 @@ Five questions remain that the operator must answer because they change the clos
 
 ### Registered HITL decisions
 
-(No pre-refine HITL round on this pipeline — the contract has zero prior decisions. Five decision points are registered below.)
+(No pre-refine HITL round on this pipeline — the contract has zero prior decisions. Six decision points are registered below; `cq-1` is **superseded by `cq-6`** in response to reviewer_refine v1 NACK feedback. Operators should answer `cq-6` and ignore `cq-1`.)
 
+
+<!-- egg-hitl-decision id=cq-6 -->
+
+**[SUPERSEDES cq-1] Should stale #2261 references in the pattern doc, CLAUDE.md seam tables, and allowlist comments be updated as part of #2817's work, or left as historical pointers?**
+
+- [ ] Yes, update them as part of this work (planner picks slice packaging — separate docs-only slice, inlined per slice, or some hybrid)
+- [ ] No, leave as historical pointers; #2261 is reachable through the supersession chain and the program does not need to absorb the doc-hygiene churn
+- [ ] Other (explain in reply)
+
+#### Superseded
 
 <!-- egg-hitl-decision id=cq-1 -->
 
-**Stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments: how should the program handle them?**
+**~~Stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments: how should the program handle them?~~** *(Superseded by `cq-6`. The original wording bundled a planner-owned slice-packaging trade-off — separate docs-only slice vs inline — into the operator's scope decision. The reframed `cq-6` above asks only the scope question; slice packaging belongs to the plan phase.)*
 
-- [ ] Mass refresh in a docs-only slice up front (update docs/guides/decomposition-pattern.md, both CLAUDE.md seam-table comments, and allowlist comment blocks to point at #2817 before any source decomposition lands)
-- [ ] Inline as each slice lands (the slice for a given file updates its own seam-table row and replaces any stale references it touches; no separate docs slice)
-- [ ] Leave stale references as historical pointers (operator can follow the supersession chain; do not update existing #2261 references)
-- [ ] Other (explain in reply)
+- [ ] ~~Mass refresh in a docs-only slice up front~~
+- [ ] ~~Inline as each slice lands~~
+- [ ] ~~Leave stale references as historical pointers~~
+- [ ] ~~Other (explain in reply)~~
 
 <!-- egg-hitl-decision id=cq-2 -->
 
@@ -226,14 +247,16 @@ Five questions remain that the operator must answer because they change the clos
 
 **Allowlist comment correctness (plan_parser.py says issue: 2548, phases.py cites slice-15 cluster in #2261): should these be corrected as part of #2817's work?**
 
-- [ ] Yes, correct both: update plan_parser.py's comment to reference #2569 (the decomposition tracker, not the slice that breached the cap) and update phases.py's comment to reference #2817 (the current tracker; #2261 is closed/superseded). Lands in whichever slice touches the allowlist first
-- [ ] Yes, correct phases.py only (cite #2817 in place of #2261). Leave plan_parser.py's issue: 2548 comment alone since #2569 is a separate tracker and the comment is currently honest about the breach origin
-- [ ] No, leave both comments as-is. They are historical pointers and the operator can follow the supersession chain; correcting them is doc-hygiene churn the decomposition program does not need to absorb
+> Surface covered by each option includes both the **structured `issue:` field** in `scripts/file-size-allowlist.yaml` and the surrounding **free-text comment block** for the affected entry. For `phases.py`, that's the `issue: "2261"` field and the four `#2261` references in the comment immediately above it. For `plan_parser.py`, that's the `issue: "2548"` field and the comment block referencing #2548 / #2569.
+
+- [ ] Yes, correct both: update plan_parser.py's `issue:` field and comment to reference #2569 (the decomposition tracker, not the slice that breached the cap) and update phases.py's `issue:` field and comment to reference #2817 (the current tracker; #2261 is closed/superseded). Lands in whichever slice touches the allowlist first
+- [ ] Yes, correct phases.py only (`issue:` field + comment cite #2817 in place of #2261). Leave plan_parser.py's `issue: "2548"` field alone since #2569 is a separate tracker and the comment is currently honest about the breach origin
+- [ ] No, leave both comments and `issue:` fields as-is. They are historical pointers and the operator can follow the supersession chain; correcting them is doc-hygiene churn the decomposition program does not need to absorb
 - [ ] Other (explain in reply)
 
 ## Complexity Assessment
 
-**high** — 16-17 files (depending on Q3), six over the cap by 1×-2×, four over by 2×-3×, two structural outliers (`gateway/gateway.py` at ~7× the cap; `orchestrator/routes/pipelines.py` at ~16× the cap and containing the ~2,937-line `_run_pipeline` state machine). 51 + 6 active test patch targets must remain stable across moves, and ~92 distinct production import-line shapes for `routes.pipelines` alone must continue resolving through the barrel. The pattern is locked (lowering risk) but the slice-DAG construction, the per-phase refactor of `_run_pipeline`, and the rebase/conflict choreography across parallel slices in `scripts/file-size-allowlist.yaml` each warrant focused plan-phase design work. The refresh inherits a six-cycle history (issue-2261-v3..v10) of cancelled / failed pipelines; the planner should treat that as a signal to stay conservative on slice size and concurrency.
+**high** — 16-17 files (depending on `cq-3`), six over the cap by 1×-2×, four over by 2×-3×, two structural outliers (`gateway/gateway.py` at ~7× the cap; `orchestrator/routes/pipelines.py` at ~16× the cap and containing the ~2,937-line `_run_pipeline` state machine). 49 distinct symbols (51 distinct full strings) patched at `routes.pipelines.*` and 6 distinct full strings at `gateway.gateway.*` must remain stable across moves, and 95 unique `from routes.pipelines import …` import-line strings across 87 files must continue resolving through the barrel. The pattern is locked (lowering risk) but the slice-DAG construction, the per-phase refactor of `_run_pipeline`, and the rebase/conflict choreography across parallel slices in `scripts/file-size-allowlist.yaml` each warrant focused plan-phase design work. The refresh inherits a six-cycle history (issue-2261-v3..v10) of cancelled / failed pipelines; the planner should treat that as a signal to stay conservative on slice size and concurrency.
 
 ---
 
