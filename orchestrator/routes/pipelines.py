@@ -1887,6 +1887,7 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
             error=str(e),
         )
 
+
 def _mark_pipeline_records_terminated(
     store: StateStore,
     pipeline_id: str,
@@ -8795,7 +8796,6 @@ def _format_rescue_hint(pipeline) -> str:
     )
 
 
-
 BRC_HISTORY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
@@ -9775,7 +9775,6 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
     return "\n".join(lines)
 
 
-
 def _derive_producer_roles_with_tasks(
     pipeline_id: str,
     slice_id: str | None,
@@ -10435,7 +10434,6 @@ def _resolve_slice_base_branch(
     # back to the pipeline branch — stable across the stacked-PR flow
     # because root-targeted branches are never deleted by the cascade.
     return pipeline_branch
-
 
 
 def _commit_slice_brc_history_to_integration_branch(

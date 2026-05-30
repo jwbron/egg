@@ -1179,9 +1179,8 @@ class OverseerMonitor:
                 )
                 pr_number = getattr(pipeline, "pr_number", None)
                 if (
-                    (current_phase_value and current_phase_value != "implement")
-                    or pr_number is not None
-                ):
+                    current_phase_value and current_phase_value != "implement"
+                ) or pr_number is not None:
                     # Reset first-seen so a genuinely subsequent stall
                     # still gets its own grace period.
                     self._post_consensus_stall_first_seen = None

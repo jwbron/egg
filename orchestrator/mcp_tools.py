@@ -1451,9 +1451,7 @@ class PipelineToolHandler:
         # clients can pick them up without a separate ``gh pr list``.
         pr_url = pipeline_data.get("pr_url")
         raw_pr_number = pipeline_data.get("pr_number")
-        pr_number: int | None = (
-            int(raw_pr_number) if isinstance(raw_pr_number, int) else None
-        )
+        pr_number: int | None = int(raw_pr_number) if isinstance(raw_pr_number, int) else None
         if pr_url and pr_number is None:
             match = re.search(r"/pull/(\d+)", pr_url)
             if match:
