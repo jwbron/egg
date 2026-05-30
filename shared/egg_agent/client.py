@@ -68,14 +68,93 @@ except ImportError:
 DEFAULT_MODEL = "opus[1m]"
 
 # Substring of the SDK's CLIJSONDecodeError message identifying the
-# 1 MB JSON message-reader buffer overflow (issue #2804). The overflow
+# JSON message-reader buffer overflow (issue #2804). The overflow
 # is deterministic — the same tool call against the same codebase
 # produces the same oversized payload — so the consensus-wrapper greps
 # for this marker on agent exit to short-circuit retry instead of
-# burning the restart budget on a doomed re-run. The real fix is
-# tool-layer truncation (see #2805); this PR only makes the failure
-# mode observable and terminal.
+# burning the restart budget on a doomed re-run. With the reader buffer
+# raised below (#2884) this is now a rare backstop, not the common path:
+# it fires only if a single stream message exceeds the (generous) raised
+# buffer. See #2823 for the follow-up to pin this marker against the SDK.
 _BUFFER_OVERFLOW_MARKER = "exceeded maximum buffer size"
+
+# Cap on a single message in egg's Agent SDK stream-json reader (issue #2884).
+#
+# The SDK reads the CLI's stdout stream into a JSON buffer; a single message
+# larger than this raises CLIJSONDecodeError and kills the agent (exit 255,
+# #2804). The SDK default is 1 MiB — but the messages that overflow are *not*
+# model-bound. Claude Code attaches the **entire original file** to every
+# Edit/Write result as transcript metadata (`toolUseResult.originalFile`) that
+# the model never sees; only egg's reader decodes it. So a routine ~2 KB edit
+# to the 1.1 MB / 25k-line orchestrator/routes/pipelines.py emits a >1 MB stream
+# message and crashes the reader, even though the model's tool_result is just a
+# bounded snippet (the #2884 crash, mis-attributed to a large edit at first).
+#
+# Raising the reader buffer lets egg ingest that metadata-heavy message. It does
+# NOT cost model context or tokens (the field never reaches the model, and egg
+# logs at most _MAX_TOOL_CONTENT_LOG_LEN of any result) — the only cost is
+# transient reader memory for one message. Model-bound result sizes are bounded
+# separately and independently (egg MCP @tool caps #2805; Read/Grep predictive
+# caps #2876; Claude Code truncates Bash), so a large reader buffer cannot let an
+# oversized payload reach the model. 32 MiB covers source files far larger than
+# anything in this repo while still bounding a runaway/malformed stream; the
+# #2810 fail-fast remains the clean backstop above it. Override with
+# EGG_SDK_MAX_BUFFER_BYTES.
+_DEFAULT_SDK_MAX_BUFFER_BYTES = 32 * 1024 * 1024
+
+# Hard upper bound on EGG_SDK_MAX_BUFFER_BYTES. Defends against an operator
+# typo (e.g. a stray suffix-conversion like ``34359738368000`` ≈ 34 TiB) that
+# would otherwise leave the reader effectively unbounded — a runaway or
+# malformed stream could then OOM the container before the SDK rejected it.
+# 1 GiB is several orders of magnitude over anything a real source file or
+# transcript metadata payload could legitimately produce, while still bounding
+# the worst-case allocation.
+_MAX_SDK_MAX_BUFFER_BYTES = 1024 * 1024 * 1024
+
+# Raw EGG_SDK_MAX_BUFFER_BYTES values we've already warned about, so a steady
+# bad value warns once per distinct raw value rather than on every
+# ``run_agent_async`` invocation. Mirrors ``tool_output_cap._warned_cap_values``
+# (#2884 review feedback).
+_warned_sdk_buffer_values: set[str] = set()
+
+
+def _warn_invalid_sdk_buffer(raw: str, problem: str, fallback: int) -> None:
+    """Warn that an invalid EGG_SDK_MAX_BUFFER_BYTES is being clamped, once per value."""
+    if raw in _warned_sdk_buffer_values:
+        return
+    _warned_sdk_buffer_values.add(raw)
+    logger.warning(f"EGG_SDK_MAX_BUFFER_BYTES={raw!r} {problem}; using {fallback} bytes")
+
+
+def _sdk_max_buffer_bytes() -> int:
+    """Resolve the Agent SDK reader buffer cap from ``EGG_SDK_MAX_BUFFER_BYTES``.
+
+    A set-but-invalid value (non-integer, non-positive, or absurdly large) is
+    logged and clamped to the default or the hard upper bound, so an operator
+    typo can't silently re-expose the 1 MiB-overflow crash *or* leave the
+    reader effectively unbounded. The unset case is silent (the default is
+    expected). Warnings dedup per distinct raw value so a steady misconfig
+    doesn't spam logs on every agent spawn (#2884 review feedback).
+    """
+    raw = os.environ.get("EGG_SDK_MAX_BUFFER_BYTES", "").strip()
+    if not raw:
+        return _DEFAULT_SDK_MAX_BUFFER_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        _warn_invalid_sdk_buffer(raw, "is not an integer", _DEFAULT_SDK_MAX_BUFFER_BYTES)
+        return _DEFAULT_SDK_MAX_BUFFER_BYTES
+    if value <= 0:
+        _warn_invalid_sdk_buffer(raw, "must be a positive integer", _DEFAULT_SDK_MAX_BUFFER_BYTES)
+        return _DEFAULT_SDK_MAX_BUFFER_BYTES
+    if value > _MAX_SDK_MAX_BUFFER_BYTES:
+        _warn_invalid_sdk_buffer(
+            raw,
+            f"exceeds the {_MAX_SDK_MAX_BUFFER_BYTES}-byte upper bound",
+            _MAX_SDK_MAX_BUFFER_BYTES,
+        )
+        return _MAX_SDK_MAX_BUFFER_BYTES
+    return value
 
 
 async def run_agent_async(
@@ -206,6 +285,11 @@ async def run_agent_async(
         setting_sources=["project", "user"],
         disallowed_tools=disallowed,
         can_use_tool=tool_permission_callback,
+        # Raise the stream-json reader buffer above the 1 MiB default so a
+        # metadata-heavy Edit/Write result (CC attaches the whole original file
+        # as non-model-bound transcript metadata) doesn't crash the reader on
+        # large files. See _DEFAULT_SDK_MAX_BUFFER_BYTES above (#2884).
+        max_buffer_size=_sdk_max_buffer_bytes(),
     )
     if max_turns is not None:
         options.max_turns = max_turns
@@ -276,15 +360,16 @@ async def run_agent_async(
             )
 
     # --- Predictive output cap for built-in CC tools (#2876) ---
-    # Built-in tools (Read/Grep/...) run inside the CLI; egg can't wrap their
-    # output the way it caps its own MCP @tool payloads (#2805). A result above
-    # the Agent SDK's 1 MB JSON buffer kills the agent with exit 255 (#2804) —
-    # the case that crashed the #2777 slice-1 coder on the 1.1 MB, 24k-line
-    # orchestrator/routes/pipelines.py. A PreToolUse hook can't see the result,
-    # but it can predict the overflow from the inputs and deny *before* the tool
-    # runs, telling the agent how to narrow the call. #2810's fail-fast is the
-    # backstop when a prediction misses. Always-on (the overflow hits every
-    # route, including first-party Opus); disable via EGG_TOOL_OUTPUT_CAP=false.
+    # This is model-context/cost discipline, NOT the buffer-crash fix (that is
+    # max_buffer_size above, #2884). A whole-file Read returns the file content
+    # *to the model* (the 1.1 MB pipelines.py ≈ ~275k tokens), and a whole-repo
+    # content Grep dumps matches to the model — both wasteful. Built-in tools run
+    # inside the CLI and can't be wrapped the way egg caps its own MCP @tool
+    # payloads (#2805), so a PreToolUse hook predicts the volume from the inputs
+    # and denies *before* the tool runs, telling the agent how to narrow the call
+    # (offset/limit, head_limit, files_with_matches). Capping model-bound output
+    # here also keeps the reader buffer from having to absorb it. Always-on;
+    # disable via EGG_TOOL_OUTPUT_CAP=false.
     from egg_agent.tool_output_cap import (
         check_builtin_tool_output_risk,
         is_output_cap_disabled,

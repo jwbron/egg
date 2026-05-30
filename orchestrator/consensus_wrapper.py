@@ -126,9 +126,12 @@ STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 
 # Capture agent stdout+stderr so the wrapper can post-mortem the run.
 # Used by is_buffer_overflow() to detect the Claude Agent SDK
-# message-reader 1MB JSON buffer crash (issue #2804) which is
-# deterministic — retrying just hits the same overflow and burns
-# the restart budget for no gain.
+# message-reader JSON buffer crash (issue #2804) which is deterministic —
+# retrying just hits the same overflow and burns the restart budget for
+# no gain. With the reader buffer raised to 32 MiB on the egg path (#2884,
+# see shared/egg_agent/client.py::_DEFAULT_SDK_MAX_BUFFER_BYTES) this is
+# a rare backstop rather than the common path it was at the 1 MiB SDK
+# default, but the wrapper still has to fail-fast when it does fire.
 #
 # Use ``mktemp`` for the default path so a co-tenant on the same host
 # cannot pre-create a symlink at a predictable ``/tmp/agent-output-$$``
@@ -179,12 +182,11 @@ run_agent() {{
     return ${{PIPESTATUS[0]}}
 }}
 
-# Detect the Claude Agent SDK 1 MB JSON message-reader overflow
-# signature in the most recent agent run. Issue #2804. The overflow
-# is deterministic: re-running the agent against the same codebase
-# hits the same oversized tool result, so the wrapper must NOT
-# consume retry budget on this failure class. Returns 0 (true) if
-# the marker was logged, 1 otherwise.
+# Detect the Claude Agent SDK JSON message-reader overflow signature in
+# the most recent agent run. Issue #2804. The overflow is deterministic:
+# re-running the agent against the same codebase hits the same oversized
+# tool result, so the wrapper must NOT consume retry budget on this
+# failure class. Returns 0 (true) if the marker was logged, 1 otherwise.
 #
 # The substring matches CLI output from claude_agent_sdk emitted on
 # the buffer overflow path. If a future SDK bump changes the
@@ -194,8 +196,12 @@ run_agent() {{
 # test_script_marker_matches_client_constant and the
 # test_buffer_overflow_*_aborts_without_retry pair) exercise the
 # wrapper against a synthetic log to keep this honest, but do not
-# pin against the installed SDK. The real fix is tool-layer
-# truncation (#2805); this is the fail-fast path until that lands.
+# pin against the installed SDK. The real fix for the overflow class
+# is the raised reader buffer (#2884, see
+# shared/egg_agent/client.py::_DEFAULT_SDK_MAX_BUFFER_BYTES = 32 MiB);
+# this fail-fast is the clean backstop for anything beyond it. The
+# per-tool MCP @tool caps (#2805) and Read/Grep predictive caps (#2876)
+# are independent model-context/cost discipline — not the crash fix.
 is_buffer_overflow() {{
     [ -f "$AGENT_OUTPUT_LOG" ] || return 1
     grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null
