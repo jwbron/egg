@@ -598,126 +598,14 @@ class TestPerSliceBrcCommitHookInvocation:
 
 
 # ---------------------------------------------------------------------------
-# Slice-loop entry context-PR safety net (#2744)
+# Slice-loop entry context-PR safety net (#2744) — REMOVED in slice-1 of
+# #2777 (cq-4, TASK-1-2).  Under the new topology the context PR is
+# opened ONCE at the plan→implement boundary by
+# ``_open_context_pr_at_implement_start`` (hard-required, idempotent);
+# the legacy slice-loop "fifth safety net" call site at the start of
+# ``_run_implement_phase_slices`` was deleted along with the other
+# three soft-fail call sites the wrapper supported.  Wiring of the
+# new opener is exercised by the unit tests in slice-3 (TASK-3-8); the
+# wrapper itself is unreferenced as of slice-1 and is scheduled for
+# deletion in slice-2 (TASK-2-1).
 # ---------------------------------------------------------------------------
-
-
-class TestSliceLoopEntryContextPRSafetyNet:
-    """#2744 — slice-loop entry calls ``_maybe_open_base_pr_for_plan_to_implement``
-    as a fifth safety net before any slice provisions.
-
-    The four upstream call sites (``_run_pipeline`` auto-advance,
-    ``advance_phase`` REST, HITL recovery, IMPLEMENT entry backstop)
-    should each open the context PR before the slice loop runs.  But
-    #2593 / #2744 show those paths can silently miss on specific
-    pipeline shapes (non-issue-keyed ``pipeline-<hex>`` pipelines),
-    leaving slice-1 to stack on ``pipeline_branch`` instead of the
-    context branch.  The safety net at the slice-loop entry converts
-    that failure mode into "context PR opens at the last second."
-    """
-
-    def test_wrapper_invoked_at_slice_loop_entry(self) -> None:
-        """The wrapper is called with ``source='slice_loop_entry'`` when
-        the slice loop starts, regardless of whether the contract
-        already has ``context_pr_number`` populated.  Idempotency lives
-        inside the wrapper (the inner ``context_pr_number`` short-circuit),
-        so the test pins the call itself rather than its effect."""
-        pipeline = _make_pipeline()
-        slice_obj = _make_slice("slice-1", tasks=[_make_task()])
-        # ``context_branch`` is intentionally None: the wrapper is
-        # patched, so its value is never read.  Setting it to None
-        # makes the test honest about what it pins (the call wiring,
-        # not the wrapper's effect on contract state).
-        contract = _make_contract(
-            slices=[slice_obj],
-            context_branch=None,
-        )
-
-        with (
-            patch("egg_contracts.loader.load_contract", return_value=contract),
-            patch("egg_contracts.loader.save_contract"),
-            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
-            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
-            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
-            patch("routes.pipelines._commit_slice_brc_history_to_integration_branch"),
-            patch("routes.pipelines._maybe_open_base_pr_for_plan_to_implement") as mock_wrapper,
-        ):
-            mock_start_recon.return_value = (MagicMock(), threading.Event())
-            spawner = _make_spawner()
-            _run_implement_phase_slices(
-                pipeline_id=pipeline.id,
-                pipeline=pipeline,
-                spawner=spawner,
-                repo_volumes={},
-                gateway_mode="public",
-                repos=["owner/repo"],
-                sandbox_env={},
-                store=MagicMock(),
-                certs_volume=None,
-                worktree_repo_path=Path("/tmp/x"),
-            )
-
-        # Exactly one call with source='slice_loop_entry' — not zero
-        # (regression of #2744) and not many (slice loop must invoke
-        # the wrapper at entry, not per-slice).
-        slice_loop_calls = [
-            c for c in mock_wrapper.call_args_list if c.kwargs.get("source") == "slice_loop_entry"
-        ]
-        assert len(slice_loop_calls) == 1, (
-            f"expected exactly one wrapper call with source='slice_loop_entry'; "
-            f"got {mock_wrapper.call_args_list!r}"
-        )
-
-    def test_wrapper_invoked_for_non_issue_keyed_pipeline(self) -> None:
-        """Pin the #2744 repro shape directly: a pipeline whose id is
-        ``pipeline-<hex>`` (not ``issue-<N>``) — submitted via
-        ``submit_task`` without an issue number — still has the
-        slice-loop entry safety net fire.  This is the regression case
-        the four upstream paths silently missed on."""
-        pipeline_id = "pipeline-f4c7d780"
-        pipeline = _make_pipeline(pipeline_id=pipeline_id, issue_number=None)
-        slice_obj = _make_slice("slice-1", tasks=[_make_task()])
-        contract = _make_contract(
-            pipeline_id=pipeline_id,
-            issue_number=2548,  # irrelevant — contract is keyed by pipeline_id
-            slices=[slice_obj],
-            context_branch=f"egg/{pipeline_id}/context",
-        )
-
-        with (
-            patch("egg_contracts.loader.load_contract", return_value=contract),
-            patch("egg_contracts.loader.save_contract"),
-            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
-            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
-            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
-            patch("routes.pipelines._commit_slice_brc_history_to_integration_branch"),
-            patch("routes.pipelines._maybe_open_base_pr_for_plan_to_implement") as mock_wrapper,
-        ):
-            mock_start_recon.return_value = (MagicMock(), threading.Event())
-            spawner = _make_spawner()
-            _run_implement_phase_slices(
-                pipeline_id=pipeline.id,
-                pipeline=pipeline,
-                spawner=spawner,
-                repo_volumes={},
-                gateway_mode="public",
-                repos=["owner/repo"],
-                sandbox_env={},
-                store=MagicMock(),
-                certs_volume=None,
-                worktree_repo_path=Path("/tmp/x"),
-            )
-
-        slice_loop_calls = [
-            c for c in mock_wrapper.call_args_list if c.kwargs.get("source") == "slice_loop_entry"
-        ]
-        assert len(slice_loop_calls) == 1, (
-            f"expected slice-loop entry wrapper call for non-issue-keyed pipeline "
-            f"{pipeline_id!r}; got {mock_wrapper.call_args_list!r}"
-        )
-        # The pipeline object handed to the wrapper carries the
-        # non-issue-keyed id — confirms we're not accidentally
-        # short-circuiting on issue_number elsewhere.
-        passed_pipeline = slice_loop_calls[0].args[0]
-        assert passed_pipeline.id == pipeline_id
-        assert passed_pipeline.issue_number is None

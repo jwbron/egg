@@ -99,14 +99,23 @@ def client(app):
 class TestAdvancePhaseLaunchesThread:
     """Tests that advance_phase spawns a _run_pipeline background thread (#1672)."""
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_advance_phase_launches_thread(self, mock_get_store, mock_get_lock, mock_spawn, client):
+    def test_advance_phase_launches_thread(
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
+    ):
         """advance_phase must launch a _run_pipeline thread after state update.
 
         This is the root cause of #1672: without a thread, the new phase
         never gets processed.
+
+        #2777 (cq-4, TASK-1-2) — the plan→implement branch now invokes
+        ``_open_context_pr_at_implement_start`` as a hard-required
+        step.  This test patches it out: the focus here is the thread
+        launch, not the context-PR opener (which has its own tests in
+        slice-3 / TASK-3-8).
         """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
 
@@ -115,6 +124,7 @@ class TestAdvancePhaseLaunchesThread:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
+        mock_open_ctx_pr.return_value = 12345  # PR number — value irrelevant for this test
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
@@ -155,11 +165,19 @@ class TestAdvancePhaseLaunchesThread:
         assert response.status_code == 200
         mock_spawn.assert_called_once()
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_advance_phase_bumps_run_epoch(self, mock_get_store, mock_get_lock, mock_spawn, client):
-        """advance_phase must bump run_epoch so stale threads exit."""
+    def test_advance_phase_bumps_run_epoch(
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
+    ):
+        """advance_phase must bump run_epoch so stale threads exit.
+
+        #2777 (cq-4, TASK-1-2) — the plan→implement branch invokes the
+        new hard-required context-PR opener; patched out here because
+        this test focuses on the run_epoch bump.
+        """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         original_epoch = pipeline.run_epoch
         original_created_at = pipeline.created_at
@@ -169,6 +187,7 @@ class TestAdvancePhaseLaunchesThread:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
+        mock_open_ctx_pr.return_value = 12345
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
@@ -186,13 +205,18 @@ class TestAdvancePhaseLaunchesThread:
         # created_at must NOT change
         assert pipeline.created_at == original_created_at
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_advance_phase_acquires_state_lock(
-        self, mock_get_store, mock_get_lock, mock_spawn, client
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
     ):
-        """advance_phase must acquire the pipeline state lock for atomicity."""
+        """advance_phase must acquire the pipeline state lock for atomicity.
+
+        #2777 (cq-4, TASK-1-2) — context-PR opener patched out; this
+        test focuses on the state-lock acquisition.
+        """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
 
         mock_store = MagicMock()
@@ -202,6 +226,7 @@ class TestAdvancePhaseLaunchesThread:
 
         mock_lock = MagicMock()
         mock_get_lock.return_value = mock_lock
+        mock_open_ctx_pr.return_value = 12345
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
