@@ -1099,13 +1099,60 @@ class TestSdkReaderBuffer:
         assert opts.max_buffer_size == 8 * 1024 * 1024
 
     def test_env_resolver_rejects_invalid_values(self):
+        # Each bad value gets its own dedup-state reset so the per-value warning
+        # actually fires; a stale entry from a prior iteration would silently
+        # turn this into "passes when the function changes to skip warn".
+        import egg_agent.client as client_mod
+
         for bad in ("not-a-number", "0", "-5", "2mb"):
-            with patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": bad}):
+            client_mod._warned_sdk_buffer_values.clear()
+            with (
+                patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": bad}),
+                patch("egg_agent.client.logger") as mock_logger,
+            ):
                 assert _sdk_max_buffer_bytes() == _DEFAULT_SDK_MAX_BUFFER_BYTES
+                # The docstring promises invalid values are *logged* and ignored;
+                # without this assertion a regression that demoted the warning
+                # (or dropped it) would still pass the silent-fallback check.
+                assert mock_logger.warning.called, (
+                    f"expected a logger.warning for invalid value {bad!r}"
+                )
 
     def test_env_resolver_accepts_valid_override(self):
         with patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "16777216"}):
             assert _sdk_max_buffer_bytes() == 16 * 1024 * 1024
+
+    def test_env_resolver_clamps_absurdly_large_value(self):
+        """An operator typo (stray suffix-conversion like 34359738368000 ≈ 34 TiB)
+        must be clamped to the 1 GiB hard upper bound rather than silently
+        accepted — an effectively-unbounded reader buffer could OOM the
+        container on a runaway or malformed stream (#2884 review feedback).
+        """
+        import egg_agent.client as client_mod
+
+        client_mod._warned_sdk_buffer_values.clear()
+        with (
+            patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "34359738368000"}),
+            patch("egg_agent.client.logger") as mock_logger,
+        ):
+            assert _sdk_max_buffer_bytes() == client_mod._MAX_SDK_MAX_BUFFER_BYTES
+            assert mock_logger.warning.called
+
+    def test_env_resolver_warning_dedups_per_value(self):
+        """A steady bad value warns once, not on every resolver call — the
+        resolver runs on every ``run_agent_async`` invocation, so an
+        unconditional warning would spam an operator-facing log line per
+        agent spawn (#2884 review feedback, mirroring tool_output_cap)."""
+        import egg_agent.client as client_mod
+
+        client_mod._warned_sdk_buffer_values.clear()
+        with (
+            patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "not-a-number"}),
+            patch("egg_agent.client.logger") as mock_logger,
+        ):
+            for _ in range(5):
+                assert _sdk_max_buffer_bytes() == _DEFAULT_SDK_MAX_BUFFER_BYTES
+            assert mock_logger.warning.call_count == 1
 
 
 class TestBufferOverflowErrorHandling:

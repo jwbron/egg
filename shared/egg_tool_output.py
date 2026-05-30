@@ -1,9 +1,15 @@
 """Tool-output size caps for egg-owned MCP tools (issue #2805).
 
-The Claude Agent SDK message reader has a hard 1 MB JSON buffer; a tool
-result that exceeds it kills the agent with exit 255 (#2804). #2810 made
-that crash observable and terminal, but the *prevention* — never producing
-an oversized payload in the first place — lives here.
+These caps are **model-context/cost discipline, not the buffer-crash fix.**
+The Agent SDK reader's buffer-overflow crash (#2804/#2884) is prevented by
+raising ``ClaudeAgentOptions.max_buffer_size`` in
+``shared/egg_agent/client.py`` — the messages that overflowed the reader
+were dominated by *non-model-bound* transcript metadata (Claude Code
+attaches the whole original file to every Edit/Write result) that a
+per-tool result cap could never have seen or policed. What this module
+*does* police is the volume an egg-owned MCP ``@tool`` sends **to the
+model**: an unbounded result is wasteful of context budget on every model
+hop, regardless of how large the SDK reader buffer is.
 
 This module is the shared helper referenced by #2805's "consistent across
 tools" requirement. It is deliberately a flat, stdlib-only module (no
@@ -42,9 +48,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default cap, well under the SDK's 1 MB reader buffer so the serialized
-# result still has headroom for the surrounding SDK/MCP framing. Override
-# with ``EGG_TOOL_OUTPUT_CAP_BYTES`` (issue #2805 "configurable").
+# Default cap on an egg-owned MCP tool result, sized as cost discipline:
+# at ~4 B/token for prose/JSON, 100 KiB ≈ 25k tokens, a sensible upper bound
+# for a single model-bound tool result. (The SDK reader can absorb far more
+# than this — its buffer is raised to 32 MiB on the egg path, #2884 — so the
+# cap is not a crash backstop; it is a budget on what the model sees.)
+# Override with ``EGG_TOOL_OUTPUT_CAP_BYTES`` (issue #2805 "configurable").
 DEFAULT_CAP_BYTES = 100 * 1024
 
 # Reserve for the non-preview marker fields so the assembled marker still
@@ -124,9 +133,9 @@ def _truncation_marker(
     )
     note = (
         f"Result was {original_bytes} bytes; it exceeded the {cap_bytes}-byte "
-        "tool-output cap and was truncated to avoid the Agent SDK 1 MB "
-        "message-buffer crash (#2804/#2805). Only the head is shown below — "
-        f"to see the rest, {hint}."
+        "model-output cap and was truncated to keep a single tool result from "
+        "consuming an outsized slice of the model's context budget (#2805). "
+        f"Only the head is shown below — to see the rest, {hint}."
     )
     budget = max(cap_bytes - _MARKER_RESERVE_BYTES, 256)
     preview = text.encode("utf-8")[:budget].decode("utf-8", errors="ignore")
@@ -289,11 +298,12 @@ def spill_to_file(
         "total_bytes": total_bytes,
         "cap_bytes": limit,
         "note": (
-            f"Result was {total_bytes} bytes (over the {limit}-byte tool-output "
-            "cap), so the full output was written to `output_path` to avoid the "
-            "Agent SDK 1 MB buffer crash (#2804/#2805). Read it with the `Read` "
-            "tool (use `offset`/`limit`) or `grep` it via `Bash`. A head sample "
-            "of the output is inlined below as `preview`."
+            f"Result was {total_bytes} bytes (over the {limit}-byte model-output "
+            "cap), so the full output was written to `output_path` to keep a "
+            "single tool result from consuming an outsized slice of the model's "
+            "context budget (#2805). Read it with the `Read` tool (use "
+            "`offset`/`limit`) or `grep` it via `Bash`. A head sample of the "
+            "output is inlined below as `preview`."
         ),
         "preview": preview,
     }

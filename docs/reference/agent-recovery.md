@@ -123,7 +123,7 @@ In concurrent (BRC) mode, all agents are wrapped with a shell script that handle
 
 The `is_buffer_overflow()` function is checked **before** `is_transient_crash()`. It greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`) and, when found, exits the wrapper immediately without consuming any restart budget.
 
-The SDK has a 1 MB JSON message-reader buffer cap; a tool result that exceeds it kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
+The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
 
 ```
 Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting.

@@ -102,13 +102,39 @@ _BUFFER_OVERFLOW_MARKER = "exceeded maximum buffer size"
 # EGG_SDK_MAX_BUFFER_BYTES.
 _DEFAULT_SDK_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
+# Hard upper bound on EGG_SDK_MAX_BUFFER_BYTES. Defends against an operator
+# typo (e.g. a stray suffix-conversion like ``34359738368000`` ≈ 34 TiB) that
+# would otherwise leave the reader effectively unbounded — a runaway or
+# malformed stream could then OOM the container before the SDK rejected it.
+# 1 GiB is several orders of magnitude over anything a real source file or
+# transcript metadata payload could legitimately produce, while still bounding
+# the worst-case allocation.
+_MAX_SDK_MAX_BUFFER_BYTES = 1024 * 1024 * 1024
+
+# Raw EGG_SDK_MAX_BUFFER_BYTES values we've already warned about, so a steady
+# bad value warns once per distinct raw value rather than on every
+# ``run_agent_async`` invocation. Mirrors ``tool_output_cap._warned_cap_values``
+# (#2884 review feedback).
+_warned_sdk_buffer_values: set[str] = set()
+
+
+def _warn_invalid_sdk_buffer(raw: str, problem: str, fallback: int) -> None:
+    """Warn that an invalid EGG_SDK_MAX_BUFFER_BYTES is being clamped, once per value."""
+    if raw in _warned_sdk_buffer_values:
+        return
+    _warned_sdk_buffer_values.add(raw)
+    logger.warning(f"EGG_SDK_MAX_BUFFER_BYTES={raw!r} {problem}; using {fallback} bytes")
+
 
 def _sdk_max_buffer_bytes() -> int:
     """Resolve the Agent SDK reader buffer cap from ``EGG_SDK_MAX_BUFFER_BYTES``.
 
-    A set-but-invalid value (non-integer or non-positive) is logged and ignored
-    in favour of the default, so an operator typo can't silently re-expose the
-    1 MiB-overflow crash. The unset case is silent (the default is expected).
+    A set-but-invalid value (non-integer, non-positive, or absurdly large) is
+    logged and clamped to the default or the hard upper bound, so an operator
+    typo can't silently re-expose the 1 MiB-overflow crash *or* leave the
+    reader effectively unbounded. The unset case is silent (the default is
+    expected). Warnings dedup per distinct raw value so a steady misconfig
+    doesn't spam logs on every agent spawn (#2884 review feedback).
     """
     raw = os.environ.get("EGG_SDK_MAX_BUFFER_BYTES", "").strip()
     if not raw:
@@ -116,17 +142,18 @@ def _sdk_max_buffer_bytes() -> int:
     try:
         value = int(raw)
     except ValueError:
-        logger.warning(
-            f"EGG_SDK_MAX_BUFFER_BYTES={raw!r} is not an integer; using the "
-            f"default {_DEFAULT_SDK_MAX_BUFFER_BYTES} bytes"
-        )
+        _warn_invalid_sdk_buffer(raw, "is not an integer", _DEFAULT_SDK_MAX_BUFFER_BYTES)
         return _DEFAULT_SDK_MAX_BUFFER_BYTES
     if value <= 0:
-        logger.warning(
-            f"EGG_SDK_MAX_BUFFER_BYTES={raw!r} must be a positive integer; using "
-            f"the default {_DEFAULT_SDK_MAX_BUFFER_BYTES} bytes"
-        )
+        _warn_invalid_sdk_buffer(raw, "must be a positive integer", _DEFAULT_SDK_MAX_BUFFER_BYTES)
         return _DEFAULT_SDK_MAX_BUFFER_BYTES
+    if value > _MAX_SDK_MAX_BUFFER_BYTES:
+        _warn_invalid_sdk_buffer(
+            raw,
+            f"exceeds the {_MAX_SDK_MAX_BUFFER_BYTES}-byte upper bound",
+            _MAX_SDK_MAX_BUFFER_BYTES,
+        )
+        return _MAX_SDK_MAX_BUFFER_BYTES
     return value
 
 
