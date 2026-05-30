@@ -375,14 +375,23 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # The opener is idempotent on its inner ``gh pr list``
         # pre-flight so a second caller that races a successful
         # first opener call re-persists the same PR number.
-        if previous_phase == PipelinePhase.PLAN and target_phase == PipelinePhase.IMPLEMENT:
+        if previous_phase == PipelinePhase.PLAN:
             # ---- AC-1a plan-phase pre-flight validator (#2777) ----
             # Run BEFORE populate so a malformed plan surfaces as a
             # typed 422 with the missing field name rather than the
-            # populate path's silent warn-log. ``force=True`` bypasses
-            # the validator so operators can still unstick a pipeline
-            # whose plan draft is unrecoverable.
-            if not force:
+            # populate path's silent warn-log. Validator only fires
+            # on plan→implement (the new context-PR opener that
+            # depends on the validated fields only runs there).
+            # ``force=True`` bypasses the validator so operators can
+            # still unstick a pipeline whose plan draft is unrecoverable.
+            #
+            # tester v3 NACK fix: the outer conditional stays at
+            # ``previous_phase == PLAN`` (not narrowed to
+            # ``and target_phase == IMPLEMENT``) so the populate block
+            # below runs on ANY plan-exit per the #1941 contract.
+            # Only the validator and opener arms narrow to
+            # plan→implement; populate runs uniformly.
+            if target_phase == PipelinePhase.IMPLEMENT and not force:
                 # reviewer_code_holistic blocker 2: distinguish
                 # "infra unavailable" (preflight could not run; surface
                 # as 500 so the operator retries rather than believing
@@ -590,49 +599,54 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # #2777 (cq-4, TASK-1-2) — replaced the legacy soft-fail
             # wrapper with the new hard-required, idempotent
             # ``_open_context_pr_at_implement_start`` opener.
-            try:
-                from routes.pipelines import (
-                    ContextPrCreationError,
-                    _open_context_pr_at_implement_start,
-                )
+            #
+            # Only fires on plan→implement; other target phases (e.g.
+            # plan→pr force-advance) skip the opener because there
+            # is no slice stack to root on a context PR.
+            if target_phase == PipelinePhase.IMPLEMENT:
+                try:
+                    from routes.pipelines import (
+                        ContextPrCreationError,
+                        _open_context_pr_at_implement_start,
+                    )
 
-                _open_context_pr_at_implement_start(pipeline_id)
-            except ContextPrCreationError as ctx_err:
-                # Hard-required: do NOT swallow. Surface as 422 so the
-                # operator sees the missing-PR / gateway-failure
-                # rather than discovering it as a stranded slice
-                # stack later. The state-lock-protected mutation
-                # below has NOT yet run at this point, so the
-                # pipeline remains in PLAN / its prior status — no
-                # orphan state.
-                logger.warning(
-                    "Context PR opener failed at advance_phase "
-                    "(#2777, cq-4 hard-required)",
-                    pipeline_id=pipeline_id,
-                    reason=ctx_err.reason,
-                    error=str(ctx_err),
-                )
-                return make_error_response(
-                    f"Context PR could not be opened: {ctx_err}",
-                    422,
-                    details={"reason": ctx_err.reason},
-                    reason="context_pr_open_failed",
-                )
-            except Exception as ctx_outer_err:  # noqa: BLE001
-                # Defence in depth: import / lookup failures that
-                # are NOT ContextPrCreationError still surface as a
-                # 5xx so the rejection reaches the operator.
-                logger.warning(
-                    "Context PR opener: outer wrapper raised on "
-                    "advance_phase (#2777)",
-                    pipeline_id=pipeline_id,
-                    error=str(ctx_outer_err),
-                )
-                return make_error_response(
-                    f"Context PR opener wrapper failed: {ctx_outer_err}",
-                    500,
-                    reason="context_pr_open_wrapper_failed",
-                )
+                    _open_context_pr_at_implement_start(pipeline_id)
+                except ContextPrCreationError as ctx_err:
+                    # Hard-required: do NOT swallow. Surface as 422
+                    # so the operator sees the missing-PR / gateway-
+                    # failure rather than discovering it as a stranded
+                    # slice stack later. The state-lock-protected
+                    # mutation below has NOT yet run at this point,
+                    # so the pipeline remains in PLAN / its prior
+                    # status — no orphan state.
+                    logger.warning(
+                        "Context PR opener failed at advance_phase "
+                        "(#2777, cq-4 hard-required)",
+                        pipeline_id=pipeline_id,
+                        reason=ctx_err.reason,
+                        error=str(ctx_err),
+                    )
+                    return make_error_response(
+                        f"Context PR could not be opened: {ctx_err}",
+                        422,
+                        details={"reason": ctx_err.reason},
+                        reason="context_pr_open_failed",
+                    )
+                except Exception as ctx_outer_err:  # noqa: BLE001
+                    # Defence in depth: import / lookup failures that
+                    # are NOT ContextPrCreationError still surface as
+                    # a 5xx so the rejection reaches the operator.
+                    logger.warning(
+                        "Context PR opener: outer wrapper raised on "
+                        "advance_phase (#2777)",
+                        pipeline_id=pipeline_id,
+                        error=str(ctx_outer_err),
+                    )
+                    return make_error_response(
+                        f"Context PR opener wrapper failed: {ctx_outer_err}",
+                        500,
+                        reason="context_pr_open_wrapper_failed",
+                    )
 
         # Acquire the pipeline state lock so the phase transition and
         # run_epoch bump are atomic with respect to any running
