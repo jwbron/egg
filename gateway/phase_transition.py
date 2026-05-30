@@ -50,8 +50,10 @@ VALID_TRANSITIONS: dict[PipelinePhase, list[PipelinePhase]] = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT, PipelinePhase.APPLY],
     PipelinePhase.APPLY: [PipelinePhase.IMPLEMENT],
-    PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
-    PipelinePhase.PR: [],  # Terminal state - no automatic transitions
+    # IMPLEMENT is now terminal — the PR phase was removed in #2777
+    # (cq-4). Callers requesting ``target='pr'`` are default-denied at
+    # the transition validator.
+    PipelinePhase.IMPLEMENT: [],
 }
 
 

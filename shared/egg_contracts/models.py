@@ -69,13 +69,25 @@ class PipelinePhase(StrEnum):
     apply phase spawns the APPLIER role to drive Jira mutations
     (epic-Description writes, child-ticket creates, issue-link creates)
     on operator approval of the refine and plan HITL gates.
+
+    ``PR`` is retained as a **vestigial gateway-session namespace
+    only** after #2777 (cq-4 / TASK-2-2). The PR pipeline-phase itself
+    was removed — ``IMPLEMENT`` is now terminal — and ``PR`` is no
+    longer a valid transition target in ``PHASE_TRANSITIONS`` /
+    ``VALID_TRANSITIONS``, no longer renders in the DAG visualizer,
+    and no longer carries a ``PhaseConfig`` row in
+    ``phase_defaults.py``. The single surviving use is the synthetic
+    gateway session that the orchestrator's
+    ``GatewayClient.create_pr`` registers with ``phase="pr"`` so the
+    gateway's phase_filter allows ``gh pr create``; tightly scoped to
+    the up-front context-PR opener flow.
     """
 
     REFINE = "refine"
     PLAN = "plan"
     APPLY = "apply"
     IMPLEMENT = "implement"
-    PR = "pr"
+    PR = "pr"  # vestigial gateway-session namespace; see class docstring
 
 
 class DecisionType(StrEnum):
@@ -483,20 +495,20 @@ class DeferredAction(EggContractBaseModel):
 class PRMetadata(EggContractBaseModel):
     """Planner-generated PR metadata: title, description, test plan, and manual steps.
 
-    Schema 1.1 (#2548) adds four optional ``context_*`` fields used by the
-    new dedicated context-PR mechanism. The context PR sits at the root of
-    the slice stack and carries the refine/plan analysis docs and BRC
-    consensus history, so that strategic narrative reaches ``main`` even
-    when slice PRs cascade-merge through the work branch.
+    Schema 1.2 (#2777, cq-2) hard-removed the legacy ``context_branch`` /
+    ``context_title`` / ``context_description`` fields that backed the
+    dedicated ``egg/<pipeline_id>/context`` branch in #2548. Under the new
+    context-PR topology the context PR opens on ``egg/<pipeline_id>/work
+    → main`` up-front at the plan→implement boundary, reusing ``title`` /
+    ``description`` directly, so the three split fields are obsolete.
+    ``context_pr_number`` is the surviving field — it tracks the GitHub PR
+    number of the work-branch context PR opened by
+    ``_open_context_pr_at_implement_start``.
 
-    * ``context_title`` / ``context_description`` are populated by the
-      planner when it wants the context PR framed differently from the
-      slice PRs (e.g. "Strategic plan for #N" vs the slice's "Implement
-      …"). When omitted the orchestrator falls back to ``title`` /
-      ``description``.
-    * ``context_branch`` / ``context_pr_number`` are populated by the
-      orchestrator after the context branch is created and the context
-      PR is opened — planners must NOT emit these fields.
+    Pre-1.2 contracts on disk that still carry the three removed fields
+    load cleanly: ``Contract._migrate_schema_version_to_1_2`` strips them
+    from the ``pr`` payload before pydantic constructs ``PRMetadata`` and
+    bumps ``schemaVersion`` to ``1.2``.
     """
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
@@ -511,37 +523,20 @@ class PRMetadata(EggContractBaseModel):
     )
     # ------------------------------------------------------------------
     # #2548 — context-PR fields (schema 1.1).
+    #   ``context_branch`` / ``context_title`` / ``context_description``
+    #   were removed in schema 1.2 (#2777, cq-2). The context PR now uses
+    #   the work branch directly and reads its title/body from ``title`` /
+    #   ``description`` above.
     # ------------------------------------------------------------------
-    context_title: str | None = Field(
-        default=None,
-        description=(
-            "Optional title for the dedicated context PR (#2548). Lets the "
-            "context PR be framed differently from slice PRs (e.g. "
-            "'Strategic plan for #N'). Falls back to ``title`` when None."
-        ),
-    )
-    context_description: str | None = Field(
-        default=None,
-        description=(
-            "Optional body for the dedicated context PR (#2548). Falls "
-            "back to ``description`` when None."
-        ),
-    )
-    context_branch: str | None = Field(
-        default=None,
-        description=(
-            "Branch name ``egg/<pipeline_id>/context`` once the orchestrator "
-            "has created it (#2548). Populated by the orchestrator hook that "
-            "runs after plan_gate; planners must NOT emit this field."
-        ),
-    )
     context_pr_number: int | None = Field(
         default=None,
         ge=1,
         description=(
-            "GitHub PR number once the context PR has been opened (#2548). "
-            "Populated by the orchestrator; planners must NOT emit this field. "
-            "Constrained to >=1 because GitHub PR numbers are positive."
+            "GitHub PR number for the work-branch context PR opened by "
+            "``_open_context_pr_at_implement_start`` at the plan→implement "
+            "boundary (#2548 / #2777). Populated by the orchestrator; "
+            "planners must NOT emit this field. Constrained to >=1 because "
+            "GitHub PR numbers are positive."
         ),
     )
     deferred_actions: list[DeferredAction] = Field(
@@ -776,15 +771,22 @@ class Contract(EggContractBaseModel):
     """The complete SDLC contract."""
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.1",
+        default="1.2",
         pattern=r"^[0-9]+\.[0-9]+$",
         description=(
-            "Schema version. Bumped to ``1.1`` in #2548 to track the addition "
-            "of the optional ``pr.context_*`` fields. Pre-1.1 contracts load "
-            "transparently — the new fields default to None — and are "
-            "promoted to ``1.1`` whenever they are loaded into the model; "
-            "the new value is then persisted on the next save. See "
-            "``_migrate_schema_version_to_1_1``."
+            "Schema version. Bumped to ``1.1`` in #2548 to track the "
+            "addition of the optional ``pr.context_*`` fields, then to "
+            "``1.2`` in #2777 (cq-2) when ``pr.context_branch`` / "
+            "``pr.context_title`` / ``pr.context_description`` were "
+            "hard-removed in favour of opening the context PR on the work "
+            "branch directly. Pre-1.2 contracts on disk that still carry "
+            "those fields load transparently — the wrap-mode migrator "
+            "strips them before pydantic constructs ``PRMetadata`` — and "
+            "are promoted to ``1.2`` whenever they are loaded into the "
+            "model; the new value is then persisted on the next save. "
+            "See ``_migrate_schema_version_to_1_1`` (the additive 1.0 → "
+            "1.1 stamp) and ``_migrate_schema_version_to_1_2`` (the "
+            "wrap-mode field strip + 1.1 → 1.2 bump)."
         ),
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
@@ -951,6 +953,58 @@ class Contract(EggContractBaseModel):
         if self.schemaVersion == "1.0":
             self.schemaVersion = "1.1"
         return self
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _migrate_schema_version_to_1_2(cls, data: Any, handler: Any) -> Contract:
+        """Strip removed ``pr.context_*`` fields from pre-1.2 contracts (#2777, cq-2).
+
+        Mirrors ``_migrate_schema_version_to_1_1`` but on the input side:
+        ``context_branch`` / ``context_title`` / ``context_description``
+        were removed from ``PRMetadata`` in schema ``1.2`` (the new
+        context-PR topology reuses ``title`` / ``description`` and opens
+        on the work branch directly — see the ``PRMetadata`` docstring).
+        Pre-1.2 contracts on disk still carry those keys; without this
+        migrator a fresh ``PRMetadata`` constructor call would either
+        silently drop them (default pydantic ``extra='ignore'``) or
+        raise a ``ValidationError`` under a stricter config.
+
+        The migration is wrap-mode so it can pre-process the ``pr`` dict
+        before pydantic constructs ``PRMetadata``. Behaviour:
+
+        * On a dict input with ``schemaVersion`` ∈ ``{None, "1.0", "1.1"}``
+          (None covers contracts that omit the field entirely): strip the
+          three keys from ``data["pr"]`` if present, preserving
+          ``context_pr_number`` and ``deferred_actions`` and every other
+          ``pr`` field untouched, then bump ``schemaVersion`` to ``1.2``.
+        * On a dict input already at ``"1.2"`` or higher: no-op.
+        * On non-dict input (rare — typically a pre-built ``Contract``
+          instance being re-validated): no-op.
+
+        The bump to ``"1.2"`` happens here in the wrap-mode validator so
+        a single load → save round-trip persists the new version. The
+        existing ``_migrate_schema_version_to_1_1`` (mode="after",
+        guards on ``"1.0"``) is intentionally left alone so that a pre-
+        1.1 contract migrates 1.0 → 1.1 → 1.2 in one pass without one
+        validator fighting the other.
+        """
+        if not isinstance(data, dict):
+            return cast("Contract", handler(data))
+
+        current = data.get("schemaVersion")
+        if current in (None, "1.0", "1.1"):
+            pr_payload = data.get("pr")
+            if isinstance(pr_payload, dict):
+                stripped = {
+                    k: v
+                    for k, v in pr_payload.items()
+                    if k not in {"context_branch", "context_title", "context_description"}
+                }
+                if stripped != pr_payload:
+                    data["pr"] = stripped
+            data["schemaVersion"] = "1.2"
+
+        return cast("Contract", handler(data))
 
     @model_validator(mode="after")
     def _require_issue_or_pipeline_id(self) -> Contract:

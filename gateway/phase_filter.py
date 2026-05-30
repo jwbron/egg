@@ -523,6 +523,17 @@ class PhaseFilter:
                 ],
                 exit_requires="reviewer",
             ),
+            # ``PipelinePhase.PR`` is retained as a vestigial
+            # gateway-session namespace only after #2777 (cq-4 / TASK-2-2):
+            # the pipeline PR phase was removed and IMPLEMENT is terminal,
+            # but the orchestrator's ``GatewayClient.create_pr`` registers
+            # a synthetic session with ``phase="pr"`` so the up-front
+            # context-PR opener can call ``gh pr create``. The row is
+            # therefore kept to allow that single operation; the
+            # corresponding PHASE_TRANSITIONS / VALID_TRANSITIONS / DAG
+            # visualizer / phase_defaults rows are gone, so a normal
+            # caller cannot reach this entry via ``target='pr'`` on
+            # ``advance_phase``.
             PipelinePhase.PR: PhasePermissions(
                 allowed_operations=[
                     Operation(OperationType.GH, "pr create*", "Create PRs"),
@@ -639,6 +650,14 @@ class PhaseFilter:
                     "checkpoints, agent anchors, and reviews only"
                 ),
             ),
+            # ``PipelinePhase.PR`` retained as a vestigial gateway-session
+            # namespace only after #2777 (cq-4 / TASK-2-2); see the
+            # ``_get_default_permissions`` PR row above for the rationale.
+            # The restriction is "PR phase can push everything" so the
+            # synthetic ``create_pr`` session can write the PR-creation
+            # request through without file-restriction blowback. Normal
+            # pipeline transitions cannot reach this row because the
+            # PR phase was removed from the transition graph.
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
                 description="PR phase can push everything",

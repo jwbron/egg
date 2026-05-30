@@ -69,10 +69,11 @@ class ContextPrCreationError(Exception):
     hard-required up-front context PR cannot be opened (#2777, cq-4).
 
     Replaces the soft-fail ``return None`` swallow path that the legacy
-    :func:`_maybe_open_base_pr_for_plan_to_implement` wrapper used.
-    Under cq-4 the context PR is hard-required at the plan→implement
-    boundary; a gateway failure here must surface to the BRC NACK / 422
-    surface rather than silently strand the slice stack on ``/work``.
+    ``_maybe_open_base_pr_for_plan_to_implement`` wrapper used before
+    slice-2 deleted it. Under cq-4 the context PR is hard-required at
+    the plan→implement boundary; a gateway failure here must surface to
+    the BRC NACK / 422 surface rather than silently strand the slice
+    stack on ``/work``.
 
     Attributes:
         reason: Machine-readable reason drawn from
@@ -162,7 +163,6 @@ try:
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import (
-        ContextBranchDiverged,
         GatewayError,
         _rebase_with_agent_output_autoresolve,
     )
@@ -217,7 +217,6 @@ except ImportError:
         DockerClientError,
     )
     from gateway_client import (  # type: ignore
-        ContextBranchDiverged,
         GatewayError,
         _rebase_with_agent_output_autoresolve,
     )
@@ -366,12 +365,6 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
-        # #2611 — operators waiting on ``wait-status`` need to wake on
-        # context-PR hook failures so the plan→implement transition's
-        # missing-PR signal isn't log-only. Paired with the
-        # ``CONTEXT_PR_*`` message types below so both sources fire.
-        "context_pr.skipped",
-        "context_pr.failed",
     }
 )
 
@@ -383,11 +376,6 @@ _STATUS_WAIT_MESSAGE_TYPES = (
     "CONSENSUS_CONFIRMED",
     "CONSENSUS_NACK",
     "CONSENSUS_RE_REVIEW",
-    # #2611 — pair with the ``context_pr.*`` event-bus entries above
-    # so a long-poller observes the wrapper's bus emission from
-    # either source (message store or event bus).
-    "CONTEXT_PR_SKIPPED",
-    "CONTEXT_PR_FAILED",
 )
 
 
@@ -1115,8 +1103,6 @@ if _emit_event is not None:
         "pipeline.failed": EventType.PIPELINE_FAILED,
         "pipeline.cancelled": EventType.PIPELINE_CANCELLED,
         "decision.created": EventType.DECISION_CREATED,
-        "context_pr.skipped": EventType.CONTEXT_PR_SKIPPED,
-        "context_pr.failed": EventType.CONTEXT_PR_FAILED,
     }
 
 
@@ -1882,22 +1868,6 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
             error=str(e),
         )
 
-    try:
-        try:
-            from consensus import get_consensus_evaluator
-        except ImportError:
-            from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
-        get_consensus_evaluator().clear(pipeline_id)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to clear legacy consensus state",
-            pipeline_id=pipeline_id,
-            reason=reason,
-            error=str(e),
-        )
-
     # Reconstruct-from-messages would otherwise replay the prior run's
     # CONSENSUS_* messages and rebuild a CONFIRMED tracker, defeating the
     # tracker eviction above.
@@ -1916,29 +1886,6 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
             reason=reason,
             error=str(e),
         )
-
-    # #2599 review 2 item 1 — the context_pr.skipped / context_pr.failed
-    # dedupe set is also keyed by ``pipeline_id`` alone. Without this
-    # clear, a fresh pipeline that reuses an id from a prior terminal
-    # run (allowed — see branch-reuse logic for terminal-state pipelines)
-    # would inherit the prior run's emitted-event set; if the new run
-    # also fails to open its context PR, operators long-polling
-    # ``wait-status`` or reading ``recent_messages`` would see no event
-    # for the new failure (the sinks wired in #2611 also share this
-    # dedupe — see ``_maybe_open_base_pr_for_plan_to_implement``).
-    # Same shape as #2053 (the other per-pipeline-id leak this function
-    # exists to plug).
-    try:
-        with _context_pr_events_emitted_lock:
-            _context_pr_events_emitted.pop(pipeline_id, None)
-    except Exception as e:
-        logger.warning(
-            "Failed to clear context PR event dedupe state",
-            pipeline_id=pipeline_id,
-            reason=reason,
-            error=str(e),
-        )
-
 
 def _mark_pipeline_records_terminated(
     store: StateStore,
@@ -2928,24 +2875,6 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             error=str(e),
         )
 
-    try:
-        try:
-            from consensus import get_consensus_evaluator
-        except ImportError:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
-
-        evaluator = get_consensus_evaluator()
-        evaluator.remove_agent(pipeline_id, agent_role)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to reset legacy consensus state",
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            error=str(e),
-        )
-
     # Reset health-monitor anchor so the pre-respawn _last_heartbeat does not
     # generate a stale-elapsed heartbeat_timeout alert against the fresh
     # container (issue #2084).
@@ -3358,23 +3287,6 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             error=str(e),
         )
 
-    try:
-        try:
-            from consensus import get_consensus_evaluator
-        except ImportError:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
-
-        evaluator = get_consensus_evaluator()
-        evaluator.clear(pipeline_id)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to clear legacy consensus",
-            pipeline_id=pipeline_id,
-            error=str(e),
-        )
-
     # 6. Reset restart counts for this pipeline
     spawner.reset_restart_counts(pipeline_id)
 
@@ -3581,25 +3493,6 @@ def resume_pipeline_after_hard_reset_ack(
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "Failed to clear peer consensus after hard-reset ack",
-            pipeline_id=pipeline_id,
-            error=str(e),
-        )
-
-    try:
-        try:
-            from consensus import get_consensus_evaluator
-        except ImportError:
-            from ..consensus import (  # type: ignore[import-not-found]
-                get_consensus_evaluator,
-            )
-
-        evaluator = get_consensus_evaluator()
-        evaluator.clear(pipeline_id)
-    except ImportError:
-        pass
-    except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "Failed to clear legacy consensus after hard-reset ack",
             pipeline_id=pipeline_id,
             error=str(e),
         )
@@ -4417,23 +4310,26 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
 
 
 def _get_pr_info(pipeline: Pipeline) -> tuple[str | None, int | None]:
-    """Extract PR URL and number from the PR phase artifacts.
+    """Extract context-PR URL and number from the pipeline contract.
 
     Returns ``(pr_url, pr_number)`` or ``(None, None)`` when no PR has
-    been created. The single source of truth is
-    ``phases["pr"].artifacts["pr_url"]``, written after ``_auto_create_pr``
-    succeeds (see the PR phase completion path). ``pr_number`` is parsed
-    from the URL; callers get ``None`` for unusually shaped URLs but
-    ``pr_url`` is still returned so they can fall back gracefully.
+    been opened. Under #2777 the PR phase was removed and the context
+    PR opens up-front via ``_open_context_pr_at_implement_start`` which
+    persists ``context_pr_number`` to ``contract.pr.context_pr_number``;
+    we read that directly. ``pr_url`` is also persisted on the pipeline
+    record by ``_open_context_pr_at_implement_start`` for downstream
+    consumers (the JIRA reassess sweep at ``jira_reassess.py``).
     """
-    pr_phase = pipeline.phases.get(PipelinePhase.PR.value)
-    if not pr_phase or not pr_phase.artifacts:
-        return None, None
-    pr_url = pr_phase.artifacts.get("pr_url")
+    # ``Pipeline.pr_url`` / ``Pipeline.pr_number`` are populated by the
+    # up-front opener; they are the canonical surface for callers that
+    # used to read ``phases["pr"].artifacts["pr_url"]``.
+    pr_url = getattr(pipeline, "pr_url", None)
+    pr_number = getattr(pipeline, "pr_number", None)
     if not pr_url:
         return None, None
-    match = re.search(r"/pull/(\d+)", pr_url)
-    pr_number = int(match.group(1)) if match else None
+    if pr_number is None:
+        match = re.search(r"/pull/(\d+)", pr_url)
+        pr_number = int(match.group(1)) if match else None
     return pr_url, pr_number
 
 
@@ -4552,53 +4448,28 @@ def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> d
                 )
         if tracker:
             consensus_state = tracker.get_state()
-        elif slice_id is not None:
-            # Slice-scoped query with no BRC tracker: the legacy readiness
-            # evaluator is pipeline-level only, so falling back to it would
-            # report sibling-slice (or stale pipeline-wide) state. Report
-            # no consensus block instead of a misleading one (#2761).
-            consensus_state = None
         else:
-            try:
-                from consensus import get_consensus_evaluator
-            except ImportError:
-                from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
-
-            evaluator = get_consensus_evaluator()
-            consensus_state = evaluator.get_state(pipeline.id)
-    except ImportError:
-        try:
-            try:
-                from consensus import get_consensus_evaluator
-            except ImportError:
-                from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
-
-            evaluator = get_consensus_evaluator()
-            consensus_state = evaluator.get_state(pipeline.id)
-        except ImportError:
-            logger.debug("Consensus evaluator not available for status")
+            # No BRC tracker available (slice-scoped query for a slice with
+            # no tracker yet, or a non-concurrent pipeline). The legacy
+            # ConsensusEvaluator was removed under cq-5 of #2777, so there
+            # is no fallback evaluator to consult. Report no consensus
+            # block; callers (e.g. the MCP get_consensus_status tool) fall
+            # back to message-based inference per the existing #1229 path.
             consensus_state = None
+    except ImportError:
+        logger.debug("Peer consensus tracker not available for status")
+        consensus_state = None
 
     if consensus_state is not None:
-        agents_data = {}
-        for role, agent_info in consensus_state.get("agents", {}).items():
-            if hasattr(agent_info, "state"):
-                # Legacy AgentReadiness object
-                agents_data[role] = {
-                    "state": agent_info.state.value,
-                    "reason": agent_info.reason,
-                    "updated_at": agent_info.timestamp.isoformat()
-                    if agent_info.timestamp
-                    else None,
-                }
-            else:
-                # BRC dict format
-                agents_data[role] = agent_info
+        # BRC trackers only emit dict-format agent entries (the legacy
+        # AgentReadiness object came from the now-deleted
+        # ConsensusEvaluator, cq-5 of #2777).
+        agents_data = dict(consensus_state.get("agents", {}))
         result["consensus"] = {
             "agents": agents_data,
             "is_complete": consensus_state.get("is_complete", False),
             "blocking_agents": consensus_state.get("blocking_agents", []),
-            "protocol": consensus_state.get("protocol", "readiness"),
+            "protocol": consensus_state.get("protocol", "brc"),
         }
     else:
         # Don't populate consensus with empty placeholder — callers (e.g. the
@@ -7998,12 +7869,11 @@ def _refresh_pipeline_branch_against_current_base(
     #
     # Unlike ``_rebase_pipeline_branch_onto_base`` (resume-time helper),
     # there is no ``_head_on(...)`` ancestry guard before this reset.
-    # That is intentional at the PR-open call site: if we got here,
-    # ``_finalize_pr_phase_failed`` either left HEAD on
-    # ``origin/<branch>`` (push_ok=True path → reset is a no-op) or
-    # carries unpushed orchestrator housekeeping commits that are
-    # already orphan-by-design per its docstring.  Either way, no
-    # local-only work needs to be preserved here.
+    # That is intentional at this PR-open call site: any local-ahead
+    # commits at this point are orchestrator housekeeping commits that
+    # are orphan-by-design (the agents' work is already on
+    # ``origin/<branch>`` via the per-cycle push) so nothing needs to
+    # be preserved here.
     reset = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
     if reset is None or reset.returncode != 0:
         logger.warning(
@@ -8924,154 +8794,6 @@ def _format_rescue_hint(pipeline) -> str:
         f'--title "..." --body "..."'
     )
 
-
-def _should_skip_pr_phase_auto_pr(
-    worktree_repo_path: Path,
-    pipeline_id: str,
-) -> tuple[bool, str | None]:
-    """Decide whether the PR phase should open a ``<pipeline_branch> → main`` PR.
-
-    Returns ``(skip, reason)`` where ``reason`` is a structured string
-    suitable for logging when ``skip`` is True.
-
-    The PR phase auto-PR is the legacy "open one big PR for everything
-    on the pipeline branch" path. It is the right thing for:
-
-      * Pre-slice-DAG (monolithic) pipelines whose only PR is the one
-        the PR phase opens.
-      * Single-slice contracts that still flow through the monolithic
-        implement path (``_use_slice_loop = _slice_count > 1`` at the
-        implement-phase gate).
-
-    It is **not** the right thing for slice-DAG mode
-    (``len(contract.slices) > 1``) — every slice already opened its own
-    PR via ``create_slice_pr``, stacked on top of the context PR
-    (#2548). Opening another ``egg/<id>/work → main`` PR creates a
-    redundant program-level surface and confuses reviewers (#2685).
-
-    Errors loading the contract fail safe to *not* skipping — the legacy
-    auto-PR path runs and the pipeline still produces a PR rather than
-    silently dropping it. This is the same fail-safe shape as the
-    implement-phase slice-loop gate (``except`` at the call site;
-    callers fall back to the monolithic path).
-    """
-    try:
-        from egg_contracts.loader import (
-            load_contract as _load_contract_for_pr_gate,
-        )
-    except Exception as imp_err:  # noqa: BLE001
-        logger.debug(
-            "PR-phase skip gate: contract loader import failed (#2685)",
-            pipeline_id=pipeline_id,
-            error=str(imp_err),
-        )
-        return False, None
-
-    try:
-        contract = _load_contract_for_pr_gate(pipeline_id, worktree_repo_path)
-    except Exception as load_err:  # noqa: BLE001
-        logger.debug(
-            "PR-phase skip gate: contract load failed; running legacy auto-PR (#2685)",
-            pipeline_id=pipeline_id,
-            error=str(load_err),
-        )
-        return False, None
-
-    # #2777 cq-10 — dedupe the bare ``slice_count > 1`` recompute via
-    # the new :func:`_is_slice_dag_mode` helper. The slice_count
-    # remains computed locally because the structured log reason
-    # below names the actual count for operator debugging.
-    slice_count = len(getattr(contract, "slices", []) or [])
-    if _is_slice_dag_mode(contract):
-        return True, f"slice_dag_mode_slice_count={slice_count}"
-    return False, None
-
-
-def _finalize_pr_phase_failed(
-    pipeline,
-    worktree_repo_path: Path,
-    spawner,
-    store,
-    pipeline_id: str,
-    current_phase: str,
-    gateway_mode: Literal["public", "private"],
-    push_ok: bool,
-) -> bool:
-    """Create the PR (possibly against a stale remote HEAD) and persist state.
-
-    Called at the end of the auto-PR branch of the PR phase.  Factored out
-    of ``_health_monitor_poll`` so the reconcile-failure / fallback
-    behavior described in jwbron/egg#1731 can be unit-tested independently
-    of the full polling loop.
-
-    ``push_ok`` reflects whether the preceding
-    :func:`GatewayClient.push_worktree_branch` call succeeded (the client
-    reconciles non-fast-forward rejections internally via fetch+rebase+retry;
-    see #1706/#1731/#1808).  Regardless,
-    we call :func:`_auto_create_pr` — when ``push_ok`` is False the PR is
-    opened against whatever is currently on ``origin/<pipeline.branch>``
-    (the agents' work), dropping the orchestrator's housekeeping commits
-    rather than failing the whole pipeline.
-
-    Returns ``True`` when the phase failed (no PR URL), ``False`` when the
-    PR was created successfully (URL captured).  The name explicitly
-    encodes the return-value semantics: ``if _finalize_pr_phase_failed(...):``.
-    Side effects: persists ``pr_url`` artifact on success, or marks the
-    pipeline FAILED with a rescue hint on failure.
-    """
-    pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode)
-
-    if pr_url:
-        # Parse the PR number from the URL so downstream consumers
-        # (overseer, get_pipeline_snapshot) can
-        # rely on ``pipeline.pr_number`` directly instead of re-deriving
-        # it from the ``pr_url`` artifact.  Match mirrors ``_get_pr_info``.
-        match = re.search(r"/pull/(\d+)", pr_url)
-        parsed_pr_number = int(match.group(1)) if match else None
-        # Best-effort lookup of the created PR's head SHA so we can also
-        # populate ``pipeline.pr_head_sha``.  Failures here must not fail
-        # the PR phase — leave ``pr_head_sha`` null and proceed.  The
-        # read-from-gh (vs. push-intent) is correct because the #1731
-        # fallback path may have opened the PR against the remote HEAD
-        # rather than our locally-pushed commit.
-        head_sha: str | None = None
-        if parsed_pr_number is not None:
-            # ``_fetch_pr_state`` already returns {} on any internal
-            # failure (gh missing, JSON parse error, non-zero exit),
-            # so we don't need an outer try/except wrapper here.
-            pr_state = _fetch_pr_state(parsed_pr_number, pipeline.repo)
-            candidate = pr_state.get("head_sha") if isinstance(pr_state, dict) else None
-            if isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{7,40}", candidate):
-                head_sha = candidate
-        with get_pipeline_state_lock(pipeline_id):
-            reloaded = store.load_pipeline(pipeline_id)
-            phase_execution = reloaded.get_phase_execution(current_phase)
-            phase_execution.artifacts = {"pr_url": pr_url}
-            if parsed_pr_number is not None:
-                reloaded.pr_number = parsed_pr_number
-            # Issue #1557 reviewer_contract / reviewer_code_holistic v1
-            # finding #2: persist ``Pipeline.pr_url`` alongside
-            # ``pr_number`` so the reassess sweep's signal-a in-flight
-            # reverse-index (``pipelines_for_ticket_pr_url`` in
-            # ``orchestrator/jira_reassess.py``) can see open PRs from
-            # prior egg runs. Without this, decision-7 signal a never
-            # fires and the in-flight detection collapses to a single
-            # signal (remote-link scan only).
-            if isinstance(pr_url, str) and pr_url:
-                reloaded.pr_url = pr_url
-            if head_sha is not None:
-                reloaded.pr_head_sha = head_sha
-            store.save_pipeline(reloaded)
-        return False
-
-    failure_reason = (
-        "gateway push rejected and fetch+rebase reconcile failed, "
-        "then fallback PR against remote HEAD also returned no URL"
-        if not push_ok
-        else "no PR URL returned"
-    )
-    _handle_pr_creation_failure(pipeline_id, current_phase, store, reason=failure_reason)
-    return True
 
 
 BRC_HISTORY_TYPES = frozenset(
@@ -10324,944 +10046,6 @@ def _auto_create_pr(
         return None
 
 
-# ----------------------------------------------------------------------
-# #2548 — context PR (refine + plan artifacts on a doc-only branch)
-# ----------------------------------------------------------------------
-
-# Files copied from the work-branch worktree onto the context worktree.
-# Drafts and aggregate refine/plan BRC artifacts are listed explicitly.
-# Agent-transcript globs are derived dynamically from
-# ``get_roles_for_phase("refine")`` / ``get_roles_for_phase("plan")`` —
-# the orchestrator emits ``<identifier>-<role>-output.{json,md}`` per the
-# ``save_agent_output`` shape (shared/egg_contracts/orchestrator.py:386),
-# NOT a phase-prefix shape, so a static ``<id>-refine-*`` glob would
-# silently match nothing (#2548 review finding by reviewer_code).  The
-# refine + plan rosters are the canonical source of truth: a future
-# role addition is auto-picked up.
-_STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
-    ".egg-state/drafts/{identifier}-analysis.md",
-    ".egg-state/drafts/{identifier}-plan.md",
-    ".egg-state/brc-history/{identifier}-refine.json",
-    ".egg-state/brc-history/{identifier}-refine.md",
-    ".egg-state/brc-history/{identifier}-plan.json",
-    ".egg-state/brc-history/{identifier}-plan.md",
-)
-# Contract JSON path is resolved dynamically via ``get_contract_path`` in
-# ``_gather_context_pr_files`` because the contract loader uses a
-# different filename convention than the draft / BRC artifacts: integer
-# issue identifiers are canonicalised to ``issue-<N>.json`` (with the
-# legacy ``<N>.json`` shape as a fallback), whereas drafts and BRC
-# history use the bare ``{identifier}`` prefix. Adding it here as a
-# static ``{identifier}.json`` glob would miss the canonical file
-# (#2685).
-
-# Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
-# for each role in the refine + plan rosters.  ``-output.{json,md}`` is
-# the canonical filename written by ``save_agent_output`` (see
-# shared/egg_contracts/orchestrator.py:386) and is the only sidecar
-# shape any role currently emits.  The set is an explicit allowlist on
-# purpose — open-ended ``-*.{json,md}`` wildcards would pick up
-# arbitrary sidecar files an agent writes (raw prompts, debug dumps,
-# partial state) onto the publicly-reviewable context PR (#2548 review
-# issue 7).  Add new explicit entries here when a future role actually
-# starts emitting a new sidecar shape; do not pre-allocate speculative
-# patterns that no role writes.
-_AGENT_OUTPUT_SUFFIXES: tuple[str, ...] = (
-    "-output.json",
-    "-output.md",
-)
-
-
-def _refine_and_plan_role_values() -> list[str]:
-    """Return the canonical refine + plan agent-role values.
-
-    Pulls the producer + reviewer rosters straight from
-    :func:`agent_roles.get_roles_for_phase` so the context PR's set
-    of copied transcripts auto-tracks the rosters: a future role
-    added to plan_phase will be picked up without editing this hook.
-
-    Returns deduplicated role values in registration order.  Empty
-    list when ``agent_roles`` cannot be imported (defensive — same
-    fallback the rest of the orchestrator uses for that import).
-    """
-    try:
-        from egg_contracts.agent_roles import get_roles_for_phase
-    except ImportError:
-        try:
-            from agent_roles import get_roles_for_phase  # type: ignore[no-redef]
-        except ImportError:
-            return []
-
-    seen: set[str] = set()
-    values: list[str] = []
-    for phase in ("refine", "plan"):
-        try:
-            roles = get_roles_for_phase(phase, include_reviewers=True)
-        except Exception:  # noqa: BLE001
-            continue
-        for role in roles:
-            value = getattr(role, "value", str(role))
-            if value not in seen:
-                seen.add(value)
-                values.append(value)
-    return values
-
-
-# Allowed shape of the pipeline identifier when formatted into a
-# ``.egg-state/`` path.  The orchestrator only ever produces bare
-# integer issue numbers or ``issue-<N>[-<qualifier>]`` IDs (see
-# ``_pipeline_identifier``), all of which match this regex.
-# ``glob.escape`` further hardens the glob expansion against shell
-# metacharacters, but it does NOT escape ``..`` or ``/`` — this regex
-# closes that gap as defense-in-depth (#2548 review issue 10).
-_CONTEXT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-
-
-class _ExistingPRLookup(NamedTuple):
-    """Result of the top-of-hook GitHub-state idempotency check.
-
-    Exactly one of the four shapes is populated at a time:
-
-    * ``matched=(url, number)`` — an open PR exists on ``head=context_branch``
-      with ``base=base_branch``; the hook salvages the linkage and returns.
-    * ``head_only_match=True`` — an open PR exists on ``head=context_branch``
-      but against a different base; opening a second PR would be wrong, so
-      the hook fails-soft.
-    * ``error=True`` — the gateway call raised; we have no idea what
-      GitHub's state is, so fail-soft.
-    * none of the above — no open PR matches our head branch; proceed
-      with the normal create_context_branch / push / create_pr flow.
-
-    Three-state result lives in a single helper so the hook's top-level
-    idempotency check is a straight-line switch instead of layered
-    exception handling around ``create_pr`` (#2582).
-    """
-
-    matched: tuple[str, int] | None = None
-    head_only_match: bool = False
-    error: bool = False
-
-
-def _lookup_existing_context_pr(
-    spawner: "ContainerSpawner",  # noqa: UP037
-    pipeline_id: str,
-    repo: str,
-    context_branch: str,
-    base_branch: str,
-    *,
-    gateway_mode: Literal["public", "private"] = "public",
-) -> _ExistingPRLookup:
-    """Authoritative GitHub-state check used at the top of the context-PR
-    hook (#2582).
-
-    Replaces the post-``create_pr``-failure recovery branches with a
-    single pre-flight lookup.  Returning the existing PR up-front lets
-    the hook skip all artifact-push work when a prior tick partially
-    succeeded (PR opened, contract not persisted) and lets it
-    distinguish "no PR yet — proceed" from "PR exists against a
-    different base — fail-soft" cleanly.
-
-    See :class:`_ExistingPRLookup` for the result shape.
-
-    ``list_open_prs`` already returns ``[]`` on its own internal
-    errors, so a silent gateway failure surfaces here as a no-match
-    and the hook proceeds; in that case any actually-existing
-    duplicate PR will surface later as a ``create_pr`` rejection and
-    the hook will fail-soft.  A direct raise from the gateway client
-    (e.g. test injection) is treated as ``error=True`` so the hook
-    fails-soft rather than risk a duplicate.
-    """
-    try:
-        open_prs = spawner.gateway.list_open_prs(pipeline_id, repo, mode=gateway_mode)
-    except Exception as list_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: list_open_prs raised — failing-soft (#2582)",
-            pipeline_id=pipeline_id,
-            error=str(list_err),
-        )
-        return _ExistingPRLookup(error=True)
-
-    head_only = False
-    for pr in open_prs:
-        if pr.get("head_ref") != context_branch:
-            continue
-        if pr.get("base_ref") != base_branch:
-            head_only = True
-            continue
-        # ``list_open_prs`` (gateway_client.py:2302-2317) already filters
-        # entries without ``number`` / ``head_ref`` and casts to ``int``
-        # before returning, so ``pr["number"]`` is always a present int
-        # here — trust the producer's contract.
-        pr_number = int(pr["number"])
-        pr_url = f"https://github.com/{repo}/pull/{pr_number}"
-        return _ExistingPRLookup(matched=(pr_url, pr_number))
-    return _ExistingPRLookup(head_only_match=head_only)
-
-
-def _persist_context_pr_linkage_on_contract(
-    *,
-    pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
-    worktree_repo_path: Path,
-    contract_id,
-    context_branch: str,
-    pr_number: int | None,
-    pipeline_id: str,
-    identifier,
-    base_branch: str,
-    gateway_mode: Literal["public", "private"] = "public",
-) -> None:
-    """Write ``context_branch`` / ``context_pr_number`` onto the contract
-    and commit + push the contract update to the work branch.
-
-    Called from two sites in :func:`_open_context_pr_for_pipeline`:
-    the top-of-hook GitHub-state recovery path (when ``list_open_prs``
-    surfaces an existing PR for our head) and the happy path after a
-    fresh ``create_pr``.
-
-    Best-effort: every failure path logs and returns.  Nothing here
-    propagates to the caller — by the time we're here the PR is open
-    on GitHub, so a contract write or commit/push failure is a
-    durability nuance bounded by the same restart-window the rest of
-    the phase-commit code exhibits (#2548 review suggestion H), not a
-    pipeline-blocker.
-
-    A commit/push failure leaves the contract update on disk locally
-    but not on the work branch's remote.  The top-of-hook GH-state
-    check is the safety net on the next tick: it sees the open PR via
-    ``list_open_prs`` and re-attempts the persistence.
-    """
-    try:
-        from egg_contracts.loader import load_contract, save_contract
-    except ImportError as imp_err:
-        logger.warning(
-            "Context PR hook: egg_contracts.loader unavailable during persist (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(imp_err),
-        )
-        return
-
-    contract_persisted = False
-    try:
-        with get_pipeline_state_lock(pipeline_id):
-            contract_local = load_contract(contract_id, worktree_repo_path)
-            if contract_local.pr is not None:
-                contract_local.pr.context_branch = context_branch
-                if pr_number is not None:
-                    contract_local.pr.context_pr_number = pr_number
-                save_contract(contract_local, worktree_repo_path)
-                contract_persisted = True
-    except Exception as save_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to persist context fields on contract "
-            "(continuing — context PR is open) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(save_err),
-        )
-
-    if not (contract_persisted and pipeline.branch):
-        return
-
-    committed = False
-    try:
-        committed = _commit_statefiles_to_worktree(
-            worktree_repo_path,
-            f"Persist context PR linkage for {identifier} (#2548)",
-            pipeline_identifier=identifier,
-            pipeline_id=pipeline_id,
-        )
-    except Exception as commit_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to commit contract update "
-            "(continuing — restart-safe via top-of-hook recovery) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(commit_err),
-        )
-        return
-
-    # Skip the push when the commit was a no-op — the helper is
-    # idempotent and returns ``False`` on re-entry where nothing
-    # changed.  An unconditional push would still be a fast-forward
-    # no-op against origin but would burn a network round-trip per
-    # tick (#2548 review suggestion D).
-    if not committed:
-        return
-    try:
-        spawner.gateway.push_worktree_branch(
-            pipeline_id=pipeline_id,
-            repo_path=str(worktree_repo_path),
-            branch=pipeline.branch,
-            mode=gateway_mode,  # type: ignore[arg-type]
-            base_branch=base_branch,
-        )
-    except Exception as push_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to push contract update "
-            "(continuing — restart-safe via top-of-hook recovery) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(push_err),
-        )
-
-
-def _gather_context_pr_files(
-    work_worktree: Path,
-    identifier: int | str,
-) -> list[Path]:
-    """Resolve the curated context-PR file set against ``work_worktree``.
-
-    Returns absolute paths of files that exist on the work branch
-    worktree.  Missing files are silently skipped — the work-branch
-    state is the source of truth and a missing draft (e.g.
-    ``analysis.md`` for a pipeline that skipped the refine phase) is
-    not fatal.
-
-    Symbolic links are deliberately NOT followed: ``Path.is_symlink()``
-    short-circuits the entry, so a planted symlink under
-    ``.egg-state/drafts/`` (defense-in-depth against a hypothetical
-    future role-file boundary widening) cannot dereference a target
-    outside the work worktree onto the publicly-reviewable context PR
-    (#2548 review finding by reviewer_security).
-
-    Used by :func:`_open_context_pr_for_pipeline`.
-    """
-    # Reject any identifier that contains path-traversal or path-
-    # separator characters before formatting it into a glob.  Every
-    # production identifier matches the expected shape; this assert
-    # closes the residual gap that ``glob.escape`` does not cover
-    # (#2548 review issue 10).
-    identifier_str = str(identifier)
-    if not _CONTEXT_IDENTIFIER_RE.match(identifier_str):
-        logger.warning(
-            "Context PR hook: rejecting malformed identifier (#2548)",
-            identifier=identifier_str,
-        )
-        return []
-
-    # Build the full glob set fresh per call so role-roster changes
-    # picked up at module reload time take effect immediately.
-    role_values = _refine_and_plan_role_values()
-    glob_templates: list[str] = list(_STATIC_CONTEXT_PR_FILE_GLOBS)
-    for role_value in role_values:
-        # ``role_value`` comes straight from a ``str`` enum literal
-        # (``AgentRole`` values are constrained alphabetic identifiers),
-        # so glob.escape is belt-and-braces.
-        escaped_role = glob.escape(role_value)
-        for suffix in _AGENT_OUTPUT_SUFFIXES:
-            glob_templates.append(f".egg-state/agent-outputs/{{identifier}}-{escaped_role}{suffix}")
-
-    found: list[Path] = []
-    seen: set[Path] = set()
-    for template in glob_templates:
-        rel = template.format(identifier=glob.escape(identifier_str))
-        for match in glob.glob(str(work_worktree / rel)):
-            p = Path(match)
-            # ``is_symlink`` check defends against a future planted
-            # symlink dereferencing into the public PR; a regular file
-            # that happens to live inside ``.egg-state/`` flows through
-            # unchanged.  ``is_file()`` follows symlinks, so the order
-            # matters: check symlink first.
-            if p.is_symlink():
-                continue
-            if p.is_file() and p not in seen:
-                seen.add(p)
-                found.append(p)
-
-    # Resolve the contract JSON path through the loader so we pick up
-    # the canonical ``issue-<N>.json`` shape for issue-mode pipelines
-    # (and ``{identifier}.json`` for JIRA pipelines whose identifier is
-    # already canonical). Including the contract on the
-    # context PR diff lets reviewers approve the structured slice DAG
-    # alongside the prose drafts that produced it (#2685).
-    try:
-        from egg_contracts.loader import (
-            _legacy_contract_path as _ctx_legacy_contract_path,  # type: ignore[attr-defined]
-        )
-        from egg_contracts.loader import (
-            get_contract_path as _ctx_get_contract_path,
-        )
-    except Exception as imp_err:  # noqa: BLE001
-        logger.debug(
-            "Context PR hook: contract loader import failed; skipping contract file (#2685)",
-            error=str(imp_err),
-        )
-    else:
-        contract_candidates: list[Path] = []
-        try:
-            contract_candidates.append(_ctx_get_contract_path(identifier, work_worktree))
-        except Exception as path_err:  # noqa: BLE001
-            logger.debug(
-                "Context PR hook: get_contract_path raised (#2685)",
-                error=str(path_err),
-            )
-        try:
-            legacy = _ctx_legacy_contract_path(identifier, work_worktree)
-            if legacy is not None:
-                contract_candidates.append(legacy)
-        except Exception:  # noqa: BLE001
-            pass
-        for cp in contract_candidates:
-            if cp.is_symlink():
-                continue
-            if cp.is_file() and cp not in seen:
-                seen.add(cp)
-                found.append(cp)
-
-    return sorted(found)
-
-
-def _open_context_pr_for_pipeline(
-    pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
-    worktree_repo_path: Path,
-    *,
-    gateway_mode: Literal["public", "private"] = "public",
-    source: str = "unknown",
-) -> str | None:
-    """Open the dedicated doc-only context PR (#2548).
-
-    Runs after plan_gate approval and before slice-1 provisioning.
-
-    Two-tier idempotency:
-
-    1. **Contract-state fast path.** If
-       ``contract.pr.context_pr_number`` is already populated, return
-       the existing branch name immediately — no API calls.
-    2. **GitHub-state authoritative path.** Otherwise call
-       :func:`_lookup_existing_context_pr`. A prior tick may have opened
-       the PR but lost the ``save_contract`` write, or pushed the
-       artifact commit but failed ``create_pr``; both partial-failure
-       states are detectable as "open PR with our head" / "no PR
-       despite branch on origin" via a single ``gh pr list`` call.
-       Three outcomes:
-
-       * Full match (head == context_branch, base == base_branch) →
-         persist the linkage on the contract and return the branch.
-         Replaces the post-``create_pr``-raised / post-``create_pr``-
-         returned-no-URL recovery handlers that the old structure
-         layered as ``except`` branches (#2582).
-       * Head-only match (different base_ref) → fail-soft: opening
-         another PR would create a second one against our base while
-         a stale one points elsewhere; an operator should disentangle
-         first.
-       * No match → proceed with the create_context_branch / push /
-         create_pr flow.
-
-    Steps after the lookup:
-
-    3. :meth:`GatewayClient.create_context_branch` — pushes
-       ``base_sha:refs/heads/egg/<pipeline_id>/context``.  If divergence
-       is detected, the gateway raises
-       :class:`ContextBranchDiverged`; because step 2 has confirmed
-       there is no open PR on our head, the divergence is by elimination
-       our own prior tick's artifact push, so the hook falls through to
-       step 4 — the subsequent push is a fast-forward no-op over the
-       prior tick's commit.  Any other failure here is fail-soft.
-    4. Materialise a temporary git worktree on the context branch, copy
-       the curated refine/plan artifacts onto it, commit them via
-       :func:`_commit_statefiles_to_worktree`, and push the branch
-       through :meth:`GatewayClient.push_worktree_branch`.
-    5. Open the PR via :meth:`GatewayClient.create_pr` with
-       ``base = pipeline.base_branch``, ``head = egg/<pipeline_id>/context``,
-       title and body from the contract (``context_title`` /
-       ``context_description`` preferred, falling back to ``title`` /
-       ``description``).  Doc-only auto-open: the pipeline does NOT
-       block on its merge before slicing (decision-3 of #2548).
-    6. Persist ``context_branch`` / ``context_pr_number`` via
-       :func:`_persist_context_pr_linkage_on_contract`.
-
-    Returns the context branch name on success, or ``None`` when the
-    hook short-circuited or the PR could not be opened.  All failure
-    modes are logged and swallowed: a failure here must not strand the
-    plan→implement transition (per the same #2219 / #2337 robustness
-    pattern other auto-advance helpers follow).
-
-    Convergent idempotency under concurrent ``_run_pipeline`` ticks:
-    the contract-state fast path is read **without** holding the per-
-    pipeline state lock.  If two ticks race past it (e.g. a
-    ``run_epoch`` transition while the prior tick was mid-flight),
-    both perform the heavy work — but the outcomes converge safely:
-
-    * the GitHub-state lookup short-circuits the racer that arrives
-      after the first tick has opened the PR;
-    * ``create_context_branch`` is no-op-on-same-SHA, raises
-      ``ContextBranchDiverged`` on tip-after-our-push (the racer's
-      second-half) — both routes proceed without overwriting state;
-    * ``git worktree add -B`` re-points the local branch, file-copy is
-      a no-op against identical contents, ``_commit_statefiles_to_worktree``
-      skips when staged is clean, ``push_worktree_branch`` is a
-      fast-forward no-op;
-    * ``gh pr create`` rejects a duplicate head→base PR; the failure
-      path is logged and swallowed (the PR is already open) — the
-      racer will pick it up via the GitHub-state lookup on its next
-      tick.
-
-    The design avoids holding a process-wide lock across a multi-second
-    network sequence (#2548 review note from reviewer_concurrency).
-    """
-    pipeline_id = pipeline.id
-
-    # Single "hook entered" log line emitted before any short-circuit so
-    # operators can confirm the hook was reached without grepping for the
-    # specific short-circuit string.  Surfaces the gap reported in #2593
-    # where the hook was wired into only one of the plan→implement
-    # transition paths and no log line appeared at all when the operator
-    # advanced via a different path.
-    _pipeline_mode = getattr(pipeline, "mode", None)
-    logger.info(
-        "Context PR hook entered (#2548)",
-        pipeline_id=pipeline_id,
-        source=source,
-        current_phase=getattr(pipeline.current_phase, "value", str(pipeline.current_phase)),
-        mode=getattr(_pipeline_mode, "value", str(_pipeline_mode)),
-    )
-
-    # --- Step 1: load contract + sanity-check inputs ---
-    if not pipeline.repo:
-        logger.info(
-            "Context PR hook: pipeline has no remote repo, skipping (#2548)",
-            pipeline_id=pipeline_id,
-        )
-        return None
-    base_branch = pipeline.base_branch
-    if not base_branch:
-        logger.info(
-            "Context PR hook: pipeline has no base_branch, skipping (#2548)",
-            pipeline_id=pipeline_id,
-        )
-        return None
-
-    try:
-        from egg_contracts.loader import ContractNotFoundError, load_contract
-    except ImportError as imp_err:
-        logger.warning(
-            "Context PR hook: egg_contracts.loader unavailable, skipping (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(imp_err),
-        )
-        return None
-
-    identifier = _pipeline_identifier(
-        pipeline.issue_number,
-        pipeline_id,
-    )
-    contract_id = identifier
-    try:
-        contract = load_contract(contract_id, worktree_repo_path)
-    except ContractNotFoundError:
-        logger.info(
-            "Context PR hook: contract not found, skipping (#2548)",
-            pipeline_id=pipeline_id,
-            contract_id=str(contract_id),
-        )
-        return None
-    except Exception as load_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to load contract, skipping (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(load_err),
-        )
-        return None
-
-    if contract.pr is None:
-        logger.info(
-            "Context PR hook: contract has no pr block, skipping (#2548)",
-            pipeline_id=pipeline_id,
-        )
-        return None
-
-    context_branch = f"egg/{pipeline_id}/context"
-
-    # --- Step 1 (cont.): contract-state idempotency fast path ---
-    if contract.pr.context_pr_number is not None:
-        logger.info(
-            "Context PR hook: context PR already opened — idempotent skip (#2548)",
-            pipeline_id=pipeline_id,
-            context_branch=contract.pr.context_branch,
-            context_pr_number=contract.pr.context_pr_number,
-        )
-        return contract.pr.context_branch or context_branch
-
-    # --- Step 2: GitHub-state idempotency check (#2582) ---
-    # Authoritative against partial-failure modes the contract-state
-    # fast path can't see: a prior tick may have opened the PR but lost
-    # the save_contract write (full match → salvage here), or pushed
-    # the artifact commit but failed create_pr (no match here — branch
-    # divergence on step 3 will be caught and we fall through).
-    lookup = _lookup_existing_context_pr(
-        spawner,
-        pipeline_id,
-        pipeline.repo,
-        context_branch,
-        base_branch,
-        gateway_mode=gateway_mode,
-    )
-    if lookup.error:
-        return None
-    if lookup.matched is not None:
-        recovered_url, recovered_number = lookup.matched
-        logger.info(
-            "Context PR hook: recovered existing context PR via top-of-hook "
-            "GitHub-state check (#2582)",
-            pipeline_id=pipeline_id,
-            context_branch=context_branch,
-            context_pr_number=recovered_number,
-            pr_url=recovered_url,
-        )
-        _persist_context_pr_linkage_on_contract(
-            pipeline=pipeline,
-            spawner=spawner,
-            worktree_repo_path=worktree_repo_path,
-            contract_id=contract_id,
-            context_branch=context_branch,
-            pr_number=recovered_number,
-            pipeline_id=pipeline_id,
-            identifier=identifier,
-            base_branch=base_branch,
-            gateway_mode=gateway_mode,
-        )
-        return contract.pr.context_branch or context_branch
-    if lookup.head_only_match:
-        logger.warning(
-            "Context PR hook: an open PR exists on our head branch against "
-            "a different base — refusing to open a duplicate (#2582)",
-            pipeline_id=pipeline_id,
-            context_branch=context_branch,
-            expected_base=base_branch,
-        )
-        return None
-
-    # --- Step 3: create the branch on origin ---
-    try:
-        spawner.gateway.create_context_branch(
-            pipeline_id,
-            str(worktree_repo_path),
-            base_branch=base_branch,
-            agent_role="coder",
-            mode=gateway_mode,  # type: ignore[arg-type]
-        )
-    except ContextBranchDiverged as branch_err:
-        # The branch exists at a divergent SHA but we just verified
-        # (step 2) that no open PR targets it.  By elimination this is
-        # our own prior tick's artifact push that never reached
-        # create_pr — proceed.  The subsequent push_worktree_branch is
-        # a fast-forward no-op over the prior tick's commit, and
-        # create_pr then opens the missing PR.  This is the wedge
-        # tracked by #2582.
-        #
-        # Why "by elimination" holds: (a) the gateway restricts pushes
-        # to ``egg/``-prefixed branches bound to a per-session token,
-        # so no agent outside this pipeline can write to
-        # ``egg/<pipeline_id>/context``; (b) ``pipeline_id`` carries a
-        # UUID component so cross-pipeline collisions on the same
-        # branch name are vanishingly unlikely.  Together these mean a
-        # divergent SHA on our context branch can only have been
-        # produced by a prior tick of *this* pipeline.
-        logger.info(
-            "Context PR hook: create_context_branch raised divergence with "
-            "no open PR on our head — proceeding under the assumption that "
-            "the prior tick pushed but failed create_pr (#2582)",
-            pipeline_id=pipeline_id,
-            context_branch=context_branch,
-            existing_sha=branch_err.existing_sha,
-            base_sha=branch_err.base_sha,
-        )
-    except Exception as branch_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: create_context_branch failed, skipping (#2548)",
-            pipeline_id=pipeline_id,
-            base_branch=base_branch,
-            error=str(branch_err),
-        )
-        return None
-
-    # --- Step 4: build a temp worktree, copy files, commit, push ---
-    import shutil
-    import tempfile
-
-    files_to_copy = _gather_context_pr_files(worktree_repo_path, identifier)
-    if not files_to_copy:
-        logger.warning(
-            "Context PR hook: no refine/plan artifacts found on work worktree "
-            "— skipping context PR open (#2548)",
-            pipeline_id=pipeline_id,
-            identifier=str(identifier),
-        )
-        return None
-
-    git_base = [
-        "git",
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        f"safe.directory={worktree_repo_path}",
-        "-C",
-        str(worktree_repo_path),
-    ]
-
-    # Refresh local remote-tracking ref for the context branch so the
-    # worktree-add can resolve ``origin/<context_branch>``.  Best-effort:
-    # the gateway's create_context_branch call above already pushed the
-    # branch, so this fetch is just rehydrating the local tracking ref.
-    try:
-        spawner.gateway.fetch_branch(
-            pipeline_id,
-            str(worktree_repo_path),
-            args=[f"+refs/heads/{context_branch}:refs/remotes/origin/{context_branch}"],
-            mode=gateway_mode,  # type: ignore[arg-type]
-        )
-    except Exception as fetch_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: fetch of context branch failed (continuing) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(fetch_err),
-        )
-
-    # Root under WORKTREE_BASE_DIR so the path falls inside the gateway's
-    # repo-path allowlist (gateway/git_client.py ALLOWED_REPO_PATHS) — a
-    # ``/tmp`` location would be rejected by ``validate_repo_path`` and
-    # the subsequent ``push_worktree_branch`` call would fail with
-    # ``repo_path must be within allowed directories`` (#2684).  Falls
-    # back to the system temp dir in environments where the base path
-    # is absent (e.g. unit tests) — emit a warning on that branch so a
-    # broken docker volume mount in production is noisy rather than
-    # silently recreating the #2684 push-rejection.
-    if WORKTREE_BASE_DIR.exists():
-        tmp_dir_base = str(WORKTREE_BASE_DIR)
-    else:
-        logger.warning(
-            "Context PR hook: WORKTREE_BASE_DIR missing — falling back to "
-            "system temp (likely a broken volume mount in production; the "
-            "push to the context branch will be rejected by the gateway "
-            "allowlist) (#2684)",
-            pipeline_id=pipeline_id,
-            worktree_base_dir=str(WORKTREE_BASE_DIR),
-        )
-        tmp_dir_base = None
-    tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir=tmp_dir_base))
-    # Use a unique sub-path so ``git worktree add`` doesn't collide with
-    # the (already-created-by-mkdtemp) directory.  ``git worktree add``
-    # refuses to add to an existing non-empty directory.
-    wt_path = tmp_worktree / "wt"
-
-    pr_url: str | None = None
-    pr_number: int | None = None
-    try:
-        # Create a worktree tracking origin/<context_branch>.  ``-B`` is
-        # load-bearing for the convergent-idempotency model: if a prior
-        # ``_run_pipeline`` tick already pushed a context-branch commit
-        # but lost the contract update before persisting
-        # ``context_pr_number``, the next tick's ``-B`` re-points the
-        # local branch at ``origin/<context_branch>`` (which now carries
-        # the prior tick's commit), the file-copy step finds the same
-        # contents already on disk, ``_commit_statefiles_to_worktree``
-        # skips when nothing is staged, and ``push_worktree_branch``
-        # is a fast-forward no-op.  Without ``-B`` the second worktree-
-        # add would refuse on a divergent local-branch ref.
-        try:
-            subprocess.run(
-                [
-                    *git_base,
-                    "worktree",
-                    "add",
-                    "-B",
-                    context_branch,
-                    str(wt_path),
-                    f"origin/{context_branch}",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as wt_err:
-            logger.warning(
-                "Context PR hook: worktree add failed, skipping (#2548)",
-                pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                stderr=(wt_err.stderr or "")[:500],
-            )
-            return None
-
-        # Copy files from the work worktree to the context worktree at
-        # the same relative paths.  ``mkdir(parents=True)`` ensures the
-        # directory tree exists in the fresh checkout.
-        #
-        # Symlink defense-in-depth (#2548 review issue 6): re-check
-        # ``is_symlink`` immediately before the copy and pass
-        # ``follow_symlinks=False`` so that even if the file flipped to a
-        # symlink between the gather and the copy (TOCTOU window —
-        # narrow but non-zero), the link is copied as-is rather than
-        # dereferencing onto the publicly-reviewable context PR.  The
-        # gather-side ``is_symlink`` filter is the primary gate; this
-        # re-check closes the residual race.
-        for src in files_to_copy:
-            try:
-                rel = src.relative_to(worktree_repo_path)
-            except ValueError:
-                logger.warning(
-                    "Context PR hook: file outside work worktree, skipping it (#2548)",
-                    pipeline_id=pipeline_id,
-                    src=str(src),
-                )
-                continue
-            if src.is_symlink():
-                logger.warning(
-                    "Context PR hook: file became a symlink between gather and "
-                    "copy, skipping (#2548)",
-                    pipeline_id=pipeline_id,
-                    src=str(src),
-                )
-                continue
-            dst = wt_path / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst, follow_symlinks=False)
-
-        # Commit via the existing helper so we inherit:
-        # - ``--no-verify`` (orchestrator commits skip pre-commit hooks)
-        # - the pipeline-identifier-scoped glob (no leakage from any
-        #   stray .egg-state/ files that aren't ours)
-        # - idempotency: skips when nothing is staged on retry.
-        try:
-            artifacts_committed = _commit_statefiles_to_worktree(
-                wt_path,
-                f"Add refine + plan context artifacts for {identifier} (#2548)",
-                pipeline_identifier=identifier,
-                pipeline_id=pipeline_id,
-            )
-        except Exception as commit_err:  # noqa: BLE001
-            logger.warning(
-                "Context PR hook: commit failed, skipping (#2548)",
-                pipeline_id=pipeline_id,
-                error=str(commit_err),
-            )
-            return None
-
-        # Push the worktree HEAD to ``origin/<context_branch>``.  Uses
-        # launcher-auth (orchestrator-trusted) so it bypasses agent-
-        # facing push restrictions.  Skip when the commit was a no-op:
-        # the temp worktree is freshly checked out from
-        # ``origin/<context_branch>`` (after the ``fetch_branch`` call
-        # above), so an empty staged-vs-HEAD diff means origin already
-        # carries the artifacts and the push would be a fast-forward
-        # no-op.  Symmetric to the work-branch push optimisation
-        # (#2548 review suggestion D / F).
-        if artifacts_committed:
-            try:
-                push_result = spawner.gateway.push_worktree_branch(
-                    pipeline_id=pipeline_id,
-                    repo_path=str(wt_path),
-                    branch=context_branch,
-                    mode=gateway_mode,  # type: ignore[arg-type]
-                    base_branch=base_branch,
-                )
-            except Exception as push_err:  # noqa: BLE001
-                logger.warning(
-                    "Context PR hook: push raised, skipping (#2548)",
-                    pipeline_id=pipeline_id,
-                    error=str(push_err),
-                )
-                return None
-            if not push_result.ok:
-                logger.warning(
-                    "Context PR hook: push failed, skipping (#2548)",
-                    pipeline_id=pipeline_id,
-                    category=getattr(push_result, "category", None),
-                    detail=getattr(push_result, "detail", None),
-                )
-                return None
-
-        # --- Step 5: open the PR ---
-        title = (contract.pr.context_title or contract.pr.title or "").strip()
-        body = contract.pr.context_description or contract.pr.description or ""
-        if not title:
-            logger.warning(
-                "Context PR hook: no title available (context_title and title both empty), "
-                "skipping PR open (#2548)",
-                pipeline_id=pipeline_id,
-            )
-            return None
-        # No in-band recovery: the top-of-hook GitHub-state check has
-        # already verified no PR exists on our head, so a create_pr
-        # failure here is a transient infrastructure issue (gh API
-        # down, rate-limit, etc.) — fail-soft and let the next tick
-        # retry from the top of the hook (#2582).
-        try:
-            pr_url = spawner.gateway.create_pr(
-                pipeline_id=pipeline_id,
-                repo=pipeline.repo,
-                title=title,
-                body=body,
-                head=context_branch,
-                base=base_branch,
-                issue_number=pipeline.issue_number,
-                agent_role="orchestrator",
-                mode=gateway_mode,  # type: ignore[arg-type]
-            )
-        except Exception as pr_err:  # noqa: BLE001
-            logger.warning(
-                "Context PR hook: create_pr raised — failing-soft (#2582)",
-                pipeline_id=pipeline_id,
-                error=str(pr_err),
-            )
-            return None
-        if not pr_url:
-            logger.warning(
-                "Context PR hook: create_pr returned no URL — failing-soft (#2582)",
-                pipeline_id=pipeline_id,
-            )
-            return None
-
-        match = re.search(r"/pull/(\d+)", pr_url)
-        pr_number = int(match.group(1)) if match else None
-        logger.info(
-            "Context PR hook: opened context PR (#2548)",
-            pipeline_id=pipeline_id,
-            context_branch=context_branch,
-            context_pr_number=pr_number,
-            pr_url=pr_url,
-        )
-    finally:
-        # Clean up the temp worktree regardless of outcome.  Two-step:
-        # ``git worktree remove`` releases the admin dir, then we drop
-        # the temp parent directory.  Best-effort: a failure here is a
-        # housekeeping problem, not a pipeline-blocker.
-        try:
-            subprocess.run(
-                [*git_base, "worktree", "remove", "--force", str(wt_path)],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
-        except Exception as cleanup_err:  # noqa: BLE001
-            logger.debug(
-                "Context PR hook: worktree remove failed (continuing) (#2548)",
-                pipeline_id=pipeline_id,
-                error=str(cleanup_err),
-            )
-        try:
-            shutil.rmtree(tmp_worktree, ignore_errors=True)
-        except Exception:  # noqa: BLE001
-            pass
-
-    # --- Step 6: persist context_branch / context_pr_number on the contract ---
-    if pr_url is None:
-        return None
-
-    _persist_context_pr_linkage_on_contract(
-        pipeline=pipeline,
-        spawner=spawner,
-        worktree_repo_path=worktree_repo_path,
-        contract_id=contract_id,
-        context_branch=context_branch,
-        pr_number=pr_number,
-        pipeline_id=pipeline_id,
-        identifier=identifier,
-        base_branch=base_branch,
-        gateway_mode=gateway_mode,
-    )
-    return context_branch
-
 
 def _derive_producer_roles_with_tasks(
     pipeline_id: str,
@@ -11341,20 +10125,6 @@ def _derive_producer_roles_with_tasks(
     return {(t.role or "coder") for t in _slice_obj.tasks}
 
 
-# #2593 — dedupe of context_pr.skipped / context_pr.failed bus events.
-# The wrapper can run multiple times for the same pipeline (auto-advance
-# + implement-entry backstop, HITL recovery + backstop) and the inner
-# hook's idempotency makes those re-runs cheap — but the post-hook bus
-# emission is *not* idempotent on its own: on a real failure it sees
-# ``context_pr_number is None`` every time and would emit a duplicate
-# ``context_pr.failed`` / ``context_pr.skipped`` message.  Keyed on
-# ``(pipeline_id, event_type)`` so the first emission wins per event
-# kind; entries are not removed because once ``context_pr_number`` is
-# set we never reach the emit branch again.
-_context_pr_events_emitted: dict[str, set[str]] = {}
-_context_pr_events_emitted_lock = threading.Lock()
-
-
 def _persist_context_pr_number(
     pipeline_id: str,
     pr_number: int,
@@ -11368,12 +10138,10 @@ def _persist_context_pr_number(
     :func:`_open_context_pr_at_implement_start` opener is not a
     non-transactional state mutator. Wraps the contract write through
     the existing per-pipeline state-lock + ``save_contract`` machinery
-    that every other context-PR / slice-PR persistence path uses
-    (mirrors ``_persist_context_pr_linkage_on_contract``'s lock + save
-    pattern from #2548, minus the now-deleted ``context_branch`` field).
+    that every other context-PR / slice-PR persistence path uses.
 
     The helper is the SOLE writer of ``context_pr_number`` after
-    slice-2 (TASK-2-1) deletes the legacy
+    slice-2 (#2777, TASK-2-1) deleted the legacy
     ``_persist_context_pr_linkage_on_contract``. It is called exactly
     once per ``_open_context_pr_at_implement_start`` invocation,
     immediately after either the ``gh pr list`` idempotency hit or the
@@ -11427,12 +10195,13 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
     """Hard-required, idempotent up-front context PR opener (#2777, cq-4).
 
     Single up-front context-PR opener for the plan→implement boundary.
-    Replaces the soft-fail :func:`_maybe_open_base_pr_for_plan_to_implement`
-    wrapper that swallowed every gateway failure with ``return None``
-    and the four retry-point call sites it required. Under the new
-    topology the context PR is ``egg/<id>/work → main`` (rather than
-    a dedicated ``egg/<id>/context`` branch) and is opened ONCE at the
-    plan→implement transition; the slice stack cascades onto it.
+    Replaces the soft-fail ``_maybe_open_base_pr_for_plan_to_implement``
+    wrapper (deleted by slice-2 TASK-2-1 in #2777) that swallowed every
+    gateway failure with ``return None`` and the four retry-point call
+    sites it required. Under the new topology the context PR is
+    ``egg/<id>/work → main`` (rather than a dedicated
+    ``egg/<id>/context`` branch) and is opened ONCE at the plan→implement
+    transition; the slice stack cascades onto it.
 
     Behaviour:
 
@@ -11702,12 +10471,12 @@ def _is_slice_dag_mode(contract) -> bool:
     """Return True when the contract represents a multi-slice DAG (#2777, cq-10).
 
     Dedupes the bare ``len(contract.slices) > 1`` recompute that
-    appears at three sites in :file:`pipelines.py` (under
-    ``_should_skip_pr_phase_auto_pr``, the ``_run_implement_phase_slices``
-    entry, and inside the run loop's per-slice handling). A single
-    helper means future changes to "what counts as DAG mode" — e.g.
-    treating a single slice with explicit dependencies as DAG — only
-    need to land in one place.
+    appears at the ``_run_implement_phase_slices`` entry and inside the
+    run loop's per-slice handling. A single helper means future changes
+    to "what counts as DAG mode" — e.g. treating a single slice with
+    explicit dependencies as DAG — only need to land in one place.
+    The third site under the deleted ``_should_skip_pr_phase_auto_pr``
+    is gone since slice-2 of #2777 removed the PR phase.
 
     Returns False for ``None`` or a contract without a populated
     ``slices`` list (monolithic / pre-populate phase pipelines).
@@ -11727,8 +10496,9 @@ def _resolve_slice_base_branch(
 ) -> str:
     """Return the parent branch for a slice's integration branch (#2777, cq-9).
 
-    Replaces the deleted :func:`_resolve_slice_1_context_branch_from_contract`
-    with a single resolver that handles both root and non-root slices.
+    Replaces the deleted ``_resolve_slice_1_context_branch_from_contract``
+    helper (removed by slice-2 TASK-2-1) with a single resolver that
+    handles both root and non-root slices.
 
     Resolution order:
 
@@ -11805,270 +10575,6 @@ def _resolve_slice_base_branch(
     issue_branch = _slice_namespace_root(pipeline_branch)
     return f"{issue_branch}/{parent_slice_id}"
 
-
-def _maybe_open_base_pr_for_plan_to_implement(
-    pipeline,
-    spawner: "ContainerSpawner",  # noqa: UP037
-    worktree_repo_path: Path,
-    *,
-    gateway_mode: Literal["public", "private"] = "public",
-    source: str,
-) -> None:
-    """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
-
-    Shared wrapper for every plan→implement code path:
-
-    * the inline auto-advance in :func:`_run_pipeline` (the path #2548
-      originally wired up);
-    * the ``advance_phase`` REST/MCP handler (force or normal advance
-      out of the plan phase);
-    * the HITL-approval recovery path in :func:`start_pipeline`
-      (re-spawning ``_run_pipeline`` after the human resolved the
-      plan_gate while the pipeline was AWAITING_HUMAN);
-    * the IMPLEMENT phase entry backstop (fires once on the
-      PENDING→RUNNING transition into IMPLEMENT — paths that set
-      ``phase_execution.status = RUNNING`` before spawning the runner
-      thread (e.g. the ``advance_phase`` REST handler at
-      ``routes/phases.py:379``) bypass the backstop and so must call
-      the wrapper directly; the inner short-circuit on
-      ``context_pr_number`` makes any path that DOES re-enter the
-      backstop a no-op);
-    * the slice-loop entry in :func:`_run_implement_phase_slices`
-      (#2744) — a defensive safety net for pipeline shapes where the
-      four earlier paths silently missed.  Slice-1 base resolution
-      reads ``contract.pr.context_branch`` and falls back to
-      ``pipeline_branch`` when it is empty, leaving the whole slice
-      stack stranded on ``/work`` with no path to ``main``.  Calling
-      the wrapper here, before any slice provisions, converts that
-      failure mode into "context PR opens at the last second."  The
-      inner short-circuit makes the call cheap when an earlier path
-      already opened the PR.
-
-    Failures are logged and swallowed: a transient infra problem in
-    this hook must not strand the plan→implement transition (decision-3
-    / D3 of #2548).  The inner short-circuits and the swallowed
-    exception path also surface a ``context_pr.skipped`` /
-    ``context_pr.failed`` signal on three observability sinks so
-    operators using ``wait-status`` / ``get_status`` see the outcome
-    without having to grep orchestrator logs (#2593, #2611):
-
-    * ``message_store.add_message`` — appends a ``CONTEXT_PR_SKIPPED``
-      / ``CONTEXT_PR_FAILED`` message keyed on the pipeline so
-      ``get_status``'s ``recent_messages`` and the
-      ``/pipelines/<id>/messages`` route pick it up.
-    * ``_emit_pipeline_event`` — publishes a typed event to the
-      in-process ``EventBus`` so SSE subscribers and the
-      ``/status/wait`` long-poll waiter (now in
-      ``_STATUS_WAIT_EVENT_TYPES``) wake on the failure.
-    * ``report_pipeline_status`` — preserved for any future in-process
-      ``StatusReporter`` handler. No production handler is registered
-      today, so this sink is currently a no-op; it stays wired so the
-      pattern matches the other phase/pipeline-lifecycle emit sites
-      in this file and so a future console/file handler picks the
-      signal up automatically.
-
-    All three sinks are best-effort and wrapped in their own
-    ``try/except``: an observability failure must not strand the
-    plan→implement transition.
-
-    Bus emission semantics: the ``context_pr.skipped`` /
-    ``context_pr.failed`` event reflects *contract state* (does the
-    contract record a ``context_pr_number``?), NOT *PR state on
-    GitHub*.  The inner hook has late short-circuit paths that swallow
-    ``save_contract`` failures after the gateway has already opened
-    the PR on GitHub; in those rare cases the wrapper will see
-    ``context_pr_number is None`` and emit ``context_pr.skipped`` even
-    though a context PR exists on the remote.  Operators chasing a
-    skipped/failed event must therefore verify both ``contract.pr``
-    and the remote PR list before concluding the PR is genuinely
-    missing.
-    """
-    pipeline_id = pipeline.id
-    raised: Exception | None = None
-    try:
-        _open_context_pr_for_pipeline(
-            pipeline,
-            spawner,
-            worktree_repo_path,
-            gateway_mode=gateway_mode,
-            source=source,
-        )
-    except Exception as ctx_err:  # noqa: BLE001
-        raised = ctx_err
-        logger.warning(
-            "Context PR hook raised at plan→implement transition (continuing) (#2548)",
-            pipeline_id=pipeline_id,
-            source=source,
-            error=str(ctx_err),
-        )
-
-    # #2593 — surface "context PR not opened" so operators using
-    # ``wait-status`` / ``get_status`` see the skip without having to
-    # grep orchestrator logs.  #2611 wired the actual sinks: a
-    # ``message_store.add_message`` entry (visible in ``recent_messages``
-    # and ``/pipelines/<id>/messages``) and an ``_emit_pipeline_event``
-    # call (visible to ``/status/wait`` long-pollers and SSE
-    # subscribers).  Only emit when the pipeline *should* have a
-    # context PR (has a remote and a base_branch) but doesn't, so we
-    # don't spam the surfaces for local mode pipelines that
-    # legitimately skip the hook.  Re-load the contract from disk to
-    # read the post-hook ``context_pr_number`` rather than trusting
-    # the in-memory ``pipeline`` (the hook may have written through to
-    # disk under the per-pipeline state lock without mutating the
-    # caller's reference).  Use ``_pipeline_identifier`` so the
-    # contract path matches the one the inner hook used (#2593 review
-    # issue 7) — both currently resolve to the same on-disk file, but
-    # pinning the resolution keeps the wrapper from drifting if the
-    # ISSUE-mode key logic ever changes.
-    if pipeline.repo and pipeline.base_branch:
-        _ctx_pr_number: int | None = None
-        _ctx_identifier = _pipeline_identifier(
-            pipeline.issue_number,
-            pipeline_id,
-        )
-        try:
-            from egg_contracts.loader import load_contract as _ctx_load
-
-            _ctx_contract = _ctx_load(_ctx_identifier, worktree_repo_path)
-            if _ctx_contract.pr is not None:
-                _ctx_pr_number = _ctx_contract.pr.context_pr_number
-        except Exception:  # noqa: BLE001
-            # ContractNotFoundError and any other failure both converge
-            # on "we cannot read the post-hook state"; either way we
-            # fall through to the emit branch with _ctx_pr_number=None.
-            pass
-
-        if _ctx_pr_number is None:
-            event_type = "context_pr.failed" if raised is not None else "context_pr.skipped"
-            # Dedupe: a single failure on a pipeline should produce one
-            # event per kind, not one per transition path that re-ran
-            # the hook.  See ``_context_pr_events_emitted`` docstring.
-            # All three sinks below share the dedupe set so a second
-            # wrapper invocation does not append a duplicate
-            # ``recent_messages`` entry or wake ``wait-status`` twice.
-            #
-            # Ordering trade-off: ``already.add(event_type)`` runs
-            # before any sink is invoked so two threads racing on the
-            # same transition cannot both pass the membership check.
-            # The side effect is that a transient sink failure — e.g.
-            # ``add_message`` raising on a Redis hiccup — permanently
-            # consumes the event for this pipeline; no later wrapper
-            # invocation will retry the failed sink.  This matches the
-            # docstring's best-effort contract (an observability
-            # outage must not strand the plan→implement transition),
-            # so do not "fix" it by moving ``already.add`` past the
-            # sinks — that would re-introduce double-emission under
-            # concurrent transition paths.
-            with _context_pr_events_emitted_lock:
-                already = _context_pr_events_emitted.setdefault(pipeline_id, set())
-                if event_type in already:
-                    return
-                already.add(event_type)
-            _reason = "raised" if raised is not None else "skipped"
-            _detail = f": {str(raised)[:200]}" if raised is not None else ""
-            _status_message = (
-                f"Context PR not opened (source={source}, "
-                f"reason={_reason}){_detail}. "
-                "Slice stack will not have a path to the base "
-                "branch until an operator opens one manually."
-            )
-            # Sink 1: StatusReporter handler chain (no production
-            # handler today; kept for parity with the rest of the
-            # phase/pipeline-lifecycle emit sites).
-            try:
-                report_pipeline_status(
-                    pipeline,
-                    event_type=event_type,
-                    message=_status_message,
-                )
-            except Exception:  # noqa: BLE001
-                # Status reporting is best-effort — must not raise out
-                # of the swallow-all wrapper.
-                pass
-            # Sink 2: pipeline message store, so ``recent_messages``
-            # (via ``get_messages_with_meta``) picks up the event
-            # (#2611).
-            try:
-                try:
-                    from message_store import Message, get_message_store
-                except ImportError:
-                    from orchestrator.message_store import (  # type: ignore[no-redef]
-                        Message,
-                        get_message_store,
-                    )
-                _msg_type = "CONTEXT_PR_FAILED" if raised is not None else "CONTEXT_PR_SKIPPED"
-                # Pin ``phase`` to the literal transition name rather
-                # than ``pipeline.current_phase.value`` so all four
-                # transition paths produce the same ``phase`` value on
-                # the message-store entry (#2611 review item 1).
-                # Two of the paths (autoadvance, HITL resume) fire
-                # before the phase mutates and would report ``"plan"``;
-                # the other two (``advance_phase`` REST and the
-                # implement-entry backstop) fire after and would
-                # report ``"implement"``.  An operator filtering
-                # ``recent_messages`` by ``phase`` would otherwise see
-                # the same logical event split across two buckets
-                # depending on which path fired the hook.  The
-                # ``source`` field still disambiguates the origin.
-                _phase = "plan→implement"
-                get_message_store().add_message(
-                    Message(
-                        pipeline_id=pipeline_id,
-                        from_role="orchestrator",
-                        to_role="all",
-                        message_type=_msg_type,
-                        subject=f"{event_type} (source={source})",
-                        body=_status_message,
-                        phase=_phase,
-                        metadata={
-                            "source": source,
-                            "reason": _reason,
-                            "error": str(raised)[:500] if raised is not None else None,
-                        },
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                # Message-store emission is best-effort — must not
-                # raise out of the swallow-all wrapper.
-                pass
-            # Sink 3: in-process EventBus, so ``/status/wait`` and SSE
-            # subscribers wake on the event (#2611).
-            try:
-                _emit_pipeline_event(pipeline, event_type)
-            except Exception:  # noqa: BLE001
-                # EventBus emission is best-effort — must not raise
-                # out of the swallow-all wrapper.
-                pass
-
-
-def _resolve_slice_1_context_branch_from_contract(
-    pipeline_id: str,
-    worktree_repo_path: Path,
-) -> str | None:
-    """Load the contract and return ``contract.pr.context_branch`` —
-    slice-1's parent branch under #2548.
-
-    Returns the configured context branch (which may itself be the
-    empty string under a D4-policy-violating in-flight contract), or
-    ``None`` if the contract has no PR metadata.  Raises whatever
-    ``load_contract`` raises; the caller wraps the call in
-    ``try/except`` to fall back to the pipeline branch on failure.
-
-    Extracted as a module-level helper (rather than inlined in
-    ``_run_one_slice_inner``) so tests can scope failure injection
-    to this specific call site by patching
-    ``routes.pipelines._resolve_slice_1_context_branch_from_contract``,
-    rather than patching the global ``load_contract`` and counting
-    invocations to identify the resolver call — a brittle shape that
-    breaks under any refactor that adds or removes a load_contract
-    call elsewhere in the slice loop.
-    """
-    from egg_contracts.loader import load_contract
-
-    contract_for_base = load_contract(pipeline_id, worktree_repo_path)
-    if contract_for_base.pr is None:
-        return None
-    return contract_for_base.pr.context_branch
 
 
 def _commit_slice_brc_history_to_integration_branch(
@@ -12236,11 +10742,10 @@ def _commit_slice_brc_history_to_integration_branch(
                 # ``.egg-state/`` and leak unrelated content onto the slice
                 # PR. The staging directory is freshly minted under
                 # ``tempfile.mkdtemp`` per hook tick, so a symlink at this
-                # path would have to come from the writer itself — but the
-                # check is cheap, mirrors the defense in
-                # :func:`_gather_context_pr_files`, and protects against
-                # any future writer change that might honour an attacker-
-                # controlled metadata blob when synthesising the filename.
+                # path would have to come from the writer itself — the
+                # check is cheap and protects against any future writer
+                # change that might honour an attacker-controlled
+                # metadata blob when synthesising the filename.
                 logger.warning(
                     "Per-slice BRC commit: skipping symlink in brc-history (#2548)",
                     pipeline_id=pipeline_id,
@@ -12434,42 +10939,6 @@ _PR_DESCRIPTION_YAML_EXAMPLE = [
     "",
     "    Summarize the impact — what changes for users, callers, or other",
     "    components as a result.",
-]
-
-# Shared context-PR framing guidance injected into planner prompts (#2548).
-# The planner may optionally emit ``pr.context_title`` / ``pr.context_description``
-# to give the dedicated context PR a different framing from the slice PRs;
-# falls back to ``pr.title`` / ``pr.description`` when omitted. The
-# orchestrator-populated fields ``pr.context_branch`` and
-# ``pr.context_pr_number`` are intentionally excluded — those are runtime
-# values written by the orchestrator after the context branch is created
-# and the context PR is opened, and the planner must NOT emit them.
-_PR_CONTEXT_GUIDANCE = [
-    "**Optional context-PR framing (#2548)**: the orchestrator opens a "
-    "dedicated *context PR* at the root of the slice stack carrying the "
-    "refine/plan analysis docs and BRC consensus history. You MAY emit "
-    "`pr.context_title` and `pr.context_description` to frame this "
-    'context PR differently from the slice PRs (e.g. "Strategic plan '
-    'for #N" vs the slice\'s "Implement …"). Both keys are optional — '
-    "omit them and the orchestrator falls back to `pr.title` / "
-    "`pr.description`. Do NOT emit `pr.context_branch` or "
-    "`pr.context_pr_number`: those are populated by the orchestrator "
-    "after the context branch is created and the PR is opened.",
-]
-
-# Example YAML lines documenting the optional context-PR keys. Indented to
-# match the surrounding ``pr:`` block (``  context_title:`` lines up with
-# ``  description:``). Both lines are commented-out hints because they are
-# optional — emitting them is encouraged when the framing should differ.
-_PR_CONTEXT_YAML_EXAMPLE_LINES = [
-    "  # Optional context-PR framing (#2548); omit to reuse pr.title / pr.description.",
-    "  # context_title: |-",
-    "  #   Strategic plan for #<issue> — refine/plan analysis + BRC history",
-    "  # context_description: |-",
-    "  #   Carries the refine analysis, the plan, the BRC consensus",
-    "  #   history that approved each, and the agent transcripts —",
-    "  #   so reviewers approaching the slice stack can see the strategic",
-    "  #   narrative on a PR that targets the configured base branch.",
 ]
 
 # YAML safety guidance for planner prompts. Plain (unquoted) scalars break
@@ -13035,8 +11504,6 @@ def _build_phase_prompt(
                 "",
                 *_PR_DESCRIPTION_GUIDANCE,
                 "",
-                *_PR_CONTEXT_GUIDANCE,
-                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -13052,7 +11519,6 @@ def _build_phase_prompt(
                 "  manual_steps: |",
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
-                *_PR_CONTEXT_YAML_EXAMPLE_LINES,
                 "slices:",
                 "  - id: 1",
                 "    name: |-",
@@ -15290,8 +13756,6 @@ def _build_agent_prompt(
                 "",
                 *_PR_DESCRIPTION_GUIDANCE,
                 "",
-                *_PR_CONTEXT_GUIDANCE,
-                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -15307,7 +13771,6 @@ def _build_agent_prompt(
                 "  manual_steps: |",
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
-                *_PR_CONTEXT_YAML_EXAMPLE_LINES,
                 "slices:",
                 "  - id: 1",
                 "    name: |-",
@@ -17027,9 +15490,8 @@ def _run_implement_phase_slices(
     # is idempotent (one `gh pr list` round-trip on hit; persists the
     # already-present PR number). Re-calling it from each transition
     # path is cheap and removes every silent-strand window. The
-    # legacy `_maybe_open_base_pr_for_plan_to_implement` wrapper is
-    # left in place but unreferenced until slice-2 (TASK-2-1)
-    # deletes it; slice-1 only swaps the call target.
+    # legacy `_maybe_open_base_pr_for_plan_to_implement` wrapper that
+    # this site used to call was deleted in slice-2 (TASK-2-1, #2777).
     #
     # `ContextPrCreationError` here logs and continues — failing the
     # slice loop on a transient gateway hiccup would defeat the
@@ -17298,50 +15760,31 @@ def _run_implement_phase_slices(
                 finally:
                     global_slice_admit.release(pipeline_id, slice_id)
 
-            def _run_one_slice_inner(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
-                # Resolve parent branch for stacking.
+            def _run_one_slice_inner(
+                slice_id: str,
+                parent_slice_id: str | None,  # noqa: ARG001 — kept for caller compat; resolver reads contract
+            ) -> tuple[int, str]:
+                # Resolve parent branch for stacking via
+                # :func:`_resolve_slice_base_branch` (#2777, cq-2 / cq-4 /
+                # cq-9 / cq-10). The helper handles both:
                 #
-                # Slice-1 (the root, ``parent_slice_id is None``) stacks on
-                # the dedicated context branch (#2548). The context branch
-                # carries the refine + plan analysis docs and BRC consensus
-                # transcripts; stacking slice-1 on top of it makes those
-                # artifacts reachable through the slice PR diff.
-                # ``contract.pr.context_branch`` is populated by
-                # :func:`_open_context_pr_for_pipeline` after plan_gate
-                # approves and before slice-1 provisions, so it should
-                # always be present here under D4 (hard switchover, no
-                # backwards-compat). If it is missing — a policy violation
-                # rather than a supported configuration — fall back to
-                # ``pipeline_branch`` so the slice still provisions, and log
-                # a warning so an operator notices the asymmetry.
-                if parent_slice_id is None:
-                    context_branch_for_slice1: str | None = None
-                    try:
-                        context_branch_for_slice1 = _resolve_slice_1_context_branch_from_contract(
-                            pipeline_id, worktree_repo_path
-                        )
-                    except Exception as load_err:  # noqa: BLE001
-                        logger.warning(
-                            "Slice-1 base resolution: failed to load contract — "
-                            "falling back to pipeline_branch (#2548)",
-                            pipeline_id=pipeline_id,
-                            slice_id=slice_id,
-                            error=str(load_err),
-                        )
-                    if context_branch_for_slice1:
-                        parent_branch = context_branch_for_slice1
-                    else:
-                        logger.warning(
-                            "Slice-1 base resolution: contract.pr.context_branch "
-                            "is empty — falling back to pipeline_branch "
-                            "(#2548 D4 hard-switchover policy violation)",
-                            pipeline_id=pipeline_id,
-                            slice_id=slice_id,
-                            pipeline_branch=pipeline_branch,
-                        )
-                        parent_branch = pipeline_branch
-                else:
-                    parent_branch = f"{issue_branch}/{parent_slice_id}"
+                # * eager-persisted ``parent_branch_at_creation`` (the
+                #   primary path post-slice-4 TASK-4-2), and
+                # * fresh-pipeline derivation from
+                #   ``slice.dependencies[0]`` (the path #2777's slice-2
+                #   takes before slice-4 lands).
+                #
+                # The legacy ``egg/<id>/context`` branch was removed in
+                # cq-4 so slice-1 (the root) now stacks on
+                # ``pipeline_branch`` like every other root slice — the
+                # work-branch context PR's diff already encompasses the
+                # slice-1 integration branch via ancestry.
+                parent_branch = _resolve_slice_base_branch(
+                    contract,
+                    slice_id,
+                    pipeline_id=pipeline_id,
+                    pipeline_branch=pipeline_branch,
+                )
                 integration_branch = f"{issue_branch}/{slice_id}"
 
                 # Persist the parent-branch reference on the contract
@@ -17644,14 +16087,15 @@ def _run_implement_phase_slices(
                                 "slice_count": slice_count,
                                 "slice_files_affected": slice_files_affected_list or None,
                                 # ``context_pr_number`` is populated by
-                                # ``_open_context_pr_for_pipeline`` after
-                                # the base/context PR opens (#2548). When
-                                # None — covers the #2744 regression where
-                                # the base PR is silently not opened —
-                                # ``create_slice_pr`` falls back to the
-                                # pre-#2745 inline-narrative body so the
-                                # slice PR stays reviewable as a
-                                # standalone diff against ``/work``.
+                                # ``_open_context_pr_at_implement_start``
+                                # at the plan→implement boundary (#2777).
+                                # When None — should be unreachable under
+                                # the new hard-required opener but kept as
+                                # defense-in-depth — ``create_slice_pr``
+                                # falls back to the pre-#2745 inline-
+                                # narrative body so the slice PR stays
+                                # reviewable as a standalone diff against
+                                # ``/work``.
                                 "context_pr_number": (
                                     program_pr.context_pr_number if program_pr else None
                                 ),
@@ -20775,11 +19219,12 @@ def _populate_contract_from_plan(
         if result.pr_title:
             from egg_contracts.models import PRMetadata
 
-            # #2548 — preserve orchestrator-populated runtime fields on
+            # Preserve orchestrator-populated runtime fields on
             # ``PRMetadata`` across re-populates. The planner-emitted
-            # ``context_title`` / ``context_description`` still flow in
-            # fresh from the parsed plan; the fields below are populated
-            # by orchestrator code paths (gateway primitives, the
+            # title/description/test_plan/manual_steps flow in fresh
+            # from the parsed plan; the fields below are populated by
+            # orchestrator code paths (the up-front context-PR opener
+            # in ``_open_context_pr_at_implement_start``, the
             # conditional-ACK gate at ``complete_phase``) and would
             # otherwise be silently dropped when this safety-net
             # populator re-runs (e.g. on a ``start_phase=implement``
@@ -20792,7 +19237,6 @@ def _populate_contract_from_plan(
             # reviewer's only durable handoff for git-mv / migration /
             # cross-repo flips. See test
             # ``test_populate_contract_from_plan_preserves_deferred_actions``.
-            preserved_branch = contract.pr.context_branch if contract.pr is not None else None
             preserved_pr_number = contract.pr.context_pr_number if contract.pr is not None else None
             preserved_deferred_actions = (
                 list(contract.pr.deferred_actions) if contract.pr is not None else []
@@ -20802,9 +19246,6 @@ def _populate_contract_from_plan(
                 description=result.pr_description or "",
                 test_plan=result.pr_test_plan or "",
                 manual_steps=result.pr_manual_steps or "",
-                context_title=result.pr_context_title,
-                context_description=result.pr_context_description,
-                context_branch=preserved_branch,
                 context_pr_number=preserved_pr_number,
                 deferred_actions=preserved_deferred_actions,
             )
@@ -20813,14 +19254,15 @@ def _populate_contract_from_plan(
         if current_phase is not None and contract.current_phase != current_phase:
             # Forward-only: never demote.  Without this guard a respawn
             # of _run_pipeline (e.g. when a start_phase=implement pipeline
-            # progresses to the PR phase and re-enters the safety-net
-            # call site) would silently roll contract.current_phase back
-            # from PR/IMPLEMENT to whatever the call site hardcoded.
+            # progresses past the implement boundary and re-enters the
+            # safety-net call site) would silently roll
+            # contract.current_phase back from IMPLEMENT to whatever the
+            # call site hardcoded. The PR phase was removed in #2777
+            # (cq-4); IMPLEMENT is now terminal.
             _phase_order = (
                 PipelinePhase.REFINE,
                 PipelinePhase.PLAN,
                 PipelinePhase.IMPLEMENT,
-                PipelinePhase.PR,
             )
             if (
                 contract.current_phase in _phase_order
@@ -21953,7 +20395,6 @@ def _run_pipeline(
                 PipelinePhase.REFINE,
                 PipelinePhase.PLAN,
                 PipelinePhase.IMPLEMENT,
-                PipelinePhase.PR,
             ]
             current_idx = phase_order.index(current_phase) if current_phase in phase_order else 0
             if current_idx > 0:
@@ -22949,212 +21390,14 @@ def _run_pipeline(
             phase_failed = False
             tester_gap_summary: str | None = None
 
-            # --- Auto PR creation: skip agent spawn for PR phase ---
-            if current_phase.value == "pr":
-                # Decide up front whether to skip the legacy auto-PR so
-                # the entry log accurately reflects which path the PR
-                # phase will take (slice-DAG / monolithic auto-PR). The
-                # same helper is consulted again below to gate the actual
-                # ``_finalize_pr_phase_failed`` call.
-                # ``_should_skip_pr_phase_auto_pr`` fails safe to "run
-                # auto-PR" on any contract-load error, matching the
-                # implement-phase slice-loop gate.
-                _skip_decision, _skip_reason = _should_skip_pr_phase_auto_pr(
-                    worktree_repo_path,
-                    pipeline_id,
-                )
-                if _skip_decision:
-                    _entry_msg = "Skipping PR-phase auto-PR (slice-DAG mode: per-slice PRs exist)"
-                else:
-                    _entry_msg = "Auto-creating PR (skipping agent spawn)"
-                logger.info(
-                    _entry_msg,
-                    pipeline_id=pipeline_id,
-                    mode=getattr(getattr(pipeline, "mode", None), "value", None),
-                    skip_reason=_skip_reason,
-                )
-
-                # Record phase timing so metrics are accurate even without agent spawn
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.work_started_at = datetime.now(UTC)
-                    store.save_pipeline(pipeline)
-
-                skip_pr_creation = False
-                if _skip_decision:
-                    # Slice-DAG mode: per-slice PRs already exist stacked
-                    # on the context PR, so the legacy
-                    # ``<pipeline_branch> → main`` auto-PR would just
-                    # duplicate the program-level surface. Skip PR
-                    # creation but let the housekeeping below (statefile
-                    # commit, BRC history rewrite, gateway push) still
-                    # run — the pipeline branch is the integration point
-                    # for stacked slices and should still receive the
-                    # orchestrator's final housekeeping commits (#2685).
-                    skip_pr_creation = True
-
-                # Ensure contract and statefiles exist before PR creation
-                # (safety net for short-flow pipelines where initial push
-                # may have failed).  Skip when the pipeline already failed —
-                # these are wasted work against a failed pipeline and could
-                # have side effects.
-                if not phase_failed:
-                    if not _ensure_statefiles_on_branch(worktree_repo_path, pipeline):
-                        logger.warning(
-                            "Contract reconciliation failed — PR may be missing contract",
-                            pipeline_id=pipeline_id,
-                        )
-
-                    # Commit any uncommitted contract mutations before
-                    # opening the PR.  Under the orchestrator-owned
-                    # contract model (#1781), late-phase agent mutations
-                    # land directly in the shared worktree file and may
-                    # not yet be on the branch; this ensures the contract
-                    # is captured in git history as part of the PR.
-                    try:
-                        _commit_statefiles_to_worktree(
-                            worktree_repo_path,
-                            "Persist contract before PR creation",
-                            pipeline_identifier=_pipeline_identifier(
-                                pipeline.issue_number, pipeline_id
-                            ),
-                            pipeline_id=pipeline_id,
-                        )
-                    except Exception as git_err:
-                        # Catch broadly: see #2219.
-                        logger.warning(
-                            "Pre-PR statefile commit failed (continuing)",
-                            pipeline_id=pipeline_id,
-                            error=str(git_err),
-                        )
-
-                    # Safety net: re-write BRC history for all completed phases.
-                    # Per-phase writes happen at phase completion, but pushes
-                    # can fail silently — re-writing here guarantees the files
-                    # are on the branch before the PR is created.
-                    identifier = _brc_history_identifier(pipeline)
-
-                    # Drop .egg-state/agent-outputs/ before any other PR-phase
-                    # commits.  Those paths hold ephemeral coder→tester handoff
-                    # patches (e.g. coder-test-changes.patch) that the tester
-                    # has already consumed; leaving them on the branch pollutes
-                    # the PR diff and causes reconcile conflicts when concurrent
-                    # pipelines write divergent contents to the same filename
-                    # (see #1731).
-                    _cleanup_agent_outputs_for_pr(worktree_repo_path, pipeline_id)
-
-                    _rewrite_brc_history_for_pr(
-                        worktree_repo_path,
-                        pipeline_id,
-                        pipeline.phases,
-                        identifier,
-                    )
-
-                # Pipeline draft files (.egg-state/drafts/{id}-*.md) are
-                # intentionally *preserved* on the PR branch so that analysis
-                # and plan artifacts remain reviewable alongside the code
-                # (see issue #1713).
-
-                # Push latest commits before creating PR.  If the push fails
-                # (e.g. the remote advanced while the PR-phase worktree was
-                # adding BRC commits), push_worktree_branch reconciles via
-                # fetch+rebase and retries once internally (#1706/#1731/#1808).
-                push_ok = True
-                if pipeline.branch and worktree_repo_path != repo_path:
-                    commits_ahead = "unknown"
-                    try:
-                        ahead_result = subprocess.run(
-                            [
-                                "git",
-                                "-C",
-                                str(worktree_repo_path),
-                                "rev-list",
-                                "--count",
-                                f"origin/{pipeline.branch}..HEAD",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            check=False,
-                            timeout=10,
-                        )
-                        commits_ahead = (
-                            ahead_result.stdout.strip()
-                            if ahead_result.returncode == 0
-                            else "unknown"
-                        )
-                    except Exception:
-                        commits_ahead = "unknown"
-
-                    push_ok = spawner.gateway.push_worktree_branch(
-                        pipeline_id=pipeline_id,
-                        repo_path=str(worktree_repo_path),
-                        branch=pipeline.branch,
-                        mode=gateway_mode,
-                        base_branch=pipeline.base_branch,
-                    )
-                    if push_ok:
-                        logger.info(
-                            "PR-phase push succeeded",
-                            pipeline_id=pipeline_id,
-                            branch=pipeline.branch,
-                            commits_ahead_pre_reconcile=commits_ahead,
-                        )
-                    else:
-                        # Fall back to creating the PR against the current
-                        # remote HEAD.  The agents' commits are already on
-                        # origin; only the orchestrator's housekeeping
-                        # commits (BRC history rewrite, cleanup) are being
-                        # dropped by the failed push.  Better to ship a PR
-                        # without the housekeeping than to fail the whole
-                        # pipeline and force manual rescue (see #1731).
-                        logger.warning(
-                            "PR-phase push failed after reconcile — falling back to "
-                            "PR against remote HEAD; orchestrator housekeeping commits dropped",
-                            pipeline_id=pipeline_id,
-                            branch=pipeline.branch,
-                            commits_ahead_pre_reconcile=commits_ahead,
-                        )
-                else:
-                    logger.info(
-                        "PR-phase push skipped",
-                        pipeline_id=pipeline_id,
-                        branch=pipeline.branch,
-                        reason="worktree_repo_path == repo_path"
-                        if worktree_repo_path == repo_path
-                        else "no branch set",
-                    )
-
-                # Create the PR.  When ``push_ok`` is False we still try —
-                # the PR opens against whatever is on origin/<branch>
-                # (the agents' work), dropping orchestrator housekeeping
-                # commits rather than failing the whole pipeline (#1731).
-                # Skip PR creation when slice-DAG mode is in effect —
-                # per-slice PRs already exist stacked on the context PR
-                # (#2685).
-                if skip_pr_creation:
-                    logger.info(
-                        "Skipping PR creation",
-                        pipeline_id=pipeline_id,
-                        pr_number=getattr(pipeline, "pr_number", None),
-                        skip_reason=_skip_reason,
-                    )
-                elif _finalize_pr_phase_failed(
-                    pipeline,
-                    worktree_repo_path,
-                    spawner,
-                    store,
-                    pipeline_id,
-                    current_phase,
-                    gateway_mode,
-                    push_ok,
-                ):
-                    phase_failed = True
-
-                # Fall through to phase completion below (skip inner review cycle)
-
-            # --- Inner review cycle (skipped when auto-creating PR) ---
-            else:
+            # --- Inner review cycle ---
+            # NOTE: the legacy PR phase (and its auto-PR / slice-DAG-skip
+            # branches) was deleted in #2777 (cq-4 / TASK-2-2). The context
+            # PR now opens up-front via ``_open_context_pr_at_implement_start``
+            # at the plan→implement boundary, slice PRs stack on it, and
+            # IMPLEMENT is the terminal phase — no per-phase auto-PR creation
+            # logic is reachable here for ``current_phase.value == "pr"``.
+            if True:
                 while True:
                     # Reset tester gaps each cycle so stale findings don't accumulate
                     tester_gap_summary = None
@@ -24297,10 +22540,6 @@ def _run_pipeline(
             # deletion. The opener's ``gh pr list`` pre-flight makes
             # a redundant call from any other transition path a one-
             # round-trip no-op.
-            #
-            # The legacy ``_maybe_open_base_pr_for_plan_to_implement``
-            # wrapper is left in place but unreferenced until slice-2
-            # (TASK-2-1) deletes it.
             # ----------------------------------------------------------
             if current_phase.value == "plan":
                 try:
@@ -24892,9 +23131,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # the latest phase_gate decision's resolution.
             #
             # #2593 review issue 1 — initialised before the lock so the
-            # post-lock deferred ``_maybe_open_base_pr_for_plan_to_implement``
-            # invocation has a stable name to read regardless of which
-            # branch inside the lock executes.
+            # post-lock deferred context-PR opener invocation has a
+            # stable name to read regardless of which branch inside the
+            # lock executes.
             _hitl_open_context_pr_after_lock: bool = False
             _hitl_pr_worktree_path: Path | None = None
             with get_pipeline_state_lock(pipeline_id):
@@ -25128,10 +23367,11 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                         # Defer the context-PR open until after the
                         # per-pipeline state lock is released — see
-                        # ``_open_context_pr_for_pipeline``'s
+                        # ``_open_context_pr_at_implement_start``'s
                         # idempotency docstring on why this multi-
-                        # second network sequence must not run under
-                        # the lock (#2593 review issue 1).
+                        # second network sequence (one ``gh pr list``
+                        # + maybe one ``gh pr create``) must not run
+                        # under the lock (#2593 review issue 1).
                         _hitl_open_context_pr_after_lock = True
                         _hitl_pr_worktree_path = _hitl_worktree_path
 

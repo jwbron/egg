@@ -90,8 +90,6 @@ def _resolve_extant_new_base(
     extant_branches: set[str],
     slice_namespace_root: str,
     pipeline_branch: str,
-    *,
-    context_branch: str | None = None,
 ) -> str:
     """Walk up the slice DAG until an extant branch is found.
 
@@ -103,32 +101,23 @@ def _resolve_extant_new_base(
     guarantees ≤1 parent per slice) and return the first ancestor
     whose branch is still on origin.
 
-    Resolution order (post-#2548):
+    Resolution order (post-#2777, cq-2 / cq-4):
 
     1. Walk the slice DAG via ``dependencies[0]`` until an extant
        ancestor branch is found.
-    2. If the chain is exhausted (every ancestor's branch has been
-       deleted), prefer the dedicated context branch
-       (``contract.pr.context_branch``) when it is set AND still
-       present on origin.  Slice-1 stacks on the context branch under
-       D5 of #2548, so for an orphaned slice-1 the context branch is
-       the natural retarget — the work branch is no longer the
-       canonical root once the context PR mechanism is active.
-    3. Final fallback: the pipeline branch (``egg/<id>/work``).
-       Root-targeted branches are stable; this preserves the
-       pre-#2548 last-resort behavior for pipelines without a
-       populated ``context_branch`` (e.g. legacy or in-flight runs
-       that pre-date the context-PR mechanism).
+    2. Final fallback: the pipeline branch (``egg/<id>/work``).
+       Root-targeted branches are stable across the stacked-PR
+       flow because they are never deleted by the cascade. The
+       legacy ``egg/<id>/context`` branch (and the ``contract.pr.context_branch``
+       field that named it) were removed in #2777 — the context PR
+       now opens on ``egg/<id>/work → main`` directly, so slice-1
+       stacks on the work branch like every other root slice.
 
     ``slice_namespace_root`` is the prefix slice paths are built from
     (``egg/<id>``, no ``/work`` suffix); ``pipeline_branch`` is the
     actual remote ref of the umbrella pipeline tip (``egg/<id>/work``,
     after #2399). They differ by exactly the ``/work`` suffix — see
     :func:`routes.pipelines._ensure_pipeline_work_ref`.
-
-    ``context_branch`` is the contract's
-    ``pr.context_branch`` value when populated; pass ``None`` to
-    disable the step-2 preference and inherit the pre-#2548 ordering.
     """
     # ``dependencies[0]`` is the canonical parent under the forest
     # constraint enforced at plan ingestion. ``serialized_chain_order``
@@ -147,18 +136,10 @@ def _resolve_extant_new_base(
         # Walk one more level up.
         parent_id = parent_slice.dependencies[0] if parent_slice.dependencies else None
     # Either the slice has no dependencies (it's a root whose own
-    # PR shouldn't get here — roots target ``context_branch`` or
-    # ``pipeline_branch`` directly, which are stable), or every
-    # ancestor's branch has been deleted.  Prefer the context branch
-    # over the pipeline branch when present and extant on origin
-    # (#2548 task-2-3): slice-1 stacks on it under D5, so retargeting
-    # an orphaned slice-1 to the context branch keeps the BRC
-    # consensus + analysis docs reachable through the slice PR diff.
-    if context_branch and context_branch in extant_branches:
-        return context_branch
-    # Final fallback: the pipeline branch.  Stable across the
-    # stacked-PR flow because root-targeted branches are never
-    # deleted by the cascade.
+    # PR shouldn't get here — roots target ``pipeline_branch``
+    # directly, which is stable across the cascade) or every
+    # ancestor's branch has been deleted. Fall back to the pipeline
+    # branch in both cases.
     return pipeline_branch
 
 
@@ -240,12 +221,6 @@ def find_orphaned_child_prs(
     pipeline_branch = f"{slice_namespace_root}/work"
     slices_by_id = {s.id: s for s in contract.slices}
 
-    # Pull the contract's context branch (#2548) for the cascade-
-    # fallback step in ``_resolve_extant_new_base``. ``contract.pr``
-    # may be ``None`` for refine-only or in-flight pipelines; treat
-    # those as no-context-branch and inherit the pre-#2548 behavior.
-    context_branch = contract.pr.context_branch if contract.pr is not None else None
-
     for slice_ in contract.slices:
         parent = slice_.parent_branch_at_creation
         if parent is None:
@@ -272,15 +247,15 @@ def find_orphaned_child_prs(
         # cascade is the primary trigger for orphan detection, and
         # in that case ``parent_branch_at_creation`` points at the
         # same just-deleted branch we're trying to escape from.
-        # Pass ``context_branch`` through so the cascade-fallback
-        # prefers it over ``pipeline_branch`` when extant (#2548).
+        # Final fallback is ``pipeline_branch`` (``egg/<id>/work``)
+        # — the legacy context branch was removed in #2777, so the
+        # work branch is the canonical stack root for every slice.
         new_base = _resolve_extant_new_base(
             slice_,
             slices_by_id,
             extant_branches,
             slice_namespace_root,
             pipeline_branch,
-            context_branch=context_branch,
         )
         orphans.append(
             OrphanedChildPR(
