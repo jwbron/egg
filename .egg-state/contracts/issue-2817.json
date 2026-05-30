@@ -9,9 +9,447 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments: how should the program handle them?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mass refresh in a docs-only slice up front (update docs/guides/decomposition-pattern.md, both CLAUDE.md seam-table comments, and allowlist comment blocks to point at #2817 before any source decomposition lands)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Inline as each slice lands (the slice for a given file updates its own seam-table row and replaces any stale references it touches; no separate docs slice)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Leave stale references as historical pointers (operator can follow the supersession chain; do not update existing #2261 references)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Sandbox/shared seam-table scaffolding: should the program add seam tables for sandbox/ and shared/ files in scope?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add a Submodule seam table to sandbox/CLAUDE.md and create shared/CLAUDE.md with a seam table; sandbox/entrypoint.py, sandbox/egg_lib/orch_cli.py, and shared/egg_contracts/checkpoint_cli.py each get a seam-table row when they decompose (mirrors orchestrator/CLAUDE.md and gateway/CLAUDE.md)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add a seam table to sandbox/CLAUDE.md only; leave shared/ undocumented (checkpoint_cli.py decomposes without a seam-table row)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Leave sandbox/CLAUDE.md unchanged and do not create shared/CLAUDE.md (non-negotiable #6 names only orchestrator/ and gateway/; sandbox/ and shared/ decompositions land without seam-table documentation)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Closing criterion vs #2569 (plan_parser.py decomposition tracker): when does #2817 close?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "#2817 stays open until both #2569 and the other 16 file decompositions land (this issue blocks on #2569; closes only when the allowlist files: map is empty AND #2569 has merged)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "#2817 can close once the 16 non-#2569 files are decomposed, provided #2569 has also landed by then; if not, #2817 stays open until #2569 lands (operationally equivalent to option 1)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Decouple: #2817 closes when the 16 non-#2569 files are decomposed, even if plan_parser.py's allowlist entry remains. The remaining entry is removed by #2569 separately, and #2562 can begin once the 16 land regardless of #2569 state",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "Pattern-doc updates for relaxed non-negotiable #10 (test 1:1 retrofit is guidance, not a gate): should docs/guides/decomposition-pattern.md be updated?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Update the pattern doc to reflect the relaxation (add a short subsection explaining that scenario-organized test suites may stay topical and that the select_tests reference is intentionally not retrofit; update the Pre-merge checklist accordingly)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Leave the pattern doc unchanged; treat the issue body as the corrective (downstream agents loading the pattern doc will need to cross-reference #2817's issue text to see the relaxation)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "Allowlist comment correctness (plan_parser.py says issue: 2548, phases.py cites slice-15 cluster in #2261): should these be corrected as part of #2817's work?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, correct both: update plan_parser.py's comment to reference #2569 (the decomposition tracker, not the slice that breached the cap) and update phases.py's comment to reference #2817 (the current tracker; #2261 is closed/superseded). Lands in whichever slice touches the allowlist first",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Yes, correct phases.py only (cite #2817 in place of #2261). Leave plan_parser.py's issue: 2548 comment alone since #2569 is a separate tracker and the comment is currently honest about the breach origin",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No, leave both comments as-is. They are historical pointers and the operator can follow the supersession chain; correcting them is doc-hygiene churn the decomposition program does not need to absorb",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "[SUPERSEDES cq-1] Should stale #2261 references in the pattern doc, CLAUDE.md seam tables, and allowlist comments be updated as part of #2817's work, or left as historical pointers?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, update them as part of this work (planner picks slice packaging \u2014 separate docs-only slice, inlined per slice, or some hybrid)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No, leave as historical pointers; #2261 is reachable through the supersession chain and the program does not need to absorb the doc-hygiene churn",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-30T23:02:41.003884Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments: how should the program handle them?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Mass refresh in a docs-only slice up front (update docs/guides/decomposition-pattern.md, both CLAUDE.md seam-table comments, and allowlist comment blocks to point at #2817 before any source decomposition lands)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Inline as each slice lands (the slice for a given file updates its own seam-table row and replaces any stale references it touches; no separate docs slice)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Leave stale references as historical pointers (operator can follow the supersession chain; do not update existing #2261 references)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Stale #2261 references in pattern doc, CLAUDE.md s...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T23:02:51.040394Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Sandbox/shared seam-table scaffolding: should the program add seam tables for sandbox/ and shared/ files in scope?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add a Submodule seam table to sandbox/CLAUDE.md and create shared/CLAUDE.md with a seam table; sandbox/entrypoint.py, sandbox/egg_lib/orch_cli.py, and shared/egg_contracts/checkpoint_cli.py each get a seam-table row when they decompose (mirrors orchestrator/CLAUDE.md and gateway/CLAUDE.md)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add a seam table to sandbox/CLAUDE.md only; leave shared/ undocumented (checkpoint_cli.py decomposes without a seam-table row)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Leave sandbox/CLAUDE.md unchanged and do not create shared/CLAUDE.md (non-negotiable #6 names only orchestrator/ and gateway/; sandbox/ and shared/ decompositions land without seam-table documentation)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Sandbox/shared seam-table scaffolding: should the ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T23:02:58.541438Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Closing criterion vs #2569 (plan_parser.py decomposition tracker): when does #2817 close?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "#2817 stays open until both #2569 and the other 16 file decompositions land (this issue blocks on #2569; closes only when the allowlist files: map is empty AND #2569 has merged)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "#2817 can close once the 16 non-#2569 files are decomposed, provided #2569 has also landed by then; if not, #2817 stays open until #2569 lands (operationally equivalent to option 1)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Decouple: #2817 closes when the 16 non-#2569 files are decomposed, even if plan_parser.py's allowlist entry remains. The remaining entry is removed by #2569 separately, and #2562 can begin once the 16 land regardless of #2569 state",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Closing criterion vs #2569 (plan_parser.py decompo...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T23:03:06.426444Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "Pattern-doc updates for relaxed non-negotiable #10 (test 1:1 retrofit is guidance, not a gate): should docs/guides/decomposition-pattern.md be updated?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Update the pattern doc to reflect the relaxation (add a short subsection explaining that scenario-organized test suites may stay topical and that the select_tests reference is intentionally not retrofit; update the Pre-merge checklist accordingly)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Leave the pattern doc unchanged; treat the issue body as the corrective (downstream agents loading the pattern doc will need to cross-reference #2817's issue text to see the relaxation)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Pattern-doc updates for relaxed non-negotiable #10...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T23:03:14.474536Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "Allowlist comment correctness (plan_parser.py says issue: 2548, phases.py cites slice-15 cluster in #2261): should these be corrected as part of #2817's work?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes, correct both: update plan_parser.py's comment to reference #2569 (the decomposition tracker, not the slice that breached the cap) and update phases.py's comment to reference #2817 (the current tracker; #2261 is closed/superseded). Lands in whichever slice touches the allowlist first",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Yes, correct phases.py only (cite #2817 in place of #2261). Leave plan_parser.py's issue: 2548 comment alone since #2569 is a separate tracker and the comment is currently honest about the breach origin",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No, leave both comments as-is. They are historical pointers and the operator can follow the supersession chain; correcting them is doc-hygiene churn the decomposition program does not need to absorb",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Allowlist comment correctness (plan_parser.py says...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-30T23:09:59.200551Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "[SUPERSEDES cq-1] Should stale #2261 references in the pattern doc, CLAUDE.md seam tables, and allowlist comments be updated as part of #2817's work, or left as historical pointers?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes, update them as part of this work (planner picks slice packaging \u2014 separate docs-only slice, inlined per slice, or some hybrid)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No, leave as historical pointers; #2261 is reachable through the supersession chain and the program does not need to absorb the doc-hygiene churn",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: [SUPERSEDES cq-1] Should stale #2261 references in...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
