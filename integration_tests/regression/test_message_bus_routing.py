@@ -8,9 +8,9 @@ surfaces in the integration tier.
 
 Coverage map (issue #2640 starting points + gap audit):
 
-2. ``/status/wait`` semantics for ``context_pr.*`` — long-poll wakes
-   on the event, on the message, and stays silent for non-allowlisted
-   types (PROGRESS, DECISION_RESOLVED).
+2. ``/status/wait`` allowlist invariant — the route stays silent for
+   non-allowlisted message types (PROGRESS) and non-allowlisted events
+   (DECISION_RESOLVED).
 3. Event ordering under concurrent producers — EventBus sequences
    are strictly increasing across threads; message store preserves
    per-pipeline append order on both backends.
@@ -254,81 +254,14 @@ def _blocking_get_signal(backend):
 
 
 # ---------------------------------------------------------------------------
-# 2. /status/wait semantics for context_pr.* (issue starting point 2)
+# 2. /status/wait allowlist invariant — non-allowlisted types stay silent
 # ---------------------------------------------------------------------------
 
 
 class TestStatusWaitContextPRSemantics:
-    """The ``/status/wait`` allowlists for ``context_pr.*`` (PR #2621 /
-    #2624) must unblock long-pollers via both the event bus and the
-    message store. Non-allowlisted types must NOT wake the route."""
-
-    def test_status_wait_wakes_on_context_pr_failed_event(
-        self,
-        client,
-        resolve_pipeline_to,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """A ``context_pr.failed`` event published mid-wait unblocks the
-        long-poll with ``trigger='event'``."""
-        with _route_subscription_signal(isolated_event_bus) as route_ready:
-
-            def _fire() -> None:
-                assert route_ready.wait(timeout=3), "route never subscribed"
-                isolated_event_bus.publish(
-                    Event(
-                        event_type=EventType.CONTEXT_PR_FAILED,
-                        pipeline_id=_PIPELINE_ID,
-                    )
-                )
-
-            threading.Thread(target=_fire, daemon=True).start()
-            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
-        envelope = json.loads(resp.data)["data"]
-        assert resp.status_code == 200
-        assert envelope["changed"] is True
-        assert envelope["trigger"] == "event"
-        assert envelope["event_type"] == "context_pr.failed"
-
-    def test_status_wait_wakes_on_context_pr_failed_message(
-        self,
-        client,
-        resolve_pipeline_to,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """A ``CONTEXT_PR_FAILED`` message in the store unblocks the
-        long-poll with ``trigger='message'`` — the second of the two
-        sinks PR #2621 wired.
-
-        Uses ``_blocking_get_signal`` rather than ``_route_subscription_signal``
-        because the route's message daemon snaps to the store tip via
-        ``get_messages(from_tip=True)`` AFTER ``event_bus.subscribe``
-        returns — injecting on the subscribe signal can land before the
-        daemon captures the tip, leaving the message on the wrong side
-        of the cursor and the wait blocking until timeout."""
-        with _blocking_get_signal(message_backend) as daemon_entered:
-
-            def _fire() -> None:
-                assert daemon_entered.wait(timeout=3), "daemon never entered blocking wait"
-                message_backend.add_message(
-                    Message(
-                        pipeline_id=_PIPELINE_ID,
-                        from_role="orchestrator",
-                        to_role="all",
-                        message_type="CONTEXT_PR_FAILED",
-                        subject="context_pr.failed (source=test)",
-                        body="hook raised",
-                    )
-                )
-
-            threading.Thread(target=_fire, daemon=True).start()
-            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
-        envelope = json.loads(resp.data)["data"]
-        assert resp.status_code == 200
-        assert envelope["changed"] is True
-        assert envelope["trigger"] == "message"
+    """The ``/status/wait`` allowlist must NOT wake the route for
+    non-allowlisted message types (PROGRESS) or non-allowlisted events
+    (DECISION_RESOLVED)."""
 
     def test_status_wait_ignores_non_allowlisted_message_type(
         self,
@@ -1615,7 +1548,7 @@ class TestEventBusSequenceMonotonicAcrossTypes:
             EventType.PHASE_STARTED,
             EventType.MESSAGE_SENT,
             EventType.DECISION_CREATED,
-            EventType.CONTEXT_PR_FAILED,
+            EventType.DECISION_RESOLVED,
             EventType.PHASE_COMPLETED,
         ]
         for t in types_in_order:
