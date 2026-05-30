@@ -2048,6 +2048,80 @@ class GatewayClient:
                 )
             return False
 
+    def merge_base(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref_a: str,
+        ref_b: str,
+        *,
+        bearer_token: str | None = None,
+    ) -> str | None:
+        """Return the merge-base SHA of ``ref_a`` and ``ref_b`` (or None).
+
+        Runs ``git merge-base ref_a ref_b`` through
+        ``/api/v1/git/execute`` and parses the stdout SHA from the
+        gateway response. Both refs must already be locally reachable
+        in the worktree's odb — the caller is responsible for any
+        prior fetches.
+
+        Returns ``None`` when:
+
+        * Either ref does not exist locally (``git merge-base``
+          exits non-zero with returncode 1).
+        * The two refs share no common ancestor (also returncode 1).
+        * The gateway request itself fails (network, missing object,
+          policy denial).
+
+        Used by slice-4 TASK-4-3's ``_resolve_slice_base_branch``
+        merge-base fallback: legacy slices whose
+        ``parent_branch_at_creation`` is empty AND whose integration
+        branch still exists on origin compute their fork SHA against
+        ``origin/main`` to confirm the slice has a valid divergence
+        point before the resolver returns the dependency-derived
+        parent branch. A ``None`` result signals "no fork point" and
+        the resolver routes onto ``pipeline_branch`` (the safe
+        root-stack fallback).
+        """
+        if not ref_a or not ref_b:
+            return None
+        try:
+            result = self._make_request(
+                "/api/v1/git/execute",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "operation": "merge-base",
+                    "args": [ref_a, ref_b],
+                },
+                bearer_token=bearer_token,
+            )
+        except GatewayError as exc:
+            details = exc.details or {}
+            returncode = details.get("returncode")
+            if returncode != 1:
+                logger.warning(
+                    "merge-base failed unexpectedly",
+                    pipeline_id=pipeline_id,
+                    ref_a=ref_a,
+                    ref_b=ref_b,
+                    returncode=returncode,
+                    error=str(exc),
+                )
+            return None
+        stdout = (result or {}).get("data", {}).get("stdout", "")
+        if not stdout:
+            return None
+        sha = stdout.strip().split("\n", 1)[0].strip()
+        # Conservative shape check — the gateway returns the raw
+        # ``git merge-base`` output (a 40-char hex SHA on success).
+        # Anything else (truncated, unexpected newline noise) is
+        # treated as "no fork point" rather than risking a malformed
+        # value being passed downstream.
+        if len(sha) < 7 or any(c not in "0123456789abcdef" for c in sha.lower()):
+            return None
+        return sha
+
     def is_slice_branch_merged_into_parent(
         self,
         pipeline_id: str,
@@ -2619,7 +2693,7 @@ class GatewayClient:
             stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
             try:
                 items = json.loads(stdout) if stdout.strip() else []
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.debug(
                     "_lookup_open_pr: gh stdout not JSON",
                     pipeline_id=pipeline_id,
@@ -2638,7 +2712,7 @@ class GatewayClient:
                     continue
                 try:
                     return int(number)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
             return None
         except Exception as exc:  # noqa: BLE001

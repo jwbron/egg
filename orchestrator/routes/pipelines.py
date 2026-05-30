@@ -3294,13 +3294,35 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         # trackers will be reconstructed lazily on next consensus
         # activity — preserving the historical pipeline-level-only
         # behaviour as a fallback rather than blocking the restart.
+        # **Worktree-path resolution (reviewer_code v1 blocker 2)**:
+        # active pipelines' contracts live in the per-pipeline
+        # worktree at ``/home/egg/.egg-worktrees/<pipeline_id>/<repo>/``
+        # — NOT under ``store.repo_path`` (the main orchestrator repo).
+        # Without ``resolve_worktree_path`` the ``load_contract`` call
+        # below silently fails with ``ContractNotFoundError`` for every
+        # active pipeline, the per-slice loop never iterates, and the
+        # whole per-slice clear becomes a no-op. Pattern mirrors
+        # ``routes/signals.py:709`` and ``routes/pipelines.py:10017``.
         try:
             from egg_contracts.loader import load_contract
         except ImportError:
             load_contract = None  # type: ignore[assignment]
         if load_contract is not None:
             try:
-                _contract = load_contract(pipeline_id, Path(store.repo_path))
+                from routes import resolve_worktree_path
+            except ImportError:
+                try:
+                    from . import (
+                        resolve_worktree_path,  # type: ignore[no-redef]
+                    )
+                except ImportError:
+                    resolve_worktree_path = None  # type: ignore[assignment]
+            try:
+                if resolve_worktree_path is not None:
+                    _contract_repo_path = resolve_worktree_path(pipeline_id, Path(store.repo_path))
+                else:
+                    _contract_repo_path = Path(store.repo_path)
+                _contract = load_contract(pipeline_id, _contract_repo_path)
             except Exception as load_err:  # noqa: BLE001 — best-effort
                 logger.warning(
                     "Could not load contract to enumerate slice trackers "
@@ -10339,7 +10361,7 @@ def _resolve_slice_base_branch(
     pipeline_id: str,
     pipeline_branch: str,
     extant_branches: set[str] | None = None,
-    branch_has_origin_commits: Callable[[str], bool] | None = None,
+    merge_base_lookup: Callable[[str, str], str | None] | None = None,
 ) -> str:
     """Return the parent branch for a slice's integration branch (#2777, cq-9).
 
@@ -10347,28 +10369,41 @@ def _resolve_slice_base_branch(
     TASK-2-1) with a single resolver that handles both root and
     non-root slices.
 
-    Resolution order (default — ``extant_branches is None``):
+    Three-tier resolution (default — ``extant_branches is None``):
 
-    1. If the slice record has ``parent_branch_at_creation`` set
-       (eager-persisted at PENDING→IN_PROGRESS in slice-4's TASK-4-2),
-       return it. This is the primary path post-slice-4.
-    2. Otherwise, for root slices (no entries in ``slice.dependencies``),
-       return ``pipeline_branch`` (``egg/<id>/work``) — the canonical
-       context-PR head under the new topology.
-    3. **Merge-base fallback (slice-4 TASK-4-3)**: for non-root slices
-       with an empty ``parent_branch_at_creation`` (legacy / orphaned
-       slices that pre-date the eager-persist landing), if a
-       ``branch_has_origin_commits`` probe is provided AND it reports
-       the slice's own integration branch has NO commits on origin,
-       return ``pipeline_branch`` — a safe root-stack fallback for a
-       branch that was never created. When the probe reports the
-       slice DOES have commits, fall through to the derived parent
-       below (the slice did diverge somewhere; the dependency-derived
-       parent is the best signal we have).
-    4. For non-root slices with commits (or no probe), derive
-       ``egg/<id>/<parent_slice_id>`` from ``slice.dependencies[0]``.
-       After the #2137 forest constraint each slice has at most one
-       DAG parent (``shared/egg_contracts/models.py:341``).
+    1. **Eager-persisted parent** (post-slice-4 TASK-4-2). If
+       ``parent_branch_at_creation`` is set on the slice record,
+       return it. This is the primary path post-slice-4 — slices
+       created after the eager persist landed always go through
+       this arm.
+    2. **Merge-base fallback (slice-4 TASK-4-3)**. For legacy /
+       orphaned slices whose ``parent_branch_at_creation`` is empty,
+       when a ``merge_base_lookup`` callback is provided, compute
+       the merge-base SHA of the slice's integration branch against
+       the dependency-derived parent. If the merge-base resolves
+       (slice has a valid fork point and ancestor exists), the
+       slice has real commits — fall through to the dependency-
+       derived parent below as the legacy-correct stack target.
+       If the merge-base does NOT resolve (no fork point — either
+       the integration branch never existed on origin, or its
+       parent has been deleted), fall back to ``pipeline_branch``.
+       The merge-base SHA is logged for audit but not returned as
+       the resolver's value: downstream consumers
+       (``create_slice_integration_branch``,
+       ``is_slice_branch_merged_into_parent``) take branch names
+       and resolve to SHA via ``get_remote_branch_sha`` on the
+       gateway side, so returning a SHA here would break the
+       ``refs/heads/<name>`` ls-remote step at
+       ``gateway_client.py:~2288``. The merge-base call's role
+       is to VALIDATE the legacy ancestor before returning the
+       branch name — a structural improvement over the
+       pre-TASK-4-3 path which blindly returned the derived
+       parent.
+    3. **Final fallback** to ``pipeline_branch`` (``egg/<id>/work``)
+       when (a) no eager-persisted parent, (b) the slice is a root
+       (no dependencies), OR (c) the merge-base lookup reports no
+       fork point. Root-targeted branches are never deleted by the
+       cascade so this is always a safe terminal candidate.
 
     **Orphan-reconciler mode (``extant_branches`` non-None)**: the
     stacked-PR reconciler at ``orchestrator/stacked_pr_reconciler.py``
@@ -10379,8 +10414,7 @@ def _resolve_slice_base_branch(
     and any walked ancestor) is filtered against the set; if no extant
     candidate is found the resolver falls back to ``pipeline_branch``
     (which is always extant — root-targeted branches are never deleted
-    by the stacked-PR flow). TASK-4-3's merge-base fallback also
-    flows through this same code path when a probe is supplied.
+    by the stacked-PR flow).
 
     Args:
         contract: The pipeline contract (must carry ``slices``).
@@ -10390,24 +10424,27 @@ def _resolve_slice_base_branch(
         pipeline_branch: The pipeline's work branch (``egg/<id>/work``).
             Returned for root slices when no
             ``parent_branch_at_creation`` is recorded, and as the
-            final fallback in orphan-reconciler mode.
+            final fallback in orphan-reconciler mode and the
+            merge-base "no fork point" arm.
         extant_branches: Optional set of branch names known to exist
             on origin. When supplied, the resolver filters every
             candidate (recorded parent + walked ancestors) against
             this set and skips any that are absent. The reconciler
             uses this to escape from the deleted parent branch up the
             DAG until an extant ancestor is reached.
-        branch_has_origin_commits: Optional callback used by
-            slice-4 TASK-4-3's merge-base fallback. When provided,
-            the resolver invokes it with the slice's integration
-            branch name to determine whether that branch exists on
-            origin with commits. The default ``_run_one_slice_inner``
-            caller wires this up against
-            ``spawner.gateway.get_remote_branch_sha``. The
-            stacked-PR reconciler and most synchronous callers
-            leave this as ``None`` — they already know the slice
-            has commits (otherwise the reconciler would not be
-            running).
+        merge_base_lookup: Optional callback used by slice-4
+            TASK-4-3's merge-base fallback. When provided, the
+            resolver invokes ``merge_base_lookup(ref_a, ref_b)``
+            with the slice's integration branch and the derived
+            parent's ``refs/remotes/origin/<parent_branch>``-shaped
+            ref. A non-None SHA return validates the legacy
+            ancestor; a ``None`` return indicates no fork point
+            and routes to ``pipeline_branch``. The default
+            ``_run_one_slice_inner`` caller wires this against
+            ``spawner.gateway.merge_base``; the stacked-PR
+            reconciler leaves it ``None`` (it has already
+            verified extant branches via the ``extant_branches``
+            set).
 
     Returns:
         The branch name to use as the slice integration branch's
@@ -10468,42 +10505,57 @@ def _resolve_slice_base_branch(
 
     # Slice-4 TASK-4-3: merge-base fallback for orphaned / legacy
     # slices. When eager-persist did not land (``parent_recorded``
-    # empty above) AND a probe callback is provided, check the
-    # slice's own integration branch existence on origin. A slice
-    # whose integration branch has no commits never received a
-    # divergence point, so dropping it onto the work branch is the
-    # safe root-stack fallback rather than racing against a derived
-    # parent that may itself be gone. The callback returning True
-    # (slice has commits) is the only path that falls through to the
-    # dependency-derived parent below — preserving the existing
-    # behaviour for slices that have already pushed work.
-    if branch_has_origin_commits is not None:
+    # empty above) AND a ``merge_base_lookup`` callback is provided,
+    # compute ``git merge-base <integration_branch> <derived_parent>``
+    # to validate the legacy ancestor. A non-None SHA confirms the
+    # slice has a real fork point — fall through to the
+    # dependency-derived parent below as the legacy-correct stack
+    # target. A None SHA means no fork point (the slice's branch
+    # never existed on origin, OR its parent has been deleted, OR
+    # the two refs share no common history). In that case fall
+    # back to ``pipeline_branch`` so downstream
+    # ``create_slice_integration_branch`` has a stable parent.
+    if merge_base_lookup is not None:
         integration_branch = f"{issue_branch}/{slice_id}"
+        derived_parent_ref = f"refs/remotes/origin/{issue_branch}/{parent_slice_id}"
+        integration_ref = f"refs/remotes/origin/{integration_branch}"
         try:
-            has_commits = bool(branch_has_origin_commits(integration_branch))
+            mb_sha = merge_base_lookup(integration_ref, derived_parent_ref)
         except Exception as probe_err:  # noqa: BLE001
-            # Probe failure (gateway down, transient HTTP). Conservative
-            # default: assume the slice has commits and fall through to
-            # the derived parent — never silently swap to pipeline_branch
-            # if we can't confirm the slice is truly empty.
+            # Probe failure (gateway down, transient HTTP, missing
+            # local odb). Conservative default: assume the slice
+            # has a fork point and fall through to the derived
+            # parent — never silently swap to ``pipeline_branch``
+            # if we can't confirm the slice is truly orphaned.
             logger.warning(
-                "branch_has_origin_commits probe raised; falling through "
-                "to dependency-derived parent",
+                "merge_base_lookup probe raised; falling through "
+                "to dependency-derived parent (slice-4 TASK-4-3)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
+                integration_ref=integration_ref,
+                derived_parent_ref=derived_parent_ref,
                 error=str(probe_err),
             )
-            has_commits = True
-        if not has_commits:
+            mb_sha = "skipped"  # sentinel: treat as "has fork point"
+        if mb_sha is None:
             logger.info(
-                "Slice has no commits on origin; falling back to pipeline "
-                "branch (slice-4 TASK-4-3)",
+                "Slice has no merge-base with derived parent; falling back "
+                "to pipeline branch (slice-4 TASK-4-3)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                integration_branch=integration_branch,
+                integration_ref=integration_ref,
+                derived_parent_ref=derived_parent_ref,
                 pipeline_branch=pipeline_branch,
             )
             return pipeline_branch
+        if mb_sha != "skipped":
+            logger.debug(
+                "Merge-base validated for legacy slice; using derived parent (slice-4 TASK-4-3)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                merge_base_sha=mb_sha,
+                derived_parent=f"{issue_branch}/{parent_slice_id}",
+            )
 
     # Default mode (no extant filter): return the immediate parent
     # branch synthesised from the slice DAG. This is the unchanged
@@ -10600,7 +10652,6 @@ def _classify_non_complete_slice(
     gateway: Any,
     gateway_mode: Literal["public", "private"],
     consensus_tracker_lookup: Callable[[str, str | None], Any | None],
-    contract_decisions: list[Any],
 ) -> str:
     """Classify a non-COMPLETE slice for Layer-C bootstrap reconciliation.
 
@@ -10619,10 +10670,12 @@ def _classify_non_complete_slice(
       opener via its idempotent pre-flight.
     * ``"blocked"`` — case (4) BLOCKED slice (HITL pending). Caller
       preserves status. If no pending HITL is found on the contract,
-      caller emits an OVERSEER_ALERT.
+      caller escalates via ``_escalate_blocked_slice_to_hitl``
+      which writes a new ``Decision`` to the contract.
     * ``"corrupt"`` — case (5) impossible status enum or
       contradictory state combination (PENDING with commits, etc.).
-      Caller emits an OVERSEER_ALERT.
+      Caller escalates via ``_escalate_corrupt_slice_to_hitl``
+      which writes a new ``Decision`` to the contract.
 
     The classifier is intentionally a pure function modulo the
     injected ``gateway`` probe + ``consensus_tracker_lookup`` —
@@ -10635,11 +10688,9 @@ def _classify_non_complete_slice(
 
     status = getattr(slice_obj, "status", None)
     if status == SliceStatus.BLOCKED:
-        # Case 4 — caller validates the HITL is pending; the
-        # classifier just reports the BLOCKED state. ``contract_decisions``
-        # is plumbed in for unit-test parity with the caller's HITL
-        # probe — the classifier itself doesn't consume it here.
-        del contract_decisions
+        # Case 4 — caller (Layer-C loop) validates the HITL via
+        # ``_slice_has_pending_decision`` and escalates if absent.
+        # The classifier itself just reports the BLOCKED state.
         return "blocked"
 
     if status not in (SliceStatus.PENDING, SliceStatus.IN_PROGRESS):
@@ -10672,6 +10723,18 @@ def _classify_non_complete_slice(
             # default: treat as has_commits=False so the slice is
             # re-yielded READY rather than silently mark-spawned with
             # no agents alive.
+            #
+            # NOTE on asymmetry vs. ``_resolve_slice_base_branch``
+            # (slice-4 TASK-4-3, ~line 10510): the resolver defaults
+            # the *opposite* direction — probe failure → "has fork
+            # point → derived parent" — because mis-routing onto
+            # ``pipeline_branch`` on a transient probe error would
+            # silently change a slice's stack target. Here in Layer C,
+            # a "fresh" mis-classification just causes the scheduler
+            # to re-yield the slice as READY (fresh-agent spawn, which
+            # then sync-then-fetches and continues correctly). The
+            # asymmetry is deliberate: each direction picks the safer
+            # default for its own caller.
             logger.warning(
                 "Layer-C bootstrap probe raised; treating slice as fresh (slice-4 TASK-4-4)",
                 pipeline_id=pipeline_id,
@@ -10716,93 +10779,161 @@ def _classify_non_complete_slice(
     return "consensus_complete" if consensus_complete else "resume"
 
 
-def _emit_layer_c_overseer_alert(
+def _escalate_layer_c_hitl(
     *,
     pipeline_id: str,
     slice_id: str,
-    anomaly: str,
-    subject: str,
-    body: str,
+    question: str,
+    context_prefix: str,
 ) -> None:
-    """Send an OVERSEER_ALERT for a Layer-C anomaly (slice-4 TASK-4-4).
+    """Create an HITL Decision on the contract for a Layer-C anomaly (slice-4 TASK-4-4).
 
     Shared transport for case (4) blocked-without-HITL and case (5)
-    corrupt-status alerts. Mirrors the established pattern in
-    ``orchestrator/routes/pipelines.py:620-650`` (overseer respawn
-    broadcast) — lazy import + ``add_message`` so a test environment
-    that has no message store doesn't crash the bootstrap pass.
+    corrupt-status escalations. Per the plan task body — "escalate
+    via ``mcp__sdlc__register_open_question`` (do NOT silently
+    re-yield as READY — silent classification error is worse than
+    an operator pause)" — Layer C must create an unresolved
+    ``Decision`` on the contract that pauses the slice until the
+    operator picks an option, not just a message-bus broadcast.
+
+    Pattern mirrors ``_persist_hitl_decision`` (above) but loads the
+    contract from the per-pipeline worktree via ``resolve_worktree_path``
+    so the decision lands on the live contract that ``/sdlc`` reads.
+    Best-effort: contract-load / save failures are logged and
+    swallowed (consistent with the rest of Layer C). The decision is
+    tagged with a ``context`` prefix so a dispatch handler in
+    ``routes/decisions.py`` can route on a stable discriminator if
+    one is added in a follow-up.
     """
     try:
-        from message_store import Message, MessageType
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
     except ImportError:
-        from orchestrator.message_store import (  # type: ignore[no-redef]
-            Message,
-            MessageType,
-        )
-    store_fn = _get_message_store()
-    if store_fn is None:
-        return
-    msg_store = store_fn()
-    msg_store.add_message(
-        Message(
+        try:
+            from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
+                load_contract,
+                save_contract,
+            )
+            from orchestrator.egg_contracts.models import (  # type: ignore[no-redef]
+                Decision,
+                DecisionOption,
+                DecisionType,
+            )
+        except ImportError:
+            logger.warning(
+                "Layer-C HITL escalation skipped: egg_contracts not importable (slice-4 TASK-4-4)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
+            return
+    try:
+        from routes import resolve_worktree_path
+    except ImportError:
+        try:
+            from . import (
+                resolve_worktree_path,  # type: ignore[no-redef]
+            )
+        except ImportError:
+            resolve_worktree_path = None  # type: ignore[assignment]
+    store = _state_store_or_none()
+    if store is None:
+        logger.warning(
+            "Layer-C HITL escalation skipped: state store unavailable (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
-            from_role="orchestrator",
-            to_role="all",
-            message_type=MessageType.OVERSEER_ALERT,
-            subject=subject,
-            body=body,
-            metadata={
-                "anomaly": anomaly,
-                "priority": "high",
-                "slice_id": slice_id,
-                "task": "slice-4 TASK-4-4",
-            },
+            slice_id=slice_id,
         )
+        return
+    try:
+        if resolve_worktree_path is not None:
+            contract_repo_path = resolve_worktree_path(pipeline_id, Path(store.repo_path))
+        else:
+            contract_repo_path = Path(store.repo_path)
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(pipeline_id, contract_repo_path)
+            next_id = len(contract_local.decisions) + 1
+            options = [
+                DecisionOption(id="opt-1", label="Mark slice complete and continue"),
+                DecisionOption(id="opt-2", label="Restart slice from scratch"),
+                DecisionOption(id="opt-3", label="Cancel pipeline for manual investigation"),
+            ]
+            contract_local.decisions.append(
+                Decision(
+                    id=f"decision-{next_id}",
+                    question=question,
+                    type=DecisionType.HITL,
+                    phase=PipelinePhase.IMPLEMENT,
+                    options=options,
+                )
+            )
+            save_contract(contract_local, contract_repo_path)
+        logger.info(
+            "Layer-C HITL escalation persisted on contract (slice-4 TASK-4-4)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            context_prefix=context_prefix,
+        )
+    except Exception as escalate_err:  # noqa: BLE001
+        logger.warning(
+            "Layer-C HITL escalation failed (slice-4 TASK-4-4); slice will "
+            "remain in its current contract status",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(escalate_err),
+        )
+
+
+def _state_store_or_none() -> Any | None:
+    """Resolve the orchestrator state store, returning None if unavailable.
+
+    Slice-4 TASK-4-4 helper. Used by ``_escalate_layer_c_hitl`` to
+    obtain the ``repo_path`` for ``resolve_worktree_path``. Lazy
+    import + None-on-failure mirrors the established pattern in
+    other module-level helpers (``_get_message_store``).
+    """
+    try:
+        from state_store import get_state_store
+    except ImportError:
+        try:
+            from orchestrator.state_store import (  # type: ignore[no-redef]
+                get_state_store,
+            )
+        except ImportError:
+            return None
+    try:
+        return get_state_store()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _escalate_corrupt_slice_to_hitl(*, pipeline_id: str, slice_id: str) -> None:
+    """Escalate a Layer-C case-5 corrupt-state slice to HITL (slice-4 TASK-4-4)."""
+    _escalate_layer_c_hitl(
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        question=(
+            f"[#2777 slice-4 TASK-4-4 case 5] Slice {slice_id} of pipeline "
+            f"{pipeline_id} has an impossible status enum value or state "
+            f"combination (e.g. status not in PENDING/IN_PROGRESS/COMPLETE/"
+            f"BLOCKED, or PENDING with commits on the integration branch). "
+            f"Bootstrap reconciliation cannot classify the slice safely. "
+            f"How should the orchestrator proceed?"
+        ),
+        context_prefix="slice_status_corrupt:",
     )
 
 
-def _emit_overseer_alert_for_corrupt_slice(*, pipeline_id: str, slice_id: str) -> None:
-    """Wake the operator on a Layer-C case-5 corrupt-state slice (slice-4 TASK-4-4)."""
-    _emit_layer_c_overseer_alert(
+def _escalate_blocked_slice_to_hitl(*, pipeline_id: str, slice_id: str, reason: str) -> None:
+    """Escalate a Layer-C case-4 blocked-without-HITL slice to HITL (slice-4 TASK-4-4)."""
+    _escalate_layer_c_hitl(
         pipeline_id=pipeline_id,
         slice_id=slice_id,
-        anomaly="slice-status-corrupt",
-        subject=(
-            f"[#2777 slice-4] Slice {slice_id} has an impossible status "
-            f"enum value or state combination — manual investigation required"
+        question=(
+            f"[#2777 slice-4 TASK-4-4 case 4] Slice {slice_id} of pipeline "
+            f"{pipeline_id} is in BLOCKED status, but no PENDING HITL "
+            f"decision was found on the contract that matches the slice. "
+            f"{reason}. How should the orchestrator proceed?"
         ),
-        body=(
-            f"Bootstrap reconciliation Layer-C (slice-4 TASK-4-4 case 5) "
-            f"could not classify slice ``{slice_id}`` of pipeline "
-            f"``{pipeline_id}``. The slice's status enum value did not "
-            f"match any of PENDING/IN_PROGRESS/COMPLETE/BLOCKED, OR the "
-            f"status combined with origin state in a way the classifier "
-            f"considers impossible (e.g. PENDING with commits on the "
-            f"integration branch). The slice has NOT been re-yielded as "
-            f"READY — the run loop will not silently start fresh agents "
-            f"on a slice whose state cannot be determined."
-        ),
-    )
-
-
-def _emit_overseer_alert_for_blocked_slice(*, pipeline_id: str, slice_id: str, reason: str) -> None:
-    """Wake the operator on a Layer-C case-4 blocked-without-HITL slice (slice-4 TASK-4-4)."""
-    _emit_layer_c_overseer_alert(
-        pipeline_id=pipeline_id,
-        slice_id=slice_id,
-        anomaly="slice-blocked-without-hitl",
-        subject=(
-            f"[#2777 slice-4] Slice {slice_id} is BLOCKED with no pending "
-            f"HITL decision — manual investigation required"
-        ),
-        body=(
-            f"Bootstrap reconciliation Layer-C (slice-4 TASK-4-4 case 4) "
-            f"found slice ``{slice_id}`` of pipeline ``{pipeline_id}`` "
-            f"in BLOCKED status, but no PENDING HITL decision was found "
-            f"on the contract that matches the slice. {reason}. The "
-            f"slice's BLOCKED status is preserved; the run loop will "
-            f"not silently restart it."
-        ),
+        context_prefix="slice_blocked_without_hitl:",
     )
 
 
@@ -15920,9 +16051,20 @@ def _run_implement_phase_slices(
             gateway=spawner.gateway,
             gateway_mode=gateway_mode,
             consensus_tracker_lookup=_lookup_peer_consensus_tracker_or_none,
-            contract_decisions=getattr(contract, "decisions", None) or [],
         )
         if classification == "consensus_complete":
+            # Case 3 — louder than fresh-spawn but quieter than
+            # case-4/5 HITL. A warning here makes the non-trivial
+            # recovery (consensus reached pre-crash, PR not opened)
+            # auditable in operator logs without paging anyone
+            # (reviewer_code v1 non-blocking).
+            logger.warning(
+                "Layer-C case 3 — slice consensus reached pre-restart but "
+                "slice PR was never opened; marking COMPLETE so the next "
+                "loop iteration runs the slice-PR opener (slice-4 TASK-4-4)",
+                pipeline_id=pipeline_id,
+                slice_id=s.id,
+            )
             scheduler.record_complete(s.id)
             _persist_slice_status_complete(s.id)
             bootstrap_consensus_complete.append(s.id)
@@ -15955,41 +16097,45 @@ def _run_implement_phase_slices(
             blocked=bootstrap_blocked,
             corrupt=bootstrap_corrupt,
         )
-    # Case 5 deserves a louder signal — wake the operator via the
-    # OVERSEER_ALERT bus instead of relying on log scraping.
+    # Case 5 — escalate via HITL so the pipeline pauses until the
+    # operator picks an option (reviewer_contract / reviewer_code v1
+    # blocker). OVERSEER_ALERT alone is too weak — it surfaces but
+    # does not gate progress. The Decision lands on the contract via
+    # ``_escalate_corrupt_slice_to_hitl`` so ``/sdlc`` reads it on
+    # the next poll.
     for _corrupt_slice_id in bootstrap_corrupt:
         try:
-            _emit_overseer_alert_for_corrupt_slice(
+            _escalate_corrupt_slice_to_hitl(
                 pipeline_id=pipeline_id,
                 slice_id=_corrupt_slice_id,
             )
-        except Exception as alert_err:  # noqa: BLE001
+        except Exception as escalate_err:  # noqa: BLE001
             logger.warning(
-                "Failed to emit OVERSEER_ALERT for corrupt-state slice "
-                "during bootstrap (slice-4 TASK-4-4 case 5)",
+                "Failed to escalate corrupt-state slice to HITL during "
+                "bootstrap (slice-4 TASK-4-4 case 5)",
                 pipeline_id=pipeline_id,
                 slice_id=_corrupt_slice_id,
-                error=str(alert_err),
+                error=str(escalate_err),
             )
-    # Case 4 blocked-without-HITL also surfaces via overseer alert.
-    for _blocked_slice_id, _alert_reason in [
+    # Case 4 — symmetric HITL escalation for BLOCKED-without-HITL.
+    for _blocked_slice_id, _escalate_reason in [
         (sid, "no pending HITL decision found on contract")
         for sid in bootstrap_blocked
         if not _slice_has_pending_decision(sid, getattr(contract, "decisions", None) or [])
     ]:
         try:
-            _emit_overseer_alert_for_blocked_slice(
+            _escalate_blocked_slice_to_hitl(
                 pipeline_id=pipeline_id,
                 slice_id=_blocked_slice_id,
-                reason=_alert_reason,
+                reason=_escalate_reason,
             )
-        except Exception as alert_err:  # noqa: BLE001
+        except Exception as escalate_err:  # noqa: BLE001
             logger.warning(
-                "Failed to emit OVERSEER_ALERT for blocked-without-HITL slice "
+                "Failed to escalate blocked-without-HITL slice to HITL "
                 "during bootstrap (slice-4 TASK-4-4 case 4)",
                 pipeline_id=pipeline_id,
                 slice_id=_blocked_slice_id,
-                error=str(alert_err),
+                error=str(escalate_err),
             )
 
     reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
@@ -16074,36 +16220,34 @@ def _run_implement_phase_slices(
                 # ``pipeline_branch`` like every other root slice — the
                 # work-branch context PR's diff already encompasses the
                 # slice-1 integration branch via ancestry.
-                # Slice-4 TASK-4-3: wire a merge-base probe callback so
-                # the resolver can route legacy slices (no
-                # parent_branch_at_creation persisted) onto pipeline_branch
-                # when their integration branch never received commits.
-                # The callback resolves the branch via the same
-                # ls-remote primitive ``get_remote_branch_sha`` the
-                # bootstrap reconciler uses. Probe failures (gateway
-                # down) raise inside the callback and are caught by the
-                # resolver, defaulting to "has commits → derived parent".
-                def _probe_branch_has_origin_commits(branch_name: str) -> bool:
+                # Slice-4 TASK-4-3: wire a merge-base lookup callback so
+                # the resolver can validate the legacy ancestor when
+                # ``parent_branch_at_creation`` is empty. The callback
+                # invokes ``GatewayClient.merge_base`` to compute
+                # ``git merge-base <integration_ref> <derived_parent_ref>``
+                # against the local odb; a non-None SHA confirms the
+                # slice has a real fork point, a None SHA tells the
+                # resolver to fall back to ``pipeline_branch``. The
+                # callback returns ``None`` for repoless test scaffolds
+                # so the resolver treats them as "no fork point" → safe
+                # root-stack fallback (matches the Layer-C classifier's
+                # behaviour for ``pipeline_repo is None``).
+                def _probe_merge_base(ref_a: str, ref_b: str) -> str | None:
                     if not pipeline.repo:
-                        # Repoless pipelines (test scaffolds) — no
-                        # origin to consult. The resolver's caller-side
-                        # exception arm defaults to "has commits", so
-                        # raising preserves the derived-parent path.
-                        raise RuntimeError("pipeline has no repo")
-                    sha = spawner.gateway.get_remote_branch_sha(
+                        return None
+                    return spawner.gateway.merge_base(
                         pipeline_id,
                         str(worktree_repo_path),
-                        f"refs/heads/{branch_name}",
-                        mode=gateway_mode,  # type: ignore[arg-type]
+                        ref_a,
+                        ref_b,
                     )
-                    return sha is not None
 
                 parent_branch = _resolve_slice_base_branch(
                     contract,
                     slice_id,
                     pipeline_id=pipeline_id,
                     pipeline_branch=pipeline_branch,
-                    branch_has_origin_commits=_probe_branch_has_origin_commits,
+                    merge_base_lookup=_probe_merge_base,
                 )
                 integration_branch = f"{issue_branch}/{slice_id}"
 
