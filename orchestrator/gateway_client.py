@@ -2061,6 +2061,7 @@ class GatewayClient:
         ref_b: str,
         *,
         bearer_token: str | None = None,
+        mode: Literal["public", "private"] = "public",
     ) -> str | None:
         """Return the merge-base SHA of ``ref_a`` and ``ref_b`` (or None).
 
@@ -2078,6 +2079,15 @@ class GatewayClient:
         * The gateway request itself fails (network, missing object,
           policy denial).
 
+        Auth: ``/api/v1/git/execute`` is ``@require_session_auth``;
+        when ``bearer_token`` is ``None`` we self-bootstrap a
+        short-lived synthetic launcher-authenticated session (same
+        pattern as :meth:`fetch_branch`, :meth:`ls_remote_branch`,
+        :meth:`get_remote_branch_sha`) and tear it down in a
+        ``finally``. Callers that already hold a session for the
+        ambient slice/pipeline pass their token through ``bearer_token``
+        to avoid a redundant register/delete round-trip.
+
         Used by slice-4 TASK-4-3's ``_resolve_slice_base_branch``
         merge-base fallback: legacy slices whose
         ``parent_branch_at_creation`` is empty AND whose integration
@@ -2090,42 +2100,69 @@ class GatewayClient:
         """
         if not ref_a or not ref_b:
             return None
+        owns_session = bearer_token is None
+        session_token: str | None = bearer_token
         try:
-            result = self._make_request(
-                "/api/v1/git/execute",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "operation": "merge-base",
-                    "args": [ref_a, ref_b],
-                },
-                bearer_token=bearer_token,
-            )
-        except GatewayError as exc:
-            details = exc.details or {}
-            returncode = details.get("returncode")
-            if returncode != 1:
-                logger.warning(
-                    "merge-base failed unexpectedly",
+            if owns_session:
+                # Mirror fetch_branch / ls_remote_branch — register a
+                # synthetic launcher-authenticated session so the
+                # ``@require_session_auth`` endpoint accepts the call.
+                # Without this self-bootstrap the merge-base probe is
+                # a silent no-op (401 → GatewayError with returncode
+                # None → return None → resolver mis-routes to
+                # pipeline_branch).
+                temp_container_id = f"{pipeline_id}-merge-base-probe"
+                session = self.register_session(
+                    container_id=temp_container_id,
+                    container_ip=self.self_ip,
+                    mode=mode,
                     pipeline_id=pipeline_id,
-                    ref_a=ref_a,
-                    ref_b=ref_b,
-                    returncode=returncode,
-                    error=str(exc),
+                    synthetic=True,
                 )
-            return None
-        stdout = (result or {}).get("data", {}).get("stdout", "")
-        if not stdout:
-            return None
-        sha = stdout.strip().split("\n", 1)[0].strip()
-        # Strict 40-char hex SHA shape check — the gateway returns
-        # the raw ``git merge-base`` output, which is always a full
-        # 40-char SHA on success. Anything shorter / longer / non-hex
-        # is treated as "no fork point" rather than risking a
-        # malformed value being passed downstream.
-        if not _FULL_SHA_RE.fullmatch(sha):
-            return None
-        return sha
+                session_token = session.session_token
+
+            try:
+                result = self._make_request(
+                    "/api/v1/git/execute",
+                    method="POST",
+                    data={
+                        "repo_path": repo_path,
+                        "operation": "merge-base",
+                        "args": [ref_a, ref_b],
+                    },
+                    bearer_token=session_token,
+                )
+            except GatewayError as exc:
+                details = exc.details or {}
+                returncode = details.get("returncode")
+                if returncode != 1:
+                    logger.warning(
+                        "merge-base failed unexpectedly",
+                        pipeline_id=pipeline_id,
+                        ref_a=ref_a,
+                        ref_b=ref_b,
+                        returncode=returncode,
+                        error=str(exc),
+                    )
+                return None
+            stdout = (result or {}).get("data", {}).get("stdout", "")
+            if not stdout:
+                return None
+            sha = stdout.strip().split("\n", 1)[0].strip()
+            # Strict 40-char hex SHA shape check — the gateway returns
+            # the raw ``git merge-base`` output, which is always a full
+            # 40-char SHA on success. Anything shorter / longer / non-hex
+            # is treated as "no fork point" rather than risking a
+            # malformed value being passed downstream.
+            if not _FULL_SHA_RE.fullmatch(sha):
+                return None
+            return sha
+        finally:
+            if owns_session and session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
     def is_slice_branch_merged_into_parent(
         self,

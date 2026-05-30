@@ -10664,13 +10664,19 @@ def _slice_has_pending_decision(slice_id: str, decisions: list[Any]) -> bool:
 
     The contract's :class:`egg_contracts.models.Decision` does NOT
     carry a structured ``slice_id`` tag — decisions are scoped by
-    phase (``decision.phase``). Conservative behaviour: any unresolved
-    decision (``not d.resolved``) is treated as a rationale that
-    *could* be the reason this slice is BLOCKED. False positives are
-    fine; they keep the operator out of the loop. False negatives
-    (any unresolved → True) only happen when the contract truly has
-    no pending HITL, in which case the BLOCKED status is unexplained
-    and deserves the overseer alert.
+    phase (``decision.phase``) rather than by slice. The conservative
+    interpretation: any unresolved decision is *potentially* the
+    reason this slice is BLOCKED, so we return ``True`` (suppress the
+    "missing-HITL" alert) whenever the contract carries ANY unresolved
+    decision. The function only returns ``False`` when ZERO unresolved
+    decisions exist on the contract — at which point a BLOCKED slice
+    is provably unexplained and the overseer alert is warranted.
+
+    Practically: this errs on the side of NOT alerting (suppressing
+    a real cross-slice mismatch in favour of skipping a spurious
+    alert), because alert noise during normal multi-slice HITL flows
+    is worse than a missed anomaly that the next bootstrap pass will
+    re-check anyway.
 
     ``slice_id`` is currently unused; kept in the signature so a
     future contract schema bump that adds a structured slice tag can
@@ -10915,6 +10921,15 @@ def _escalate_layer_c_hitl(
             # ``PipelinePhase.IMPLEMENT`` — Layer C fires during
             # bootstrap which can run before any phase walk, and
             # future slice-DAG topologies may span phases.
+            #
+            # The ``or PipelinePhase.IMPLEMENT`` arm is defensive: the
+            # ``Pipeline.current_phase`` field is non-Optional with a
+            # default at the schema layer (``models.py:1032``), so
+            # in-tree callers should always populate it. The fallback
+            # exists for future non-``Pipeline``-shaped callers (e.g.
+            # contract-only loads during cold-start reconciliation
+            # that may construct a lighter object) — *not* a known-bug
+            # papering exercise for current shapes.
             contract_local.decisions.append(
                 Decision(
                     id=decision_id,
@@ -16233,7 +16248,18 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
-    if bootstrap_resumed or bootstrap_consensus_complete or bootstrap_corrupt:
+    if (
+        bootstrap_resumed
+        or bootstrap_consensus_complete
+        or bootstrap_blocked
+        or bootstrap_corrupt
+    ):
+        # NOTE: include ``bootstrap_blocked`` in the gate (reviewer_code
+        # v3 NACK fix) — a bootstrap pass whose only Layer-C activity is
+        # BLOCKED slices was previously suppressing the audit-trail line
+        # entirely. Case-4 escalation still fires, but operators need
+        # the structured "we saw a blocked slice" log to spot
+        # pending-HITL backlogs without grepping for the side-effect.
         logger.info(
             "Slice bootstrap reconciliation classified non-COMPLETE slices (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
