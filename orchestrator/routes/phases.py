@@ -427,6 +427,80 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Failures warn and continue — the advance-phase path is a recovery
         # hammer; blocking it on populate failures would defeat the purpose.
         if previous_phase == PipelinePhase.PLAN:
+            # #2777 (AC-1a) — plan-phase pre-flight validator. Run BEFORE
+            # populate so a malformed plan surfaces as a typed 422 with
+            # the missing field name rather than the populate path's
+            # silent warn-log. The validator only runs on the
+            # plan→implement transition; force-advances out of the plan
+            # phase to a non-implement target still skip it (the new
+            # context-PR opener that depends on the validated fields
+            # only fires on plan→implement). Failures raise
+            # PlanPreflightError which is converted to a 422 below; the
+            # bare `force=True` recovery path explicitly bypasses the
+            # raise so operators can still unstick a pipeline whose
+            # plan draft is unrecoverable.
+            if target_phase == PipelinePhase.IMPLEMENT and not force:
+                try:
+                    from routes import resolve_worktree_path
+                    from routes.pipelines import _get_draft_path
+
+                    _validator_worktree = resolve_worktree_path(
+                        pipeline_id, store.repo_path
+                    )
+                    _draft_rel = _get_draft_path(
+                        "plan",
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                except Exception as _resolve_err:  # noqa: BLE001
+                    # Pre-flight infra failures (worktree resolution,
+                    # draft path lookup) are not validation failures —
+                    # log and continue to the populate step, which has
+                    # its own warn-and-continue contract.
+                    logger.warning(
+                        "Plan pre-flight validator: failed to resolve "
+                        "plan draft for validation (continuing) (#2777)",
+                        pipeline_id=pipeline_id,
+                        error=str(_resolve_err),
+                    )
+                    _draft_rel = None
+                if _draft_rel is not None:
+                    _plan_path = _validator_worktree / _draft_rel
+                    if _plan_path.exists():
+                        try:
+                            from egg_contracts.plan_parser import (
+                                PlanPreflightError,
+                                validate_plan_preflight,
+                            )
+
+                            validate_plan_preflight(_plan_path.read_text())
+                        except PlanPreflightError as preflight_err:
+                            # Surface as 422 so the operator/BRC NACK
+                            # surface sees the missing field by name.
+                            logger.warning(
+                                "Plan pre-flight validation failed at "
+                                "plan→implement advance (#2777)",
+                                pipeline_id=pipeline_id,
+                                missing_fields=preflight_err.missing_fields,
+                            )
+                            return make_error_response(
+                                str(preflight_err),
+                                422,
+                                details={
+                                    "missing_fields": preflight_err.missing_fields,
+                                },
+                            )
+                        except Exception as _validator_err:  # noqa: BLE001
+                            # Loader / import failures are not validation
+                            # failures; log and continue to populate.
+                            logger.warning(
+                                "Plan pre-flight validator: unexpected "
+                                "failure while validating plan (continuing) "
+                                "(#2777)",
+                                pipeline_id=pipeline_id,
+                                error=str(_validator_err),
+                            )
+
             try:
                 from routes import resolve_worktree_path
                 from routes.pipelines import (
@@ -481,38 +555,56 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # was wired into only the inline ``_run_pipeline``
             # auto-advance path, so operators who cleared the plan
             # gate via this endpoint silently left the slice stack
-            # rooted on ``/work`` with no PR to ``main``.  The helper
-            # is idempotent on its inner ``contract.pr.context_pr_number``
-            # short-circuit so multiple call sites are safe.  Only
-            # fire on plan→implement; other ``previous_phase`` values
-            # never need a context PR.
+            # rooted on ``/work`` with no PR to ``main``.
+            #
+            # #2777 (cq-4, TASK-1-2) — replaced the legacy soft-fail
+            # wrapper with the new hard-required, idempotent
+            # ``_open_context_pr_at_implement_start`` opener. Failures
+            # surface as a typed ``ContextPrCreationError`` and
+            # propagate to the BRC NACK / 422 surface so the operator
+            # sees the failure instead of silently stranding the slice
+            # stack on ``/work``. Only fire on plan→implement; other
+            # ``previous_phase`` values never need a context PR.
             if target_phase == PipelinePhase.IMPLEMENT:
                 try:
-                    from routes import resolve_worktree_path
                     from routes.pipelines import (
-                        _compute_gateway_mode,
-                        _get_spawner,
-                        _maybe_open_base_pr_for_plan_to_implement,
+                        ContextPrCreationError,
+                        _open_context_pr_at_implement_start,
                     )
 
-                    _gw_mode, _ = _compute_gateway_mode(pipeline)
-                    _worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
-                    _maybe_open_base_pr_for_plan_to_implement(
-                        pipeline,
-                        _get_spawner(),
-                        _worktree_path,
-                        gateway_mode=_gw_mode,
-                        source="advance_phase_rest",
+                    _open_context_pr_at_implement_start(pipeline_id)
+                except ContextPrCreationError as ctx_err:
+                    # Hard-required: do NOT swallow. Surface as 422 so
+                    # the operator sees the missing-PR / gateway-failure
+                    # rather than discovering it as a stranded slice
+                    # stack later.
+                    logger.warning(
+                        "Context PR opener failed at advance_phase "
+                        "(#2777, cq-4 hard-required)",
+                        pipeline_id=pipeline_id,
+                        reason=ctx_err.reason,
+                        error=str(ctx_err),
+                    )
+                    return make_error_response(
+                        f"Context PR could not be opened: {ctx_err}",
+                        422,
+                        details={"reason": ctx_err.reason},
+                        reason="context_pr_open_failed",
                     )
                 except Exception as ctx_outer_err:  # noqa: BLE001
-                    # Defence in depth: the helper already swallows
-                    # everything internally, but a failure resolving
-                    # the worktree path or importing helpers must not
-                    # strand the advance.
+                    # Defence in depth: import / lookup failures that
+                    # are NOT ContextPrCreationError still surface as
+                    # 422 so the rejection reaches the operator.
                     logger.warning(
-                        "Context PR hook outer wrapper raised on advance_phase (continuing) (#2593)",
+                        "Context PR opener: outer wrapper raised on "
+                        "advance_phase (#2777)",
                         pipeline_id=pipeline_id,
                         error=str(ctx_outer_err),
+                    )
+                    return make_error_response(
+                        f"Context PR opener wrapper failed: {ctx_outer_err}",
+                        500,
+                        reason="context_pr_open_wrapper_failed",
                     )
 
         # Launch a new _run_pipeline thread to process the target phase.

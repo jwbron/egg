@@ -31,6 +31,38 @@ except ImportError:
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 
+class ContextPrCreationError(Exception):
+    """Raised by :func:`_open_context_pr_at_implement_start` when the
+    hard-required up-front context PR cannot be opened (#2777, cq-4).
+
+    Replaces the soft-fail ``return None`` swallow path that the legacy
+    :func:`_maybe_open_base_pr_for_plan_to_implement` wrapper used.
+    Under cq-4 the context PR is hard-required at the plan→implement
+    boundary; a gateway failure here must surface to the BRC NACK / 422
+    surface rather than silently strand the slice stack on ``/work``.
+
+    Attributes:
+        reason: Short machine-readable reason ("gateway_error",
+            "missing_pr_metadata", "lookup_failed", ...). Tests assert
+            on this string so the rejection path can be exercised.
+        cause: The original exception, if any, that triggered the
+            error. Preserved so logs and the BRC NACK body show the
+            gateway/contract failure rather than only this wrapper's
+            text.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "unknown",
+        cause: BaseException | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason: str = reason
+        self.cause: BaseException | None = cause
+
+
 class ForestValidationError(Exception):
     """Raised by ``_populate_contract_from_plan`` when slice DAG is non-forest.
 
@@ -8903,8 +8935,12 @@ def _should_skip_pr_phase_auto_pr(
         )
         return False, None
 
+    # #2777 cq-10 — dedupe the bare ``slice_count > 1`` recompute via
+    # the new :func:`_is_slice_dag_mode` helper. The slice_count
+    # remains computed locally because the structured log reason
+    # below names the actual count for operator debugging.
     slice_count = len(getattr(contract, "slices", []) or [])
-    if slice_count > 1:
+    if _is_slice_dag_mode(contract):
         return True, f"slice_dag_mode_slice_count={slice_count}"
     return False, None
 
@@ -11275,6 +11311,403 @@ def _derive_producer_roles_with_tasks(
 # set we never reach the emit branch again.
 _context_pr_events_emitted: dict[str, set[str]] = {}
 _context_pr_events_emitted_lock = threading.Lock()
+
+
+def _persist_context_pr_number(
+    pipeline_id: str,
+    pr_number: int,
+    *,
+    worktree_repo_path: Path,
+    identifier: int | str,
+) -> None:
+    """Persist ``contract.pr.context_pr_number`` for an up-front context PR (#2777).
+
+    Single-purpose helper extracted so the new
+    :func:`_open_context_pr_at_implement_start` opener is not a
+    non-transactional state mutator. Wraps the contract write through
+    the existing per-pipeline state-lock + ``save_contract`` machinery
+    that every other context-PR / slice-PR persistence path uses
+    (mirrors ``_persist_context_pr_linkage_on_contract``'s lock + save
+    pattern from #2548, minus the now-deleted ``context_branch`` field).
+
+    The helper is the SOLE writer of ``context_pr_number`` after
+    slice-2 (TASK-2-1) deletes the legacy
+    ``_persist_context_pr_linkage_on_contract``. It is called exactly
+    once per ``_open_context_pr_at_implement_start`` invocation,
+    immediately after either the ``gh pr list`` idempotency hit or the
+    successful ``gh pr create``. The same persistence write fires on
+    the idempotent path so a resume-from-orphaned-pipeline where the
+    contract lost ``context_pr_number`` mid-run still recovers (the
+    unit test in TASK-3-8 asserts this).
+
+    Raises:
+        ContextPrCreationError: when the contract cannot be loaded or
+            saved. Unlike the soft-fail legacy helper this propagates
+            so the caller surfaces a typed failure rather than leaving
+            the contract out-of-sync with GitHub.
+    """
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+    except ImportError as imp_err:
+        raise ContextPrCreationError(
+            "egg_contracts.loader unavailable while persisting context_pr_number",
+            reason="loader_unavailable",
+            cause=imp_err,
+        ) from imp_err
+
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(identifier, worktree_repo_path)
+            if contract_local.pr is None:
+                # The contract MUST have a PR record by the time we
+                # reach the plan→implement boundary — populate writes
+                # it from the plan's ``pr:`` block. Missing PRMetadata
+                # here is a structural failure, not a persistence
+                # nuance; surface it loudly.
+                raise ContextPrCreationError(
+                    "contract has no PRMetadata; cannot persist "
+                    "context_pr_number (populate-from-plan must run first)",
+                    reason="missing_pr_metadata",
+                )
+            contract_local.pr.context_pr_number = pr_number
+            save_contract(contract_local, worktree_repo_path)
+    except ContextPrCreationError:
+        raise
+    except Exception as save_err:  # noqa: BLE001
+        raise ContextPrCreationError(
+            f"failed to persist context_pr_number={pr_number}: {save_err}",
+            reason="save_failed",
+            cause=save_err,
+        ) from save_err
+
+
+def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
+    """Hard-required, idempotent up-front context PR opener (#2777, cq-4).
+
+    Single up-front context-PR opener for the plan→implement boundary.
+    Replaces the soft-fail :func:`_maybe_open_base_pr_for_plan_to_implement`
+    wrapper that swallowed every gateway failure with ``return None``
+    and the four retry-point call sites it required. Under the new
+    topology the context PR is ``egg/<id>/work → main`` (rather than
+    a dedicated ``egg/<id>/context`` branch) and is opened ONCE at the
+    plan→implement transition; the slice stack cascades onto it.
+
+    Behaviour:
+
+    1. Look up the pipeline + worktree from ``pipeline_id``.
+    2. If the pipeline has no ``repo`` or ``base_branch`` set (local
+       mode), return ``None`` without raising — there is no remote PR
+       to open. This matches the legacy wrapper's silent-skip behaviour
+       for local pipelines so the new hard-required contract does not
+       regress in-house test pipelines.
+    3. Otherwise call ``GatewayClient.list_open_prs`` and filter for an
+       open PR whose ``head_ref`` matches the pipeline's work branch
+       and whose ``base_ref`` matches the pipeline's base branch. On
+       hit, persist the PR number via :func:`_persist_context_pr_number`
+       and return it (no ``gh pr create`` invocation).
+    4. On miss, read ``contract.pr.title`` / ``contract.pr.description``
+       — the canonical fields populated from the plan's ``pr:`` block
+       per :func:`extract_pr_metadata_from_yaml`. Call
+       ``GatewayClient.create_pr`` to open the PR, persist the PR
+       number, and return it.
+
+    Raises:
+        ContextPrCreationError: on any of (a) pipeline lookup failure,
+            (b) contract load failure / missing PR metadata,
+            (c) gateway ``list_open_prs`` failure that prevents
+            idempotency, (d) ``create_pr`` failure, (e) persistence
+            failure. NO soft-fail ``return None`` for any of these —
+            the failure must reach the BRC NACK / 422 surface so the
+            operator sees the failure rather than silently stranding
+            the slice stack on ``/work``. The test in TASK-3-8 asserts
+            no swallow path exists.
+
+    Returns:
+        Existing or newly-created PR number on the happy path, OR
+        ``None`` ONLY when the pipeline legitimately has no remote
+        (local mode). The two outcomes are disambiguated by inspecting
+        the pipeline's ``repo`` / ``base_branch`` ahead of the call;
+        the run-loop never needs to branch on ``None`` because
+        local-mode pipelines never reach the slice loop with remote
+        operations queued.
+
+    Idempotency contract:
+        Calling the function twice for the same pipeline is safe — the
+        second call sees the already-open PR via ``list_open_prs`` and
+        re-persists the number through :func:`_persist_context_pr_number`.
+        No second ``create_pr`` invocation occurs. Tests in TASK-3-8
+        verify this by asserting ``create_pr`` is called zero times on
+        the idempotent path AND ``_persist_context_pr_number`` IS
+        called with the existing PR number.
+    """
+    # Step 1: resolve the pipeline + worktree path. ``get_state_store_for_pipeline``
+    # handles the multi-repo case so the opener works the same way the
+    # legacy wrapper did from every call site.
+    try:
+        from routes import get_state_store_for_pipeline, resolve_worktree_path
+    except ImportError as imp_err:
+        raise ContextPrCreationError(
+            "routes helpers unavailable while resolving pipeline",
+            reason="routes_unavailable",
+            cause=imp_err,
+        ) from imp_err
+
+    try:
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
+    except Exception as load_err:
+        raise ContextPrCreationError(
+            f"pipeline {pipeline_id!r} could not be loaded: {load_err}",
+            reason="pipeline_load_failed",
+            cause=load_err,
+        ) from load_err
+
+    # Step 2: local-mode short-circuit. ``repo`` / ``base_branch`` are
+    # both required for a remote PR. Skipping here mirrors the legacy
+    # wrapper's behaviour for local pipelines without expanding the
+    # opener's surface area.
+    if not pipeline.repo or not pipeline.base_branch:
+        logger.info(
+            "Context PR opener: skipping local-mode pipeline (no repo / base_branch)",
+            pipeline_id=pipeline_id,
+        )
+        return None
+
+    if not pipeline.branch:
+        # A remote pipeline without a configured work branch is a
+        # structural failure; raise so the operator notices instead of
+        # silently skipping (which would re-introduce the soft-fail
+        # behaviour cq-4 explicitly removes).
+        raise ContextPrCreationError(
+            f"pipeline {pipeline_id!r} has no branch set; cannot open context PR",
+            reason="missing_branch",
+        )
+
+    worktree_repo_path = resolve_worktree_path(pipeline_id, store.repo_path)
+    identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+    gateway_mode, _vis = _compute_gateway_mode(pipeline)
+
+    # Step 3: idempotency pre-flight. ``list_open_prs`` returns every
+    # open PR in the repo; filter client-side for our head + base.
+    # task-3-2 will extract a ``_lookup_open_pr(head, base)`` primitive
+    # so this and ``create_slice_pr`` share the same idempotency check.
+    spawner = _get_spawner()
+    try:
+        open_prs = spawner.gateway.list_open_prs(
+            pipeline_id=pipeline_id,
+            repo=pipeline.repo,
+            mode=gateway_mode,
+        )
+    except Exception as list_err:
+        raise ContextPrCreationError(
+            f"gateway list_open_prs failed for context-PR idempotency check: {list_err}",
+            reason="lookup_failed",
+            cause=list_err,
+        ) from list_err
+
+    existing_pr_number: int | None = None
+    for entry in open_prs:
+        if (
+            entry.get("head_ref") == pipeline.branch
+            and entry.get("base_ref") == pipeline.base_branch
+        ):
+            existing_pr_number = int(entry["number"])
+            break
+
+    if existing_pr_number is not None:
+        # Idempotent path. Persist the number even though it MAY
+        # already be on the contract: the resume-from-orphaned-pipeline
+        # case (contract lost ``context_pr_number`` mid-run) recovers
+        # here. The TASK-3-8 unit test asserts the persistence call.
+        _persist_context_pr_number(
+            pipeline_id,
+            existing_pr_number,
+            worktree_repo_path=worktree_repo_path,
+            identifier=identifier,
+        )
+        logger.info(
+            "Context PR opener: idempotent hit on existing PR (no create_pr call)",
+            pipeline_id=pipeline_id,
+            pr_number=existing_pr_number,
+            head=pipeline.branch,
+            base=pipeline.base_branch,
+        )
+        return existing_pr_number
+
+    # Step 4: open a new context PR. Read title/description from the
+    # canonical ``contract.pr`` fields (populated from the plan's
+    # ``pr:`` block by ``_populate_contract_from_plan``).
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError as imp_err:
+        raise ContextPrCreationError(
+            "egg_contracts.loader unavailable while reading PR metadata",
+            reason="loader_unavailable",
+            cause=imp_err,
+        ) from imp_err
+
+    try:
+        contract = load_contract(identifier, worktree_repo_path)
+    except Exception as load_err:
+        raise ContextPrCreationError(
+            f"failed to load contract for {identifier!r}: {load_err}",
+            reason="contract_load_failed",
+            cause=load_err,
+        ) from load_err
+
+    if contract.pr is None or not (contract.pr.title or "").strip():
+        raise ContextPrCreationError(
+            "contract.pr.title is missing or empty; cannot open context PR",
+            reason="missing_pr_metadata",
+        )
+    pr_title = contract.pr.title.strip()
+    pr_description = contract.pr.description or ""
+
+    try:
+        pr_url = spawner.gateway.create_pr(
+            pipeline_id=pipeline_id,
+            repo=pipeline.repo,
+            title=pr_title,
+            body=pr_description,
+            head=pipeline.branch,
+            base=pipeline.base_branch,
+            issue_number=pipeline.issue_number,
+            mode=gateway_mode,
+        )
+    except Exception as create_err:
+        raise ContextPrCreationError(
+            f"gateway create_pr failed for context PR: {create_err}",
+            reason="gateway_error",
+            cause=create_err,
+        ) from create_err
+
+    if not pr_url:
+        raise ContextPrCreationError(
+            "gateway create_pr returned no URL; cannot derive context PR number",
+            reason="gateway_no_url",
+        )
+
+    # Extract the PR number from the URL — gh prints
+    # ``https://github.com/<owner>/<repo>/pull/<N>`` on stdout.
+    match = re.search(r"/pull/(\d+)\b", pr_url)
+    if not match:
+        raise ContextPrCreationError(
+            f"could not parse PR number from create_pr URL: {pr_url!r}",
+            reason="gateway_bad_url",
+        )
+    new_pr_number = int(match.group(1))
+
+    _persist_context_pr_number(
+        pipeline_id,
+        new_pr_number,
+        worktree_repo_path=worktree_repo_path,
+        identifier=identifier,
+    )
+
+    logger.info(
+        "Context PR opener: opened new PR at plan→implement boundary (#2777)",
+        pipeline_id=pipeline_id,
+        pr_number=new_pr_number,
+        head=pipeline.branch,
+        base=pipeline.base_branch,
+        url=pr_url,
+    )
+    return new_pr_number
+
+
+def _is_slice_dag_mode(contract) -> bool:
+    """Return True when the contract represents a multi-slice DAG (#2777, cq-10).
+
+    Dedupes the bare ``len(contract.slices) > 1`` recompute that
+    appears at three sites in :file:`pipelines.py` (under
+    ``_should_skip_pr_phase_auto_pr``, the ``_run_implement_phase_slices``
+    entry, and inside the run loop's per-slice handling). A single
+    helper means future changes to "what counts as DAG mode" — e.g.
+    treating a single slice with explicit dependencies as DAG — only
+    need to land in one place.
+
+    Returns False for ``None`` or a contract without a populated
+    ``slices`` list (monolithic / pre-populate phase pipelines).
+    """
+    if contract is None:
+        return False
+    slices = getattr(contract, "slices", None) or []
+    return len(slices) > 1
+
+
+def _resolve_slice_base_branch(
+    contract,
+    slice_id: str,
+    *,
+    pipeline_id: str,
+    pipeline_branch: str,
+) -> str:
+    """Return the parent branch for a slice's integration branch (#2777, cq-9).
+
+    Replaces the deleted :func:`_resolve_slice_1_context_branch_from_contract`
+    with a single resolver that handles both root and non-root slices.
+
+    Resolution order:
+
+    1. If the slice record has ``parent_branch_at_creation`` set
+       (eager-persisted at PENDING→IN_PROGRESS in slice-4's TASK-4-2),
+       return it. This is the primary path post-slice-4.
+    2. Otherwise, for root slices (``parent_slice_id is None``), return
+       ``pipeline_branch`` (``egg/<id>/work``) — the canonical
+       context-PR head under the new topology.
+    3. For non-root slices, derive
+       ``egg/<id>/<parent_slice_id>`` from the parent_slice_id.
+
+    Slice-4's TASK-4-3 extends this helper with a merge-base fallback
+    for orphaned slices whose ``parent_branch_at_creation`` is empty
+    AND that pre-date the eager-persist landing in slice-4 — that arm
+    is intentionally not present yet in slice-1.
+
+    Args:
+        contract: The pipeline contract (must carry ``slices``).
+        slice_id: The slice whose base branch to resolve.
+        pipeline_id: Used only for log diagnostics; the resolver does
+            NOT consult the state store.
+        pipeline_branch: The pipeline's work branch (``egg/<id>/work``).
+            Returned for root slices when no
+            ``parent_branch_at_creation`` is recorded.
+
+    Returns:
+        The branch name to use as the slice integration branch's
+        parent. Never an empty string.
+
+    Raises:
+        ValueError: When the requested slice id is absent from the
+            contract — a structural bug that the slice loop's earlier
+            forest-validation step should have caught.
+    """
+    slices = getattr(contract, "slices", None) or []
+    slice_record = next((s for s in slices if s.id == slice_id), None)
+    if slice_record is None:
+        raise ValueError(
+            f"slice {slice_id!r} not present in contract for pipeline "
+            f"{pipeline_id!r}; available slices: "
+            f"{[s.id for s in slices]}"
+        )
+
+    # (1) Eager-persisted parent (post-slice-4 TASK-4-2). Treated as
+    # authoritative regardless of root-status: if the persist landed,
+    # it's the resolved parent.
+    parent_recorded = getattr(slice_record, "parent_branch_at_creation", None) or ""
+    if parent_recorded:
+        return parent_recorded
+
+    # (2) Root slice — under the new topology (cq-4), the context PR
+    # is ``egg/<id>/work → main`` so root slices stack directly on the
+    # work branch rather than a separate ``egg/<id>/context`` branch.
+    parent_slice_id = getattr(slice_record, "parent_slice_id", None)
+    if parent_slice_id is None:
+        return pipeline_branch
+
+    # (3) Non-root slice — derive from parent_slice_id. Mirrors the
+    # existing ``f"{issue_branch}/{parent_slice_id}"`` convention at
+    # the legacy slice-loop call site.
+    issue_branch = _slice_namespace_root(pipeline_branch)
+    return f"{issue_branch}/{parent_slice_id}"
 
 
 def _maybe_open_base_pr_for_plan_to_implement(
@@ -16484,34 +16917,19 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
-    # #2744 — defensive context-PR safety net at slice-loop entry.
-    # The four plan→implement transition paths (``_run_pipeline``
-    # auto-advance, ``advance_phase`` REST, ``start_pipeline`` HITL
-    # recovery, IMPLEMENT entry backstop) should each have opened the
-    # context PR before we reach the slice loop.  But #2593 / #2744
-    # show those paths can silently miss on specific pipeline shapes
-    # (most recently a non-issue-keyed ``pipeline-<hex>`` pipeline),
-    # and the only failure signal is slice-1 stacking on
-    # ``pipeline_branch`` instead of the context branch — exactly the
-    # stranded-stack symptom this hook exists to prevent.
-    #
-    # The wrapper is idempotent: its inner
-    # ``contract.pr.context_pr_number`` fast-path makes a fifth call
-    # cheap (one contract read) when one of the earlier paths already
-    # ran.  Failures here are logged and swallowed by the wrapper, so
-    # this never strands the slice loop.  Adding the safety net here —
-    # before any slice provisions, so slice-1's
-    # ``_resolve_slice_1_context_branch_from_contract`` lookup at
-    # ``_run_one_slice_inner`` finds the populated context_branch —
-    # converts "every slice PR stranded on /work" into "context PR
-    # opens at the last second."
-    _maybe_open_base_pr_for_plan_to_implement(
-        pipeline,
-        spawner,
-        worktree_repo_path,
-        gateway_mode=gateway_mode,  # type: ignore[arg-type]
-        source="slice_loop_entry",
-    )
+    # #2777 (cq-4, TASK-1-2) — the four legacy plan→implement context-PR
+    # call sites (``_run_pipeline`` auto-advance, ``advance_phase`` REST,
+    # ``start_pipeline`` HITL recovery, IMPLEMENT entry backstop) AND
+    # this slice-loop entry safety net all collapsed into a SINGLE
+    # hard-required call at ``routes/phases.py`` in advance_phase.
+    # Slice-1's base resolution under ``_resolve_slice_base_branch``
+    # (which replaces ``_resolve_slice_1_context_branch_from_contract``)
+    # stacks directly on ``egg/<id>/work`` rather than a dedicated
+    # ``egg/<id>/context`` branch, so the slice loop no longer needs a
+    # local context-PR safety net here. The legacy
+    # ``_maybe_open_base_pr_for_plan_to_implement`` wrapper is left in
+    # place until slice-2 (TASK-2-1) deletes it; this slice (slice-1)
+    # only removes the call sites.
 
     def _contract_loader() -> Any:
         try:
@@ -22171,28 +22589,15 @@ def _run_pipeline(
                 )
                 _emit_pipeline_event(pipeline, "phase.started")
 
-                # #2593 — implement-phase entry backstop.  Fires once
-                # on the PENDING→RUNNING transition into the IMPLEMENT
-                # phase when the runner thread itself drives the
-                # transition: inline ``_run_pipeline`` auto-advance and
-                # the HITL-approval recovery in ``start_pipeline`` both
-                # leave ``phase_execution.status`` as ``PENDING`` and
-                # spawn the runner, so the backstop covers them.
-                # ``advance_phase`` (routes/phases.py:379) sets
-                # ``RUNNING`` before spawning, so the backstop does
-                # NOT fire from that path — that REST handler must
-                # therefore call the wrapper directly (and does, at
-                # ``routes/phases.py``).  The inner ``context_pr_number``
-                # short-circuit makes this a no-op when the PR was
-                # already opened on the plan-exit side.
-                if current_phase == PipelinePhase.IMPLEMENT:
-                    _maybe_open_base_pr_for_plan_to_implement(
-                        pipeline,
-                        spawner,
-                        worktree_repo_path,
-                        gateway_mode=gateway_mode,
-                        source="implement_entry_backstop",
-                    )
+                # #2777 (cq-4, TASK-1-2) — the implement-phase entry
+                # backstop is removed. The single hard-required
+                # plan→implement call site at ``routes/phases.py``
+                # (advance_phase) replaces all four legacy soft-fail
+                # paths. The backstop existed because the soft-fail
+                # wrapper had to absorb four different transition
+                # paths; the new opener is hard-required and idempotent
+                # at the one canonical site, so the backstop is a
+                # no-op safety net we no longer need.
 
             # Spawn overseer container for this phase's health monitoring.
             # The overseer is phase-scoped: spawned at phase start and torn
@@ -22682,7 +23087,13 @@ def _run_pipeline(
                                 pipeline_id, worktree_repo_path
                             )
                             _slice_count = len(getattr(_check_contract, "slices", []) or [])
-                            _use_slice_loop = _slice_count > 1
+                            # #2777 cq-10 — route through ``_is_slice_dag_mode``
+                            # so the "what counts as slice-DAG" definition has
+                            # a single source of truth. Local ``_slice_count``
+                            # is still used by the defensive recheck below for
+                            # the structured log when the populator dropped
+                            # slices (#2337).
+                            _use_slice_loop = _is_slice_dag_mode(_check_contract)
 
                             # #2337 defensive recheck: if the contract has no
                             # slices but the on-disk plan draft parses to N>1
@@ -23716,22 +24127,21 @@ def _run_pipeline(
                         )
 
             # ----------------------------------------------------------
-            # #2548 — open the doc-only context PR after plan_gate
-            # approval and BEFORE slice-1 provisioning.  Routed through
-            # the shared :func:`_maybe_open_base_pr_for_plan_to_implement`
-            # helper so this and the other three transition paths
-            # (advance_phase REST, HITL-approval recovery, implement-entry
-            # backstop) all share the same swallow-all semantics and
-            # "hook entered" log line (#2593).
+            # #2777 (cq-4, TASK-1-2) — the inline ``_run_pipeline``
+            # auto-advance no longer opens the context PR from here.
+            # Under the new topology the single hard-required call site
+            # is the new ``_open_context_pr_at_implement_start`` helper
+            # invoked from ``routes/phases.py``'s ``advance_phase``
+            # handler. Pipelines that auto-advance through
+            # ``_run_pipeline`` rather than via the REST/MCP advance
+            # endpoint will therefore not see a context PR opened until
+            # an operator triggers ``advance_phase`` explicitly — the
+            # plan's documented behaviour under cq-4 (idempotent
+            # pre-flight means a later ``advance_phase`` call is safe).
+            # The legacy ``_maybe_open_base_pr_for_plan_to_implement``
+            # wrapper is left in place but unreferenced until slice-2
+            # (TASK-2-1) deletes it.
             # ----------------------------------------------------------
-            if current_phase.value == "plan":
-                _maybe_open_base_pr_for_plan_to_implement(
-                    pipeline,
-                    spawner,
-                    worktree_repo_path,
-                    gateway_mode=gateway_mode,
-                    source="run_pipeline_autoadvance",
-                )
 
             # Tear down the phase-scoped overseer before advancing.
             # Each phase gets a fresh overseer instance — no state carries
@@ -24711,22 +25121,15 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                 _clear_concurrent_state(pipeline_id)
 
-            # #2593 review issue 1 — context-PR open moved out of the
-            # per-pipeline state lock so the multi-second gateway
-            # sequence (create_context_branch → file copy → commit →
-            # push → ``gh pr create``) no longer holds the lock and
-            # block concurrent ``advance_phase`` / status reads.  The
-            # helper is idempotent on its inner ``context_pr_number``
-            # short-circuit so a racing call from the runner thread's
-            # implement-entry backstop converges safely.
-            if _hitl_open_context_pr_after_lock and _hitl_pr_worktree_path is not None:
-                _maybe_open_base_pr_for_plan_to_implement(
-                    pipeline,
-                    _get_spawner(),
-                    _hitl_pr_worktree_path,
-                    gateway_mode=_gw_mode,
-                    source="hitl_resume",
-                )
+            # #2777 (cq-4, TASK-1-2) — the HITL-recovery context-PR
+            # site is removed. Under the new topology the operator who
+            # resumes the pipeline triggers ``advance_phase`` via the
+            # REST/MCP route, which invokes the new
+            # ``_open_context_pr_at_implement_start`` opener at
+            # ``routes/phases.py``. The two-second window between HITL
+            # resume and the operator's advance call is acceptable
+            # under cq-4 (the opener is idempotent and hard-required
+            # at the single canonical site).
 
             # Launch runner thread
             thread = threading.Thread(

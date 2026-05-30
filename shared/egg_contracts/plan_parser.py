@@ -72,6 +72,56 @@ from .models import Slice, SliceStatus, Task, TaskStatus
 # Used as a sentinel value to filter out non-real criteria during aggregation.
 PLACEHOLDER_ACCEPTANCE_CRITERIA = "Human verification"
 
+
+class PlanPreflightError(Exception):
+    """Typed exception raised by :func:`validate_plan_preflight` when the
+    planner output is missing structural inputs the orchestrator depends
+    on (#2777, AC-1a).
+
+    Carries a structured ``missing_fields`` payload so the BRC NACK
+    surface — and the human-facing 422 returned by ``advance_phase`` —
+    can name each missing field by name rather than emitting a generic
+    "plan invalid" message.
+
+    Derives from :class:`Exception` (not :class:`BaseException`):
+    application-level callers that need to surface the error explicitly
+    handle ``PlanPreflightError`` ahead of any broad ``except Exception``
+    so the rejection always reaches the BRC NACK / 422 surface. Tests in
+    TASK-3-8 assert the error is not swallowed by the four implement-
+    phase entry paths.
+
+    Attributes:
+        missing_fields: Ordered list of field names that failed validation
+            (e.g. ``["yaml-tasks", "pr.test_plan"]``). The first entry is
+            also formatted into ``str(error)`` so logging shows the
+            principal failure without consumers needing to special-case
+            the structured payload.
+    """
+
+    def __init__(self, missing_fields: list[str], detail: str | None = None) -> None:
+        if not missing_fields:
+            # Mirroring the orchestrator's "must name the field" contract:
+            # an empty payload would surface as a generic message and
+            # defeats the purpose of the typed exception.
+            raise ValueError(
+                "PlanPreflightError requires at least one missing field name"
+            )
+        self.missing_fields: list[str] = list(missing_fields)
+        self.detail: str | None = detail
+        # Stable message shape so the BRC NACK surface and the 422 body
+        # both render the same actionable text. Lead with the first
+        # missing field; the full list is available on ``missing_fields``.
+        primary = missing_fields[0]
+        joined = ", ".join(missing_fields)
+        message_parts = [
+            f"Plan pre-flight validation failed: missing {primary}",
+        ]
+        if len(missing_fields) > 1:
+            message_parts.append(f"(all missing: {joined})")
+        if detail:
+            message_parts.append(f"— {detail}")
+        super().__init__(" ".join(message_parts))
+
 # Valid values for the optional ``jira_action`` per-task YAML key
 # (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
 # ``Task.jira_action`` so the parser can reject unknown values with a
@@ -1783,14 +1833,95 @@ def validate_task_role_alignment(slices: list[Slice], repo: str | None = None) -
     return errors
 
 
+def validate_plan_preflight(content: str) -> None:
+    """AC-1a plan-phase pre-flight validator (#2777).
+
+    Runs at plan-phase completion (before the implement-phase entry hook
+    fires) and rejects malformed planner output that the new idempotent
+    context-PR opener — :func:`orchestrator.routes.pipelines._open_context_pr_at_implement_start`
+    — depends on. The opener needs ``contract.pr.title`` and
+    ``contract.pr.description`` set; the populate-from-plan step that
+    writes those fields needs a parseable ``# yaml-tasks`` block; and a
+    well-formed PR record means a useful PR body for human reviewers,
+    so we also reject missing ``test_plan`` / ``manual_steps`` here
+    rather than catching them downstream as silent contract gaps.
+
+    Required rejections (each adds one entry to ``missing_fields``):
+
+    (a) ``yaml-tasks`` — block missing or unparseable
+        (``parse_plan`` returns ``success=False`` or finds no phases).
+    (b) ``pr.title`` — missing or empty after whitespace strip.
+    (c) ``pr.description`` — missing or empty after whitespace strip.
+    (d) ``pr.test_plan`` — missing or empty after whitespace strip.
+    (e) ``pr.manual_steps`` — key missing entirely (empty string is
+        allowed; the contract field defaults to ``""``).
+
+    Raises:
+        PlanPreflightError: When one or more required fields are
+            missing. ``missing_fields`` is an ordered list of field
+            names ``["yaml-tasks", "pr.title", ...]``. Empty
+            ``content`` surfaces as ``["yaml-tasks"]`` rather than a
+            separate field because callers downstream treat both
+            cases identically — there is no parseable plan.
+
+    Ordering note: callers should invoke this BEFORE
+    :func:`_populate_contract_from_plan_safe` so the rejection lands
+    as a typed 422 / NACK rather than the populate path's silent
+    warn-log. The orchestrator wires this into
+    ``routes/phases.py``'s plan→implement advance block.
+    """
+    missing: list[str] = []
+    detail: str | None = None
+
+    # (a) yaml-tasks block must be present and parseable. ``parse_plan``
+    # already implements the three-tier parsing strategy; we treat any
+    # failure mode (empty content, no phases, parse error) as a missing
+    # yaml-tasks block from the validator's point of view.
+    result = parse_plan(content)
+    if not result.success or not result.phases:
+        missing.append("yaml-tasks")
+        if result.error:
+            detail = result.error
+
+    # (b)–(e) PR metadata fields. Even if (a) failed, surface the
+    # remaining missing fields so the operator sees the full picture in
+    # one NACK message — re-running validation after fixing yaml-tasks
+    # only to discover a missing test_plan is a wasted cycle.
+    pr_title = (result.pr_title or "").strip()
+    if not pr_title:
+        missing.append("pr.title")
+
+    pr_description = (result.pr_description or "").strip()
+    if not pr_description:
+        missing.append("pr.description")
+
+    pr_test_plan = (result.pr_test_plan or "").strip()
+    if not pr_test_plan:
+        missing.append("pr.test_plan")
+
+    # (e) manual_steps: an empty string IS allowed (contract default),
+    # so we only reject when the key is absent from the YAML entirely.
+    # ``pr_manual_steps is None`` distinguishes "key missing" from
+    # "key present with empty value" — the parser preserves that
+    # distinction by mapping a missing key to ``None`` and an empty
+    # value to ``""``.
+    if result.pr_manual_steps is None:
+        missing.append("pr.manual_steps")
+
+    if missing:
+        raise PlanPreflightError(missing, detail=detail)
+
+
 __all__ = (
     "ParsedPhase",
     "ParsedTask",
     "ParseResult",
     "ParseWarning",
+    "PlanPreflightError",
     "format_warnings_for_comment",
     "parse_plan",
     "parse_plan_file",
     "validate_forest",
+    "validate_plan_preflight",
     "validate_task_role_alignment",
 )
