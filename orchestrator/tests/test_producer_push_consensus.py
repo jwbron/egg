@@ -771,3 +771,52 @@ class TestFullLifecycleWithPush:
         # Invariants clean
         violations = tracker.validate_invariants()
         assert len(violations) == 0
+
+
+class TestProposalCommitShaHistory:
+    """Per-version commit SHA history backing delta-scoped re-review (#2887).
+
+    The tracker pins each proposal version's commit SHA so a re-review
+    notice can resolve a reviewer's last-verdicted version back to the
+    commit they actually saw and emit a per-reviewer ``<sha>..HEAD``
+    delta range, replacing the legacy hardcoded v1->v2 anchor.
+    """
+
+    def test_history_accumulates_across_versions(self, simple_tracker):
+        """Each propose / auto-push pins its version's SHA; prior versions
+        remain resolvable (unlike the single-slot ``_proposal_commit_shas``)."""
+        tracker = simple_tracker
+
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "sha3")
+
+        assert tracker.get_commit_sha_for_version("coder", 1) == "sha1"
+        assert tracker.get_commit_sha_for_version("coder", 2) == "sha2"
+        assert tracker.get_commit_sha_for_version("coder", 3) == "sha3"
+        # The current-only slot tracks only the latest.
+        assert tracker.get_proposal_commit_sha("coder") == "sha3"
+
+    def test_unknown_version_returns_empty(self, simple_tracker):
+        """A version with no pinned commit (e.g. version 0 / not yet
+        proposed) resolves to "" so callers fall back to REVIEWER-SYNC."""
+        tracker = simple_tracker
+
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        assert tracker.get_commit_sha_for_version("coder", 99) == ""
+        assert tracker.get_commit_sha_for_version("unknown_producer", 1) == ""
+
+    def test_reviewer_last_verdict_resolves_to_reviewed_commit(self, simple_tracker):
+        """A reviewer's NACK entry version resolves to the commit they
+        reviewed even after the producer advances past it — the core
+        lookup the re-review delta range depends on (#2887)."""
+        tracker = simple_tracker
+
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        nack_producer(tracker, "reviewer_code", "coder", reason="v1 bug")
+        # Producer re-proposes; reviewer's entry still points at v1.
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha2"))
+
+        entry = tracker.matrix.get_entry("reviewer_code", "coder")
+        assert entry.version == 1
+        assert tracker.get_commit_sha_for_version("coder", entry.version) == "sha1"

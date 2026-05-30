@@ -2147,3 +2147,176 @@ class TestNackVersionRouteEnforcement:
         assert body["success"] is False
         assert ">= 1" in body["message"]
         mock_tracker.handle_nack.assert_not_called()
+
+
+class TestResolveReviewerDeltaRange:
+    """`_resolve_reviewer_delta_range` resolves each reviewer's own
+    `<last_sha>..HEAD` re-review range from their last-verdicted version,
+    backing delta-scoped re-review (#2887). Falls back to None (→ the
+    priming block's REVIEWER-SYNC range) when no anchor is resolvable.
+    """
+
+    @pytest.fixture
+    def tracker(self):
+        from attestation_schemas import AttestationStrictness
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker(
+            "test-pipeline",
+            graph,
+            cooldown_seconds=0,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            auto_repropose_debounce_seconds=0,
+        )
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        return t
+
+    def test_range_spans_reviewer_last_verdict_to_head(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+        )
+        tracker.handle_nack(
+            "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "x"}
+        )
+        # Producer re-proposes at sha2; reviewer's entry still pins v1/sha1.
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "sha2"},
+        )
+
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
+        assert rng == "sha1..sha2"
+
+    def test_no_prior_verdict_returns_none(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+        )
+        # Reviewer never verdicted (entry.version == 0).
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
+        assert rng is None
+
+    def test_empty_head_returns_none(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        assert _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "") is None
+
+
+class TestReReviewDeltaRangeReachesMessageBody:
+    """End-to-end #2887 verification: a real ``PeerConsensusTracker`` walked
+    through propose-v1 → ACK → producer-push-v2 emits a per-reviewer
+    ``CONSENSUS_RE_REVIEW`` whose body actually contains the resolved
+    ``<v1_sha>..<v2_sha>`` delta range.
+
+    The existing unit tests cover ``_resolve_reviewer_delta_range``
+    (``TestResolveReviewerDeltaRange``) and the underlying SHA-history
+    accumulator (``TestProposalCommitShaHistory`` in
+    ``test_producer_push_consensus.py``) in isolation, and the existing
+    MagicMock-based propagation tests (``TestProposeMessagePhasePropagation``
+    in ``test_brc_phase_propagation.py``) pin that *some* re-prime text is
+    appended. None of those exercise the seam #2887 actually patches: the
+    delta range being resolved correctly but then dropped (wrong argument,
+    accidental ``None``, helper return ignored) before reaching the emitted
+    message body. This test runs the real handler with a real tracker and
+    asserts the concrete substring lands in the ``CONSENSUS_RE_REVIEW`` body.
+    """
+
+    def test_per_reviewer_re_review_body_contains_concrete_delta_range(self, app):
+        from attestation_schemas import AttestationStrictness
+        from message_store import MessageType
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        pipeline_id = "issue-2887-e2e"
+        v1_sha = "v1sha1234abcd"
+        v2_sha = "v2sha5678efef"
+
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        tracker = create_peer_consensus_tracker(
+            pipeline_id,
+            graph,
+            cooldown_seconds=0,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            auto_repropose_debounce_seconds=0,
+        )
+        try:
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # v1: producer proposes at sha1; reviewer ACKs at v1 (their
+            # matrix entry now pins entry.version=1 → sha1).
+            tracker.handle_propose(
+                "coder",
+                {
+                    "summary": "v1 implementation",
+                    "artifacts": ["src/auth.py"],
+                    "commit_sha": v1_sha,
+                },
+            )
+            tracker.handle_ack(
+                "reviewer_code",
+                "coder",
+                {"artifact_references": ["src/auth.py"]},
+            )
+
+            # v2: producer pushes a new commit. The signal handler auto
+            # re-proposes, invalidates the v1 ACK, and emits a
+            # CONSENSUS_RE_REVIEW to the reviewer. The body must embed
+            # the concrete `<v1_sha>..<v2_sha>` delta range from
+            # `_resolve_reviewer_delta_range` — the #2887 contract.
+            mock_msg_store = MagicMock()
+            with (
+                app.app_context(),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
+            ):
+                from routes.signals import handle_consensus_producer_push_signal
+
+                _response, status_code = handle_consensus_producer_push_signal(
+                    pipeline_id,
+                    {
+                        "agent_role": "coder",
+                        "commit_sha": v2_sha,
+                        # Omit ``changed_files`` so all ACKs are invalidated
+                        # (the conservative path in ``handle_producer_push``),
+                        # which is what populates ``invalidated_reviewers``
+                        # for the per-reviewer CONSENSUS_RE_REVIEW emission.
+                    },
+                    Path("/tmp/repo"),
+                )
+
+            assert status_code == 200
+
+            re_review_messages = [
+                call.args[0]
+                for call in mock_msg_store.add_message.call_args_list
+                if call.args[0].message_type == MessageType.CONSENSUS_RE_REVIEW
+                and call.args[0].to_role == "reviewer_code"
+            ]
+            assert len(re_review_messages) == 1, (
+                f"Expected exactly one CONSENSUS_RE_REVIEW for reviewer_code, "
+                f"got {len(re_review_messages)}"
+            )
+            body = re_review_messages[0].body
+
+            # The core #2887 assertion: the resolved per-reviewer delta
+            # range is embedded as a concrete `<v1>..<v2>` string, NOT
+            # the broadcast-path REVIEWER-SYNC placeholder.
+            assert f"{v1_sha}..{v2_sha}" in body
+            assert f"git log {v1_sha}..{v2_sha}" in body
+            assert "{last_reviewed_commit}..HEAD" not in body
+            # Version anchoring is dynamic (vN / v(N-1)).
+            assert "Your v2 review" in body
+            assert "named v1 blockers" in body
+        finally:
+            remove_peer_consensus_tracker(pipeline_id)
