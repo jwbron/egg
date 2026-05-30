@@ -31,6 +31,39 @@ except ImportError:
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 
+# Closed enumeration of ``ContextPrCreationError.reason`` values
+# (#2777). Producer and downstream tests (TASK-3-8) bind on these
+# strings so a single source of truth avoids the synthetic-key
+# divergence reviewer_code_holistic flagged. New reasons MUST be
+# added here AND to ``ContextPrCreationReason`` so the type narrows.
+class ContextPrCreationReason(StrEnum):
+    """Closed set of typed reasons for :class:`ContextPrCreationError` (#2777)."""
+
+    UNKNOWN = "unknown"
+    # Lookup of the pipeline / store / spawner failed before any
+    # gateway call could be attempted.
+    PIPELINE_LOAD_FAILED = "pipeline_load_failed"
+    ROUTES_UNAVAILABLE = "routes_unavailable"
+    LOADER_UNAVAILABLE = "loader_unavailable"
+    # Pipeline misconfiguration (cq-4 hard-required: ``repo`` and
+    # ``base_branch`` must BOTH be set OR BOTH empty).
+    MISSING_BRANCH = "missing_branch"
+    MISSING_REPO = "missing_repo"
+    MISSING_BASE_BRANCH = "missing_base_branch"
+    # Contract / PR-metadata failures encountered after the pipeline
+    # passed the misconfiguration check.
+    CONTRACT_LOAD_FAILED = "contract_load_failed"
+    MISSING_PR_METADATA = "missing_pr_metadata"
+    SAVE_FAILED = "save_failed"
+    # Gateway-layer failures wrapping ``list_open_prs`` /
+    # ``create_pr`` outcomes.
+    LOOKUP_FAILED = "lookup_failed"
+    LOOKUP_BAD_RESPONSE = "lookup_bad_response"
+    GATEWAY_ERROR = "gateway_error"
+    GATEWAY_NO_URL = "gateway_no_url"
+    GATEWAY_BAD_URL = "gateway_bad_url"
+
+
 class ContextPrCreationError(Exception):
     """Raised by :func:`_open_context_pr_at_implement_start` when the
     hard-required up-front context PR cannot be opened (#2777, cq-4).
@@ -42,9 +75,14 @@ class ContextPrCreationError(Exception):
     surface rather than silently strand the slice stack on ``/work``.
 
     Attributes:
-        reason: Short machine-readable reason ("gateway_error",
-            "missing_pr_metadata", "lookup_failed", ...). Tests assert
-            on this string so the rejection path can be exercised.
+        reason: Machine-readable reason drawn from
+            :class:`ContextPrCreationReason`. Tests assert on these
+            constants so producer and tests share one source of
+            truth; passing an unknown string is a programming error
+            caught here. The instance attribute is exposed as the
+            underlying ``str`` value (matching ``.value`` of the
+            enum) so existing JSON-serialization callers continue to
+            work without change.
         cause: The original exception, if any, that triggered the
             error. Preserved so logs and the BRC NACK body show the
             gateway/contract failure rather than only this wrapper's
@@ -55,11 +93,15 @@ class ContextPrCreationError(Exception):
         self,
         message: str,
         *,
-        reason: str = "unknown",
+        reason: "str | ContextPrCreationReason" = ContextPrCreationReason.UNKNOWN,
         cause: BaseException | None = None,
     ) -> None:
         super().__init__(message)
-        self.reason: str = reason
+        # Coerce-and-validate the reason against the closed
+        # enumeration. Passing a string that is not a known reason
+        # raises ``ValueError`` at construction so a typo cannot
+        # silently slip a new ``reason=`` into production.
+        self.reason: str = ContextPrCreationReason(reason).value
         self.cause: BaseException | None = cause
 
 
@@ -11461,16 +11503,30 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
             cause=load_err,
         ) from load_err
 
-    # Step 2: local-mode short-circuit. ``repo`` / ``base_branch`` are
-    # both required for a remote PR. Skipping here mirrors the legacy
-    # wrapper's behaviour for local pipelines without expanding the
-    # opener's surface area.
-    if not pipeline.repo or not pipeline.base_branch:
+    # Step 2: local-mode short-circuit. ``repo`` AND ``base_branch``
+    # MUST BOTH be empty to qualify as local-mode; a remote pipeline
+    # that has ``repo`` set but ``base_branch`` empty (or vice versa)
+    # is a misconfiguration, not a local pipeline, and the soft-skip
+    # below would silently mask the cq-4 hard-required contract
+    # (reviewer_code_holistic blocker 3). Surface the misconfig as a
+    # typed error so the operator notices.
+    repo_set = bool(pipeline.repo)
+    base_set = bool(pipeline.base_branch)
+    if not repo_set and not base_set:
         logger.info(
-            "Context PR opener: skipping local-mode pipeline (no repo / base_branch)",
+            "Context PR opener: skipping local-mode pipeline (no repo, no base_branch)",
             pipeline_id=pipeline_id,
         )
         return None
+    if repo_set != base_set:
+        # Partial-config pipeline. Raise so the operator sees the
+        # asymmetry rather than silently skipping the context PR.
+        raise ContextPrCreationError(
+            f"pipeline {pipeline_id!r} has asymmetric remote config "
+            f"(repo={pipeline.repo!r}, base_branch={pipeline.base_branch!r}); "
+            "both must be set for a remote PR or neither for local mode",
+            reason="missing_base_branch" if repo_set else "missing_repo",
+        )
 
     if not pipeline.branch:
         # A remote pipeline without a configured work branch is a
@@ -16945,19 +17001,50 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
-    # #2777 (cq-4, TASK-1-2) — the four legacy plan→implement context-PR
-    # call sites (``_run_pipeline`` auto-advance, ``advance_phase`` REST,
-    # ``start_pipeline`` HITL recovery, IMPLEMENT entry backstop) AND
-    # this slice-loop entry safety net all collapsed into a SINGLE
-    # hard-required call at ``routes/phases.py`` in advance_phase.
-    # Slice-1's base resolution under ``_resolve_slice_base_branch``
-    # (which replaces ``_resolve_slice_1_context_branch_from_contract``)
-    # stacks directly on ``egg/<id>/work`` rather than a dedicated
-    # ``egg/<id>/context`` branch, so the slice loop no longer needs a
-    # local context-PR safety net here. The legacy
-    # ``_maybe_open_base_pr_for_plan_to_implement`` wrapper is left in
-    # place until slice-2 (TASK-2-1) deletes it; this slice (slice-1)
-    # only removes the call sites.
+    # #2777 (cq-4, TASK-1-2) — defensive context-PR safety net at
+    # slice-loop entry. Mirrors the four legacy soft-fail call sites
+    # the v1 deletion dropped: `advance_phase` REST is the canonical
+    # plan→implement transition path, but `_run_pipeline` auto-advance,
+    # the implement-entry backstop, the HITL-resume in
+    # `start_pipeline`, and this slice-loop entry safety net are the
+    # actual non-REST paths a pipeline can take into implement; v1
+    # silently stranded slice stacks on `egg/<id>/work` for the
+    # runner-driven paths (reviewer_code_holistic blocker 1).
+    #
+    # Under cq-4 the new `_open_context_pr_at_implement_start` opener
+    # is idempotent (one `gh pr list` round-trip on hit; persists the
+    # already-present PR number). Re-calling it from each transition
+    # path is cheap and removes every silent-strand window. The
+    # legacy `_maybe_open_base_pr_for_plan_to_implement` wrapper is
+    # left in place but unreferenced until slice-2 (TASK-2-1)
+    # deletes it; slice-1 only swaps the call target.
+    #
+    # `ContextPrCreationError` here logs and continues — failing the
+    # slice loop on a transient gateway hiccup would defeat the
+    # safety-net purpose. The canonical advance_phase site keeps the
+    # hard-required 422 contract; the four runner-driven safety nets
+    # below are best-effort because they exist precisely to catch
+    # paths where the canonical site did not fire.
+    try:
+        _open_context_pr_at_implement_start(pipeline_id)
+    except ContextPrCreationError as ctx_err:
+        logger.warning(
+            "Context PR opener: slice-loop entry safety net failed "
+            "(continuing — the canonical advance_phase call enforces "
+            "hard-required) (#2777)",
+            pipeline_id=pipeline_id,
+            reason=ctx_err.reason,
+            error=str(ctx_err),
+        )
+    except Exception as safety_err:  # noqa: BLE001
+        # Defence in depth: import / lookup failures must not strand
+        # the slice loop.
+        logger.warning(
+            "Context PR opener: slice-loop entry safety net outer "
+            "wrapper raised (continuing) (#2777)",
+            pipeline_id=pipeline_id,
+            error=str(safety_err),
+        )
 
     def _contract_loader() -> Any:
         try:
@@ -22617,15 +22704,45 @@ def _run_pipeline(
                 )
                 _emit_pipeline_event(pipeline, "phase.started")
 
-                # #2777 (cq-4, TASK-1-2) — the implement-phase entry
-                # backstop is removed. The single hard-required
-                # plan→implement call site at ``routes/phases.py``
-                # (advance_phase) replaces all four legacy soft-fail
-                # paths. The backstop existed because the soft-fail
-                # wrapper had to absorb four different transition
-                # paths; the new opener is hard-required and idempotent
-                # at the one canonical site, so the backstop is a
-                # no-op safety net we no longer need.
+                # #2777 (cq-4, TASK-1-2) — implement-phase entry
+                # backstop. Calls the new
+                # ``_open_context_pr_at_implement_start`` opener for
+                # the runner-driven paths that bypass
+                # ``advance_phase`` REST (inline ``_run_pipeline``
+                # auto-advance and the HITL-approval recovery in
+                # ``start_pipeline`` both leave
+                # ``phase_execution.status`` as PENDING and spawn the
+                # runner directly; the backstop catches both per
+                # #2593). The opener is idempotent so re-firing here
+                # after a successful advance_phase call is a one-
+                # round-trip ``gh pr list`` no-op.
+                #
+                # reviewer_code_holistic blocker 1 fix: v1 deleted
+                # this site under the (incorrect) "single canonical
+                # site" plan AC; the four soft-fail call sites are in
+                # fact the only context-PR opener calls on the
+                # runner-driven paths, so the deletion silently
+                # stranded slice stacks on ``egg/<id>/work``.
+                # Restored under the new idempotent opener.
+                if current_phase == PipelinePhase.IMPLEMENT:
+                    try:
+                        _open_context_pr_at_implement_start(pipeline_id)
+                    except ContextPrCreationError as ctx_err:
+                        logger.warning(
+                            "Context PR opener: implement-entry backstop "
+                            "failed (continuing — advance_phase enforces "
+                            "hard-required) (#2777)",
+                            pipeline_id=pipeline_id,
+                            reason=ctx_err.reason,
+                            error=str(ctx_err),
+                        )
+                    except Exception as backstop_err:  # noqa: BLE001
+                        logger.warning(
+                            "Context PR opener: implement-entry backstop "
+                            "outer wrapper raised (continuing) (#2777)",
+                            pipeline_id=pipeline_id,
+                            error=str(backstop_err),
+                        )
 
             # Spawn overseer container for this phase's health monitoring.
             # The overseer is phase-scoped: spawned at phase start and torn
@@ -24155,21 +24272,43 @@ def _run_pipeline(
                         )
 
             # ----------------------------------------------------------
-            # #2777 (cq-4, TASK-1-2) — the inline ``_run_pipeline``
-            # auto-advance no longer opens the context PR from here.
-            # Under the new topology the single hard-required call site
-            # is the new ``_open_context_pr_at_implement_start`` helper
-            # invoked from ``routes/phases.py``'s ``advance_phase``
-            # handler. Pipelines that auto-advance through
-            # ``_run_pipeline`` rather than via the REST/MCP advance
-            # endpoint will therefore not see a context PR opened until
-            # an operator triggers ``advance_phase`` explicitly — the
-            # plan's documented behaviour under cq-4 (idempotent
-            # pre-flight means a later ``advance_phase`` call is safe).
+            # #2777 (cq-4, TASK-1-2) — inline ``_run_pipeline``
+            # auto-advance plan→implement transition. Calls the new
+            # idempotent ``_open_context_pr_at_implement_start``
+            # opener directly; auto-advance does NOT route through
+            # ``routes/phases.py:advance_phase``, so without this call
+            # site a natural plan-exit (no operator REST call) would
+            # never get a context PR opened, leaving the slice stack
+            # stranded on ``egg/<id>/work`` (the #2593 / #2769
+            # symptom). reviewer_code_holistic blocker 1 fix:
+            # restored after v1's incorrect "single canonical site"
+            # deletion. The opener's ``gh pr list`` pre-flight makes
+            # a redundant call from any other transition path a one-
+            # round-trip no-op.
+            #
             # The legacy ``_maybe_open_base_pr_for_plan_to_implement``
             # wrapper is left in place but unreferenced until slice-2
             # (TASK-2-1) deletes it.
             # ----------------------------------------------------------
+            if current_phase.value == "plan":
+                try:
+                    _open_context_pr_at_implement_start(pipeline_id)
+                except ContextPrCreationError as ctx_err:
+                    logger.warning(
+                        "Context PR opener: _run_pipeline auto-advance "
+                        "failed (continuing — advance_phase enforces "
+                        "hard-required) (#2777)",
+                        pipeline_id=pipeline_id,
+                        reason=ctx_err.reason,
+                        error=str(ctx_err),
+                    )
+                except Exception as autoadvance_err:  # noqa: BLE001
+                    logger.warning(
+                        "Context PR opener: _run_pipeline auto-advance "
+                        "outer wrapper raised (continuing) (#2777)",
+                        pipeline_id=pipeline_id,
+                        error=str(autoadvance_err),
+                    )
 
             # Tear down the phase-scoped overseer before advancing.
             # Each phase gets a fresh overseer instance — no state carries
@@ -25149,15 +25288,43 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                 _clear_concurrent_state(pipeline_id)
 
-            # #2777 (cq-4, TASK-1-2) — the HITL-recovery context-PR
-            # site is removed. Under the new topology the operator who
-            # resumes the pipeline triggers ``advance_phase`` via the
-            # REST/MCP route, which invokes the new
-            # ``_open_context_pr_at_implement_start`` opener at
-            # ``routes/phases.py``. The two-second window between HITL
-            # resume and the operator's advance call is acceptable
-            # under cq-4 (the opener is idempotent and hard-required
-            # at the single canonical site).
+            # #2593 review issue 1 — context-PR open moved out of the
+            # per-pipeline state lock so the multi-second gateway
+            # sequence does not hold the lock and block concurrent
+            # ``advance_phase`` / status reads.
+            #
+            # #2777 (cq-4, TASK-1-2) — HITL-recovery context-PR site
+            # calls the new idempotent
+            # ``_open_context_pr_at_implement_start`` opener directly.
+            # HITL recovery in ``start_pipeline`` does NOT route
+            # through ``advance_phase`` REST (the runner thread is
+            # spawned inline below), so without this call site an
+            # operator-resumed pipeline would silently strand its
+            # slice stack on ``egg/<id>/work``. The opener's
+            # ``gh pr list`` pre-flight makes a redundant call from a
+            # later ``advance_phase`` invocation a one-round-trip
+            # no-op (reviewer_code_holistic blocker 1 fix; v1 deleted
+            # this site under the incorrect "single canonical site"
+            # plan AC).
+            if _hitl_open_context_pr_after_lock and _hitl_pr_worktree_path is not None:
+                try:
+                    _open_context_pr_at_implement_start(pipeline_id)
+                except ContextPrCreationError as ctx_err:
+                    logger.warning(
+                        "Context PR opener: HITL-resume failed "
+                        "(continuing — advance_phase enforces "
+                        "hard-required) (#2777)",
+                        pipeline_id=pipeline_id,
+                        reason=ctx_err.reason,
+                        error=str(ctx_err),
+                    )
+                except Exception as hitl_err:  # noqa: BLE001
+                    logger.warning(
+                        "Context PR opener: HITL-resume outer wrapper "
+                        "raised (continuing) (#2777)",
+                        pipeline_id=pipeline_id,
+                        error=str(hitl_err),
+                    )
 
             # Launch runner thread
             thread = threading.Thread(

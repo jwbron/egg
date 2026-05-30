@@ -383,10 +383,38 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # the validator so operators can still unstick a pipeline
             # whose plan draft is unrecoverable.
             if not force:
+                # reviewer_code_holistic blocker 2: distinguish
+                # "infra unavailable" (preflight could not run; surface
+                # as 500 so the operator retries rather than believing
+                # validation passed) from "plan is malformed" (typed
+                # 422 with missing fields) from "draft file absent"
+                # (a startup-flow that legitimately produces no plan
+                # draft — skip the validator silently). Each branch
+                # uses NARROWLY-typed exception handlers; no
+                # `except Exception` swallow-all paths gate the new
+                # feature.
                 try:
                     from routes import resolve_worktree_path as _resolve_wt_for_validator
                     from routes.pipelines import _get_draft_path
+                except ImportError as _imp_err:
+                    logger.warning(
+                        "Plan pre-flight validator: import of "
+                        "validator dependencies failed (#2777)",
+                        pipeline_id=pipeline_id,
+                        error=str(_imp_err),
+                    )
+                    return make_error_response(
+                        f"Plan pre-flight unavailable: {_imp_err}",
+                        500,
+                        reason="preflight_unavailable",
+                    )
 
+                # ``resolve_worktree_path`` and ``_get_draft_path`` are
+                # pure helpers; the only realistic failure is an
+                # OSError on the worktree probe. Catch OSError
+                # specifically (rather than bare Exception) so a
+                # programming error in those helpers surfaces loudly.
+                try:
                     _validator_worktree = _resolve_wt_for_validator(
                         pipeline_id, store.repo_path
                     )
@@ -395,50 +423,94 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         issue_number=pipeline.issue_number,
                         pipeline_id=pipeline_id,
                     )
-                except Exception as _resolve_err:  # noqa: BLE001
-                    # Pre-flight infra failures are not validation
-                    # failures; log and continue to populate.
+                except OSError as _resolve_err:
                     logger.warning(
-                        "Plan pre-flight validator: failed to resolve "
-                        "plan draft for validation (continuing) (#2777)",
+                        "Plan pre-flight validator: worktree probe / "
+                        "draft-path resolution failed (#2777)",
                         pipeline_id=pipeline_id,
                         error=str(_resolve_err),
                     )
-                    _draft_rel = None
-                if _draft_rel is not None:
-                    _plan_path = _validator_worktree / _draft_rel
-                    if _plan_path.exists():
-                        try:
-                            from egg_contracts.plan_parser import (
-                                PlanPreflightError,
-                                validate_plan_preflight,
-                            )
+                    return make_error_response(
+                        f"Plan pre-flight unavailable: {_resolve_err}",
+                        500,
+                        reason="preflight_unavailable",
+                    )
 
-                            validate_plan_preflight(_plan_path.read_text())
-                        except PlanPreflightError as preflight_err:
-                            logger.warning(
-                                "Plan pre-flight validation failed at "
-                                "plan→implement advance (#2777)",
-                                pipeline_id=pipeline_id,
-                                missing_fields=preflight_err.missing_fields,
-                            )
-                            return make_error_response(
-                                str(preflight_err),
-                                422,
-                                details={
-                                    "missing_fields": preflight_err.missing_fields,
-                                },
-                            )
-                        except Exception as _validator_err:  # noqa: BLE001
-                            # Loader / import failures are not
-                            # validation failures; log and continue.
-                            logger.warning(
-                                "Plan pre-flight validator: unexpected "
-                                "failure while validating plan "
-                                "(continuing) (#2777)",
-                                pipeline_id=pipeline_id,
-                                error=str(_validator_err),
-                            )
+                if _draft_rel is None:
+                    # No draft path declared (e.g. ``start_phase=plan``
+                    # pipelines that operate without a writable draft
+                    # bucket). Skip the validator — there is no plan to
+                    # validate. This is a legitimate skip, not a silent
+                    # bypass.
+                    logger.info(
+                        "Plan pre-flight validator: no draft path "
+                        "declared for pipeline; skipping (#2777)",
+                        pipeline_id=pipeline_id,
+                    )
+                elif not (_validator_worktree / _draft_rel).exists():
+                    # Draft path declared but file absent on disk —
+                    # populate will surface this as the canonical
+                    # "draft_missing" outcome. Skip the validator to
+                    # let populate's structured warn-log handle it
+                    # without producing a duplicate signal.
+                    logger.info(
+                        "Plan pre-flight validator: plan draft file "
+                        "absent; skipping (#2777)",
+                        pipeline_id=pipeline_id,
+                        draft_path=str(_validator_worktree / _draft_rel),
+                    )
+                else:
+                    _plan_path = _validator_worktree / _draft_rel
+                    try:
+                        plan_text = _plan_path.read_text()
+                    except OSError as _read_err:
+                        logger.warning(
+                            "Plan pre-flight validator: failed to "
+                            "read plan draft (#2777)",
+                            pipeline_id=pipeline_id,
+                            error=str(_read_err),
+                        )
+                        return make_error_response(
+                            f"Plan pre-flight unavailable: {_read_err}",
+                            500,
+                            reason="preflight_unavailable",
+                        )
+
+                    try:
+                        from egg_contracts.plan_parser import (
+                            PlanPreflightError,
+                            validate_plan_preflight,
+                        )
+                    except ImportError as _imp_err:
+                        logger.warning(
+                            "Plan pre-flight validator: import of "
+                            "plan_parser failed (#2777)",
+                            pipeline_id=pipeline_id,
+                            error=str(_imp_err),
+                        )
+                        return make_error_response(
+                            f"Plan pre-flight unavailable: {_imp_err}",
+                            500,
+                            reason="preflight_unavailable",
+                        )
+
+                    try:
+                        validate_plan_preflight(plan_text)
+                    except PlanPreflightError as preflight_err:
+                        logger.warning(
+                            "Plan pre-flight validation failed at "
+                            "plan→implement advance (#2777)",
+                            pipeline_id=pipeline_id,
+                            missing_fields=preflight_err.missing_fields,
+                        )
+                        return make_error_response(
+                            str(preflight_err),
+                            422,
+                            details={
+                                "missing_fields": preflight_err.missing_fields,
+                            },
+                            reason="preflight_invalid_plan",
+                        )
 
             # ---- Populate contract from plan + commit statefiles ----
             # When leaving the plan phase, parse the plan draft's
