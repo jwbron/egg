@@ -126,6 +126,7 @@ make build
 |---------|-------------|
 | `make k3s-setup` | Install k3s + Cilium CNI (idempotent) |
 | `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
+| `make redeploy` | Rebuild images, import into k3s, and deploy in one step — use this after any commit, pull, rebase, or branch switch |
 | `make build` | Build images and import into k3s |
 | `make litellm-config` | Apply host-side LiteLLM `model_list` from `~/.config/egg/litellm-models.yaml`; no-op if absent |
 | `make k3s-teardown` | Remove k3s installation |
@@ -138,6 +139,8 @@ make build
 - **`EGG_HOST_REPO_MAP`** — auto-derived from `~/.config/egg/repositories.yaml` via `scripts/build-host-repo-map.py`.
 
 **Prerequisite:** `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`).
+
+**Pre-flight image check:** Before applying any manifests, `make deploy` verifies that the egg images for the current `EGG_IMAGE_TAG` are already in k3s's containerd. If any image is missing — typically because a commit, pull, rebase, or branch switch changed the tag since the last build — `make deploy` aborts immediately with no cluster mutations and directs you to run `make redeploy` instead.
 
 `make deploy` also invokes `make litellm-config` automatically at the end, applying any
 host-side LiteLLM backend overlay from `~/.config/egg/litellm-models.yaml` (no-op if the file is absent).
