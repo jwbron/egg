@@ -1157,18 +1157,30 @@ class OverseerMonitor:
         if pipeline_status_str != "running":
             return
 
-        # Short-circuit on any transition-completion evidence (#1911).
+        # Short-circuit when ``current_phase`` has advanced past implement (#1911).
         # The "post-consensus-push-stall" detector fires during a
         # phase-transition window and previously mis-classified a
-        # legitimate transition as a stall. Under #2777 (cq-4 / TASK-2-2)
-        # the PR phase was removed and IMPLEMENT is terminal, so the
-        # original ``phases["pr"].artifacts["pr_url"]`` arm is
-        # unreachable. The new equivalent predicate is "context PR
-        # opened" (``pipeline.pr_number`` set by
-        # ``_open_context_pr_at_implement_start``) plus "current_phase
-        # advanced past implement" (still reachable for the legacy
-        # epic-apply path). If either holds, the transition is clearly
-        # underway or complete and the detector must stay silent.
+        # legitimate transition as a stall. The original short-circuit
+        # also checked ``pipeline.pr_number`` / the (now-removed)
+        # ``phases["pr"].artifacts["pr_url"]`` arm because, pre-#2777,
+        # both signals only flipped at the end of a finished
+        # implement→PR transition.
+        #
+        # Under #2777 (cq-4 / TASK-2-2) the PR phase was removed,
+        # IMPLEMENT is terminal, and ``pipeline.pr_number`` is now
+        # populated up-front by ``_open_context_pr_at_implement_start``
+        # at implement-start — so it is *not* a transition-completion
+        # signal anymore and gating on it would silently suppress
+        # detection for the entire bug window this detector exists to
+        # catch. We deliberately drop that arm. The legacy
+        # ``current_phase_value != "implement"`` arm is sufficient: if
+        # consensus completes during implement and the post-consensus
+        # transition succeeds, ``current_phase`` advances and we
+        # short-circuit; if that transition itself hangs,
+        # ``current_phase`` stays on ``implement`` and the detector
+        # *should* fire after the grace period — that is the bug it was
+        # designed to catch.
+        #
         # Fall open on *any* exception so we never mask a genuine stall
         # on a bug in the short-circuit.
         pipeline = self._load_pipeline_for_transition_check()
@@ -1177,10 +1189,7 @@ class OverseerMonitor:
                 current_phase_value = getattr(
                     getattr(pipeline, "current_phase", None), "value", None
                 )
-                pr_number = getattr(pipeline, "pr_number", None)
-                if (
-                    current_phase_value and current_phase_value != "implement"
-                ) or pr_number is not None:
+                if current_phase_value and current_phase_value != "implement":
                     # Reset first-seen so a genuinely subsequent stall
                     # still gets its own grace period.
                     self._post_consensus_stall_first_seen = None
