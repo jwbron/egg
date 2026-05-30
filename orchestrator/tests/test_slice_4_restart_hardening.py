@@ -1120,6 +1120,728 @@ class TestSliceHasPendingDecision:
 
 
 # ---------------------------------------------------------------------------
+# TASK-4-4 (v3): HITL escalation helpers — adversarial probes for the v3
+# refactor that removed ``_state_store_or_none()`` and threaded
+# ``worktree_repo_path`` + ``current_phase`` from the Layer-C caller.
+#
+# These tests pin down the v2→v3 fix: the v2 helper called
+# ``get_state_store()`` (no-arg) which raised ``TypeError`` that the bare
+# ``except Exception`` swallowed → store was None → the
+# ``if store is None: return`` arm short-circuited the HITL persist → no
+# Decision was appended → fail-open of the operator-pause gate. v3 removes
+# the state-store path entirely and writes directly via
+# ``load_contract(pipeline_id, worktree_repo_path)`` /
+# ``save_contract(contract, worktree_repo_path)``.
+#
+# We also pin the ``next_cq_id`` allocator (replacing the v2
+# ``decision-{len(decisions)+1}`` collision pattern flagged on
+# ``Decision.id``'s docstring), the ``current_phase`` thread-through
+# (replacing the v2 hard-coded ``PipelinePhase.IMPLEMENT``), and the
+# removal of the v2 ``context_prefix`` kwarg.
+# ---------------------------------------------------------------------------
+
+
+import tempfile  # noqa: E402
+
+from egg_contracts.loader import load_contract, save_contract  # noqa: E402
+from egg_contracts.models import Decision, DecisionType  # noqa: E402
+
+
+class TestEscalateLayerCHITLPersistence:
+    """``_escalate_layer_c_hitl`` writes a real HITL Decision to the
+    contract at ``worktree_repo_path``.
+
+    Adversarial probes for the v2→v3 transition. The v2 helper used a
+    ``_state_store_or_none()`` indirection that silently no-op'd via
+    a swallowed ``TypeError``; v3 must actually persist the Decision
+    so ``/sdlc`` reads it and the slice pauses for the operator.
+    """
+
+    PIPELINE_ID = "issue-2777-escalation"
+
+    def _seed_contract(self, repo_root: Path, *, decisions=None) -> None:
+        """Write a base contract to the temp ``repo_root`` so the
+        helper's ``load_contract(pipeline_id, repo_root)`` succeeds.
+        """
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=2777, title="#2777", url=""),
+            pipeline_id=self.PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+            decisions=decisions or [],
+        )
+        save_contract(contract, repo_root)
+
+    def test_decision_persisted_to_contract_on_disk(self) -> None:
+        """Adversarial probe — the v3 regression test for blocker 1 of
+        reviewer_code v2 + the reviewer_security v2 blocker. The v2
+        helper silently no-op'd (no Decision appended). After this
+        test executes, the contract file at
+        ``worktree_repo_path/.egg-state/contracts/<id>.json`` MUST
+        contain an unresolved HITL Decision.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="[#2777 slice-4 TASK-4-4 case 5] corrupt",
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1, (
+                "v3 helper MUST persist a Decision — v2 silently no-op'd via "
+                "the swallowed TypeError on get_state_store() (reviewer_code "
+                "v2 blocker 1)"
+            )
+            d = reloaded.decisions[0]
+            assert d.type == DecisionType.HITL
+            assert d.resolved is False, (
+                "newly-appended HITL Decision must be unresolved so /sdlc "
+                "blocks the slice for the operator"
+            )
+            assert "TASK-4-4 case 5" in d.question
+            assert len(d.options) == 3, (
+                "Layer-C HITL escalation must offer the three canonical "
+                "options (mark complete / restart / cancel)"
+            )
+
+    def test_decision_id_uses_next_cq_id_allocator(self) -> None:
+        """Adversarial probe for reviewer_code v2 blocker 2 — the v2
+        helper used ``f"decision-{len(decisions) + 1}"`` which collides
+        with the pipeline-side ``decision-N`` namespace per the
+        ``Decision.id`` docstring. v3 must use ``next_cq_id`` which
+        allocates from the ``cq-N`` namespace and IGNORES legacy
+        ``decision-N`` entries.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        # Seed the contract with TWO legacy ``decision-N`` entries that
+        # the pipeline-side bridge mirror could have written. The v2
+        # ``len(decisions)+1`` allocator would produce ``decision-3``,
+        # colliding with the bridge namespace. v3's ``next_cq_id`` must
+        # skip these and produce ``cq-1``.
+        prior = [
+            Decision(
+                id="decision-1",
+                question="legacy",
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            ),
+            Decision(
+                id="decision-2",
+                question="legacy",
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="case-5",
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            new_decisions = [d for d in reloaded.decisions if d.id.startswith("cq-")]
+            assert len(new_decisions) == 1, (
+                f"v3 must allocate a single cq-N id; got {[d.id for d in reloaded.decisions]}"
+            )
+            assert new_decisions[0].id == "cq-1", (
+                "v3 next_cq_id MUST skip legacy decision-N entries and "
+                f"allocate cq-1, got {new_decisions[0].id}"
+            )
+
+    def test_next_cq_id_increments_when_cq_entries_already_exist(self) -> None:
+        """Adversarial probe — if the contract already has ``cq-1``
+        from an earlier escalation, the next call must allocate
+        ``cq-2`` (NOT collide on ``cq-1`` and NOT silently overwrite
+        the existing decision).
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        prior = [
+            Decision(
+                id="cq-1",
+                question="earlier",
+                type=DecisionType.HITL,
+                phase=ContractPhase.IMPLEMENT,
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root, decisions=prior)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="case-5",
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            cq_ids = sorted(d.id for d in reloaded.decisions if d.id.startswith("cq-"))
+            assert cq_ids == ["cq-1", "cq-2"], f"v3 must increment cq-N; got {cq_ids}"
+
+    def test_current_phase_is_threaded_into_decision_record(self) -> None:
+        """Adversarial probe for reviewer_code v2 blocker 3 — the v2
+        helper hard-coded ``PipelinePhase.IMPLEMENT`` on the Decision
+        even when Layer-C fires under a different live phase. v3 must
+        use the ``current_phase`` parameter the caller threads through.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.PLAN,
+                question="case-5",
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert reloaded.decisions[0].phase == ContractPhase.PLAN, (
+                "v3 Decision.phase MUST reflect the live pipeline phase, "
+                "not the hard-coded IMPLEMENT literal of v2"
+            )
+
+    def test_current_phase_none_falls_back_to_implement(self) -> None:
+        """Adversarial probe — ``current_phase=None`` (defensive: the
+        Layer-C caller may have no pipeline record loaded) must fall
+        back to ``PipelinePhase.IMPLEMENT`` rather than write a None
+        phase that breaks the Decision validator.
+        """
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=None,
+                question="case-5",
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert reloaded.decisions[0].phase == ContractPhase.IMPLEMENT, (
+                "v3 defensive fallback for current_phase=None must produce "
+                "IMPLEMENT, not raise / write None / drop the Decision"
+            )
+
+    def test_signature_no_longer_accepts_context_prefix(self) -> None:
+        """Adversarial probe for the v3 signature surface — the v2
+        ``context_prefix`` parameter was dropped (the routing
+        discriminator is now embedded in ``question`` text). A test
+        that PASSES context_prefix=... must raise ``TypeError``, not
+        silently accept and ignore it (which would mask future
+        callers that still try to thread it).
+        """
+        import inspect
+
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        sig = inspect.signature(_escalate_layer_c_hitl)
+        assert "context_prefix" not in sig.parameters, (
+            f"v3 must drop context_prefix; it appears in the signature as {list(sig.parameters)}"
+        )
+
+    def test_load_contract_failure_is_swallowed(self) -> None:
+        """Adversarial probe — when the contract file is missing
+        (e.g. bootstrap ran before the contract was persisted), the
+        helper must swallow the ``ContractNotFoundError`` and return
+        cleanly (per the v3 ``except Exception as escalate_err: ...
+        logger.warning`` arm). It MUST NOT bubble up and crash the
+        Layer-C dispatch loop.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            # Do NOT seed a contract — load_contract will raise.
+            _escalate_layer_c_hitl(
+                pipeline_id="issue-2777-missing-contract",
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="case-5",
+            )
+            # No exception propagated → the test passes by virtue of
+            # reaching here. Pin the assertion so an accidental change
+            # to "raise" mode trips this regression.
+            assert True
+
+
+class TestEscalateCorruptSliceToHITL:
+    """``_escalate_corrupt_slice_to_hitl`` — case-5 wrapper that builds
+    the question text with the ``[#2777 slice-4 TASK-4-4 case 5]``
+    routing prefix.
+    """
+
+    PIPELINE_ID = "issue-2777-escalation-c5"
+
+    def test_question_includes_case_5_routing_prefix(self) -> None:
+        """Pin the literal routing prefix so a future
+        ``routes/decisions.py`` dispatch handler can scan on the exact
+        substring without a contract-schema change.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_corrupt_slice_to_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            contract = Contract(
+                schemaVersion="1.2",
+                issue=IssueInfo(number=2777, title="#2777", url=""),
+                pipeline_id=self.PIPELINE_ID,
+                current_phase=ContractPhase.IMPLEMENT,
+                slices=[],
+            )
+            save_contract(contract, repo_root)
+            _escalate_corrupt_slice_to_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-7",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1
+            assert "[#2777 slice-4 TASK-4-4 case 5]" in reloaded.decisions[0].question
+            assert "slice-7" in reloaded.decisions[0].question, (
+                "question must name the corrupt slice id"
+            )
+
+
+class TestGatewayClientMergeBaseShapeCheck:
+    """``GatewayClient.merge_base`` — adversarial probes for the v3
+    strict 40-char hex SHA shape check (replacing the v2 lax
+    ``len >= 7 + all-hex`` check). The strict regex MUST reject:
+
+    * Truncated SHAs (e.g. 7-char short SHA) — git merge-base ALWAYS
+      returns the full 40-char SHA on success, so a short SHA is
+      stdout noise / corruption and must NOT propagate downstream.
+    * Hex strings of the wrong length (39, 41).
+    * Non-hex strings (e.g. error text bleeding through stdout).
+
+    All tests below mock ``register_session`` / ``delete_session`` (v4
+    auth-bootstrap; ``/api/v1/git/execute`` is ``@require_session_auth``
+    and merge_base now self-registers a synthetic session when no
+    ``bearer_token`` is supplied, per the v4 fix for reviewer_code v3's
+    silent-no-op blocker). Direct shape-check coverage is preserved by
+    plumbing the synthetic token through ``_make_request``.
+    """
+
+    def _client(self):
+        """Build a GatewayClient with the inner ``_make_request`` mocked
+        out so we drive the stdout shape directly.
+        """
+        from gateway_client import GatewayClient
+
+        c = GatewayClient(
+            gateway_host="gateway",
+            gateway_port=8080,
+            launcher_secret="dummy",
+        )
+        return c
+
+    def _run_with_stdout(self, stdout: str, *, bearer_token: str | None = None) -> str | None:
+        """Drive ``merge_base`` against a stubbed stdout payload.
+
+        Mocks (v4 surface): ``register_session`` returns a synthetic
+        session with token ``synthetic-token``; ``delete_session``
+        is a no-op; ``_make_request`` returns ``{"data":
+        {"stdout": stdout}}`` for the ``/api/v1/git/execute`` call.
+        """
+        from unittest.mock import MagicMock, patch
+
+        c = self._client()
+        # Stub register_session to avoid hitting the real network.
+        session = MagicMock()
+        session.session_token = "synthetic-token"
+        with (
+            patch.object(c, "register_session", return_value=session),
+            patch.object(c, "delete_session"),
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": stdout}},
+            ),
+        ):
+            return c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=bearer_token,
+            )
+
+    def test_full_40_char_lowercase_hex_sha_returned(self) -> None:
+        """The canonical happy-path SHA passes the regex."""
+        sha = "0" * 40
+        assert self._run_with_stdout(sha + "\n") == sha
+
+    def test_truncated_7_char_sha_rejected(self) -> None:
+        """Adversarial probe — the v2 lax check would have accepted a
+        7-char short SHA (``len >= 7 + all-hex``). v3 must reject it
+        as "no fork point" rather than pass a truncated value
+        downstream (which would break ``create_slice_integration_branch``
+        which expects branch-name strings, not SHA prefixes).
+        """
+        assert self._run_with_stdout("abc1234\n") is None, (
+            "v3 strict regex must reject 7-char truncated SHAs that v2 accepted"
+        )
+
+    def test_uppercase_hex_rejected(self) -> None:
+        """git outputs lowercase hex; uppercase is gateway noise."""
+        assert self._run_with_stdout("A" * 40 + "\n") is None
+
+    def test_non_hex_garbage_rejected(self) -> None:
+        """Adversarial probe — error text bleeding into stdout must
+        be rejected, not parsed as a SHA.
+        """
+        assert self._run_with_stdout("not-a-sha-at-all\n") is None
+        assert self._run_with_stdout("fatal: bad object\n") is None
+
+    def test_extra_newline_noise_stripped_and_validated(self) -> None:
+        """The parser takes the first line and strips whitespace. A
+        valid SHA followed by trailing log noise is still accepted
+        (only the first line matters).
+        """
+        sha = "1" * 40
+        assert self._run_with_stdout(f"{sha}\nsome extra log\n") == sha
+
+    def test_empty_stdout_returns_none(self) -> None:
+        """Empty stdout (e.g. no shared ancestor exit) → None."""
+        assert self._run_with_stdout("") is None
+        assert self._run_with_stdout("\n") is None
+
+
+class TestGatewayClientMergeBaseSessionAuth:
+    """``GatewayClient.merge_base`` — adversarial probes for the v4
+    auth-bootstrap fix (reviewer_code v3 blocker).
+
+    The v3 helper called ``/api/v1/git/execute`` without registering a
+    session, but the endpoint is ``@require_session_auth`` so the
+    request 401'd, surfaced as a GatewayError with returncode=None,
+    and the catch-all swallow returned None → resolver mis-routed
+    the slice onto pipeline_branch. v4 mirrors the
+    fetch_branch / ls_remote_branch / get_remote_branch_sha pattern:
+    register_session(synthetic=True) when ``bearer_token`` is None,
+    plumb the token through ``_make_request``, delete_session in a
+    finally.
+
+    Coverage handed off to the tester role by the coder in the
+    slice-4 v4 commit message ("Tester ownership for the
+    TestGatewayClientMergeBase coverage gap").
+    """
+
+    def _client(self):
+        from gateway_client import GatewayClient
+
+        return GatewayClient(
+            gateway_host="gateway",
+            gateway_port=8080,
+            launcher_secret="dummy",
+        )
+
+    def test_no_bearer_token_self_bootstraps_synthetic_session(self) -> None:
+        """v4 blocker fix — ``bearer_token=None`` MUST trigger a
+        ``register_session(synthetic=True, ...)`` call before the
+        ``/api/v1/git/execute`` request. Without this self-bootstrap
+        the v3 call 401'd silently and the merge-base fallback
+        defeated TASK-4-3 for legacy slices.
+        """
+        from unittest.mock import MagicMock, patch
+
+        c = self._client()
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        sha = "0" * 40
+        with (
+            patch.object(c, "register_session", return_value=session) as mock_reg,
+            patch.object(c, "delete_session"),
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": sha + "\n"}},
+            ),
+        ):
+            c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=None,
+            )
+        mock_reg.assert_called_once()
+        # ``synthetic=True`` MUST be set: the launcher-secret-only
+        # auth path on the gateway is gated on this flag (mirroring
+        # fetch_branch / ls_remote_branch).
+        assert mock_reg.call_args.kwargs.get("synthetic") is True, (
+            "v4 merge_base must register a SYNTHETIC session — the gateway "
+            "rejects non-synthetic temporary sessions for /git/execute"
+        )
+
+    def test_synthetic_token_plumbed_to_make_request(self) -> None:
+        """Adversarial probe — the token from ``register_session``
+        MUST be passed as ``bearer_token`` on the inner
+        ``_make_request`` call. The v3 bug was that bearer_token was
+        always None at the call site; a partial v4 fix that registered
+        the session but didn't thread the token would still 401.
+        """
+        from unittest.mock import MagicMock, patch
+
+        c = self._client()
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        sha = "0" * 40
+        with (
+            patch.object(c, "register_session", return_value=session),
+            patch.object(c, "delete_session"),
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": sha + "\n"}},
+            ) as mock_req,
+        ):
+            c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=None,
+            )
+        assert mock_req.call_args.kwargs.get("bearer_token") == "synthetic-token-xyz", (
+            "v4 must plumb the synthetic session's token through to "
+            "_make_request, not pass the original bearer_token=None"
+        )
+
+    def test_caller_supplied_bearer_token_skips_register_session(self) -> None:
+        """Adversarial probe — when the caller already has a session
+        (e.g. an ambient slice / pipeline session) and passes it as
+        ``bearer_token``, the helper MUST NOT register a redundant
+        synthetic session. A v4 implementation that always registered
+        would burn a register/delete round-trip per merge_base call.
+        """
+        from unittest.mock import patch
+
+        c = self._client()
+        sha = "0" * 40
+        with (
+            patch.object(c, "register_session") as mock_reg,
+            patch.object(c, "delete_session") as mock_del,
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": sha + "\n"}},
+            ) as mock_req,
+        ):
+            c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token="caller-token-abc",
+            )
+        mock_reg.assert_not_called()
+        mock_del.assert_not_called()
+        # The caller's token must be used verbatim.
+        assert mock_req.call_args.kwargs.get("bearer_token") == "caller-token-abc"
+
+    def test_synthetic_session_deleted_in_finally_on_success(self) -> None:
+        """Adversarial probe — when we self-register, we MUST tear
+        down the session in a finally to avoid leaking gateway state.
+        """
+        from unittest.mock import MagicMock, patch
+
+        c = self._client()
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        sha = "0" * 40
+        with (
+            patch.object(c, "register_session", return_value=session),
+            patch.object(c, "delete_session") as mock_del,
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": sha + "\n"}},
+            ),
+        ):
+            c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=None,
+            )
+        mock_del.assert_called_once()
+        assert mock_del.call_args.args[0] == "synthetic-token-xyz", (
+            "v4 must delete the synthetic session it registered, not leak gateway state"
+        )
+
+    def test_synthetic_session_deleted_in_finally_on_make_request_failure(self) -> None:
+        """Adversarial probe — on ``_make_request`` failure (e.g. the
+        merge_base subprocess exits non-zero → GatewayError), the
+        finally arm MUST still tear down the synthetic session.
+        Without this the gateway leaks one session per failed call.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from gateway_client import GatewayError
+
+        c = self._client()
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(c, "register_session", return_value=session),
+            patch.object(c, "delete_session") as mock_del,
+            patch.object(
+                c,
+                "_make_request",
+                side_effect=GatewayError("merge-base exited 1", details={"returncode": 1}),
+            ),
+        ):
+            result = c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=None,
+            )
+        assert result is None, "returncode=1 (no shared ancestor) → None return is the v4 contract"
+        mock_del.assert_called_once_with("synthetic-token-xyz")
+
+    def test_mode_parameter_threaded_into_register_session(self) -> None:
+        """v4 nit — the new ``mode: Literal['public', 'private']``
+        parameter must be threaded through to ``register_session``.
+        Default is ``"public"`` (matching fetch_branch's default); a
+        private-mode pipeline must propagate to the synthetic session
+        so the gateway grants the same allowlist.
+        """
+        from unittest.mock import MagicMock, patch
+
+        c = self._client()
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        sha = "0" * 40
+        with (
+            patch.object(c, "register_session", return_value=session) as mock_reg,
+            patch.object(c, "delete_session"),
+            patch.object(
+                c,
+                "_make_request",
+                return_value={"data": {"stdout": sha + "\n"}},
+            ),
+        ):
+            c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="refs/remotes/origin/a",
+                ref_b="refs/remotes/origin/b",
+                bearer_token=None,
+                mode="private",
+            )
+        assert mock_reg.call_args.kwargs.get("mode") == "private", (
+            "v4 must thread the mode parameter through to register_session"
+        )
+
+    def test_default_mode_is_public(self) -> None:
+        """The ``mode`` parameter defaults to ``"public"`` matching
+        the rest of the auth-bootstrapped gateway surface
+        (fetch_branch / ls_remote_branch / get_remote_branch_sha).
+        """
+        import inspect
+
+        from gateway_client import GatewayClient
+
+        sig = inspect.signature(GatewayClient.merge_base)
+        mode_param = sig.parameters.get("mode")
+        assert mode_param is not None, (
+            "v4 merge_base must accept a mode parameter for private-pipeline propagation"
+        )
+        assert mode_param.default == "public", (
+            f"v4 default mode must be 'public'; got {mode_param.default!r}"
+        )
+
+    def test_empty_ref_short_circuits_before_register_session(self) -> None:
+        """Adversarial probe — the early ``if not ref_a or not ref_b``
+        short-circuit MUST run BEFORE ``register_session``. Otherwise
+        a caller passing an empty ref burns a register/delete
+        round-trip per call.
+        """
+        from unittest.mock import patch
+
+        c = self._client()
+        with (
+            patch.object(c, "register_session") as mock_reg,
+            patch.object(c, "_make_request"),
+        ):
+            result = c.merge_base(
+                pipeline_id="issue-2777-mb",
+                repo_path="/tmp/x",
+                ref_a="",
+                ref_b="refs/remotes/origin/b",
+            )
+        assert result is None
+        mock_reg.assert_not_called()
+
+
+class TestEscalateBlockedSliceToHITL:
+    """``_escalate_blocked_slice_to_hitl`` — case-4 wrapper. Question
+    text embeds the ``[#2777 slice-4 TASK-4-4 case 4]`` prefix AND the
+    caller-supplied ``reason`` so the operator sees why the BLOCKED
+    slice had no pending HITL.
+    """
+
+    PIPELINE_ID = "issue-2777-escalation-c4"
+
+    def test_question_includes_case_4_prefix_and_reason(self) -> None:
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_blocked_slice_to_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            contract = Contract(
+                schemaVersion="1.2",
+                issue=IssueInfo(number=2777, title="#2777", url=""),
+                pipeline_id=self.PIPELINE_ID,
+                current_phase=ContractPhase.IMPLEMENT,
+                slices=[],
+            )
+            save_contract(contract, repo_root)
+            _escalate_blocked_slice_to_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-9",
+                reason="no pending HITL decision found on contract",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1
+            q = reloaded.decisions[0].question
+            assert "[#2777 slice-4 TASK-4-4 case 4]" in q
+            assert "slice-9" in q
+            assert "no pending HITL decision found on contract" in q, (
+                "case-4 wrapper must embed the caller's reason verbatim "
+                "so the operator sees why the BLOCKED slice had no HITL"
+            )
+
+
+# ---------------------------------------------------------------------------
 # TASK-4-5: Per-slice consensus tracker reconstruction (#2409 / AC-16)
 # ---------------------------------------------------------------------------
 
