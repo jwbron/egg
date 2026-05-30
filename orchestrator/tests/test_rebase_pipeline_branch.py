@@ -381,3 +381,66 @@ class TestRebasePipelineBranchOntoBase:
             _call(spawner)
             assert mock_run.call_count == 5
             spawner.gateway.push_worktree_branch.assert_not_called()
+
+
+class TestNoSilentRebaseOfWorkOntoMain:
+    """#2570 regression test — slice-3 TASK-3-11 (6) per AC-9 NB#1.
+
+    The #2570 silent-rebase symptom: ``git merge-base origin/main
+    origin/egg/<id>/work`` advances forward as main lands new PRs,
+    even though no one explicitly rebased the pipeline branch. The
+    bug-class vector identified in task-3-3 lives inside the OOS
+    primitive ``_sync_worktree_with_remote`` (pipelines.py:7219–7232)
+    — specifically the ``divergence_rebase_failed`` early-return + the
+    bare-rebase fallback documented in code as the "#2222
+    contamination" vector.
+
+    Per the task-3-3 audit (see
+    .egg-state/agent-outputs/issue-2777-replan-task-3-3-audit.md) and
+    AC-9a's three-option HITL gate, the operator's resolution is
+    **option 3 — mark #2570 as xfail in slice-3 and open a follow-up
+    issue co-scheduled with the #2792 work** (default recommendation
+    per the architect's R1). Slice-3's plan documented the OOS
+    primitive as out of scope per decision-11; the in-scope rebase
+    sites (``_rebase_pipeline_branch_onto_base`` and its sole caller)
+    do not own the silent-rebase vector.
+
+    This test is xfail-marked with ``strict=True`` so that if/when the
+    #2792 work lands the in-scope fix, the green run trips the
+    xfail-strict and the test re-enables itself — at that point the
+    body should be filled in per AC-9 NB#1's pinning:
+
+        > **N≥3 phase transitions** with **M≥2 main PRs merged in
+        > parallel**, then assert the merge-base is still the
+        > pipeline-creation SHA.
+
+    Today the body is a deliberate ``pytest.fail`` so the test counts
+    as xfailed (not xpassed) until the follow-up lands.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "#2570 silent rebase lives in the OOS primitive "
+            "_sync_worktree_with_remote (pipelines.py:7219-7232 "
+            "bare-rebase fallback) per the slice-3 task-3-3 audit; "
+            "AC-9a HITL option 3 selected — xfailed in slice-3, "
+            "follow-up co-scheduled with #2792. Re-enable body and "
+            "drop the xfail once the in-scope fix lands."
+        ),
+    )
+    def test_pipeline_creation_sha_remains_merge_base_under_concurrent_main_advances(
+        self,
+    ):
+        """Pin: ``git merge-base origin/main origin/egg/<id>/work``
+        equals the pipeline-creation SHA after **N≥3 phase
+        transitions** with **M≥2 main PRs merged in parallel**.
+
+        Body deliberately fails today (xfail strict) — see class
+        docstring for the AC-9a / #2792 follow-up wiring.
+        """
+        pytest.fail(
+            "#2570 fix is out of scope for slice-3 per AC-9a option 3 — "
+            "the in-scope fix ships with #2792 (xfail strict will trip "
+            "to xpass once the follow-up lands)."
+        )
