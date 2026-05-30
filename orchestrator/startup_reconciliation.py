@@ -9,6 +9,7 @@ existing POST /pipelines/{id}/start endpoint.
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -374,6 +375,44 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                         pipeline_id=pipeline_id,
                         error=str(eval_err),
                     )
+
+            # Slice-4 TASK-4-5 (closes #2409): per-slice consensus
+            # tracker reconstruction. Iterate the pipeline's contract
+            # slices and reconstruct each slice's tracker from the
+            # message store's slice_id-tagged history. The metadata
+            # filter at ``message_store.py`` get_messages_with_meta
+            # (line ~407, #2725) does the actual scope filtering —
+            # ``reconstruct_tracker_from_messages`` accepts the
+            # ``slice_id`` kwarg (peer_consensus.py:1955-2046) and
+            # registers each tracker under the nested
+            # ``{pipeline_id}/{slice_id}`` key. The cross-slice
+            # isolation invariant (#2409 / #2761) holds by
+            # construction: a slice-N tracker reconstructed here will
+            # NOT contain messages tagged with a sibling slice_id,
+            # because the metadata filter strictly equals.
+            _slice_objs = _enumerate_contract_slices(pipeline, store)
+            for _slice_id in _slice_objs:
+                try:
+                    if get_peer_consensus_tracker(pipeline.id, slice_id=_slice_id) is not None:
+                        continue
+                    _slice_tracker = reconstruct_tracker_from_messages(
+                        pipeline.id, graph, slice_id=_slice_id
+                    )
+                    if _slice_tracker is not None:
+                        logger.info(
+                            "Startup reconciliation: reconstructed per-slice "
+                            "consensus tracker (slice-4 TASK-4-5 / #2409)",
+                            pipeline_id=pipeline.id,
+                            slice_id=_slice_id,
+                        )
+                except Exception as slice_recon_err:
+                    logger.warning(
+                        "Startup reconciliation: per-slice tracker "
+                        "reconstruction failed (slice-4 TASK-4-5)",
+                        pipeline_id=pipeline.id,
+                        slice_id=_slice_id,
+                        error=str(slice_recon_err),
+                    )
     except ImportError:
         logger.debug("Peer consensus module not available for startup reconstruction")
     except Exception as e:
@@ -383,3 +422,28 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         )
 
     return recovered
+
+
+def _enumerate_contract_slices(pipeline: Any, store: Any) -> list[str]:
+    """Return the slice IDs from the pipeline's contract, if any.
+
+    Slice-4 TASK-4-5 helper. Reads ``contract.slices`` for the pipeline
+    so the consensus-reconstruction loop can iterate per-slice tracker
+    reconstruction without coupling startup_reconciliation to the
+    contract loader. Best-effort: returns ``[]`` on any error so the
+    pipeline-level reconstruction (still in place above) continues
+    to run.
+    """
+    repo_path = getattr(store, "repo_path", None)
+    if not repo_path:
+        return []
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError:
+        return []
+    try:
+        contract = load_contract(pipeline.id, Path(repo_path))
+    except Exception:
+        return []
+    slices = getattr(contract, "slices", None) or []
+    return [s.id for s in slices]
