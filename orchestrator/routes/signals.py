@@ -865,116 +865,26 @@ def handle_readiness_signal(
     data: dict[str, Any],
     repo_path: Path,
 ) -> tuple[Response, int]:
-    """Handle readiness signal for concurrent phase consensus.
+    """Stub for the deprecated readiness signal.
 
-    Request body data:
-        {
-            "agent_role": "coder",
-            "state": "READY" | "WORKING" | "BLOCKED" | "OBJECTING",
-            "reason": "Optional reason text"
-        }
+    The readiness signal backed the legacy ``ConsensusEvaluator``
+    READY-tallying protocol, which was removed in cq-5 of #2777. The
+    surviving consensus path is BRC peer-consensus (see
+    ``handle_consensus_*_signal``). This stub remains so existing routers
+    can still surface a clean rejection if a legacy caller fires a
+    ``readiness`` signal.
     """
     logger.warning(
-        "Readiness signal is deprecated. Use consensus protocol signals instead.",
+        "Readiness signal is no longer supported; use BRC consensus signals.",
         pipeline_id=pipeline_id,
         role=data.get("agent_role"),
     )
-    agent_role_str = data.get("agent_role")
-    if not agent_role_str:
-        return make_error_response("Missing agent_role")
-
-    state_str = data.get("state")
-    if not state_str:
-        return make_error_response("Missing state")
-
-    valid_states = {"WORKING", "READY", "BLOCKED", "OBJECTING"}
-    if state_str not in valid_states:
-        return make_error_response(
-            f"Invalid state: {state_str}. Valid states: {sorted(valid_states)}"
-        )
-
-    reason = data.get("reason")
-
-    try:
-        from consensus import ReadinessState, get_consensus_evaluator
-    except ImportError:
-        from ..consensus import ReadinessState, get_consensus_evaluator  # type: ignore[no-redef]
-
-    try:
-        from events import EventType, emit_event
-    except ImportError:
-        from ..events import EventType, emit_event  # type: ignore[no-redef]
-
-    try:
-        store = get_state_store(repo_path)
-        store.load_pipeline(pipeline_id)
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
-    except PipelineNotFoundError:
-        return make_error_response(
-            f"Pipeline {pipeline_id} not found",
-            status_code=404,
-        )
-
-    try:
-        evaluator = get_consensus_evaluator()
-        readiness = evaluator.update_readiness(
-            pipeline_id,
-            agent_role_str,
-            ReadinessState(state_str),
-            reason=reason,
-        )
-
-        emit_event(
-            EventType.READINESS_CHANGED,
-            pipeline_id,
-            data={
-                "role": agent_role_str,
-                "readiness_state": state_str,
-                "reason": reason,
-            },
-        )
-
-        # Check if consensus has been reached
-        consensus = evaluator.evaluate(pipeline_id)
-
-        logger.info(
-            "Readiness signal",
-            pipeline_id=pipeline_id,
-            role=agent_role_str,
-            state=state_str,
-            consensus_complete=consensus["is_complete"],
-        )
-
-        return make_success_response(
-            f"Readiness updated: {agent_role_str} -> {state_str}",
-            data={
-                "readiness": {
-                    "role": readiness.role,
-                    "state": readiness.state.value,
-                    "reason": readiness.reason,
-                },
-                "consensus": {
-                    "is_complete": consensus["is_complete"],
-                    "blocking_agents": consensus["blocking_agents"],
-                },
-            },
-        )
-    except Exception as e:
-        logger.error(
-            "Failed to process readiness signal",
-            pipeline_id=pipeline_id,
-            role=agent_role_str,
-            state=state_str,
-            error=str(e),
-        )
-        return make_error_response(
-            f"Failed to process readiness signal: {e}",
-            status_code=500,
-        )
+    return make_error_response(
+        "Readiness signal removed under cq-5 of #2777. Use BRC consensus "
+        "signals (consensus_propose / consensus_ack / consensus_nack / "
+        "consensus_confirmed) instead.",
+        status_code=410,
+    )
 
 
 def _validate_tester_check_coverage(

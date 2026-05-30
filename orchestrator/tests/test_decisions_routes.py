@@ -406,7 +406,8 @@ class TestPhaseValidation:
         mock_queue = MagicMock()
         mock_get_queue.return_value = mock_queue
 
-        for phase in ("refine", "plan", "implement", "pr"):
+        # "pr" was removed as a valid phase in #2777 (slice-2).
+        for phase in ("refine", "plan", "implement"):
             mock_queue.queue_decision.return_value = _make_decision()
             response = client.post(
                 "/api/v1/pipelines/test-pipeline/decisions",

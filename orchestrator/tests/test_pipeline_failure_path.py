@@ -523,7 +523,8 @@ class TestSuccessPathPushesStatefiles:
     """Verify push_worktree_branch is called after successful phase completion
     to push .egg-state/ files to the remote before the next phase begins."""
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -544,14 +545,19 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """When a phase succeeds, push_worktree_branch should be called to push
         statefiles to the remote so the next phase's agents don't see unpushed
         .egg-state/ files in their diff."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
-        # Use PR phase (terminal) so the pipeline completes after one iteration
+        # IMPLEMENT is the terminal phase after #2777 removed the PR phase, so
+        # the pipeline completes after one iteration. The implement phase always
+        # runs the concurrent BRC executor, so _run_concurrent_phase is patched
+        # to return success. The context PR now opens up front via
+        # _open_context_pr_at_implement_start (patched to a no-op here).
         pipeline = Pipeline(
             id="issue-42",
             issue_number=42,
@@ -559,10 +565,10 @@ class TestSuccessPathPushesStatefiles:
             branch="egg/issue-42",
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 
@@ -594,17 +600,17 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # Pipeline should complete successfully (PR is terminal phase)
+        # Pipeline should complete successfully (IMPLEMENT is terminal phase)
         assert pipeline.status == PipelineStatus.COMPLETE
 
-        # push_worktree_branch should have been called:
-        # - once for auto-PR pre-push (pushes commits before PR creation)
-        # - once after phase completion (pushes statefiles)
+        # push_worktree_branch should have been called once after phase
+        # completion to push statefiles. The auto-PR pre-push is gone (#2777
+        # removed _auto_create_pr; the context PR opens up front instead).
         # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 2, (
-            f"Expected push_worktree_branch to be called twice "
-            f"(auto-PR pre-push + phase completion), got {len(calls)} calls"
+        assert len(calls) == 1, (
+            f"Expected push_worktree_branch to be called once "
+            f"(phase completion), got {len(calls)} calls"
         )
         for c in calls:
             assert c.kwargs == {
@@ -615,7 +621,8 @@ class TestSuccessPathPushesStatefiles:
                 "base_branch": None,
             }
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -636,13 +643,15 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """When contract_synced is False, push_worktree_branch should be called
         after contract initialization to push .egg-state/ files to the remote."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
-        # Use PR phase (terminal) so the pipeline completes after one iteration
+        # IMPLEMENT is the terminal phase (#2777) so the pipeline completes after
+        # one iteration; the concurrent BRC executor is patched to succeed.
         pipeline = Pipeline(
             id="issue-42",
             issue_number=42,
@@ -650,10 +659,10 @@ class TestSuccessPathPushesStatefiles:
             branch="egg/issue-42",
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = False  # Triggers contract initialization
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 
@@ -686,14 +695,15 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # push_worktree_branch should be called exactly three times:
-        # once after contract initialization, once for auto-PR pre-push,
-        # and once after phase completion.
+        # push_worktree_branch should be called exactly twice: once after
+        # contract initialization and once after phase completion. The auto-PR
+        # pre-push is gone (#2777 removed _auto_create_pr; context PR opens up
+        # front).
         # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 3, (
-            f"Expected push_worktree_branch to be called three times "
-            f"(contract init + auto-PR pre-push + phase completion), got {len(calls)} calls"
+        assert len(calls) == 2, (
+            f"Expected push_worktree_branch to be called twice "
+            f"(contract init + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
         for c in calls:
@@ -705,7 +715,8 @@ class TestSuccessPathPushesStatefiles:
                 "base_branch": None,
             }
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -726,13 +737,16 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """When pipeline.branch is not set, a fallback branch is generated and
         persisted, so push_worktree_branch is called with the generated name
         even on the success path."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
+        # IMPLEMENT is the terminal phase (#2777); concurrent BRC executor patched
+        # to succeed so the pipeline completes after one iteration.
         pipeline = Pipeline(
             id="issue-42",
             issue_number=42,
@@ -740,10 +754,10 @@ class TestSuccessPathPushesStatefiles:
             branch=None,
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 
@@ -774,11 +788,12 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # Generated branch should be used for pushing (called twice on success path:
-        # once during phase execution and once in the final push)
+        # Generated branch should be used for the phase-completion push. With the
+        # auto-PR pre-push gone (#2777), only the post-phase statefile push
+        # remains on the success path.
         push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) == 2, (
-            f"Expected push_worktree_branch to be called exactly 2 times, got {len(push_calls)}"
+        assert len(push_calls) == 1, (
+            f"Expected push_worktree_branch to be called exactly 1 time, got {len(push_calls)}"
         )
         expected_call = (
             (),
@@ -791,7 +806,6 @@ class TestSuccessPathPushesStatefiles:
             },
         )
         assert push_calls[0] == expected_call
-        assert push_calls[1] == expected_call
 
         # Verify the generated branch was persisted via save_pipeline
         save_calls = mock_store.save_pipeline.call_args_list
@@ -804,7 +818,6 @@ class TestSuccessPathPushesStatefiles:
 class TestContractPushHardGate:
     """Verify that contract init push failure aborts the pipeline (#1431)."""
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -825,7 +838,6 @@ class TestContractPushHardGate:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
     ):
         """When push_worktree_branch fails (reconcile is internal), the pipeline
         should be marked FAILED and no agents should be spawned."""
@@ -899,7 +911,6 @@ class TestContractPushHardGate:
         # No agents should be spawned after push failure
         mock_spawn_wait.assert_not_called()
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -920,7 +931,6 @@ class TestContractPushHardGate:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
     ):
         """Regression for #1852: pipeline.error must name the failure
         category and carry the underlying detail, not the opaque string
@@ -991,7 +1001,8 @@ class TestContractPushHardGate:
             f"opaque legacy error string should not leak to operators; got: {error!r}"
         )
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -1012,7 +1023,8 @@ class TestContractPushHardGate:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """When push succeeds (possibly via internal reconcile), the pipeline continues."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
@@ -1291,7 +1303,8 @@ class TestAgentWorktreeCleanup:
     them explicitly.  See #1019.
     """
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
     @patch(_COMMON_PATCHES[5])
@@ -1310,14 +1323,16 @@ class TestAgentWorktreeCleanup:
         mock_build_prompt,
         mock_read_draft,
         mock_report,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """On pipeline completion, delete_worktrees is called for the pipeline
         container_id AND for every agent container (egg-{pipeline_id}-{role})."""
         from models import AgentRole
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
-        # Use PR phase (terminal) so the pipeline completes after one iteration
+        # IMPLEMENT is the terminal phase (#2777) so the pipeline completes after
+        # one iteration; the concurrent BRC executor is patched to succeed.
         pipeline = Pipeline(
             id="issue-42",
             issue_number=42,
@@ -1325,10 +1340,10 @@ class TestAgentWorktreeCleanup:
             branch="egg/issue-42",
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 
@@ -1381,7 +1396,8 @@ class TestAgentWorktreeCleanup:
                 f"'{expected}', got: {deleted_ids}"
             )
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._run_concurrent_phase", return_value=(0, "success"))
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
     @patch(_COMMON_PATCHES[5])
@@ -1400,12 +1416,15 @@ class TestAgentWorktreeCleanup:
         mock_build_prompt,
         mock_read_draft,
         mock_report,
-        mock_auto_create_pr,
+        mock_open_context_pr,
+        mock_run_concurrent,
     ):
         """If pipeline-level delete_worktrees raises, per-agent cleanup still runs."""
         from models import AgentRole
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
+        # IMPLEMENT is the terminal phase (#2777); concurrent BRC executor patched
+        # to succeed so the pipeline completes after one iteration.
         pipeline = Pipeline(
             id="issue-42",
             issue_number=42,
@@ -1413,10 +1432,10 @@ class TestAgentWorktreeCleanup:
             branch="egg/issue-42",
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = True
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 
@@ -1819,7 +1838,6 @@ class TestInitialStatefileCommitFailure:
     """Verify that _commit_statefiles_to_worktree failure during initial
     contract creation aborts the pipeline (#1548)."""
 
-    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch(
         "routes.pipelines._commit_statefiles_to_worktree",
         side_effect=subprocess.CalledProcessError(1, "git add"),
@@ -1843,7 +1861,6 @@ class TestInitialStatefileCommitFailure:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
-        mock_auto_create_pr,
     ):
         """When _commit_statefiles_to_worktree raises CalledProcessError during
         initial contract creation, the pipeline should be marked FAILED and

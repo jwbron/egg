@@ -1055,14 +1055,17 @@ class Pipeline(BaseModel):
     pr_number: int | None = Field(
         default=None,
         ge=1,
-        description="Number of the PR opened by this pipeline's implement "
-        "phase (issue #1557 reverse-index in-flight detection). None until "
-        "the pipeline reaches the PR stage.",
+        description="Number of the context PR opened by this pipeline at the "
+        "plan→implement boundary (#2777) — used by the #1557 reverse-index "
+        "in-flight detector. None until the context PR is opened, and for "
+        "local-mode pipelines that have no remote.",
     )
     pr_head_sha: str | None = Field(
         default=None,
-        description="Head commit SHA of the PR opened by this pipeline, "
-        "captured during PR finalization. None until the PR stage.",
+        description="Head commit SHA of the context PR opened at the "
+        "plan→implement boundary (#2777), captured when the PR is opened. "
+        "None until the context PR is opened, and for local-mode pipelines "
+        "that have no remote.",
     )
 
     @field_validator("pr_head_sha")
@@ -1162,13 +1165,14 @@ class Pipeline(BaseModel):
     pr_url: str | None = Field(
         default=None,
         description=(
-            "Full URL of the implement-phase PR opened by this pipeline "
-            "(issue #1557 slice-2 — reverse-index in-flight detection). "
-            "Populated alongside ``pr_number`` when the implement phase "
-            "opens a PR; consumed by the reassess sweep's in-flight "
-            "classifier so existing children with an open PR aren't "
-            "re-mutated without operator confirmation. ``None`` for "
-            "pipelines that haven't reached the PR stage yet."
+            "Full URL of the context PR opened by this pipeline at the "
+            "plan→implement boundary (#2777; #1557 slice-2 — reverse-index "
+            "in-flight detection). Populated alongside ``pr_number`` when "
+            "the context PR is opened; consumed by the reassess sweep's "
+            "in-flight classifier so existing children with an open PR "
+            "aren't re-mutated without operator confirmation. ``None`` "
+            "until the context PR is opened, and for local-mode pipelines "
+            "that have no remote."
         ),
     )
 

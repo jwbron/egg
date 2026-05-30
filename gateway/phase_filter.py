@@ -523,16 +523,13 @@ class PhaseFilter:
                 ],
                 exit_requires="reviewer",
             ),
-            PipelinePhase.PR: PhasePermissions(
-                allowed_operations=[
-                    Operation(OperationType.GH, "pr create*", "Create PRs"),
-                    Operation(OperationType.GH, "pr edit *", "Edit PRs"),
-                    Operation(OperationType.GIT, "push *", "Push code"),
-                    Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
-                ],
-                blocked_operations=[],
-                exit_requires="human",
-            ),
+            # The PR phase was hard-removed in #2777 (cq-4 / TASK-2-2);
+            # no PhasePermissions row is registered for it. The
+            # orchestrator's ``GatewayClient.create_pr`` now registers
+            # its synthetic session WITHOUT a phase value, hitting the
+            # gh_pr_create handler's explicit "No phase set - allow by
+            # default" branch (``gateway.py:3685``), so the carve-out no
+            # longer needs an entry here.
         }
 
     def _get_default_file_restrictions(self) -> list[FileRestriction]:
@@ -639,10 +636,10 @@ class PhaseFilter:
                     "checkpoints, agent anchors, and reviews only"
                 ),
             ),
-            PipelinePhase.PR: PhaseFileRestriction(
-                allowed_patterns=["*"],
-                description="PR phase can push everything",
-            ),
+            # The PR phase was hard-removed in #2777 (cq-4 / TASK-2-2);
+            # no PhaseFileRestriction row remains. See the matching
+            # PhasePermissions deletion in ``_get_default_permissions``
+            # for the synthetic-session carve-out rationale.
         }
 
     def get_file_restrictions(self) -> list[FileRestriction]:

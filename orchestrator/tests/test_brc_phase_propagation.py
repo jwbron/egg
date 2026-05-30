@@ -156,18 +156,22 @@ class TestResolvePipelinePhase:
 
         assert result == "refine"
 
-    def test_returns_pr_phase(self):
-        """Returns 'pr' when the pipeline is in the PR phase."""
+    def test_returns_implement_phase(self):
+        """Returns 'implement' when the pipeline is in the implement phase.
+
+        (Replaces the former PR-phase case; the PR phase was removed in
+        #2777 slice-2 and IMPLEMENT is now terminal.)
+        """
         from routes.signals import _resolve_pipeline_phase
 
-        pipeline = _make_pipeline(phase=PipelinePhase.PR)
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
 
         with patch("routes.signals.get_state_store", return_value=mock_store):
             result = _resolve_pipeline_phase("issue-42", Path("/tmp/repo"))
 
-        assert result == "pr"
+        assert result == "implement"
 
     def test_fallback_on_load_failure(self):
         """Falls back to 'implement' when state store raises an exception."""

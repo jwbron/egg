@@ -67,8 +67,10 @@ PHASE_TRANSITIONS = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT, PipelinePhase.APPLY],
     PipelinePhase.APPLY: [PipelinePhase.IMPLEMENT],
-    PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
-    PipelinePhase.PR: [],  # Terminal phase
+    # IMPLEMENT is now terminal — the PR phase was removed in #2777 (cq-4).
+    # The context PR opens up-front at the plan→implement boundary via
+    # ``_open_context_pr_at_implement_start``; slice PRs stack on it.
+    PipelinePhase.IMPLEMENT: [],
 }
 
 
@@ -115,15 +117,11 @@ def _clear_concurrent_state(pipeline_id: str) -> None:
     except ImportError:
         from ..message_store import get_message_store  # type: ignore[no-redef]
 
-    try:
-        from consensus import get_consensus_evaluator
-    except ImportError:
-        from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
-
     cleared = get_message_store().clear(pipeline_id)
-    get_consensus_evaluator().clear(pipeline_id)
 
-    # Clear BRC tracker if it exists
+    # Clear BRC tracker if it exists. The legacy ConsensusEvaluator was
+    # removed in cq-5 of #2777; the BRC tracker is the only consensus
+    # state that needs clearing on a phase transition.
     try:
         from peer_consensus import remove_peer_consensus_tracker
 
@@ -1060,7 +1058,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             "data": {
                 "phase": "implement",
                 "current_phase": "implement",
-                "next_phase": "pr"
+                "next_phase": null
             }
         }
 

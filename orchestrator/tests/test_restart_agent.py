@@ -2394,19 +2394,17 @@ class TestConsensusResetOrdering:
         mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Docker error")
         mock_spawner_fn.return_value = mock_spawner
 
-        # Mock the consensus modules via sys.modules so the inline imports
-        # inside the route handler resolve correctly (no create=True needed).
+        # Mock the peer-consensus tracker via sys.modules so the inline
+        # import inside the route handler resolves correctly (no create=True
+        # needed). The legacy ``consensus`` evaluator reset was removed in
+        # #2777 (slice-2).
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
 
         with patch.dict(
             "sys.modules",
             {
                 "peer_consensus": MagicMock(
                     get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                ),
-                "consensus": MagicMock(
-                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
                 ),
             },
         ):
@@ -2419,7 +2417,6 @@ class TestConsensusResetOrdering:
 
             # Consensus should NOT have been reset since spawn failed
             mock_tracker.remove_agent.assert_not_called()
-            mock_evaluator.remove_agent.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
@@ -2453,18 +2450,17 @@ class TestConsensusResetOrdering:
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
-        # Patch the consensus imports inside the route handler
+        # Patch the peer-consensus tracker import inside the route handler.
+        # The legacy ``consensus`` evaluator reset was removed in #2777
+        # (slice-2 deleted ``orchestrator/consensus.py``); only the
+        # peer-consensus (BRC) tracker is reset on restart now.
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
 
         with patch.dict(
             "sys.modules",
             {
                 "peer_consensus": MagicMock(
                     get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                ),
-                "consensus": MagicMock(
-                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
                 ),
             },
         ):
@@ -2477,7 +2473,6 @@ class TestConsensusResetOrdering:
 
             # Consensus should have been reset after successful spawn
             mock_tracker.remove_agent.assert_called_once_with("coder")
-            mock_evaluator.remove_agent.assert_called_once_with("issue-100", "coder")
 
 
 @pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")

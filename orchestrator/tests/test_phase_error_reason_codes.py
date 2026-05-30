@@ -82,13 +82,16 @@ class TestAdvancePhaseReasonCodes:
 
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_invalid_phase_transition(self, mock_get_store, client):
-        # REFINE -> PR is not a valid transition (REFINE can go to PLAN or IMPLEMENT)
+        # REFINE -> APPLY is not a valid transition (REFINE can go to PLAN
+        # or IMPLEMENT). APPLY is a real phase, so this exercises the
+        # transition guard rather than the unknown-phase guard. (The PR
+        # phase, formerly used here, was removed in #2777 slice-2.)
         pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
         mock_get_store.return_value = (MagicMock(repo_path=Path("/tmp/repo")), pipeline)
 
         resp = client.post(
             "/api/v1/pipelines/issue-42/phase",
-            json={"target_phase": "pr"},
+            json={"target_phase": "apply"},
         )
         assert resp.status_code == 400
         assert _body(resp)["reason"] == "invalid_phase_transition"

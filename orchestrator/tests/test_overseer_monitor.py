@@ -702,19 +702,30 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
 
     When consensus is complete and the pipeline is still ``running``, the
     post-consensus stall detector used to fire after its grace period even
-    when the implement phase had already transitioned into PR-creation.
-    The symptom: ``post_consensus_stall`` alerts / HITL / Slack firing
-    during the normal implement→PR transition window.
+    when the implement phase had already transitioned out (the legacy
+    epic-apply path advances ``current_phase`` past ``implement``). The
+    symptom: ``post_consensus_stall`` alerts / HITL / Slack firing during
+    a normal post-implement transition window.
 
     The short-circuit added in #1911 loads the pipeline inside the detector
-    and returns early — with no alert, no HITL, no Slack — whenever any of
-    the three "transition is done" signals is set:
+    and returns early — with no alert, no HITL, no Slack — when:
 
       (a) ``pipeline.current_phase.value != 'implement'`` — already moved on
-      (b) ``pipeline.pr_number is not None`` — auto-PR finalized
-      (c) ``pipeline.phases.get('pr').artifacts['pr_url']`` populated
 
-    It also resets ``_post_consensus_stall_first_seen`` in the short-circuit
+    Under #2777 (cq-4 / TASK-2-2) the PR phase was removed and IMPLEMENT
+    is terminal. The original short-circuit also gated on
+    ``pipeline.pr_number`` / a ``phases["pr"].artifacts["pr_url"]``
+    artifact because, pre-#2777, both flipped only after a finished
+    implement→PR transition. Post-#2777, ``pr_number`` is populated up
+    front by ``_open_context_pr_at_implement_start`` at implement-start
+    and the PR-phase artifact bag is gone — so the legacy arms are
+    either harmful (would suppress detection for the whole implement
+    bug window) or unreachable. Only arm (a) is kept; the detector must
+    *still fire* when consensus completes during implement and the
+    pipeline stays on implement past the grace period, even if
+    ``pr_number`` is already set.
+
+    The short-circuit also resets ``_post_consensus_stall_first_seen``
     so a later genuine stall gets a fresh grace period. If the pipeline
     load raises, the detector falls through to the existing grace-period
     logic (fail open) — we never want a state-store hiccup to suppress a
@@ -726,19 +737,13 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         *,
         current_phase="implement",
         pr_number=None,
-        pr_artifact=None,
     ):
         """Build a MagicMock pipeline matching the attribute accesses in
         ``_check_post_consensus_stall``."""
-        phases: dict = {}
-        if pr_artifact is not None:
-            pr_phase = MagicMock()
-            pr_phase.artifacts = {"pr_url": pr_artifact}
-            phases["pr"] = pr_phase
         pipeline = MagicMock()
         pipeline.current_phase = MagicMock(value=current_phase)
         pipeline.pr_number = pr_number
-        pipeline.phases = phases
+        pipeline.phases = {}
         return pipeline
 
     def _monitor_with_store(self, pipeline, pipeline_id: str) -> tuple[OverseerMonitor, MagicMock]:
@@ -767,10 +772,10 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
 
     def test_shortcircuits_when_phase_already_advanced(self) -> None:
         """current_phase != 'implement' — detector must NOT broadcast / HITL
-        / Slack.  The phase has already finished transitioning out of
-        implement so any "consensus complete but still running" signal is
-        stale."""
-        pipeline = self._pipeline(current_phase="pr")
+        / Slack.  The phase has already advanced (e.g., epic-apply transition
+        plan → apply), so any "consensus complete but still running" signal
+        is stale."""
+        pipeline = self._pipeline(current_phase="apply")
         monitor, store = self._monitor_with_store(pipeline, "test-1911-phase-advanced")
 
         self._invoke(monitor, store)
@@ -782,32 +787,25 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         # fresh grace period.
         assert monitor._post_consensus_stall_first_seen is None
 
-    def test_shortcircuits_when_pr_number_populated(self) -> None:
-        """pipeline.pr_number is not None — auto-PR finalized, the
-        implement→PR transition is done.  No alert."""
-        pipeline = self._pipeline(pr_number=99)
-        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-number")
+    def test_does_not_shortcircuit_when_pr_number_set_in_implement(self) -> None:
+        """Regression test for the AC-23 fix on top of #2777 cq-4.
+
+        ``pipeline.pr_number`` is populated up-front by
+        ``_open_context_pr_at_implement_start`` at implement *start*, so it
+        is not a transition-completion signal anymore. The detector MUST
+        still fire after the grace period when consensus completes during
+        implement and the pipeline stays on implement — even if
+        ``pr_number`` is already set — because that is precisely the
+        post-implement-transition stall window this detector exists to
+        catch."""
+        pipeline = self._pipeline(current_phase="implement", pr_number=99)
+        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-number-implement")
 
         self._invoke(monitor, store)
 
-        monitor._broadcast_alert.assert_not_awaited()
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-        assert monitor._post_consensus_stall_first_seen is None
-
-    def test_shortcircuits_when_pr_url_artifact_present(self) -> None:
-        """phases['pr'].artifacts['pr_url'] is set — the artifact write
-        that happens inside _finalize_pr_phase_failed's lock has landed,
-        so the transition is done.  No alert."""
-        pipeline = self._pipeline(pr_artifact="https://github.com/owner/repo/pull/99")
-        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-url")
-
-        self._invoke(monitor, store)
-
-        monitor._broadcast_alert.assert_not_awaited()
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-        assert monitor._post_consensus_stall_first_seen is None
+        monitor._broadcast_alert.assert_awaited_once()
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
 
     def test_fails_open_when_pipeline_load_raises(self) -> None:
         """If the state store raises (e.g. transient FS error), the
@@ -839,13 +837,12 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         monitor._create_hitl_decision.assert_awaited_once()
         monitor._send_slack_notification.assert_awaited_once()
 
-    def test_no_shortcircuit_when_phase_implement_and_no_pr_markers(self) -> None:
-        """Sanity check: when NONE of the three transition-completion
-        signals is set — implement phase, no pr_number, no pr_url artifact —
-        the detector must still fire after the grace period.  This is the
-        original bug-reproduction path; the short-circuit must not
-        accidentally swallow genuine stalls."""
-        pipeline = self._pipeline(current_phase="implement", pr_number=None, pr_artifact=None)
+    def test_no_shortcircuit_when_phase_implement(self) -> None:
+        """Sanity check: when current_phase is still 'implement' (no
+        transition has happened), the detector must still fire after the
+        grace period.  This is the original bug-reproduction path; the
+        short-circuit must not accidentally swallow genuine stalls."""
+        pipeline = self._pipeline(current_phase="implement", pr_number=None)
         monitor, store = self._monitor_with_store(pipeline, "test-1911-genuine-stall")
 
         self._invoke(monitor, store)
@@ -1596,107 +1593,6 @@ class TestRerunAnomalyMissingResolvedAt:
         monitor._create_hitl_decision.assert_not_awaited()
 
 
-class TestPrPhaseOutcomeCheck:
-    """Tests for _check_pr_phase_outcome — detects pipeline completing without a PR."""
-
-    def test_alerts_when_pr_phase_has_no_pr_url(self) -> None:
-        """Should alert when pipeline completes with PR phase but no pr_url."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-001",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": {},
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_awaited_once()
-        call_msg = monitor._create_hitl_decision.call_args[0][1]
-        assert "no pr_url in phase artifacts" in call_msg
-        monitor._send_slack_notification.assert_awaited_once()
-
-    def test_no_alert_when_pr_url_present(self) -> None:
-        """Should not alert when PR phase has a valid pr_url."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-002",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": {"pr_url": "https://github.com/owner/repo/pull/1"},
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-
-    def test_no_alert_when_not_pr_phase(self) -> None:
-        """Should not alert when pipeline completed in a non-PR phase."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-003",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "implement",
-            "phases": {},
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-
-    def test_alerts_when_artifacts_is_none(self) -> None:
-        """Should alert when PR phase artifacts is None."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-004",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": None,
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_awaited_once()
-        monitor._send_slack_notification.assert_awaited_once()
-
-
 # ===================================================================
 # test_orchestrator_reachability (issue #1371)
 # ===================================================================
@@ -2118,22 +2014,6 @@ class TestHealthChecksBroadcast:
         call_args = monitor._broadcast_alert.call_args
         assert call_args.args[0] == "hitl_propagation_failure"
         assert call_args.args[3] == "high"
-
-    def test_pr_phase_no_pr_broadcasts(self) -> None:
-        """PR phase without PR broadcasts a critical alert."""
-        monitor = self._make_monitor()
-        pipeline_data = {
-            "current_phase": "pr",
-            "phases": {
-                "pr": {"artifacts": {}},
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._broadcast_alert.assert_awaited_once()
-        call_args = monitor._broadcast_alert.call_args
-        assert call_args.args[0] == "pr_phase_no_pr"
-        assert call_args.args[3] == "critical"
 
     def test_cross_phase_inconsistency_broadcasts(self) -> None:
         """Cross-phase inconsistency broadcasts an alert."""
