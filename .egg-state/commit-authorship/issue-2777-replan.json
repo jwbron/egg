@@ -49,6 +49,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_security"
     },
+    "06e7dba4373819678eb38958f543cef44a02dbb7": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:37:27.106283+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
+    },
     "06f700d5bfe93a449cb8f0abdd0f0de99d0c9413": {
       "branch": "egg/issue-2777-replan/slice-3",
       "pipeline_id": "issue-2777-replan",
@@ -1015,6 +1022,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "96c4d925042fdcf9f6325b75013b913d890ec0da": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:37:27.083550+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
+    },
     "9b14fd5943434018d06ad798ea7bfb20cee3042e": {
       "branch": "egg/issue-2777-replan/slice-4",
       "pipeline_id": "issue-2777-replan",
@@ -1133,6 +1147,13 @@
       "registered_at": "2026-05-30T07:39:26.825205+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
+    },
+    "af68a5573e4220d6b2814b11a6fa14f9999ce3bd": {
+      "branch": "egg/issue-2777-replan/slice-4",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T17:37:27.086581+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
     },
     "b174130daa053c87149136d9c6981ccac9b71742": {
       "branch": "egg/issue-2777-replan/slice-4",
