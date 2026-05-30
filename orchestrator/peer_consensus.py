@@ -1764,6 +1764,8 @@ class PeerConsensusTracker:
             self._proposal_timestamps.clear()
             self._flip_flop_counts.clear()
             self._proposal_artifacts.clear()
+            self._proposal_commit_shas.clear()
+            self._proposal_commit_sha_history.clear()
             self._timeout_handled = False
             self._last_auto_repropose_timestamp.clear()
             self._auto_repropose_counts.clear()

@@ -144,13 +144,20 @@ def _resolve_reviewer_delta_range(
     """
     if not head_sha:
         return None
+    # Both ``tracker.matrix.get_entry`` and ``tracker.get_commit_sha_for_version``
+    # are real on ``PeerConsensusTracker``, but several call sites pass a
+    # ``MagicMock`` tracker (the pre-#2887 propagation tests). We catch
+    # ``AttributeError`` across both reads so a stub missing either surface
+    # degrades to the REVIEWER-SYNC fallback rather than 500-ing — the
+    # asymmetry of catching one but not the other was a foot-gun flagged
+    # in PR review.
     try:
         entry = tracker.matrix.get_entry(reviewer, producer)
+        if entry is None or not entry.version:
+            return None
+        last_sha = tracker.get_commit_sha_for_version(producer, entry.version)
     except AttributeError:
         return None
-    if entry is None or not entry.version:
-        return None
-    last_sha = tracker.get_commit_sha_for_version(producer, entry.version)
     if not last_sha or last_sha == head_sha:
         return None
     return f"{last_sha}..{head_sha}"

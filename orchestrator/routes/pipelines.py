@@ -13820,6 +13820,19 @@ def _re_review_priming_block(
         )
         delta_short = f"this delta (`{delta_range}`)"
     else:
+        # NOTE: `{last_reviewed_commit}` and `{base_branch}` here are
+        # *literal* braces, deliberately matching the placeholder names
+        # the reviewer agent already learned from REVIEWER-SYNC.md
+        # (shared/prompts/REVIEWER-SYNC.md:110) — the agent substitutes
+        # them at read-time from its own bookkeeping. Do NOT convert this
+        # string to an f-string: there are no Python locals named
+        # `last_reviewed_commit` / `base_branch` here, so f-stringifying
+        # would raise `NameError` at call time. The per-reviewer branch
+        # above uses `<base>` instead because that path embeds a
+        # concrete, orchestrator-resolved range — only `<base>` remains
+        # for the reviewer to fill in, so the angle-bracket convention
+        # makes the (already-resolved vs. still-to-resolve) distinction
+        # visible at a glance.
         delta_clause = (
             "the delta since your last review (per REVIEWER-SYNC.md: "
             "`git log {last_reviewed_commit}..HEAD --not "
