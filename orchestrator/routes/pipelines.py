@@ -15279,10 +15279,7 @@ def _run_implement_phase_slices(
     Returns ``(exit_code, logs)`` where ``exit_code == 0`` means every
     slice reached CONFIRMED; non-zero means at least one slice failed.
     """
-    try:
-        from orchestrator.slice_scheduler import SliceScheduler
-    except ImportError:
-        from slice_scheduler import SliceScheduler  # type: ignore[no-redef]
+    from orchestrator.slice_scheduler import SliceScheduler
 
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -15335,29 +15332,13 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
-    # #2777 (cq-4, TASK-1-2) — defensive context-PR safety net at
-    # slice-loop entry. Mirrors the four legacy soft-fail call sites
-    # the v1 deletion dropped: `advance_phase` REST is the canonical
-    # plan→implement transition path, but `_run_pipeline` auto-advance,
-    # the implement-entry backstop, the HITL-resume in
-    # `start_pipeline`, and this slice-loop entry safety net are the
-    # actual non-REST paths a pipeline can take into implement; v1
-    # silently stranded slice stacks on `egg/<id>/work` for the
-    # runner-driven paths (reviewer_code_holistic blocker 1).
-    #
-    # Under cq-4 the new `_open_context_pr_at_implement_start` opener
-    # is idempotent (one `gh pr list` round-trip on hit; persists the
-    # already-present PR number). Re-calling it from each transition
-    # path is cheap and removes every silent-strand window. The
-    # legacy `_maybe_open_base_pr_for_plan_to_implement` wrapper that
-    # this site used to call was deleted in slice-2 (TASK-2-1, #2777).
-    #
-    # `ContextPrCreationError` here logs and continues — failing the
-    # slice loop on a transient gateway hiccup would defeat the
-    # safety-net purpose. The canonical advance_phase site keeps the
-    # hard-required 422 contract; the four runner-driven safety nets
-    # below are best-effort because they exist precisely to catch
-    # paths where the canonical site did not fire.
+    # Defensive idempotent context-PR opener (#2777 cq-4). The
+    # canonical advance_phase REST path enforces hard-required, but
+    # the runner-driven entries (auto-advance, implement-entry,
+    # HITL-resume, this slice-loop entry) must also fire it to avoid
+    # silent strands on ``egg/<id>/work``. Soft-fail on transient
+    # gateway errors here — the canonical site already enforces the
+    # 422 contract.
     try:
         _open_context_pr_at_implement_start(pipeline_id)
     except ContextPrCreationError as ctx_err:
@@ -15383,61 +15364,34 @@ def _run_implement_phase_slices(
         try:
             return load_contract(pipeline_id, worktree_repo_path)
         except Exception:  # noqa: BLE001
+            # Best-effort loader for callers that just need "current
+            # contract or None". Catches loader validation errors,
+            # OSError on the contract file read, and any pydantic
+            # re-serialisation failure.
             return None
 
-    # #2549 reviewer note: defer starting the stacked-PR reconciler
-    # until after the bootstrap reconciliation pass so an unhandled
-    # exception during bootstrap (e.g. a hard ImportError of
-    # ``SliceStatus`` or a programming error in the pass) cannot leak
-    # the daemon thread. The reconciler does not depend on bootstrap
-    # state, so its start is safe to move after the pass; the existing
-    # ``finally`` at the bottom of the run loop owns its teardown.
+    # Stacked-PR reconciler starts after the bootstrap pass below so
+    # an unhandled bootstrap exception cannot leak its daemon thread
+    # (the ``finally`` at the bottom of the run loop owns teardown).
     aggregate_logs: list[str] = []
     overall_exit = 0
     poll_interval = 5.0
 
-    try:
-        from orchestrator import global_slice_admit
-    except ImportError:
-        import global_slice_admit  # type: ignore[no-redef]
-
-    try:
-        from orchestrator.peer_consensus import (
-            remove_peer_consensus_tracker,
-        )
-    except ImportError:
-        from peer_consensus import (  # type: ignore[no-redef]
-            remove_peer_consensus_tracker,
-        )
-
-    try:
-        from state_store import get_pipeline_state_lock
-    except ImportError:
-        from orchestrator.state_store import (  # type: ignore[no-redef]
-            get_pipeline_state_lock,
-        )
+    from orchestrator import global_slice_admit
+    from orchestrator.peer_consensus import remove_peer_consensus_tracker
+    from orchestrator.state_store import get_pipeline_state_lock
 
     from egg_contracts.models import SliceStatus
 
     def _persist_slice_status_complete(slice_id: str) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
 
-        #2549 — durable record of slice completion. The
-        ``Slice.status`` field has had a ``COMPLETE`` value since
-        the original schema, but until #2549 nothing wrote it; the
-        #2470 ``restart_agent`` reader at line 2653 was effectively
-        dead code. This helper closes that gap so:
-
-        * Subsequent ``start_pipeline`` calls see merged slices as
-          COMPLETE on the contract and skip them in the bootstrap
-          reconciliation pass below — no GitHub round-trip needed.
-        * The #2470 ``restart_agent`` parent-complete fallback
-          finally has a real signal to read.
-
-        Best-effort: if the lock or save fails, the in-memory
-        scheduler state still reflects completion and the slice
-        won't run this pass; the next start_pipeline will
-        re-detect via the merged-detection helper.
+        Durable signal so the bootstrap reconciliation pass below and
+        the ``restart_agent`` parent-complete fallback can skip the
+        slice without a GitHub round-trip (#2549, #2470). Best-effort:
+        on save failure the in-memory scheduler state still reflects
+        completion for this pass and the next ``start_pipeline``
+        re-detects via the merged-detection helper.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):
@@ -15448,6 +15402,11 @@ def _run_implement_phase_slices(
                         break
                 save_contract(contract_local, worktree_repo_path)
         except Exception as save_err:  # noqa: BLE001
+            # Contract load/save under per-pipeline state lock.
+            # Catches loader validation errors, atomic-rename / fdopen
+            # I/O failures, and pydantic re-serialisation errors.
+            # Best-effort: the in-memory scheduler still reflects
+            # COMPLETE for this pass; next start_pipeline re-detects.
             logger.warning(
                 "Failed to persist slice.status=COMPLETE",
                 pipeline_id=pipeline_id,
@@ -15455,32 +15414,21 @@ def _run_implement_phase_slices(
                 error=str(save_err),
             )
 
-    # #2549 — bootstrap reconciliation pass. Before the run loop picks up
-    # any slices, fold in two sources of "this slice is already done"
-    # state that the scheduler (a pure rebuild from ``contract.slices``)
-    # cannot see on its own:
+    # Bootstrap reconciliation pass (#2549). Before the run loop ticks,
+    # fold in two sources of "this slice is already done" state that
+    # the scheduler (a pure rebuild from ``contract.slices``) cannot
+    # see on its own:
     #
-    # (A) Slices that the contract already records as
-    #     ``SliceStatus.COMPLETE``. Once #2549 starts writing this
-    #     field on success, future restarts can trust it directly
-    #     without a GitHub round-trip.
-    #
+    # (A) Slices the contract already records as
+    #     ``SliceStatus.COMPLETE`` — trusted directly, no I/O.
     # (B) Slices whose integration branch on origin is reachable from
-    #     their parent's tip — i.e. their PR has been merged. This
-    #     handles the literal #2549 repro (operator merges slice-1's
-    #     PR, runs ``start_pipeline`` to resume) AND any slice whose
-    #     completion was committed before #2549's writer landed. On a
-    #     hit, also persist (A) so subsequent restarts hit the cheap
-    #     path.
+    #     their parent's tip (PR merged). On a hit, also persist (A)
+    #     so subsequent restarts skip the GitHub round-trip.
     #
-    # Without this pass, the scheduler would yield every slice as READY
-    # on its first ``iter_ready`` tick and ``create_slice_integration_
-    # branch`` would attempt to push parent_sha onto an existing slice
-    # ref whose tip is now an ancestor of parent — a non-fast-forward
-    # rejection that previously failed the slice and cascaded the
-    # phase. Both layers (A+B) are best-effort: a failure in this pass
-    # silently falls through to the existing run loop, preserving the
-    # pre-#2549 behaviour as the floor.
+    # Without this pass the scheduler would re-yield merged slices as
+    # READY and ``create_slice_integration_branch`` would
+    # non-fast-forward-reject. Best-effort: failure falls through to
+    # the run loop.
     bootstrap_complete: list[str] = []
     bootstrap_merged: list[str] = []
 
@@ -15530,6 +15478,11 @@ def _run_implement_phase_slices(
                     mode=gateway_mode,  # type: ignore[arg-type]
                 )
             except Exception as detect_err:  # noqa: BLE001
+                # Gateway `is_slice_branch_merged_into_parent` call.
+                # Catches gateway HTTP/timeout errors (GatewayError),
+                # low-level socket / DNS errors (OSError), and any
+                # rare argument-shape errors. Default to "not merged"
+                # so the slice can still spawn fresh.
                 logger.warning(
                     "Bootstrap merged-detection raised; treating slice as not-merged",
                     pipeline_id=pipeline_id,
@@ -15591,7 +15544,11 @@ def _run_implement_phase_slices(
                         )
 
                         _ = _get_gateway_client  # noqa: F841 — kept for symmetry
-                    except Exception:  # noqa: BLE001
+                    except ImportError:
+                        # Symmetry-only import; the module not being
+                        # available means the cascade alert path can't
+                        # call the gateway, but the warning above is
+                        # the always-on fallback.
                         pass
                 if scheduler.all_done():
                     break
@@ -15666,6 +15623,10 @@ def _run_implement_phase_slices(
                                 break
                         save_contract(contract_local, worktree_repo_path)
                 except Exception as save_err:  # noqa: BLE001
+                    # Contract load/save under per-pipeline state lock.
+                    # Same exception surface as the COMPLETE-persist
+                    # site above (loader validation, atomic-rename
+                    # I/O, pydantic re-serialisation). Best-effort.
                     logger.warning(
                         "Failed to persist parent_branch_at_creation",
                         pipeline_id=pipeline_id,
@@ -15673,17 +15634,10 @@ def _run_implement_phase_slices(
                         error=str(save_err),
                     )
 
-                # #2549 race protection: a slice's PR can be merged
-                # between the bootstrap reconciliation pass and this
-                # spawn (e.g. operator merges slice-1 while slice-2 is
-                # still queued). When that happens, the integration
-                # branch's old tip is reachable from the parent's new
-                # tip, and the create-branch push below would be
-                # rejected as non-fast-forward (cascading the slice and
-                # its descendants to FAILED). Detect that case here and
-                # skip directly to COMPLETE — same effect as the
-                # bootstrap reconciliation pass, just on a slice that
-                # transitioned during the run.
+                # Race protection: a slice's PR can be merged between
+                # bootstrap reconciliation and this spawn. Detect and
+                # skip to COMPLETE so the create-branch push below
+                # doesn't non-fast-forward (#2549).
                 if pipeline.repo:
                     try:
                         already_merged = spawner.gateway.is_slice_branch_merged_into_parent(
@@ -15696,6 +15650,10 @@ def _run_implement_phase_slices(
                             mode=gateway_mode,  # type: ignore[arg-type]
                         )
                     except Exception as detect_err:  # noqa: BLE001
+                        # Same `is_slice_branch_merged_into_parent`
+                        # surface as the bootstrap pass above
+                        # (GatewayError + OSError). Default to "not
+                        # merged" so the slice can still spawn.
                         logger.warning(
                             "Slice merged-detection raised; treating as not-merged",
                             pipeline_id=pipeline_id,
@@ -15716,6 +15674,10 @@ def _run_implement_phase_slices(
                         try:
                             remove_peer_consensus_tracker(pipeline_id, slice_id)
                         except Exception:  # noqa: BLE001
+                            # In-memory dict pop under a lock; only
+                            # programming errors (KeyError, AttributeError)
+                            # could fire. Bare-except keeps the slice
+                            # COMPLETE/return path crash-proof.
                             pass
                         return 0, (
                             f"slice {slice_id}: already merged into "
@@ -15746,6 +15708,11 @@ def _run_implement_phase_slices(
                             )
                         )
                     except Exception as branch_err:  # noqa: BLE001
+                        # Gateway `create_slice_integration_branch`
+                        # call. Catches GatewayError (HTTP/timeout)
+                        # and OSError (DNS / socket). Mark branch_ok
+                        # False so the cascade machinery surfaces a
+                        # missing-parent error.
                         logger.error(
                             "Slice integration branch creation raised",
                             pipeline_id=pipeline_id,
@@ -15799,6 +15766,11 @@ def _run_implement_phase_slices(
                                     save_contract(contract_local, worktree_repo_path)
                                 recorded_base_sha = base_sha
                         except Exception as base_err:  # noqa: BLE001
+                            # Gateway `get_remote_branch_sha` +
+                            # contract load/save. Catches GatewayError,
+                            # OSError, and the loader/save exception
+                            # surface. Best-effort: empty-branch
+                            # detection degrades to ancestor-only.
                             logger.warning(
                                 "Failed to record slice integration_base_sha "
                                 "(#2871); empty-branch detection degrades to "
@@ -15934,6 +15906,13 @@ def _run_implement_phase_slices(
                                 ),
                             }
                 except Exception as load_err:  # noqa: BLE001
+                    # Contract load + nested attribute traversal on
+                    # slice/program PR objects. Surface includes
+                    # loader validation errors, OSError, plus
+                    # AttributeError / KeyError on partially-populated
+                    # PR rollup fields. Continue without slice_pr_data
+                    # (the gateway PR creation just below is gated
+                    # on it being non-None).
                     logger.warning(
                         "Slice PR pre-load failed (continuing)",
                         pipeline_id=pipeline_id,
@@ -15941,21 +15920,13 @@ def _run_implement_phase_slices(
                         error=str(load_err),
                     )
 
-                # #2548 task-2-2: persist this slice's per-slice BRC
-                # consensus history onto its integration branch as the
-                # final orchestrator-authored commit before the slice
-                # PR is opened.  This makes the BRC transcript that
-                # approved the slice's code part of the PR's diff so
-                # reviewers approaching the PR see the full consensus
-                # narrative without leaving the diff view.
-                #
-                # Best-effort: a failure here is logged and swallowed so
-                # the slice PR creation can still proceed.  There is no
-                # fallback surface — since #2758 the per-slice files
-                # live ONLY on the integration branch (committing them
-                # to ``work`` re-introduces the #2755 add/add conflict),
-                # so a failure here loses the slice's consensus
-                # transcript outright.  Idempotent on retry.
+                # Persist this slice's per-slice BRC consensus history
+                # onto its integration branch as the final
+                # orchestrator-authored commit before the slice PR is
+                # opened, so reviewers see the consensus transcript in
+                # the PR diff (#2548). Best-effort + idempotent on
+                # retry; per-slice files live ONLY on the integration
+                # branch.
                 if pipeline.repo:
                     try:
                         _commit_slice_brc_history_to_integration_branch(
@@ -15967,6 +15938,13 @@ def _run_implement_phase_slices(
                             gateway_mode=gateway_mode,  # type: ignore[arg-type]
                         )
                     except Exception as brc_commit_err:  # noqa: BLE001
+                        # Per-slice BRC commit helper calls into the
+                        # full git/gateway/message-store machinery
+                        # — the exception surface is unbounded
+                        # (gateway push failures, git plumbing
+                        # errors, message-store reads, file I/O).
+                        # Best-effort: the BRC transcript commit is
+                        # non-essential to slice consensus.
                         logger.warning(
                             "Per-slice BRC commit raised (continuing) (#2548)",
                             pipeline_id=pipeline_id,
@@ -15998,6 +15976,10 @@ def _run_implement_phase_slices(
                             context_pr_number=slice_pr_data["context_pr_number"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
+                        # Single `gateway.create_slice_pr` HTTP call.
+                        # Catches GatewayError (HTTP) and OSError
+                        # (DNS / socket). Mark pr_created=False so
+                        # the cascade machinery fires.
                         logger.error(
                             "Slice PR creation failed",
                             pipeline_id=pipeline_id,
@@ -16018,6 +16000,8 @@ def _run_implement_phase_slices(
                 try:
                     remove_peer_consensus_tracker(pipeline_id, slice_id)
                 except Exception:  # noqa: BLE001
+                    # In-memory dict pop under a lock; same crash-proof
+                    # defence-in-depth as the merged-skip branch above.
                     pass
                 return exit_code_inner, logs_inner
 
@@ -16064,6 +16048,13 @@ def _run_implement_phase_slices(
                     try:
                         exit_code, logs = fut.result()
                     except Exception as exc:  # noqa: BLE001
+                        # fut.result() re-raises whatever the slice
+                        # worker raised. Workers call into the full
+                        # implement-phase machinery (gateway, contract,
+                        # spawner, message store, docker) so the
+                        # exception surface is unbounded; mark the
+                        # slice failed and continue rather than tearing
+                        # down the whole wave.
                         scheduler.record_failure(slice_id_done)
                         exit_code = 1
                         logs = f"slice {slice_id_done} raised: {exc!r}"
@@ -16095,13 +16086,8 @@ def _run_implement_phase_slices(
                 # surface picks up the cascade-block event (TASK-3-4
                 # emission path).
                 try:
-                    try:
-                        from message_store import Message, get_message_store
-                    except ImportError:
-                        from orchestrator.message_store import (  # type: ignore[no-redef]
-                            Message,
-                            get_message_store,
-                        )
+                    from orchestrator.message_store import Message, get_message_store
+
                     msg = Message(
                         pipeline_id=pipeline_id,
                         from_role="orchestrator",
@@ -16132,7 +16118,9 @@ def _run_implement_phase_slices(
         reconciler_stop.set()
         try:
             reconciler_thread.join(timeout=5.0)
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
+            # Thread.join only raises RuntimeError (e.g. joining the
+            # current thread). Other failures are silent timeouts.
             pass
 
     aggregated = "\n".join(aggregate_logs) if aggregate_logs else "Slice loop completed."
@@ -16169,6 +16157,10 @@ def _clear_stale_impasses_for_producers(
         try:
             existing = load_agent_output(repo_path, role_enum, identifier=pipeline_id)
         except Exception as exc:  # noqa: BLE001
+            # Best-effort agent-output file read. Catches OSError on
+            # the file read, json.JSONDecodeError on parse, and
+            # pydantic.ValidationError on the role-specific shape.
+            # Continue (no impasse to clear if the file is unreadable).
             logger.debug(
                 "Could not pre-load agent output to clear stale impasse",
                 pipeline_id=pipeline_id,
@@ -16187,6 +16179,11 @@ def _clear_stale_impasses_for_producers(
                 identifier=pipeline_id,
             )
         except Exception as exc:  # noqa: BLE001
+            # Atomic file write of JSON-serialisable dict. Catches
+            # OSError (write/rename), TypeError/ValueError (non-
+            # serialisable value sneaking in). Continue — the stale
+            # impasse will re-trigger routing but the delegation
+            # counter still bounds the retry.
             logger.warning(
                 "Failed to clear stale impasse from agent output",
                 pipeline_id=pipeline_id,
@@ -16244,18 +16241,12 @@ def _run_concurrent_phase_with_impasse_retry(
     the routing helper falls back to a contract-wide search for the
     impassed task.
     """
-    try:
-        from impasse_routing import (
-            ImpasseAction,
-            collect_impasses,
-            route_impasses,
-        )
-    except ImportError:
-        from orchestrator.impasse_routing import (  # type: ignore[no-redef]
-            ImpasseAction,
-            collect_impasses,
-            route_impasses,
-        )
+    from orchestrator.impasse_routing import (
+        ImpasseAction,
+        collect_impasses,
+        route_impasses,
+    )
+
     try:
         from egg_contracts.agent_roles import AgentRole as ContractAgentRoleEnum
     except ImportError:  # pragma: no cover - import seam parity
