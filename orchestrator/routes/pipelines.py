@@ -10783,8 +10783,9 @@ def _escalate_layer_c_hitl(
     *,
     pipeline_id: str,
     slice_id: str,
+    worktree_repo_path: Path,
+    current_phase: PipelinePhase | None,
     question: str,
-    context_prefix: str,
 ) -> None:
     """Create an HITL Decision on the contract for a Layer-C anomaly (slice-4 TASK-4-4).
 
@@ -10796,20 +10797,45 @@ def _escalate_layer_c_hitl(
     ``Decision`` on the contract that pauses the slice until the
     operator picks an option, not just a message-bus broadcast.
 
+    The caller supplies ``worktree_repo_path`` (the per-pipeline
+    worktree where the live contract lives — Layer C runs inside
+    ``_run_implement_phase_slices`` which already has it in scope)
+    and ``current_phase`` (the live pipeline phase, so a Decision
+    surfaces under the phase the operator is debugging rather than
+    a hard-coded literal).
+
+    **Lock-nesting invariant (reviewer_code v2 blocker 3)**: the
+    caller MUST NOT already hold ``get_pipeline_state_lock`` for
+    this pipeline. Today the Layer-C dispatch loop in
+    ``_run_implement_phase_slices`` calls this helper at the
+    top-level slice-loop scope BEFORE any per-slice lock
+    acquisition (the eager-persist site at
+    ``_run_one_slice_inner`` is the only nested-lock contract
+    write today). The current lock IS an ``threading.RLock`` so
+    re-entry would not deadlock, but if a future refactor narrows
+    the lock to a plain ``Lock`` (e.g. for monitor visibility),
+    a Layer-C call from inside another lock-holding scope would
+    deadlock the entire bootstrap.
+
     Pattern mirrors ``_persist_hitl_decision`` (above) but loads the
-    contract from the per-pipeline worktree via ``resolve_worktree_path``
-    so the decision lands on the live contract that ``/sdlc`` reads.
-    Best-effort: contract-load / save failures are logged and
-    swallowed (consistent with the rest of Layer C). The decision is
-    tagged with a ``context`` prefix so a dispatch handler in
+    contract from the per-pipeline worktree directly (the caller
+    has it in scope) so the decision lands on the live contract
+    that ``/sdlc`` reads. Best-effort: contract-load / save
+    failures are logged and swallowed (consistent with the rest of
+    Layer C). The decision is tagged with a ``context`` prefix so a
+    dispatch handler in
     ``routes/decisions.py`` can route on a stable discriminator if
     one is added in a follow-up.
     """
     try:
+        from egg_contracts.decisions import next_cq_id
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Decision, DecisionOption, DecisionType
     except ImportError:
         try:
+            from orchestrator.egg_contracts.decisions import (  # type: ignore[no-redef]
+                next_cq_id,
+            )
             from orchestrator.egg_contracts.loader import (  # type: ignore[no-redef]
                 load_contract,
                 save_contract,
@@ -10826,51 +10852,43 @@ def _escalate_layer_c_hitl(
                 slice_id=slice_id,
             )
             return
+    decision_id: str = ""
     try:
-        from routes import resolve_worktree_path
-    except ImportError:
-        try:
-            from . import (
-                resolve_worktree_path,  # type: ignore[no-redef]
-            )
-        except ImportError:
-            resolve_worktree_path = None  # type: ignore[assignment]
-    store = _state_store_or_none()
-    if store is None:
-        logger.warning(
-            "Layer-C HITL escalation skipped: state store unavailable (slice-4 TASK-4-4)",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-        )
-        return
-    try:
-        if resolve_worktree_path is not None:
-            contract_repo_path = resolve_worktree_path(pipeline_id, Path(store.repo_path))
-        else:
-            contract_repo_path = Path(store.repo_path)
         with get_pipeline_state_lock(pipeline_id):
-            contract_local = load_contract(pipeline_id, contract_repo_path)
-            next_id = len(contract_local.decisions) + 1
+            contract_local = load_contract(pipeline_id, worktree_repo_path)
+            # Use the canonical ``cq-N`` allocator from
+            # ``shared/egg_contracts/decisions.py``. Orchestrator-side
+            # HITL escalations write to the ``cq-N`` namespace; the
+            # pipeline-side bridge owns ``decision-N``. The split was
+            # introduced by #2616 to prevent the
+            # ``len(decisions)+1`` collision between the two
+            # allocators (see the docstring at
+            # ``shared/egg_contracts/decisions.py``).
+            decision_id = next_cq_id(contract_local.decisions)
             options = [
                 DecisionOption(id="opt-1", label="Mark slice complete and continue"),
                 DecisionOption(id="opt-2", label="Restart slice from scratch"),
                 DecisionOption(id="opt-3", label="Cancel pipeline for manual investigation"),
             ]
+            # Use the live pipeline phase rather than a hard-coded
+            # ``PipelinePhase.IMPLEMENT`` — Layer C fires during
+            # bootstrap which can run before any phase walk, and
+            # future slice-DAG topologies may span phases.
             contract_local.decisions.append(
                 Decision(
-                    id=f"decision-{next_id}",
+                    id=decision_id,
                     question=question,
                     type=DecisionType.HITL,
-                    phase=PipelinePhase.IMPLEMENT,
+                    phase=current_phase or PipelinePhase.IMPLEMENT,
                     options=options,
                 )
             )
-            save_contract(contract_local, contract_repo_path)
+            save_contract(contract_local, worktree_repo_path)
         logger.info(
             "Layer-C HITL escalation persisted on contract (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
             slice_id=slice_id,
-            context_prefix=context_prefix,
+            decision_id=decision_id,
         )
     except Exception as escalate_err:  # noqa: BLE001
         logger.warning(
@@ -10882,34 +10900,25 @@ def _escalate_layer_c_hitl(
         )
 
 
-def _state_store_or_none() -> Any | None:
-    """Resolve the orchestrator state store, returning None if unavailable.
+def _escalate_corrupt_slice_to_hitl(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    worktree_repo_path: Path,
+    current_phase: PipelinePhase | None,
+) -> None:
+    """Escalate a Layer-C case-5 corrupt-state slice to HITL (slice-4 TASK-4-4).
 
-    Slice-4 TASK-4-4 helper. Used by ``_escalate_layer_c_hitl`` to
-    obtain the ``repo_path`` for ``resolve_worktree_path``. Lazy
-    import + None-on-failure mirrors the established pattern in
-    other module-level helpers (``_get_message_store``).
+    Question text is prefixed with ``[#2777 slice-4 TASK-4-4 case 5]``
+    so a future dispatch handler in ``routes/decisions.py`` can route
+    on the literal substring without a separate context field on the
+    contract-level ``Decision`` model.
     """
-    try:
-        from state_store import get_state_store
-    except ImportError:
-        try:
-            from orchestrator.state_store import (  # type: ignore[no-redef]
-                get_state_store,
-            )
-        except ImportError:
-            return None
-    try:
-        return get_state_store()
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _escalate_corrupt_slice_to_hitl(*, pipeline_id: str, slice_id: str) -> None:
-    """Escalate a Layer-C case-5 corrupt-state slice to HITL (slice-4 TASK-4-4)."""
     _escalate_layer_c_hitl(
         pipeline_id=pipeline_id,
         slice_id=slice_id,
+        worktree_repo_path=worktree_repo_path,
+        current_phase=current_phase,
         question=(
             f"[#2777 slice-4 TASK-4-4 case 5] Slice {slice_id} of pipeline "
             f"{pipeline_id} has an impossible status enum value or state "
@@ -10918,22 +10927,35 @@ def _escalate_corrupt_slice_to_hitl(*, pipeline_id: str, slice_id: str) -> None:
             f"Bootstrap reconciliation cannot classify the slice safely. "
             f"How should the orchestrator proceed?"
         ),
-        context_prefix="slice_status_corrupt:",
     )
 
 
-def _escalate_blocked_slice_to_hitl(*, pipeline_id: str, slice_id: str, reason: str) -> None:
-    """Escalate a Layer-C case-4 blocked-without-HITL slice to HITL (slice-4 TASK-4-4)."""
+def _escalate_blocked_slice_to_hitl(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    reason: str,
+    worktree_repo_path: Path,
+    current_phase: PipelinePhase | None,
+) -> None:
+    """Escalate a Layer-C case-4 blocked-without-HITL slice to HITL (slice-4 TASK-4-4).
+
+    Question text is prefixed with ``[#2777 slice-4 TASK-4-4 case 4]``
+    so a future dispatch handler in ``routes/decisions.py`` can route
+    on the literal substring without a separate context field on the
+    contract-level ``Decision`` model.
+    """
     _escalate_layer_c_hitl(
         pipeline_id=pipeline_id,
         slice_id=slice_id,
+        worktree_repo_path=worktree_repo_path,
+        current_phase=current_phase,
         question=(
             f"[#2777 slice-4 TASK-4-4 case 4] Slice {slice_id} of pipeline "
             f"{pipeline_id} is in BLOCKED status, but no PENDING HITL "
             f"decision was found on the contract that matches the slice. "
             f"{reason}. How should the orchestrator proceed?"
         ),
-        context_prefix="slice_blocked_without_hitl:",
     )
 
 
@@ -16103,11 +16125,14 @@ def _run_implement_phase_slices(
     # does not gate progress. The Decision lands on the contract via
     # ``_escalate_corrupt_slice_to_hitl`` so ``/sdlc`` reads it on
     # the next poll.
+    _current_phase = getattr(pipeline, "current_phase", None)
     for _corrupt_slice_id in bootstrap_corrupt:
         try:
             _escalate_corrupt_slice_to_hitl(
                 pipeline_id=pipeline_id,
                 slice_id=_corrupt_slice_id,
+                worktree_repo_path=worktree_repo_path,
+                current_phase=_current_phase,
             )
         except Exception as escalate_err:  # noqa: BLE001
             logger.warning(
@@ -16128,6 +16153,8 @@ def _run_implement_phase_slices(
                 pipeline_id=pipeline_id,
                 slice_id=_blocked_slice_id,
                 reason=_escalate_reason,
+                worktree_repo_path=worktree_repo_path,
+                current_phase=_current_phase,
             )
         except Exception as escalate_err:  # noqa: BLE001
             logger.warning(
@@ -16220,21 +16247,63 @@ def _run_implement_phase_slices(
                 # ``pipeline_branch`` like every other root slice — the
                 # work-branch context PR's diff already encompasses the
                 # slice-1 integration branch via ancestry.
-                # Slice-4 TASK-4-3: wire a merge-base lookup callback so
-                # the resolver can validate the legacy ancestor when
-                # ``parent_branch_at_creation`` is empty. The callback
-                # invokes ``GatewayClient.merge_base`` to compute
-                # ``git merge-base <integration_ref> <derived_parent_ref>``
-                # against the local odb; a non-None SHA confirms the
-                # slice has a real fork point, a None SHA tells the
-                # resolver to fall back to ``pipeline_branch``. The
-                # callback returns ``None`` for repoless test scaffolds
-                # so the resolver treats them as "no fork point" → safe
-                # root-stack fallback (matches the Layer-C classifier's
-                # behaviour for ``pipeline_repo is None``).
+                # Slice-4 TASK-4-3: wire a merge-base lookup callback
+                # so the resolver can validate the legacy ancestor
+                # when ``parent_branch_at_creation`` is empty. The
+                # callback FETCHES both refs first (reviewer_code v2
+                # blocker 5 — without the prior fetch, a transient
+                # local-odb-lag returns None and silently swaps the
+                # slice's stack target onto ``pipeline_branch``).
+                # ``fetch_branch`` is best-effort (returns False on
+                # gateway failure but does not raise); the merge-base
+                # call then operates on whatever the local odb has
+                # post-fetch. A non-None SHA confirms the slice has a
+                # real fork point; a None SHA (after the fetch
+                # succeeded) tells the resolver to fall back to
+                # ``pipeline_branch``. Repoless test scaffolds short-
+                # circuit before the fetch and return None directly
+                # (matches the Layer-C classifier's behaviour for
+                # ``pipeline_repo is None``).
                 def _probe_merge_base(ref_a: str, ref_b: str) -> str | None:
                     if not pipeline.repo:
                         return None
+                    # Best-effort fetch of both refs into the local
+                    # odb so ``git merge-base`` can find them. Each
+                    # fetch_branch call is wrapped in try/except so a
+                    # gateway error on one ref doesn't skip the
+                    # second; the merge-base call below tolerates a
+                    # missing ref via returncode 1 → None return.
+                    for _ref in (ref_a, ref_b):
+                        # Strip ``refs/remotes/origin/`` to derive the
+                        # branch name the fetch refspec wants; the
+                        # merge-base call uses the remote-tracking ref
+                        # (which the fetch populates), not the bare
+                        # branch name.
+                        _branch = _ref
+                        for _pfx in (
+                            "refs/remotes/origin/",
+                            "refs/heads/",
+                        ):
+                            if _branch.startswith(_pfx):
+                                _branch = _branch[len(_pfx) :]
+                                break
+                        try:
+                            spawner.gateway.fetch_branch(
+                                pipeline_id,
+                                str(worktree_repo_path),
+                                args=[f"+refs/heads/{_branch}:refs/remotes/origin/{_branch}"],
+                                mode=gateway_mode,  # type: ignore[arg-type]
+                            )
+                        except Exception as fetch_err:  # noqa: BLE001
+                            logger.debug(
+                                "Pre-merge-base fetch failed (best-effort); "
+                                "merge_base will proceed against the existing "
+                                "local odb (slice-4 TASK-4-3)",
+                                pipeline_id=pipeline_id,
+                                slice_id=slice_id,
+                                ref=_branch,
+                                error=str(fetch_err),
+                            )
                     return spawner.gateway.merge_base(
                         pipeline_id,
                         str(worktree_repo_path),

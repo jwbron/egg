@@ -67,6 +67,11 @@ _TRANSIENT_JITTER = 0.2
 
 _REBASE_REF_RE = re.compile(r"^[A-Za-z0-9._/+-][A-Za-z0-9._/+-]*$")
 
+# Slice-4 TASK-4-3: full 40-char hex SHA — ``git merge-base`` always
+# returns the full SHA on success. Used by :meth:`GatewayClient.merge_base`
+# to reject truncated / noisy stdout (reviewer_code v2 non-blocking).
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
 
 def _build_rebase_onto_args(
     branch: str, new_base: str, old_base: str
@@ -2113,12 +2118,12 @@ class GatewayClient:
         if not stdout:
             return None
         sha = stdout.strip().split("\n", 1)[0].strip()
-        # Conservative shape check — the gateway returns the raw
-        # ``git merge-base`` output (a 40-char hex SHA on success).
-        # Anything else (truncated, unexpected newline noise) is
-        # treated as "no fork point" rather than risking a malformed
-        # value being passed downstream.
-        if len(sha) < 7 or any(c not in "0123456789abcdef" for c in sha.lower()):
+        # Strict 40-char hex SHA shape check — the gateway returns
+        # the raw ``git merge-base`` output, which is always a full
+        # 40-char SHA on success. Anything shorter / longer / non-hex
+        # is treated as "no fork point" rather than risking a
+        # malformed value being passed downstream.
+        if not _FULL_SHA_RE.fullmatch(sha):
             return None
         return sha
 
