@@ -980,9 +980,10 @@ class TestDdgMcpFallback:
 
 class TestBuiltinOutputCapHook:
     """Issue #2876: a PreToolUse hook predicts oversized built-in tool
-    results (Read/Grep) and denies them before they overflow the SDK's
-    1 MB buffer, telling the agent how to narrow the call. Always-on
-    (not route-gated); disabled via EGG_TOOL_OUTPUT_CAP=false.
+    results (Read/Grep) and denies them as model-context/cost discipline,
+    telling the agent how to narrow the call. Not the buffer-crash fix —
+    that lives in the raised SDK reader buffer (#2884). Always-on (not
+    route-gated); disabled via EGG_TOOL_OUTPUT_CAP=false.
     """
 
     @staticmethod
