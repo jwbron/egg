@@ -93,7 +93,7 @@ class ContextPrCreationError(Exception):
         self,
         message: str,
         *,
-        reason: "str | ContextPrCreationReason" = ContextPrCreationReason.UNKNOWN,
+        reason: str | ContextPrCreationReason = ContextPrCreationReason.UNKNOWN,
         cause: BaseException | None = None,
     ) -> None:
         super().__init__(message)
