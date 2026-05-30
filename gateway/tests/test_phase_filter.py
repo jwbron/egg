@@ -238,14 +238,32 @@ class TestIsOperationBlockedFunction:
 
         assert is_operation_blocked("implement", "git", "push origin main") is False
 
-    def test_pr_create_blocked_until_pr_phase(self):
-        """PR create is blocked until PR phase."""
+    def test_pr_create_blocked_in_every_surviving_phase(self):
+        """PR create is blocked in every surviving phase post-#2777 slice-2.
+
+        Pre-slice-2 the PR phase was the one phase that allowed
+        ``gh pr create``. Slice-2 deletes the PR phase entirely — the
+        context PR is opened up-front at the plan→implement boundary
+        by the orchestrator's internal hook (which routes through a
+        synthetic gateway session, not a pipeline phase). No agent
+        phase should permit ``pr create`` ever again.
+
+        We also pin ``"pr"`` (the dead string) to deny so a stale
+        caller targeting the dead phase is rejected, not allowed.
+        """
         phase_filter._filter = None
 
+        # Every surviving agent phase blocks pr create.
         assert is_operation_blocked("refine", "gh", "pr create") is True
         assert is_operation_blocked("plan", "gh", "pr create") is True
         assert is_operation_blocked("implement", "gh", "pr create") is True
-        assert is_operation_blocked("pr", "gh", "pr create") is False
+        # The dead ``"pr"`` phase string is rejected (fail-closed); a
+        # stale caller may still pass it (e.g. an old script). The
+        # gateway must not let pr create through under the dead key.
+        assert is_operation_blocked("pr", "gh", "pr create") is True, (
+            "After #2777 slice-2 deletes the PR phase, 'pr create' must "
+            "remain blocked under the dead 'pr' key."
+        )
 
 
 class TestDefaultPermissions:
@@ -288,17 +306,27 @@ class TestDefaultPermissions:
         result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "pr create")
         assert result.allowed is False
 
-    def test_pr_phase_allows_pr_create(self):
-        """PR phase allows PR creation."""
-        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
-        assert result.allowed is True
+    def test_pr_phase_string_is_not_a_valid_permission_key(self):
+        """The dead ``'pr'`` phase string maps to no permissions entry (#2777 slice-2).
 
-    def test_pr_phase_allows_push(self):
-        """PR phase allows git push."""
+        Pre-slice-2 the default ``PhasePermissions`` table had a ``PR``
+        row that allowed both push and pr create. Slice-2 deletes the
+        row alongside the ``PipelinePhase.PR`` enum member. Any caller
+        still hitting the dead key (``filter_operation`` accepts string
+        phases) must default-deny rather than be granted privileged
+        operations.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GIT, "push origin main")
-        assert result.allowed is True
+        result = pf.filter_operation("pr", OperationType.GH, "pr create")
+        assert result.allowed is False, (
+            "filter_operation('pr', ...) must default-deny after slice-2; "
+            f"got {result!r}"
+        )
+        result = pf.filter_operation("pr", OperationType.GIT, "push origin main")
+        assert result.allowed is False, (
+            "filter_operation('pr', ...) must default-deny git push too; "
+            f"got {result!r}"
+        )
 
 
 class TestResetPhaseFilter:
@@ -338,23 +366,30 @@ class TestPatternEdgeCases:
         phase_filter._filter = None
 
     def test_pr_create_without_args_matches_pattern(self):
-        """'pr create' without arguments matches 'pr create*' pattern."""
+        """'pr create' without arguments matches 'pr create*' pattern.
+
+        Post-slice-2: only verifies the negative half — the pattern
+        matches, so refine blocks. The PR-phase allow half is gone with
+        the deleted phase.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        # In refine phase, pr create should be blocked
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
         assert result.allowed is False
 
-        # In pr phase, pr create should be allowed
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
-        assert result.allowed is True
+    def test_pr_create_with_args_pattern_matches_in_implement(self):
+        """'pr create --title foo' matches 'pr create*' pattern.
 
-    def test_pr_create_with_args_matches_pattern(self):
-        """'pr create --title foo' matches 'pr create*' pattern."""
+        Post-slice-2 we drive the pattern check through the still-live
+        ``IMPLEMENT`` phase (which blocks the operation) since the PR
+        phase no longer exists. The objective of the test — proving the
+        ``pr create*`` glob matches a flagged ``--title`` invocation —
+        is unchanged.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(
-            PipelinePhase.PR, OperationType.GH, "pr create --title 'Test PR'"
+            PipelinePhase.IMPLEMENT, OperationType.GH, "pr create --title 'Test PR'"
         )
-        assert result.allowed is True
+        assert result.allowed is False
 
     def test_partial_command_does_not_match_blocked_pattern(self):
         """Commands that partially match blocked patterns should not be blocked."""
@@ -1189,11 +1224,22 @@ class TestIssueCommentBlocking:
         result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "issue edit 789")
         assert result.allowed is False
 
-    def test_issue_comment_allowed_in_pr_phase(self):
-        """Issue comment is not blocked in PR phase (no restriction)."""
+    def test_issue_comment_blocked_under_dead_pr_phase_string(self):
+        """``filter_operation("pr", "issue comment ...")`` default-denies.
+
+        Pre-slice-2 the PR phase had no issue-comment block, so the
+        operation was permitted. Post-slice-2 the phase string itself
+        is dead and the default-deny path must apply uniformly — every
+        operation hitting the dead ``"pr"`` key is rejected regardless
+        of pattern.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "issue comment 123")
-        assert result.allowed is True
+        result = pf.filter_operation("pr", OperationType.GH, "issue comment 123")
+        assert result.allowed is False, (
+            "After slice-2 removes the PR phase, even unblocked "
+            "operation patterns must default-deny under the dead 'pr' "
+            f"key; got {result!r}"
+        )
 
     def test_issue_comment_blocked_via_convenience_function(self):
         """is_operation_blocked correctly reports issue comment as blocked."""

@@ -987,20 +987,31 @@ class TestSliceIntegrationBranchExemption:
             assert ".egg-state/contracts/some.json" in (data.get("blocked_paths") or []), body
 
 
-class TestContextBranchExemption:
-    """Context-branch creation exemption (#2548).
+class TestContextBranchRejection:
+    """Context-branch (``egg/<id>/context``) pushes are blocked (#2777 slice-2).
 
-    Mirror of :class:`TestSliceIntegrationBranchExemption` but for the
-    new ``egg/<base>/context`` shape.  The orchestrator's
-    ``create_context_branch`` registers a synthetic, launcher-authed
-    session and pushes ``base:refs/heads/egg/<id>/context`` so the doc-
-    only context PR has a target branch before any agent runs.  That
-    push is orchestrator infrastructure and must bypass the #2028
-    pipeline-session block the same way slice integration pushes do.
+    Slice-2 of #2777 deletes the entire context-branch scaffold: the
+    orchestrator no longer creates ``egg/<id>/context``, the context PR
+    now lands on ``egg/<id>/work → main``, and the gateway-side
+    ``_CONTEXT_BRANCH_RE`` exemption is removed. The branch itself is
+    gone — but a misbehaving caller (a stale orchestrator binary, a
+    rogue agent, a test fixture) might still try to push to the legacy
+    name. The gateway MUST reject such pushes with a clear policy
+    violation rather than silently allowing them through.
+
+    The replacement here mirrors :class:`TestSliceIntegrationBranchExemption`
+    in shape — same fixture machinery, both synthetic and non-synthetic
+    sessions — but inverts the expected verdict: every context-branch
+    push is now blocked.
     """
 
-    def test_synthetic_session_context_branch_push_allowed(self, client):
-        """Synthetic-session push to ``egg/issue-N/context`` is allowed."""
+    def test_synthetic_session_context_branch_push_blocked(self, client):
+        """Even synthetic-session pushes to ``egg/issue-N/context`` are blocked.
+
+        Pre-slice-2 the synthetic flag carried a launcher-authed
+        exemption (#2548). With the exemption removed, no flag rescues
+        the push: the branch shape is illegal and must produce a 403.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2548",
@@ -1020,18 +1031,14 @@ class TestContextBranchExemption:
                 client,
                 refspec="main:refs/heads/egg/issue-2548/context",
             )
-            assert response.status_code == 200, (
-                f"Expected 200 for synthetic context branch push, "
-                f"got {response.status_code}: {response.data!r}"
+            assert response.status_code == 403, (
+                "Synthetic-session push to a context branch must be "
+                "rejected after slice-2 removes the exemption; got "
+                f"{response.status_code}: {response.data!r}"
             )
 
     def test_non_synthetic_session_context_branch_push_blocked(self, client):
-        """Agent (non-synthetic) push to a context branch is still blocked.
-
-        Same trust gate as the slice integration branch exemption — the
-        regex alone is never enough; the synthetic flag must be set, and
-        only the launcher can set it.
-        """
+        """Agent (non-synthetic) push to a context branch is also blocked."""
         session = _make_session(
             synthetic=False,
             pipeline_id="issue-2548",
@@ -1052,12 +1059,20 @@ class TestContextBranchExemption:
                 refspec="main:refs/heads/egg/issue-2548/context",
             )
             assert response.status_code == 403, (
-                "Non-synthetic session push to context branch must still "
-                "be blocked by pipeline-session enforcement"
+                "Non-synthetic session push to a context branch must "
+                "remain blocked; got "
+                f"{response.status_code}: {response.data!r}"
             )
 
-    def test_synthetic_session_qualified_context_branch_push_allowed(self, client):
-        """Qualifier-suffixed pipelines — ``egg/issue-N-v3/context`` — pass."""
+    def test_synthetic_session_qualified_context_branch_push_blocked(self, client):
+        """Qualifier-suffixed pipelines (``egg/issue-N-v3/context``) are also blocked.
+
+        The deleted ``_CONTEXT_BRANCH_RE`` accepted qualifier-suffixed
+        pipeline IDs (#2548 follow-up). Removal of the exemption means
+        these branches are no longer privileged either; the push falls
+        through to the standard pipeline-session enforcement and is
+        rejected.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2474-v2",
@@ -1077,38 +1092,23 @@ class TestContextBranchExemption:
                 client,
                 refspec="main:refs/heads/egg/issue-2474-v2/context",
             )
-            assert response.status_code == 200
-
-    def test_synthetic_session_context_multi_segment_blocked(self, client):
-        """Multi-segment shapes (``egg/foo/bar/context``) are not produced
-        by the orchestrator and the regex MUST reject them — same shape
-        constraint as the slice integration branch regex."""
-        session = _make_session(
-            synthetic=True,
-            pipeline_id="issue-2548",
-            assigned_branch="egg/foo/bar/context",
-        )
-        patches = _push_context(session)
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-        ):
-            response = _do_push(
-                client,
-                refspec="main:refs/heads/egg/foo/bar/context",
+            assert response.status_code == 403, (
+                "Qualifier-suffixed context branch must be rejected; "
+                f"got {response.status_code}: {response.data!r}"
             )
-            assert response.status_code == 403
 
-    def test_audit_event_records_context_branch_exempt_type(self, client):
-        """Context-branch pushes emit ``push_infrastructure_exempt`` with
-        ``exempt_type="context_branch"`` (distinct from
-        ``slice_integration_branch``) so SIEM filters keying on
-        ``exempt_type`` can tell them apart (#2548 review)."""
+    def test_context_branch_rejection_emits_no_context_exempt_audit_event(self, client):
+        """The audit log must NOT emit a context-branch exempt event.
+
+        Pre-slice-2 the gateway emitted
+        ``push_infrastructure_exempt`` with
+        ``exempt_type="context_branch"`` on every context-branch push.
+        Post-slice-2 that event type is dead — the exemption no longer
+        exists. A regression where the gateway still emits the event
+        (e.g. the regex was renamed instead of deleted) would be
+        invisible at the response layer but loud in audit-log
+        consumers; pin it here.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2548",
@@ -1129,30 +1129,21 @@ class TestContextBranchExemption:
                     client,
                     refspec="main:refs/heads/egg/issue-2548/context",
                 )
-                assert response.status_code == 200
+                # Rejection, not allow.
+                assert response.status_code == 403
                 events = [
                     (call.args[0] if call.args else None, call.kwargs.get("details") or {})
                     for call in mock_audit.call_args_list
                 ]
-                # The orchestrator-specific audit event still fires for context pushes,
-                # carrying a context-branch reason in its details.
-                slice_events = [e for e in events if e[0] == "push_slice_integration_exempt"]
-                assert slice_events, (
-                    f"Expected push_slice_integration_exempt event, got: {[e[0] for e in events]}"
-                )
-                assert any("context branch" in (e[1].get("reason") or "") for e in slice_events), (
-                    "push_slice_integration_exempt detail must identify context-branch pushes"
-                )
-                # The generic infra exemption event MUST use the
-                # context_branch exempt_type — this is the regression
-                # the test pins.
-                infra_events = [
+                context_exempt = [
                     e
                     for e in events
                     if e[0] == "push_infrastructure_exempt"
                     and e[1].get("exempt_type") == "context_branch"
                 ]
-                assert infra_events, (
-                    "Expected push_infrastructure_exempt with exempt_type=context_branch; "
-                    f"got: {[(e[0], e[1].get('exempt_type')) for e in events]}"
+                assert context_exempt == [], (
+                    "After slice-2, the gateway must not emit any "
+                    "push_infrastructure_exempt event with "
+                    "exempt_type=context_branch; got: "
+                    f"{[(e[0], e[1].get('exempt_type')) for e in events]}"
                 )
