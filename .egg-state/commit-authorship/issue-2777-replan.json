@@ -371,6 +371,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "80dc4e590b473c78bb1b0d9d4711adce05ba5494": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:09:51.219528+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "870d6f29eb35a273680318606a4ab5d6ca4cc72e": {
       "branch": "egg/issue-2777-replan/work",
       "pipeline_id": "issue-2777-replan",
