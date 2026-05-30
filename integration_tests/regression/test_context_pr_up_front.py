@@ -61,7 +61,7 @@ pytestmark = pytest.mark.integration
 )
 def test_context_pr_opens_up_front_and_is_idempotent(
     orchestrator_url: str,  # noqa: ARG001  — fixture wires the kubectl skip
-    egg_stack,  # noqa: ARG001
+    egg_stack: object,  # noqa: ARG001  — typed loosely (EggStack lives behind kubectl)
 ) -> None:
     """End-to-end regression for #2769 / #2593 / #2744.
 

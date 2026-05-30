@@ -160,6 +160,7 @@ class TestOpenContextPrHappyPath:
         # title/description/head/base on the happy path.
         spawner.gateway.create_pr.assert_called_once()
         kwargs = spawner.gateway.create_pr.call_args.kwargs
+        assert contract.pr is not None  # narrow for the asserts below
         assert kwargs["title"] == contract.pr.title
         assert kwargs["body"] == contract.pr.description
         assert kwargs["head"] == pipeline.branch
