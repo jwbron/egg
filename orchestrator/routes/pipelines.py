@@ -100,9 +100,26 @@ class ContextPrCreationError(Exception):
         super().__init__(message)
         # Coerce-and-validate the reason against the closed
         # enumeration. Passing a string that is not a known reason
-        # raises ``ValueError`` at construction so a typo cannot
-        # silently slip a new ``reason=`` into production.
-        self.reason: str = ContextPrCreationReason(reason).value
+        # would normally raise ``ValueError`` from the ``StrEnum``
+        # constructor — but the four ``except ContextPrCreationError``
+        # handlers at every call site would not match that
+        # ``ValueError``, so a typo would surface as a 500 instead of
+        # the typed 422 the handlers contract on
+        # (egg-reviewer non-blocking #4). Catch and coerce to
+        # ``UNKNOWN`` so the typed-exception contract holds, and log
+        # the bad reason loudly so the typo is still visible in the
+        # operator's logs and CI grep — silent coercion would hide
+        # the programming error.
+        try:
+            self.reason: str = ContextPrCreationReason(reason).value
+        except ValueError:
+            logger.warning(
+                "ContextPrCreationError received unknown reason; "
+                "coercing to UNKNOWN (#2777, egg-reviewer non-blocking #4)",
+                bad_reason=repr(reason),
+                error_message=message,
+            )
+            self.reason = ContextPrCreationReason.UNKNOWN.value
         self.cause: BaseException | None = cause
 
 
@@ -9865,9 +9882,11 @@ def _persist_context_pr_number(
 
     Single-purpose helper extracted so the new
     :func:`_open_context_pr_at_implement_start` opener is not a
-    non-transactional state mutator. Wraps the contract write through
-    the existing per-pipeline state-lock + ``save_contract`` machinery
-    that every other context-PR / slice-PR persistence path uses.
+    non-transactional state mutator. Wraps the contract write under
+    the existing per-pipeline state lock so concurrent advance_phase /
+    backstop callers serialise on the same lock instance the rest of
+    the orchestrator uses, then calls ``save_contract`` to atomically
+    rewrite ``.egg-state/contracts/...`` on disk.
 
     The helper is the SOLE writer of ``context_pr_number`` after
     slice-2 (#2777, TASK-2-1) deleted the legacy
@@ -9904,6 +9923,28 @@ def _persist_context_pr_number(
     the number; the create_pr path knows the URL directly from gh's
     stdout). The synthesis mirrors GitHub's canonical PR URL shape and
     keeps ``_get_pr_info``'s regex parse working unchanged.
+
+    Persistence surface (egg-reviewer non-blocking #3):
+
+        ``save_contract`` is a file-level atomic write — it rewrites
+        the contract on disk but does NOT commit-and-push it to the
+        worktree branch. The legacy
+        ``_persist_context_pr_linkage_on_contract`` (slice-2 deletes
+        it) wrapped the save in
+        ``_commit_statefiles_to_worktree`` + ``push_worktree_branch``;
+        the new opener intentionally does NOT, because the opener
+        runs at the canonical advance_phase REST site BEFORE
+        ``_spawn_pipeline_run_thread`` spawns the runner. That makes
+        the on-disk write durable for the runner's first read, but
+        the runner's ``_sync_worktree_with_remote`` has hard-reset
+        paths that can later wipe an uncommitted contract change.
+        Convergence is by the four runner-side backstops (slice-loop
+        entry, implement-entry backstop, ``_run_pipeline`` auto-
+        advance, HITL resume), which call the opener again — its
+        ``gh pr list`` idempotency hit re-persists ``context_pr_number``
+        on disk after a reset. Across the full lifecycle the persisted
+        value converges; within a single advance_phase call the helper
+        is best-effort-on-disk-pending-runner-commit, not transactional.
 
     Raises:
         ContextPrCreationError: when the contract cannot be loaded or
