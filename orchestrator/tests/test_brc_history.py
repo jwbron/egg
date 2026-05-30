@@ -1,16 +1,18 @@
 """
 Tests for BRC history persistence: _write_brc_history and the
-one-line transcript pointer helper.
+one-line pointer to committed transcripts.
 
 Covers:
 - _write_brc_history: file creation with BRC messages, no-op on empty store
 - _build_brc_history_link_line: one-line link to committed
-  brc-history/*.md files (#1828). NOTE: the PR-body assembler
-  ``_build_pr_body`` that consumed this line was removed in #2777
-  (slice-2); the context PR now uses ``contract.pr.description``
-  directly. The link-line helper survives and is covered by
-  ``TestBrcHistoryLinkLine``.
+  brc-history/*.md files (#1828), covered by TestBuildBrcHistoryLinkLine
 - Edge cases: mixed message types, multiple phases
+
+Note: _build_pr_body was hard-removed in #2777 (cq-4 / TASK-2-2) along
+with the PR phase; the legacy TestBuildPrBodyBrcLink class survives as
+an empty audit-trail stub. The transcript link line is no longer
+transcluded into a PR body — context PRs use a plain title/description
+sourced from contract.pr.
 """
 
 import json
@@ -25,48 +27,7 @@ sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from message_store import Message, MessageStore, MessageType
-from models import Pipeline, PipelinePhase, PipelineStatus
-
-
-def _make_pipeline(
-    pipeline_id="issue-42",
-    issue_number=42,
-    repo="owner/repo",
-    branch="egg/issue-42",
-):
-    """Create a Pipeline for testing."""
-    return Pipeline(
-        id=pipeline_id,
-        issue_number=issue_number,
-        repo=repo,
-        branch=branch,
-        mode="issue",
-        status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.IMPLEMENT,
-    )
-
-
-def _make_contract_json(
-    issue_number=42,
-    issue_title="Fix the auth bug",
-    pr_title="Fix authentication bypass in login flow",
-    pr_description="Fixes a bypass where unauthenticated users could access protected routes.\n\nCloses #42",
-):
-    """Create a contract JSON dict for testing."""
-    contract = {
-        "schemaVersion": "1.0",
-        "issue": {
-            "number": issue_number,
-            "title": issue_title,
-            "url": f"https://github.com/owner/repo/issues/{issue_number}",
-        },
-        "current_phase": "pr",
-        "phases": [],
-    }
-    if pr_title:
-        contract["pr"] = {"title": pr_title, "description": pr_description or ""}
-    return contract
-
+from models import PipelineStatus
 
 # Default slice_id stamped onto implement-phase BRC messages by the test
 # helpers below. Issue #2548 hard-switchover: ``_write_brc_history`` drops
@@ -200,14 +161,6 @@ def _make_mixed_messages(pipeline_id="issue-42", phase="implement", slice_id="__
 def _implement_path(tmp_path, identifier="42", suffix=".md", slice_id=_DEFAULT_IMPLEMENT_SLICE_ID):
     """Resolve the canonical per-slice implement-phase BRC history path (#2548)."""
     return tmp_path / ".egg-state" / "brc-history" / f"{identifier}-implement-{slice_id}{suffix}"
-
-
-def _setup_contract(tmp_path, issue_number=42):
-    """Set up a contract JSON file in the temp directory."""
-    contract_dir = tmp_path / ".egg-state" / "contracts"
-    contract_dir.mkdir(parents=True)
-    contract_file = contract_dir / f"{issue_number}.json"
-    contract_file.write_text(json.dumps(_make_contract_json(issue_number=issue_number)))
 
 
 class TestWriteBrcHistory:
@@ -1509,6 +1462,26 @@ class TestBuildBrcHistoryLinkLine:
         result = _build_brc_history_link_line(tmp_path, 42)
         # Canonical phase (plan) must appear before the non-canonical one
         assert result.index("plan") < result.index("custom")
+
+
+class TestBuildPrBodyBrcLink:
+    """Deleted per #2777 TASK-3-11 (7).
+
+    These three tests verified that the deleted ``_build_pr_body``
+    helper rendered a one-line link to per-phase BRC transcripts in
+    the auto-PR body. ``_build_pr_body`` and the entire PR-phase
+    auto-create surface were hard-removed in #2777 cq-4 / TASK-2-2 —
+    the slice-level context PR is now opened up-front by
+    ``_open_context_pr_at_implement_start`` (TASK-1-2), which writes a
+    plain title/description sourced from ``contract.pr`` and does not
+    transclude the BRC transcript link line.
+
+    The transcripts themselves are still emitted to
+    ``.egg-state/brc-history/`` by ``_write_brc_history`` (and the
+    per-slice partitioning tests below still cover that). If a future
+    follow-up reinstates a transcript pointer in the context-PR body,
+    the new tests should live under ``test_context_pr_opener.py``.
+    """
 
 
 # ---------------------------------------------------------------------------

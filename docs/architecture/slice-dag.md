@@ -443,41 +443,38 @@ slice_count=None, slice_files_affected=None, context_pr_number=None, ...)`
 opens one PR per slice (#2745). Slice PRs are scoped to their own slice:
 the body shows the slice subject, files affected, and full task
 descriptions with acceptance criteria. Strategic context (analysis doc,
-plan doc, refine/plan BRC history) lives on the base/context PR opened
-by #2548, which slice PRs link to via `context_pr_number`. The terminal
-slice keeps the umbrella treatment (program-level test plan, manual
-steps, pre-merge obligations) because it is the merge gate.
+plan doc, refine/plan BRC history) lives on the **context PR** —
+`egg/<pipeline_id>/work → main`, opened up-front at the plan→implement
+boundary (#2777) — which slice PRs link to via `context_pr_number`.
+Program-level test plan, manual steps, and pre-merge obligations now
+live on that context PR (no longer on a "terminal slice umbrella"), so
+every slice PR is purely slice-scoped.
 
 - **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
   chars (titles longer than that get truncated to `title[:67] + "..."`).
   `program-slug` is derived from `pipeline_id`: `issue-<N>` pipelines
   collapse to `issue-<N>` (version suffix dropped); `pipeline-<hash>`
-  pipelines keep a truncated prefix. `position` is `slice-N/M` for
-  non-terminal slices (1-based index over total declared slice count)
-  and `merge-gate` for the terminal slice. `subject` is `slice_name`
-  for non-terminals and `program_title` for the terminal. When the
-  70-char cap fires, the slug + position marker are preserved and the
-  `subject` is what gets truncated first — on hash-id pipelines the
-  slug + position eat ~20–30 chars, so subjects on long-named slices
-  can lose their tail (see `_derive_program_slug` for the budget). When
-  `program_title` is empty (older contracts / planner skipped the
-  field), every slice falls back to the deterministic
-  `{slice_id}: {slice_name}` form (#2539).
-- **Body (non-terminal, `context_pr_number` present).** Optional
+  pipelines keep a truncated prefix. `position` is `slice-N/M` and
+  `subject` is the slice name; the legacy `merge-gate` marker and the
+  program-title fallback on the terminal slice were removed alongside
+  the umbrella banner (#2777). When `program_title` is empty (older
+  contracts / planner skipped the field), every slice falls back to
+  the deterministic `{slice_id}: {slice_name}` form (#2539).
+- **Body (slice-scoped, `context_pr_number` present).** Optional
   1-line program blurb (first sentence of `program_description`) →
   `**Base PR:** #<context_pr_number>` → `## This slice` (slice name,
   files affected, full task descriptions + acceptance criteria) →
-  `## Stack` (position, base PR, base branch).
-- **Body (terminal — merge gate).** `> Program-level umbrella PR …`
-  banner → `program_description` → `## ⚠️ Pre-merge Obligations` /
-  `## ✅ Resolved within this PR` (when `program_deferred_actions`
-  is non-empty, rendered by `orchestrator/pr_obligations.py`) →
-  `## This slice` → `## Test Plan` → `## Manual Steps` → `## Stack`.
-- **Body (non-terminal, no `context_pr_number` — UX backstop).**
-  Falls back to inlining the full program narrative so the slice PR
-  remains reviewable as a standalone diff against `/work`. The stack
-  is still unmergeable in this state (no base PR for `work → main`);
-  the fallback is a presentational fix only.
+  `## Stack` (position, base PR, base branch). Program-level test
+  plan, manual steps and pre-merge obligations live on the up-front
+  context PR (#2777), not on any slice PR.
+- **Body (slice-scoped, no `context_pr_number` — should not occur
+  under #2777).** Because the context PR is opened up-front,
+  hard-required and idempotent at the plan→implement boundary, every
+  slice PR sees a populated `context_pr_number`. The legacy "inline
+  program narrative" backstop body was removed in #2777; if
+  `context_pr_number` is unexpectedly missing, the slice PR opens
+  without the `**Base PR:**` line and the stack is non-mergeable until
+  the operator reconciles the missing context PR.
 
 The `## Stack` block is the human-facing footer, but `_format_stack_block`
 also appends a legacy plain-text line (``Slice <slice-id> of pipeline
@@ -496,41 +493,37 @@ asserts `program_deferred_actions is None` so a mis-routed obligations
 payload fails fast instead of being silently dropped (#2354 / #2746).
 
 The implement-phase run loop (`_run_implement_phase_slices` in
-`orchestrator/routes/pipelines.py`) selects the terminal slice and
-threads the kwargs:
+`orchestrator/routes/pipelines.py`) threads the kwargs uniformly across
+every slice (no terminal-slice selection under #2777):
 
-1. Compute `depended_on = {dep for slice in contract.slices for dep in slice.dependencies}`.
-2. `terminal_ids = [s.id for s in contract.slices if s.id not in depended_on]`.
-3. `chosen_terminal = terminal_ids[-1]` (last in declared order — see
-   the multi-terminal forest note below).
-4. For **every** slice: compute 1-based `slice_index` (position in
+1. For **every** slice: compute 1-based `slice_index` (position in
    `contract.slices`) and total `slice_count`; collect
    `slice_files_affected` as the union of `task.files_affected` across
    the slice's tasks; pass `context_pr_number` from
-   `program_pr.context_pr_number` (the base/context PR opened by
-   #2548, or `None` if that PR was not opened).
-5. For the terminal slice: pass `program_deferred_actions` (collected
-   via `_collect_pre_merge_obligations`); set `terminal_slice_id=None`.
-6. For non-terminal slices: `program_deferred_actions=None`; set
-   `terminal_slice_id=chosen_terminal` **only if**
-   `contract.pr.title` is non-empty (suppressed for older contracts
-   without a program block).
+   `program_pr.context_pr_number` (the up-front context PR opened by
+   #2777 at the plan→implement boundary).
+2. `program_deferred_actions` is **always `None`** on slice PRs —
+   pre-merge obligations live on the context PR (#2777), not on any
+   slice PR.
+3. `terminal_slice_id` is no longer threaded; the legacy "merge-gate"
+   marker was removed alongside the umbrella banner.
 
 ### Multi-terminal-forest pointer caveat
 
 The slice DAG is a forest (≤1 DAG parent per slice — see
 [Forest Validation](#plan-parser--forest-validation)) and a
 multi-tree forest can have multiple terminal slices, one per tree.
-The current behaviour picks `terminal_ids[-1]` (last declared) as
-`chosen_terminal` — that's the slice that gets the `merge-gate`
-position marker and the umbrella banner; the per-merge obligations
-section also lives on exactly that PR. Other terminal leaves in
-non-chosen trees are treated as non-terminals: they receive a
-`slice-N/M` position marker and skip the umbrella banner and
-obligations section. The choice is deliberate (arbitrary but stable,
-deterministic across parallel slice runs); operators reviewing a
-multi-tree pipeline should not be surprised that the merge-gate PR
-sits in `chosen_terminal`'s subtree.
+Under #2777 the program-level test plan, manual steps and pre-merge
+obligations live on the context PR (`egg/<pipeline_id>/work → main`),
+not on any slice PR, so there is no longer a "chosen terminal" / merge
+gate selection step. The implement-phase run loop passes
+`context_pr_number` to every slice and `program_deferred_actions`
+remains `None` on every slice PR (the obligations section is rendered
+into the context PR body, not into a terminal slice). The
+multi-terminal-forest pointer ambiguity that motivated the prior
+`terminal_ids[-1]` selection is therefore moot — operators reviewing a
+multi-tree pipeline see slice PRs that all link to the same context PR
+as their merge gate.
 
 ## Stacked-PR rebase reconciler
 

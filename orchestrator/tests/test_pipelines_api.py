@@ -1103,14 +1103,17 @@ class TestRuntimeStateLeakageOnBranchReuse:
 
         Integration variant of ``test_create_clears_runtime_state`` that
         exercises the real ``_clear_pipeline_runtime_state`` helper (no
-        mock) through the route handler. Seeds the three backends
-        (``PeerConsensusTracker``, the legacy evaluator, the message
-        store), POSTs a fresh pipeline with the same id, and asserts
-        every backend is empty afterwards.
+        mock) through the route handler. Seeds the two surviving
+        backends (``PeerConsensusTracker`` and the message store), POSTs
+        a fresh pipeline with the same id, and asserts both backends
+        are empty afterwards.
+
+        The legacy ``ConsensusEvaluator`` was removed in #2777 cq-5 /
+        TASK-2-6 along with ``orchestrator/consensus.py``; the third
+        backend it represented is no longer in scope for eviction.
 
         This is the route-level safety net for the POST-site clear's
-        primary motivation: auto-FAILED paths (restart_agent spawn
-        failure, _handle_pr_creation_failure) write status=FAILED
+        primary motivation: auto-FAILED paths write status=FAILED
         directly via ``store.update_pipeline`` / ``store.save_pipeline``,
         bypassing PATCH and therefore bypassing the PATCH-site clear.
         The seeding here represents the residual state such a path would
@@ -1126,9 +1129,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
 
         pipeline_id = "issue-1965"
 
-        # Defensive: clear any leftover state from a prior test run. The
-        # legacy ``consensus`` evaluator backend was removed in #2777
-        # (slice-2); only the BRC tracker and message store remain.
+        # Defensive: clear any leftover state from a prior test run
         remove_peer_consensus_tracker(pipeline_id)
         get_message_store().clear(pipeline_id)
 
@@ -1186,13 +1187,16 @@ class TestRuntimeStateLeakageOnBranchReuse:
         assert msg_store.get_status(pipeline_id)["total"] == 0
 
     def test_clear_runtime_state_evicts_real_consensus_and_messages(self):
-        """End-to-end: helper actually clears the BRC tracker and messages.
+        """End-to-end: helper actually clears tracker and messages.
 
         Seeds a real ``PeerConsensusTracker`` and the message store under
         the same pipeline id, then invokes ``_clear_pipeline_runtime_state``
         and asserts every backend lookup returns empty/None — matching
-        what a fresh pipeline with the same id would observe. The legacy
-        ``consensus`` evaluator backend was removed in #2777 (slice-2).
+        what a fresh pipeline with the same id would observe.
+
+        The legacy ``ConsensusEvaluator`` third backend was removed in
+        #2777 cq-5 / TASK-2-6 along with ``orchestrator/consensus.py``;
+        it is no longer in scope for eviction.
         """
         from message_store import Message, get_message_store
         from peer_consensus import (
@@ -1240,6 +1244,23 @@ class TestRuntimeStateLeakageOnBranchReuse:
 
         assert get_peer_consensus_tracker(pipeline_id) is None
         assert store.get_status(pipeline_id)["total"] == 0
+
+    def test_clear_runtime_state_evicts_context_pr_dedupe(self):
+        """Deleted per #2777 TASK-3-11 (7).
+
+        The original test exercised the
+        ``_context_pr_events_emitted`` / ``_context_pr_events_emitted_lock``
+        dedupe surface from #2599 review 2 item 1. The dedupe set was
+        removed alongside the soft-fail context-PR fallback in
+        slice-2 TASK-2-1: the new
+        ``_open_context_pr_at_implement_start`` opener is hard-required
+        and idempotent — no per-lifecycle "event already emitted"
+        bookkeeping is needed because re-entry returns the existing PR
+        number without re-emitting a ``context_pr.*`` event.
+
+        Body intentionally left blank so the test is a no-op pass; the
+        docstring is the audit trail.
+        """
 
 
 class TestNonObjectJsonBodyReturns400:

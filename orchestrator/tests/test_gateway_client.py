@@ -1414,7 +1414,6 @@ class TestCreateSlicePR:
                 ),
                 program_test_plan="- Automated: make lint and make test-all green.",
                 program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
-                terminal_slice_id="slice-3",
                 slice_index=1,
                 slice_count=3,
                 slice_files_affected=["orchestrator/foo.py", "shared/bar.py"],
@@ -1472,7 +1471,6 @@ class TestCreateSlicePR:
                 program_description="The lint added in #2250 caps Python files at 1500 lines.",
                 program_test_plan="- Automated: make lint and make test-all green.",
                 program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
-                terminal_slice_id="slice-3",
                 slice_index=1,
                 slice_count=3,
                 context_pr_number=None,
@@ -1497,259 +1495,6 @@ class TestCreateSlicePR:
         assert body.index("## This slice") < body.index("## Test Plan")
         assert body.index("## Test Plan") < body.index("## Manual Steps")
 
-    def test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker(self, gateway_client):
-        """#2745: terminal slice keeps the umbrella treatment — program
-        description + ``## Test Plan`` + ``## Manual Steps`` + pre-merge
-        obligations — because the base/context PR (#2548) is a strategic-
-        direction surface (analysis + plan + BRC history), not a merge-the-
-        whole-stack rollup. Execution-time concerns live on the merge gate.
-
-        Title now uses the ``[<slug>][merge-gate] <program_title>`` shape so
-        the terminal PR is still distinguishable from the program-level
-        base PR by title alone (the original #2745 complaint)."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx:
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-3",
-                slice_name="Apply the ratchet",
-                slice_tasks=[{"id": "task-3-1", "description": "Bump the allowlist"}],
-                head="egg/issue-42/slice-3",
-                base="egg/issue-42/slice-2",
-                program_title="Decompose oversize files; ratchet allowlist",
-                program_description="The lint added in #2250 caps Python files at 1500 lines.",
-                program_test_plan="- Automated: make lint and make test-all green.",
-                program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
-                slice_index=3,
-                slice_count=3,
-                context_pr_number=99,
-            )
-        assert captured["title"] == (
-            "[issue-42][merge-gate] Decompose oversize files; ratchet allowlist"
-        )
-        body = captured["body"]
-        assert "Program-level umbrella PR" in body
-        assert "issue-42" in body
-        assert "The lint added in #2250" in body
-        # Per-slice scope section + slice name/tasks present on terminal too.
-        assert "## This slice" in body
-        assert "Apply the ratchet" in body
-        assert "- task-3-1: Bump the allowlist" in body
-        # Program test plan / manual steps still rendered on terminal —
-        # this is the merge gate; execution-time concerns live here.
-        assert "## Test Plan" in body
-        assert "make lint" in body
-        assert "## Manual Steps" in body
-        assert "seam tables" in body
-        # ``## Stack`` block names the merge-gate position.
-        assert "## Stack" in body
-        assert "- Base PR: #99" in body
-        assert "- Position: merge-gate (slice 3 of 3) in pipeline `issue-42`" in body
-        # Legacy footer string survives.
-        assert "Slice slice-3 of pipeline issue-42" in body
-
-    def test_terminal_slice_truncates_long_title_to_70_chars(self, gateway_client):
-        """Title-length cap (70 chars) is symmetric for the new
-        ``[<slug>][merge-gate] <program_title>`` shape. The slug + marker
-        prefix survives the truncation — only the subject is cut — so
-        reviewers can still tell it's the merge gate by title alone."""
-        captured, ctx = self._capture(gateway_client)
-        long_title = "A" * 90
-        with ctx:
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-3",
-                slice_name="Tip",
-                slice_tasks=None,
-                head="egg/issue-42/slice-3",
-                base="egg/issue-42/slice-2",
-                program_title=long_title,
-                slice_index=3,
-                slice_count=3,
-            )
-        assert len(captured["title"]) == 70
-        assert captured["title"].endswith("...")
-        # Pin the new shape: slug + merge-gate marker must survive the
-        # 70-char truncation so reviewers can still tell it's the merge
-        # gate by title alone (#2746 review item 7).
-        assert captured["title"].startswith("[issue-42][merge-gate] ")
-
-    def test_terminal_slice_renders_program_deferred_actions(self, gateway_client):
-        """#2354: when the terminal slice receives ``program_deferred_actions``
-        (already-normalized list of ``{reviewer, condition, resolved_in_diff}``
-        dicts produced by ``_collect_pre_merge_obligations``), the umbrella
-        PR body carries the same Pre-merge Obligations section the legacy
-        ``_auto_create_pr`` path emits — so reviewers don't have to discover
-        obligations out-of-band. Asserts the section sits *before*
-        ``## Test Plan`` (#2354 review item 1)."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx:
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-3",
-                slice_name="Apply the ratchet",
-                slice_tasks=None,
-                head="egg/issue-42/slice-3",
-                base="egg/issue-42/slice-2",
-                program_title="Decompose oversize files",
-                program_description="Description.",
-                program_test_plan="- Automated: make test-all green.",
-                program_manual_steps="Verify seam tables.",
-                program_deferred_actions=[
-                    {
-                        "reviewer": "coder",
-                        "condition": "git mv legacy/x new/x before merge",
-                        "resolved_in_diff": "",
-                    },
-                    {
-                        "reviewer": "reviewer_contract",
-                        "condition": "verify tests green against merged state",
-                        "resolved_in_diff": "2c319626a",
-                    },
-                ],
-                slice_index=3,
-                slice_count=3,
-            )
-        body = captured["body"]
-        assert "## ⚠️ Pre-merge Obligations" in body
-        assert "- **coder** — git mv legacy/x new/x before merge" in body
-        assert "## ✅ Resolved within this PR" in body
-        assert "Resolved in 2c319626a" in body
-        # Obligations sit *before* ``## Test Plan`` so the merge-blocking
-        # banner is visible without scrolling past plan/steps. The original
-        # placement (after Test Plan / Manual Steps) defeated the warning's
-        # visibility intent — see PR #2382 review item 1.
-        assert body.index("## ⚠️ Pre-merge Obligations") < body.index("## Test Plan")
-        assert body.index("## ⚠️ Pre-merge Obligations") < body.index("## Manual Steps")
-        # And before the slice-context footer (so reviewers see it without
-        # scrolling past pipeline metadata).
-        assert body.index("## ⚠️ Pre-merge Obligations") < body.index(
-            "Slice slice-3 of pipeline issue-42"
-        )
-
-    def test_terminal_slice_with_no_deferred_actions_omits_section(self, gateway_client):
-        """When the contract carries no obligations the body must not emit
-        an empty Pre-merge Obligations heading."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx:
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-3",
-                slice_name="Apply the ratchet",
-                slice_tasks=None,
-                head="egg/issue-42/slice-3",
-                base="egg/issue-42/slice-2",
-                program_title="Decompose oversize files",
-                program_deferred_actions=None,
-            )
-        assert "Pre-merge Obligations" not in captured["body"]
-        assert "Resolved within this PR" not in captured["body"]
-
-    def test_terminal_slice_with_empty_deferred_actions_list_omits_section(self, gateway_client):
-        """The realistic production case is ``contract.pr`` populated with
-        ``deferred_actions=[]`` (no obligations), not ``None``. The
-        ``_collect_pre_merge_obligations`` snapshot in
-        ``_run_one_slice_inner`` returns ``None`` only when there's nothing
-        to render, but a defensive ``[]`` should also short-circuit cleanly
-        — same merge-block visibility behaviour as the ``None`` case
-        (#2354 review item 4)."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx:
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-3",
-                slice_name="Apply the ratchet",
-                slice_tasks=None,
-                head="egg/issue-42/slice-3",
-                base="egg/issue-42/slice-2",
-                program_title="Decompose oversize files",
-                program_test_plan="- Automated: make test-all green.",
-                program_deferred_actions=[],
-            )
-        body = captured["body"]
-        assert "Pre-merge Obligations" not in body
-        assert "Resolved within this PR" not in body
-        # Test plan is unaffected by the empty obligations list.
-        assert "## Test Plan" in body
-
-    def test_non_terminal_slice_with_program_deferred_actions_raises(self, gateway_client):
-        """Wiring ``program_deferred_actions`` to a non-terminal slice (no
-        ``program_title``) is a caller mistake — the umbrella is the only
-        place obligations belong. Failing fast catches the regression
-        instead of silently dropping the obligations
-        (#2354 review nit)."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-1",
-                slice_name="Pattern adoption",
-                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
-                head="egg/issue-42/slice-1",
-                base="egg/issue-42",
-                program_deferred_actions=[
-                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
-                ],
-            )
-
-    def test_non_terminal_slice_lean_branch_with_obligations_raises(self, gateway_client):
-        """#2746 review item 1: the lean non-terminal branch (program_title
-        set, base PR opened) must also reject mis-routed
-        ``program_deferred_actions``. The pre-fix code only asserted in
-        the no-program-title branch, so a non-terminal slice with a
-        program_title silently dropped obligations."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-1",
-                slice_name="Pattern adoption",
-                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
-                head="egg/issue-42/slice-1",
-                base="egg/issue-42/work",
-                program_title="Decompose oversize files",
-                terminal_slice_id="slice-3",
-                slice_index=1,
-                slice_count=3,
-                context_pr_number=99,  # lean branch
-                program_deferred_actions=[
-                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
-                ],
-            )
-
-    def test_non_terminal_slice_inline_fallback_branch_with_obligations_raises(
-        self, gateway_client
-    ):
-        """#2746 review item 1: the inline-fallback non-terminal branch
-        (program_title set, no base PR) must also reject mis-routed
-        ``program_deferred_actions`` — same reason as the lean branch."""
-        captured, ctx = self._capture(gateway_client)
-        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
-            gateway_client.create_slice_pr(
-                pipeline_id="issue-42",
-                repo="owner/repo",
-                slice_id="slice-1",
-                slice_name="Pattern adoption",
-                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
-                head="egg/issue-42/slice-1",
-                base="egg/issue-42/work",
-                program_title="Decompose oversize files",
-                terminal_slice_id="slice-3",
-                slice_index=1,
-                slice_count=3,
-                context_pr_number=None,  # inline-fallback branch
-                program_deferred_actions=[
-                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
-                ],
-            )
-
     def test_whitespace_program_title_does_not_trigger_assertion(self, gateway_client):
         """``PRMetadata.title`` validates with ``min_length=1`` but does not
         ``.strip()`` — so a whitespace-only title (e.g. ``" "``) currently
@@ -1772,9 +1517,6 @@ class TestCreateSlicePR:
                 head="egg/issue-42/slice-1",
                 base="egg/issue-42",
                 program_title=" ",
-                program_deferred_actions=[
-                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
-                ],
             )
 
     def test_task_descriptions_not_truncated_and_acceptance_criteria_rendered(self, gateway_client):
@@ -1802,7 +1544,6 @@ class TestCreateSlicePR:
                 base="egg/issue-42/work",
                 program_title="Decompose oversize files",
                 program_description="A long-form description.",
-                terminal_slice_id="slice-3",
                 slice_index=1,
                 slice_count=3,
                 context_pr_number=99,
@@ -1826,7 +1567,6 @@ class TestCreateSlicePR:
                 head="egg/pipeline-f4c7d780abc123/slice-2",
                 base="egg/pipeline-f4c7d780abc123/slice-1",
                 program_title="Actionable Plan Framework MVP",
-                terminal_slice_id="slice-15",
                 slice_index=2,
                 slice_count=15,
                 context_pr_number=5,
@@ -1835,6 +1575,189 @@ class TestCreateSlicePR:
         assert captured["title"].startswith("[pipeline-f4c7d780")
         assert "[slice-2/15]" in captured["title"]
         assert "Bring up the orchestrator wire" in captured["title"]
+
+    def test_create_slice_pr_does_not_emit_umbrella_banner(self, gateway_client):
+        """#2777 cq-6 / task-3-1: ``create_slice_pr`` must NOT emit the
+        legacy ``"Program-level umbrella PR ..."`` banner string for any
+        slice — terminal or non-terminal. Program-level rollups now live
+        on the up-front context PR opened by
+        ``_open_context_pr_at_implement_start``; the slice PR body is
+        slice-scoped only.
+
+        This is the negative-assert counterpart to the umbrella-rollup
+        deletion: a future re-introduction of the banner (e.g. a
+        merge-of-shame from a stale branch) trips this test
+        unconditionally, regardless of slice topology. We exercise both
+        a terminal-shaped call (no ``context_pr_number``) AND a
+        non-terminal shaped call (with ``context_pr_number``) to pin
+        the parity across both branches.
+        """
+        captured, ctx = self._capture(gateway_client)
+        # Terminal-shaped (no base PR pointer).
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=[{"id": "task-3-1", "description": "Bump the allowlist"}],
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files; ratchet allowlist",
+                program_description="The lint added in #2250 caps Python files at 1500 lines.",
+                program_test_plan="- Automated: make lint and make test-all green.",
+                program_manual_steps="Pre-merge: verify seam tables.",
+                slice_index=3,
+                slice_count=3,
+            )
+        assert "Program-level umbrella PR" not in captured["body"]
+        assert "merge-gate" not in captured["title"]
+
+        # Non-terminal-shaped (with context_pr_number).
+        captured2, ctx2 = self._capture(gateway_client)
+        with ctx2:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+            )
+        assert "Program-level umbrella PR" not in captured2["body"]
+
+
+class TestLookupOpenPr:
+    """#2777 cq-8 / task-3-2: ``GatewayClient._lookup_open_pr`` is the
+    new server-side idempotency primitive used by ``create_slice_pr``
+    (and adoptable by the context-PR opener in a follow-up).
+
+    These tests exercise the helper's contract in isolation against a
+    mocked ``_make_request`` — the helper builds the ``gh pr list
+    --head <head> --base <base> --state open --json number`` call and
+    parses the stdout JSON. The wider call-site behaviour (no
+    ``gh pr create`` invoked when an existing PR matches) lives in the
+    ``TestCreateSlicePR`` block above; these tests pin the primitive's
+    own input/output contract.
+    """
+
+    def test_lookup_open_pr_returns_existing_pr_number_on_hit(self, gateway_client):
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {
+                "success": True,
+                "data": {"stdout": '[{"number": 4242}]'},
+            }
+
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
+        ):
+            result = gateway_client._lookup_open_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+            )
+        assert result == 4242
+
+    def test_lookup_open_pr_returns_none_on_miss(self, gateway_client):
+        """An empty ``gh pr list`` result (no PR matches the head + base
+        filter) is the canonical miss — ``_lookup_open_pr`` returns None
+        so the caller falls through to ``gh pr create``."""
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {"success": True, "data": {"stdout": "[]"}}
+
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
+        ):
+            result = gateway_client._lookup_open_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+            )
+        assert result is None
+
+    def test_lookup_open_pr_returns_none_on_missing_head_or_base(self, gateway_client):
+        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke
+        ``gh pr list`` with an empty ``--head`` or ``--base`` filter
+        (would surface every open PR in the repo and the caller's
+        ``if existing is not None`` would match the first one,
+        spuriously treating an unrelated PR as the idempotent hit)."""
+        from unittest.mock import patch
+
+        with (
+            patch.object(gateway_client, "register_session") as mock_register,
+            patch.object(gateway_client, "_make_request") as mock_request,
+        ):
+            # Empty head.
+            assert (
+                gateway_client._lookup_open_pr(
+                    pipeline_id="issue-42",
+                    repo="owner/repo",
+                    head="",
+                    base="main",
+                )
+                is None
+            )
+            # Empty base.
+            assert (
+                gateway_client._lookup_open_pr(
+                    pipeline_id="issue-42",
+                    repo="owner/repo",
+                    head="egg/issue-42/slice-1",
+                    base="",
+                )
+                is None
+            )
+        mock_register.assert_not_called()
+        mock_request.assert_not_called()
+
+    def test_lookup_open_pr_returns_none_on_malformed_json(self, gateway_client):
+        """Transport / parse failure: malformed JSON stdout returns
+        None and the caller falls through to ``gh pr create``. Never
+        raise — a transient lookup failure must not block PR creation."""
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {"success": True, "data": {"stdout": "not-json"}}
+
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
+        ):
+            result = gateway_client._lookup_open_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+            )
+        assert result is None
 
 
 class TestSelfIpResolution:

@@ -159,21 +159,28 @@ class TestPopulateContractFromPlan:
 
         Regression for the slice-1 review in PR #2555: the populator
         rebuilds ``contract.pr`` wholesale from the plan, and a prior
-        version preserved ``context_pr_number`` but silently wiped
-        ``deferred_actions`` — the merge-blocking Pre-merge Obligations
-        handoff written by the conditional-ACK gate at
-        ``decisions.py:complete_phase``. The ``start_phase=implement``
-        re-entry path can hit this populator after ``deferred_actions``
-        is already populated; losing it erases the only durable handoff
-        for git-mv / migration / cross-repo flips.
+        version preserved the legacy context-framing fields plus
+        ``context_pr_number`` but silently wiped ``deferred_actions`` —
+        the merge-blocking Pre-merge Obligations handoff written by the
+        conditional-ACK gate at ``decisions.py:complete_phase``. The
+        ``start_phase=implement`` re-entry path can hit this populator
+        after ``deferred_actions`` is already populated; losing it
+        erases the only durable handoff for git-mv / migration /
+        cross-repo flips.
 
         Setup: create a contract, populate ``contract.pr`` once from
         the plan, then mutate ``contract.pr.deferred_actions`` and
         ``contract.pr.context_pr_number`` to simulate runtime-populated
         state, save, and re-run the populator. Assert the runtime fields
         survive while the planner-emitted fields are refreshed from the
-        plan. (The legacy context-branch field was removed from
-        ``PRMetadata`` in #2777 slice-2.)
+        plan.
+
+        The legacy context-framing fields were dropped from
+        ``PRMetadata`` in #2777 cq-4 / TASK-2-2 — the new topology uses
+        ``egg/<id>/work → main`` as the context PR head rather than a
+        dedicated ``egg/<id>/context`` branch — so ``context_pr_number``
+        is the sole survivor of that group that needs the preservation
+        guarantee.
         """
         from egg_contracts.loader import create_contract, load_contract, save_contract
         from egg_contracts.models import DeferredAction
@@ -193,7 +200,7 @@ class TestPopulateContractFromPlan:
         # Simulate runtime-populated state: a conditional-ACK gate
         # resolved at ``complete_phase`` and stamped a deferred action,
         # plus the orchestrator opened the context PR and stamped the
-        # branch / PR-number.
+        # PR-number.
         contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         contract.pr.deferred_actions = [
@@ -209,7 +216,7 @@ class TestPopulateContractFromPlan:
         # Re-run the populator (e.g. start_phase=implement re-entry).
         _populate_contract_from_plan(tmp_path, pipeline_id, "local")
 
-        # All three runtime-populated fields must survive the re-build.
+        # Runtime-populated fields must survive the re-build.
         contract_after = load_contract(pipeline_id, tmp_path)
         assert contract_after.pr is not None
         assert len(contract_after.pr.deferred_actions) == 1
@@ -233,7 +240,16 @@ class TestEnsureStatefilesRestoresPRMetadata:
     """
 
     def test_restored_contract_has_pr_metadata(self, tmp_path: Path):
-        """After _ensure_statefiles_on_branch, the contract carries plan PR metadata."""
+        """After _ensure_statefiles_on_branch, the restored contract carries
+        the plan-derived PR metadata.
+
+        The legacy ``_build_pr_body`` helper (#1432 verification vehicle)
+        was removed in #2777 cq-4 / TASK-2-2 alongside the PR phase. The
+        contract.pr fields are now consumed up-front by
+        ``_open_context_pr_at_implement_start`` (TASK-1-2); we verify
+        ``_ensure_statefiles_on_branch`` populates them by reading the
+        contract directly via the public loader.
+        """
         from egg_contracts.loader import load_contract
         from routes.pipelines import _ensure_statefiles_on_branch
 
@@ -259,8 +275,9 @@ class TestEnsureStatefilesRestoresPRMetadata:
 
         assert result is True
 
-        # Now verify the restored contract carries the plan PR metadata
-        contract = load_contract(pipeline.id, tmp_path)
+        # Verify the restored contract carries the plan-derived PR metadata.
+        # No issue_number set, so the canonical key is the pipeline_id itself.
+        contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         assert contract.pr.title == "Add retry logic to API client"
         assert "exponential backoff" in (contract.pr.description or "")
@@ -271,6 +288,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         from routes.pipelines import _ensure_statefiles_on_branch
 
         issue_number = 99
+        pipeline_id = "pipeline-issue-99"
 
         # Write the plan draft using issue_number-based name
         drafts_dir = tmp_path / ".egg-state" / "drafts"
@@ -278,7 +296,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         (drafts_dir / f"{issue_number}-plan.md").write_text(SAMPLE_PLAN)
 
         pipeline = MagicMock()
-        pipeline.id = "pipeline-issue-99"
+        pipeline.id = pipeline_id
         pipeline.issue_number = issue_number
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
@@ -291,7 +309,11 @@ class TestEnsureStatefilesRestoresPRMetadata:
 
         assert result is True
 
-        contract = load_contract(pipeline.id, tmp_path)
+        # ``_pipeline_identifier`` keys by ``pipeline_id`` when it does
+        # not start with ``issue-<N>-`` (here it is ``pipeline-issue-99``,
+        # which has the ``pipeline-`` prefix), so the contract lands at
+        # ``pipeline-issue-99.json`` rather than ``issue-99.json``.
+        contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         assert contract.pr.title == "Add retry logic to API client"
         assert "exponential backoff" in (contract.pr.description or "")
@@ -357,8 +379,10 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.exists()
         assert plan_path.read_text() == SAMPLE_PLAN
 
-        # Verify the restored contract carries the plan PR metadata
-        contract = load_contract(pipeline.id, tmp_path)
+        # Verify contract has PR metadata from the restored plan.
+        # ``_build_pr_body`` was removed in #2777 cq-4 / TASK-2-2; read the
+        # contract directly via the public loader instead.
+        contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         assert contract.pr.title == "Add retry logic to API client"
         assert "exponential backoff" in (contract.pr.description or "")
@@ -469,8 +493,14 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.exists()
         assert plan_path.read_text() == SAMPLE_PLAN
 
-        # Verify the restored contract carries the plan PR metadata
-        contract = load_contract(pipeline.id, tmp_path)
+        # Verify contract has PR metadata from the restored plan.
+        # ``_build_pr_body`` was removed in #2777 cq-4 / TASK-2-2; read the
+        # contract directly via the public loader instead.
+        # ``_pipeline_identifier`` keys by ``pipeline_id`` when it does
+        # not start with ``issue-<N>-``; ``pipeline-issue-remote`` has
+        # the ``pipeline-`` prefix so the contract lands at
+        # ``pipeline-issue-remote.json`` rather than ``issue-42.json``.
+        contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         assert contract.pr.title == "Add retry logic to API client"
         assert "exponential backoff" in (contract.pr.description or "")
@@ -732,9 +762,14 @@ class TestStartPhaseImplementContractPopulation:
 
     def test_current_phase_does_not_demote(self, tmp_path: Path):
         """Forward-only guard: a respawn of _run_pipeline must not demote
-        the contract.  If the contract has already advanced to IMPLEMENT
-        (the terminal phase after #2777 removed PR), passing an earlier
-        phase like PLAN must be a no-op.
+        the contract's ``current_phase``.
+
+        The original test used ``PipelinePhase.PR`` (the legacy terminal
+        phase) as the "advanced" state and verified IMPLEMENT did not
+        overwrite it. ``PR`` was hard-removed in #2777 cq-4 / TASK-2-2;
+        ``IMPLEMENT`` is now terminal. The forward-only guard still
+        applies — pinned here by asserting that ``PLAN`` cannot demote
+        ``IMPLEMENT``.
         """
         from egg_contracts.loader import create_contract, load_contract, save_contract
         from egg_contracts.models import PipelinePhase
