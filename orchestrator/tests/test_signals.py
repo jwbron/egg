@@ -2147,3 +2147,64 @@ class TestNackVersionRouteEnforcement:
         assert body["success"] is False
         assert ">= 1" in body["message"]
         mock_tracker.handle_nack.assert_not_called()
+
+
+class TestResolveReviewerDeltaRange:
+    """`_resolve_reviewer_delta_range` resolves each reviewer's own
+    `<last_sha>..HEAD` re-review range from their last-verdicted version,
+    backing delta-scoped re-review (#2887). Falls back to None (→ the
+    priming block's REVIEWER-SYNC range) when no anchor is resolvable.
+    """
+
+    @pytest.fixture
+    def tracker(self):
+        from attestation_schemas import AttestationStrictness
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker(
+            "test-pipeline",
+            graph,
+            cooldown_seconds=0,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            auto_repropose_debounce_seconds=0,
+        )
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        return t
+
+    def test_range_spans_reviewer_last_verdict_to_head(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+        )
+        tracker.handle_nack(
+            "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "x"}
+        )
+        # Producer re-proposes at sha2; reviewer's entry still pins v1/sha1.
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "sha2"},
+        )
+
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
+        assert rng == "sha1..sha2"
+
+    def test_no_prior_verdict_returns_none(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+        )
+        # Reviewer never verdicted (entry.version == 0).
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
+        assert rng is None
+
+    def test_empty_head_returns_none(self, tracker):
+        from routes.signals import _resolve_reviewer_delta_range
+
+        assert _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "") is None

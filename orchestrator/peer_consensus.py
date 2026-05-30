@@ -114,6 +114,14 @@ class PeerConsensusTracker:
         self._proposal_artifacts: dict[str, list[str]] = {}
         # Track proposal commit SHAs per producer (#1473)
         self._proposal_commit_shas: dict[str, str] = {}
+        # Per-version commit SHA history per producer (#2887). Unlike
+        # ``_proposal_commit_shas`` (overwritten each propose, holds only
+        # the current version) this accumulates ``{version: commit_sha}``
+        # across re-proposes so a re-review notice can resolve the commit
+        # a given reviewer last verdicted at (``entry.version`` →
+        # commit_sha) and emit an authoritative per-reviewer delta range
+        # (``<last_sha>..HEAD``) instead of a hardcoded v1→v2 anchor.
+        self._proposal_commit_sha_history: dict[str, dict[int, str]] = {}
         # Whether handle_timeout() has already processed the timeout
         self._timeout_handled: bool = False
         # Auto re-propose safety: debounce timestamps and counters
@@ -354,6 +362,16 @@ class PeerConsensusTracker:
         self._proposal_timestamps[agent_role] = datetime.now(UTC)
         self._proposal_artifacts[agent_role] = list(proposal.artifacts)
         self._proposal_commit_shas[agent_role] = proposal.commit_sha
+        # Pin this version's commit SHA in the accumulating history so a
+        # later re-review notice can resolve any prior reviewer's
+        # last-verdicted version back to the commit they actually saw
+        # (#2887). ProposalPayload already requires a non-empty
+        # commit_sha; the guard is defensive so the history never holds
+        # an empty anchor.
+        if proposal.commit_sha:
+            self._proposal_commit_sha_history.setdefault(agent_role, {})[version] = (
+                proposal.commit_sha
+            )
 
         # Detect reviewers who confirmed on a stale version and need re-review.
         # This prevents deadlocks where a confirmed reviewer never sees a new
@@ -1401,6 +1419,7 @@ class PeerConsensusTracker:
             self._flip_flop_counts.pop(producer_role, None)
             self._proposal_artifacts.pop(producer_role, None)
             self._proposal_commit_shas.pop(producer_role, None)
+            self._proposal_commit_sha_history.pop(producer_role, None)
 
             # Remaining producers may now be fully_acked if the excused
             # producer held a dual role (producer + reviewer).  The next
@@ -1498,6 +1517,21 @@ class PeerConsensusTracker:
     def get_proposal_commit_sha(self, role: str) -> str:
         """Return the commit SHA from a producer's last proposal (#1473)."""
         return self._proposal_commit_shas.get(role, "")
+
+    def get_commit_sha_for_version(self, producer: str, version: int) -> str:
+        """Return the commit SHA a producer's proposal was at for ``version``.
+
+        Resolves a reviewer's last-verdicted version (``entry.version``)
+        back to the commit they actually reviewed, so a re-review notice
+        can emit an authoritative per-reviewer delta range
+        ``<that_sha>..HEAD`` instead of the legacy hardcoded v1→v2 anchor
+        (#2887). Returns "" when no commit was pinned for that version
+        (version 0 / pre-proposal verdicts, or a producer this tracker
+        has no proposal history for), letting callers fall back to the
+        reviewer-self-tracked ``last_reviewed_commit`` range from
+        REVIEWER-SYNC.md.
+        """
+        return self._proposal_commit_sha_history.get(producer, {}).get(version, "")
 
     def get_pre_merge_conditions(self) -> list[dict[str, Any]]:
         """Return active conditional-ACK obligations across all producers.

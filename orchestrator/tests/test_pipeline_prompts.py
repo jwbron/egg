@@ -4675,18 +4675,29 @@ class TestAdversarialReReviewPriming:
         cannot disappear without violating the #2724 design intent.
 
         The block is structured around explicit dual-mandate
-        decomposition (verify v1 blockers / audit v2 delta as fresh
-        reviewer). Vague-adversarial language alone leaves the
+        decomposition (verify prior blockers / audit the delta as a
+        fresh reviewer). Vague-adversarial language alone leaves the
         named-blockers anchor in place; naming the bias and giving the
         reviewer two checkable mandates is the load-bearing piece.
+
+        Parameterized by version (#2887): a vN call must anchor to vN /
+        v(N-1) rather than the legacy hardcoded v1→v2 transition, so a
+        v6 re-review is told to audit *its* delta, not "the v2 delta".
         """
         from routes.pipelines import _re_review_priming_block
 
-        block = _re_review_priming_block()
+        block = _re_review_priming_block(version=6)
         # Dual-mandate decomposition — the structural anchor.
         assert "TWO equal-weight mandates" in block
-        assert "named v1 blockers" in block
-        assert "Audit the v2 delta as a fresh reviewer" in block
+        # Version anchoring is dynamic (#2887): vN / v(N-1), not v1/v2.
+        assert "Your v6 review" in block
+        assert "named v5 blockers" in block
+        assert "v2" not in block and "v1 " not in block
+        # Mandate 2 is delta-scoped, not whole-surface.
+        assert "Audit the delta since your last review" in block
+        assert "as a fresh reviewer" in block
+        assert "bounded to this delta" in block.lower()
+        assert "NOT the whole accumulated" in block or "not the whole accumulated" in block.lower()
         assert "equal weight" in block.lower()
         assert "ACK requires both pass" in block
         # Explicit bias-naming — the trap the priming counters.
@@ -4713,6 +4724,44 @@ class TestAdversarialReReviewPriming:
         assert "NACK without hesitance" in block
         # GitHub-as-no-op standard.
         assert "GitHub" in block
+
+    def test_priming_block_per_reviewer_delta_range_embedded(self):
+        """When a concrete ``delta_range`` is supplied (the per-reviewer
+        ``CONSENSUS_RE_REVIEW`` path), the block embeds that authoritative
+        ``<sha>..HEAD`` git range so mandate 2 is bounded to the commits
+        since *that* reviewer's own last verdict — the core #2887 fix.
+        """
+        from routes.pipelines import _re_review_priming_block
+
+        block = _re_review_priming_block(version=4, delta_range="abc123..def456")
+        assert "abc123..def456" in block
+        assert "git log abc123..def456" in block
+        assert "Your v4 review" in block
+
+    def test_priming_block_broadcast_path_uses_reviewer_sync_range(self):
+        """Without a ``delta_range`` (the broadcast ``CONSENSUS_PROPOSE``
+        body, shared across reviewers at different last-reviewed versions),
+        the block points each reviewer at the REVIEWER-SYNC self-tracked
+        range rather than a hardcoded version delta (#2887).
+        """
+        from routes.pipelines import _re_review_priming_block
+
+        block = _re_review_priming_block(version=3)
+        assert "last_reviewed_commit}..HEAD" in block
+        assert "REVIEWER-SYNC.md" in block
+
+    def test_priming_block_no_version_falls_back_gracefully(self):
+        """A version-less call (defensive / legacy) must not crash and
+        must avoid the stale v1/v2 anchors — it uses generic
+        "current"/"prior" wording instead (#2887).
+        """
+        from routes.pipelines import _re_review_priming_block
+
+        block = _re_review_priming_block()
+        assert "TWO equal-weight mandates" in block
+        assert "Your current review" in block
+        assert "named prior blockers" in block
+        assert "your prior NACK history" in block
 
     @pytest.mark.parametrize(
         ("role", "phase"),

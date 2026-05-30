@@ -86,7 +86,10 @@ def _is_sigterm_after_completion(pipeline: Pipeline, error_message: str) -> bool
     )
 
 
-def _get_re_review_priming_text() -> str:
+def _get_re_review_priming_text(
+    version: int | None = None,
+    delta_range: str | None = None,
+) -> str:
     """Return the adversarial re-review priming block, or "" if unavailable.
 
     Centralizes the lazy import of ``_re_review_priming_block`` from
@@ -96,6 +99,15 @@ def _get_re_review_priming_text() -> str:
     falls back to the un-primed message body — a regression that would
     silently drop the re-prime surfaces in logs instead of degrading
     the feature invisibly (see #2724 post-mortem).
+
+    Args:
+        version: Current (re-proposed) proposal version, so the block
+            anchors to ``vN`` / ``v(N-1)`` rather than a hardcoded
+            v1→v2 transition (#2887).
+        delta_range: Per-reviewer ``<sha>..HEAD`` range scoping mandate
+            2 to the commits since that reviewer's own last verdict.
+            Only passed on the per-reviewer ``CONSENSUS_RE_REVIEW``
+            path; omitted on the broadcast ``CONSENSUS_PROPOSE`` body.
     """
     try:
         from routes.pipelines import _re_review_priming_block
@@ -108,7 +120,40 @@ def _get_re_review_priming_text() -> str:
                 "re-review priming will not be appended to message bodies"
             )
             return ""
-    return _re_review_priming_block()
+    return _re_review_priming_block(version=version, delta_range=delta_range)
+
+
+def _resolve_reviewer_delta_range(
+    tracker: Any,
+    producer: str,
+    reviewer: str,
+    head_sha: str,
+) -> str | None:
+    """Return a ``<last_sha>..<head_sha>`` range for a reviewer's re-review.
+
+    Scopes the reviewer's mandate-2 audit to exactly the commits landed
+    since *their own* last verdict (#2887): the reviewer's last-verdicted
+    proposal version (``entry.version``) resolves, via the tracker's
+    per-version commit history, to the commit they actually reviewed, and
+    the range runs from there to the new proposal commit.
+
+    Returns ``None`` when the prior-reviewed commit can't be resolved — no
+    prior verdict, a version-0 pre-proposal ACK, missing commit history,
+    or an empty/unchanged head — so the caller falls back to the priming
+    block's generic, reviewer-self-tracked range from REVIEWER-SYNC.md.
+    """
+    if not head_sha:
+        return None
+    try:
+        entry = tracker.matrix.get_entry(reviewer, producer)
+    except AttributeError:
+        return None
+    if entry is None or not entry.version:
+        return None
+    last_sha = tracker.get_commit_sha_for_version(producer, entry.version)
+    if not last_sha or last_sha == head_sha:
+        return None
+    return f"{last_sha}..{head_sha}"
 
 
 signals_bp = Blueprint("signals", __name__, url_prefix="/api/v1/pipelines")
@@ -1382,7 +1427,11 @@ def handle_consensus_propose_signal(
         # don't reach every reviewer. See #2724 post-mortem.
         propose_body = payload.get("summary", "")
         if changed_artifacts:
-            propose_body = propose_body + _get_re_review_priming_text()
+            # Broadcast body (to_role="all") — one text shared across
+            # reviewers who may sit at different last-reviewed versions,
+            # so no per-reviewer delta_range; the block points each
+            # reviewer at the REVIEWER-SYNC self-tracked range (#2887).
+            propose_body = propose_body + _get_re_review_priming_text(version=result.get("version"))
 
         store.add_message(
             Message(
@@ -1412,7 +1461,15 @@ def handle_consensus_propose_signal(
                 f"Your previous confirmation was on an earlier version. "
                 f"Please re-review and ACK/NACK the new proposal."
             )
-            re_review_body = re_review_body + _get_re_review_priming_text()
+            # Per-reviewer delta: scope mandate 2 to the commits since
+            # this reviewer's own last verdict, resolved authoritatively
+            # from their last-reviewed version's commit (#2887).
+            delta_range = _resolve_reviewer_delta_range(
+                tracker, agent_role, stale_reviewer, commit_sha
+            )
+            re_review_body = re_review_body + _get_re_review_priming_text(
+                version=result.get("version"), delta_range=delta_range
+            )
 
             store.add_message(
                 Message(
@@ -2392,7 +2449,7 @@ def handle_consensus_producer_push_signal(
             propose_body = (
                 f"Producer {agent_role} pushed new commit {commit_sha}. "
                 f"Existing ACKs invalidated; re-review required."
-            ) + _get_re_review_priming_text()
+            ) + _get_re_review_priming_text(version=result.get("version"))
             store.add_message(
                 Message(
                     pipeline_id=pipeline_id,
@@ -2419,11 +2476,18 @@ def handle_consensus_producer_push_signal(
                 result.get("stale_reviewers", []) + result.get("invalidated_reviewers", [])
             )
             for reviewer in notified_reviewers:
+                # Per-reviewer delta: scope mandate 2 to the commits since
+                # this reviewer's own last verdict (#2887).
+                delta_range = _resolve_reviewer_delta_range(
+                    tracker, agent_role, reviewer, commit_sha
+                )
                 re_review_body = (
                     f"Producer {agent_role} has pushed new commits after "
                     f"proposing. Your previous review is invalidated. "
                     f"Please re-review and ACK/NACK the updated work."
-                ) + _get_re_review_priming_text()
+                ) + _get_re_review_priming_text(
+                    version=result.get("version"), delta_range=delta_range
+                )
                 store.add_message(
                     Message(
                         pipeline_id=pipeline_id,
