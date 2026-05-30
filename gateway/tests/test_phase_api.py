@@ -710,6 +710,5 @@ class TestReviewerPhaseTransitionIntegration:
             # The on-disk contract must be unchanged.
             unchanged = load_contract(999, tmppath)
             assert unchanged.current_phase == PipelinePhase.IMPLEMENT, (
-                f"Rejected advance must not mutate on-disk phase; got "
-                f"{unchanged.current_phase!r}"
+                f"Rejected advance must not mutate on-disk phase; got {unchanged.current_phase!r}"
             )

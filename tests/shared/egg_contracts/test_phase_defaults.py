@@ -75,8 +75,7 @@ class TestGetDefaultPhaseConfig:
         """
         names = {member.name for member in PipelinePhase}
         assert "PR" not in names, (
-            "PipelinePhase.PR must be removed in slice-2 of #2777; "
-            f"found members={sorted(names)}"
+            f"PipelinePhase.PR must be removed in slice-2 of #2777; found members={sorted(names)}"
         )
         values = {member.value for member in PipelinePhase}
         assert "pr" not in values, (
@@ -113,9 +112,7 @@ class TestGetDefaultPhaseConfig:
         assert PipelinePhase.IMPLEMENT in members
         # All non-IMPLEMENT phases are upstream of IMPLEMENT (REFINE, PLAN,
         # APPLY); no member exists that's downstream of IMPLEMENT.
-        downstream_candidates = {
-            member for member in members if member.value == "pr"
-        }
+        downstream_candidates = {member for member in members if member.value == "pr"}
         assert downstream_candidates == set(), (
             "After slice-2, no PipelinePhase member may sit downstream of "
             f"IMPLEMENT; found={downstream_candidates}"

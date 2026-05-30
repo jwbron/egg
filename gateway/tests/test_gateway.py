@@ -4341,7 +4341,14 @@ class TestSessionPhaseUpdate:
         assert "invalid" in data["message"].lower()
 
     def test_session_phase_update_success(self, client, launcher_auth_headers, tmp_path):
-        """Session phase update succeeds with valid parameters."""
+        """Session phase update succeeds with valid parameters.
+
+        Pre-#2777 slice-2 this used ``"pr"`` as the destination phase
+        (the legacy PR phase). The PR phase was deleted by cq-4 /
+        TASK-2-2; we drive the same code path with the surviving
+        ``IMPLEMENT`` value here (any valid post-slice-2 phase
+        works).
+        """
         from session_manager import SessionManager
 
         # Create a real session manager with temp file
@@ -4350,28 +4357,33 @@ class TestSessionPhaseUpdate:
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
-            phase="implement",
+            phase="plan",
         )
 
         with patch.object(gateway, "get_session_manager", return_value=manager):
             response = client.patch(
                 f"/api/v1/sessions/{token}/phase",
                 headers=launcher_auth_headers,
-                data=json.dumps({"phase": "pr"}),
+                data=json.dumps({"phase": "implement"}),
                 content_type="application/json",
             )
 
             assert response.status_code == 200
             data = json.loads(response.data)
             assert data["success"] is True
-            assert data["data"]["phase"] == "pr"
+            assert data["data"]["phase"] == "implement"
 
             # Verify session was updated
             session = manager.get_session(token)
-            assert session.phase == "pr"
+            assert session.phase == "implement"
 
     def test_session_phase_update_session_not_found(self, client, launcher_auth_headers):
-        """Session phase update returns 404 for unknown session."""
+        """Session phase update returns 404 for unknown session.
+
+        See ``test_session_phase_update_success`` for the post-#2777
+        slice-2 substitution of ``"implement"`` for the deleted
+        ``"pr"`` phase value.
+        """
         with patch.object(gateway, "get_session_manager") as mock_get_manager:
             mock_manager = MagicMock()
             mock_manager.update_phase.return_value = False
@@ -4380,7 +4392,7 @@ class TestSessionPhaseUpdate:
             response = client.patch(
                 "/api/v1/sessions/unknown-token/phase",
                 headers=launcher_auth_headers,
-                data=json.dumps({"phase": "pr"}),
+                data=json.dumps({"phase": "implement"}),
                 content_type="application/json",
             )
 

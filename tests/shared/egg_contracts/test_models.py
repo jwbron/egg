@@ -332,11 +332,13 @@ class TestContract:
                 url="https://github.com/owner/repo/issues/133",
             ),
         )
-        # schemaVersion default bumped from "1.0" to "1.1" in #2548 to
-        # track the addition of the optional ``pr.context_*`` fields.
-        # See ``test_pr_metadata.py::test_default_schemaversion_is_1_1``
-        # for the canonical pin.
-        assert contract.schemaVersion == "1.1"
+        # schemaVersion was bumped 1.0 -> 1.1 in #2548 (added optional
+        # ``pr.context_*`` fields), then 1.1 -> 1.2 in #2777 slice-2
+        # (cq-2 hard-removed ``context_branch`` / ``context_title`` /
+        # ``context_description`` and added the load-time migration that
+        # strips them from legacy on-disk payloads). The canonical pin
+        # lives on ``test_pr_metadata.py::test_default_schemaversion_is_1_2``.
+        assert contract.schemaVersion == "1.2"
         assert contract.issue.number == 133
         assert contract.current_phase == PipelinePhase.REFINE
         assert contract.phases == []

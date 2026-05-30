@@ -127,10 +127,7 @@ class TestPRMetadataKeptFields:
         decoded = json.loads(as_json)
         assert len(decoded["deferred_actions"]) == 1
         assert decoded["deferred_actions"][0]["reviewer"] == "reviewer_code"
-        assert (
-            decoded["deferred_actions"][0]["condition"]
-            == "must rename foo → bar before merge"
-        )
+        assert decoded["deferred_actions"][0]["condition"] == "must rename foo → bar before merge"
 
         round_trip = PRMetadata.model_validate_json(as_json)
         assert len(round_trip.deferred_actions) == 1
@@ -260,8 +257,7 @@ class TestPRMetadataRemovedFieldsRejected:
         """
         field_names = set(PRMetadata.model_fields.keys())
         assert "context_branch" not in field_names, (
-            f"PRMetadata.model_fields must not contain 'context_branch'; "
-            f"got: {sorted(field_names)}"
+            f"PRMetadata.model_fields must not contain 'context_branch'; got: {sorted(field_names)}"
         )
         assert "context_title" not in field_names
         assert "context_description" not in field_names
@@ -526,9 +522,7 @@ class TestNoSurvivingReadSites:
         # (Path may shift; matched as a substring.)
     )
 
-    @pytest.mark.parametrize(
-        "needle", ["context_branch", "context_title", "context_description"]
-    )
+    @pytest.mark.parametrize("needle", ["context_branch", "context_title", "context_description"])
     def test_no_production_reads_of_removed_fields(self, needle):
         """No production code (outside the allow-list) may reference the
         three deleted attribute names.
@@ -538,9 +532,18 @@ class TestNoSurvivingReadSites:
         """
         try:
             result = subprocess.run(
-                ["git", "grep", "-l", needle, "--",
-                 "orchestrator/", "shared/", "gateway/",
-                 "integration_tests/", "tests/"],
+                [
+                    "git",
+                    "grep",
+                    "-l",
+                    needle,
+                    "--",
+                    "orchestrator/",
+                    "shared/",
+                    "gateway/",
+                    "integration_tests/",
+                    "tests/",
+                ],
                 cwd=str(_PROJECT_ROOT),
                 capture_output=True,
                 text=True,

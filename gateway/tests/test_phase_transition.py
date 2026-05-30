@@ -197,9 +197,7 @@ class TestValidTransitions:
         # PipelinePhase.PR no longer exists as an enum member, so we
         # check by value string.
         pr_keys = [k for k in VALID_TRANSITIONS if k.value == "pr"]
-        assert pr_keys == [], (
-            f"VALID_TRANSITIONS must contain no PR keys; got {pr_keys!r}"
-        )
+        assert pr_keys == [], f"VALID_TRANSITIONS must contain no PR keys; got {pr_keys!r}"
         for from_phase, destinations in VALID_TRANSITIONS.items():
             pr_dests = [d for d in destinations if d.value == "pr"]
             assert pr_dests == [], (
@@ -311,7 +309,9 @@ class TestRoleHierarchy:
         assert result.success is True
 
         # Human can exit plan (requires human)
-        result = can_transition_to(PipelinePhase.PLAN, PipelinePhase.IMPLEMENT, TransitionRole.HUMAN)
+        result = can_transition_to(
+            PipelinePhase.PLAN, PipelinePhase.IMPLEMENT, TransitionRole.HUMAN
+        )
         assert result.success is True
 
     def test_reviewer_cannot_satisfy_human_requirement(self):
