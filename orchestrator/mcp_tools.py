@@ -755,7 +755,7 @@ PIPELINE_TOOLS = [
                 },
                 "target_phase": {
                     "type": "string",
-                    "description": "Target phase to advance to (e.g. 'plan', 'implement', 'pr')",
+                    "description": "Target phase to advance to (e.g. 'plan', 'implement'). The legacy 'pr' phase was removed in #2777; IMPLEMENT is now terminal.",
                 },
                 "force": {
                     "type": "boolean",
@@ -1443,18 +1443,17 @@ class PipelineToolHandler:
         pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
         pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
 
-        # Extract PR info from the PR phase artifacts (#1625). The PR phase
-        # writes the URL to ``phases["pr"].artifacts["pr_url"]`` after
-        # auto-creating the PR, so monitoring clients can pick it up here
-        # without a separate ``gh pr list`` call.
-        phases = pipeline_data.get("phases", {})
-        pr_url: str | None = None
-        pr_number: int | None = None
-        pr_artifacts = (phases.get("pr") or {}).get("artifacts") or {}
-        raw_pr_url = pr_artifacts.get("pr_url")
-        if raw_pr_url:
-            pr_url = raw_pr_url
-            match = re.search(r"/pull/(\d+)", raw_pr_url)
+        # Extract PR info from the pipeline's top-level ``pr_url`` /
+        # ``pr_number`` fields (#1625, #2777 cq-4). The PR phase was
+        # removed; the context PR opens up-front via
+        # ``_open_context_pr_at_implement_start`` which persists the URL
+        # and number directly on the pipeline record so monitoring
+        # clients can pick them up without a separate ``gh pr list``.
+        pr_url = pipeline_data.get("pr_url")
+        raw_pr_number = pipeline_data.get("pr_number")
+        pr_number: int | None = int(raw_pr_number) if isinstance(raw_pr_number, int) else None
+        if pr_url and pr_number is None:
+            match = re.search(r"/pull/(\d+)", pr_url)
             if match:
                 pr_number = int(match.group(1))
 
@@ -1476,7 +1475,12 @@ class PipelineToolHandler:
             "pipeline": pipeline_info,
         }
 
-        # Extract agent info from phases
+        # Extract agent info from phases. ``phases`` was previously
+        # also used for PR-info extraction above, but that lookup was
+        # rewired in #2777 to read ``pipeline_data["pr_url"]`` /
+        # ``pipeline_data["pr_number"]`` directly. The per-phase agent
+        # iteration below still needs the phases map, so bind it here.
+        phases = pipeline_data.get("phases") or {}
         current_phase_key = pipeline_data.get("current_phase", "")
         phase_data = phases.get(current_phase_key, {})
         agents = phase_data.get("agents", [])

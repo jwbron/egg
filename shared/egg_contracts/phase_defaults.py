@@ -77,8 +77,10 @@ _IMPLEMENT_CHECKS: list[CheckDefinition] = [
 # mutations via the gateway and convergence is enforced by REVIEWER_CONTRACT)
 _APPLY_CHECKS: list[CheckDefinition] = []
 
-# Default checks for the PR phase (empty by default)
-_PR_CHECKS: list[CheckDefinition] = []
+# NOTE: ``_PR_CHECKS`` and the ``PipelinePhase.PR`` row were removed in
+# #2777 (cq-4) along with the PR phase itself. ``IMPLEMENT`` is now
+# terminal; downstream consumers that iterate ``_DEFAULT_PHASE_CONFIGS``
+# no longer see a 'pr' key.
 
 # Default phase configurations
 _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
@@ -99,11 +101,6 @@ _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
     ),
     PipelinePhase.IMPLEMENT: PhaseConfig(
         checks=_IMPLEMENT_CHECKS,
-        max_review_cycles=3,
-        human_review_mechanism=HumanReviewMechanism.PR_REVIEW,
-    ),
-    PipelinePhase.PR: PhaseConfig(
-        checks=_PR_CHECKS,
         max_review_cycles=3,
         human_review_mechanism=HumanReviewMechanism.PR_REVIEW,
     ),

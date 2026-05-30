@@ -47,11 +47,12 @@ class EventType(StrEnum):
     PHASE_COMPLETED = "phase.completed"
     PHASE_FAILED = "phase.failed"
 
-    # Context PR hook outcomes (#2611). Emitted by the
-    # plan→implement transition wrapper when the hook ran but
-    # the post-hook contract still records no context PR number.
-    CONTEXT_PR_SKIPPED = "context_pr.skipped"
-    CONTEXT_PR_FAILED = "context_pr.failed"
+    # NOTE: ``CONTEXT_PR_SKIPPED`` and ``CONTEXT_PR_FAILED`` (from
+    # #2611) were removed in #2777 (cq-4 / TASK-2-1) along with the
+    # plan→implement context-PR wrapper that produced them. The new
+    # up-front opener (`_open_context_pr_at_implement_start`) is
+    # hard-required and raises ``ContextPrCreationError`` on failure,
+    # so the soft-fail event-bus signals are no longer needed.
 
     # Agent lifecycle
     AGENT_STARTED = "agent.started"

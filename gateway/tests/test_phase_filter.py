@@ -238,14 +238,37 @@ class TestIsOperationBlockedFunction:
 
         assert is_operation_blocked("implement", "git", "push origin main") is False
 
-    def test_pr_create_blocked_until_pr_phase(self):
-        """PR create is blocked until PR phase."""
+    def test_pr_create_blocked_in_every_surviving_phase(self):
+        """PR create is blocked in every surviving phase post-#2777 slice-2.
+
+        Pre-slice-2 the PR phase was the one phase that allowed
+        ``gh pr create``. Slice-2 deletes the PR phase entirely — the
+        context PR is opened up-front at the plan→implement boundary
+        by the orchestrator's internal hook (which routes through a
+        synthetic gateway session, not a pipeline phase). No agent
+        phase should permit ``pr create`` ever again.
+        """
         phase_filter._filter = None
 
+        # Every surviving agent phase blocks pr create.
         assert is_operation_blocked("refine", "gh", "pr create") is True
         assert is_operation_blocked("plan", "gh", "pr create") is True
         assert is_operation_blocked("implement", "gh", "pr create") is True
-        assert is_operation_blocked("pr", "gh", "pr create") is False
+
+    def test_dead_pr_phase_string_raises_on_enum_coercion(self):
+        """``is_operation_blocked("pr", ...)`` raises ``ValueError`` after slice-2.
+
+        The convenience function coerces the phase string to
+        ``PipelinePhase``; ``PipelinePhase("pr")`` is no longer a valid
+        member, so the coercion raises before any permission lookup runs.
+        That fail-loud behavior is the right default-deny shape for a
+        stale caller still targeting the deleted phase — the alternative
+        (returning ``False`` for "not blocked") would silently grant the
+        operation.
+        """
+        phase_filter._filter = None
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            is_operation_blocked("pr", "gh", "pr create")
 
 
 class TestDefaultPermissions:
@@ -288,17 +311,23 @@ class TestDefaultPermissions:
         result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "pr create")
         assert result.allowed is False
 
-    def test_pr_phase_allows_pr_create(self):
-        """PR phase allows PR creation."""
-        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
-        assert result.allowed is True
+    def test_pr_phase_string_is_not_a_valid_permission_key(self):
+        """The dead ``'pr'`` phase string is rejected at the enum-coercion gate (#2777 slice-2).
 
-    def test_pr_phase_allows_push(self):
-        """PR phase allows git push."""
-        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GIT, "push origin main")
-        assert result.allowed is True
+        Pre-slice-2 the default ``PhasePermissions`` table had a ``PR``
+        row that allowed both push and pr create. Slice-2 deletes the
+        row alongside the ``PipelinePhase.PR`` enum member. Any caller
+        still hitting the dead key via the convenience
+        ``filter_operation`` (which accepts string phases) must hit
+        ``PipelinePhase("pr")`` → ``ValueError`` rather than be granted
+        privileged operations. The enum-coercion failure is the
+        load-bearing fail-loud signal; once it fires, the deleted PR
+        row cannot accidentally be re-granted via a typo.
+        """
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", OperationType.GH, "pr create")
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", OperationType.GIT, "push origin main")
 
 
 class TestResetPhaseFilter:
@@ -338,23 +367,30 @@ class TestPatternEdgeCases:
         phase_filter._filter = None
 
     def test_pr_create_without_args_matches_pattern(self):
-        """'pr create' without arguments matches 'pr create*' pattern."""
+        """'pr create' without arguments matches 'pr create*' pattern.
+
+        Post-slice-2: only verifies the negative half — the pattern
+        matches, so refine blocks. The PR-phase allow half is gone with
+        the deleted phase.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        # In refine phase, pr create should be blocked
         result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
         assert result.allowed is False
 
-        # In pr phase, pr create should be allowed
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "pr create")
-        assert result.allowed is True
+    def test_pr_create_with_args_pattern_matches_in_implement(self):
+        """'pr create --title foo' matches 'pr create*' pattern.
 
-    def test_pr_create_with_args_matches_pattern(self):
-        """'pr create --title foo' matches 'pr create*' pattern."""
+        Post-slice-2 we drive the pattern check through the still-live
+        ``IMPLEMENT`` phase (which blocks the operation) since the PR
+        phase no longer exists. The objective of the test — proving the
+        ``pr create*`` glob matches a flagged ``--title`` invocation —
+        is unchanged.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         result = pf.filter_operation(
-            PipelinePhase.PR, OperationType.GH, "pr create --title 'Test PR'"
+            PipelinePhase.IMPLEMENT, OperationType.GH, "pr create --title 'Test PR'"
         )
-        assert result.allowed is True
+        assert result.allowed is False
 
     def test_partial_command_does_not_match_blocked_pattern(self):
         """Commands that partially match blocked patterns should not be blocked."""
@@ -888,8 +924,16 @@ class TestPhaseFileRestrictions:
 
         assert result.allowed is True
 
-    def test_pr_phase_allows_everything(self):
-        """PR phase should allow all files."""
+    def test_pr_phase_string_default_denies_all_files(self):
+        """``'pr'`` is no longer a valid phase (#2777 slice-2) — default-deny.
+
+        Pre-slice-2 the PR phase had a permissive file-restriction row
+        (allowed everything). Slice-2 deletes both the row and the
+        ``PipelinePhase.PR`` enum member. A caller still passing the
+        literal string ``"pr"`` (a stale contract on disk, a replayed
+        request) must hit the unknown-phase fail-closed path instead of
+        being silently allowed.
+        """
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
@@ -902,7 +946,20 @@ class TestPhaseFileRestrictions:
             ],
         )
 
-        assert result.allowed is True
+        assert result.allowed is False, (
+            "After slice-2, 'pr' phase string must default-deny in "
+            f"check_phase_file_restrictions; got {result!r}"
+        )
+        # Every file is reported as blocked under the unknown-phase
+        # rule, not "no PR row" silently.
+        assert sorted(result.blocked_files) == sorted(
+            [
+                "src/main.py",
+                ".egg-state/contracts/123.json",
+                ".egg-state/drafts/plan.md",
+                "README.md",
+            ]
+        )
 
     def test_mixed_files_partial_block(self):
         """When some files are blocked, result indicates blocked files."""
@@ -1189,11 +1246,20 @@ class TestIssueCommentBlocking:
         result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "issue edit 789")
         assert result.allowed is False
 
-    def test_issue_comment_allowed_in_pr_phase(self):
-        """Issue comment is not blocked in PR phase (no restriction)."""
-        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "issue comment 123")
-        assert result.allowed is True
+    def test_issue_comment_under_dead_pr_phase_string_raises(self):
+        """``filter_operation("pr", "issue comment ...")`` raises on enum coercion.
+
+        Pre-slice-2 the PR phase had no issue-comment block, so the
+        operation was permitted. Post-slice-2 the phase string itself
+        is dead — the convenience function coerces ``"pr"`` to
+        ``PipelinePhase`` and raises ``ValueError`` before any
+        permission lookup runs. The fail-loud behavior is the
+        load-bearing default-deny for stale callers; without it the
+        operation might leak through silently if a later refactor
+        wraps the coerce in try/except.
+        """
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", OperationType.GH, "issue comment 123")
 
     def test_issue_comment_blocked_via_convenience_function(self):
         """is_operation_blocked correctly reports issue comment as blocked."""

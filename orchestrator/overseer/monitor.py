@@ -476,10 +476,10 @@ class OverseerMonitor:
 
             # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
-                # Validate PR phase outcome before shutting down
-                if status == "complete":
-                    await self._check_pr_phase_outcome(pipeline_data)
-
+                # NOTE: the legacy ``_check_pr_phase_outcome`` safety-net
+                # was removed in #2777 (cq-4); see the docstring on the
+                # removed helper for why the condition is unreachable
+                # under the new context-PR-up-front topology.
                 self._log_oversight_event(
                     {
                         "event": "pipeline_terminal",
@@ -1157,35 +1157,39 @@ class OverseerMonitor:
         if pipeline_status_str != "running":
             return
 
-        # Short-circuit on any transition-completion evidence (#1911).
-        # The "post-consensus-push-stall" detector fires during the
-        # ~90s implement→pr handoff window and previously mis-classified
-        # a legitimate transition as a stall.  If any of the following
-        # hold, the transition is clearly underway or complete, so the
-        # detector must stay silent:
-        #   (a) current_phase has already advanced past "implement"
-        #   (b) pipeline.pr_number has been populated (PR was created)
-        #   (c) phases["pr"].artifacts["pr_url"] is set
-        # We fall open on *any* exception so we never mask a genuine
-        # stall on a bug in the short-circuit.
+        # Short-circuit when ``current_phase`` has advanced past implement (#1911).
+        # The "post-consensus-push-stall" detector fires during a
+        # phase-transition window and previously mis-classified a
+        # legitimate transition as a stall. The original short-circuit
+        # also checked ``pipeline.pr_number`` / the (now-removed)
+        # ``phases["pr"].artifacts["pr_url"]`` arm because, pre-#2777,
+        # both signals only flipped at the end of a finished
+        # implement→PR transition.
+        #
+        # Under #2777 (cq-4 / TASK-2-2) the PR phase was removed,
+        # IMPLEMENT is terminal, and ``pipeline.pr_number`` is now
+        # populated up-front by ``_open_context_pr_at_implement_start``
+        # at implement-start — so it is *not* a transition-completion
+        # signal anymore and gating on it would silently suppress
+        # detection for the entire bug window this detector exists to
+        # catch. We deliberately drop that arm. The legacy
+        # ``current_phase_value != "implement"`` arm is sufficient: if
+        # consensus completes during implement and the post-consensus
+        # transition succeeds, ``current_phase`` advances and we
+        # short-circuit; if that transition itself hangs,
+        # ``current_phase`` stays on ``implement`` and the detector
+        # *should* fire after the grace period — that is the bug it was
+        # designed to catch.
+        #
+        # Fall open on *any* exception so we never mask a genuine stall
+        # on a bug in the short-circuit.
         pipeline = self._load_pipeline_for_transition_check()
         if pipeline is not None:
             try:
                 current_phase_value = getattr(
                     getattr(pipeline, "current_phase", None), "value", None
                 )
-                pr_number = getattr(pipeline, "pr_number", None)
-                phases = getattr(pipeline, "phases", None) or {}
-                pr_phase = phases.get("pr") if hasattr(phases, "get") else None
-                pr_artifacts = getattr(pr_phase, "artifacts", None) if pr_phase else None
-                pr_url_artifact = (
-                    pr_artifacts.get("pr_url") if isinstance(pr_artifacts, dict) else None
-                )
-                if (
-                    (current_phase_value and current_phase_value != "implement")
-                    or pr_number is not None
-                    or pr_url_artifact
-                ):
+                if current_phase_value and current_phase_value != "implement":
                     # Reset first-seen so a genuinely subsequent stall
                     # still gets its own grace period.
                     self._post_consensus_stall_first_seen = None
@@ -1704,43 +1708,13 @@ class OverseerMonitor:
             self._hitl_resolution_alerted.add(did)
             self._hitl_resolution_pending.pop(did, None)
 
-    async def _check_pr_phase_outcome(self, pipeline_data: dict) -> None:
-        """Safety-net check: detect pipeline completing without a PR.
-
-        This is defense-in-depth for edge cases that escape the primary failure
-        handling in ``_auto_create_pr`` (which sets the pipeline to FAILED when
-        PR creation returns no URL).  If a pipeline somehow reaches ``complete``
-        status with ``current_phase=pr`` but no ``pr_url`` in phase artifacts,
-        this surfaces the issue via a HITL decision and Slack notification so
-        that stranded work on the branch is not silently lost.
-        """
-        current_phase = pipeline_data.get("current_phase", "")
-        if current_phase != "pr":
-            return
-
-        phases = pipeline_data.get("phases", {})
-        pr_phase = phases.get("pr", {})
-        artifacts = pr_phase.get("artifacts") or {}
-        pr_url = artifacts.get("pr_url")
-
-        if pr_url:
-            return
-
-        message = (
-            f"PR phase completed without creating a PR: no pr_url in phase artifacts. "
-            f"Work may be stranded on the branch. "
-            f"Pipeline: {self.pipeline_id}"
-        )
-        logger.error(
-            "PR phase completed without PR for pipeline %s",
-            self.pipeline_id,
-        )
-        self._log_oversight_event(
-            {"event": "pr_phase_no_pr", "current_phase": current_phase, "artifacts": artifacts}
-        )
-        await self._broadcast_alert("pr_phase_no_pr", "orchestrator", message, "critical")
-        await self._create_hitl_decision("orchestrator", message)
-        await self._send_slack_notification("orchestrator", message)
+    # NOTE: ``_check_pr_phase_outcome`` and the ``pr_phase_no_pr`` alert
+    # were removed in #2777 (cq-4 / TASK-2-2). With the PR phase gone,
+    # the "completed without a PR" condition is unreachable — the context
+    # PR opens up-front at the plan→implement boundary via
+    # ``_open_context_pr_at_implement_start``, hard-required, so a
+    # missing PR surfaces as a ``ContextPrCreationError`` at that site
+    # rather than as a silent terminal-state regression here.
 
     async def _check_cross_phase_consistency(
         self,

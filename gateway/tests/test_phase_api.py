@@ -330,17 +330,22 @@ class TestAdvancePhase:
         assert "cannot exit" in data["message"].lower() or "denied" in data["message"].lower()
 
     def test_advance_phase_terminal_state(self, client, auth_headers):
-        """Cannot advance from PR phase (terminal)."""
+        """Cannot advance from IMPLEMENT phase (terminal post-#2777 slice-2).
+
+        Pre-slice-2 the terminal phase was PR. Slice-2 deletes the PR
+        phase; IMPLEMENT is now terminal. The endpoint must reject the
+        advance attempt with a clear "terminal" message.
+        """
         from egg_contracts.models import Contract, IssueInfo, PipelinePhase
 
         terminal_contract = Contract(
-            schemaVersion="1.0",
+            schemaVersion="1.2",
             issue=IssueInfo(
                 number=123,
                 title="Test Issue",
                 url="https://github.com/test/repo/issues/123",
             ),
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
 
         with patch("phase_api.load_contract", return_value=terminal_contract):
@@ -353,7 +358,40 @@ class TestAdvancePhase:
         assert response.status_code == 400
         data = response.get_json()
         assert data["success"] is False
-        assert "terminal" in data["message"].lower()
+        assert "terminal" in data["message"].lower(), (
+            f"Expected 'terminal' in rejection message for IMPLEMENT; got: {data!r}"
+        )
+
+    def test_advance_phase_target_pr_default_denied(self, client, auth_headers):
+        """``advance_phase target='pr'`` must default-deny (#2777 slice-2 AC-4c).
+
+        Even from a non-terminal phase (e.g. IMPLEMENT pre-slice-2 was
+        IMPLEMENT→PR), explicitly targeting the deleted ``'pr'`` phase
+        must be rejected with a 400.
+        """
+        from egg_contracts.models import Contract, IssueInfo, PipelinePhase
+
+        implement_contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(
+                number=123,
+                title="Test Issue",
+                url="https://github.com/test/repo/issues/123",
+            ),
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        with patch("phase_api.load_contract", return_value=implement_contract):
+            response = client.post(
+                "/api/v1/phase/advance",
+                headers=auth_headers,
+                json={"issue_number": 123, "target": "pr"},
+            )
+
+        assert response.status_code == 400, (
+            f"advance_phase target='pr' must default-deny; got "
+            f"{response.status_code}: {response.data!r}"
+        )
 
     def test_advance_phase_missing_issue(self, client, auth_headers):
         """Advance phase without issue number."""
@@ -576,20 +614,33 @@ class TestPathTraversalProtection:
 class TestReviewerPhaseTransitionIntegration:
     """Integration tests for reviewer phase transitions.
 
-    These tests use real contract mutations (not mocked) to verify
-    that reviewer can actually advance from implement to PR phase.
+    Pre-#2777 slice-2 this class verified the reviewer-driven
+    ``IMPLEMENT → PR`` advance with real contract mutation. Slice-2
+    deletes the PR phase entirely (cq-4 / TASK-2-2); IMPLEMENT is the
+    terminal phase and any advance attempt from IMPLEMENT must be
+    rejected. The replacement test below pins that contract: a real
+    on-disk IMPLEMENT contract advance-attempt returns 400 and the
+    contract's ``current_phase`` is unchanged.
     """
 
-    def test_reviewer_can_advance_implement_to_pr(self, client):
-        """Reviewer can advance from implement to PR phase with real mutation."""
+    def test_reviewer_cannot_advance_from_implement_post_slice_2(self, client):
+        """Real-mutation regression: IMPLEMENT advance is terminal-rejected.
+
+        Drives the same integration-shape path as the deleted
+        ``test_reviewer_can_advance_implement_to_pr``: real contract
+        on disk, real reviewer session, real ``/api/v1/phase/advance``
+        call. The expected response is a terminal-state rejection and
+        the on-disk contract must still be at IMPLEMENT after the call.
+        """
         import tempfile
 
-        from egg_contracts import save_contract
+        from egg_contracts import load_contract, save_contract
         from egg_contracts.models import Contract, IssueInfo, PipelinePhase
 
-        # Create a contract in implement phase
+        # Create a contract in implement phase (the new terminal phase
+        # under slice-2; schema bumped to 1.2 to match the new default).
         contract = Contract(
-            schemaVersion="1.0",
+            schemaVersion="1.2",
             issue=IssueInfo(
                 number=999,
                 title="Test Issue",
@@ -598,12 +649,10 @@ class TestReviewerPhaseTransitionIntegration:
             current_phase=PipelinePhase.IMPLEMENT,
         )
 
-        # Save to temp directory
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             save_contract(contract, tmppath)
 
-            # Create a session with reviewer role
             mock_session = MagicMock()
             mock_session.mode = "public"
             mock_session.container_id = "test-container"
@@ -625,7 +674,6 @@ class TestReviewerPhaseTransitionIntegration:
 
             current_session_manager = sys.modules.get("session_manager", session_manager)
 
-            # Patch the allowed paths to include our temp directory
             with (
                 patch.object(
                     current_session_manager,
@@ -649,16 +697,18 @@ class TestReviewerPhaseTransitionIntegration:
                     },
                 )
 
-            assert response.status_code == 200, (
-                f"Expected 200, got {response.status_code}: {response.get_json()}"
+            assert response.status_code == 400, (
+                f"After slice-2, IMPLEMENT is terminal; advance must "
+                f"return 400. Got {response.status_code}: {response.get_json()}"
             )
             data = response.get_json()
-            assert data["success"] is True
-            assert data["data"]["from_phase"] == "implement"
-            assert data["data"]["to_phase"] == "pr"
+            assert data["success"] is False
+            assert "terminal" in data["message"].lower(), (
+                f"Expected 'terminal' in rejection message; got: {data!r}"
+            )
 
-            # Verify the contract was actually updated
-            from egg_contracts import load_contract
-
-            updated_contract = load_contract(999, tmppath)
-            assert updated_contract.current_phase == PipelinePhase.PR
+            # The on-disk contract must be unchanged.
+            unchanged = load_contract(999, tmppath)
+            assert unchanged.current_phase == PipelinePhase.IMPLEMENT, (
+                f"Rejected advance must not mutate on-disk phase; got {unchanged.current_phase!r}"
+            )

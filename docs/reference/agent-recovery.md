@@ -218,7 +218,7 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 1. The restart count is incremented **before** the spawn attempt — a failed spawn still counts toward the per-agent restart limit, preventing infinite retry loops when Docker consistently fails (e.g., out of disk)
 2. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
-4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations. If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
+4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` withdraws any proposals, ACKs, or confirmations. (The legacy `ConsensusEvaluator` in `orchestrator/consensus.py` was deleted in [#2777](https://github.com/jwbron/egg/issues/2777); BRC's `PeerConsensusTracker` is the only consensus path in production.) If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
 5. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
 6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
 7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
@@ -268,11 +268,15 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 ### How It Works
 
 1. All running containers for the specified phase are stopped and removed
-2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations)
+2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations). In slice-aware mode the clear extends to every per-slice tracker: `restart_phase` loads the contract, iterates `contract.slices`, and calls `clear()` on each `get_peer_consensus_tracker(pipeline_id, slice_id=<slice>)` in addition to the pipeline-level key — without this, stale slice-scoped consensus state survives the restart and deadlocks the new run ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-1, bundles [#2409](https://github.com/jwbron/egg/issues/2409)). Contract-load failures preserve the historical pipeline-level-only behaviour rather than blocking the restart.
 3. The phase's review cycle counter in `PhaseExecution` is reset
 4. All prior phase artifacts and HITL decisions are preserved (e.g., refine output carries into a restarted plan phase)
 5. All commits on the branch are preserved — each respawned agent's worktree is recreated from the pipeline branch HEAD via the gateway's idempotent `create_worktrees` API, so all prior pushed commits are immediately available
 6. All agents for the phase are respawned from scratch
+
+**Resume-after-orchestrator-restart vs. operator-driven phase restart.** The clear above runs when an operator (or the overseer/HITL ladder) calls `restart_phase` to start the phase over. The orthogonal case — an orchestrator-pod recycle mid-phase that should **resume** the in-flight slice DAG rather than start it over — is handled by **Layer-C bootstrap reconciliation** on the next orchestrator startup. Layer C iterates non-`COMPLETE` slices, observes integration-branch commit counts and consensus tracker presence, and applies a 5-way classification: re-yield as `READY` (no commits yet), mark already-spawned (commits but no tracker), mark `COMPLETE` (commits + consensus reached but unrecorded), preserve `BLOCKED` (and escalate to HITL if no pending decision), or escalate corrupt state to HITL. Cases 4 and 5 create an unresolved `Decision` on the contract — silent classification error is worse than an operator pause. See [`Slice/phase restart hardening`](../architecture/orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409).
+
+Startup reconciliation also rebuilds per-slice consensus trackers ([#2409](https://github.com/jwbron/egg/issues/2409) closure): for each slice in `contract.slices`, `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=<slice>)` rebuilds the nested `{pipeline_id}/{slice_id}` tracker from the message store, so a recycled orchestrator pod no longer loses in-flight slice consensus.
 
 ### Triggering a Phase Restart
 
