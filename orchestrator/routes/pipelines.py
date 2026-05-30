@@ -11504,13 +11504,28 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
             cause=list_err,
         ) from list_err
 
+    # Defence in depth (reviewer_concurrency non-blocking #1): guard
+    # against a malformed gateway response where ``number`` is missing
+    # or non-numeric. ``list_open_prs`` already filters those entries
+    # out client-side at ``orchestrator/gateway_client.py:2776`` (any
+    # entry missing ``number`` or ``head_ref`` is dropped), but the
+    # extra try/except below means a regression in that filter cannot
+    # escape the opener's typed-exception contract.
     existing_pr_number: int | None = None
     for entry in open_prs:
         if (
             entry.get("head_ref") == pipeline.branch
             and entry.get("base_ref") == pipeline.base_branch
         ):
-            existing_pr_number = int(entry["number"])
+            try:
+                existing_pr_number = int(entry["number"])
+            except (KeyError, TypeError, ValueError) as entry_err:
+                raise ContextPrCreationError(
+                    "gateway list_open_prs returned an entry with a "
+                    f"malformed 'number' field: {entry!r}",
+                    reason="lookup_bad_response",
+                    cause=entry_err,
+                ) from entry_err
             break
 
     if existing_pr_number is not None:
@@ -11588,13 +11603,26 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
 
     # Extract the PR number from the URL — gh prints
     # ``https://github.com/<owner>/<repo>/pull/<N>`` on stdout.
-    match = re.search(r"/pull/(\d+)\b", pr_url)
+    # Use a trailing-boundary pattern (end-of-string OR a non-digit
+    # path/query separator) so that a hypothetical
+    # ``/pull/12345/files`` or ``/pull/12345?diff=split`` URL still
+    # parses correctly but a digit-suffixed slug like
+    # ``/pulled-files/12345`` cannot smuggle a wrong number through
+    # (reviewer_concurrency non-blocking #2 hardening).
+    match = re.search(r"/pull/(\d+)(?:[/?#]|$)", pr_url)
     if not match:
         raise ContextPrCreationError(
             f"could not parse PR number from create_pr URL: {pr_url!r}",
             reason="gateway_bad_url",
         )
-    new_pr_number = int(match.group(1))
+    try:
+        new_pr_number = int(match.group(1))
+    except (TypeError, ValueError) as parse_err:
+        raise ContextPrCreationError(
+            f"could not coerce PR number from create_pr URL: {pr_url!r}",
+            reason="gateway_bad_url",
+            cause=parse_err,
+        ) from parse_err
 
     _persist_context_pr_number(
         pipeline_id,
