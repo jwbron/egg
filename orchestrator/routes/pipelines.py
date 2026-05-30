@@ -16166,12 +16166,7 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
-    if (
-        bootstrap_resumed
-        or bootstrap_consensus_complete
-        or bootstrap_blocked
-        or bootstrap_corrupt
-    ):
+    if bootstrap_resumed or bootstrap_consensus_complete or bootstrap_blocked or bootstrap_corrupt:
         # NOTE: include ``bootstrap_blocked`` in the gate (reviewer_code
         # v3 NACK fix) — a bootstrap pass whose only Layer-C activity is
         # BLOCKED slices was previously suppressing the audit-trail line
@@ -16376,6 +16371,7 @@ def _run_implement_phase_slices(
                         str(worktree_repo_path),
                         ref_a,
                         ref_b,
+                        mode=gateway_mode,  # type: ignore[arg-type]
                     )
 
                 parent_branch = _resolve_slice_base_branch(
