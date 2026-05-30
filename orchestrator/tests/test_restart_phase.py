@@ -1550,13 +1550,16 @@ class TestRestartPhaseResetsHealthMonitor:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_hm = MagicMock()
+        # The legacy ``consensus.get_consensus_evaluator`` shim was removed
+        # in #2777 (cq-5 / TASK-2-6) alongside the deletion of
+        # ``orchestrator/consensus.py`` and the ``evaluator.clear()`` site
+        # in ``restart_phase``. Patch only the surviving modules.
         with patch.dict(
             "sys.modules",
             {
                 "peer_consensus": MagicMock(
                     get_peer_consensus_tracker=MagicMock(return_value=MagicMock())
                 ),
-                "consensus": MagicMock(get_consensus_evaluator=MagicMock(return_value=MagicMock())),
                 "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
             },
         ):

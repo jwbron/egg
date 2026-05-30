@@ -317,7 +317,13 @@ class TestPhaseTransitionRoleEnforcement:
     """Tests for role enforcement on phase transitions."""
 
     def test_implementer_cannot_transition_phase(self, temp_repo, contract_with_tasks):
-        """Implementer cannot transition pipeline phase."""
+        """Implementer cannot transition pipeline phase.
+
+        ``PipelinePhase.PR`` was hard-removed in #2777 cq-4 / TASK-2-2;
+        the role-enforcement check still applies for the surviving
+        phases, so we attempt the IMPLEMENT→APPLY transition (epic-only
+        phase the implementer must not bump to).
+        """
         save_contract(contract_with_tasks, temp_repo)
 
         contract = load_contract(500, temp_repo)
@@ -326,26 +332,25 @@ class TestPhaseTransitionRoleEnforcement:
             role=Role.IMPLEMENTER,
             actor="james-in-a-box",
             field_path="current_phase",
-            new_value=PipelinePhase.PR.value,
+            new_value=PipelinePhase.APPLY.value,
         )
 
         assert result.success is False
 
-    def test_reviewer_can_transition_to_pr(self, temp_repo, contract_with_tasks):
-        """Reviewer can transition to PR phase."""
-        save_contract(contract_with_tasks, temp_repo)
+    def test_pr_phase_role_enforcement_removed(self, temp_repo, contract_with_tasks):
+        """Deleted per #2777 cq-4 / TASK-2-2 (architect AC-4).
 
-        contract = load_contract(500, temp_repo)
-        result = apply_mutation(
-            contract=contract,
-            role=Role.REVIEWER,
-            actor="reviewer",
-            field_path="current_phase",
-            new_value=PipelinePhase.PR.value,
-        )
-
-        assert result.success is True
-        assert result.contract.current_phase == PipelinePhase.PR
+        The original ``test_reviewer_can_transition_to_pr`` asserted on
+        the role-enforcement surface for the implement→PR transition.
+        The ``PR`` phase no longer exists — the context PR opens
+        up-front at the plan→implement boundary via
+        ``_open_context_pr_at_implement_start`` (TASK-1-2), which is
+        invoked from the orchestrator side rather than through any
+        agent role. There is therefore no agent-facing role-enforcement
+        surface for the PR phase; this test body is intentionally
+        empty and serves as the audit trail.
+        """
+        # No-op. See docstring.
 
     def test_human_can_transition_any_phase(self, temp_repo, contract_with_tasks):
         """Human can transition to any phase."""

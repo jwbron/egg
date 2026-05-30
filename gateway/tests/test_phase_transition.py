@@ -1,11 +1,14 @@
 """
 Tests for Phase Transition module.
 
-Tests cover:
-- Valid and invalid transitions
-- Role-based transition authorization
-- Transition result creation
-- Audit entry generation
+Post-#2777 slice-2 invariants:
+* ``IMPLEMENT`` is the terminal pipeline phase (the ``PR`` phase was
+  deleted by slice-2 task-2-2; ``PipelinePhase.PR`` no longer exists).
+* ``VALID_TRANSITIONS[IMPLEMENT] == []`` — no outgoing edges from
+  IMPLEMENT.
+* ``get_next_phase(IMPLEMENT) is None``.
+* The state-machine table contains no ``PR`` entries (default-deny on
+  any ``target='pr'`` advance attempt).
 """
 
 import pytest
@@ -74,18 +77,38 @@ class TestTransitionRequest:
         assert request.reason == "Analysis complete"
 
     def test_from_dict_minimal(self):
-        """Create TransitionRequest with minimal fields."""
+        """Create TransitionRequest with minimal fields.
+
+        Post-slice-2 the minimal exemplar uses the surviving
+        ``PLAN → IMPLEMENT`` edge (``IMPLEMENT → PR`` no longer exists).
+        """
+        data = {
+            "from_phase": "plan",
+            "to_phase": "implement",
+            "role": "reviewer",
+        }
+        request = TransitionRequest.from_dict(data)
+
+        assert request.from_phase == PipelinePhase.PLAN
+        assert request.to_phase == PipelinePhase.IMPLEMENT
+        assert request.actor == "unknown"
+        assert request.reason is None
+
+    def test_from_dict_rejects_pr_target(self):
+        """``to_phase='pr'`` must not deserialise — the value is gone.
+
+        Default-deny: any caller passing the dead ``'pr'`` string
+        (stale request payload, replayed audit-log entry) must fail
+        loudly via ``ValueError`` from the enum-coercion path, not
+        produce a silently-valid request.
+        """
         data = {
             "from_phase": "implement",
             "to_phase": "pr",
             "role": "reviewer",
         }
-        request = TransitionRequest.from_dict(data)
-
-        assert request.from_phase == PipelinePhase.IMPLEMENT
-        assert request.to_phase == PipelinePhase.PR
-        assert request.actor == "unknown"
-        assert request.reason is None
+        with pytest.raises(ValueError):
+            TransitionRequest.from_dict(data)
 
 
 class TestValidTransitions:
@@ -151,14 +174,36 @@ class TestValidTransitions:
         assert PipelinePhase.IMPLEMENT in VALID_TRANSITIONS[PipelinePhase.APPLY]
         assert len(VALID_TRANSITIONS[PipelinePhase.APPLY]) == 1
 
-    def test_implement_to_pr(self):
-        """Implement can only transition to PR."""
-        assert PipelinePhase.PR in VALID_TRANSITIONS[PipelinePhase.IMPLEMENT]
-        assert len(VALID_TRANSITIONS[PipelinePhase.IMPLEMENT]) == 1
+    def test_implement_is_terminal(self):
+        """IMPLEMENT is the terminal pipeline phase (#2777 slice-2).
 
-    def test_pr_is_terminal(self):
-        """PR phase has no outgoing transitions."""
-        assert len(VALID_TRANSITIONS[PipelinePhase.PR]) == 0
+        Pre-slice-2: ``IMPLEMENT → PR``. Post-slice-2: ``IMPLEMENT``
+        has zero outgoing edges. Any consumer iterating outgoing edges
+        from IMPLEMENT (state-machine renderer, DAG visualiser,
+        terminal-detection logic) must see an empty list.
+        """
+        assert VALID_TRANSITIONS[PipelinePhase.IMPLEMENT] == [], (
+            "VALID_TRANSITIONS[IMPLEMENT] must be empty after slice-2 "
+            f"deletes the PR phase; got {VALID_TRANSITIONS[PipelinePhase.IMPLEMENT]!r}"
+        )
+
+    def test_no_pr_phase_in_transition_table(self):
+        """``VALID_TRANSITIONS`` must not contain any ``PR`` entries.
+
+        The deleted phase must leave no trace in the state machine — no
+        outgoing edges keyed on PR, no PR appearing as a destination
+        from any other phase.
+        """
+        # PipelinePhase.PR no longer exists as an enum member, so we
+        # check by value string.
+        pr_keys = [k for k in VALID_TRANSITIONS if k.value == "pr"]
+        assert pr_keys == [], f"VALID_TRANSITIONS must contain no PR keys; got {pr_keys!r}"
+        for from_phase, destinations in VALID_TRANSITIONS.items():
+            pr_dests = [d for d in destinations if d.value == "pr"]
+            assert pr_dests == [], (
+                f"VALID_TRANSITIONS[{from_phase!r}] must not list PR as a "
+                f"destination; got {destinations!r}"
+            )
 
 
 class TestValidateTransition:
@@ -229,41 +274,29 @@ class TestValidateTransition:
 
         assert result.success is False
 
-    def test_reviewer_can_exit_implement(self):
-        """Reviewer can exit implement phase."""
+    def test_implement_has_no_valid_exit_transition(self):
+        """Post-slice-2, IMPLEMENT is terminal — no exit transition validates.
+
+        Pre-slice-2 ``IMPLEMENT → PR`` was the canonical reviewer exit.
+        Post-slice-2 IMPLEMENT has no successor; any caller attempting
+        to advance from IMPLEMENT (any role, any to_phase) must be
+        rejected.
+        """
+        # Construct a request that would have been valid pre-slice-2.
+        # We can't reference ``PipelinePhase.PR`` directly (the member
+        # is gone), so we drive it via the dict-based constructor that
+        # surfaces the ValueError loudly.
         request = TransitionRequest(
             from_phase=PipelinePhase.IMPLEMENT,
-            to_phase=PipelinePhase.PR,
-            role=TransitionRole.REVIEWER,
-            actor="reviewer-agent",
-        )
-        result = validate_transition(request)
-
-        assert result.success is True
-
-    def test_implementer_cannot_exit_implement(self):
-        """Implementer cannot exit implement phase (requires reviewer)."""
-        request = TransitionRequest(
-            from_phase=PipelinePhase.IMPLEMENT,
-            to_phase=PipelinePhase.PR,
-            role=TransitionRole.IMPLEMENTER,
-            actor="james-in-a-box",
-        )
-        result = validate_transition(request)
-
-        assert result.success is False
-
-    def test_transition_from_terminal_phase(self):
-        """Cannot transition from PR phase (terminal)."""
-        request = TransitionRequest(
-            from_phase=PipelinePhase.PR,
-            to_phase=PipelinePhase.IMPLEMENT,  # Trying to go back
+            to_phase=PipelinePhase.REFINE,  # any valid phase — none should accept
             role=TransitionRole.HUMAN,
             actor="test-human",
         )
         result = validate_transition(request)
-
-        assert result.success is False
+        assert result.success is False, (
+            "After slice-2, IMPLEMENT must have no outgoing transitions; "
+            f"validate_transition unexpectedly accepted: {result!r}"
+        )
 
 
 class TestRoleHierarchy:
@@ -275,15 +308,9 @@ class TestRoleHierarchy:
         result = can_transition_to(PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.HUMAN)
         assert result.success is True
 
-        # Human can exit implement (requires reviewer)
-        result = can_transition_to(PipelinePhase.IMPLEMENT, PipelinePhase.PR, TransitionRole.HUMAN)
-        assert result.success is True
-
-    def test_reviewer_can_satisfy_reviewer_and_lower(self):
-        """Reviewer role can satisfy reviewer and implementer requirements."""
-        # Reviewer can exit implement (requires reviewer)
+        # Human can exit plan (requires human)
         result = can_transition_to(
-            PipelinePhase.IMPLEMENT, PipelinePhase.PR, TransitionRole.REVIEWER
+            PipelinePhase.PLAN, PipelinePhase.IMPLEMENT, TransitionRole.HUMAN
         )
         assert result.success is True
 
@@ -291,15 +318,6 @@ class TestRoleHierarchy:
         """Reviewer cannot satisfy human requirement."""
         result = can_transition_to(
             PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.REVIEWER
-        )
-        assert result.success is False
-
-    def test_implementer_limited_permissions(self):
-        """Implementer can only satisfy implementer requirement."""
-        # No phase currently requires only implementer to exit
-        # But the logic should work if one existed
-        result = can_transition_to(
-            PipelinePhase.IMPLEMENT, PipelinePhase.PR, TransitionRole.IMPLEMENTER
         )
         assert result.success is False
 
@@ -312,16 +330,15 @@ class TestGetNextPhase:
         assert get_next_phase(PipelinePhase.REFINE) == PipelinePhase.PLAN
 
     def test_plan_next_is_implement(self):
-        """Next phase after plan is implement."""
+        """Next phase after plan is implement (non-epic default)."""
         assert get_next_phase(PipelinePhase.PLAN) == PipelinePhase.IMPLEMENT
 
-    def test_implement_next_is_pr(self):
-        """Next phase after implement is PR."""
-        assert get_next_phase(PipelinePhase.IMPLEMENT) == PipelinePhase.PR
-
-    def test_pr_next_is_none(self):
-        """PR has no next phase (terminal)."""
-        assert get_next_phase(PipelinePhase.PR) is None
+    def test_implement_next_is_none(self):
+        """IMPLEMENT is terminal after slice-2 — no next phase."""
+        assert get_next_phase(PipelinePhase.IMPLEMENT) is None, (
+            "get_next_phase(IMPLEMENT) must return None after slice-2 "
+            "deletes the PR phase; got something else."
+        )
 
 
 class TestCanTransitionTo:
@@ -336,15 +353,26 @@ class TestCanTransitionTo:
         assert result.to_phase == PipelinePhase.PLAN
 
     def test_with_enums(self):
-        """Function accepts enum arguments."""
+        """Function accepts enum arguments (surviving PLAN → IMPLEMENT edge)."""
         result = can_transition_to(
+            PipelinePhase.PLAN,
             PipelinePhase.IMPLEMENT,
-            PipelinePhase.PR,
-            TransitionRole.REVIEWER,
-            "reviewer-agent",
+            TransitionRole.HUMAN,
+            "test-human",
         )
 
         assert result.success is True
+
+    def test_pr_string_rejected_in_strings_form(self):
+        """``to_phase='pr'`` string form must default-deny.
+
+        The convenience helper accepts strings so a stale caller (an
+        old script, a CI hook from before slice-2 landed) might still
+        pass ``"pr"``. The enum-coercion path inside the function must
+        reject it rather than coerce to a phantom value.
+        """
+        with pytest.raises(ValueError):
+            can_transition_to("implement", "pr", "reviewer", "reviewer-agent")
 
 
 class TestCreateAuditEntry:

@@ -9,6 +9,7 @@ existing POST /pipelines/{id}/start endpoint.
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -374,6 +375,49 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                         pipeline_id=pipeline_id,
                         error=str(eval_err),
                     )
+
+            # Slice-4 TASK-4-5 (closes #2409): per-slice consensus
+            # tracker reconstruction. Iterate the pipeline's contract
+            # slices and reconstruct each slice's tracker from the
+            # message store's slice_id-tagged history.
+            # ``reconstruct_tracker_from_messages`` accepts the
+            # ``slice_id`` kwarg (peer_consensus.py:1955-2046) and
+            # registers each tracker under the nested
+            # ``{pipeline_id}/{slice_id}`` key. The cross-slice
+            # isolation invariant (#2409 / #2761) holds by
+            # construction: the strict-equality filter
+            # ``_message_slice_id(m) == slice_id`` inside
+            # ``reconstruct_tracker_from_messages`` (peer_consensus.py
+            # near line 2003) excludes any message whose metadata
+            # ``slice_id`` does not exactly match. The store-level
+            # filter at ``message_store.py:407-418`` (#2725) is
+            # intentionally lenient — it passes through
+            # ``metadata.slice_id is None`` messages so OVERSEER_ALERTs
+            # fan out across slices — so the peer_consensus filter is
+            # the actual isolation enforcer for reconstruction.
+            _slice_objs = _enumerate_contract_slices(pipeline, store)
+            for _slice_id in _slice_objs:
+                try:
+                    if get_peer_consensus_tracker(pipeline.id, slice_id=_slice_id) is not None:
+                        continue
+                    _slice_tracker = reconstruct_tracker_from_messages(
+                        pipeline.id, graph, slice_id=_slice_id
+                    )
+                    if _slice_tracker is not None:
+                        logger.info(
+                            "Startup reconciliation: reconstructed per-slice "
+                            "consensus tracker (slice-4 TASK-4-5 / #2409)",
+                            pipeline_id=pipeline.id,
+                            slice_id=_slice_id,
+                        )
+                except Exception as slice_recon_err:
+                    logger.warning(
+                        "Startup reconciliation: per-slice tracker "
+                        "reconstruction failed (slice-4 TASK-4-5)",
+                        pipeline_id=pipeline.id,
+                        slice_id=_slice_id,
+                        error=str(slice_recon_err),
+                    )
     except ImportError:
         logger.debug("Peer consensus module not available for startup reconstruction")
     except Exception as e:
@@ -383,3 +427,67 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         )
 
     return recovered
+
+
+def _enumerate_contract_slices(pipeline: Any, store: Any) -> list[str]:
+    """Return the slice IDs from the pipeline's contract, if any.
+
+    Slice-4 TASK-4-5 helper. Reads ``contract.slices`` for the pipeline
+    so the consensus-reconstruction loop can iterate per-slice tracker
+    reconstruction without coupling startup_reconciliation to the
+    contract loader.
+
+    **Worktree-path resolution (reviewer_code v1 blocker 1)**: an
+    active pipeline's contract lives in the per-pipeline worktree
+    at
+    ``/home/egg/.egg-worktrees/<pipeline_id>/<repo>/.egg-state/contracts/<pipeline_id>.json``,
+    NOT under ``store.repo_path`` (the main orchestrator repo;
+    e.g. ``/home/egg/repos/egg``). Without
+    ``resolve_worktree_path`` ``load_contract`` raises
+    ``ContractNotFoundError`` for every active pipeline, the
+    function returns ``[]``, the reconstruction loop never
+    iterates, and per-slice trackers are NEVER reconstructed —
+    the whole #2409 closure deliverable. Pattern mirrors
+    ``orchestrator/routes/signals.py:709`` and the dozen-plus
+    other production call sites that load contracts at runtime.
+    Failures are logged so operators see the degradation rather
+    than silently losing per-slice tracker reconstruction.
+    """
+    repo_path = getattr(store, "repo_path", None)
+    if not repo_path:
+        return []
+    try:
+        from egg_contracts.loader import load_contract
+    except ImportError:
+        logger.warning(
+            "Per-slice tracker reconstruction skipped: egg_contracts.loader "
+            "not importable (slice-4 TASK-4-5 / #2409)",
+            pipeline_id=pipeline.id,
+        )
+        return []
+    try:
+        from routes import resolve_worktree_path
+    except ImportError:
+        try:
+            from orchestrator.routes import (  # type: ignore[no-redef]
+                resolve_worktree_path,
+            )
+        except ImportError:
+            resolve_worktree_path = None  # type: ignore[assignment]
+    try:
+        if resolve_worktree_path is not None:
+            contract_repo_path = resolve_worktree_path(pipeline.id, Path(repo_path))
+        else:
+            contract_repo_path = Path(repo_path)
+        contract = load_contract(pipeline.id, contract_repo_path)
+    except Exception as load_err:
+        logger.warning(
+            "Per-slice tracker reconstruction failed to load contract "
+            "(slice-4 TASK-4-5 / #2409); pipeline-level tracker is still "
+            "reconstructed above",
+            pipeline_id=pipeline.id,
+            error=str(load_err),
+        )
+        return []
+    slices = getattr(contract, "slices", None) or []
+    return [s.id for s in slices]

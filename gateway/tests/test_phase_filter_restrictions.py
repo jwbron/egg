@@ -280,12 +280,25 @@ class TestPhaseFilterDefaultPermissions:
         )
         assert result.allowed is True
 
-    def test_pr_allows_everything(self):
+    def test_pr_phase_string_now_defaults_to_deny(self):
+        """``'pr'`` is no longer a valid phase (#2777 slice-2) — default-deny.
+
+        Pre-slice-2 the gateway had a ``PR`` row in the
+        ``PhaseFileRestriction`` table that allowed everything. Slice-2
+        deletes both the row and the ``PipelinePhase.PR`` enum member.
+        A caller still passing the literal string ``"pr"`` (a stale
+        contract on disk, a replayed request) must hit the
+        unknown-phase fail-closed path instead of being silently
+        allowed.
+        """
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions(
             "pr", ["src/app.py", ".egg-state/contracts/123.json"]
         )
-        assert result.allowed is True
+        assert result.allowed is False, (
+            "After slice-2 removes the PR phase, 'pr' must fail closed "
+            f"in check_phase_file_restrictions; got {result!r}"
+        )
 
     def test_unknown_phase_blocks_all(self):
         """Security: unknown phases should fail closed."""
@@ -327,9 +340,19 @@ class TestPhaseFilterOperationFiltering:
         result = filter_operation("implement", "git", "push origin egg/branch")
         assert result.allowed is True
 
-    def test_pr_create_allowed_during_pr(self):
-        result = filter_operation("pr", "gh", "pr create --title foo")
-        assert result.allowed is True
+    def test_pr_create_denied_for_dead_pr_phase_string(self):
+        """``filter_operation("pr", ...)`` raises ``ValueError`` on enum coercion.
+
+        Pre-slice-2 the ``PR`` phase was the one phase that allowed
+        ``gh pr create``. Slice-2 removes the phase enum entirely.
+        ``filter_operation`` coerces string phases to ``PipelinePhase``;
+        ``PipelinePhase("pr")`` is now a ``ValueError``, which is the
+        right fail-loud signal for a stale caller — quieter alternatives
+        (silently default-deny) would risk a later refactor wrapping
+        the coerce in try/except and re-granting the operation.
+        """
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", "gh", "pr create --title foo")
 
     def test_is_operation_blocked_convenience(self):
         assert is_operation_blocked("implement", "gh", "pr create --title x") is True
@@ -478,11 +501,38 @@ class TestPhaseFilterExitRequirement:
 
     def test_implement_requires_reviewer(self):
         pf = PhaseFilter()
+        # IMPLEMENT remains the terminal reviewer-gated phase; reviewers
+        # exit IMPLEMENT to terminal-complete (no successor phase post-
+        # slice-2 of #2777).
         assert pf.get_exit_requirement(PipelinePhase.IMPLEMENT) == "reviewer"
 
-    def test_pr_requires_human(self):
+    def test_get_exit_requirement_for_pr_string_is_none(self):
+        """``get_exit_requirement`` must return ``None`` for the dead ``"pr"`` key.
+
+        ``PipelinePhase.PR`` was removed; callers reaching for the
+        legacy phase via its enum member can no longer compile. A stale
+        permissions lookup on the string ``"pr"`` (if the API surface
+        allows strings at all) must default-deny by returning ``None``,
+        consistent with the unknown-phase contract.
+        """
         pf = PhaseFilter()
-        assert pf.get_exit_requirement(PipelinePhase.PR) == "human"
+        # The function is typed PipelinePhase, but it's defensive about
+        # missing entries — passing the dead string via __getattr__ or
+        # the dict path should miss.
+        # We probe via the legitimate API: the PR enum member is gone,
+        # so we coerce a fake phase-like object that compares equal to
+        # the dead string. The function must miss the lookup.
+        try:
+            dead = PipelinePhase("pr")  # type: ignore[call-arg]
+        except ValueError:
+            # PipelinePhase("pr") raises ValueError after slice-2 —
+            # that's the strongest possible default-deny signal.
+            return
+        result = pf.get_exit_requirement(dead)
+        assert result is None, (
+            "After slice-2 deletes the PR row from the permissions "
+            f"table, get_exit_requirement must return None; got {result!r}"
+        )
 
     def test_unknown_phase_returns_none(self):
         pf = PhaseFilter()
