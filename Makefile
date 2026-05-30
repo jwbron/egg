@@ -34,7 +34,8 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive
+        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive \
+        check-egg-images-present
 
 # Default target
 help:
@@ -562,7 +563,18 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 		kubectl rollout status deployment litellm -n egg-system --timeout=180s; \
 	fi
 
-deploy: k3s-secrets  ## Deploy egg to k3s
+check-egg-images-present:
+	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
+
+# check-egg-images-present is the lone prerequisite and k3s-secrets is
+# invoked from the recipe body so the ordering survives `make -j`: two
+# prerequisites of the same target may run in parallel under -j, but recipe
+# lines never do. The check MUST run before k3s-secrets — k3s-secrets
+# reconciles namespaces + the gateway-secrets Secret and would otherwise
+# mutate the cluster before the image check could fail, defeating the
+# zero-mutation abort this guard exists to provide.
+deploy: check-egg-images-present  ## Deploy egg to k3s
+	@$(MAKE) --no-print-directory k3s-secrets
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	@command -v envsubst >/dev/null 2>&1 || { \
 		echo "ERROR: envsubst not found. Install GNU gettext: 'dnf install gettext' or 'brew install gettext'." >&2; \
