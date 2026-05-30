@@ -148,7 +148,13 @@ The contract is a JSON document tracking the complete state of an issue through 
 > `_run_implement_phase_slices` — called before any slice is provisioned
 > so slice-1's context-branch resolution finds a populated
 > `context_branch`; the wrapper's inner `context_pr_number` short-circuit
-> makes this call cheap when an earlier path already opened the PR.)
+> makes this call cheap when an earlier path already opened the PR.
+> #2777 (slice-1) replaced the soft-fail `advance_phase` path with a
+> hard-required, idempotent opener (`_open_context_pr_at_implement_start`)
+> that runs **before** the state-lock-protected phase mutation — a gateway
+> failure now surfaces as a 422 rather than silently stranding the slice
+> stack. The four runner-side backstops continue to re-invoke the opener
+> on resume so a transient failure at the REST boundary is self-healing.)
 >
 > **#2685 added two follow-on behaviors:** the contract JSON is now
 > included in the context PR diff (resolved via the contract loader so
