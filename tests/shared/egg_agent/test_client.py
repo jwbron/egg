@@ -11,7 +11,9 @@ from unittest.mock import patch
 import pytest
 from egg_agent.client import (
     _BUFFER_OVERFLOW_MARKER,
+    _DEFAULT_SDK_MAX_BUFFER_BYTES,
     _MAX_TOOL_CONTENT_LOG_LEN,
+    _sdk_max_buffer_bytes,
     _truncate,
     run_agent,
     run_agent_async,
@@ -106,6 +108,7 @@ except ImportError:
         setting_sources: list[str] | None = None
         disallowed_tools: list[str] = field(default_factory=list)
         can_use_tool: Any = None
+        max_buffer_size: int | None = None
 
     @dataclass
     class PermissionResultAllow:  # type: ignore[no-redef]
@@ -977,9 +980,10 @@ class TestDdgMcpFallback:
 
 class TestBuiltinOutputCapHook:
     """Issue #2876: a PreToolUse hook predicts oversized built-in tool
-    results (Read/Grep) and denies them before they overflow the SDK's
-    1 MB buffer, telling the agent how to narrow the call. Always-on
-    (not route-gated); disabled via EGG_TOOL_OUTPUT_CAP=false.
+    results (Read/Grep) and denies them as model-context/cost discipline,
+    telling the agent how to narrow the call. Not the buffer-crash fix —
+    that lives in the raised SDK reader buffer (#2884). Always-on (not
+    route-gated); disabled via EGG_TOOL_OUTPUT_CAP=false.
     """
 
     @staticmethod
@@ -1070,11 +1074,94 @@ class TestBuiltinOutputCapHook:
         assert "head_limit" in decision["permissionDecisionReason"]
 
 
+class TestSdkReaderBuffer:
+    """Issue #2884: egg raises the Agent SDK stream-json reader's buffer above
+    the 1 MiB default so a metadata-heavy Edit/Write result (CC attaches the
+    whole original file as non-model-bound transcript metadata) doesn't crash
+    the reader on large files. Tunable via EGG_SDK_MAX_BUFFER_BYTES.
+    """
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_max_buffer_size_wired_by_default(self, mock_query):
+        os.environ.pop("EGG_SDK_MAX_BUFFER_BYTES", None)
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        opts = mock_query.call_args.kwargs["options"]
+        assert opts.max_buffer_size == _DEFAULT_SDK_MAX_BUFFER_BYTES
+        # The default must clear the 1 MiB SDK default that crashes on #2884.
+        assert opts.max_buffer_size > 1024 * 1024
+
+    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_SDK_MAX_BUFFER_BYTES": "8388608"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_max_buffer_size_configurable_via_env(self, mock_query):
+        _run_async(run_agent_async("test prompt"))
+        opts = mock_query.call_args.kwargs["options"]
+        assert opts.max_buffer_size == 8 * 1024 * 1024
+
+    def test_env_resolver_rejects_invalid_values(self):
+        # Each bad value gets its own dedup-state reset so the per-value warning
+        # actually fires; a stale entry from a prior iteration would silently
+        # turn this into "passes when the function changes to skip warn".
+        import egg_agent.client as client_mod
+
+        for bad in ("not-a-number", "0", "-5", "2mb"):
+            client_mod._warned_sdk_buffer_values.clear()
+            with (
+                patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": bad}),
+                patch("egg_agent.client.logger") as mock_logger,
+            ):
+                assert _sdk_max_buffer_bytes() == _DEFAULT_SDK_MAX_BUFFER_BYTES
+                # The docstring promises invalid values are *logged* and ignored;
+                # without this assertion a regression that demoted the warning
+                # (or dropped it) would still pass the silent-fallback check.
+                assert mock_logger.warning.called, (
+                    f"expected a logger.warning for invalid value {bad!r}"
+                )
+
+    def test_env_resolver_accepts_valid_override(self):
+        with patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "16777216"}):
+            assert _sdk_max_buffer_bytes() == 16 * 1024 * 1024
+
+    def test_env_resolver_clamps_absurdly_large_value(self):
+        """An operator typo (stray suffix-conversion like 34359738368000 ≈ 34 TiB)
+        must be clamped to the 1 GiB hard upper bound rather than silently
+        accepted — an effectively-unbounded reader buffer could OOM the
+        container on a runaway or malformed stream (#2884 review feedback).
+        """
+        import egg_agent.client as client_mod
+
+        client_mod._warned_sdk_buffer_values.clear()
+        with (
+            patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "34359738368000"}),
+            patch("egg_agent.client.logger") as mock_logger,
+        ):
+            assert _sdk_max_buffer_bytes() == client_mod._MAX_SDK_MAX_BUFFER_BYTES
+            assert mock_logger.warning.called
+
+    def test_env_resolver_warning_dedups_per_value(self):
+        """A steady bad value warns once, not on every resolver call — the
+        resolver runs on every ``run_agent_async`` invocation, so an
+        unconditional warning would spam an operator-facing log line per
+        agent spawn (#2884 review feedback, mirroring tool_output_cap)."""
+        import egg_agent.client as client_mod
+
+        client_mod._warned_sdk_buffer_values.clear()
+        with (
+            patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "not-a-number"}),
+            patch("egg_agent.client.logger") as mock_logger,
+        ):
+            for _ in range(5):
+                assert _sdk_max_buffer_bytes() == _DEFAULT_SDK_MAX_BUFFER_BYTES
+            assert mock_logger.warning.call_count == 1
+
+
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the
     overflow marker preserved in ``error`` — the consensus-wrapper
-    greps for that string to short-circuit retry.
+    greps for that string to short-circuit retry. With the reader buffer
+    raised (#2884) this is now a rare backstop, but must still be clean.
     """
 
     @patch("claude_agent_sdk.query")
