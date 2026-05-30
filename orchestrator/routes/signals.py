@@ -1837,14 +1837,21 @@ def handle_consensus_confirmed_signal(
         _repo = None
 
         # Attempt reconstruction from message store before returning 404.
-        # ``reconstruct_tracker_from_messages`` can now do a slice-scoped
-        # replay (it filters on ``metadata['slice_id']``; #2761), but the
-        # CONFIRMED handler still deliberately reconstructs only the
-        # pipeline-level (slice_id is None) tracker: accepting a CONFIRMED
-        # off a reconstructed slice tracker would complete consensus from
-        # replayed state, and the false-consensus review for that write
-        # path is tracked separately in #2409. For pipeline-level
-        # requests the existing replay path is unchanged.
+        # ``reconstruct_tracker_from_messages`` applies the strict-
+        # equality filter ``_message_slice_id(m) == slice_id``
+        # (peer_consensus.py near line 2003) so a slice-scoped
+        # reconstruction populates the nested
+        # ``{pipeline_id}/{slice_id}`` tracker key ONLY from
+        # exactly-tagged messages. The store-level filter at
+        # ``message_store.py:407-418`` is intentionally lenient
+        # (``metadata.slice_id is None`` messages pass through any
+        # slice filter so OVERSEER_ALERTs fan out) — the
+        # peer_consensus filter is the actual isolation enforcer.
+        # Slice-4 TASK-4-5 (closes #2409) removes the prior
+        # ``slice_id is None`` skip: per-slice reconstruction is now
+        # safe because the strict-equality filter prevents cross-
+        # slice mingling, and startup_reconciliation has already had
+        # its first crack at populating every slice tracker.
         try:
             from peer_consensus import reconstruct_tracker_from_messages
             from review_graph import get_review_graph_for_phase
@@ -1857,9 +1864,8 @@ def handle_consensus_confirmed_signal(
             except StateStoreError:
                 pass
 
-            if slice_id is None:
-                graph = get_review_graph_for_phase(_phase, repo=_repo)
-                tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            graph = get_review_graph_for_phase(_phase, repo=_repo)
+            tracker = reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=slice_id)
         except Exception as recon_err:
             logger.warning(
                 "Tracker reconstruction failed in confirmed handler",

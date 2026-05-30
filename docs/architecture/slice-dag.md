@@ -75,7 +75,7 @@ pass either.
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
-| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. |
+| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-2, cq-9), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe (TASK-4-3) against the dependency-derived parent before routing onto `pipeline_branch`. |
 | `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Recorded once, right after branch creation and before any agent is spawned, so the tip still equals this SHA. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
 
 ## Plan Parser & Forest Validation
@@ -396,8 +396,12 @@ shape:
        `iter_ready` already enforces, so the executor's concurrency
        cap and `EGG_ORCH_MAX_PARALLEL_SLICES` agree.
     3. Each worker thread runs `_run_one_slice(slice_id, parent_id)`:
-       persists `Slice.parent_branch_at_creation` to the contract,
-       creates the integration branch via the gateway, calls
+       persists `Slice.parent_branch_at_creation` AND flips
+       `SliceStatus.PENDING → IN_PROGRESS` in the same contract write
+       under the per-pipeline state lock ([#2777](https://github.com/jwbron/egg/issues/2777)
+       slice-4 TASK-4-2, cq-9 — gives Layer-C bootstrap a single
+       signal that distinguishes a fresh slice from an interrupted
+       one), creates the integration branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
        agent team, awaits BRC consensus, and on consensus reach calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
@@ -412,6 +416,8 @@ shape:
    a terminal state).
 5. **Tear down** the reconciler thread and aggregate per-slice exit
    codes into the run-loop's return value.
+
+The run loop runs a **bootstrap reconciliation pass** before the first wave begins. Layer A reconciles slices the contract already marks `COMPLETE`; Layer B reconciles the open-PR side. Layer C ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-4, bundles [#2409](https://github.com/jwbron/egg/issues/2409)) reconciles non-`COMPLETE` slices that did real work before an orchestrator-pod recycle interrupted the prior run. The Layer-C classifier (`_classify_non_complete_slice`) reads `SliceStatus`, queries the gateway for the integration branch's origin commit count, and looks up the slice's consensus tracker, then applies a 5-way decision: (1) `IN_PROGRESS` with no commits → no-op (scheduler re-yields `READY`); (2) `IN_PROGRESS` + commits + no consensus → mark spawned; (3) `IN_PROGRESS` + commits + consensus reached → mark `COMPLETE`; (4) `BLOCKED` without a pending HITL → escalate to HITL; (5) corrupt / unclassifiable → escalate to HITL. Cases 4/5 create unresolved `Decision` objects on the contract via `_escalate_layer_c_hitl` rather than silently re-yielding `READY` (silent classification error is worse than an operator pause). The classifier's gateway-probe failure default is "fresh, re-yield `READY`" — the safer direction for the scheduler — which is deliberately the opposite of `_resolve_slice_base_branch`'s probe-failure default ("derived parent" — the safer direction for the next push). See [`Slice/phase restart hardening`](orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) for the full restart-hardening picture, including the slice-aware `restart_phase` clear and the per-slice consensus tracker reconstruction at startup.
 
 Per-slice agent teams are spawned via the existing
 `ConcurrentPhaseExecutor` machinery with `slice_id` plumbed through:

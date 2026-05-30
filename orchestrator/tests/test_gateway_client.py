@@ -5,8 +5,10 @@ Tests for gateway client.
 import json
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from io import BytesIO
 from threading import Thread
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
 from egg_config.constants import TEST_GATEWAY_PORT
@@ -625,6 +627,123 @@ class TestGatewayError:
             details={"field": "container_ip", "error": "invalid format"},
         )
         assert error.details["field"] == "container_ip"
+
+
+class TestMakeRequestErrorDetailParsing:
+    """End-to-end coverage of ``_make_request``'s ``HTTPError`` → parse →
+    ``GatewayError(details=...)`` path.
+
+    Locks in the PR #2895 fix that reads error details from the
+    gateway's actual envelope shape (``"data"`` key, produced by
+    ``make_error → make_response``) with a fallback to ``"details"`` for
+    routes that emit the key directly (e.g. ``mode_gate`` private-mode
+    403). Without this, ``exc.details`` was always ``None`` for
+    ``/api/v1/git/execute`` failures and the downstream
+    ``returncode != 1`` warning gate in ``merge_base`` /
+    ``_sha_is_ancestor`` fired on every legitimate exit-1 (no shared
+    ancestor / not-an-ancestor) case.
+
+    Existing slice-4 tests construct ``GatewayError(..., details=...)``
+    directly via the constructor, which bypasses the parse path
+    entirely — so a regression in ``_make_request`` would not surface
+    there. These tests exercise the parse path end-to-end via mocked
+    ``urlopen`` to prevent silent regression if the gateway envelope
+    shape ever changes.
+    """
+
+    @staticmethod
+    def _http_error(body: dict, *, code: int = 500) -> HTTPError:
+        return HTTPError(
+            url="http://gateway/api/v1/git/execute",
+            code=code,
+            msg="error",
+            hdrs={},  # type: ignore[arg-type]
+            fp=BytesIO(json.dumps(body).encode()),
+        )
+
+    def test_parses_details_from_data_key(self, gateway_client):
+        """Gateway's actual envelope shape: ``make_error`` routes details
+        through ``make_response``'s ``data`` parameter, so the wire
+        payload is ``{"success": false, "message": "...", "data":
+        {...}}``. The fix MUST read from ``"data"``; the prior
+        ``error_data.get("details")`` always returned ``None`` here.
+        """
+        err = self._http_error(
+            {
+                "success": False,
+                "message": "git merge-base failed",
+                "data": {"returncode": 1, "stderr": ""},
+            }
+        )
+        with patch("gateway_client.urlopen", side_effect=err):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/git/execute", method="POST", data={})
+
+        assert exc_info.value.details is not None, (
+            "details must be populated from gateway's data-key envelope "
+            "(the bug this test pins prevents the returncode=1 suppression "
+            "in merge_base / _sha_is_ancestor from working)"
+        )
+        assert exc_info.value.details["returncode"] == 1
+        assert exc_info.value.status_code == 500
+        assert "git merge-base failed" in str(exc_info.value)
+
+    def test_falls_back_to_details_key(self, gateway_client):
+        """Some routes emit ``"details"`` directly at the top level
+        (notably ``mode_gate``'s 403 private-mode rejection). The
+        fallback in the parse path MUST preserve those details when
+        ``"data"`` is absent.
+        """
+        err = self._http_error(
+            {
+                "success": False,
+                "message": "private mode required",
+                "details": {"reason": "private_mode_required"},
+            },
+            code=403,
+        )
+        with patch("gateway_client.urlopen", side_effect=err):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/jira/search", method="POST", data={})
+
+        assert exc_info.value.details is not None
+        assert exc_info.value.details["reason"] == "private_mode_required"
+        assert exc_info.value.status_code == 403
+
+    def test_prefers_data_when_both_keys_present(self, gateway_client):
+        """If a hypothetical response carried both keys, ``"data"`` is
+        canonical (it's what the standard ``make_response`` writes) —
+        the ``or`` short-circuit MUST prefer it.
+        """
+        err = self._http_error(
+            {
+                "success": False,
+                "message": "boom",
+                "data": {"source": "data-key"},
+                "details": {"source": "details-key"},
+            }
+        )
+        with patch("gateway_client.urlopen", side_effect=err):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/health", method="GET")
+
+        assert exc_info.value.details == {"source": "data-key"}
+
+    def test_details_none_when_envelope_carries_neither_key(self, gateway_client):
+        """An envelope with neither ``"data"`` nor ``"details"`` (e.g. a
+        bare ``{"success": false, "message": "..."}`` from a route that
+        didn't pass details) MUST surface ``exc.details = None`` rather
+        than raise. Confirms ``or`` is the right operator (not ``and``,
+        not a strict ``KeyError``-on-missing).
+        """
+        err = self._http_error({"success": False, "message": "rate limited"}, code=429)
+        with patch("gateway_client.urlopen", side_effect=err):
+            with pytest.raises(GatewayError) as exc_info:
+                gateway_client._make_request("/api/v1/sessions/create", method="POST", data={})
+
+        assert exc_info.value.details is None
+        assert exc_info.value.status_code == 429
+        assert "rate limited" in str(exc_info.value)
 
 
 class TestWorktreeManagement:
