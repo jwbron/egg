@@ -9437,13 +9437,18 @@ def _build_pre_merge_obligations_section(
        no deferred_actions — either because the gate landed before
        tracker teardown, or the gate was never required.
 
-    The markdown composition (open vs. resolved sections, banner copy) is
-    delegated to :mod:`orchestrator.pr_obligations` so the slice-DAG
-    umbrella PR path (``GatewayClient.create_slice_pr``) renders the same
-    section from the same input shape (#2354).
+    The markdown composition (open vs. resolved sections, banner copy)
+    is delegated to :mod:`orchestrator.pr_obligations`. Pre-#2777 cq-6
+    the slice-DAG terminal slice rendered the same section from this
+    shared shape; under cq-4 the obligations live solely on the
+    up-front context PR (``egg/<id>/work → main``) opened by
+    :func:`_open_context_pr_at_implement_start`, so only this
+    ``_auto_create_pr`` callsite renders them now. The shared shape
+    stays so a future caller (re-introducing per-slice obligation
+    rendering, etc.) has parity.
 
-    Returns an empty string if neither source yields obligations, so callers
-    can unconditionally append the result to the PR body.
+    Returns an empty string if neither source yields obligations, so
+    callers can unconditionally append the result to the PR body.
     """
     try:
         from pr_obligations import render_obligations_section_from_normalized
@@ -9466,21 +9471,16 @@ def _collect_pre_merge_obligations(
 
     .. note::
 
-       The tracker fallback is functionally a no-op when called from the
-       slice-DAG umbrella path (``_run_one_slice_inner`` →
-       ``create_slice_pr``). ``get_peer_consensus_tracker(pipeline_id)``
-       returns the **pipeline-level** tracker, but slice-mode BRC
-       consensus runs on per-slice trackers keyed
-       ``{pipeline_id}/{slice_id}`` (see ``peer_consensus._tracker_key``)
-       — so any slice-BRC ACK obligations are written to the per-slice
-       tracker and the pipeline-level tracker won't see them. In
-       practice ``contract.pr.deferred_actions`` (populated by
-       ``_persist_deferred_actions`` when HITL resolves) is therefore the
-       only effective source for the slice umbrella PR. The fallback is
-       still wired in for call-shape parity with the legacy
-       ``_auto_create_pr`` path so future changes (e.g. aggregating
-       slice obligations onto the pipeline tracker) get parity for
-       free — see PR #2382 review observation A.
+       Under #2777 cq-4 obligations live on the up-front context PR
+       (``egg/<id>/work → main``) opened by
+       :func:`_open_context_pr_at_implement_start`, not on individual
+       slice PRs — so the slice-loop no longer calls this helper. The
+       pipeline-level tracker fallback survives because the
+       ``_auto_create_pr`` path that still calls this helper uses the
+       pipeline-level tracker; future re-introducers of per-slice
+       obligation rendering would need to thread a slice-keyed tracker
+       (see ``peer_consensus._tracker_key`` ⇒
+       ``{pipeline_id}/{slice_id}``) through here.
     """
     try:
         from pr_obligations import normalize_deferred_actions
@@ -15857,60 +15857,25 @@ def _run_implement_phase_slices(
                             None,
                         )
                         if slice_obj is not None and pipeline.repo:
-                            # Identify the terminal slice(s) of the
-                            # forest: any slice no other slice lists
-                            # as a dependency. Pick a single terminal
-                            # so non-terminal slices can flag it via
-                            # ``terminal_slice_id`` (the gateway uses
-                            # that signal to switch the title shape:
-                            # bare ``program_title`` for the terminal
-                            # vs. ``[<slice-id>] <program_title>`` for
-                            # non-terminals). When the forest has
-                            # multiple terminal slices we take the
-                            # last one in declared order — arbitrary
-                            # but stable. For multi-tree forests this
-                            # means non-terminal slices in non-chosen
-                            # trees flag a leaf outside their own
-                            # subtree; see the "Stacked-PR creation"
-                            # section of
-                            # ``docs/architecture/slice-dag.md`` for
-                            # the rationale.
-                            depended_on: set[str] = {
-                                dep for s in contract_post.slices for dep in s.dependencies
-                            }
-                            terminal_ids = [
-                                s.id for s in contract_post.slices if s.id not in depended_on
-                            ]
-                            chosen_terminal = terminal_ids[-1] if terminal_ids else None
-                            is_terminal = slice_id == chosen_terminal
-                            # #2538: every slice — terminal or not —
-                            # carries the planner-authored narrative on
-                            # its PR so reviewers see context on whichever
-                            # slice they open first. Per-merge obligations
-                            # remain terminal-only (the merge gate is the
-                            # last-to-merge PR in the stack).
+                            # #2538: every slice carries the
+                            # planner-authored narrative on its PR so
+                            # reviewers see context on whichever slice
+                            # they open first. Pre-#2777 cq-6 the
+                            # terminal slice additionally carried a
+                            # program-level rollup (test plan + manual
+                            # steps + pre-merge obligations) and a
+                            # ``[merge-gate]`` title marker. Under cq-4
+                            # the merge gate is the up-front context
+                            # PR (``egg/<id>/work → main``) opened by
+                            # ``_open_context_pr_at_implement_start``,
+                            # so every slice PR — terminal or not —
+                            # now uses the same lean shape and the
+                            # terminal-slice computation is gone.
                             program_pr = contract_post.pr
-                            # ``terminal_slice_id`` is the gateway's
-                            # title-shape signal: None on the terminal
-                            # itself (or when no umbrella narrative
-                            # exists), the terminal id otherwise. We
-                            # only flag non-terminals when the umbrella
-                            # actually has a planner-authored title;
-                            # otherwise both terminal and non-terminal
-                            # fall back to the deterministic
-                            # ``slice {id}: {name}`` form.
-                            umbrella_has_program_block = bool(
-                                program_pr and program_pr.title and program_pr.title.strip()
-                            )
-                            terminal_pointer = (
-                                None
-                                if is_terminal or not umbrella_has_program_block
-                                else chosen_terminal
-                            )
                             # #2745: derive 1-based slice position +
                             # total slice count from declared contract
                             # order so the slice PR title can carry
-                            # ``[slice-N/M]`` for non-terminal slices.
+                            # ``[slice-N/M]``.
                             slice_count = len(contract_post.slices)
                             slice_index_lookup = next(
                                 (
@@ -15947,14 +15912,15 @@ def _run_implement_phase_slices(
                                 "slice_files_affected": slice_files_affected_list or None,
                                 # ``context_pr_number`` is populated by
                                 # ``_open_context_pr_at_implement_start``
-                                # at the plan→implement boundary (#2777).
-                                # When None — should be unreachable under
-                                # the new hard-required opener but kept as
-                                # defense-in-depth — ``create_slice_pr``
+                                # at the plan→implement boundary (#2777
+                                # cq-4). When None — should be
+                                # unreachable under the new
+                                # hard-required opener but kept as
+                                # defence-in-depth — ``create_slice_pr``
                                 # falls back to the pre-#2745 inline-
                                 # narrative body so the slice PR stays
-                                # reviewable as a standalone diff against
-                                # ``/work``.
+                                # reviewable as a standalone diff
+                                # against ``/work``.
                                 "context_pr_number": (
                                     program_pr.context_pr_number if program_pr else None
                                 ),
@@ -15966,33 +15932,6 @@ def _run_implement_phase_slices(
                                 "program_manual_steps": (
                                     program_pr.manual_steps if program_pr else None
                                 ),
-                                # Snapshot the obligations list under the
-                                # state lock alongside the rest of the
-                                # program-* fields. Threaded into
-                                # ``create_slice_pr`` only for the
-                                # terminal slice; non-terminal slices
-                                # receive ``None`` so the umbrella is the
-                                # single place reviewers see them (#2354).
-                                #
-                                # Collect via ``_collect_pre_merge_obligations``
-                                # rather than passing raw ``DeferredAction``
-                                # objects so the umbrella picks up the live
-                                # peer_consensus tracker fallback when the
-                                # contract list is empty — exact parity with
-                                # the legacy ``_auto_create_pr`` path
-                                # (#2354 review item 2).
-                                "program_deferred_actions": (
-                                    (
-                                        _collect_pre_merge_obligations(
-                                            pipeline_id,
-                                            list(program_pr.deferred_actions),
-                                        )
-                                        or None
-                                    )
-                                    if program_pr and is_terminal
-                                    else None
-                                ),
-                                "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001
                     logger.warning(
@@ -16053,8 +15992,6 @@ def _run_implement_phase_slices(
                             program_description=slice_pr_data["program_description"],
                             program_test_plan=slice_pr_data["program_test_plan"],
                             program_manual_steps=slice_pr_data["program_manual_steps"],
-                            program_deferred_actions=slice_pr_data["program_deferred_actions"],
-                            terminal_slice_id=slice_pr_data["terminal_slice_id"],
                             slice_index=slice_pr_data["slice_index"],
                             slice_count=slice_pr_data["slice_count"],
                             slice_files_affected=slice_pr_data["slice_files_affected"],

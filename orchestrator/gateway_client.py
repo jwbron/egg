@@ -249,18 +249,16 @@ def _format_position_marker(
     slice_id: str,
     slice_index: int | None,
     slice_count: int | None,
-    is_terminal_slice: bool,
 ) -> str:
-    """Return ``slice-N/M`` (or ``merge-gate`` for the terminal slice).
+    """Return ``slice-N/M`` (or ``slice_id`` when index/count aren't supplied).
 
-    Falls back to ``slice_id`` when index / count aren't supplied (older
-    callers / tests). Terminal gets the ``merge-gate`` marker so its
-    title is still distinguishable from a hypothetical sibling program
-    PR (the original #2745 complaint about the terminal title being
-    indistinguishable from any program-level PR).
+    Pre-#2777 cq-6 the terminal slice received a dedicated ``merge-gate``
+    marker so its title was distinguishable from a hypothetical sibling
+    program-level rollup PR. Under cq-4 the merge gate moved to the
+    up-front context PR (``egg/<id>/work → main``), so every slice PR
+    — including the last-to-merge slice — uses the uniform
+    ``slice-N/M`` shape; the ``[merge-gate]`` marker is gone.
     """
-    if is_terminal_slice:
-        return "merge-gate"
     if slice_index is not None and slice_count is not None and slice_count >= 1:
         return f"slice-{slice_index}/{slice_count}"
     return slice_id
@@ -305,23 +303,6 @@ def _first_sentence(text: str, max_len: int = 120) -> str:
     if len(sentence) > max_len:
         sentence = sentence[: max_len - 3].rstrip() + "..."
     return sentence
-
-
-def _render_pre_merge_obligations(
-    program_deferred_actions: list[dict[str, str]],
-) -> str:
-    """Thin wrapper around ``pr_obligations.render_obligations_section_from_normalized``.
-
-    Kept here so the import is resolved lazily once and the umbrella
-    rendering path stays at parity with the legacy
-    ``_auto_create_pr`` path."""
-    try:
-        from pr_obligations import render_obligations_section_from_normalized
-    except ImportError:
-        from orchestrator.pr_obligations import (  # type: ignore[no-redef]
-            render_obligations_section_from_normalized,
-        )
-    return render_obligations_section_from_normalized(program_deferred_actions)
 
 
 def _append_task_bullets(
@@ -388,7 +369,6 @@ def _format_stack_block(
     slice_count: int | None,
     base_branch: str,
     context_pr_number: int | None,
-    is_terminal_slice: bool,
 ) -> list[str]:
     r"""Render the ``## Stack`` footer with base PR + position pointers.
 
@@ -399,16 +379,17 @@ def _format_stack_block(
     A ``Parent PR:`` line would also be useful here, but slice PR numbers
     aren't persisted on the contract yet, so the parent PR # isn't
     available at slice-PR-creation time. Tracked separately.
+
+    Pre-#2777 cq-6 the terminal slice received a distinct
+    ``merge-gate (slice N of M)`` position; under cq-4 the merge gate is
+    the up-front context PR (``egg/<id>/work → main``), so all slices
+    use the uniform ``slice N of M`` shape.
     """
     lines: list[str] = ["## Stack", ""]
     if slice_index is not None and slice_count is not None and slice_count >= 1:
-        position = (
-            f"merge-gate (slice {slice_index} of {slice_count})"
-            if is_terminal_slice
-            else f"slice {slice_index} of {slice_count}"
-        )
+        position = f"slice {slice_index} of {slice_count}"
     else:
-        position = "merge-gate" if is_terminal_slice else slice_id
+        position = slice_id
     lines.append(f"- Position: {position} in pipeline `{pipeline_id}`")
     if context_pr_number is not None and context_pr_number >= 1:
         lines.append(f"- Base PR: #{context_pr_number}")
@@ -1651,169 +1632,80 @@ class GatewayClient:
         program_description: str | None = None,
         program_test_plan: str | None = None,
         program_manual_steps: str | None = None,
-        program_deferred_actions: list[dict[str, str]] | None = None,
-        terminal_slice_id: str | None = None,
         slice_index: int | None = None,
         slice_count: int | None = None,
         slice_files_affected: list[str] | None = None,
         context_pr_number: int | None = None,
     ) -> str | None:
-        """Open a PR for one slice in a stacked-PR chain (#2745).
+        """Open a PR for one slice in a stacked-PR chain.
 
         Slice PRs are scoped to their own slice: subject + files
         affected + full task descriptions with acceptance criteria.
         Strategic context (analysis doc, plan doc, refine/plan BRC
-        history) lives on the base/context PR opened by #2548, which
-        slice PRs link to via ``context_pr_number``. The terminal
-        slice keeps the umbrella treatment (program-level test plan /
-        manual steps + pre-merge obligations) because it is the merge
-        gate — those are execution-time concerns, not strategic-direction
-        artifacts.
+        history) AND execution-time concerns (test plan, manual steps,
+        pre-merge obligations) all live on the up-front context PR
+        opened by :func:`_open_context_pr_at_implement_start`
+        (``egg/<id>/work → main``, #2777 cq-4). Slice PRs link to it
+        via ``context_pr_number`` and otherwise stay focused on the
+        slice's own diff.
 
-        * **Title.** ``[<program-slug>][slice-N/M] <slice subject>`` for
-          non-terminal slices; ``[<program-slug>][merge-gate] <program_title>``
-          for the terminal slice. ``<program-slug>`` is derived from
-          ``pipeline_id`` (``issue-<N>`` collapsed to ``issue-<N>``;
-          ``pipeline-<hash>`` truncated). When ``program_title`` is empty
-          (older contracts / planner skipped the field), titles fall back
-          to the deterministic ``{slice_id}: {slice_name}`` form (#2539).
-        * **Body (non-terminal).** Optional 1-line program blurb →
+        Pre-#2777 cq-6 the terminal slice carried a program-level
+        rollup body (test plan / manual steps / pre-merge obligations
+        + a ``[merge-gate]`` title marker). That treatment is gone —
+        the merge gate is now the up-front context PR, not the last
+        slice in the stack — so every slice PR uses the same uniform
+        shape based only on whether the context PR exists.
+
+        * **Title.** ``[<program-slug>][slice-N/M] <slice subject>``.
+          ``<program-slug>`` is derived from ``pipeline_id``
+          (``issue-<N>`` collapsed to ``issue-<N>``; ``pipeline-<hash>``
+          truncated). When ``program_title`` is empty (older contracts
+          / planner skipped the field), titles fall back to the
+          deterministic ``{slice_id}: {slice_name}`` form (#2539).
+        * **Body (with context PR).** Optional 1-line program blurb →
           ``**Base PR:** #<context_pr_number>`` → ``## This slice``
           (subject, files affected, full task descriptions + acceptance
           criteria) → ``## Stack`` (base PR, position).
-        * **Body (terminal — umbrella).** Umbrella banner → program
-          description → pre-merge obligations → ``## This slice`` →
-          ``## Test Plan`` → ``## Manual Steps`` → ``## Stack``. The
-          umbrella rollup stays here because the base/context PR is a
-          *strategic-direction* surface (analysis + plan + BRC history,
-          per #2548), not a merge-the-whole-stack rollup. Execution-time
-          concerns (test plan, manual steps, obligations) live on the
-          merge gate.
+        * **Body (no context PR — UX backstop).** Inline program
+          narrative (description + test plan + manual steps) so the
+          slice PR is still reviewable as a standalone diff against
+          ``/work``. NOTE: under cq-4 the context PR is hard-required
+          and this branch should be unreachable in production; it
+          stays as defence-in-depth so the slice PR body still renders
+          something useful if the new opener somehow failed to persist
+          ``context_pr_number``. The stack is structurally unmergeable
+          in that state — fixing the body here is not a fix for the
+          missing-context-PR structural break.
 
-        ``program_deferred_actions`` is terminal-only by convention
-        (the merge gate is the last-to-merge PR in the stack); each
-        non-terminal body branch (``program_title is None`` umbrella
-        fallback, lean, inline-fallback) asserts ``program_deferred_actions
-        is None`` so a mis-routed obligations payload fails fast instead
-        of being silently dropped (#2354 review nit, #2746 review
-        item 1). The whitespace-only ``program_title`` case is
-        intentionally not covered — that's a ``PRMetadata`` data bug,
-        not a slice-routing error.
-
-        When ``context_pr_number is None`` (covers the #2744 regression
-        where the base/context PR is silently not opened) the
-        non-terminal body falls back to the pre-#2745 shape — inline
-        program description + test plan + manual steps — so slice PRs
-        stay reviewable as standalone diffs against ``/work``. This is a
-        **UX backstop**, not a structural fix: the stack is still
-        unmergeable in that state because no PR exists for
-        ``/work → main``.
+        Idempotency (#2777 cq-8 / task-3-2). Before invoking
+        ``gh pr create``, an existing open PR with the same head +
+        base is looked up via :meth:`_lookup_open_pr`; on hit the
+        existing PR URL is returned and ``gh pr create`` is skipped.
+        This prevents a transient ``gh pr create`` failure that
+        partially succeeded (PR created, network blip on response)
+        from cascading the slice to FAILED on retry.
         """
         has_program_title = bool(program_title and program_title.strip())
-        # ``pipelines.py`` sets ``terminal_slice_id`` only for
-        # non-terminal slices that point at an existing umbrella. So
-        # ``terminal_slice_id is None`` combined with a populated
-        # ``program_title`` identifies the terminal slice (or a
-        # single-slice pipeline, which is also terminal).
-        is_terminal_slice = has_program_title and terminal_slice_id is None
         has_base_pr = context_pr_number is not None and context_pr_number >= 1
 
-        # Pre-merge obligations belong only on the merge-gate (terminal
-        # slice). The assertions live inside each non-terminal body
-        # branch below — not at the top — because a whitespace-only
-        # ``program_title`` (which ``PRMetadata.title`` allows under its
-        # ``min_length=1`` validator) flows into the deterministic
-        # else-branch and is a different bug (PRMetadata data
-        # validation), not a slice-routing error (#2354 review
-        # observation B). The branch-local assertions cover the lean /
-        # inline non-terminal paths that #2746 review item 1 flagged.
-
         program_slug = _derive_program_slug(pipeline_id)
-        position_marker = _format_position_marker(
-            slice_id, slice_index, slice_count, is_terminal_slice
-        )
+        position_marker = _format_position_marker(slice_id, slice_index, slice_count)
 
         if has_program_title:
             assert program_title is not None  # implied by has_program_title
-            program_title_clean = program_title.strip()
-            if is_terminal_slice:
-                subject = program_title_clean
-            else:
-                subject = (slice_name or slice_id).strip() or slice_id
+            subject = (slice_name or slice_id).strip() or slice_id
             title = _format_slice_title(program_slug, position_marker, subject)
         else:
-            # Defensive: obligations belong only on the umbrella. Failing
-            # fast here catches a caller wiring ``program_deferred_actions``
-            # through to a non-terminal slice (#2354 review nit) instead
-            # of silently dropping it.
-            #
-            # Guarded on ``program_title is None`` rather than
-            # ``has_program_title`` so a whitespace-only ``program_title``
-            # (which ``PRMetadata.title`` allows under its current
-            # ``min_length=1`` validator) doesn't masquerade as a slice
-            # routing error here — that's a different bug and should
-            # surface as such, not as a spurious AssertionError on the
-            # umbrella PR creation path (#2354 review observation B).
-            if program_title is None:
-                assert program_deferred_actions is None, (
-                    "program_deferred_actions must be None on non-terminal slices; "
-                    "obligations belong on the umbrella PR only"
-                )
             title = f"{slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 
         body_lines: list[str] = []
 
-        if has_program_title and is_terminal_slice:
-            # Terminal slice — the merge-gate umbrella. Carries the
-            # program-level test plan / manual steps / obligations so
-            # the PR that people actually click "Merge" on has the
-            # execution-time concerns visible.
-            body_lines.append(
-                f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
-            )
-            body_lines.append(
-                "> Roll-up of the slice-PR chain; this PR is the merge gate "
-                "for the program. Pre-merge obligations (when present) live here."
-            )
-            body_lines.append("")
-            if program_description and program_description.strip():
-                body_lines.append(program_description.strip())
-                body_lines.append("")
-            # Render Pre-merge Obligations / Resolved-within-PR right
-            # after the program description so the merge-blocking
-            # banner stays high in the body — the original visibility
-            # intent from #2354 (banner must be visible without
-            # scrolling past plan/steps). Same placement as the legacy
-            # ``_auto_create_pr`` path.
-            if program_deferred_actions:
-                obligations_section = _render_pre_merge_obligations(program_deferred_actions)
-                if obligations_section:
-                    body_lines.append(obligations_section)
-                    body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-            if program_test_plan and program_test_plan.strip():
-                body_lines.append("## Test Plan")
-                body_lines.append("")
-                body_lines.append(program_test_plan.strip())
-                body_lines.append("")
-            if program_manual_steps and program_manual_steps.strip():
-                body_lines.append("## Manual Steps")
-                body_lines.append("")
-                body_lines.append(program_manual_steps.strip())
-                body_lines.append("")
-        elif has_program_title and not is_terminal_slice and has_base_pr:
-            # Non-terminal slice with a base/context PR opened: lean
-            # body. Defer the strategic narrative to the base PR.
-            #
-            # Pre-merge obligations belong on the merge-gate only — fail
-            # fast here so the lean branch doesn't silently drop them
-            # (#2746 review item 1).
-            assert program_deferred_actions is None, (
-                "program_deferred_actions must be None on non-terminal slices; "
-                "obligations belong on the umbrella PR only"
-            )
+        if has_program_title and has_base_pr:
+            # Lean body: defer the strategic narrative AND execution-time
+            # concerns (test plan / manual steps / obligations) to the
+            # context PR opened by ``_open_context_pr_at_implement_start``.
             blurb = _first_sentence(program_description) if program_description else ""
             if blurb:
                 body_lines.append(blurb)
@@ -1821,21 +1713,13 @@ class GatewayClient:
             body_lines.append(f"**Base PR:** #{context_pr_number}")
             body_lines.append("")
             _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-        elif has_program_title and not is_terminal_slice and not has_base_pr:
-            # UX backstop for the #2744 regression: no base PR exists,
-            # so inline the program narrative so the slice PR is still
-            # reviewable as a standalone diff against ``/work``. NOTE:
-            # the stack is still unmergeable in this state — fixing the
-            # body here does not fix the missing-base-PR structural
-            # break.
-            #
-            # Pre-merge obligations belong on the merge-gate only — fail
-            # fast here so the inline-fallback branch doesn't silently
-            # drop them (#2746 review item 1).
-            assert program_deferred_actions is None, (
-                "program_deferred_actions must be None on non-terminal slices; "
-                "obligations belong on the umbrella PR only"
-            )
+        elif has_program_title and not has_base_pr:
+            # UX backstop: ``context_pr_number`` is missing (under cq-4
+            # this should be unreachable since the new opener is
+            # hard-required). Inline the program narrative so the slice
+            # PR remains reviewable as a standalone diff against
+            # ``/work``. The stack is structurally unmergeable in this
+            # state — fixing the body here is a UX backstop, not a fix.
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
@@ -1868,10 +1752,36 @@ class GatewayClient:
             slice_count=slice_count,
             base_branch=base,
             context_pr_number=context_pr_number,
-            is_terminal_slice=is_terminal_slice,
         )
         body_lines.extend(stack_lines)
         body = "\n".join(body_lines)
+
+        # Idempotency pre-flight (#2777 cq-8 / task-3-2): if an open PR
+        # already exists for this head + base, return its URL instead of
+        # invoking ``gh pr create``. Prevents a partial-success retry
+        # (PR created server-side, transport blip on the response) from
+        # cascading the slice to FAILED on the next tick.
+        if repo:
+            existing_pr_number = self._lookup_open_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=head,
+                base=base,
+                agent_role=agent_role or "coder",
+                mode=mode,
+            )
+            if existing_pr_number is not None:
+                existing_url = f"https://github.com/{repo}/pull/{existing_pr_number}"
+                logger.info(
+                    "Slice PR already exists; returning existing PR (idempotent path)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    head=head,
+                    base=base,
+                    pr_number=existing_pr_number,
+                    pr_url=existing_url,
+                )
+                return existing_url
 
         return self.create_pr(
             pipeline_id=pipeline_id,
@@ -2605,6 +2515,124 @@ class GatewayClient:
                 error=str(exc),
             )
             return []
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def _lookup_open_pr(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        head: str,
+        base: str,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> int | None:
+        """Server-side idempotency check: return the open ``head → base`` PR number, or None.
+
+        Runs ``gh pr list --head <head> --base <base> --state open
+        --json number`` via the existing per-agent ``gh pr list``
+        allowlist (transport ``/api/v1/gh/execute``). The gateway
+        filters server-side so this is cheaper than the broader
+        :meth:`list_open_prs` + client-side filter that
+        :func:`_open_context_pr_at_implement_start` uses today.
+
+        Used by :meth:`create_slice_pr` to skip ``gh pr create`` when a
+        slice PR with the same head + base is already open (#2777 cq-8
+        / task-3-2 idempotency pre-flight). May also be adopted by the
+        context-PR opener in a follow-up; today the opener uses the
+        broader ``list_open_prs`` shape because it needs to enumerate
+        every open PR for the client-side filter.
+
+        Returns:
+            The integer PR number on hit, ``None`` on miss OR on any
+            transport / parse error. The caller falls through to
+            ``gh pr create`` either way — a transient lookup failure
+            must not block PR creation.
+        """
+        if not repo:
+            return None
+        if not head or not base:
+            # Defensive: never invoke ``gh pr list`` with an empty
+            # filter (would return every open PR in the repo and a
+            # caller-side ``if existing is not None`` would match the
+            # first one, spuriously treating an unrelated PR as the
+            # slice PR's idempotent hit).
+            return None
+        temp_container_id = f"{pipeline_id}-pr-lookup"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            args = [
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--head",
+                head,
+                "--base",
+                base,
+                "--state",
+                "open",
+                "--limit",
+                "5",
+                "--json",
+                "number",
+            ]
+            result = self._make_request(
+                "/api/v1/gh/execute",
+                method="POST",
+                data={"args": args, "repo": repo},
+                bearer_token=session_token,
+            )
+            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
+            try:
+                items = json.loads(stdout) if stdout.strip() else []
+            except (ValueError, TypeError):
+                logger.debug(
+                    "_lookup_open_pr: gh stdout not JSON",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    head=head,
+                    base=base,
+                )
+                return None
+            if not isinstance(items, list):
+                return None
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                number = item.get("number")
+                if number is None:
+                    continue
+                try:
+                    return int(number)
+                except (TypeError, ValueError):
+                    continue
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "_lookup_open_pr: gateway request failed (treating as miss)",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=head,
+                base=base,
+                error=str(exc),
+            )
+            return None
         finally:
             if session_token:
                 try:

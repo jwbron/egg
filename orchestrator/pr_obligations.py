@@ -1,11 +1,11 @@
 """Render the "Pre-merge Obligations" PR-body section from ``DeferredAction``.
 
-Shared between the legacy ``_auto_create_pr`` path
-(``orchestrator/routes/pipelines.py::_build_pre_merge_obligations_section``)
-and the slice-DAG umbrella PR path
-(``orchestrator/gateway_client.py::create_slice_pr``) so both surface the
-same conditional-ACK obligations under the same merge-blocking banner
-(#2354).
+Used by the ``_auto_create_pr`` path
+(``orchestrator/routes/pipelines.py::_build_pre_merge_obligations_section``).
+Pre-#2777 cq-6 the slice-DAG terminal slice rendered the same section;
+under cq-4 the obligations live solely on the up-front context PR
+(``egg/<id>/work → main``), so slice PRs no longer call this module.
+The shared shape stays so a future caller has parity (#2354).
 
 Pure with respect to the obligation list: no orchestrator runtime or
 ``peer_consensus`` tracker access lives here. Callers that want the
