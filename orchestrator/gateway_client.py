@@ -2619,7 +2619,7 @@ class GatewayClient:
             stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
             try:
                 items = json.loads(stdout) if stdout.strip() else []
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.debug(
                     "_lookup_open_pr: gh stdout not JSON",
                     pipeline_id=pipeline_id,
@@ -2638,7 +2638,7 @@ class GatewayClient:
                     continue
                 try:
                     return int(number)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
             return None
         except Exception as exc:  # noqa: BLE001
