@@ -308,7 +308,7 @@ After a successful context-PR open, `_persist_context_pr_number` writes `pipelin
 
 Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, MCP `get_pipeline_status`, jira-reassess in-flight detection) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where a stale `pr_number` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
 
-> The `pipeline.pr_head_sha` field on the model is no longer populated — its sole writer (`_finalize_pr_phase_failed`) was deleted alongside the PR phase in [#2777](https://github.com/jwbron/egg/issues/2777). The overseer's post-consensus short-circuit now keys on `pr_number` alone, so the field is effectively unused; the model column is retained only for backwards-compatible deserialisation of older state files.
+> The `pipeline.pr_head_sha` field on the model is no longer populated — its sole writer (`_finalize_pr_phase_failed`) was deleted alongside the PR phase in [#2777](https://github.com/jwbron/egg/issues/2777). The overseer's post-consensus short-circuit no longer reads `pr_head_sha`; it now keys on two independent signals (`pipeline.current_phase != "implement"` or `pipeline.pr_number is not None` — see [`pipeline-health-monitoring.md` → Transition-completion short-circuit](../guides/pipeline-health-monitoring.md#post-consensus-stall-detection)), so the field is effectively unused. The model column is retained only for backwards-compatible deserialisation of older state files.
 
 ### Per-agent commit SHA diagnostics
 
