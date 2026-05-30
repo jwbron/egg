@@ -78,7 +78,7 @@ kubectl get pods -n egg-system  # verify pods are running
 egg --public            # start sandbox session
 ```
 
-`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment.
+`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag are not yet in k3s, directing you to run `make redeploy` instead.
 
 ## 4. Using the SDLC pipeline
 
@@ -177,13 +177,13 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 bin/egg-deploy up          # apply k8s manifests, wait for readiness
 bin/egg-deploy status      # health + endpoint summary
 bin/egg-deploy down        # tear down the deployment
-make build && make k3s-import && make deploy  # rebuild images and redeploy after code changes
+make redeploy              # rebuild images, import into k3s, and redeploy after code changes
 make k3s-teardown          # remove k3s and all deployed resources
 ```
 
 ## Troubleshooting
 
-**Claude binary not found**: If a sandbox job exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image: `make build && make k3s-import && make deploy`. (The legacy `egg --reset` flag was removed in #1762.)
+**Claude binary not found**: If a sandbox job exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image: `make redeploy`. (The legacy `egg --reset` flag was removed in #1762.)
 
 **Gateway or orchestrator not starting**: Check pod status with `kubectl get pods -n egg-system` and logs with `kubectl logs -n egg-system deploy/gateway` or `kubectl logs -n egg-system deploy/orchestrator`.
 

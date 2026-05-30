@@ -1,25 +1,26 @@
 """Predictive PreToolUse caps for built-in Claude Code tools (issue #2876).
 
-Built-in tools (``Read``, ``Grep``, ``Edit``, ``Write``, ``Bash``) run
-inside the Claude Code CLI; egg cannot wrap their output the way it caps
-its own MCP ``@tool`` payloads (#2805). A tool result that exceeds the
-Agent SDK's 1 MB JSON message buffer kills the agent with exit 255
-(#2804); #2810 made that a clean fail-fast but does **not** prevent it.
+These caps are **model-context/cost discipline, not the buffer-crash fix.**
+The Agent SDK reader's buffer-overflow crash (#2804/#2884) is prevented by
+raising ``max_buffer_size`` in ``client.py`` — see the note there: the
+messages that overflow the reader are dominated by *non-model-bound* transcript
+metadata (Claude Code attaches the whole original file to every Edit/Write
+result), which a per-tool input/output cap cannot and should not police.
 
-This module supplies *predictive* heuristics for a PreToolUse hook: the
-hook fires **before** the tool runs and denies calls whose result is
-likely to overflow, returning a reason that tells the agent exactly how
-to narrow the call (``offset``/``limit``/``head_limit``/
-``files_with_matches``). Because the hook fires before execution it
-cannot see the result, so the heuristics are necessarily approximate
-(false positives/negatives are expected); #2810's fail-fast remains the
-backstop when a prediction misses.
-
-The load-bearing case is ``Read`` of a very large source file — e.g. the
-24k-line ``orchestrator/routes/pipelines.py`` (~1.1 MB) that crashed the
-#2777 slice-1 coder. Reading it whole produces a tool result larger than
-the 1 MB buffer; redirecting the agent to ``offset``/``limit`` keeps each
-page bounded.
+What this module *does* police is the volume a tool sends **to the model**.
+A whole-file ``Read`` returns the file's content to the model (the ~1.1 MB,
+24k-line ``orchestrator/routes/pipelines.py`` ≈ ~275k tokens), and a whole-repo
+content ``Grep`` dumps every matching line to the model — both wasteful of
+context and cost. Built-in tools (``Read``, ``Grep``, ``Bash``) run inside the
+Claude Code CLI; egg cannot wrap their output the way it caps its own MCP
+``@tool`` payloads (#2805), so a PreToolUse hook fires **before** the tool runs
+and denies calls whose model-bound result is likely to be excessive, returning a
+reason that tells the agent how to narrow the call (``offset``/``limit``/
+``head_limit``/``files_with_matches``). Because the hook fires before execution
+it cannot see the result, so the heuristics are necessarily approximate (false
+positives/negatives are expected). Keeping model-bound output small here also
+spares the reader buffer from having to absorb it; the raised buffer plus
+#2810's fail-fast cover the crash path independently.
 """
 
 from __future__ import annotations
@@ -37,11 +38,14 @@ except ImportError:  # pragma: no cover - egg_logging always present in-sandbox
     logger = logging.getLogger(__name__)
 
 # Default byte threshold above which a whole-file ``Read`` is denied.
-# The SDK buffer is 1 MB; a Read result is the file bytes plus per-line
-# number prefixes (~7-8 bytes/line) plus JSON-escaping inflation, and it
-# shares the 1 MB message with the rest of the turn. 256 KiB leaves ample
-# headroom while still letting moderate files through whole. Override with
-# EGG_READ_CAP_BYTES.
+# This is a model-context/cost knob, not a crash-prevention one (the raised
+# reader buffer in ``client.py`` covers the crash; #2884). At ~4 bytes/token
+# for source code, 256 KiB is roughly **64k tokens** dumped to the model on a
+# single whole-file Read — a meaningful slice of context for one tool call.
+# It's still permissive enough to let moderate files through whole; the
+# threshold catches the obviously-too-large reads (the 1.1 MB / ~275k-token
+# pipelines.py and friends) so the agent pages them with offset/limit
+# instead. Override with EGG_READ_CAP_BYTES.
 _DEFAULT_READ_CAP_BYTES = 256 * 1024
 
 # Rough average bytes per source line, used to estimate how many bytes a
@@ -159,9 +163,10 @@ def _read_remedy(suffix: str, cap: int) -> str:
         )
     if suffix in _NON_PAGEABLE_BINARY_EXTENSIONS:
         return (
-            "This binary file is returned whole and cannot be paged, so it "
-            "cannot be read without risking the overflow. Avoid reading it "
-            "whole; if you only need metadata, use Bash (e.g. 'file' or 'stat')."
+            "This binary file is returned whole and cannot be paged, so "
+            "reading it would dump the entire binary to the model in a single "
+            "tool result — wasteful of context budget. Avoid reading it whole; "
+            "if you only need metadata, use Bash (e.g. 'file' or 'stat')."
         )
     suggested_limit = max(1, cap // _EST_BYTES_PER_LINE)
     return (
@@ -173,7 +178,7 @@ def _read_remedy(suffix: str, cap: int) -> str:
 
 
 def check_read_output_risk(tool_input: dict[str, Any], cwd: str | None) -> str | None:
-    """Return a deny reason if a ``Read`` call is likely to overflow.
+    """Return a deny reason if a ``Read`` call would produce an excessive model-bound result.
 
     Denies when the target file exceeds the configured byte cap and the read
     is not bounded to a small enough range. A text read is "bounded" when its
@@ -218,15 +223,19 @@ def check_read_output_risk(tool_input: dict[str, Any], cwd: str | None) -> str |
             return None
 
     approx_kb = size // 1024
+    # Source code is roughly ~4 B/token, so this rough KB→token estimate is
+    # accurate enough to motivate paging without overstating precision.
+    approx_tokens_k = max(1, approx_kb // 4)
     return (
         f"Read denied: '{file_path}' is ~{approx_kb} KB, large enough that "
-        f"reading it whole risks overflowing the agent's 1 MB message buffer "
-        f"and crashing the session (issue #2804). {_read_remedy(suffix, cap)}"
+        f"reading it whole would dump ~{approx_tokens_k}k tokens to the model "
+        f"in a single tool result — wasteful of context budget when the call "
+        f"can be narrowed. {_read_remedy(suffix, cap)}"
     )
 
 
 def check_grep_output_risk(tool_input: dict[str, Any]) -> str | None:
-    """Return a deny reason if a ``Grep`` call is likely to overflow.
+    """Return a deny reason if a ``Grep`` call would produce an excessive model-bound result.
 
     Targets the genuinely unbounded case: ``output_mode='content'`` with
     no ``head_limit`` **and** no path/glob narrowing, i.e. dumping every
@@ -245,11 +254,12 @@ def check_grep_output_risk(tool_input: dict[str, Any]) -> str | None:
 
     return (
         "Grep denied: output_mode='content' across the whole repo with no "
-        "'head_limit' can return an unbounded volume of matching lines and "
-        "overflow the agent's 1 MB message buffer (issue #2804). Add a "
-        "'head_limit' (e.g. head_limit=100), scope the search with 'path' or "
-        "'glob', or use output_mode='files_with_matches' to list files first "
-        "and then Read the relevant ranges."
+        "'head_limit' can return an unbounded volume of matching lines, "
+        "dumping a large slice of the repo to the model in a single tool "
+        "result — wasteful of context budget. Add a 'head_limit' (e.g. "
+        "head_limit=100), scope the search with 'path' or 'glob', or use "
+        "output_mode='files_with_matches' to list files first and then Read "
+        "the relevant ranges."
     )
 
 

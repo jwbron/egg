@@ -14009,9 +14009,14 @@ def _build_brc_preamble(
                 "it, then re-confirm via `egg-orch consensus confirmed`. Do NOT "
                 "ignore these messages.\n\n"
                 "   **This is adversarial re-review, not blocker-verification.** "
-                "Your v2 review has TWO equal-weight mandates: (1) verify v1 "
-                "blockers were addressed AND (2) audit the v2 delta as a fresh "
-                "reviewer with no NACK history. Both must pass to ACK. "
+                "Your re-review has TWO equal-weight mandates: (1) verify the "
+                "blockers from your prior NACK were addressed AND (2) audit the "
+                "delta since your last review — the commits landed since the "
+                "version you last verdicted (per REVIEWER-SYNC.md: `git log "
+                "{last_reviewed_commit}..HEAD --not origin/{base_branch} -p`) — "
+                "as a fresh reviewer with no NACK history, bounded to that "
+                "delta, NOT the whole accumulated surface. Both must pass to "
+                "ACK. "
                 "**The message body is authoritative for the full framing** — "
                 "the orchestrator appends an adversarial re-prime to every "
                 "re-review trigger with the complete dual-mandate decomposition, "
@@ -14328,7 +14333,11 @@ def _build_reviewer_preparation(
     )
 
 
-def _re_review_priming_block() -> str:
+def _re_review_priming_block(
+    *,
+    version: int | None = None,
+    delta_range: str | None = None,
+) -> str:
     """Adversarial re-prime injected at the moment of every re-review.
 
     Counter-anchors the persistent reviewer against the "verify named
@@ -14337,13 +14346,31 @@ def _re_review_priming_block() -> str:
     the v2 delta introducing a non-executable inline `python3 -c`
     snippet that a downstream GitHub-bot reviewer caught immediately).
 
-    Two design choices worth flagging:
+    Three design choices worth flagging:
 
     - **Delta-scoped, not exploration-forcing.** The block tells the
-      reviewer to re-read the delta adversarially, not to re-traverse
-      the codebase. The amortized exploration from cycle-1 is the
-      feature; re-Reading every referenced file on every cycle would
-      throw away BRC's cost advantage.
+      reviewer to re-read *the delta since their own last review*
+      adversarially, not to re-traverse the codebase. The amortized
+      exploration from cycle-1 is the feature; re-Reading every
+      referenced file on every cycle would throw away BRC's cost
+      advantage.
+    - **Per-reviewer delta, not a fixed version pair (#2887).** The
+      block was originally hardcoded to the v1→v2 transition and took
+      no arguments, yet was appended verbatim to every re-review (v3,
+      v4, …). On N>2 cycles the stale "audit the v2 delta as a fresh
+      reviewer, ignore your v1 NACK history" prose read as "re-audit
+      the whole accumulated surface," widening scope each cycle and
+      blocking multi-round convergence. The block is now parameterized
+      by the current proposal version (``vN`` / its prior ``v(N-1)``)
+      and, on per-reviewer ``CONSENSUS_RE_REVIEW`` notices, anchored to
+      that reviewer's own ``<last_reviewed_sha>..HEAD`` ``delta_range``
+      (resolved orchestrator-side from the reviewer's last-verdicted
+      version). When ``delta_range`` is absent (the broadcast
+      ``CONSENSUS_PROPOSE`` body, ``to_role=all`` — one text for
+      reviewers sitting at different last-reviewed versions) the block
+      references the reviewer-self-tracked range from REVIEWER-SYNC.md
+      (``git log {last_reviewed_commit}..HEAD --not origin/{base} -p``)
+      instead.
     - **Economic framing is explicit.** "Re-reviews are cheap / NACK
       without hesitance" is load-bearing — without it, persistent
       reviewers naturally optimize for convergence (ACK to end the
@@ -14354,35 +14381,90 @@ def _re_review_priming_block() -> str:
     (signals.py, both withdrawal/re-propose and push-after-propose
     paths) and to ``CONSENSUS_PROPOSE`` bodies when the producer is
     re-proposing (version > 1, ``changed_artifacts`` set). Reviewers
-    who NACK'd v1 receive ``CONSENSUS_PROPOSE`` rather than
-    ``CONSENSUS_RE_REVIEW`` on a re-propose, so both surfaces need
+    who NACK'd the prior version receive ``CONSENSUS_PROPOSE`` rather
+    than ``CONSENSUS_RE_REVIEW`` on a re-propose, so both surfaces need
     the re-prime to reach every reviewer.
+
+    Args:
+        version: The current (re-proposed) proposal version ``N``. When
+            ``None`` (legacy / defensive callers) the block falls back
+            to generic "current" / "prior" wording without numbered
+            anchors.
+        delta_range: A concrete ``<sha>..HEAD`` git range scoping this
+            reviewer's mandate-2 audit to the commits landed since their
+            own last verdict. Only available on the per-reviewer
+            ``CONSENSUS_RE_REVIEW`` path; omitted on the broadcast
+            ``CONSENSUS_PROPOSE`` body.
     """
+    # Adjective placed before "review"/"verdict" ("Your v6 review" /
+    # "Your current review"); and the prior-version qualifier placed
+    # before "blockers"/"NACK history" ("named v5 blockers" / "named
+    # prior blockers"). Both read naturally with or without a version.
+    vN = f"v{version}" if version is not None else "current"
+    vNm1 = f"v{version - 1}" if version is not None and version >= 2 else "prior"
+    # Mandate-2's delta anchor. On the per-reviewer path we have an
+    # authoritative range; on the broadcast path we point at the
+    # reviewer-self-tracked range REVIEWER-SYNC.md already defines, so
+    # each reviewer scopes to the commits since *their* last review
+    # rather than the whole accumulated surface.
+    if delta_range:
+        delta_clause = (
+            f"the delta since your last review (`git log {delta_range} "
+            "--not origin/<base> -p` — the commits landed since the "
+            "version you last verdicted)"
+        )
+        delta_short = f"this delta (`{delta_range}`)"
+    else:
+        # NOTE: `{last_reviewed_commit}` and `{base_branch}` here are
+        # *literal* braces, deliberately matching the placeholder names
+        # the reviewer agent already learned from REVIEWER-SYNC.md
+        # (shared/prompts/REVIEWER-SYNC.md:110) — the agent substitutes
+        # them at read-time from its own bookkeeping. Do NOT convert this
+        # string to an f-string: there are no Python locals named
+        # `last_reviewed_commit` / `base_branch` here, so f-stringifying
+        # would raise `NameError` at call time. The per-reviewer branch
+        # above uses `<base>` instead because that path embeds a
+        # concrete, orchestrator-resolved range — only `<base>` remains
+        # for the reviewer to fill in, so the angle-bracket convention
+        # makes the (already-resolved vs. still-to-resolve) distinction
+        # visible at a glance.
+        delta_clause = (
+            "the delta since your last review (per REVIEWER-SYNC.md: "
+            "`git log {last_reviewed_commit}..HEAD --not "
+            "origin/{base_branch} -p` — the commits landed since the "
+            "version you last verdicted, NOT the whole accumulated "
+            "proposal surface)"
+        )
+        delta_short = "this delta (the commits since your last review)"
     return (
         "\n\n**Adversarial re-review**\n\n"
-        "**Your v2 review has TWO equal-weight mandates:**\n\n"
-        "1. **Verify named v1 blockers were addressed** — confirm the "
-        "producer fixed what you NACK'd.\n"
-        "2. **Audit the v2 delta as a fresh reviewer** — ignore your v1 "
-        "NACK history. Read the v2 diff as if you'd never seen v1. Apply "
-        "your lens (security threat-model, concurrency races, contract "
-        "AC, line-by-line bugs, silent-fallback shapes — whichever your "
-        "role owns) to the v2 delta itself, not to whether your previous "
-        "concerns were satisfied.\n\n"
+        f"**Your {vN} review has TWO equal-weight mandates:**\n\n"
+        f"1. **Verify named {vNm1} blockers were addressed** — confirm "
+        "the producer fixed what you NACK'd.\n"
+        f"2. **Audit {delta_clause} as a fresh reviewer** — ignore your "
+        f"{vNm1} NACK history. Read that diff as if you'd never seen the "
+        "prior version. Apply your lens (security threat-model, "
+        "concurrency races, contract AC, line-by-line bugs, "
+        "silent-fallback shapes — whichever your role owns) to the "
+        "delta itself, not to whether your previous concerns were "
+        "satisfied. **Mandate 2 is bounded to this delta** — it does "
+        "NOT ask you to re-traverse the whole accumulated surface from "
+        "earlier cycles; that work was amortized when you first "
+        "reviewed those commits.\n\n"
         "Both mandates have equal weight. If (1) passes but (2) finds new "
         "issues, you NACK. ACK requires both pass.\n\n"
         "**The named-blockers anchor is a known trap. Every reviewer "
         "lens has a mandate-2 in its own territory** — security has "
-        "v2-introduced threat surfaces, concurrency has v2-introduced "
-        "races, contract has v2-introduced AC drift, code has "
-        "v2-introduced line-by-line bugs. The four issues that escaped "
-        "PR #2724 to the GitHub bot were all of code-lens shape "
+        "newly-introduced threat surfaces, concurrency has newly-"
+        "introduced races, contract has newly-introduced AC drift, code "
+        "has newly-introduced line-by-line bugs. The four issues that "
+        "escaped PR #2724 to the GitHub bot were all of code-lens shape "
         "(`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, "
         "non-atomic write, bare `except: pass`) — the persistent "
-        'reviewer correctly answered mandate 1 ("did v1 issues get '
-        'fixed? yes") and skipped mandate 2 ("does v2 introduce new '
-        'issues? actually yes"). The shape generalizes: whatever your '
-        "lens, the v2 delta can introduce issues your prior NACK "
+        'reviewer correctly answered mandate 1 ("did prior issues get '
+        'fixed? yes") and skipped mandate 2 ("does this delta introduce '
+        'new issues? actually yes"). The shape generalizes: whatever '
+        "your lens, this delta can introduce issues your prior NACK "
         "didn't name. Watching the producer deliver a targeted fix "
         'pulls strongly toward "verify my fix-request landed → ACK." '
         "Recognize the pull and do mandate 2 anyway.\n\n"
@@ -14393,16 +14475,16 @@ def _re_review_priming_block() -> str:
         "- Apply every rubric pass to the new hunks. New issues outside "
         "the scope of your prior NACK are blocking; your prior NACK does "
         "not bound this re-review.\n"
-        "- **Fresh-reviewer simulation.** Before issuing your v2 verdict, "
-        "ask: would a reviewer who has only seen the v2 diff with no NACK "
-        "history ACK this? If you can't argue yes from the v2 diff alone, "
-        "NACK.\n"
-        "- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only "
-        "your v2 diff with no NACK context. What would it flag? Anything "
-        "it'd flag, you should NACK first.\n\n"
-        "**Your v2 verdict must enumerate both halves** so mandate 2 "
+        "- **Fresh-reviewer simulation.** Before issuing your "
+        f"{vN} verdict, ask: would a reviewer who has only seen "
+        f"{delta_short} with no NACK history ACK this? If you can't "
+        "argue yes from that diff alone, NACK.\n"
+        "- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads "
+        f"only {delta_short} with no NACK context. What would it flag? "
+        "Anything it'd flag, you should NACK first.\n\n"
+        f"**Your {vN} verdict must enumerate both halves** so mandate 2 "
         "doesn't silently disappear from the record:\n\n"
-        "- (a) Which v1 blockers you verified-fixed (mandate 1).\n"
+        f"- (a) Which {vNm1} blockers you verified-fixed (mandate 1).\n"
         "- (b) What new issues you audited-and-did-not-find (mandate 2). "
         'Name the specific shapes you checked — not "reviewed thoroughly," '
         'but "checked for silent fallbacks, doc-snippet executability, '

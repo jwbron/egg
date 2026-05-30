@@ -35,7 +35,9 @@ class TestReadCap:
         assert reason is not None
         # Reason must tell the agent how to narrow the call.
         assert "offset" in reason and "limit" in reason
-        assert "#2804" in reason
+        # Per #2884, the cap is reframed as model-context/cost discipline
+        # (not #2804 crash prevention — the SDK reader buffer handles that).
+        assert "context budget" in reason
 
     def test_allows_large_file_when_limit_given(self, tmp_path):
         big = _write(tmp_path, "big.py", 300 * 1024)

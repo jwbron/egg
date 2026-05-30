@@ -123,7 +123,7 @@ In concurrent (BRC) mode, all agents are wrapped with a shell script that handle
 
 The `is_buffer_overflow()` function is checked **before** `is_transient_crash()`. It greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`) and, when found, exits the wrapper immediately without consuming any restart budget.
 
-The SDK has a 1 MB JSON message-reader buffer cap; a tool result that exceeds it kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
+The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
 
 ```
 Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting.
@@ -131,7 +131,34 @@ Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic f
 
 The agent output is captured by piping stdout and stderr through `tee` into a temporary log file (`AGENT_OUTPUT_LOG`, created via `mktemp`). This log is truncated at the start of each agent run so old crash signatures don't bleed into subsequent runs.
 
-> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. The real fix is tool-layer truncation of oversized payloads ([#2805](https://github.com/jwbron/egg/issues/2805)); this is the fail-fast path until that lands.
+> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. With the reader buffer raised (next section, [#2884](https://github.com/jwbron/egg/issues/2884)) this fail-fast is now a rare backstop — it fires only if a single stream message exceeds the generous raised buffer — not the common path it was when the cap was 1 MiB.
+
+### SDK Reader Buffer (the crash-prevention layer)
+
+Source: `_DEFAULT_SDK_MAX_BUFFER_BYTES` / `_sdk_max_buffer_bytes()` in `shared/egg_agent/client.py`, wired as `ClaudeAgentOptions.max_buffer_size`.
+
+This is what actually prevents the [#2804](https://github.com/jwbron/egg/issues/2804) crash. egg's Agent SDK reader decodes the CLI's stream-json output into a JSON buffer; a single message larger than `max_buffer_size` raises `CLIJSONDecodeError` and kills the agent (exit 255). The SDK default is 1 MiB.
+
+The crucial point ([#2884](https://github.com/jwbron/egg/issues/2884)): **the messages that overflow are not model-bound.** Claude Code attaches the **entire original file** to every `Edit`/`Write` result as transcript metadata (`toolUseResult.originalFile`) that the model never sees — only egg's reader decodes it. So a routine ~2 KB edit to the 1.1 MB, 25k-line `orchestrator/routes/pipelines.py` emits a >1 MB stream message and crashes the reader, even though the model's `tool_result` is just a bounded `cat -n` snippet. (The original #2884 framing guessed the *edit snippet* scaled with file size; the CLI's `fBB` snippet builder bounds it to `new_string` lines + 8, so the culprit is the result *envelope* metadata, not the snippet.)
+
+egg raises `max_buffer_size` to **32 MiB** (default; override with `EGG_SDK_MAX_BUFFER_BYTES`). This costs **no model context or tokens** — the oversized field never reaches the model, and egg logs at most `_MAX_TOOL_CONTENT_LOG_LEN` of any result — only transient reader memory for one message. It cannot let an oversized payload reach the model either: model-bound result sizes are bounded independently (the predictive caps below, the MCP `@tool` caps [#2805](https://github.com/jwbron/egg/issues/2805), and Claude Code's own Bash truncation). 32 MiB covers source files far larger than anything in this repo while still bounding a runaway/malformed stream; the fail-fast above is the clean backstop for anything beyond it.
+
+### Predictive Output Cap (PreToolUse)
+
+Source: `shared/egg_agent/tool_output_cap.py`, wired in `shared/egg_agent/client.py`.
+
+These caps are **model-context/cost discipline, not crash prevention** (the reader buffer above is the crash fix). What they bound is the volume a tool sends *to the model*: a whole-file `Read` returns the file's content to the model (the 1.1 MB `pipelines.py` ≈ ~275k tokens), and a whole-repo content `Grep` dumps every matching line — both wasteful. **Built-in** Claude Code tools (`Read`, `Grep`, `Bash`) run inside the CLI and can't be wrapped the way egg caps its own MCP `@tool` payloads ([#2805](https://github.com/jwbron/egg/issues/2805)), so [#2876](https://github.com/jwbron/egg/issues/2876) bounds them via a **PreToolUse** hook that fires *before* the tool runs and denies calls whose model-bound result is likely to be excessive, telling the agent how to narrow the call. (`Edit`/`Write` are deliberately *not* capped here: their model-bound result is the small snippet, and their crash vector was the reader-buffer metadata, fixed above — not anything a per-call cap could see.)
+
+Current heuristics — predictive, so expect some false positives/negatives:
+
+| Tool | Denied when | Deny reason points at |
+|------|-------------|------------------------|
+| `Read` (text) | Target file > `EGG_READ_CAP_BYTES` (default 256 KiB) **and** the read is unbounded — no `limit`, or a `limit` whose estimated payload (`limit` × ~128 B/line) still exceeds the cap | `offset` / `limit` to page through the file (with a suggested `limit` that fits the cap) |
+| `Read` (PDF) | Target PDF > `EGG_READ_CAP_BYTES` **and** no non-empty `pages` range — a `pages`-scoped read is bounded (the Read tool caps it at 20 pages), mirroring `limit` for text | `pages` to read a bounded page range (e.g. `pages='1-5'`) |
+| `Read` (image/notebook) | Target image/notebook > `EGG_READ_CAP_BYTES` (returned whole; `offset`/`limit`/`pages` don't bound it) | images: avoid reading whole, use Bash (`file`/`stat`) for metadata; notebooks: inspect cells with `jq` (e.g. `jq '.cells[].source'`) |
+| `Grep` | `output_mode=content`, no `head_limit`, **and** no `path`/`glob` scope (whole-repo content dump) | `head_limit`, a `path`/`glob` scope, or `output_mode=files_with_matches` |
+
+The hook is **always-on** (excess model-bound output is wasteful on every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold (a set-but-invalid value — non-integer or non-positive — is logged and ignored in favour of the default).
 
 ### Predictive Output Cap (PreToolUse)
 
