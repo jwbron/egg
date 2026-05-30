@@ -341,18 +341,18 @@ class TestPhaseFilterOperationFiltering:
         assert result.allowed is True
 
     def test_pr_create_denied_for_dead_pr_phase_string(self):
-        """``filter_operation("pr", ...)`` must default-deny post-slice-2.
+        """``filter_operation("pr", ...)`` raises ``ValueError`` on enum coercion.
 
         Pre-slice-2 the ``PR`` phase was the one phase that allowed
-        ``gh pr create``. Slice-2 removes the phase; any caller still
-        targeting ``"pr"`` must be rejected by the unknown-phase
-        fail-closed branch — not granted PR-creation rights.
+        ``gh pr create``. Slice-2 removes the phase enum entirely.
+        ``filter_operation`` coerces string phases to ``PipelinePhase``;
+        ``PipelinePhase("pr")`` is now a ``ValueError``, which is the
+        right fail-loud signal for a stale caller — quieter alternatives
+        (silently default-deny) would risk a later refactor wrapping
+        the coerce in try/except and re-granting the operation.
         """
-        result = filter_operation("pr", "gh", "pr create --title foo")
-        assert result.allowed is False, (
-            "After slice-2 removes the PR phase, filter_operation('pr',...) "
-            f"must deny; got {result!r}"
-        )
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", "gh", "pr create --title foo")
 
     def test_is_operation_blocked_convenience(self):
         assert is_operation_blocked("implement", "gh", "pr create --title x") is True

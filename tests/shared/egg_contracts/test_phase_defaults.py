@@ -13,7 +13,6 @@ deletion shape:
 """
 
 import pytest
-
 from egg_contracts import (
     CheckDefinition,
     Contract,
