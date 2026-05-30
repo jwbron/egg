@@ -34,7 +34,8 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive
+        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive \
+        check-egg-images-present
 
 # Default target
 help:
@@ -562,13 +563,19 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 		kubectl rollout status deployment litellm -n egg-system --timeout=180s; \
 	fi
 
-deploy: k3s-secrets  ## Deploy egg to k3s
+check-egg-images-present:
+	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
+
+# Order of prerequisites matters: check-egg-images-present runs before
+# k3s-secrets so the deploy aborts on tag drift WITHOUT touching the cluster.
+# k3s-secrets reconciles namespaces + the gateway-secrets Secret and would
+# otherwise mutate the cluster before the image check could fail.
+deploy: check-egg-images-present k3s-secrets  ## Deploy egg to k3s
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	@command -v envsubst >/dev/null 2>&1 || { \
 		echo "ERROR: envsubst not found. Install GNU gettext: 'dnf install gettext' or 'brew install gettext'." >&2; \
 		exit 1; \
 	}
-	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	export EGG_HOST_HOME="$${EGG_HOST_HOME:-$$HOME}" && \
 	export EGG_HOST_REPO_MAP="$${EGG_HOST_REPO_MAP:-$$(scripts/build-host-repo-map.py)}" && \
