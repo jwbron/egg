@@ -174,6 +174,20 @@ class TestHappyPathContractLifecycle:
         no subsequent ``PR`` phase to advance to. The reviewer marks
         the implement phase complete (rather than progressing
         ``current_phase``).
+
+        "Terminal" here is pinned in three independent ways:
+
+        1. The saved ``current_phase`` round-trips as ``IMPLEMENT`` (a
+           weak shape check that the contract loader didn't silently
+           rewrite the value).
+        2. ``PipelinePhase`` has no ``PR`` row (the deleted enum row
+           must not be resurrected via copy-paste from an old definition).
+        3. ``IMPLEMENT`` is the **last** member of ``PipelinePhase`` in
+           iteration order — this is what makes it the terminal phase
+           for advance_phase callers, which walk the enum order to find
+           the next phase. If a future contributor adds a successor row
+           after IMPLEMENT, this assertion trips and forces the new
+           "terminal" choice to be made explicitly.
         """
         sample_contract.current_phase = PipelinePhase.IMPLEMENT
         # Mark all tasks complete first
@@ -184,13 +198,19 @@ class TestHappyPathContractLifecycle:
         save_contract(sample_contract, temp_repo)
 
         contract = load_contract(133, temp_repo)
-        # Verify IMPLEMENT is retained, and a future caller cannot
-        # bump to the deleted ``PR`` phase. ``PipelinePhase`` no
-        # longer carries a ``PR`` row, so an attribute access fails.
         assert contract.current_phase == PipelinePhase.IMPLEMENT
         assert not hasattr(PipelinePhase, "PR"), (
             "PipelinePhase.PR was hard-removed in #2777 cq-4 / TASK-2-2; "
             "the enum row must not be resurrected."
+        )
+        phase_members = list(PipelinePhase)
+        assert phase_members[-1] == PipelinePhase.IMPLEMENT, (
+            "IMPLEMENT must be the terminal (last) member of "
+            "PipelinePhase. Found order: "
+            f"{[p.value for p in phase_members]}. If a successor phase "
+            "was intentionally added, update advance_phase and the "
+            "post-consensus stall short-circuit to recognise it as the "
+            "new terminal."
         )
 
 

@@ -798,7 +798,9 @@ class TestNextPhasesForEpicCallable:
 
         pipeline = MagicMock()
         pipeline.is_epic = True
-        result = _next_phases_for_epic(pipeline, PipelinePhase.APPLY, [PipelinePhase.PR])
+        # The non-epic default after APPLY is irrelevant to the epic
+        # override; pass an empty default (IMPLEMENT is terminal post-#2777).
+        result = _next_phases_for_epic(pipeline, PipelinePhase.APPLY, [])
         assert result == [PipelinePhase.IMPLEMENT]
 
     @_REQUIRES_PIPELINES
@@ -809,7 +811,9 @@ class TestNextPhasesForEpicCallable:
 
         pipeline = MagicMock()
         pipeline.is_epic = True
-        default = [PipelinePhase.PR]
+        # IMPLEMENT is the terminal phase post-#2777 (slice-2); its
+        # downstream default is empty and must pass through unchanged.
+        default: list = []
         result = _next_phases_for_epic(pipeline, PipelinePhase.IMPLEMENT, default)
         assert result == default
 

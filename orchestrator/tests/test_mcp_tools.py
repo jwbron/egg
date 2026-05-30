@@ -1397,14 +1397,16 @@ class TestGetStatusSyncHandler:
         }
 
     def _pipeline_response_with_pr(self, pr_url: str):
-        """Pipeline fixture with a PR phase artifact containing ``pr_url``."""
+        """Pipeline fixture carrying a top-level context-PR ``pr_url``.
+
+        Under #2777 (cq-4) the PR phase was removed; the context PR opens
+        up front and the status payload exposes ``pr_url`` / ``pr_number``
+        at the pipeline top level rather than under
+        ``phases.pr.artifacts``.
+        """
         resp = self._pipeline_response()
-        resp["data"]["pipeline"]["current_phase"] = "pr"
         resp["data"]["pipeline"]["status"] = "complete"
-        resp["data"]["pipeline"]["phases"]["pr"] = {
-            "agents": [],
-            "artifacts": {"pr_url": pr_url},
-        }
+        resp["data"]["pipeline"]["pr_url"] = pr_url
         return resp
 
     def _messages_response(self):
@@ -1437,8 +1439,8 @@ class TestGetStatusSyncHandler:
         assert "pr_url" not in result["pipeline"]
         assert "pr_number" not in result["pipeline"]
 
-    def test_pr_info_populated_from_pr_phase_artifact(self, handler):
-        """pr_url / pr_number are extracted from phases.pr.artifacts.pr_url (#1625)."""
+    def test_pr_info_populated_from_pipeline_pr_url(self, handler):
+        """pr_url / pr_number are extracted from the pipeline's top-level pr_url (#1625, #2777)."""
         pr_response = self._pipeline_response_with_pr("https://github.com/owner/repo/pull/1624")
         with patch.object(
             handler,

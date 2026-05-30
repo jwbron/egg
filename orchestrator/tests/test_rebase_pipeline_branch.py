@@ -439,8 +439,22 @@ class TestNoSilentRebaseOfWorkOntoMain:
         Body deliberately fails today (xfail strict) — see class
         docstring for the AC-9a / #2792 follow-up wiring.
         """
+        # TODO(#2792): replace this pytest.fail with the real assertion body
+        # when the OOS _sync_worktree_with_remote fix lands. Do NOT simply
+        # remove the pytest.fail — the xfail strict=True will then trip on
+        # XPASS without the test having actually verified the AC-9 NB#1
+        # invariant. The real body must:
+        #   1. Build a tiny clone with origin/main and origin/egg/<id>/work
+        #   2. Drive N≥3 phase transitions through the orchestrator's
+        #      worktree-sync code path (the same path #2570 exposed)
+        #   3. Land M≥2 main PRs by advancing origin/main
+        #   4. assert _git("merge-base", "origin/main", "origin/egg/<id>/work")
+        #      == pipeline_creation_sha
+        # See orchestrator/tests/test_agent_salvage_cleanup.py _make_repo /
+        # _commit_at for the real-git helper pattern.
         pytest.fail(
             "#2570 fix is out of scope for slice-3 per AC-9a option 3 — "
             "the in-scope fix ships with #2792 (xfail strict will trip "
-            "to xpass once the follow-up lands)."
+            "to xpass once the follow-up lands). See TODO above before "
+            "deleting this line."
         )

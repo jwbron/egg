@@ -471,22 +471,8 @@ class TestPhaseOutputEdgeCases:
             result = PhaseOutputPresenceCheck().run(ctx)
         assert result.status == HealthStatus.HEALTHY
 
-    def test_pr_phase_always_healthy(self):
-        """PR phase has no artifact requirements."""
-        pipeline = _make_pipeline(phase=PipelinePhase.PR)
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.PR)
-        phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.started_at = datetime.now(UTC)
-        phase_exec.agents.append(
-            AgentExecution(
-                role=AgentRole.CODER,
-                status=AgentExecutionStatus.COMPLETE,
-                container_id="c1",
-            )
-        )
-        ctx = _make_context(pipeline)
-        result = PhaseOutputPresenceCheck().run(ctx)
-        assert result.status == HealthStatus.HEALTHY
+    # The former ``test_pr_phase_always_healthy`` case was removed in #2777
+    # (slice-2): the PR phase no longer exists.
 
     def test_implement_degraded_details(self):
         """DEGRADED result should include completed_agent_count and agents_with_commits."""

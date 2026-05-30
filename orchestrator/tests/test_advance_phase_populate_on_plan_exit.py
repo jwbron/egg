@@ -96,7 +96,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
         mock_thread_cls,
         client,
     ):
-        """force=true advance from plan→pr routes through the populate helper."""
+        """force=true advance from plan→implement routes through the populate helper."""
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
@@ -108,7 +108,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
 
         resp = client.post(
             "/api/v1/pipelines/issue-1882/phase",
-            json={"target_phase": "pr", "force": True},
+            json={"target_phase": "implement", "force": True},
         )
 
         assert resp.status_code == 200
@@ -171,7 +171,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
 
         resp = client.post(
             "/api/v1/pipelines/issue-1882/phase",
-            json={"target_phase": "pr", "force": True},
+            json={"target_phase": "implement", "force": True},
         )
 
         assert resp.status_code == 200
@@ -216,7 +216,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
     ):
         """An advance that does not leave plan must not call the populate helper."""
         pipeline = _make_pipeline(
-            phase=PipelinePhase.IMPLEMENT,
+            phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.COMPLETE,
         )
         mock_store = MagicMock()
@@ -228,7 +228,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
 
         resp = client.post(
             "/api/v1/pipelines/issue-1882/phase",
-            json={"target_phase": "pr"},
+            json={"target_phase": "plan"},
         )
 
         assert resp.status_code == 200
@@ -279,7 +279,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
 
         resp = client.post(
             "/api/v1/pipelines/issue-1882/phase",
-            json={"target_phase": "pr", "force": True},
+            json={"target_phase": "implement", "force": True},
         )
 
         assert resp.status_code == 200

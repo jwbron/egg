@@ -411,11 +411,11 @@ class ParseResult:
     pr_description: str | None = None
     pr_test_plan: str | None = None
     pr_manual_steps: str | None = None
-    # NOTE: the planner-emitted ``pr.context_title`` / ``pr.context_description``
-    # fields (#2548) were removed in #2777 (cq-2 / cq-4). Under the new
-    # context-PR topology the context PR opens on the work branch and
-    # reads its title/body from ``pr_title`` / ``pr_description``
-    # directly, so the separate framing fields are obsolete.
+    # NOTE: the separate planner-emitted PR context-framing fields (#2548)
+    # were removed in #2777 (cq-2 / cq-4). Under the new context-PR
+    # topology the context PR opens on the work branch and reads its
+    # title/body from ``pr_title`` / ``pr_description`` directly, so the
+    # separate framing fields are obsolete.
 
     def to_contract_phases(self) -> list[Slice]:
         """Backward-compat alias for ``to_contract_slices`` (#2137).

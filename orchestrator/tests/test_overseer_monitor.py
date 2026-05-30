@@ -795,19 +795,11 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         monitor._send_slack_notification.assert_not_awaited()
         assert monitor._post_consensus_stall_first_seen is None
 
-    def test_shortcircuits_when_pr_url_artifact_present(self) -> None:
-        """phases['pr'].artifacts['pr_url'] is set — the artifact write
-        that happens inside _finalize_pr_phase_failed's lock has landed,
-        so the transition is done.  No alert."""
-        pipeline = self._pipeline(pr_artifact="https://github.com/owner/repo/pull/99")
-        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-url")
-
-        self._invoke(monitor, store)
-
-        monitor._broadcast_alert.assert_not_awaited()
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-        assert monitor._post_consensus_stall_first_seen is None
+    # NOTE: the legacy ``phases['pr'].artifacts['pr_url']`` short-circuit arm
+    # was removed in #2777 (cq-4 / TASK-2-2): the PR phase is gone and
+    # IMPLEMENT is terminal, so that arm is unreachable. The equivalent
+    # signal is now ``pipeline.pr_number`` (the context PR opened up front),
+    # exercised by ``test_shortcircuits_when_pr_number_populated`` above.
 
     def test_fails_open_when_pipeline_load_raises(self) -> None:
         """If the state store raises (e.g. transient FS error), the
@@ -1596,107 +1588,6 @@ class TestRerunAnomalyMissingResolvedAt:
         monitor._create_hitl_decision.assert_not_awaited()
 
 
-class TestPrPhaseOutcomeCheck:
-    """Tests for _check_pr_phase_outcome — detects pipeline completing without a PR."""
-
-    def test_alerts_when_pr_phase_has_no_pr_url(self) -> None:
-        """Should alert when pipeline completes with PR phase but no pr_url."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-001",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": {},
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_awaited_once()
-        call_msg = monitor._create_hitl_decision.call_args[0][1]
-        assert "no pr_url in phase artifacts" in call_msg
-        monitor._send_slack_notification.assert_awaited_once()
-
-    def test_no_alert_when_pr_url_present(self) -> None:
-        """Should not alert when PR phase has a valid pr_url."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-002",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": {"pr_url": "https://github.com/owner/repo/pull/1"},
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-
-    def test_no_alert_when_not_pr_phase(self) -> None:
-        """Should not alert when pipeline completed in a non-PR phase."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-003",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "implement",
-            "phases": {},
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_not_awaited()
-        monitor._send_slack_notification.assert_not_awaited()
-
-    def test_alerts_when_artifacts_is_none(self) -> None:
-        """Should alert when PR phase artifacts is None."""
-        monitor = OverseerMonitor(
-            pipeline_id="test-pr-outcome-004",
-            config=_MockConfig(),
-        )
-        monitor._create_hitl_decision = AsyncMock()
-        monitor._send_slack_notification = AsyncMock()
-        monitor._broadcast_alert = AsyncMock()
-
-        pipeline_data = {
-            "status": "complete",
-            "current_phase": "pr",
-            "phases": {
-                "pr": {
-                    "status": "complete",
-                    "artifacts": None,
-                }
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._create_hitl_decision.assert_awaited_once()
-        monitor._send_slack_notification.assert_awaited_once()
-
-
 # ===================================================================
 # test_orchestrator_reachability (issue #1371)
 # ===================================================================
@@ -2118,22 +2009,6 @@ class TestHealthChecksBroadcast:
         call_args = monitor._broadcast_alert.call_args
         assert call_args.args[0] == "hitl_propagation_failure"
         assert call_args.args[3] == "high"
-
-    def test_pr_phase_no_pr_broadcasts(self) -> None:
-        """PR phase without PR broadcasts a critical alert."""
-        monitor = self._make_monitor()
-        pipeline_data = {
-            "current_phase": "pr",
-            "phases": {
-                "pr": {"artifacts": {}},
-            },
-        }
-
-        _run(monitor._check_pr_phase_outcome(pipeline_data))
-        monitor._broadcast_alert.assert_awaited_once()
-        call_args = monitor._broadcast_alert.call_args
-        assert call_args.args[0] == "pr_phase_no_pr"
-        assert call_args.args[3] == "critical"
 
     def test_cross_phase_inconsistency_broadcasts(self) -> None:
         """Cross-phase inconsistency broadcasts an alert."""

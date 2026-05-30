@@ -306,21 +306,9 @@ class TestPhaseOutputPlanFiles:
 class TestPhaseOutputEdgeCasesExtra:
     """Additional edge cases for PhaseOutputPresenceCheck."""
 
-    def test_pr_phase_always_healthy(self):
-        """PR phase has no artifact requirements."""
-        check = PhaseOutputPresenceCheck()
-        pipeline = _make_pipeline(phase=PipelinePhase.PR)
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.PR)
-        phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.agents.append(
-            AgentExecution(
-                role=AgentRole.CODER,
-                status=AgentExecutionStatus.COMPLETE,
-            )
-        )
-        ctx = _make_context(pipeline)
-        result = check.run(ctx)
-        assert result.status == HealthStatus.HEALTHY
+    # The former ``test_pr_phase_always_healthy`` case was removed in #2777
+    # (slice-2): the PR phase no longer exists. IMPLEMENT is the terminal
+    # phase and is covered by the implement-phase health checks.
 
     def test_refine_phase_always_healthy(self):
         """Refine phase has no artifact requirements."""
