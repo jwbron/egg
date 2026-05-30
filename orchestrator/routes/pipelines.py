@@ -25332,8 +25332,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     )
                 except Exception as hitl_err:  # noqa: BLE001
                     logger.warning(
-                        "Context PR opener: HITL-resume outer wrapper "
-                        "raised (continuing) (#2777)",
+                        "Context PR opener: HITL-resume outer wrapper raised (continuing) (#2777)",
                         pipeline_id=pipeline_id,
                         error=str(hitl_err),
                     )

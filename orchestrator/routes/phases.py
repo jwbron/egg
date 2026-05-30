@@ -424,9 +424,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                 # specifically (rather than bare Exception) so a
                 # programming error in those helpers surfaces loudly.
                 try:
-                    _validator_worktree = _resolve_wt_for_validator(
-                        pipeline_id, store.repo_path
-                    )
+                    _validator_worktree = _resolve_wt_for_validator(pipeline_id, store.repo_path)
                     _draft_rel = _get_draft_path(
                         "plan",
                         issue_number=pipeline.issue_number,
@@ -463,8 +461,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     # let populate's structured warn-log handle it
                     # without producing a duplicate signal.
                     logger.info(
-                        "Plan pre-flight validator: plan draft file "
-                        "absent; skipping (#2777)",
+                        "Plan pre-flight validator: plan draft file absent; skipping (#2777)",
                         pipeline_id=pipeline_id,
                         draft_path=str(_validator_worktree / _draft_rel),
                     )
@@ -474,8 +471,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         plan_text = _plan_path.read_text()
                     except OSError as _read_err:
                         logger.warning(
-                            "Plan pre-flight validator: failed to "
-                            "read plan draft (#2777)",
+                            "Plan pre-flight validator: failed to read plan draft (#2777)",
                             pipeline_id=pipeline_id,
                             error=str(_read_err),
                         )
@@ -492,8 +488,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         )
                     except ImportError as _imp_err:
                         logger.warning(
-                            "Plan pre-flight validator: import of "
-                            "plan_parser failed (#2777)",
+                            "Plan pre-flight validator: import of plan_parser failed (#2777)",
                             pipeline_id=pipeline_id,
                             error=str(_imp_err),
                         )
@@ -507,8 +502,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         validate_plan_preflight(plan_text)
                     except PlanPreflightError as preflight_err:
                         logger.warning(
-                            "Plan pre-flight validation failed at "
-                            "plan→implement advance (#2777)",
+                            "Plan pre-flight validation failed at plan→implement advance (#2777)",
                             pipeline_id=pipeline_id,
                             missing_fields=preflight_err.missing_fields,
                         )
@@ -547,9 +541,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     _populate_contract_from_plan_safe,
                 )
 
-                _plan_exit_worktree = resolve_worktree_path(
-                    pipeline_id, store.repo_path
-                )
+                _plan_exit_worktree = resolve_worktree_path(pipeline_id, store.repo_path)
                 _plan_exit_mode = pipeline.mode.value if pipeline.mode else "issue"
                 _plan_exit_populate_result = _populate_contract_from_plan_safe(
                     _plan_exit_worktree,
@@ -576,8 +568,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     )
                 except Exception as commit_err:  # noqa: BLE001
                     logger.warning(
-                        "Failed to commit populated contract on plan exit "
-                        "(continuing)",
+                        "Failed to commit populated contract on plan exit (continuing)",
                         pipeline_id=pipeline_id,
                         error=str(commit_err),
                     )
@@ -620,8 +611,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     # so the pipeline remains in PLAN / its prior
                     # status — no orphan state.
                     logger.warning(
-                        "Context PR opener failed at advance_phase "
-                        "(#2777, cq-4 hard-required)",
+                        "Context PR opener failed at advance_phase (#2777, cq-4 hard-required)",
                         pipeline_id=pipeline_id,
                         reason=ctx_err.reason,
                         error=str(ctx_err),
@@ -637,8 +627,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     # are NOT ContextPrCreationError still surface as
                     # a 5xx so the rejection reaches the operator.
                     logger.warning(
-                        "Context PR opener: outer wrapper raised on "
-                        "advance_phase (#2777)",
+                        "Context PR opener: outer wrapper raised on advance_phase (#2777)",
                         pipeline_id=pipeline_id,
                         error=str(ctx_outer_err),
                     )

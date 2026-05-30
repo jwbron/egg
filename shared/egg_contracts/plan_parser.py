@@ -103,9 +103,7 @@ class PlanPreflightError(Exception):
             # Mirroring the orchestrator's "must name the field" contract:
             # an empty payload would surface as a generic message and
             # defeats the purpose of the typed exception.
-            raise ValueError(
-                "PlanPreflightError requires at least one missing field name"
-            )
+            raise ValueError("PlanPreflightError requires at least one missing field name")
         self.missing_fields: list[str] = list(missing_fields)
         self.detail: str | None = detail
         # Stable message shape so the BRC NACK surface and the 422 body
@@ -121,6 +119,7 @@ class PlanPreflightError(Exception):
         if detail:
             message_parts.append(f"— {detail}")
         super().__init__(" ".join(message_parts))
+
 
 # Valid values for the optional ``jira_action`` per-task YAML key
 # (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
