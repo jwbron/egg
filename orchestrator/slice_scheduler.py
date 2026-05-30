@@ -155,7 +155,7 @@ class SliceScheduler:
         # production slice run loop today — it is exercised only by
         # unit tests. Kept on the surface so the per-slice MCP control
         # work in #2199 can wire it in without re-introducing the API.
-        hitl_escalator: Callable[[str, str], None] | None = None,  # noqa: ARG002
+        hitl_escalator: Callable[[str, str], None] | None = None,
     ) -> None:
         # Resolve env-var defaults lazily so callers that pass
         # explicit values keep their behaviour unchanged, but a bare

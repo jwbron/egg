@@ -15377,11 +15377,10 @@ def _run_implement_phase_slices(
     overall_exit = 0
     poll_interval = 5.0
 
+    from egg_contracts.models import SliceStatus
     from orchestrator import global_slice_admit
     from orchestrator.peer_consensus import remove_peer_consensus_tracker
     from orchestrator.state_store import get_pipeline_state_lock
-
-    from egg_contracts.models import SliceStatus
 
     def _persist_slice_status_complete(slice_id: str) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.

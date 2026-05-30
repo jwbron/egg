@@ -2587,8 +2587,12 @@ class GatewayClient:
                 base,
                 "--state",
                 "open",
+                # The idempotency contract only needs to know whether
+                # ANY open PR matches head + base; the GH API
+                # documents at most one open PR per (head, base) tuple.
+                # --limit 1 keeps the response payload minimal.
                 "--limit",
-                "5",
+                "1",
                 "--json",
                 "number",
             ]
