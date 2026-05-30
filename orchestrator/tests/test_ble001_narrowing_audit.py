@@ -109,11 +109,22 @@ def test_reconciler_thread_join_documents_silent_timeout() -> None:
 
 def test_audit_window_retains_documented_ble001_population() -> None:
     """Documentation invariant for the slice-3 audit window: the 20
-    enumerated ``# noqa: BLE001`` sites between pipelines.py:15131
-    and 16105 must still be present (the audit was per-site
-    judgement, not blanket replacement). A silent collapse of the
-    audit window to bare ``except Exception`` without the
-    explanatory noqa marker regresses on cq-3's clarity goal.
+    enumerated ``# noqa: BLE001`` sites originally between
+    pipelines.py:15131 and 16105 (slice-3 baseline) must still be
+    present (the audit was per-site judgement, not blanket
+    replacement). A silent collapse of the audit window to bare
+    ``except Exception`` without the explanatory noqa marker
+    regresses on cq-3's clarity goal.
+
+    Window line numbers shifted from the slice-3 baseline of
+    [15131, 16105] to [15700, 16850] after slice-4 (#2548) inserted
+    ~775 lines earlier in the file (eager-persist of
+    ``parent_branch_at_creation``, merge-base fallback in
+    ``_resolve_slice_base_branch``, Layer-C bootstrap). The shifted
+    window captures the same audited handlers plus 3 additional
+    noqa sites added by slice-4 inside the same region (each
+    following the documented variable-name + inline-comment
+    pattern).
 
     We pin the population count loosely (>=10 sites in window — the
     audit allowed narrowing 4 of the original 20) rather than the
@@ -128,20 +139,21 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     after the handler, others via a preceding block comment).
     """
     lines = _PIPELINES_SRC.splitlines()
-    audit_window = range(15131 - 1, 16105 + 1)  # zero-indexed slice
+    audit_window = range(15700 - 1, 16850 + 1)  # zero-indexed slice
     noqa_lines = [i for i, line in enumerate(lines) if "noqa: BLE001" in line and i in audit_window]
     assert len(noqa_lines) >= 10, (
         f"Expected at least 10 ``# noqa: BLE001`` swallow sites inside the "
-        f"slice-3 audit window [15131, 16105], found {len(noqa_lines)} — "
+        f"slice-3 audit window [15700, 16850], found {len(noqa_lines)} — "
         f"has the audit been silently undone?"
     )
     # Bound the population from the other side too: the original 20
-    # minus the 4 narrowed leaves ~16; an unexpected ballooning would
-    # mean a future PR re-introduced swallow-all handlers under the
-    # audit window without re-running the audit.
-    assert len(noqa_lines) <= 22, (
+    # minus the 4 narrowed leaves ~16, plus slice-4's 3 in-window
+    # additions brings us to ~22; an unexpected ballooning past 25
+    # would mean a future PR re-introduced swallow-all handlers
+    # under the audit window without re-running the audit.
+    assert len(noqa_lines) <= 25, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows inside the "
-        f"slice-3 audit window, more than the original 20 — a future PR "
-        f"appears to have re-introduced swallow-all handlers without "
+        f"slice-3 audit window, more than the documented ceiling — a future "
+        f"PR appears to have re-introduced swallow-all handlers without "
         f"re-running the audit."
     )
