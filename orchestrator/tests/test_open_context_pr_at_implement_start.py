@@ -419,6 +419,84 @@ class TestOpenContextPRAtImplementStartTypedErrors:
             assert exc_info.value.reason == ContextPrCreationReason.GATEWAY_BAD_URL.value
 
 
+class TestOpenContextPRAtImplementStartImportFailures:
+    """ImportError + non-ImportError-load failures inside the opener
+    (egg-reviewer slice-3 follow-up): ``ROUTES_UNAVAILABLE``,
+    ``LOADER_UNAVAILABLE``, and ``CONTRACT_LOAD_FAILED``.
+
+    The first two branches are awkward because the modules are already
+    on ``sys.modules`` by the time the test process reaches them — we
+    use ``monkeypatch.setitem(sys.modules, ..., None)`` so the local
+    ``from routes import ...`` / ``from egg_contracts.loader import ...``
+    inside the function raises ``ImportError`` (Python's import
+    machinery raises when ``sys.modules[name] is None``). The third
+    branch only needs a fake ``load_contract`` that raises a
+    non-``ImportError`` exception.
+    """
+
+    def test_routes_import_failure_raises_routes_unavailable(self, monkeypatch):
+        """``from routes import ...`` failing inside the opener surfaces
+        as ``ContextPrCreationReason.ROUTES_UNAVAILABLE`` rather than
+        crashing with the raw ``ImportError`` (which the four
+        ``except ContextPrCreationError`` call-site handlers would not
+        match)."""
+        monkeypatch.setitem(sys.modules, "routes", None)
+        with pytest.raises(ContextPrCreationError) as exc_info:
+            _open_context_pr_at_implement_start("issue-2777")
+        assert exc_info.value.reason == ContextPrCreationReason.ROUTES_UNAVAILABLE.value
+        assert isinstance(exc_info.value.cause, ImportError)
+
+    def test_loader_import_failure_raises_loader_unavailable(
+        self, tmp_path, store, spawner_factory, monkeypatch
+    ):
+        """``from egg_contracts.loader import load_contract`` failing on
+        the miss path (after ``list_open_prs`` returns empty) surfaces
+        as ``ContextPrCreationReason.LOADER_UNAVAILABLE``."""
+        pipeline = _make_pipeline()
+        spawner = spawner_factory(list_open_prs_return=[])
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch("routes.resolve_worktree_path", return_value=tmp_path),
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+        ):
+            # Mask the loader AFTER the patches resolve (the patches
+            # themselves don't import ``egg_contracts.loader``).
+            monkeypatch.setitem(sys.modules, "egg_contracts.loader", None)
+            with pytest.raises(ContextPrCreationError) as exc_info:
+                _open_context_pr_at_implement_start("issue-2777")
+        assert exc_info.value.reason == ContextPrCreationReason.LOADER_UNAVAILABLE.value
+        assert isinstance(exc_info.value.cause, ImportError)
+
+    def test_load_contract_failure_raises_contract_load_failed(
+        self, tmp_path, store, spawner_factory
+    ):
+        """A non-``ImportError`` raised by ``load_contract`` (e.g. the
+        contract YAML is malformed on disk) surfaces as
+        ``ContextPrCreationReason.CONTRACT_LOAD_FAILED`` — the typed
+        422 the BRC NACK / advance_phase handler contracts on."""
+        pipeline = _make_pipeline()
+        spawner = spawner_factory(list_open_prs_return=[])
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch("routes.resolve_worktree_path", return_value=tmp_path),
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch(
+                "egg_contracts.loader.load_contract",
+                side_effect=RuntimeError("malformed contract yaml"),
+            ),
+        ):
+            with pytest.raises(ContextPrCreationError) as exc_info:
+                _open_context_pr_at_implement_start("issue-2777")
+        assert exc_info.value.reason == ContextPrCreationReason.CONTRACT_LOAD_FAILED.value
+        assert isinstance(exc_info.value.cause, RuntimeError)
+
+
 # ----------------------------------------------------------------------
 # _persist_context_pr_number
 # ----------------------------------------------------------------------
@@ -489,6 +567,25 @@ class TestPersistContextPrNumber:
                     identifier=2777,
                 )
             assert exc_info.value.reason == ContextPrCreationReason.SAVE_FAILED.value
+
+    def test_loader_import_failure_raises_loader_unavailable(self, tmp_path, monkeypatch):
+        """``from egg_contracts.loader import load_contract, save_contract``
+        failing inside the helper surfaces as
+        ``ContextPrCreationReason.LOADER_UNAVAILABLE``. Pairs with the
+        opener-side test in
+        ``TestOpenContextPRAtImplementStartImportFailures`` — both
+        functions have their own local loader import that can
+        independently raise."""
+        monkeypatch.setitem(sys.modules, "egg_contracts.loader", None)
+        with pytest.raises(ContextPrCreationError) as exc_info:
+            _persist_context_pr_number(
+                "issue-2777",
+                4242,
+                worktree_repo_path=tmp_path,
+                identifier=2777,
+            )
+        assert exc_info.value.reason == ContextPrCreationReason.LOADER_UNAVAILABLE.value
+        assert isinstance(exc_info.value.cause, ImportError)
 
 
 # ----------------------------------------------------------------------
