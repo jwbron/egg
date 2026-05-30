@@ -566,11 +566,15 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 check-egg-images-present:
 	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
 
-# Order of prerequisites matters: check-egg-images-present runs before
-# k3s-secrets so the deploy aborts on tag drift WITHOUT touching the cluster.
-# k3s-secrets reconciles namespaces + the gateway-secrets Secret and would
-# otherwise mutate the cluster before the image check could fail.
-deploy: check-egg-images-present k3s-secrets  ## Deploy egg to k3s
+# check-egg-images-present is the lone prerequisite and k3s-secrets is
+# invoked from the recipe body so the ordering survives `make -j`: two
+# prerequisites of the same target may run in parallel under -j, but recipe
+# lines never do. The check MUST run before k3s-secrets — k3s-secrets
+# reconciles namespaces + the gateway-secrets Secret and would otherwise
+# mutate the cluster before the image check could fail, defeating the
+# zero-mutation abort this guard exists to provide.
+deploy: check-egg-images-present  ## Deploy egg to k3s
+	@$(MAKE) --no-print-directory k3s-secrets
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	@command -v envsubst >/dev/null 2>&1 || { \
 		echo "ERROR: envsubst not found. Install GNU gettext: 'dnf install gettext' or 'brew install gettext'." >&2; \
