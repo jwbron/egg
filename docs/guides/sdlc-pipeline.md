@@ -1611,11 +1611,29 @@ For pre-plan phase gates (refine→plan), there are no contract tasks yet to att
 
 ### Context-PR / Slice-PR State File Troubleshooting
 
-The PR phase as a separate pipeline stage was **deleted** in [#2777](https://github.com/jwbron/egg/issues/2777). BRC history, drafts and other `.egg-state/` artifacts now reach the context PR (`egg/<id>/work → main`) through the post-phase push points described in [Worktree State Synchronization](#worktree-state-synchronization) — one push at the end of each completed phase. There is no longer a separate "before PR creation" rewrite/push step.
+The PR phase as a separate pipeline stage was **deleted** in [#2777](https://github.com/jwbron/egg/issues/2777). BRC history, drafts and other `.egg-state/` artifacts now reach the context PR (`egg/<id>/work → main`) through the post-phase push points described in [Worktree State Synchronization](#worktree-state-synchronization) — one push at the end of each completed phase. There is no longer a separate "before PR creation" rewrite/push step. The per-phase write path itself (`_write_brc_history` → `_commit_statefiles_to_worktree` → `push_worktree_branch`) is unchanged; only the PR-phase wrapper that used to re-invoke it as a safety net is gone.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
-Look for the per-phase push logs (`Push attempt failed — caller may retry via reconcile`, `Push rejected — attempting fetch+rebase+retry to reconcile divergence`, `Push reconcile: rebase succeeded but autostash pop produced conflicts`) from `push_worktree_branch` for the affected phase boundary. The BRC history file is written by `_write_brc_history` at each phase's completion and committed/pushed alongside other statefiles — if the file is missing on the remote branch, the most likely cause is a silent post-phase push failure.
+Look for these log entries in chronological order at each phase boundary (`refine` → `plan` → `implement` slice-N):
+
+1. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored before reaching the BRC-history write site.
+2. Early-return paths (one of):
+   - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
+   - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
+   - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`, `HEARTBEAT`) for the specified phase. Includes `total_messages` count. `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897).
+3. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 1, an early-return was taken (check step 2).
+4. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 3 above).
+5. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
+   - `_commit_statefiles_to_worktree: staged changes detected — committing` — Changes were staged successfully and a commit is being created.
+6. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the post-phase push failed (see "Push failed" below).
+
+**Push failed**: If the commit logs show success but files are missing from the PR diff, the post-phase push failed:
+
+1. `Push attempt failed — caller may retry via reconcile` (INFO) followed by `Push rejected — attempting fetch+rebase+retry to reconcile divergence` (WARNING) — Initial push was rejected; `GatewayClient` is attempting a fetch+rebase reconcile and a second push automatically.
+2. `Push reconcile: rebase succeeded but autostash pop produced conflicts` (ERROR) — The rebase itself succeeded, but the post-rebase autostash pop hit a merge conflict (`reconcile_autostash_pop_conflict`). The autostash entry is preserved in `git stash list` on the orchestrator worktree for manual recovery. The conflicting paths are listed in the log's `conflicting_paths` field.
+3. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
 **Draft files present in PR** (`.egg-state/drafts/{id}-*.md`): This is the expected state. Draft files are deliberately preserved on the PR branch as artifacts of the pipeline's reasoning (see #1713).
 
@@ -1628,9 +1646,9 @@ git show origin/egg/issue-<N>/work:.egg-state/brc-history/ 2>&1
 # Check that draft files are present on the remote branch (they should be — see #1713)
 git show origin/egg/issue-<N>/work:.egg-state/drafts/ 2>&1
 
-# Search orchestrator logs for post-phase push activity
+# Search orchestrator logs for the per-phase BRC-history + push activity
 # (adjust log source for your deployment)
-grep -E "(push_worktree_branch|Push attempt failed|Push rejected|Push reconcile)" /path/to/orchestrator.log | grep "<pipeline-id>"
+grep -E "(_write_brc_history|_commit_statefiles_to_worktree|push_worktree_branch|Push attempt failed|Push rejected|Push reconcile)" /path/to/orchestrator.log | grep "<pipeline-id>"
 ```
 
 ---

@@ -293,7 +293,7 @@ The PR phase was **deleted** as a separate pipeline stage in [#2777](https://git
 1. Extracts PR title/description from the contract's `pr` field (populated by the plan agent)
 2. Falls back to the issue title or pipeline ID if no PR metadata exists
 3. Appends git commit log, diff stats, and a **Pipeline Context** section (pipeline ID + issue number) to the PR body
-4. Creates the PR via the gateway using a temporary session with the orchestrator role and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
+4. Creates the PR via the gateway using a temporary synthetic session (`synthetic=True`, `phase=None`; see the `GatewayClient.create_pr` docstring at `orchestrator/gateway_client.py:1546`) and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
 5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
 
 Idempotency is enforced at the gateway layer: `GatewayClient._lookup_open_pr(head, base)` runs `gh pr list --head <branch> --base <base> --state open --json number` before any `gh pr create` call. On hit, the existing PR number is returned without invoking `gh pr create`; on miss, the create path runs as usual. The same primitive serves both the up-front context-PR opener and per-slice PR creation (`create_slice_pr`), so transient `gh pr create` failures that are retried after a partial success no longer cascade the slice to `FAILED`. See [Context PR (slice-aware mode)](#context-pr-slice-aware-mode-2777) below.

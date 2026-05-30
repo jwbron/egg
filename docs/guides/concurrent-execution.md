@@ -1028,6 +1028,14 @@ pipeline work branch is itself the context PR's head. Subsequent
 slices (slice-2, slice-3, …) stack onto the preceding slice's
 integration branch as before.
 
+> **Historical note (pre-#2777 two-branch topology):** under the v1.1
+> context-PR mechanism, slice-1's `parent_branch` resolved to
+> `egg/<id>/context` because the program-level content lived on a
+> separate doc-only branch. The `egg/<id>/context` branch is gone
+> under #2777; slice-1 now stacks directly on `egg/<id>/work`. The
+> stacked-PR reconciler was updated correspondingly to prefer the
+> work branch when retargeting orphaned slice-1 children.
+
 The stacked-PR reconciler's last-resort fallback (when a parent branch
 has been merged or deleted out from under an open child PR) prefers
 `egg/<id>/work` (the context PR's head) when retargeting orphaned
