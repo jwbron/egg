@@ -2580,6 +2580,12 @@ class GatewayClient:
         temp_container_id = f"{pipeline_id}-pr-lookup"
         session_token: str | None = None
         try:
+            # TODO(#2893): use ``agent_role="orchestrator"`` once the
+            # gateway's ``AGENT_GH_RESTRICTIONS`` allowlist accepts that
+            # role for read-only ``gh pr list`` calls. The orchestrator
+            # is the actual caller here; "coder" is a temporary stand-in
+            # because the gateway currently rejects "orchestrator" at
+            # /api/v1/gh/execute.
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,

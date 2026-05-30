@@ -1025,12 +1025,15 @@ class TestAgentWorktreeCleanup:
     concurrent spawn loop's exit, and the mock setup needs a full
     concurrent-executor stub to even reach the cleanup branch.
 
-    Per-agent worktree cleanup is still covered by the agent-side fixtures
-    that exercise delete_session_by_container in their teardown
-    (see orchestrator/tests/test_agent_salvage_cleanup.py). A targeted
-    successful-completion cleanup test against the new IMPLEMENT-terminal
-    topology can be reinstated as a follow-up if the surviving coverage
-    proves insufficient.
+    Caveat: the surviving coverage gap is real. test_agent_salvage_cleanup.py
+    pins the recovery-ref namespace sweep (refs/heads/egg/recovery/...) —
+    a different invariant — and the agent-side teardown fixtures touch
+    delete_session_by_container without asserting the end-to-end
+    pipeline-completion → cleanup wiring the deleted tests pinned. A
+    targeted successful-completion cleanup test against the new
+    IMPLEMENT-terminal topology should be reinstated as a follow-up
+    (tracked in the slice-3 review thread) once the concurrent-executor
+    stub harness needed to reach the cleanup branch lands.
     """
 
 

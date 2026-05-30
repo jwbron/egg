@@ -304,12 +304,11 @@ This eliminates the need for agent interaction during PR creation, makes the PR 
 
 ### Pipeline state writeback after auto-PR creation
 
-After a successful auto-PR open, the orchestrator writes both `pipeline.pr_number` and `pipeline.pr_head_sha` onto the pipeline record inside the same `get_pipeline_state_lock → reload → save` transaction:
+After a successful context-PR open, `_persist_context_pr_number` writes `pipeline.pr_url` and `pipeline.pr_number` onto the pipeline record inside the same `get_pipeline_state_lock → reload → save` transaction. `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`; on the idempotent `_lookup_open_pr` hit path the URL is synthesised from `pipeline.repo` + `pr_number` so the regex parse works unchanged. The same persistence write fires on the idempotent path so a resume-from-orphaned-pipeline where the contract lost `context_pr_number` mid-run still recovers.
 
-- `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
-- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern. If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the open still succeeds (graceful degradation).
+Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, MCP `get_pipeline_status`, jira-reassess in-flight detection) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where a stale `pr_number` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
 
-Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
+> The `pipeline.pr_head_sha` field on the model is no longer populated — its sole writer (`_finalize_pr_phase_failed`) was deleted alongside the PR phase in [#2777](https://github.com/jwbron/egg/issues/2777). The overseer's post-consensus short-circuit now keys on `pr_number` alone, so the field is effectively unused; the model column is retained only for backwards-compatible deserialisation of older state files.
 
 ### Per-agent commit SHA diagnostics
 
