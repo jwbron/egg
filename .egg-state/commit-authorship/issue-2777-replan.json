@@ -196,6 +196,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
     },
+    "305b5e77fc2fd9cff1fbe2c413b60e6f9ca57a36": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:32:55.159118+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "3072ac9c7c3c070a488a05f1c381696398f8bb5c": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -266,6 +273,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "4807af7083c53bd1fd3e3067726d102332da12f0": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:32:55.154538+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "4836d76d4753f3cb6d005cbf7dc436706a61cdaa": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -333,6 +347,13 @@
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-30T04:11:26.978049+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "5f3fcd319e54914bf19af1e65823b7e7624016cc": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:32:55.157848+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
@@ -578,6 +599,13 @@
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-30T03:42:28.658390+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "c64bb0130c6cef7c77b8a83a0fae1284439be9e1": {
+      "branch": "egg/issue-2777-replan/slice-3",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T06:32:55.156487+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
