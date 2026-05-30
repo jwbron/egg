@@ -1762,12 +1762,20 @@ class GatewayClient:
         # (PR created server-side, transport blip on the response) from
         # cascading the slice to FAILED on the next tick.
         if repo:
+            # Hardcode synthetic role to "coder" — `_lookup_open_pr`'s
+            # `/api/v1/gh/execute` round-trip is gated by
+            # `check_agent_gh_operation`, and "orchestrator" is not in
+            # `AGENT_GH_RESTRICTIONS` so it 403s as an unknown role
+            # (see reviewer_code_holistic v3 NACK). Propagating the
+            # caller's `agent_role` (which `pipelines.py` passes as
+            # "orchestrator" for slice-PR creation) defeats the cq-8
+            # idempotency pre-flight because the swallowed 403 looks
+            # like a benign miss and `gh pr create` runs anyway.
             existing_pr_number = self._lookup_open_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
                 head=head,
                 base=base,
-                agent_role=agent_role or "coder",
                 mode=mode,
             )
             if existing_pr_number is not None:
@@ -2529,7 +2537,6 @@ class GatewayClient:
         *,
         head: str,
         base: str,
-        agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
     ) -> int | None:
         """Server-side idempotency check: return the open ``head → base`` PR number, or None.
@@ -2547,6 +2554,13 @@ class GatewayClient:
         context-PR opener in a follow-up; today the opener uses the
         broader ``list_open_prs`` shape because it needs to enumerate
         every open PR for the client-side filter.
+
+        The synthetic session is hardcoded to register with
+        ``agent_role="coder"`` because ``/api/v1/gh/execute`` is gated
+        by ``check_agent_gh_operation`` which only accepts roles in
+        ``AGENT_GH_RESTRICTIONS``; the orchestrator-side caller's
+        own role string (e.g. "orchestrator") would 403 as unknown
+        (see reviewer_code_holistic v3 NACK on #2777 slice-3).
 
         Returns:
             The integer PR number on hit, ``None`` on miss OR on any
@@ -2571,7 +2585,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
-                agent_role=agent_role,
+                agent_role="coder",
                 synthetic=True,
             )
             session_token = session.session_token

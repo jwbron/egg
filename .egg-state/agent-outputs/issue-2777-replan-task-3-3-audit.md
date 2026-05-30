@@ -12,11 +12,12 @@ because the vector lives inside an OOS primitive.
 
 ## Audit sites visited
 
-All citations re-anchored against the slice-3 HEAD (commit
-`a654ab2ee` after task-3-1 + task-3-2; the post-edit line numbers
-quoted here reflect the post-edit state — the absolute line numbers
-shift again on subsequent commits in this slice; symbol names +
-adjacent strings are the stable anchors).
+All citations are anchored against the slice-3 file state
+immediately after task-3-1 + task-3-2 were applied; the absolute
+line numbers shift on subsequent commits in this slice (the
+ImportError-shim collapse and BLE001-audit pass both add net lines
+in `pipelines.py`). Symbol names + adjacent strings are the stable
+anchors — `grep -n "def _sync_worktree_with_remote\|#2222 contamination"` against the slice-3 HEAD will land on the same code.
 
 | Symbol | file:line | OOS? | Notes |
 | --- | --- | --- | --- |
