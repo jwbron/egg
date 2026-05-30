@@ -159,10 +159,10 @@ class TestPopulateContractFromPlan:
 
         Regression for the slice-1 review in PR #2555: the populator
         rebuilds ``contract.pr`` wholesale from the plan, and a prior
-        version preserved ``context_branch`` / ``context_pr_number``
-        but silently wiped ``deferred_actions`` — the merge-blocking
-        Pre-merge Obligations handoff written by the conditional-ACK
-        gate at ``decisions.py:complete_phase``. The
+        version preserved the legacy context-framing fields plus
+        ``context_pr_number`` but silently wiped ``deferred_actions`` —
+        the merge-blocking Pre-merge Obligations handoff written by the
+        conditional-ACK gate at ``decisions.py:complete_phase``. The
         ``start_phase=implement`` re-entry path can hit this populator
         after ``deferred_actions`` is already populated; losing it
         erases the only durable handoff for git-mv / migration /
@@ -175,13 +175,12 @@ class TestPopulateContractFromPlan:
         survive while the planner-emitted fields are refreshed from the
         plan.
 
-        ``contract.pr.context_branch`` (and the related
-        ``context_title`` / ``context_description``) was dropped from
+        The legacy context-framing fields were dropped from
         ``PRMetadata`` in #2777 cq-4 / TASK-2-2 — the new topology uses
         ``egg/<id>/work → main`` as the context PR head rather than a
-        dedicated ``egg/<id>/context`` branch — so the
-        ``context_pr_number`` field is the sole survivor of the
-        previous trio that needs the preservation guarantee.
+        dedicated ``egg/<id>/context`` branch — so ``context_pr_number``
+        is the sole survivor of that group that needs the preservation
+        guarantee.
         """
         from egg_contracts.loader import create_contract, load_contract, save_contract
         from egg_contracts.models import DeferredAction

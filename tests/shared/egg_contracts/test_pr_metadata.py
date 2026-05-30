@@ -518,6 +518,15 @@ class TestNoSurvivingReadSites:
         # The doc-terminology regression test asserts the docs do NOT
         # mention the deleted fields (regression-by-grep).
         "tests/docs/test_context_pr_doc_terminology.py",
+        # Gateway push-block tests: "context_branch" here is a *git branch*
+        # concept (the gateway no longer exempts ``egg/<id>/context``
+        # pushes), not the removed PRMetadata field.
+        "gateway/tests/test_pipeline_push_block.py",
+        # The yaml-tasks planner-input schema is a separate artifact that
+        # still leniently accepts the legacy ``pr.context_*`` keys (the
+        # parser ignores them); these tests pin that schema, not a
+        # PRMetadata read.
+        "tests/test_yaml_tasks_schema.py",
         # The migration shim itself names the keys it drops.
         # (Path may shift; matched as a substring.)
     )

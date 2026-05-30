@@ -211,7 +211,7 @@ class TestEnsureStatefilesFallbackToPipelineModel:
 
     def test_falls_back_to_pipeline_plan_when_remote_fails(self, tmp_path: Path):
         """Pipeline.plan is written to disk when git show fails."""
-        from routes.pipelines import _build_pr_body
+        from egg_contracts.loader import load_contract
 
         pipeline = _make_pipeline(
             pipeline_id="pipe-fallback",
@@ -243,10 +243,11 @@ class TestEnsureStatefilesFallbackToPipelineModel:
         assert plan_path.exists()
         assert plan_path.read_text() == SAMPLE_PLAN
 
-        # Verify contract has PR metadata from the plan
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-        assert title == "Add retry logic to API client"
-        assert "exponential backoff" in body
+        # Verify the restored contract carries the plan PR metadata
+        contract = load_contract(pipeline.id, tmp_path)
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+        assert "exponential backoff" in (contract.pr.description or "")
 
     def test_falls_back_to_pipeline_analysis_when_remote_fails(self, tmp_path: Path):
         """Pipeline.analysis is written to disk when git show fails."""

@@ -579,10 +579,10 @@ class TestDeriveProducerRolesWithTasks:
         safety-net-off condition operators must see in default log
         output — DEBUG-level fallbacks would hide it.
 
-        Patches ``routes.pipelines.logger`` directly (the same pattern
-        ``test_slice_1_context_branch_base_resolution.py`` uses) since
-        the project's structlog logger writes through a module-level
-        ``logger`` object that intercept-tests are expected to mock.
+        Patches ``routes.pipelines.logger`` directly (the standard
+        intercept-test pattern) since the project's structlog logger
+        writes through a module-level ``logger`` object that
+        intercept-tests are expected to mock.
         """
         from unittest.mock import MagicMock, patch
 

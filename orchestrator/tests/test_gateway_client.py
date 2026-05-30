@@ -1324,8 +1324,15 @@ class TestCreatePR:
             )
             mock_delete.assert_called_once_with("test-token-12345")
 
-    def test_create_pr_registers_session_with_pr_phase(self, gateway_client, mock_gateway_server):
-        """Test that session is registered with phase='pr'."""
+    def test_create_pr_registers_synthetic_session_without_phase(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Synthetic PR session is registered with no phase (#2777 TASK-2-2).
+
+        The PR phase (``PipelinePhase.PR``) was removed; ``create_pr`` now
+        registers the synthetic ``gh pr create`` session with ``phase=None``,
+        which the gateway treats as the explicit phase-filter opt-out.
+        """
         with patch.object(
             gateway_client, "register_session", wraps=gateway_client.register_session
         ) as mock_reg:
@@ -1338,7 +1345,7 @@ class TestCreatePR:
             )
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
-            assert call_kwargs.kwargs.get("phase") == "pr" or call_kwargs[1].get("phase") == "pr"
+            assert call_kwargs.kwargs.get("phase") is None
 
 
 class TestCreateSlicePR:

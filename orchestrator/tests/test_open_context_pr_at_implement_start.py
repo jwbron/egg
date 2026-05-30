@@ -174,7 +174,12 @@ class TestOpenContextPRAtImplementStartIdempotency:
             patch("routes.pipelines._get_spawner", return_value=spawner),
             patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract", side_effect=_fake_save),
+            # The persist helper mirrors pr_url/pr_number onto the pipeline
+            # record via a second state-store load/save; mock it so the
+            # non-git tmp_path does not trip StateStore creation (#2777).
+            patch("state_store.get_state_store", return_value=store),
         ):
+            store.load_pipeline.return_value = MagicMock(repo="owner/repo")
             result = _open_context_pr_at_implement_start("issue-2777")
 
         assert result == 4242
@@ -209,7 +214,11 @@ class TestOpenContextPRAtImplementStartHappyPath:
             patch("routes.pipelines._get_spawner", return_value=spawner),
             patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract", side_effect=_fake_save),
+            # See the idempotent test: mock the pipeline-record mirror's
+            # state-store load/save so the non-git tmp_path is fine (#2777).
+            patch("state_store.get_state_store", return_value=store),
         ):
+            store.load_pipeline.return_value = MagicMock(repo="owner/repo")
             result = _open_context_pr_at_implement_start("issue-2777")
 
         assert result == 9001
@@ -521,7 +530,11 @@ class TestPersistContextPrNumber:
         with (
             patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract", side_effect=_fake_save),
+            # Mock the pipeline-record mirror's state-store load/save so the
+            # non-git tmp_path does not trip StateStore creation (#2777).
+            patch("state_store.get_state_store") as mock_get_store,
         ):
+            mock_get_store.return_value.load_pipeline.return_value = MagicMock(repo="owner/repo")
             _persist_context_pr_number(
                 "issue-2777",
                 4242,

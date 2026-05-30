@@ -486,9 +486,13 @@ class TestStartAwaitingHumanPipeline:
     def test_terminal_phase_marks_complete(
         self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        """Approved at terminal phase (PR) marks pipeline COMPLETE."""
+        """Approved at terminal phase (implement) marks pipeline COMPLETE.
+
+        IMPLEMENT became the terminal phase in #2777 (slice-2) when the
+        PR phase was removed.
+        """
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.PR,
+            phase=PipelinePhase.IMPLEMENT,
             resolution='{"action": "approve"}',
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -605,10 +609,11 @@ class TestStartAwaitingHumanPipeline:
 
         Stale CONSENSUS_CONFIRMED messages from a previous run cause
         check_consensus() to short-circuit the re-run via its message-bus
-        fallback. The recovery path must clear this state.
+        fallback. The recovery path must clear this state. The legacy
+        ``consensus`` evaluator backend was removed in #2777 (slice-2);
+        only the message store and BRC tracker are cleared now.
         """
         mock_msg_store = MagicMock()
-        mock_evaluator = MagicMock()
         mock_remove_tracker = MagicMock()
 
         pipeline = _make_awaiting_pipeline(
@@ -620,14 +625,12 @@ class TestStartAwaitingHumanPipeline:
         with (
             patch("message_store.get_message_store", return_value=mock_msg_store),
             patch("peer_consensus.remove_peer_consensus_tracker", mock_remove_tracker),
-            patch("consensus.get_consensus_evaluator", return_value=mock_evaluator),
         ):
             resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
         mock_msg_store.clear.assert_called_once_with("issue-42")
         mock_remove_tracker.assert_called_once_with("issue-42")
-        mock_evaluator.clear.assert_called_once_with("issue-42")
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")

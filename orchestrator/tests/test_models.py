@@ -1163,7 +1163,8 @@ class TestPipelinePhase:
         assert phases[1] == PipelinePhase.PLAN
         assert phases[2] == PipelinePhase.APPLY
         assert phases[3] == PipelinePhase.IMPLEMENT
-        assert phases[4] == PipelinePhase.PR
+        # The PR phase was removed in #2777 (slice-2); IMPLEMENT is terminal.
+        assert PipelinePhase.IMPLEMENT == phases[-1]
 
     def test_apply_phase_exists(self):
         """Issue #1557: APPLY phase enum is present and round-trips."""
