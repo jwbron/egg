@@ -1326,27 +1326,13 @@ class TestOpenContextPRCallSiteWiring:
     helper, so a future refactor that hoists the hook out of the
     try/except is caught."""
 
-    def test_call_site_is_gated_on_plan_phase(self):
-        """The hook only fires after the plan phase — re-entering the
-        same code on a different phase MUST NOT re-open the context PR.
-
-        After #2593 the call site routes through the shared
-        ``_maybe_open_base_pr_for_plan_to_implement`` wrapper, so the
-        regression check is against the wrapper invocation rather than
-        the inner ``_open_context_pr_for_pipeline`` call (the wrapper
-        owns the exception swallow now)."""
-        src = Path(__file__).parent.parent / "routes" / "pipelines.py"
-        text = src.read_text()
-        m = re.search(
-            r'if\s+current_phase\.value\s*==\s*"plan"[^\n:]*:\s*\n\s*'
-            r"_maybe_open_base_pr_for_plan_to_implement\(",
-            text,
-        )
-        assert m is not None, (
-            "plan→implement call site must be gated on "
-            "current_phase.value == 'plan' and route through "
-            "_maybe_open_base_pr_for_plan_to_implement (D3, #2593)"
-        )
+    # ``test_call_site_is_gated_on_plan_phase`` was removed in slice-1 of
+    # #2777 (cq-4, TASK-1-2).  The legacy ``current_phase.value == "plan"``
+    # gated auto-advance call site in ``pipelines.py`` was one of the
+    # four soft-fail wrapper call sites the coder deleted; the new
+    # ``_open_context_pr_at_implement_start`` opener fires from a single
+    # canonical site in ``phases.py:advance_phase`` and is exercised by
+    # the unit tests in slice-3 (TASK-3-8).
 
     def test_call_site_swallows_any_exception(self):
         """The hook can never block the plan→implement transition, even

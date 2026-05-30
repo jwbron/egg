@@ -758,83 +758,13 @@ class TestObservabilitySinks:
 
 
 # ---------------------------------------------------------------------------
-# Call-site wiring: the four transition paths route through the helper
+# Call-site wiring: the four legacy transition paths were eliminated in
+# slice-1 of #2777 (cq-4, TASK-1-2).  The new
+# ``_open_context_pr_at_implement_start`` opener replaces every legacy
+# call site with a single hard-required call from
+# ``phases.py:advance_phase``.  The ``_maybe_open_base_pr_for_plan_to_implement``
+# wrapper is unreferenced as of slice-1 and will be deleted in slice-2
+# (TASK-2-1); new opener wiring is tested in slice-3 (TASK-3-8).  Until
+# the wrapper is deleted, the per-method tests above (source/swallow/
+# logging/message-bus/sink-isolation) still pin its in-place behaviour.
 # ---------------------------------------------------------------------------
-
-
-def _collect_helper_call_sources(file_path: Path) -> list[str | None]:
-    """AST-walk ``file_path`` and return the ``source=`` kwarg literal
-    of every call to ``_maybe_open_base_pr_for_plan_to_implement``.
-
-    Returns one entry per call site (function definitions are NOT
-    counted — only ``ast.Call`` nodes).  A ``None`` entry means the
-    call site was found but its ``source`` kwarg was not a plain
-    string literal (a future refactor might dispatch on a variable —
-    flag for human review).
-    """
-    import ast
-
-    tree = ast.parse(file_path.read_text())
-    sources: list[str | None] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Name) and func.id == "_maybe_open_base_pr_for_plan_to_implement":
-            literal: str | None = None
-            for kw in node.keywords:
-                if kw.arg == "source" and isinstance(kw.value, ast.Constant):
-                    if isinstance(kw.value.value, str):
-                        literal = kw.value.value
-            sources.append(literal)
-    return sources
-
-
-class TestCallSiteWiring:
-    """AST-based assertions that each known transition path routes
-    through ``_maybe_open_base_pr_for_plan_to_implement`` and passes
-    a recognised ``source`` value.  These guard against future
-    refactors silently breaking the wiring (regression class for
-    #2593).
-
-    AST-based (#2593 review issue 8) so the count is not perturbed by
-    docstring examples that mention the helper name, by import-line
-    splits, or by string-literal occurrences in error messages.  The
-    function definition itself is an ``ast.FunctionDef`` and is not
-    counted.
-    """
-
-    def test_pipelines_py_has_expected_call_sites(self):
-        """``pipelines.py`` calls the helper from auto-advance,
-        implement-entry backstop, HITL resume, and the slice-loop
-        entry safety net (#2744) — four call sites with four distinct,
-        recognised source values.  The wrapper definition itself is an
-        ``ast.FunctionDef`` and is excluded by the AST filter."""
-        pl_path = _orchestrator_path / "routes" / "pipelines.py"
-        sources = _collect_helper_call_sources(pl_path)
-        assert len(sources) == 4, (
-            f"expected 4 call sites in pipelines.py (auto-advance, "
-            f"implement-entry backstop, HITL resume, slice-loop entry), "
-            f"got {len(sources)} with sources {sources!r}"
-        )
-        # No call site should pass a non-literal ``source`` — that
-        # would defeat the per-path log tagging.
-        assert all(s is not None for s in sources), (
-            f"every helper call must pass source= as a string literal; got {sources!r}"
-        )
-        assert set(sources) == {
-            "run_pipeline_autoadvance",
-            "implement_entry_backstop",
-            "hitl_resume",
-            "slice_loop_entry",
-        }, f"unexpected source values in pipelines.py: {sources!r}"
-
-    def test_phases_py_has_expected_call_site(self):
-        """``phases.py`` calls the helper exactly once, from the
-        plan→implement branch of the ``advance_phase`` REST/MCP
-        handler, with ``source="advance_phase_rest"``."""
-        ph_path = _orchestrator_path / "routes" / "phases.py"
-        sources = _collect_helper_call_sources(ph_path)
-        assert sources == ["advance_phase_rest"], (
-            f"expected 1 call site in phases.py with source='advance_phase_rest'; got {sources!r}"
-        )
