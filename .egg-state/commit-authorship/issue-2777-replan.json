@@ -49,6 +49,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "157dde17910dd64c4e41429e32b2c0cf2daf7e97": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T03:48:06.752794+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "17368817911d58334c93f774d658e2a40a27630e": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -147,6 +154,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "55687968eb71b95baaa0242d0d29055acb2f3199": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T03:48:06.756355+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "557c9294b79f6cbd888cdc4c0ebde90d50e82391": {
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
@@ -160,6 +174,13 @@
       "registered_at": "2026-05-30T03:47:27.918153+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "5cf4d96aae6ff10a47bc169a025ca58b7c84a5dc": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T03:48:06.761174+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "6290d0eb088b0247b431b51ab918298650e00088": {
       "branch": "egg/issue-2777-replan/slice-1",
@@ -242,6 +263,13 @@
       "branch": "egg/issue-2777-replan/slice-1",
       "pipeline_id": "issue-2777-replan",
       "registered_at": "2026-05-29T17:25:42.559959+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "b4bb76822b309aefb5e19540bb9e4ba03ce8b129": {
+      "branch": "egg/issue-2777-replan/slice-1",
+      "pipeline_id": "issue-2777-replan",
+      "registered_at": "2026-05-30T03:48:06.747019+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
