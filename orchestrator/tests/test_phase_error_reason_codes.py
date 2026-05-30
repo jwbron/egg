@@ -136,8 +136,20 @@ class TestAdvancePhaseReasonCodes:
         # Backward-compat: details.health_results must still be present.
         assert "health_results" in body["details"]
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_version_conflict(self, mock_get_store, client):
+    def test_version_conflict(self, mock_get_store, mock_open_ctx_pr, client):
+        """Concurrent advance_phase requests should surface the loser as
+        409 ``version_conflict``.
+
+        #2777 (cq-4, TASK-1-2) — the new context-PR opener fires on
+        plan→implement BEFORE the state-lock acquisition (per v2's
+        reorder to keep state mutations behind the opener gate). The
+        opener is patched out so the test reaches the state-lock save
+        path where the VersionConflictError is raised; otherwise the
+        unmocked opener would surface as 422 ``context_pr_open_failed``
+        and the version-conflict path would never execute.
+        """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         mock_store = MagicMock(repo_path=Path("/tmp/repo"))
         # load_pipeline is called inside the lock — return a second
@@ -145,6 +157,7 @@ class TestAdvancePhaseReasonCodes:
         mock_store.load_pipeline.return_value = _make_pipeline(phase=PipelinePhase.PLAN)
         mock_store.save_pipeline.side_effect = VersionConflictError("boom")
         mock_get_store.return_value = (mock_store, pipeline)
+        mock_open_ctx_pr.return_value = 12345  # PR number — value irrelevant for this test
 
         resp = client.post(
             "/api/v1/pipelines/issue-42/phase",
