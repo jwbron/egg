@@ -163,9 +163,10 @@ def _read_remedy(suffix: str, cap: int) -> str:
         )
     if suffix in _NON_PAGEABLE_BINARY_EXTENSIONS:
         return (
-            "This binary file is returned whole and cannot be paged, so it "
-            "cannot be read without risking the overflow. Avoid reading it "
-            "whole; if you only need metadata, use Bash (e.g. 'file' or 'stat')."
+            "This binary file is returned whole and cannot be paged, so "
+            "reading it would dump the entire binary to the model in a single "
+            "tool result — wasteful of context budget. Avoid reading it whole; "
+            "if you only need metadata, use Bash (e.g. 'file' or 'stat')."
         )
     suggested_limit = max(1, cap // _EST_BYTES_PER_LINE)
     return (
@@ -177,7 +178,7 @@ def _read_remedy(suffix: str, cap: int) -> str:
 
 
 def check_read_output_risk(tool_input: dict[str, Any], cwd: str | None) -> str | None:
-    """Return a deny reason if a ``Read`` call is likely to overflow.
+    """Return a deny reason if a ``Read`` call would produce an excessive model-bound result.
 
     Denies when the target file exceeds the configured byte cap and the read
     is not bounded to a small enough range. A text read is "bounded" when its
@@ -234,7 +235,7 @@ def check_read_output_risk(tool_input: dict[str, Any], cwd: str | None) -> str |
 
 
 def check_grep_output_risk(tool_input: dict[str, Any]) -> str | None:
-    """Return a deny reason if a ``Grep`` call is likely to overflow.
+    """Return a deny reason if a ``Grep`` call would produce an excessive model-bound result.
 
     Targets the genuinely unbounded case: ``output_mode='content'`` with
     no ``head_limit`` **and** no path/glob narrowing, i.e. dumping every

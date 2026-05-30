@@ -158,9 +158,9 @@ def _truncation_marker(
         preview = preview[: len(preview) // 2]
         marker["preview"] = preview
     # Pathological tiny cap: even an empty preview leaves the fixed fields
-    # over the cap. Drop the preview entirely so the marker is as small as it
-    # can be — still sub-KB, so it can never threaten the 1 MB SDK buffer the
-    # cap exists to protect.
+    # over the cap. Drop the preview entirely so the marker stays as small as
+    # it can be — well within the cap's context budget even at a
+    # pathologically tiny ``cap_bytes``.
     if _serialized_len() > cap_bytes:
         marker.pop("preview", None)
     return marker
