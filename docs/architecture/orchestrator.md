@@ -287,27 +287,27 @@ Pipelines can specify an explicit network mode that controls internet access for
    - If no repo is associated, default to `"public"`
 4. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
-**Special case: PR phase**
+**PR creation (auto-PR at plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777))**
 
-The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates the PR via `GatewayClient.create_pr()`, which:
+The PR phase was **deleted** as a separate pipeline stage in [#2777](https://github.com/jwbron/egg/issues/2777). The context PR is now opened up-front, idempotently and hard-required, at the plan→implement boundary; there is no longer a terminal "PR" step. The orchestrator auto-creates the PR via `GatewayClient.create_pr()` (and `create_slice_pr` for per-slice PRs in slice-aware mode), which:
 1. Extracts PR title/description from the contract's `pr` field (populated by the plan agent)
 2. Falls back to the issue title or pipeline ID if no PR metadata exists
 3. Appends git commit log, diff stats, and a **Pipeline Context** section (pipeline ID + issue number) to the PR body
-4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
+4. Creates the PR via the gateway using a temporary session with the orchestrator role and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
 5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
 
-In slice-DAG mode (`len(contract.slices) > 1`) the auto-PR is **suppressed** — per-slice PRs already exist stacked on the [Context PR](#context-pr-slice-aware-mode-2548), so a program-level `<pipeline_branch> → main` PR would be redundant and confusing to reviewers. The skip gate is `_should_skip_pr_phase_auto_pr` in `orchestrator/routes/pipelines.py`. Contract-load failures fail safe to running the legacy path (#2685).
+Idempotency is enforced at the gateway layer: `GatewayClient._lookup_open_pr(head, base)` runs `gh pr list --head <branch> --base <base> --state open --json number` before any `gh pr create` call. On hit, the existing PR number is returned without invoking `gh pr create`; on miss, the create path runs as usual. The same primitive serves both the up-front context-PR opener and per-slice PR creation (`create_slice_pr`), so transient `gh pr create` failures that are retried after a partial success no longer cascade the slice to `FAILED`. See [Context PR (slice-aware mode)](#context-pr-slice-aware-mode-2777) below.
 
 The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment into the PR body containing machine-parseable pipeline metadata (`pipeline_id`, `agent_role`, `issue`). Labels are applied best-effort — failures are logged but non-fatal.
 
-This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
+This eliminates the need for agent interaction during PR creation, makes the PR open idempotent and recoverable, and ensures consistent PR formatting across all pipelines.
 
 ### Pipeline state writeback after auto-PR creation
 
-After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrator/routes/pipelines.py`) writes both `pipeline.pr_number` and `pipeline.pr_head_sha` alongside the existing `phases["pr"].artifacts["pr_url"]` entry, all inside the same `get_pipeline_state_lock → reload → save` transaction:
+After a successful auto-PR open, the orchestrator writes both `pipeline.pr_number` and `pipeline.pr_head_sha` onto the pipeline record inside the same `get_pipeline_state_lock → reload → save` transaction:
 
 - `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
-- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern (guarded explicitly in `_finalize_pr_phase_failed` before assignment). If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the PR phase still succeeds (graceful degradation).
+- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern. If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the open still succeeds (graceful degradation).
 
 Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
 
@@ -315,34 +315,26 @@ Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`) can read
 
 `_update_agents_complete` populates each `completed_agents[].commit` field from `_brc.get_proposal_commit_sha(role)`. When the BRC tracker returns `None` or the `"RECONSTRUCTED_NO_SHA"` sentinel, a structured `logger.warning("BRC tracker returned no commit sha for completed agent", pipeline_id=..., phase=..., role=..., brc_value=...)` is emitted so the missing writeback can be investigated. This is diagnostic only — there is deliberately no auto-fallback to a guessed SHA, since that would mask the underlying wiring gap.
 
-## Context PR (slice-aware mode, [#2548](https://github.com/jwbron/egg/issues/2548))
+## Context PR (slice-aware mode, [#2777](https://github.com/jwbron/egg/issues/2777))
 
-After the plan phase completes and the plan_gate is approved, the orchestrator opens a **doc-only Context PR** before any slice spawns. The Context PR establishes the program — analysis + plan + refine/plan BRC consensus — so reviewers approaching any slice PR see the strategic context that produced it. Mechanics:
+After the plan phase completes and the plan_gate is approved, the orchestrator opens the **context PR** — `egg/<pipeline_id>/work → main` — up-front, idempotently and hard-required, at the plan→implement boundary, before any slice spawns. The context PR establishes the program — analysis + plan + refine/plan BRC consensus, plus the program-level test plan, manual steps and pre-merge obligations — so reviewers approaching any slice PR see the strategic context that produced it, and so the program-level narrative has a permanent home that no longer depends on a "terminal slice umbrella" treatment.
 
-1. The orchestrator creates `egg/<id>/context` from the pipeline's configured `base_branch` (NOT hardcoded to `main`).
-2. It commits these refine/plan artifacts to that branch:
-   - `.egg-state/drafts/<id>-analysis.md` (refine output)
-   - `.egg-state/drafts/<id>-plan.md` (plan output, with full `yaml-tasks` block)
-   - `.egg-state/brc-history/<id>-refine.{md,json}` (refine BRC consensus record)
-   - `.egg-state/brc-history/<id>-plan.{md,json}` (plan BRC consensus record)
-   - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and `<id>-plan-*.{md,json}` (per-phase agent transcripts — included for transparency, HITL Q3)
-   - The contract JSON, resolved dynamically via `get_contract_path` so integer issue identifiers map to the canonical `.egg-state/contracts/issue-<N>.json` shape (with the legacy bare `<N>.json` as a fallback). Static glob omission is intentional — see `_STATIC_CONTEXT_PR_FILE_GLOBS` and `_gather_context_pr_files` in `orchestrator/routes/pipelines.py` (#2685).
-3. It opens the PR against the configured base branch using `contract.pr.context_title` and `contract.pr.context_description` (distinct from `pr.title` / `pr.description`, which are per-slice).
-4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator opens it, humans review on the PR, and the pipeline does **not** block on its merge before slicing begins.
-5. Slice-1's `parent_branch` resolves to `egg/<id>/context` (rather than `egg/<id>/work`); slice-N>1 stacks on its predecessor as before. The [stacked-PR rebase reconciler](slice-dag.md#stacked-pr-rebase-reconciler) prefers the context branch over `pipeline_branch` as a last-resort fallback when retargeting orphaned children.
+This collapses the earlier two-branch topology (`egg/<id>/context → main` for program-level content, `egg/<id>/work → main` for the actual implementation) onto a single branch: the pipeline's work branch is itself the context PR's head. Mechanics:
 
-The context-PR rollout is a **hard switchover** (HITL decision-4) — there is no backwards-compat shim or feature flag, and in-flight pipelines are not backfilled.
+1. The orchestrator validates that the plan agent has produced the artifacts the context PR will reference (drafts + BRC history + populated contract). If validation fails at the plan→implement boundary the orchestrator refuses to transition — the context PR is hard-required.
+2. It opens the PR against the pipeline's `base_branch` (typically `main`) using `contract.pr.title` and `contract.pr.description` — the same fields that already framed the implementation PR. The "context_*" fields were removed in schema v1.2 (see below); program-level framing now lives on the standard `pr.title` / `pr.description`.
+3. The open is **idempotent**: `GatewayClient._lookup_open_pr("egg/<id>/work", base_branch)` runs `gh pr list --head <branch> --base <base> --state open --json number` first. On hit, the existing PR number is reused; on miss, `gh pr create` runs.
+4. Slice-1's `parent_branch` resolves to `egg/<id>/work` (the pipeline work branch is itself the context PR head); slice-N>1 stacks on its predecessor as before. The [stacked-PR rebase reconciler](slice-dag.md#stacked-pr-rebase-reconciler) uses the work branch as the canonical fallback when retargeting orphaned children.
 
-The contract's `pr` field (`PRMetadata`, `shared/egg_contracts/models.py`) carries four `pr.context_*` fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load):
+The context-PR rollout is a **hard switchover** (HITL decision-4) — there is no backwards-compat shim or feature flag, and in-flight pipelines are not backfilled. The legacy "PR phase" as a separate stage is gone; the up-front idempotent open is the only PR-creation site.
+
+The contract's `pr` field (`PRMetadata`, `shared/egg_contracts/models.py`) was simplified in schema v1.2 (issue [#2777](https://github.com/jwbron/egg/issues/2777)): three redundant `pr.context_*` framing fields introduced in v1.1 (#2548) were **hard-removed**. Program-level framing now uses the standard `pr.title` / `pr.description` fields. See the [v1.1 → v1.2 schema migration note](sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the exact field names and replacements. The remaining context-PR field is:
 
 | Field | Author | Description |
 |-------|--------|-------------|
-| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
-| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
-| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates it. |
-| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+| `pr.context_pr_number` | Orchestrator | GitHub PR number of the `egg/<id>/work → main` context PR — populated when the PR is opened. |
 
-These coexist with the existing `pr.title` / `pr.description` (per-slice) and `pr.test_plan` / `pr.manual_steps` / `pr.deferred_actions` fields. See the [Concurrent Execution Slice PR Stack section](../guides/concurrent-execution.md#slice-pr-stack) for the end-to-end stack shape and reviewer flow.
+These coexist with the existing `pr.title` / `pr.description` and `pr.test_plan` / `pr.manual_steps` / `pr.deferred_actions` fields. See the [Concurrent Execution Slice PR Stack section](../guides/concurrent-execution.md#slice-pr-stack) for the end-to-end stack shape and reviewer flow, and the [v1.1 → v1.2 schema migration note](sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the field removal details.
 
 ## BRC-history file naming
 

@@ -672,7 +672,7 @@ At each phase boundary, the orchestrator writes a **lossless** chronological log
 
 > **Note:** `BRC_HISTORY_TYPES` is a single unified frozenset containing all twelve message types listed above. There is no separate subset — the PR body links to the committed transcripts rather than computing inline tallies (see [#1828](https://github.com/jwbron/egg/issues/1828)). `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897); `HEARTBEAT` replaced it.
 
-**PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
+**Per-phase write is the only path:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. The legacy "PR-phase safety net" that re-wrote BRC history for all completed phases before opening the terminal PR was removed alongside the PR phase itself in [#2777](https://github.com/jwbron/egg/issues/2777); under the new topology the context PR opens up-front at the plan→implement boundary and there is no separate terminal stage to re-write from. If BRC history files are missing on the branch, diagnose the per-phase push directly via the worktree-state-synchronization push logs.
 
 **Diagnostic logging:** All functions in the BRC history persistence chain (`_write_brc_history`, `_commit_statefiles_to_worktree`, `_rewrite_brc_history_for_pr`) emit INFO-level logs at entry, exit, and each decision point (early returns, glob match counts, staged file counts, commit outcomes). This makes it possible to trace exactly which code path was taken when BRC history files are missing from a PR. See [PR-Phase State File Troubleshooting](sdlc-pipeline.md#pr-phase-state-file-troubleshooting) for a step-by-step diagnostic guide.
 
@@ -730,7 +730,7 @@ metadata:
 
 ### BRC History Link in PR Body
 
-When the orchestrator auto-creates the PR (during the PR phase), it includes a one-line pointer to the committed BRC history transcripts rather than inlining the full consensus discourse. The link line is built by `_build_brc_history_link_line`, which scans `.egg-state/brc-history/` for `{identifier}-<phase>.md` files and renders a sentence like:
+When the orchestrator auto-creates the context PR (up-front at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777)), it includes a one-line pointer to the committed BRC history transcripts rather than inlining the full consensus discourse. The link line is built by `_build_brc_history_link_line`, which scans `.egg-state/brc-history/` for `{identifier}-<phase>.md` files and renders a sentence like:
 
 > _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement`](./.egg-state/brc-history/42-implement.md)._
 
@@ -919,19 +919,23 @@ The implement phase opens a **stacked PR train** rather than a single PR
 against the pipeline base branch. Reviewers approaching any PR in the
 stack see the strategic context (analysis + plan + refine/plan BRC
 consensus) below them, and per-slice diffs that each carry their own
-implement-phase BRC history. The stack is introduced by
-[#2548](https://github.com/jwbron/egg/issues/2548); the structural
-goals are: (1) every PR that lands on `main` carries the consensus
-record that produced it; (2) reviewers no longer have to discover
+implement-phase BRC history. The stack was introduced by
+[#2548](https://github.com/jwbron/egg/issues/2548) (two-branch context
+topology) and collapsed to a single branch by
+[#2777](https://github.com/jwbron/egg/issues/2777). Structural goals:
+(1) every PR that lands on `main` carries the consensus record that
+produced it; (2) reviewers no longer have to discover
 `.egg-state/drafts/` and `.egg-state/brc-history/` on a side branch;
 (3) the change is a hard switchover with no backwards-compat shim.
 
-**Stack shape (top-down):**
+**Stack shape (top-down) after #2777:**
 
 ```
 {pipeline.base_branch}                   (e.g. main)
  ↑
-egg/<id>/context                         (Context PR — analysis + plan + refine/plan BRC)
+egg/<id>/work                            (Context PR — egg/<id>/work → main;
+                                         carries analysis + plan + BRC + program-level
+                                         framing, test plan, manual steps, pre-merge obligations)
  ↑
 egg/<id>/slice-1                         (Slice-1 PR — slice-1 code + slice-1 BRC)
  ↑
@@ -947,19 +951,36 @@ slice-1 retargets onto the base branch via the
 [stacked-PR rebase reconciler](../architecture/slice-dag.md#stacked-pr-rebase-reconciler);
 once slice-1 merges, slice-2 retargets, and so on through the chain.
 
-### Context PR is opened first
+### Context PR is opened up-front (#2777)
 
 After the plan phase completes and the plan_gate is approved, the
-orchestrator (not an agent) opens a doc-only **Context PR** before any
-slice spawns. The PR's purpose is to establish the program: reviewers
-approve the strategic direction (analysis + plan + the consensus that
-produced them) before any code lands.
+orchestrator (not an agent) opens the **Context PR** —
+`egg/<pipeline_id>/work → main` — **up-front, hard-required and
+idempotent**, before any slice spawns. The PR's purpose is to
+establish the program (analysis + plan + the consensus that produced
+them, plus the program-level test plan, manual steps and pre-merge
+obligations) so reviewers approaching any slice PR see the strategic
+direction below it.
+
+Under #2777 the legacy `egg/<id>/context` doc-only branch was deleted:
+the pipeline work branch is itself the context PR's head. The
+multi-step soft-fail open path was replaced by a single idempotent
+gateway call — `GatewayClient._lookup_open_pr("egg/<id>/work", base)`
+runs `gh pr list --head <branch> --base <base> --state open --json
+number` first; on hit, the existing PR number is reused, on miss
+`gh pr create` runs once. The legacy PR phase as a separate pipeline
+stage was deleted; the up-front open is hard-required so there is no
+silent-failure path the PR phase needed to back-stop.
 
 Mechanics:
 
-1. The orchestrator creates `egg/<id>/context` from the pipeline's
-   configured `base_branch` (NOT hardcoded to `main`).
-2. It commits the refine/plan artifacts to that branch:
+1. The orchestrator validates that the plan agent has produced the
+   artifacts the context PR references (analysis + plan drafts +
+   refine/plan BRC history + populated contract). Validation failure
+   refuses the plan→implement transition (no orphaned slices).
+2. The refine/plan artifacts are already on the work branch via the
+   post-phase pushes (see [SDLC Pipeline — Worktree State
+   Synchronization](sdlc-pipeline.md#worktree-state-synchronization)):
    - `.egg-state/drafts/<id>-analysis.md` (refine output)
    - `.egg-state/drafts/<id>-plan.md` (plan output, with full
      `yaml-tasks` block)
@@ -973,47 +994,45 @@ Mechanics:
    - The contract JSON, resolved dynamically via `get_contract_path`
      so integer issue identifiers map to the canonical
      `.egg-state/contracts/issue-<N>.json` shape (with the legacy
-     bare `<N>.json` as a fallback). The contract is intentionally
-     omitted from the static glob list — see
-     `_STATIC_CONTEXT_PR_FILE_GLOBS` and
-     `_gather_context_pr_files` in `orchestrator/routes/pipelines.py`
-     (#2685).
+     bare `<N>.json` as a fallback).
 3. It opens the PR against the pipeline base branch using
-   `contract.pr.context_title` and `contract.pr.context_description`.
-   These are distinct from `contract.pr.title` / `pr.description`,
-   which are per-slice — letting the context PR carry program-level
-   framing (e.g. *"Strategic plan for #N"*) while slice PRs stay
-   focused on the slice's diff.
-4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator
-   opens it, humans review on the PR, and the pipeline does **not**
-   block on its merge before slicing begins. Slice-1 stacks on
-   `egg/<id>/context` immediately so the slice train can run in
+   `contract.pr.title` and `contract.pr.description` — the same fields
+   that already framed the implementation PR. The legacy v1.1
+   context-PR framing keys were hard-removed in schema v1.2 (#2777);
+   planners use the standard title and description. See the
+   [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)
+   for the exact field names and replacements.
+4. The PR is **doc-only auto-open**: the orchestrator opens it, humans
+   review on the PR, and the pipeline does **not** block on its merge
+   before slicing begins. Slice-1 stacks on `egg/<id>/work` (the
+   context PR's head) immediately so the slice train can run in
    parallel with reviewers approving the context.
 
-The context PR is recorded on the contract via four `pr.context_*`
-fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote
-on load):
+The context PR is recorded on the contract via the single remaining
+context-PR field on `PRMetadata` (schema v1.2, #2777):
 
 | Field | Description |
 |-------|-------------|
-| `pr.context_title` | Title for the context PR (program-level framing). Authored by the planner. |
-| `pr.context_description` | Body for the context PR. Authored by the planner. |
-| `pr.context_branch` | The branch name (`egg/<id>/context`) — populated by the orchestrator when it creates the branch. |
-| `pr.context_pr_number` | The GitHub PR number — populated by the orchestrator when the PR is opened. |
+| `pr.context_pr_number` | The GitHub PR number of the `egg/<id>/work → main` context PR — populated by the orchestrator when the PR is opened. |
+
+Three v1.1 framing fields were **hard-removed** in v1.2 (see the
+[v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
+The head branch is now always derivable as `egg/<pipeline_id>/work`,
+and the title/description live on the standard `pr.title` /
+`pr.description`.
 
 ### Slice-1 base resolution
 
-With the context PR landing first in the stack, **slice-1's
-`parent_branch` resolves to `egg/<id>/context`** rather than
-`egg/<id>/work`. Subsequent slices (slice-2, slice-3, …) stack onto
-the preceding slice's integration branch as before — the change only
-affects the root-of-stack pointer.
+Slice-1's `parent_branch` resolves to **`egg/<id>/work`** — the
+pipeline work branch is itself the context PR's head. Subsequent
+slices (slice-2, slice-3, …) stack onto the preceding slice's
+integration branch as before.
 
 The stacked-PR reconciler's last-resort fallback (when a parent branch
 has been merged or deleted out from under an open child PR) prefers
-`egg/<id>/context` over the pipeline branch when retargeting orphaned
-slices. The context branch therefore acts as the canonical "program
-root" reference even after the work branch is gone.
+`egg/<id>/work` (the context PR's head) when retargeting orphaned
+slices. The work branch therefore acts as the canonical "program
+root" reference for the lifetime of the pipeline.
 
 ### Per-slice BRC history on each slice PR
 

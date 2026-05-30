@@ -139,7 +139,7 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR me
 2. **YAML front matter** (legacy): A `---`-delimited YAML block at the document start. Supported for backwards compatibility.
 3. **Markdown regex** (fallback): Parses `[TASK-X-Y]` patterns from markdown. Fragile and may miss tasks if LLM output format drifts.
 
-The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`, `context_title`, `context_description`) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase; the `context_title` and `context_description` fields feed the dedicated context PR rather than the implementation PR.
+The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`) from the `pr:` field in the YAML data. If provided, this metadata is used when the context PR (`egg/<pipeline_id>/work → main`) is opened up-front at the plan→implement boundary. The legacy `context_title` / `context_description` keys were removed in schema v1.2 (#2777) along with `context_branch`; planners should use the standard `pr.title` / `pr.description` to frame the work→main context PR.
 
 **Role-aware task assignment**: Tasks can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent. The parser propagates this field through `ParsedTask` into the contract `Task` model. During the implement phase, `_build_role_context()` filters tasks by role so each agent only sees its assigned work. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for details.
 
