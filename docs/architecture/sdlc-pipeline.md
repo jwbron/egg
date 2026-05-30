@@ -42,10 +42,10 @@ This architecture implements **structural enforcement**: the agent physically ca
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
 │  │   Refine    │───▶│    Plan     │───▶│         Implement           │  │
 │  │  (Human)    │    │  (Human)    │    │  (Reviewer; context PR      │  │
-│  └─────────────┘    └─────────────┘    │   opened at phase start)   │  │
+│  └─────────────┘    └─────────────┘    │   opened at phase start)    │  │
 │                                        └─────────────────────────────┘  │
-│        │                  │                  │                  │       │
-│        ▼                  ▼                  ▼                  ▼       │
+│        │                  │                  │                          │
+│        ▼                  ▼                  ▼                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
 │  │  .egg-state/contracts/{identifier}.json                         │    │

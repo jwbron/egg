@@ -47,7 +47,7 @@ The pipeline enforces role-based field ownership in contracts:
 | **Reviewer** | `status`, `review_feedback`, `current_phase` | `commit`, task definitions |
 | **Human** | All fields | — |
 
-Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on draft PRs created during the implement phase.
+Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on the context PR opened by the orchestrator at the plan→implement boundary.
 
 ### 4. Human-in-the-Loop at Critical Points
 
@@ -67,19 +67,19 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │  │  (cycles)   │    │  (cycles)   │    │  (cycles; context PR opened │  │
 │  └─────────────┘    └─────────────┘    │   at phase start)           │  │
 │        │ ╎                │            └─────────────────────────────┘  │
-│        ▼ ╎                ▼                  │                          │
-│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                    │
-│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │                    │
-│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │                    │
-│   └────┬────┘ ╎      └────┬────┘        └─────────┘                    │
-│        │      ╎           │                  │                         │
-│        ▼      ╎           ▼                  ▼                         │
-│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                   │
-│   │ HITL    │ ╎      │ HITL    │        │  HUMAN  │                   │
-│   │ Approve │ ╎      │ Approve │        │  MERGE  │                   │
-│   └─────────┘ ╎      └─────────┘        └─────────┘                   │
+│        ▼ ╎                ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │                     │
+│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │                     │
+│   └────┬────┘ ╎      └────┬────┘        └─────────┘                     │
+│        │      ╎           │                  │                          │
+│        ▼      ╎           ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ HITL    │ ╎      │ HITL    │        │  HUMAN  │                     │
+│   │ Approve │ ╎      │ Approve │        │  MERGE  │                     │
+│   └─────────┘ ╎      └─────────┘        └─────────┘                     │
 │               ╎                                                         │
-│                                                                        │
+│                                                                         │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -544,7 +544,7 @@ The SDLC pipeline automatically merges the latest main branch into the issue bra
    - Pulls the resolved changes and continues
    - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
 
-This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
+This ensures agents always work with the latest codebase and conflicts are resolved before work begins.
 
 ### Implement and PR-Based Review
 
@@ -554,7 +554,7 @@ The implement phase uses PR-based automated code review:
 2. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
 3. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
 4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the context PR
 6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
 7. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 

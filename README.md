@@ -98,7 +98,7 @@ egg structures work into phases with mandatory human gates:
 └────┬─────┘      └────┬─────┘      └─────────────────────────────────────┘
      │                 │                   │                         │
 Human gate        Human gate     Context PR opened          Human merges
-                                 at phase start             slice PRs
+                                 at phase start             context + slice PRs
 ```
 
 1. **Refine**: Agents analyze the task, research the codebase, produce requirements. Reviewers validate. Human approves before planning.
