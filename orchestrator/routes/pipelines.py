@@ -9946,11 +9946,15 @@ def _persist_context_pr_number(
             # rest of pipelines.py uses; the soft-fail import shape is
             # intentional so a stripped-down test harness that mocks
             # only the contract loader does not crash here.
+            # ``get_state_store`` requires the repo path explicitly
+            # (state_store.py:1356); pass ``worktree_repo_path`` so the
+            # store resolves under the same root we just wrote the
+            # contract to.
             try:
                 from state_store import get_state_store  # type: ignore[no-redef]
             except ImportError:
                 from ..state_store import get_state_store  # type: ignore[no-redef]
-            store = get_state_store()
+            store = get_state_store(worktree_repo_path)
             try:
                 reloaded = store.load_pipeline(pipeline_id)
             except Exception as pipe_load_err:  # noqa: BLE001
