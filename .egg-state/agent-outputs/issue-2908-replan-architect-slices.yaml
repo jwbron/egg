@@ -7,7 +7,7 @@ slices:
       consensus without restart churn on the #2906 repro (issue-2270 on
       qwen3.7-max). Instrument per-event token spend (Anthropic via
       AgentResult.cost_usd, Qwen via config/litellm/cost_callback.py
-      stdout captured by `kubectl logs` against the litellm pod — NOT
+      stdout captured by `kubectl logs deployment/egg-litellm` — NOT
       `~/.local/state/clm/cost-*.json` which is host-developer-only)
       and per-event wall-clock across a realistic worst-case BRC idle
       (reviewer parked ~7-8 min while producer addresses a NACK).
@@ -16,18 +16,18 @@ slices:
       actual `python3 -m egg_agent` invocations under the new
       event-pump prototype with the production BRC preamble (assembled
       via orchestrator/routes/pipelines.py::_build_brc_preamble) and
-      the 31 MCP tool schemas registered via
-      sandbox/egg_agent_tools/tools/*. Raw `claude --output-format
-      json` measurements from the WS7 issue-body comments are NOT
-      sufficient because the egg prefix layers are larger and
-      structurally different — they must be re-measured under the
-      real harness before any later slice (especially slice-7 prompt
-      collapse) is gated on the numbers. Deliverable: measurement
-      report under .egg-state/agent-outputs/ that gates the rest of
-      the work per operator feedback Q1 (instrument only, no
-      auto-fail). No production code change beyond a small hook in
-      cost_callback.py if/only if needed to surface per-event
-      attribution.
+      all agent-facing MCP tool schemas in the cached prefix (38
+      @tool registrations across sandbox/egg_agent_tools/tools/*).
+      Raw `claude --output-format json` measurements from the WS7
+      issue-body comments are NOT sufficient because the egg prefix
+      layers are larger and structurally different — they must be
+      re-measured under the real harness before any later slice
+      (especially slice-8 prompt collapse) is gated on the numbers.
+      Deliverable: measurement report under .egg-state/agent-outputs/
+      that gates the rest of the work per operator feedback Q1
+      (instrument only, no auto-fail). No production code change
+      beyond a small hook in cost_callback.py if/only if needed to
+      surface per-event attribution.
     # root slice — omit dependencies
   - id: 2
     name: |-
@@ -35,13 +35,41 @@ slices:
     goal: |-
       Per cq-1 mandate (split MCP→CLI collapse to a follow-up but
       guarantee CLI coverage for the new control flow), add purely
-      additive CLI shims around existing handlers: `egg-orch brc
-      list-blocking` (handler peer_consensus.py:726-740), `egg-orch
-      phase get-context` (handler phase_get_context), `egg-orch phase
-      get-assigned-tasks` (handler phase_get_assigned_tasks). No
-      existing MCP tools are removed. Tests live in tests/tools/ and
-      extend the existing MCP↔CLI parity harness at
-      tests/tools/test_mcp_cli_drift.py.
+      additive CLI shims around existing handlers. cq-1's example
+      list explicitly names `brc get-state`, `brc list-blocking`,
+      `phase get-context`. Scope for THIS slice:
+      (a) `egg-orch brc get-state` (handler `brc_get_state` at
+      sandbox/egg_agent_tools/handlers/brc.py:679+; surfaces the
+      same data as `egg-orch consensus status --json` but at a
+      stable canonical name cq-1 names);
+      (b) `egg-orch brc list-blocking` (handler `brc_list_blocking`
+      at sandbox/egg_agent_tools/handlers/brc.py:726-740; backs onto
+      the orchestrator status endpoint whose `blocking_agents` list
+      is computed inline in PeerConsensusTracker.get_state at
+      orchestrator/peer_consensus.py:1594-1626);
+      (c) `egg-orch phase get-context` (handler at
+      sandbox/egg_agent_tools/handlers/phase.py:139);
+      (d) `egg-orch phase get-assigned-tasks` (handler at
+      sandbox/egg_agent_tools/handlers/phase.py);
+      (e) `egg-contract show --field <dotted.path>` argparse flag on
+      the EXISTING `cmd_show` in sandbox/egg_lib/contract_cli.py:342
+      (which already delegates to `handlers/sdlc.show_contract`
+      that already supports `fields=[...]` projection — see
+      sandbox/egg_agent_tools/tools/sdlc.py:79,84,85). This is the
+      mechanism the new event-pump (slice 5) + the wrapper's
+      host-restart recovery (slice 4 + 5) use to read durable
+      `pipeline.no_progress_budget` and `pipeline.decisions`
+      without inventing a new endpoint;
+      (f) IN-SCOPE for this issue: `egg-orch consensus
+      resolve-obligation` shim (handler exists —
+      `brc_resolve_obligation` at handlers/brc.py:743). Useful for
+      cross-producer obligation flows the event-pump may invoke.
+      OUT OF SCOPE per cq-1's split: `egg-orch brc
+      read-peer-artifact` (decision-8 explicitly keeps this MCP-only;
+      the event-pump does not consume peer brc-history through it);
+      `egg-orch task mark-gap` (decision-4 keeps it MCP-only).
+      No existing MCP tools are removed. Tests in tests/tools/ extend
+      the MCP↔CLI parity harness at tests/tools/test_mcp_cli_drift.py.
     dependencies: slice-1
   - id: 3
     name: |-
@@ -49,12 +77,23 @@ slices:
     goal: |-
       Add `GET /api/v1/pipelines/<pid>/consensus/next-action?role=R[&slice=S]`
       returning `{action, target_producer?, version?, blocking_reason?,
-      parked?, reason}` derived from PeerConsensusTracker.get_state +
-      latest bus tip + pending HITL decisions. Add the matching
-      `egg-orch consensus next-action --role R --json` CLI shim.
-      Include a `tracker_reconstructing` action variant + small TTL so
-      a post-host-restart probe doesn't spin. This is the brain the
-      new wrapper queries each cycle (decision d-3).
+      parked?, reason}` derived from PeerConsensusTracker.get_state
+      (orchestrator/peer_consensus.py:1594-1626 plus the version
+      tracking at :114-124) + latest bus tip (CONSENSUS_PROPOSE /
+      CONSENSUS_RE_REVIEW for the role) + pending HITL decisions
+      from Pipeline.decisions. Add the matching `egg-orch consensus
+      next-action --role R [--slice S] --json` CLI shim. EXPLICIT
+      DUAL-ROLE ORDERING (risk_analyst R-6): when an agent holds
+      both producer and reviewer roles, and their producer-phase is
+      WORKING with proposal_version=0, the endpoint MUST return
+      `action: propose` even if a peer's CONSENSUS_PROPOSE is
+      pending review. Reviewer obligations come AFTER own
+      first-propose for dual-role agents. Encoded as explicit unit
+      tests in orchestrator/tests/test_consensus_next_action.py.
+      Tracker-reconstructing variant: `{action: wait, reason:
+      tracker_reconstructing}` with a small TTL so a post-host-
+      restart probe doesn't spin. This endpoint is the brain the
+      new event-pump (slice 5) queries each cycle (decision d-3).
     dependencies: slice-2
   - id: 4
     name: |-
@@ -90,50 +129,104 @@ slices:
     dependencies: slice-3
   - id: 5
     name: |-
-      Event-pump wrapper rewrite + liveness migration + delete legacy path
+      Event-pump online (additive + caller rewires; no deletion)
     goal: |-
-      The swap. Replace orchestrator/consensus_wrapper.py with a
-      deterministic event-pump bash that loops `egg-orch message
-      wait-loop` → `egg-orch consensus next-action` → one-shot
-      `python3 -m egg_agent --memory-file ... --event-json ...` per
-      actionable event. Migrate heartbeats + gateway-session
-      keep-alive from sandbox/egg_agent_tools/handlers/message.py
-      into the wrapper (preserving the 60s cadence and the
-      slice-aware container_id reconstruction logic at
-      orchestrator/routes/messages.py:860-867). Wire to the durable
-      safety budget from slice-4 instead of the in-pod restart
-      counter. DELETE per operator cq-4: MAX_CONSENSUS_RESTARTS,
-      _RECOVERY_SYSTEM_PROMPT, _RECOVERY_USER_PROMPT, the SSE
-      machinery at consensus_wrapper.py:405-501, the restart loop at
-      555-695, the recovery-prompt re-templating at 614-633, the
-      terminal exit-1 at 697-712, the message_wait_loop handler at
-      handlers/message.py:267-432 (its 175-264 heartbeat helpers
-      too), and the 3-restart trigger arm in
-      orchestrator/routes/pipelines.py:18100-18159 (the
-      `_emit_producer_death_alert` function stays; only its
-      restart-exhaustion call site is rewired to safety-budget
-      exhaustion). Add `--memory-file PATH` and `--event-json STRING`
-      flags to `python3 -m egg_agent`; behaviour with neither flag
-      MUST remain identical to today (legacy regression guard).
-      SHELL-PROSE CORRUPTION GUARD (risk_analyst BC-2, #2741): the
-      per-event prompt + event-json + memory snapshot are all
+      The additive half of the swap (reviewer_plan §11 subdivision
+      of original slice-5 → 5a). Bring the new event-pump online
+      without deleting any legacy code yet — old wrapper paths stay
+      present but become unreachable as the new template replaces
+      `_CONSENSUS_WRAPPER_TEMPLATE` wholesale. Pieces:
+      (a) Add `--memory-file PATH` and `--event-json STRING` flags
+      to `python3 -m egg_agent` via shared/egg_agent/command.py
+      (~:34-46 argv shape); behaviour-with-neither-flag MUST remain
+      identical to today (regression guard test).
+      (b) Rewrite orchestrator/consensus_wrapper.py's
+      `_CONSENSUS_WRAPPER_TEMPLATE` (currently :116-713) as the
+      deterministic event-pump bash that invokes
+      `egg-orch message wait-loop`, `egg-orch consensus next-action`
+      (slice 3), and one-shot `python3 -m egg_agent --memory-file
+      ... --event-json ...` per actionable event.
+      (c) SHELL-PROSE CORRUPTION GUARD (risk_analyst BC-2, #2741):
+      the per-event prompt + event-json + memory snapshot are all
       LLM-authored prose (NACK reasons, files_reviewed lists,
       reviewer reasoning); the new event-pump template MUST pass
-      them to `python3 -m egg_agent` either (a) via shlex.quote-
-      applied argv (mirroring consensus_wrapper.py:759-760's existing
-      `shlex.quote(prompt_text)` pattern) OR (b) via stdin / a
-      tempfile path. A regression test in
-      orchestrator/tests/test_consensus_wrapper.py (renamed for the
-      event-pump) must inject a prompt + event payload containing
-      $, backtick, single-quote, double-quote, newline and assert
-      the agent receives the payload byte-identical. Tests pivot
-      from restart-semantics (test_consensus_wrapper.py,
-      test_consensus_polling.py, test_consensus_race_on_exit.py,
-      test_consensus_timeout_recheck.py, test_brc_nack_iteration.py,
-      test_producer_death_alert.py, test_agent_exits_recorded.py)
-      to event-pump semantics.
+      them to `python3 -m egg_agent` either via shlex.quote-applied
+      argv (mirroring the existing
+      consensus_wrapper.py:759-760 `shlex.quote(prompt_text)`
+      pattern) OR via stdin / a tempfile path. A regression test in
+      orchestrator/tests/test_consensus_wrapper_event_pump.py must
+      inject a prompt + event payload containing $, backtick,
+      single-quote, double-quote, newline and assert the agent
+      receives the payload byte-identical.
+      (d) Rewire `concurrent_executor._spawn_agent` at
+      orchestrator/concurrent_executor.py:445-524 and any
+      routes/pipelines.py restart-path callers to the new template
+      signature.
+      (e) Wire the safety-budget consumer against the slice-4
+      durable Pipeline.no_progress_budget, including the BC-3
+      partial-failure handling (DurableSaveFailed → OVERSEER_ALERT
+      + continue loop, NOT exit).
+      End-state: new event-pump is the only spawn path. cq-4 is
+      preserved — there is no flag path back to the old wrapper
+      because the rewrite replaces the template wholesale; old code
+      paths in consensus_wrapper.py are simply unreachable until
+      slice-6 deletes them.
     dependencies: slice-4
   - id: 6
+    name: |-
+      Heartbeat migration + legacy deletion sweep + test/docs grep
+    goal: |-
+      The deletion half of the swap (reviewer_plan §11 subdivision
+      of original slice-5 → 5b). Co-locates the heartbeat ownership
+      migration with the legacy code removal so the tree stays
+      green:
+      (a) Migrate heartbeat ownership: wrapper invokes `egg-orch
+      message heartbeat` at the 60s cadence (preserves the
+      _WAIT_LOOP_HEARTBEAT_INTERVAL_SECS=60 invariant at
+      sandbox/egg_agent_tools/handlers/message.py:47). Delete the
+      agent-side daemon-thread auto-start in
+      _start_wait_loop_heartbeat (:234-264) and the
+      _default_emit_wait_loop_heartbeat helper (:175-231).
+      (b) Delete per cq-4: MAX_CONSENSUS_RESTARTS at
+      consensus_wrapper.py:38, _RECOVERY_SYSTEM_PROMPT at :64-99,
+      _RECOVERY_USER_PROMPT at :102-105, check_confirmed_and_wait
+      and its SSE consumer at :397-548 (the curl SSE machinery
+      :405-501 specifically), the restart loop at :555-695, the
+      recovery-prompt re-templating at :614-633, the terminal
+      exit-1 at :697-712.
+      (c) Delete sandbox/egg_agent_tools/handlers/message.py
+      message_wait_loop body at :267-432 (the wrapper-side wait is
+      the only wait now). The lower-level message_wait at :81-172
+      STAYS — it backs the wait CLI the wrapper invokes.
+      (d) Rewire the 3-restart trigger arm in
+      orchestrator/routes/pipelines.py:18100-18159 so the
+      `_emit_producer_death_alert` call site is gated on
+      safety-budget exhaustion rather than restart-count
+      exhaustion. _emit_producer_death_alert function itself at
+      :15310-15390 STAYS — just the trigger condition changes.
+      (e) Test pivot across the 7 named files:
+      orchestrator/tests/test_consensus_wrapper.py,
+      test_consensus_polling.py, test_consensus_race_on_exit.py,
+      test_consensus_timeout_recheck.py, test_brc_nack_iteration.py,
+      test_producer_death_alert.py, test_agent_exits_recorded.py.
+      Each gets restart-semantics tests deleted and event-pump-
+      semantics tests added (or moved into a new
+      test_consensus_wrapper_event_pump.py introduced in slice-5).
+      (f) DOCS GREP AC (reviewer_plan non-blocking on slice-7,
+      promoted here so docs co-land with code deletions): after
+      deletion, `git grep` for MAX_CONSENSUS_RESTARTS,
+      _RECOVERY_SYSTEM_PROMPT, _RECOVERY_USER_PROMPT,
+      check_confirmed_and_wait, "STAY-ALIVE", "wait-loop" (in
+      agent-authored context) across sandbox/agent-config/rules/,
+      docs/architecture/orchestrator.md,
+      docs/guides/concurrent-execution.md,
+      docs/reference/orchestrator-cli.md,
+      docs/reference/agent-wait-patterns.md must return zero
+      structural hits. Specifically:
+      sandbox/agent-config/rules/mission.md references at
+      ~lines 137-192 must be rewritten or deleted.
+    dependencies: slice-5
+  - id: 7
     name: |-
       brc-memory artifact + delta-scoped re-analysis plumbing
     goal: |-
@@ -152,39 +245,46 @@ slices:
       from scratch (decision d-5). Memory file remains EPHEMERAL per
       operator Q2 — cleaned with the pod; recovery backstop is
       `reconstruct_tracker_from_messages` at
-      orchestrator/peer_consensus.py:1955+.
-    dependencies: slice-5
-  - id: 7
+      orchestrator/peer_consensus.py:1955+. Writes MUST use atomic
+      tempfile-rename to avoid surfacing torn writes during a
+      rapid-event sequence (risk_analyst R-4 non-blocking).
+    dependencies: slice-6
+  - id: 8
     name: |-
       Prompt collapse (lean event-handler contract)
     goal: |-
       Replace STAY-ALIVE / wait-loop mechanics / cursor-threading /
       pre-confirm-wait foot-gun guidance in _build_brc_preamble
-      (orchestrator/routes/pipelines.py:12348-12700-ish) and the
+      (orchestrator/routes/pipelines.py:12348-12700 approx) and the
       per-role prompt fragments with a lean event-handler contract
       that describes the per-event invocation model. The agent's
       contract becomes: read memory, act on the one event, update
-      memory, exit cleanly. SYSTEM_PROMPT_NUDGE in
-      sandbox/egg_agent_tools/server.py:33-61 STAYS UNCHANGED
-      because cq-1 forbids MCP-surface changes in this issue. No
-      production code beyond the prompt templates and the
-      MISSION-style preamble; tests verify the rendered prompt fits
-      the new model on at least one producer role + one reviewer
-      role + one dual-role agent.
-    dependencies: slice-6
-  - id: 8
+      memory, exit cleanly. SYSTEM_PROMPT_NUDGE at
+      sandbox/egg_agent_tools/server.py:61 STAYS UNCHANGED because
+      cq-1 forbids MCP-surface changes in this issue. No production
+      code beyond the prompt templates and the MISSION-style
+      preamble; tests verify the rendered prompt fits the new model
+      on at least one producer role + one reviewer role + one
+      dual-role agent.
+    dependencies: slice-7
+  - id: 9
     name: |-
       Integration validation on #2906 repro path + docs revision
     goal: |-
       End-to-end run of the new event-pump on the #2906 Qwen-route
       repro (issue-2270 reproducer). Verify zero `Agent exited
       without BRC consensus` restart-churn alerts, memory file
-      populated + consulted, per-role permissions enforced unchanged,
-      cache_read_input_tokens instrumented across consecutive
-      per-event invocations and an injected long idle. Capture final
-      per-event cost numbers vs the WS0 baseline (slice-1). Update
-      docs/reference/agent-wait-patterns.md (the wait-loop
-      reference) and docs/guides/concurrent-execution.md (the
-      concurrent-BRC guide) to describe the new control flow. No
-      production code changes — measurement + docs only.
-    dependencies: slice-7
+      populated + consulted, per-role permissions enforced
+      unchanged, cache_read_input_tokens instrumented across
+      consecutive per-event invocations and an injected long idle.
+      Capture final per-event cost numbers vs the WS0 baseline
+      (slice-1). New integration test lives under integration_tests/
+      (parent dir; the integration_tests/local_pipeline/ subdir was
+      deleted in commit f7803637d1 — DO NOT inherit that stale
+      path). Consumes the existing `egg_stack` session-scoped
+      fixture at integration_tests/conftest.py:340 (yields an
+      EggStack dataclass at :78-79 exposing `gateway_url` and
+      `orchestrator_url`). Update docs/reference/agent-wait-patterns.md
+      (the wait-loop reference) and docs/guides/concurrent-execution.md
+      (the concurrent-BRC guide) to describe the new control flow.
+    dependencies: slice-8
