@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "01ce0df5eaca59758a5bb984cc5253a7ff05894d": {
+      "branch": "egg/issue-2908-replan/work",
+      "pipeline_id": "issue-2908-replan",
+      "registered_at": "2026-05-31T22:18:29.248319+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    }
+  },
+  "version": 1
+}
