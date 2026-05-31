@@ -15940,7 +15940,10 @@ def _run_implement_phase_slices(
     Returns ``(exit_code, logs)`` where ``exit_code == 0`` means every
     slice reached CONFIRMED; non-zero means at least one slice failed.
     """
-    from orchestrator.slice_scheduler import SliceScheduler
+    try:
+        from orchestrator.slice_scheduler import SliceScheduler
+    except ImportError:
+        from slice_scheduler import SliceScheduler
 
     try:
         from egg_contracts.loader import load_contract, save_contract
