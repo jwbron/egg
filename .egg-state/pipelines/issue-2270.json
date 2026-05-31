@@ -280,16 +280,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-31T05:01:56.050633Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-31T05:04:37.336305Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"No — the orchestrator does not currently expose any persistent generation token (a grep of generation/boot_time/boot_timestamp/pod_uid/generation_token across orchestrator/ returned zero matches, and no route in orchestrator/routes/ includes boot metadata). This issue must define and implement the primitive as a prerequisite for the overseer's recycle-detection logic. Recommended primitive: orchestrator pod UID when running on K8s, or a UUID minted at orchestrator startup, surfaced on the health-status response so the overseer can store it and compare on each poll; mismatch triggers state reset + an orchestrator_generation_change alert.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-31T04:42:29.412848Z",
-  "updated_at": "2026-05-31T05:04:07.527870Z",
+  "updated_at": "2026-05-31T05:04:37.357357Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -302,7 +302,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
