@@ -23,8 +23,9 @@ Placeholder. Slices 8–12 of #2817 land the decomposition of
 the step-0 baseline + flat clusters (`_app_factory.py`, `_auth.py`,
 `_checkpoint_routes.py`, `_gh_routes.py`); slices 9–10 each extract one
 sub-sub-package (`_git_routes/`, then `_jira_routes/`); slice-11
-extracts three (`_confluence_routes/`, `_worktree_routes/`, and
-`_anthropic_proxy/`); slice-12 is terminal — it extracts `_sessions.py`
+extracts one sub-sub-package (`_confluence_routes/`) plus two flat
+modules (`_worktree_routes.py`, `_anthropic_proxy.py`); slice-12 is
+terminal — it extracts `_sessions.py`
 and drops the allowlist entry. Pre-allocated submodule clusters per
 the plan (trailing `/` denotes a sub-sub-package, `.py` denotes a flat
 module):
@@ -34,8 +35,8 @@ module):
 | `_git_routes/` | TBD — `git_push`, `git_execute`, `git_fetch` (+ named helpers split out of the security-critical `git_push` mega-handler) |
 | `_jira_routes/` | TBD — Jira reads, writes, validators |
 | `_confluence_routes/` | TBD — Confluence reads, writes |
-| `_worktree_routes/` | TBD — worktree lifecycle endpoints |
-| `_anthropic_proxy/` | TBD — Anthropic API proxy + UpstreamRegistry routing |
+| `_worktree_routes.py` | TBD — worktree lifecycle endpoints |
+| `_anthropic_proxy.py` | TBD — Anthropic API proxy + UpstreamRegistry routing |
 | `_checkpoint_routes.py` | TBD — checkpoint endpoints |
 | `_gh_routes.py` | TBD — GitHub passthrough endpoints |
 | `_auth.py` | TBD — credential injection / token refresh |
