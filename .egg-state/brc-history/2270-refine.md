@@ -1,0 +1,1275 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-05-31T04:58:55Z
+Pipeline: issue-2270
+
+### [2026-05-31T04:43:05Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container 339ed00a-800 exited with code None. New container d088c351-b3f is now running.
+
+````yaml
+id: bfde51ff-4efc-4d
+phase: refine
+metadata:
+  exit_code: null
+  old_container_id: 339ed00a-8007-449d-ac43-e52f35a9416a
+  new_container_id: d088c351-b3fe-4423-929a-85cf576ca3ff
+  log_tail: unavailable
+  respawn_attempt: 1
+  max_respawns: 3
+````
+
+### [2026-05-31T04:44:07Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 87f0810f-cf76-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:44:06.786490+00:00'
+````
+
+### [2026-05-31T04:45:11Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 123a7933-e3c2-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:44:06.786490+00:00'
+````
+
+### [2026-05-31T04:45:47Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 99c6cac7-7202-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:45:47.227462+00:00'
+````
+
+### [2026-05-31T04:46:11Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: db3c8635-b0d8-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:44:06.786490+00:00'
+````
+
+### [2026-05-31T04:46:47Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 43a924f0-270e-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:45:47.227462+00:00'
+````
+
+### [2026-05-31T04:47:20Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: d23c9966-6b92-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:44:06.786490+00:00'
+````
+
+### [2026-05-31T04:47:57Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e9f81fda-60ba-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:45:47.227462+00:00'
+````
+
+### [2026-05-31T04:48:30Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a401a546-2676-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:44:06.786490+00:00'
+````
+
+### [2026-05-31T04:49:07Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: dd4ec99a-29be-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:45:47.227462+00:00'
+````
+
+### [2026-05-31T04:49:08Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine-phase analysis for issue #2270: holistic overseer overhaul covering phase-peer lifecycle alignment, signal coverage gaps across 10 failure categories (orchestrator runtime, worktree/branch, container/K8s, gateway, BRC/consensus, HITL/decision queue, cost/budget, overseer self-health, external state coupling, LLM substrate), and accumulated cleanup (dead code removal, fail-soft scaffolding collapse, advisor-escalation refactor, monitor.py decomposition). Recommends parallel-seam approach with layering bias. Registers 2 HITL decisions (cq-1: incomplete-consensus absolute timeout cap, cq-2: LLM substrate diagnostic scope) and 1 feedback request (feedback-1: orchestrator generation token availability).
+
+````yaml
+id: 8d15bf23-473b-4f
+phase: refine
+metadata:
+  payload:
+    summary: 'Refine-phase analysis for issue #2270: holistic overseer overhaul covering
+      phase-peer lifecycle alignment, signal coverage gaps across 10 failure categories
+      (orchestrator runtime, worktree/branch, container/K8s, gateway, BRC/consensus,
+      HITL/decision queue, cost/budget, overseer self-health, external state coupling,
+      LLM substrate), and accumulated cleanup (dead code removal, fail-soft scaffolding
+      collapse, advisor-escalation refactor, monitor.py decomposition). Recommends
+      parallel-seam approach with layering bias. Registers 2 HITL decisions (cq-1:
+      incomplete-consensus absolute timeout cap, cq-2: LLM substrate diagnostic scope)
+      and 1 feedback request (feedback-1: orchestrator generation token availability).'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/2270-analysis.md
+    risk_considered: 'Lifecycle changes are highest-risk (spawn/teardown ordering,
+      respawn-loop asymmetry, restart-state alignment). Signal-coverage wiring may
+      conflict with #2272 specialist subagents and requires primitives that may not
+      exist (generation token, error-rate metrics endpoint). monitor.py decomposition
+      is out of scope per #2261 slice-7.'
+    commit_sha: 8514987c6cab0b84093632ca73a21b4bb30b66d3
+    files_changed:
+    - .egg-state/drafts/2270-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 8514987c6cab0b84093632ca73a21b4bb30b66d3
+````
+
+### [2026-05-31T04:49:08Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: ef00c336-f8e1-47
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:49:08Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 9a3799d8-5723-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:50:18Z] refiner (HEARTBEAT): heartbeat: PROPOSED
+
+````yaml
+id: d49ba0e4-4513-4e
+phase: refine
+metadata:
+  state: PROPOSED
+````
+
+### [2026-05-31T04:50:46Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 29100cf2-0dfe-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:50:45.982689+00:00'
+````
+
+### [2026-05-31T04:50:49Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+Reviewed the refine-phase analysis draft (.egg-state/drafts/2270-analysis.md, 211 lines) against the 8 agent-mode design anti-patterns. Verified via file grep and line inspection of orchestrator/overseer/monitor.py, orchestrator/routes/pipelines.py, orchestrator/overseer/issue_filer.py, and shared/egg_overseer/advisor.py.
+
+## Agent-Mode Design Review
+
+The draft exhibits none of the 8 anti-patterns:
+
+1. **No excessive pre-fetching** — The analysis cites file:line references but does not bake large diffs or full file contents into any prompt. References are orienting, not constraining.
+2. **No structured-output-for-humans** — Output is an analysis document, not a prompt demanding JSON where humans are the direct consumer.
+3. **No post-processing pipelines** — No scripts described that parse agent output to take actions the agent could take directly.
+4. **No rigid procedures** — HITL questions (cq-1, cq-2, feedback-1) are framed as open decision points, not micromanaged step sequences. The recommended approach names "seams" and leaves planner freedom for DAG sequencing, which is appropriate.
+5. **No prompt-level security** — The referenced defense-in-depth secret scrubbing (advisor → sandbox composer → gateway) is infrastructure-level, not instruction-level; the draft describes existing enforcement rather than proposing new instruction-based constraints.
+6. **No direct LLM API calls outside sandbox** — Grep on shared/egg_overseer/advisor.py for `anthropic|httpx|requests` returned 0 matches; the draft explicitly notes the advisor is invoked via sandbox-side CLI `egg-orch overseer consult-advisor`, i.e. LLM calls land inside the sandbox.
+7. **No direct API calls bypassing Agent SDK** — No evidence of raw HTTP to Anthropic API bypassing egg_agent.
+8. **No hardcoded model identifiers** — The draft uses short aliases throughout (e.g. "Haiku ≥ 0.8", "Sonnet decision tier", "Opus-tier async function"), consistent with the EGG201 linter convention shown in config (`overseer_advisor_model: opus`).
+
+## Agent-Mode Design — Alignment
+
+The proposed cleanup actually *improves* agent-mode design along three dimensions:
+
+- **Lifecycle explicitness reduces state confusion**: The draft correctly identifies that the overseer's in-memory counters are aligned with the old orchestrator generation across pod recycle (§Problem Statement, line 13; §Current Behavior "Overseer monitor" lines 28–30). The generation-token primitive recommended in Option D + A's layering directly addresses the classic agent-state-staleness failure mode where an agent's working memory drifts from its backend's state.
+- **Signal-coverage closure prevents silent failures**: The enumerated Tier-1 gap list (#2219 wedged phase, #2234 ENOENT race, #2222 branch-eats-main, #2210 K8s bypass, #2242 plan-heartbeat mismatch) are precisely the failure modes that cause agents to run in circles burning tokens on stale state. Wiring these as explicit Tier-1 checks is the right agent-mode primitive.
+- **LOC reduction favors agent reasoning**: A 2024-line monitor.py with 43 silent-swallowing try/except blocks is exactly the kind of codebase surface where an agent reader (the next agent that needs to reason about overseer behavior) will get lost. Net-negative LOC is agent-mode-friendly because it shrinks the reasoning surface.
+
+## Non-blocking
+
+- The draft's reference to `OverseerSelfMonitor` (line 30) notes integration is "sparse" with a TODO at line 1764. Worth tracking in the plan phase that cost-tracking wiring requires the classifier to return usage metadata — the analysis identifies this but the planner should be explicit that this is a cross-cutting concern across Option D seams, not a single task.
+- The draft doesn't explicitly address slice-DAG concurrency for the new Tier-1 checks it proposes to wire (per-stall absolute-start timestamps must be slice-scoped to avoid collision across N concurrent implement slices). The constraints section (line 64) names slice-DAG but the recommended approach (lines 141–144) doesn't surface how slice-affinity context will be threaded into the new checks. Consider adding one line naming `EGG_SLICE_ID` propagation as a seam-internal concern for the health-check wiring seam.
+
+Both are planning-phase concerns, not refine-phase blockers. The analysis is thorough, well-evidenced, and agent-mode-design-clean.
+
+````yaml
+id: 628ed888-2663-4f
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2270-analysis.md
+    - orchestrator/overseer/monitor.py
+    - orchestrator/routes/pipelines.py
+    - orchestrator/overseer/issue_filer.py
+    - shared/egg_overseer/advisor.py
+    reason: "Reviewed the refine-phase analysis draft (.egg-state/drafts/2270-analysis.md,\
+      \ 211 lines) against the 8 agent-mode design anti-patterns. Verified via file\
+      \ grep and line inspection of orchestrator/overseer/monitor.py, orchestrator/routes/pipelines.py,\
+      \ orchestrator/overseer/issue_filer.py, and shared/egg_overseer/advisor.py.\n\
+      \n## Agent-Mode Design Review\n\nThe draft exhibits none of the 8 anti-patterns:\n\
+      \n1. **No excessive pre-fetching** \u2014 The analysis cites file:line references\
+      \ but does not bake large diffs or full file contents into any prompt. References\
+      \ are orienting, not constraining.\n2. **No structured-output-for-humans** \u2014\
+      \ Output is an analysis document, not a prompt demanding JSON where humans are\
+      \ the direct consumer.\n3. **No post-processing pipelines** \u2014 No scripts\
+      \ described that parse agent output to take actions the agent could take directly.\n\
+      4. **No rigid procedures** \u2014 HITL questions (cq-1, cq-2, feedback-1) are\
+      \ framed as open decision points, not micromanaged step sequences. The recommended\
+      \ approach names \"seams\" and leaves planner freedom for DAG sequencing, which\
+      \ is appropriate.\n5. **No prompt-level security** \u2014 The referenced defense-in-depth\
+      \ secret scrubbing (advisor \u2192 sandbox composer \u2192 gateway) is infrastructure-level,\
+      \ not instruction-level; the draft describes existing enforcement rather than\
+      \ proposing new instruction-based constraints.\n6. **No direct LLM API calls\
+      \ outside sandbox** \u2014 Grep on shared/egg_overseer/advisor.py for `anthropic|httpx|requests`\
+      \ returned 0 matches; the draft explicitly notes the advisor is invoked via\
+      \ sandbox-side CLI `egg-orch overseer consult-advisor`, i.e. LLM calls land\
+      \ inside the sandbox.\n7. **No direct API calls bypassing Agent SDK** \u2014\
+      \ No evidence of raw HTTP to Anthropic API bypassing egg_agent.\n8. **No hardcoded\
+      \ model identifiers** \u2014 The draft uses short aliases throughout (e.g. \"\
+      Haiku \u2265 0.8\", \"Sonnet decision tier\", \"Opus-tier async function\"),\
+      \ consistent with the EGG201 linter convention shown in config (`overseer_advisor_model:\
+      \ opus`).\n\n## Agent-Mode Design \u2014 Alignment\n\nThe proposed cleanup actually\
+      \ *improves* agent-mode design along three dimensions:\n\n- **Lifecycle explicitness\
+      \ reduces state confusion**: The draft correctly identifies that the overseer's\
+      \ in-memory counters are aligned with the old orchestrator generation across\
+      \ pod recycle (\xA7Problem Statement, line 13; \xA7Current Behavior \"Overseer\
+      \ monitor\" lines 28\u201330). The generation-token primitive recommended in\
+      \ Option D + A's layering directly addresses the classic agent-state-staleness\
+      \ failure mode where an agent's working memory drifts from its backend's state.\n\
+      - **Signal-coverage closure prevents silent failures**: The enumerated Tier-1\
+      \ gap list (#2219 wedged phase, #2234 ENOENT race, #2222 branch-eats-main, #2210\
+      \ K8s bypass, #2242 plan-heartbeat mismatch) are precisely the failure modes\
+      \ that cause agents to run in circles burning tokens on stale state. Wiring\
+      \ these as explicit Tier-1 checks is the right agent-mode primitive.\n- **LOC\
+      \ reduction favors agent reasoning**: A 2024-line monitor.py with 43 silent-swallowing\
+      \ try/except blocks is exactly the kind of codebase surface where an agent reader\
+      \ (the next agent that needs to reason about overseer behavior) will get lost.\
+      \ Net-negative LOC is agent-mode-friendly because it shrinks the reasoning surface.\n\
+      \n## Non-blocking\n\n- The draft's reference to `OverseerSelfMonitor` (line\
+      \ 30) notes integration is \"sparse\" with a TODO at line 1764. Worth tracking\
+      \ in the plan phase that cost-tracking wiring requires the classifier to return\
+      \ usage metadata \u2014 the analysis identifies this but the planner should\
+      \ be explicit that this is a cross-cutting concern across Option D seams, not\
+      \ a single task.\n- The draft doesn't explicitly address slice-DAG concurrency\
+      \ for the new Tier-1 checks it proposes to wire (per-stall absolute-start timestamps\
+      \ must be slice-scoped to avoid collision across N concurrent implement slices).\
+      \ The constraints section (line 64) names slice-DAG but the recommended approach\
+      \ (lines 141\u2013144) doesn't surface how slice-affinity context will be threaded\
+      \ into the new checks. Consider adding one line naming `EGG_SLICE_ID` propagation\
+      \ as a seam-internal concern for the health-check wiring seam.\n\nBoth are planning-phase\
+      \ concerns, not refine-phase blockers. The analysis is thorough, well-evidenced,\
+      \ and agent-mode-design-clean."
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-31T04:50:49Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 5b13a933-ceef-44
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:50:56Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: e2519ded-e690-42
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-31T04:51:00Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e963b4c4-dc61-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:00.545938+00:00'
+````
+
+### [2026-05-31T04:51:01Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: ae8f9896-4f1e-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:01.661048+00:00'
+````
+
+### [2026-05-31T04:52:00Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 3880e895-ed40-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:00.545938+00:00'
+````
+
+### [2026-05-31T04:52:01Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 7a744f6a-ee81-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:01.661048+00:00'
+````
+
+### [2026-05-31T04:52:03Z] reviewer_refine → refiner (CONSENSUS_NACK): NACK from reviewer_refine for refiner
+
+## Refine Phase Review — cycle 1
+
+Reviewed `.egg-state/drafts/2270-analysis.md` and cross-referenced against the actual codebase state (`orchestrator/overseer/`, `orchestrator/health_checks/`, `shared/egg_overseer/`, `sandbox/`, `orchestrator/routes/pipelines.py`). Also reviewed the contract via `egg-contract show` and the HITL registration surface.
+
+Overall, the draft has strong problem-statement framing, good enumeration of the signal-coverage gap, and well-differentiated options. However, there are multiple accuracy errors, at least one stale claim, and two structural issues (a feedback question that belongs to the planner and contract-decision markers that weren't backed by `egg-contract add-decision`).
+
+## Blocking
+
+1. **`.egg-state/drafts/2270-analysis.md`, "Current Behavior → File-issue path" (line 38)** — Draft states: "issue_filer.py is dead code (... no production imports found — only references in comments, docs, and plan files)." **False.** `orchestrator/overseer/monitor.py:35` has `from overseer.issue_filer import file_diagnostic_issue` and `monitor.py:669` calls it inside `elif action == "issue"`. `overseer/__init__.py:11,27` re-exports it. The `issue_filer.py` header even self-describes as dead code but the `action == "issue"` branch in `_execute_action` is live. The decision-maker vocabulary in `decision_maker.py:67` includes `"issue"` as a first-class action, meaning `action == "issue"` is a reachable branch. The analysis must either: (a) retract the "no production imports" claim and reframe as "live-but-always-dead" code; or (b) investigate whether the decision-maker ever emits `"issue"` (it's in the vocabulary but the Sonnet tier rarely emits it) and report the finding precisely. This matters because the cleanup order (relocate test anchor, then delete) depends on whether `_execute_action`'s `issue` branch needs sandbox-side redirection or can simply be removed.
+
+2. **`.egg-state/drafts/2270-analysis.md`, "Current Behavior → Overseer lifecycle" (line 26)** — Draft writes: "...torn down by `_teardown_phase_overseer` (pipelines.py:433–596)..." but `_teardown_phase_overseer` is actually at **pipelines.py:792–821** per the current source. Lines 433–596 are `_check_and_respawn_overseer`, which the draft also cites on the same line — the ranges are conflated. The exploration agent confirmed: `_teardown_phase_overseer` lives at lines 792-821, `_check_and_respawn_overseer` at lines 433-596, `_make_overseer_teardown_hook` at lines 20864-20900. Fix: correct the line ranges so the three functions are not conflated. Accuracy on file:line is table-stakes for a refine analysis that the planner will consume.
+
+3. **`.egg-state/drafts/2270-analysis.md`, "Current Behavior → Health checks" (line 34)** — Draft states: "No Tier-2 directory or `agent_inspector` exists — the framework anticipates it (`HealthTier.AGENT`, `HealthTrigger.PHASE_COMPLETE`/`ON_DEMAND` escalation rules) but no concrete Tier-2 implementations have been registered." I verified no `tier2/` directory exists and no `agent_inspector` appears in health_checks. This claim is **true but the issue text itself says "Tier-2: `agent_inspector`"** — the draft should have flagged that the issue text has stale information about `agent_inspector` being an existing Tier-2 check. Flagging this discrepancy would have been a research-quality signal the planner needs; omitting it risks the planner planning around a phantom check.
+
+4. **`.egg-state/drafts/2270-analysis.md`, "Current Behavior → Advisor escalation" (line 42)** — Draft states: "the word 'advisor' does not appear anywhere in monitor.py." Verified true. However, the draft does not investigate *how* the advisor is then invoked. The issue text states the advisor is invoked via sandbox-side CLI `egg-orch overseer consult-advisor`. This is the **sandbox-side monitor's** responsibility, not the orchestrator-side `OverseerMonitor`. The draft should spell out that there are two monitors (orchestrator-side in `monitor.py`, sandbox-side in `sandbox/overseer_monitor.py`) and only the sandbox-side one invokes the advisor. The current phrasing implies monitor.py is the only monitor and the advisor is disconnected, which misleads the planner about where to wire new advisor-related signal routing.
+
+5. **`.egg-state/drafts/2270-analysis.md`, "Open Questions → Registered Feedback Requests"** — Feedback-1 ("Does the orchestrator currently expose a persistent generation token...?") is framed as an open-ended feedback but is really a **codebase fact question** that the refiner should have answered via code search. I searched: no `generation`, `boot_time`, `boot_timestamp`, or `pod_uid` (in orchestrator health context) appears in orchestrator source or routes. The answer is clearly **no — the orchestrator does not currently expose a generation token**; this issue must define and implement the primitive. Registering this as feedback wastes a HITL round-trip on a non-ambiguous fact the refiner could have settled in five seconds with a grep. Fix: delete the feedback-1 question and state the conclusion (with the grep evidence) as an analysis finding. If there is residual uncertainty, register it as a **decision** about which design to pick (e.g., pod UID vs boot timestamp vs UUID), not a yes/no on whether the primitive exists.
+
+6. **`.egg-state/drafts/2270-analysis.md`, "Open Questions → Registered HITL Decisions"** — The draft includes `<!-- egg-hitl-decision id=cq-1 -->` and `<!-- egg-hitl-decision id=cq-2 -->` markers in prose, but the contract shows `decisions: []` (verified via `egg-contract show`, which returns "Pending Decisions:" with those IDs, but the contract JSON file at `.egg-state/contracts/issue-2270.json` has `"decisions": []`). The `egg-contract show` output lists them as pending, suggesting `add-decision` may have succeeded but the contract JSON file is stale, OR the markers were added to the draft without actually calling `egg-contract add-decision`. Per review criterion §7: verify that contract decisions exist for every open question. **Fix:** Re-run `egg-contract add-decision` for each question and confirm that `egg-contract show` lists them with proper options. The marker-in-prose-without-CLI-call pattern is exactly what criterion 7 is designed to catch.
+
+7. **`.egg-state/drafts/2270-analysis.md`, scope of HITL questions (criterion 5)** — Both cq-1 (time cap vs repetition detector vs no cap) and cq-2 (per-pipeline vs cluster-wide signal) are **implementation-strategy questions**, not problem-definition questions. The criterion explicitly states: "NACK questions about implementation strategy (API shape, migration approach, fallback design, detector design) unless the answer is a fact only the operator knows." `cq-1` is a detector-design question (time vs content vs neither) — the planner can decide this. `cq-2` is closer to a real scope question (per-pipeline vs cluster-wide has product-level impact on duplicate filings), but the "Both" option is an implementation detail the planner can choose. Recommendation: keep `cq-2` but sharpen it to scope only ("Do you want per-pipeline LLM-substrate signaling, cluster-wide signaling, or both?"). **Drop `cq-1`** — it's a planner decision about detector design and the planner is better positioned to evaluate which approach fits the existing `_check_incomplete_consensus_stall` architecture.
+
+8. **`.egg-state/drafts/2270-analysis.md`, missing question on `action == "issue"` branch** — Given blocking #1 (the issue_filer live-but-always-dead branch), there is an unasked scope question: **Does the implement phase need to preserve the `action == "issue"` branch in `_execute_action` as a fallback path** (e.g., if the sandbox-side filing ever fails), **or can that whole branch be removed once the test anchor is relocated?** This is genuinely a scope question only the operator can answer (it's a fallback-design question touching reliability guarantees), and it belongs as a HITL decision rather than as a planner assumption. Fix: add a HITL decision for this.
+
+## Non-blocking
+
+- **`.egg-state/drafts/2270-analysis.md`, Options Analysis (lines 83-138)** — Strong: four well-differentiated options with clear trade-offs. Option D (parallel-seam) as the recommendation is sound. Consider strengthening the option-C con by noting that lifecycle-first is the most likely to conflict with #2272's specialist-subagent architecture, since specialist subagents may redefine what "spawn a phase agent" means.
+
+- **`.egg-state/drafts/2270-analysis.md`, Problem Statement (lines 5-21)** — "53 methods and 43 try/except blocks" is an oddly specific claim that I couldn't quickly verify (exploration agent reported "12-step poll cycle" documented in the class docstring, not 53 methods). If this was counted, cite the counting method; if it was estimated, mark it as such.
+
+- **`.egg-state/drafts/2270-analysis.md`, Constraints (lines 54-80)** — Very thorough. The slice-DAG concurrency constraint with `EGG_SLICE_ID` affinity is correctly identified. The generation-token prerequisite constraint (lines 66, 77) is correctly called out — but see blocking #5 (this should be a finding, not a question).
+
+- **`.egg-state/drafts/2270-analysis.md`, "Recommended Approach" (lines 141-145)** — "Option D with a bias toward Option A's layering within each seam" is a coherent recommendation that respects the planner's sequencing freedom while providing guidance. Well-justified.
+
+## Summary
+
+The draft has good bones (problem framing, options, constraints) but is not ready to ACK:
+- 3 accuracy errors on file:line references and dead-code classification (blocking 1, 2, 3).
+- 1 framing error that misleads about the two-monitor architecture (blocking 4).
+- 1 HITL feedback question that should be a stated finding (blocking 5).
+- HITL markers in prose without confirmed contract-side registration (blocking 6).
+- 1 HITL decision that belongs to the planner, not the operator (blocking 7).
+- 1 missing scope question about the live-but-dead `issue` action branch (blocking 8).
+
+Re-propose after addressing the above.
+
+````yaml
+id: 8b32d7b5-3331-42
+phase: refine
+metadata:
+  payload:
+    reason: "## Refine Phase Review \u2014 cycle 1\n\nReviewed `.egg-state/drafts/2270-analysis.md`\
+      \ and cross-referenced against the actual codebase state (`orchestrator/overseer/`,\
+      \ `orchestrator/health_checks/`, `shared/egg_overseer/`, `sandbox/`, `orchestrator/routes/pipelines.py`).\
+      \ Also reviewed the contract via `egg-contract show` and the HITL registration\
+      \ surface.\n\nOverall, the draft has strong problem-statement framing, good\
+      \ enumeration of the signal-coverage gap, and well-differentiated options. However,\
+      \ there are multiple accuracy errors, at least one stale claim, and two structural\
+      \ issues (a feedback question that belongs to the planner and contract-decision\
+      \ markers that weren't backed by `egg-contract add-decision`).\n\n## Blocking\n\
+      \n1. **`.egg-state/drafts/2270-analysis.md`, \"Current Behavior \u2192 File-issue\
+      \ path\" (line 38)** \u2014 Draft states: \"issue_filer.py is dead code (...\
+      \ no production imports found \u2014 only references in comments, docs, and\
+      \ plan files).\" **False.** `orchestrator/overseer/monitor.py:35` has `from\
+      \ overseer.issue_filer import file_diagnostic_issue` and `monitor.py:669` calls\
+      \ it inside `elif action == \"issue\"`. `overseer/__init__.py:11,27` re-exports\
+      \ it. The `issue_filer.py` header even self-describes as dead code but the `action\
+      \ == \"issue\"` branch in `_execute_action` is live. The decision-maker vocabulary\
+      \ in `decision_maker.py:67` includes `\"issue\"` as a first-class action, meaning\
+      \ `action == \"issue\"` is a reachable branch. The analysis must either: (a)\
+      \ retract the \"no production imports\" claim and reframe as \"live-but-always-dead\"\
+      \ code; or (b) investigate whether the decision-maker ever emits `\"issue\"\
+      ` (it's in the vocabulary but the Sonnet tier rarely emits it) and report the\
+      \ finding precisely. This matters because the cleanup order (relocate test anchor,\
+      \ then delete) depends on whether `_execute_action`'s `issue` branch needs sandbox-side\
+      \ redirection or can simply be removed.\n\n2. **`.egg-state/drafts/2270-analysis.md`,\
+      \ \"Current Behavior \u2192 Overseer lifecycle\" (line 26)** \u2014 Draft writes:\
+      \ \"...torn down by `_teardown_phase_overseer` (pipelines.py:433\u2013596)...\"\
+      \ but `_teardown_phase_overseer` is actually at **pipelines.py:792\u2013821**\
+      \ per the current source. Lines 433\u2013596 are `_check_and_respawn_overseer`,\
+      \ which the draft also cites on the same line \u2014 the ranges are conflated.\
+      \ The exploration agent confirmed: `_teardown_phase_overseer` lives at lines\
+      \ 792-821, `_check_and_respawn_overseer` at lines 433-596, `_make_overseer_teardown_hook`\
+      \ at lines 20864-20900. Fix: correct the line ranges so the three functions\
+      \ are not conflated. Accuracy on file:line is table-stakes for a refine analysis\
+      \ that the planner will consume.\n\n3. **`.egg-state/drafts/2270-analysis.md`,\
+      \ \"Current Behavior \u2192 Health checks\" (line 34)** \u2014 Draft states:\
+      \ \"No Tier-2 directory or `agent_inspector` exists \u2014 the framework anticipates\
+      \ it (`HealthTier.AGENT`, `HealthTrigger.PHASE_COMPLETE`/`ON_DEMAND` escalation\
+      \ rules) but no concrete Tier-2 implementations have been registered.\" I verified\
+      \ no `tier2/` directory exists and no `agent_inspector` appears in health_checks.\
+      \ This claim is **true but the issue text itself says \"Tier-2: `agent_inspector`\"\
+      ** \u2014 the draft should have flagged that the issue text has stale information\
+      \ about `agent_inspector` being an existing Tier-2 check. Flagging this discrepancy\
+      \ would have been a research-quality signal the planner needs; omitting it risks\
+      \ the planner planning around a phantom check.\n\n4. **`.egg-state/drafts/2270-analysis.md`,\
+      \ \"Current Behavior \u2192 Advisor escalation\" (line 42)** \u2014 Draft states:\
+      \ \"the word 'advisor' does not appear anywhere in monitor.py.\" Verified true.\
+      \ However, the draft does not investigate *how* the advisor is then invoked.\
+      \ The issue text states the advisor is invoked via sandbox-side CLI `egg-orch\
+      \ overseer consult-advisor`. This is the **sandbox-side monitor's** responsibility,\
+      \ not the orchestrator-side `OverseerMonitor`. The draft should spell out that\
+      \ there are two monitors (orchestrator-side in `monitor.py`, sandbox-side in\
+      \ `sandbox/overseer_monitor.py`) and only the sandbox-side one invokes the advisor.\
+      \ The current phrasing implies monitor.py is the only monitor and the advisor\
+      \ is disconnected, which misleads the planner about where to wire new advisor-related\
+      \ signal routing.\n\n5. **`.egg-state/drafts/2270-analysis.md`, \"Open Questions\
+      \ \u2192 Registered Feedback Requests\"** \u2014 Feedback-1 (\"Does the orchestrator\
+      \ currently expose a persistent generation token...?\") is framed as an open-ended\
+      \ feedback but is really a **codebase fact question** that the refiner should\
+      \ have answered via code search. I searched: no `generation`, `boot_time`, `boot_timestamp`,\
+      \ or `pod_uid` (in orchestrator health context) appears in orchestrator source\
+      \ or routes. The answer is clearly **no \u2014 the orchestrator does not currently\
+      \ expose a generation token**; this issue must define and implement the primitive.\
+      \ Registering this as feedback wastes a HITL round-trip on a non-ambiguous fact\
+      \ the refiner could have settled in five seconds with a grep. Fix: delete the\
+      \ feedback-1 question and state the conclusion (with the grep evidence) as an\
+      \ analysis finding. If there is residual uncertainty, register it as a **decision**\
+      \ about which design to pick (e.g., pod UID vs boot timestamp vs UUID), not\
+      \ a yes/no on whether the primitive exists.\n\n6. **`.egg-state/drafts/2270-analysis.md`,\
+      \ \"Open Questions \u2192 Registered HITL Decisions\"** \u2014 The draft includes\
+      \ `<!-- egg-hitl-decision id=cq-1 -->` and `<!-- egg-hitl-decision id=cq-2 -->`\
+      \ markers in prose, but the contract shows `decisions: []` (verified via `egg-contract\
+      \ show`, which returns \"Pending Decisions:\" with those IDs, but the contract\
+      \ JSON file at `.egg-state/contracts/issue-2270.json` has `\"decisions\": []`).\
+      \ The `egg-contract show` output lists them as pending, suggesting `add-decision`\
+      \ may have succeeded but the contract JSON file is stale, OR the markers were\
+      \ added to the draft without actually calling `egg-contract add-decision`. Per\
+      \ review criterion \xA77: verify that contract decisions exist for every open\
+      \ question. **Fix:** Re-run `egg-contract add-decision` for each question and\
+      \ confirm that `egg-contract show` lists them with proper options. The marker-in-prose-without-CLI-call\
+      \ pattern is exactly what criterion 7 is designed to catch.\n\n7. **`.egg-state/drafts/2270-analysis.md`,\
+      \ scope of HITL questions (criterion 5)** \u2014 Both cq-1 (time cap vs repetition\
+      \ detector vs no cap) and cq-2 (per-pipeline vs cluster-wide signal) are **implementation-strategy\
+      \ questions**, not problem-definition questions. The criterion explicitly states:\
+      \ \"NACK questions about implementation strategy (API shape, migration approach,\
+      \ fallback design, detector design) unless the answer is a fact only the operator\
+      \ knows.\" `cq-1` is a detector-design question (time vs content vs neither)\
+      \ \u2014 the planner can decide this. `cq-2` is closer to a real scope question\
+      \ (per-pipeline vs cluster-wide has product-level impact on duplicate filings),\
+      \ but the \"Both\" option is an implementation detail the planner can choose.\
+      \ Recommendation: keep `cq-2` but sharpen it to scope only (\"Do you want per-pipeline\
+      \ LLM-substrate signaling, cluster-wide signaling, or both?\"). **Drop `cq-1`**\
+      \ \u2014 it's a planner decision about detector design and the planner is better\
+      \ positioned to evaluate which approach fits the existing `_check_incomplete_consensus_stall`\
+      \ architecture.\n\n8. **`.egg-state/drafts/2270-analysis.md`, missing question\
+      \ on `action == \"issue\"` branch** \u2014 Given blocking #1 (the issue_filer\
+      \ live-but-always-dead branch), there is an unasked scope question: **Does the\
+      \ implement phase need to preserve the `action == \"issue\"` branch in `_execute_action`\
+      \ as a fallback path** (e.g., if the sandbox-side filing ever fails), **or can\
+      \ that whole branch be removed once the test anchor is relocated?** This is\
+      \ genuinely a scope question only the operator can answer (it's a fallback-design\
+      \ question touching reliability guarantees), and it belongs as a HITL decision\
+      \ rather than as a planner assumption. Fix: add a HITL decision for this.\n\n\
+      ## Non-blocking\n\n- **`.egg-state/drafts/2270-analysis.md`, Options Analysis\
+      \ (lines 83-138)** \u2014 Strong: four well-differentiated options with clear\
+      \ trade-offs. Option D (parallel-seam) as the recommendation is sound. Consider\
+      \ strengthening the option-C con by noting that lifecycle-first is the most\
+      \ likely to conflict with #2272's specialist-subagent architecture, since specialist\
+      \ subagents may redefine what \"spawn a phase agent\" means.\n\n- **`.egg-state/drafts/2270-analysis.md`,\
+      \ Problem Statement (lines 5-21)** \u2014 \"53 methods and 43 try/except blocks\"\
+      \ is an oddly specific claim that I couldn't quickly verify (exploration agent\
+      \ reported \"12-step poll cycle\" documented in the class docstring, not 53\
+      \ methods). If this was counted, cite the counting method; if it was estimated,\
+      \ mark it as such.\n\n- **`.egg-state/drafts/2270-analysis.md`, Constraints\
+      \ (lines 54-80)** \u2014 Very thorough. The slice-DAG concurrency constraint\
+      \ with `EGG_SLICE_ID` affinity is correctly identified. The generation-token\
+      \ prerequisite constraint (lines 66, 77) is correctly called out \u2014 but\
+      \ see blocking #5 (this should be a finding, not a question).\n\n- **`.egg-state/drafts/2270-analysis.md`,\
+      \ \"Recommended Approach\" (lines 141-145)** \u2014 \"Option D with a bias toward\
+      \ Option A's layering within each seam\" is a coherent recommendation that respects\
+      \ the planner's sequencing freedom while providing guidance. Well-justified.\n\
+      \n## Summary\n\nThe draft has good bones (problem framing, options, constraints)\
+      \ but is not ready to ACK:\n- 3 accuracy errors on file:line references and\
+      \ dead-code classification (blocking 1, 2, 3).\n- 1 framing error that misleads\
+      \ about the two-monitor architecture (blocking 4).\n- 1 HITL feedback question\
+      \ that should be a stated finding (blocking 5).\n- HITL markers in prose without\
+      \ confirmed contract-side registration (blocking 6).\n- 1 HITL decision that\
+      \ belongs to the planner, not the operator (blocking 7).\n- 1 missing scope\
+      \ question about the live-but-dead `issue` action branch (blocking 8).\n\nRe-propose\
+      \ after addressing the above."
+    artifact_references:
+    - .egg-state/drafts/2270-analysis.md
+    - .egg-state/contracts/issue-2270.json
+    - orchestrator/overseer/monitor.py
+    - orchestrator/overseer/issue_filer.py
+    - orchestrator/overseer/decision_maker.py
+    - orchestrator/overseer/__init__.py
+    - orchestrator/health_checks/runner.py
+    - orchestrator/health_checks/tier1/
+    - shared/egg_overseer/advisor.py
+    nack_version: 1
+  reason: "## Refine Phase Review \u2014 cycle 1\n\nReviewed `.egg-state/drafts/2270-analysis.md`\
+    \ and cross-referenced against the actual codebase state (`orchestrator/overseer/`,\
+    \ `orchestrator/health_checks/`, `shared/egg_overseer/`, `sandbox/`, `orchestrator/routes/pipelines.py`).\
+    \ Also reviewed the contract via `egg-contract show` and the HITL registration\
+    \ surface.\n\nOverall, the draft has strong problem-statement framing, good enumeration\
+    \ of the signal-coverage gap, and well-differentiated options. However, there\
+    \ are multiple accuracy errors, at least one stale claim, and two structural issues\
+    \ (a feedback question that belongs to the planner and contract-decision markers\
+    \ that weren't backed by `egg-contract add-decision`).\n\n## Blocking\n\n1. **`.egg-state/drafts/2270-analysis.md`,\
+    \ \"Current Behavior \u2192 File-issue path\" (line 38)** \u2014 Draft states:\
+    \ \"issue_filer.py is dead code (... no production imports found \u2014 only references\
+    \ in comments, docs, and plan files).\" **False.** `orchestrator/overseer/monitor.py:35`\
+    \ has `from overseer.issue_filer import file_diagnostic_issue` and `monitor.py:669`\
+    \ calls it inside `elif action == \"issue\"`. `overseer/__init__.py:11,27` re-exports\
+    \ it. The `issue_filer.py` header even self-describes as dead code but the `action\
+    \ == \"issue\"` branch in `_execute_action` is live. The decision-maker vocabulary\
+    \ in `decision_maker.py:67` includes `\"issue\"` as a first-class action, meaning\
+    \ `action == \"issue\"` is a reachable branch. The analysis must either: (a) retract\
+    \ the \"no production imports\" claim and reframe as \"live-but-always-dead\"\
+    \ code; or (b) investigate whether the decision-maker ever emits `\"issue\"` (it's\
+    \ in the vocabulary but the Sonnet tier rarely emits it) and report the finding\
+    \ precisely. This matters because the cleanup order (relocate test anchor, then\
+    \ delete) depends on whether `_execute_action`'s `issue` branch needs sandbox-side\
+    \ redirection or can simply be removed.\n\n2. **`.egg-state/drafts/2270-analysis.md`,\
+    \ \"Current Behavior \u2192 Overseer lifecycle\" (line 26)** \u2014 Draft writes:\
+    \ \"...torn down by `_teardown_phase_overseer` (pipelines.py:433\u2013596)...\"\
+    \ but `_teardown_phase_overseer` is actually at **pipelines.py:792\u2013821**\
+    \ per the current source. Lines 433\u2013596 are `_check_and_respawn_overseer`,\
+    \ which the draft also cites on the same line \u2014 the ranges are conflated.\
+    \ The exploration agent confirmed: `_teardown_phase_overseer` lives at lines 792-821,\
+    \ `_check_and_respawn_overseer` at lines 433-596, `_make_overseer_teardown_hook`\
+    \ at lines 20864-20900. Fix: correct the line ranges so the three functions are\
+    \ not conflated. Accuracy on file:line is table-stakes for a refine analysis that\
+    \ the planner will consume.\n\n3. **`.egg-state/drafts/2270-analysis.md`, \"Current\
+    \ Behavior \u2192 Health checks\" (line 34)** \u2014 Draft states: \"No Tier-2\
+    \ directory or `agent_inspector` exists \u2014 the framework anticipates it (`HealthTier.AGENT`,\
+    \ `HealthTrigger.PHASE_COMPLETE`/`ON_DEMAND` escalation rules) but no concrete\
+    \ Tier-2 implementations have been registered.\" I verified no `tier2/` directory\
+    \ exists and no `agent_inspector` appears in health_checks. This claim is **true\
+    \ but the issue text itself says \"Tier-2: `agent_inspector`\"** \u2014 the draft\
+    \ should have flagged that the issue text has stale information about `agent_inspector`\
+    \ being an existing Tier-2 check. Flagging this discrepancy would have been a\
+    \ research-quality signal the planner needs; omitting it risks the planner planning\
+    \ around a phantom check.\n\n4. **`.egg-state/drafts/2270-analysis.md`, \"Current\
+    \ Behavior \u2192 Advisor escalation\" (line 42)** \u2014 Draft states: \"the\
+    \ word 'advisor' does not appear anywhere in monitor.py.\" Verified true. However,\
+    \ the draft does not investigate *how* the advisor is then invoked. The issue\
+    \ text states the advisor is invoked via sandbox-side CLI `egg-orch overseer consult-advisor`.\
+    \ This is the **sandbox-side monitor's** responsibility, not the orchestrator-side\
+    \ `OverseerMonitor`. The draft should spell out that there are two monitors (orchestrator-side\
+    \ in `monitor.py`, sandbox-side in `sandbox/overseer_monitor.py`) and only the\
+    \ sandbox-side one invokes the advisor. The current phrasing implies monitor.py\
+    \ is the only monitor and the advisor is disconnected, which misleads the planner\
+    \ about where to wire new advisor-related signal routing.\n\n5. **`.egg-state/drafts/2270-analysis.md`,\
+    \ \"Open Questions \u2192 Registered Feedback Requests\"** \u2014 Feedback-1 (\"\
+    Does the orchestrator currently expose a persistent generation token...?\") is\
+    \ framed as an open-ended feedback but is really a **codebase fact question**\
+    \ that the refiner should have answered via code search. I searched: no `generation`,\
+    \ `boot_time`, `boot_timestamp`, or `pod_uid` (in orchestrator health context)\
+    \ appears in orchestrator source or routes. The answer is clearly **no \u2014\
+    \ the orchestrator does not currently expose a generation token**; this issue\
+    \ must define and implement the primitive. Registering this as feedback wastes\
+    \ a HITL round-trip on a non-ambiguous fact the refiner could have settled in\
+    \ five seconds with a grep. Fix: delete the feedback-1 question and state the\
+    \ conclusion (with the grep evidence) as an analysis finding. If there is residual\
+    \ uncertainty, register it as a **decision** about which design to pick (e.g.,\
+    \ pod UID vs boot timestamp vs UUID), not a yes/no on whether the primitive exists.\n\
+    \n6. **`.egg-state/drafts/2270-analysis.md`, \"Open Questions \u2192 Registered\
+    \ HITL Decisions\"** \u2014 The draft includes `<!-- egg-hitl-decision id=cq-1\
+    \ -->` and `<!-- egg-hitl-decision id=cq-2 -->` markers in prose, but the contract\
+    \ shows `decisions: []` (verified via `egg-contract show`, which returns \"Pending\
+    \ Decisions:\" with those IDs, but the contract JSON file at `.egg-state/contracts/issue-2270.json`\
+    \ has `\"decisions\": []`). The `egg-contract show` output lists them as pending,\
+    \ suggesting `add-decision` may have succeeded but the contract JSON file is stale,\
+    \ OR the markers were added to the draft without actually calling `egg-contract\
+    \ add-decision`. Per review criterion \xA77: verify that contract decisions exist\
+    \ for every open question. **Fix:** Re-run `egg-contract add-decision` for each\
+    \ question and confirm that `egg-contract show` lists them with proper options.\
+    \ The marker-in-prose-without-CLI-call pattern is exactly what criterion 7 is\
+    \ designed to catch.\n\n7. **`.egg-state/drafts/2270-analysis.md`, scope of HITL\
+    \ questions (criterion 5)** \u2014 Both cq-1 (time cap vs repetition detector\
+    \ vs no cap) and cq-2 (per-pipeline vs cluster-wide signal) are **implementation-strategy\
+    \ questions**, not problem-definition questions. The criterion explicitly states:\
+    \ \"NACK questions about implementation strategy (API shape, migration approach,\
+    \ fallback design, detector design) unless the answer is a fact only the operator\
+    \ knows.\" `cq-1` is a detector-design question (time vs content vs neither) \u2014\
+    \ the planner can decide this. `cq-2` is closer to a real scope question (per-pipeline\
+    \ vs cluster-wide has product-level impact on duplicate filings), but the \"Both\"\
+    \ option is an implementation detail the planner can choose. Recommendation: keep\
+    \ `cq-2` but sharpen it to scope only (\"Do you want per-pipeline LLM-substrate\
+    \ signaling, cluster-wide signaling, or both?\"). **Drop `cq-1`** \u2014 it's\
+    \ a planner decision about detector design and the planner is better positioned\
+    \ to evaluate which approach fits the existing `_check_incomplete_consensus_stall`\
+    \ architecture.\n\n8. **`.egg-state/drafts/2270-analysis.md`, missing question\
+    \ on `action == \"issue\"` branch** \u2014 Given blocking #1 (the issue_filer\
+    \ live-but-always-dead branch), there is an unasked scope question: **Does the\
+    \ implement phase need to preserve the `action == \"issue\"` branch in `_execute_action`\
+    \ as a fallback path** (e.g., if the sandbox-side filing ever fails), **or can\
+    \ that whole branch be removed once the test anchor is relocated?** This is genuinely\
+    \ a scope question only the operator can answer (it's a fallback-design question\
+    \ touching reliability guarantees), and it belongs as a HITL decision rather than\
+    \ as a planner assumption. Fix: add a HITL decision for this.\n\n## Non-blocking\n\
+    \n- **`.egg-state/drafts/2270-analysis.md`, Options Analysis (lines 83-138)**\
+    \ \u2014 Strong: four well-differentiated options with clear trade-offs. Option\
+    \ D (parallel-seam) as the recommendation is sound. Consider strengthening the\
+    \ option-C con by noting that lifecycle-first is the most likely to conflict with\
+    \ #2272's specialist-subagent architecture, since specialist subagents may redefine\
+    \ what \"spawn a phase agent\" means.\n\n- **`.egg-state/drafts/2270-analysis.md`,\
+    \ Problem Statement (lines 5-21)** \u2014 \"53 methods and 43 try/except blocks\"\
+    \ is an oddly specific claim that I couldn't quickly verify (exploration agent\
+    \ reported \"12-step poll cycle\" documented in the class docstring, not 53 methods).\
+    \ If this was counted, cite the counting method; if it was estimated, mark it\
+    \ as such.\n\n- **`.egg-state/drafts/2270-analysis.md`, Constraints (lines 54-80)**\
+    \ \u2014 Very thorough. The slice-DAG concurrency constraint with `EGG_SLICE_ID`\
+    \ affinity is correctly identified. The generation-token prerequisite constraint\
+    \ (lines 66, 77) is correctly called out \u2014 but see blocking #5 (this should\
+    \ be a finding, not a question).\n\n- **`.egg-state/drafts/2270-analysis.md`,\
+    \ \"Recommended Approach\" (lines 141-145)** \u2014 \"Option D with a bias toward\
+    \ Option A's layering within each seam\" is a coherent recommendation that respects\
+    \ the planner's sequencing freedom while providing guidance. Well-justified.\n\
+    \n## Summary\n\nThe draft has good bones (problem framing, options, constraints)\
+    \ but is not ready to ACK:\n- 3 accuracy errors on file:line references and dead-code\
+    \ classification (blocking 1, 2, 3).\n- 1 framing error that misleads about the\
+    \ two-monitor architecture (blocking 4).\n- 1 HITL feedback question that should\
+    \ be a stated finding (blocking 5).\n- HITL markers in prose without confirmed\
+    \ contract-side registration (blocking 6).\n- 1 HITL decision that belongs to\
+    \ the planner, not the operator (blocking 7).\n- 1 missing scope question about\
+    \ the live-but-dead `issue` action branch (blocking 8).\n\nRe-propose after addressing\
+    \ the above."
+  revision_count: 1
+````
+
+### [2026-05-31T04:52:03Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 7b74068a-3f2f-43
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:52:10Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 5c0934e1-1df0-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:52:10.104748+00:00'
+````
+
+### [2026-05-31T04:53:01Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 401828ac-65fd-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:01.661048+00:00'
+````
+
+### [2026-05-31T04:53:10Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 0e09cda6-a763-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:52:10.104748+00:00'
+````
+
+### [2026-05-31T04:54:02Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: ae0867ba-edae-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:01.661048+00:00'
+````
+
+### [2026-05-31T04:54:10Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 5618e10c-81f0-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:52:10.104748+00:00'
+````
+
+### [2026-05-31T04:55:02Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2a99f708-c454-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:51:01.661048+00:00'
+````
+
+### [2026-05-31T04:55:10Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 403354a2-d536-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:52:10.104748+00:00'
+````
+
+### [2026-05-31T04:55:43Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Revised refine-phase analysis addressing reviewer_refine NACK cycle 1. Accuracy fixes: (1) issue_filer.py reclassified as live-but-always-dead (imported by monitor.py:35, called in action=="issue" branch at monitor.py:669, per decision_maker.py:67,127,158 vocabulary), (2) corrected pipeline.py line ranges (_teardown_phase_overseer:792-821, _check_and_respawn_overseer:520-596 with spawner at 618, _make_overseer_teardown_hook:20864-20900), (3) flagged issue text's stale agent_inspector Tier-2 claim, (4) added Two-monitor architecture section showing orchestrator-side monitor.py does not invoke advisor while sandbox-side overseer_monitor.py does, (5) promoted generation-token to research finding with grep evidence. HITL adjustments: dropped cq-1 (detector-design question for planner), kept cq-2 (LLM substrate scope as product-level duplicate-filing commitment), added cq-3 (action=="issue" orphaned branch: delete/re-route/preserve scope question), removed feedback-1 (answerable by grep). Contract registration verified via egg-contract show.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 81a4a1d0-c61c-4d
+phase: refine
+metadata:
+  payload:
+    summary: 'Revised refine-phase analysis addressing reviewer_refine NACK cycle
+      1. Accuracy fixes: (1) issue_filer.py reclassified as live-but-always-dead (imported
+      by monitor.py:35, called in action=="issue" branch at monitor.py:669, per decision_maker.py:67,127,158
+      vocabulary), (2) corrected pipeline.py line ranges (_teardown_phase_overseer:792-821,
+      _check_and_respawn_overseer:520-596 with spawner at 618, _make_overseer_teardown_hook:20864-20900),
+      (3) flagged issue text''s stale agent_inspector Tier-2 claim, (4) added Two-monitor
+      architecture section showing orchestrator-side monitor.py does not invoke advisor
+      while sandbox-side overseer_monitor.py does, (5) promoted generation-token to
+      research finding with grep evidence. HITL adjustments: dropped cq-1 (detector-design
+      question for planner), kept cq-2 (LLM substrate scope as product-level duplicate-filing
+      commitment), added cq-3 (action=="issue" orphaned branch: delete/re-route/preserve
+      scope question), removed feedback-1 (answerable by grep). Contract registration
+      verified via egg-contract show.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/2270-analysis.md
+    risk_considered: ''
+    commit_sha: 0a7a00c73f8467e717389b609598cb79f753789b
+    files_changed:
+    - .egg-state/drafts/2270-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 2
+  commit_sha: 0a7a00c73f8467e717389b609598cb79f753789b
+````
+
+### [2026-05-31T04:55:43Z] orchestrator → reviewer_agent_design (CONSENSUS_RE_REVIEW): Re-review required: refiner submitted new proposal v2
+
+Producer refiner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 8514987c6cab0b84093632ca73a21b4bb30b66d3..0a7a00c73f8467e717389b609598cb79f753789b --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`8514987c6cab0b84093632ca73a21b4bb30b66d3..0a7a00c73f8467e717389b609598cb79f753789b`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`8514987c6cab0b84093632ca73a21b4bb30b66d3..0a7a00c73f8467e717389b609598cb79f753789b`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 5eb546d8-c349-46
+phase: refine
+metadata:
+  producer_role: refiner
+  version: 2
+````
+
+### [2026-05-31T04:55:43Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: aee77432-da8d-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:55:43Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 7c36a681-1b9f-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:56:18Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Revised refine-phase analysis addressing reviewer_refine NACK cycle 1. Accuracy fixes: (1) issue_filer.py reclassified as live-but-always-dead (imported by monitor.py:35, called in action=="issue" branch at monitor.py:669, per decision_maker.py vocabulary at lines 67/127/158), (2) corrected pipeline.py line ranges (_teardown_phase_overseer at 792-821, _check_and_respawn_overseer at 520-596 with spawner re-invocation at 618, _make_overseer_teardown_hook at 20864-20900), (3) flagged issue text's stale agent_inspector Tier-2 claim as false for current source tree, (4) added two-monitor architecture section showing orchestrator-side monitor.py does not invoke advisor while sandbox-side overseer_monitor.py does (with should_consult_advisor gates), (5) promoted generation-token question to research finding with grep evidence showing no existing primitive. HITL adjustments: dropped cq-1 (detector-design question belonging to planner), kept cq-2 sharpened to scope-only (LLM substrate per-pipeline vs cluster-wide duplicate-filing commitment), added cq-3 for orphaned action=="issue" branch scope question (delete/re-route/preserve product-reliability judgment), removed feedback-1 (answerable by grep). Contract registration verified via egg-contract show showing cq-1/cq-2/feedback-1 pending; cq-3 added in this revision.
+
+**Adversarial re-review**
+
+**Your v3 review has TWO equal-weight mandates:**
+
+1. **Verify named v2 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v2 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v3 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v3 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v2 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 7c21b28b-faa3-45
+phase: refine
+metadata:
+  payload:
+    summary: 'Revised refine-phase analysis addressing reviewer_refine NACK cycle
+      1. Accuracy fixes: (1) issue_filer.py reclassified as live-but-always-dead (imported
+      by monitor.py:35, called in action=="issue" branch at monitor.py:669, per decision_maker.py
+      vocabulary at lines 67/127/158), (2) corrected pipeline.py line ranges (_teardown_phase_overseer
+      at 792-821, _check_and_respawn_overseer at 520-596 with spawner re-invocation
+      at 618, _make_overseer_teardown_hook at 20864-20900), (3) flagged issue text''s
+      stale agent_inspector Tier-2 claim as false for current source tree, (4) added
+      two-monitor architecture section showing orchestrator-side monitor.py does not
+      invoke advisor while sandbox-side overseer_monitor.py does (with should_consult_advisor
+      gates), (5) promoted generation-token question to research finding with grep
+      evidence showing no existing primitive. HITL adjustments: dropped cq-1 (detector-design
+      question belonging to planner), kept cq-2 sharpened to scope-only (LLM substrate
+      per-pipeline vs cluster-wide duplicate-filing commitment), added cq-3 for orphaned
+      action=="issue" branch scope question (delete/re-route/preserve product-reliability
+      judgment), removed feedback-1 (answerable by grep). Contract registration verified
+      via egg-contract show showing cq-1/cq-2/feedback-1 pending; cq-3 added in this
+      revision.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/2270-analysis.md
+    risk_considered: ''
+    commit_sha: 0a7a00c73f8467e7173892cb79f753789b609598
+    files_changed:
+    - .egg-state/drafts/2270-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 3
+  commit_sha: 0a7a00c73f8467e7173892cb79f753789b609598
+````
+
+### [2026-05-31T04:56:22Z] reviewer_refine (OVERSEER_ALERT): agent-restart [medium]
+
+Agent reviewer_refine restart 1/3
+
+Detail:
+Consensus-wrapper restarted agent after a clean/transient exit without reaching CONFIRMED. After 3 restarts the pipeline will be marked FAILED (issue #2806).
+
+````yaml
+id: ba0fca31-b49c-48
+phase: refine
+````
+
+### [2026-05-31T04:56:50Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 274bb4ce-2761-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:56:27.766463+00:00'
+````
+
+### [2026-05-31T04:56:50Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 950ea05b-84fb-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:56:58Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: dbfdd092-465f-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:56:58.826228+00:00'
+````
+
+### [2026-05-31T04:57:28Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+## Mandate 1: Verified v1 blockers addressed
+
+The v1 draft had factual inaccuracies in line references. The v2/v3 drafts correctly address all of them:
+
+1. **monitor.py line count**: changed from "~2050 lines" to "2024 lines (verified via `wc -l`)" — confirmed correct (verified: `wc -l orchestrator/overseer/monitor.py` = 2024).
+
+2. **issue_filer.py classification**: v1 called it "dead code"; v2 now correctly identifies it as "live-but-always-dead" with full evidence chain: imported by `monitor.py:35`, called at `monitor.py:669` in the `action == "issue"` branch (lines 665-674), in the decision-maker vocabulary (`decision_maker.py:67`). Verified all references exist in source.
+
+3. **Line numbers for teardown sites**: v2/v3 correct and precise ranges over v1.
+
+4. **Two-monitor architecture**: v2 added a new section (lines 28-36) correctly distinguishing orchestrator-side `monitor.py` from sandbox-side `overseer_monitor.py` (803 lines, file-issue path with tier-1 gate). Architectural clarity was missing in v1 and is critical for agent-mode design.
+
+5. **agent_inspector Tier-2 claim**: v2 adds a "Note on the issue text's stale Tier-2 claim" (line 46) correctly stating that no `agent_inspector` exists. Verified: only `tier1/` exists under `orchestrator/health_checks/`; grep for `agent_inspector` returns only references in `types.py`, `runner.py`, and README — not a registration.
+
+6. **Generation token primitive**: v2 adds a dedicated research finding (lines 67-72) correctly stating the orchestrator exposes no generation token. Verified: grep for `boot_time`, `boot_timestamp`, `pod_uid`, `generation_token` in orchestrator/ (excluding tests) returns zero production hits.
+
+## Mandate 2: Audited delta for new agent-mode design issues
+
+Reviewed the full v3 draft (216 lines) against the 8 anti-patterns:
+
+**Verified absent in this reviewer's lens:**
+- No excessive pre-fetching (no large diffs or full file contents baked into prompts)
+- No structured-output-for-humans (analysis is orienting context, not a JSON-demanding prompt)
+- No post-processing pipelines (no scripts parsing agent output)
+- No rigid procedures (HITL decisions cq-2 and cq-3 are scope/product-commitment questions, not micromanaged steps)
+- No prompt-level security (defense-in-depth secret scrubbing is infrastructure-enforced)
+- No direct LLM API calls outside sandbox (advisor invoked via sandbox-side CLI; orchestrator-side monitor does not call Anthropic API directly — verified via grep on `shared/egg_overseer/advisor.py` returning zero `anthropic`/`httpx`/`requests` matches)
+- No direct API calls bypassing Agent SDK
+- No hardcoded model identifiers (uses "Haiku", "Sonnet", "Opus" throughout — consistent with EGG201)
+
+**New issues introduced by v3 delta over v2:** None observable — same commit SHA `0a7a00c73`. Summary-level re-framing only.
+
+**Non-blocking observations:**
+- cq-3 HITL decision about the orphaned `action == "issue"` branch is correctly scoped as a scope-and-reliability-guarantee question the operator must answer.
+- The two-monitor architecture clarification is load-bearing for the plan phase — planner must respect the boundary between orchestrator-side corrective actions and sandbox-side tier-1 gate / file-issue path.
+
+Both mandates pass. The draft is factually accurate, architecturally sound, and free of agent-mode design anti-patterns.
+
+````yaml
+id: 0d98e734-b6db-48
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2270-analysis.md
+    - orchestrator/overseer/monitor.py
+    - orchestrator/overseer/issue_filer.py
+    - orchestrator/overseer/decision_maker.py
+    - orchestrator/health_checks/
+    reason: "## Mandate 1: Verified v1 blockers addressed\n\nThe v1 draft had factual\
+      \ inaccuracies in line references. The v2/v3 drafts correctly address all of\
+      \ them:\n\n1. **monitor.py line count**: changed from \"~2050 lines\" to \"\
+      2024 lines (verified via `wc -l`)\" \u2014 confirmed correct (verified: `wc\
+      \ -l orchestrator/overseer/monitor.py` = 2024).\n\n2. **issue_filer.py classification**:\
+      \ v1 called it \"dead code\"; v2 now correctly identifies it as \"live-but-always-dead\"\
+      \ with full evidence chain: imported by `monitor.py:35`, called at `monitor.py:669`\
+      \ in the `action == \"issue\"` branch (lines 665-674), in the decision-maker\
+      \ vocabulary (`decision_maker.py:67`). Verified all references exist in source.\n\
+      \n3. **Line numbers for teardown sites**: v2/v3 correct and precise ranges over\
+      \ v1.\n\n4. **Two-monitor architecture**: v2 added a new section (lines 28-36)\
+      \ correctly distinguishing orchestrator-side `monitor.py` from sandbox-side\
+      \ `overseer_monitor.py` (803 lines, file-issue path with tier-1 gate). Architectural\
+      \ clarity was missing in v1 and is critical for agent-mode design.\n\n5. **agent_inspector\
+      \ Tier-2 claim**: v2 adds a \"Note on the issue text's stale Tier-2 claim\"\
+      \ (line 46) correctly stating that no `agent_inspector` exists. Verified: only\
+      \ `tier1/` exists under `orchestrator/health_checks/`; grep for `agent_inspector`\
+      \ returns only references in `types.py`, `runner.py`, and README \u2014 not\
+      \ a registration.\n\n6. **Generation token primitive**: v2 adds a dedicated\
+      \ research finding (lines 67-72) correctly stating the orchestrator exposes\
+      \ no generation token. Verified: grep for `boot_time`, `boot_timestamp`, `pod_uid`,\
+      \ `generation_token` in orchestrator/ (excluding tests) returns zero production\
+      \ hits.\n\n## Mandate 2: Audited delta for new agent-mode design issues\n\n\
+      Reviewed the full v3 draft (216 lines) against the 8 anti-patterns:\n\n**Verified\
+      \ absent in this reviewer's lens:**\n- No excessive pre-fetching (no large diffs\
+      \ or full file contents baked into prompts)\n- No structured-output-for-humans\
+      \ (analysis is orienting context, not a JSON-demanding prompt)\n- No post-processing\
+      \ pipelines (no scripts parsing agent output)\n- No rigid procedures (HITL decisions\
+      \ cq-2 and cq-3 are scope/product-commitment questions, not micromanaged steps)\n\
+      - No prompt-level security (defense-in-depth secret scrubbing is infrastructure-enforced)\n\
+      - No direct LLM API calls outside sandbox (advisor invoked via sandbox-side\
+      \ CLI; orchestrator-side monitor does not call Anthropic API directly \u2014\
+      \ verified via grep on `shared/egg_overseer/advisor.py` returning zero `anthropic`/`httpx`/`requests`\
+      \ matches)\n- No direct API calls bypassing Agent SDK\n- No hardcoded model\
+      \ identifiers (uses \"Haiku\", \"Sonnet\", \"Opus\" throughout \u2014 consistent\
+      \ with EGG201)\n\n**New issues introduced by v3 delta over v2:** None observable\
+      \ \u2014 same commit SHA `0a7a00c73`. Summary-level re-framing only.\n\n**Non-blocking\
+      \ observations:**\n- cq-3 HITL decision about the orphaned `action == \"issue\"\
+      ` branch is correctly scoped as a scope-and-reliability-guarantee question the\
+      \ operator must answer.\n- The two-monitor architecture clarification is load-bearing\
+      \ for the plan phase \u2014 planner must respect the boundary between orchestrator-side\
+      \ corrective actions and sandbox-side tier-1 gate / file-issue path.\n\nBoth\
+      \ mandates pass. The draft is factually accurate, architecturally sound, and\
+      \ free of agent-mode design anti-patterns."
+    ack_version: 3
+  version: 3
+````
+
+### [2026-05-31T04:57:28Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 6c69faf2-d867-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:57:42Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK
+
+````yaml
+id: 8930e8a9-5951-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:57:42.718721+00:00'
+````
+
+### [2026-05-31T04:57:47Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: de95478e-c957-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:57:47.718752+00:00'
+````
+
+### [2026-05-31T04:57:47Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 33a393fb-9999-43
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:58:03Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: c64e303e-c5ac-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:58:03.577498+00:00'
+````
+
+### [2026-05-31T04:58:19Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+v3 content (commit 0a7a00c73f) previously reviewed as v2 and found comprehensive. Key improvements verified: (1) corrected inaccurate Tier-2 agent_inspector claim, properly framed as greenfield; (2) distinguished orchestrator-side vs sandbox-side monitor architecture — load-bearing for signal routing; (3) researched generation-token primitive absence, marked as prerequisite to ship; (4) refined issue_filer.py from "dead code" to "live-but-always-dead" with reachable path analysis at monitor.py:665-674; (5) HITL decisions narrowed to scope/product-commitment questions only; (6) all file:line references verified against current source. Analysis gives the planner clear seams (lifecycle, signal-wiring, primitive extraction, dead-code deletion), accurate constraints, and a well-reasoned Option D recommendation with deletion-first bias within each seam.
+
+````yaml
+id: d1018a04-2fb2-42
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2270-analysis.md
+    reason: "v3 content (commit 0a7a00c73f) previously reviewed as v2 and found comprehensive.\
+      \ Key improvements verified: (1) corrected inaccurate Tier-2 agent_inspector\
+      \ claim, properly framed as greenfield; (2) distinguished orchestrator-side\
+      \ vs sandbox-side monitor architecture \u2014 load-bearing for signal routing;\
+      \ (3) researched generation-token primitive absence, marked as prerequisite\
+      \ to ship; (4) refined issue_filer.py from \"dead code\" to \"live-but-always-dead\"\
+      \ with reachable path analysis at monitor.py:665-674; (5) HITL decisions narrowed\
+      \ to scope/product-commitment questions only; (6) all file:line references verified\
+      \ against current source. Analysis gives the planner clear seams (lifecycle,\
+      \ signal-wiring, primitive extraction, dead-code deletion), accurate constraints,\
+      \ and a well-reasoned Option D recommendation with deletion-first bias within\
+      \ each seam."
+    ack_version: 3
+  version: 3
+````
+
+### [2026-05-31T04:58:19Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 3) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: beb5de5e-6f80-45
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 3
+````
+
+### [2026-05-31T04:58:19Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a4618afc-4d79-46
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:58:34Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: f671d1be-4710-48
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-31T04:58:53Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 154c7dfe-b4f7-4f
+phase: refine
+metadata:
+  consensus_reached: true
+````
+
+### [2026-05-31T04:58:53Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 48019adb-a710-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-31T04:58:55Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+````yaml
+id: e8097432-0b19-44
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: refiner
+````
