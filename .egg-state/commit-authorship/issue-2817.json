@@ -111,6 +111,13 @@
       "registered_at": "2026-05-31T00:24:26.054853+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_plan"
+    },
+    "f5debe9e2c15905ea10cd000c407ca875dc38798": {
+      "branch": "egg/issue-2817/work",
+      "pipeline_id": "issue-2817",
+      "registered_at": "2026-05-31T00:53:34.674665+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_plan"
     }
   },
   "version": 1
