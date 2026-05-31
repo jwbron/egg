@@ -1,0 +1,258 @@
+slices:
+  - id: 1
+    name: |-
+      WS0 de-risking spike — event-pump prototype + Qwen cache TTL measurement on #2906 repro
+    goal: |-
+      Empirically validate the event-pump approach end-to-end
+      before committing to the production rewrite. Build a
+      minimal throwaway wrapper that loops `claude -p` per
+      BRC event against the existing `egg-orch message
+      wait-loop` + existing MCP tool surface, and run it on
+      the #2906 reproducer (issue-2270, qwen3.7-max). Three
+      gating outputs land in this slice as a `docs/spike/`
+      report (architect/doc-updater write-scoped): (a)
+      consensus reached without the 3-restart churn that
+      motivated this issue, with bounded per-event context
+      and memory file populated + consulted; (b) Qwen-route
+      provider-cache survival measurement across the full
+      worst-case BRC idle (~15 min target — observed BRC
+      idles reached 10-13 min for a producer composing a
+      response to a NACK), sourced from the litellm /
+      `cost_callback` state files (`~/.local/state/clm/
+      cost-*.json`) because Claude Code's `usage.*` returns
+      all-zero on the Qwen route; (c) per-event cold-read
+      cost on the Qwen route across consecutive per-event
+      invocations and across the injected long idle, used by
+      slice-6 to decide whether bounded keep-warm is needed.
+      Anthropic-route TTL is already cleared in #2908's WS7
+      empirical comment (1h, env in uncached suffix) — no
+      additional measurement needed there. The spike's
+      prototype is throwaway; nothing it writes is shipped
+      to production code paths. Findings shape slice-2
+      next-action endpoint and slice-6 cache decisions but
+      do not block slice-2/3/4/5 design — those proceed in
+      parallel to the spike where possible. The spike runs
+      first because it is the cheapest way to falsify the
+      design.
+  - id: 2
+    name: |-
+      Server-side next-action endpoint + net-new CLI verbs + durable HITL/safety-budget persistence
+    goal: |-
+      Land the additive primitives the production event-pump
+      consumes, all on the orchestrator + sandbox/egg_lib
+      side, with zero behavior change to the existing
+      consensus_wrapper or agent prompt. Three foundation
+      pieces in one slice because they share file categories
+      (orchestrator routes, sandbox CLI, contract schema):
+      (a) `consensus next-action --role R` HTTP endpoint on
+      the orchestrator that returns the next action the
+      role should take (review/ACK/NACK/propose/confirm/wait
+      vs. all-confirmed) — judgment stays in the agent, the
+      endpoint owns sequencing only; if `egg-orch consensus
+      status --json` already exposes enough, extend it
+      instead of adding a new verb; (b) the net-new CLI
+      verbs the event-pump-driven handler invokes —
+      `egg-orch brc list-blocking` (today only reachable
+      via `mcp__brc__list_blocking`), `egg-contract
+      get-context` (today only `mcp__phase__get_context`),
+      `egg-orch brc next-action` (or whichever surface
+      matches (a)), plus `egg-orch consensus check`
+      idempotent recovery helpers if the wait-loop handler
+      needs them — all using `_handler_dispatch` so they
+      share the existing MCP handlers (no logic
+      duplication, satisfies the existing
+      tests/tools/test_mcp_cli_drift.py invariant); (c)
+      durable server-side persistence schema for two new
+      state surfaces required by cq-3 — `pipeline.no_progress_budget` and the parked-HITL state needed to survive
+      SDLC-host failure. These land on the contract store
+      schema (`.egg-state/contracts/<pid>.json`) and are
+      bumped via the existing schemaVersion migrator
+      pattern. No consumers wired yet — purely additive
+      schema and CLI/endpoint surface. Hard constraint
+      inherited from cq-1: do NOT delete or modify any of
+      the 28 agent-facing MCP tools in this slice; the
+      collapse is a follow-up issue. Hard constraint
+      inherited from WS8 in the issue body: any new
+      `consensus propose/ack/nack` prose-bearing CLI inputs
+      added here MUST accept text via stdin or a file path,
+      never argv (regression guard against #2741 — the Bash
+      `bash -c` shell-metachar corruption that motivated
+      the existing prose-via-file pattern).
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      `brc-memory.md` artifact + brc_ack/brc_nack handler memory-write scaffolding
+    goal: |-
+      Define the durable per-role memory file that carries
+      continuity between per-event `claude -p` invocations
+      and wire its writes into the handler layer that
+      already runs on every ACK/NACK. Three pieces: (a) the
+      file format itself — markdown with structured
+      sections (codebase/change model, per-producer
+      assessment, decision log) anchored by stable headings
+      so the agent can read-modify-write deterministically;
+      written to `.egg-state/agent-outputs/<role>/
+      brc-memory.md` (existing allowlist covers this prefix
+      per shared/egg_restrictions/patterns.py:362-484, no
+      allowlist tweak needed); (b) handler scaffolding in
+      sandbox/egg_agent_tools/handlers/brc.py: brc_ack and
+      brc_nack already receive `reason` + `files_reviewed`
+      from the agent, so the handler appends a structured
+      entry to the memory file on each ACK/NACK rather than
+      leaving curation to the model — mitigates the
+      curation-reliability risk the issue body flags; (c)
+      ephemeral-vs-durable retention treatment (refine
+      feedback Q2): brc-memory.md is treated as ephemeral
+      coordination state cleaned up with the pod; the
+      orchestrator message history (already durable) is the
+      reconstruction backstop. The hard caveat from refine
+      Q2 stands: if implement-time evidence shows the
+      memory file is load-bearing for correct recovery
+      after a host/pod restart, this slice must be revisited
+      and the artifact made durable instead. The memory
+      shape (append-only vs rewrite-and-distill — open
+      decision #1 in the issue body) is decided in this
+      slice against the spike findings from slice-1: if the
+      Qwen-route cache survives long enough for delta
+      analysis to dominate prefix-cache cost, choose
+      rewrite-and-distill (bounded growth); otherwise
+      append-only with a tail compaction. No consumer
+      changes yet — the wrapper still drives the agent the
+      old way, the agent just additionally maintains its
+      memory file on each ACK/NACK so by the time slice-4
+      lands the memory file is already populated for the
+      first per-event invocation.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Event-pump consensus_wrapper + wrapper-side liveness migration + safety-budget consumer + legacy deletion
+    goal: |-
+      The central control-flow rewrite. The wrapper becomes
+      a deterministic event pump: blocks on `egg-orch
+      message wait-loop`, invokes `claude -p "<event>"` per
+      actionable event with the cached prefix + the memory
+      file from slice-3 + the one event payload, and loops
+      until the orchestrator reports the role
+      consensus-confirmed and the pipeline is complete.
+      Four tightly-coupled pieces because they cannot ship
+      separately without breaking the agent's
+      observable behavior: (a) WS1 — rewrite
+      orchestrator/consensus_wrapper.py
+      (`_CONSENSUS_WRAPPER_TEMPLATE` lines 116-713) as the
+      event pump; clean agent exit after handling one event
+      is now expected, NOT a restart trigger; delete the
+      `MAX_CONSENSUS_RESTARTS = 3` cap and the entire
+      restart-with-`_RECOVERY_SYSTEM_PROMPT` path
+      (consensus_wrapper.py:38 + lines 555-695 + lines
+      64-99) — cq-4 mandates the old path is deleted
+      entirely with no flagged fallback at any point in
+      this issue; (b) WS4 — move heartbeat + gateway-
+      session keep-alive ownership from the agent's
+      message_wait_loop (sandbox/egg_agent_tools/handlers/
+      message.py:175 + lines 234-264, the
+      `_start_wait_loop_heartbeat` ticker that fires every
+      `_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS = 60s`) to the
+      wrapper's wait, because the agent's wait_loop no
+      longer holds the long wait — the wrapper does;
+      orchestrator/health_monitor.py's heartbeat-threshold
+      consumer (120s default / 600s implement,
+      health_monitor.py:771) is unchanged; (c) safety-
+      budget consumer wired against the durable
+      `pipeline.no_progress_budget` field landed in
+      slice-2 — when exhausted, fire OVERSEER_ALERT +
+      open a HITL decision (resume/abort) using the
+      durable parked-HITL state from slice-2; on host
+      death + restart, the wrapper re-reads the durable
+      state and resumes monitoring the same budget
+      (HARD requirement from cq-3); (d) the SSE
+      consensus.reached stream consumer
+      (consensus_wrapper.py:419-501) and the
+      `check_confirmed_and_wait` blocking path
+      (consensus_wrapper.py:397-548) collapse to a single
+      `egg-orch consensus check` invocation against the
+      slice-2 endpoint — no SSE in the wrapper any more;
+      orchestrator/sse.py:111 (SSEClientManager) stays for
+      the operator-facing stream surface (out of scope per
+      cq-1). orchestrator/concurrent_executor.py:37 import
+      of `build_consensus_wrapped_command` is rewired to
+      the new template. The minimal agent-prompt change
+      required for this slice to ship: drop the
+      stay-alive loop instruction from
+      _build_brc_preamble (orchestrator/routes/
+      pipelines.py:12348) so the agent exits after handling
+      one event — the FULL preamble collapse stays in
+      slice-5. Spike data from slice-1 is referenced here
+      to size the safety-budget thresholds. This slice has
+      the largest blast radius in the issue; the BRC cycle
+      will likely need to subdivide between the orchestrator
+      side and the deletion sweep if the producer hits
+      >3 NACK rounds, but the contract is intentionally
+      one slice because cq-4 forbids retaining the old
+      path through any intermediate state.
+    dependencies: slice-3
+  - id: 5
+    name: |-
+      Prompt collapse + delta-scoped re-analysis
+    goal: |-
+      Now that the wrapper drives the loop, retire the
+      agent-side mechanics the agent no longer owns. Two
+      coupled pieces (both touch agent prompts and the
+      per-event context payload): (a) WS6 prompt collapse —
+      replace the STAY-ALIVE / wait-loop / cursor-threading
+      / pre-confirm-wait foot-gun text in
+      `_build_brc_preamble`
+      (orchestrator/routes/pipelines.py:12348-12500-ish,
+      called at :13659, :13692, :13720) and in
+      sandbox/agent-config/rules/*.md with a lean
+      event-handler contract: "here is the one event;
+      handle it; exit cleanly; the wrapper handles the
+      rest" plus the few invariants the agent still owns
+      (file-write boundary, prose via stdin/file for
+      propose/ack/nack); also remove the now-redundant
+      `egg-orch message wait-loop` examples from the
+      preamble since the agent no longer calls it; (b) WS5
+      delta-scoped re-analysis — extend the slice-2
+      next-action endpoint to additionally return
+      `changed_artifacts` + version delta + the agent's
+      prior memory file pointer, and update the per-event
+      prompt template to say "evaluate ONLY the named
+      changed_artifacts against the prior memory; do not
+      re-read the codebase / earlier commits / the
+      analysis draft" — bounds per-event context to a
+      delta. The handler-side adapter that fetches the
+      delta lives in sandbox/egg_agent_tools/handlers/
+      brc.py and is wired via the slice-2 net-new CLI
+      verb. No wrapper changes here.
+    dependencies: slice-4
+  - id: 6
+    name: |-
+      Qwen-route bounded keep-warm cache refinement (conditional on slice-1 spike data)
+    goal: |-
+      Decide whether bounded keep-warm is needed on the
+      Qwen route based on the slice-1 spike's measured TTL
+      ceiling, and ship only if needed. Three outcomes
+      possible at the time slice-6 picks up: (a) slice-1
+      data shows the Qwen provider cache survives the full
+      worst-case BRC idle (≥ ~15 min observed worst case)
+      — slice-6 collapses to a docs note in
+      docs/architecture/brc-event-pump.md saying "no
+      keep-warm needed on either route, confirmed by
+      slice-1 measurement", no production code; (b)
+      slice-1 data shows the Qwen cache lapses between 5.5
+      and ~15 min — slice-6 adds a bounded keep-warm to
+      the wrapper (NOT the agent) that fires only on the
+      Qwen route, only during reviewer-parked-on-NACK
+      idles where the wait is approaching the measured
+      TTL, with a hard cap on total refreshes and an
+      explicit suppression while in HITL / awaiting-human
+      waits (which can last hours and would burn Qwen
+      tokens against an event hours away); (c) slice-1
+      data is ambiguous — slice-6 opens a HITL decision
+      asking the operator to choose. Anthropic-route is
+      explicitly out of scope (1h TTL already cleared in
+      the WS7 empirical comment). This slice is a sibling
+      of slice-5 under slice-4 because they are
+      independent cleanups: slice-5 retires agent-side
+      machinery; slice-6 makes a route-specific cost
+      decision. Neither blocks the other.
+    dependencies: slice-4
