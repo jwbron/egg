@@ -51,15 +51,29 @@ slices:
       sandbox/egg_agent_tools/handlers/phase.py:139);
       (d) `egg-orch phase get-assigned-tasks` (handler at
       sandbox/egg_agent_tools/handlers/phase.py);
-      (e) `egg-contract show --field <dotted.path>` argparse flag on
-      the EXISTING `cmd_show` in sandbox/egg_lib/contract_cli.py:342
-      (which already delegates to `handlers/sdlc.show_contract`
-      that already supports `fields=[...]` projection — see
-      sandbox/egg_agent_tools/tools/sdlc.py:79,84,85). This is the
-      mechanism the new event-pump (slice 5) + the wrapper's
-      host-restart recovery (slice 4 + 5) use to read durable
-      `pipeline.no_progress_budget` and `pipeline.decisions`
-      without inventing a new endpoint;
+      (e) Extension to `egg-orch consensus status` (handler
+      `brc_get_state` at sandbox/egg_agent_tools/handlers/brc.py:679+
+      backs onto orchestrator-side `/api/v1/pipelines/<pid>/status`)
+      to carry the durable orchestrator-side Pipeline fields the
+      wrapper needs after host restart: `no_progress_budget`
+      (per-role counter map from Pipeline.no_progress_budget) +
+      `parked_decisions` (the `pipeline parked` HITL decision
+      shape from Pipeline.decisions when present). Additive,
+      backwards-compatible response fields on the existing
+      `/api/v1/pipelines/<pid>/status` endpoint at
+      orchestrator/routes/pipelines.py:3911 + assembled at
+      :4531-4557. CLI shim adds optional `--field <dotted.path>`
+      projection. This replaces the v2 d-13 choice of
+      `egg-contract show --field`, which would have hit the
+      gateway-side SDLC Contract model (shared/egg_contracts/
+      models.py:777 `class Contract`) — wrong substrate. The
+      orchestrator Pipeline (orchestrator/models.py:1053) is a
+      different model in a different store reached via the
+      orchestrator HTTP API, not the gateway's
+      `/api/v1/contract/<id>` (which is what `cmd_show` /
+      `handlers/sdlc.show_contract` at
+      sandbox/egg_agent_tools/handlers/sdlc.py:301-354 reads via
+      `gateway_request("/api/v1/contract/{id}")` at :336);
       (f) IN-SCOPE for this issue: `egg-orch consensus
       resolve-obligation` shim (handler exists —
       `brc_resolve_obligation` at handlers/brc.py:743). Useful for
@@ -83,13 +97,17 @@ slices:
       CONSENSUS_RE_REVIEW for the role) + pending HITL decisions
       from Pipeline.decisions. Add the matching `egg-orch consensus
       next-action --role R [--slice S] --json` CLI shim. EXPLICIT
-      DUAL-ROLE ORDERING (risk_analyst R-6): when an agent holds
-      both producer and reviewer roles, and their producer-phase is
-      WORKING with proposal_version=0, the endpoint MUST return
-      `action: propose` even if a peer's CONSENSUS_PROPOSE is
-      pending review. Reviewer obligations come AFTER own
-      first-propose for dual-role agents. Encoded as explicit unit
-      tests in orchestrator/tests/test_consensus_next_action.py.
+      DUAL-ROLE ORDERING (risk_analyst R-6 + v2 symmetric-case
+      ask): encode TWO transitions as explicit unit tests in
+      orchestrator/tests/test_consensus_next_action.py:
+      (i) dual-role agent with producer-phase=WORKING AND
+      proposal_version=0 AND a peer's CONSENSUS_PROPOSE pending
+      review → return `action: propose` (producer-first ordering;
+      own first propose precedes reviewer obligations);
+      (ii) dual-role agent with producer-phase past first-propose
+      (proposal_version>=1) AND a peer's CONSENSUS_PROPOSE pending
+      review → return `action: review` (reviewer obligation now
+      binds). The unit-test surface MUST cover both transitions.
       Tracker-reconstructing variant: `{action: wait, reason:
       tracker_reconstructing}` with a small TTL so a post-host-
       restart probe doesn't spin. This endpoint is the brain the
@@ -145,7 +163,12 @@ slices:
       deterministic event-pump bash that invokes
       `egg-orch message wait-loop`, `egg-orch consensus next-action`
       (slice 3), and one-shot `python3 -m egg_agent --memory-file
-      ... --event-json ...` per actionable event.
+      ... --event-json ...` per actionable event. ACCEPTANCE
+      (risk_analyst v2 non-blocking, promoted): the diff for
+      consensus_wrapper.py MUST replace the OLD template at the
+      same line range — i.e. no two templates coexist in the file
+      even transiently. Belt-and-suspenders against a contributor
+      leaving the old template as a comment block.
       (c) SHELL-PROSE CORRUPTION GUARD (risk_analyst BC-2, #2741):
       the per-event prompt + event-json + memory snapshot are all
       LLM-authored prose (NACK reasons, files_reviewed lists,
@@ -216,8 +239,10 @@ slices:
       promoted here so docs co-land with code deletions): after
       deletion, `git grep` for MAX_CONSENSUS_RESTARTS,
       _RECOVERY_SYSTEM_PROMPT, _RECOVERY_USER_PROMPT,
-      check_confirmed_and_wait, "STAY-ALIVE", "wait-loop" (in
-      agent-authored context) across sandbox/agent-config/rules/,
+      check_confirmed_and_wait, "STAY-ALIVE" (in agent-authored
+      context — the prose-only foot-gun that goes obsolete with
+      the wrapper-driven loop), "wait-loop" (in agent-authored
+      context) across sandbox/agent-config/rules/,
       docs/architecture/orchestrator.md,
       docs/guides/concurrent-execution.md,
       docs/reference/orchestrator-cli.md,
