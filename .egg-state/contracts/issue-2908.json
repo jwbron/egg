@@ -9,15 +9,372 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Should WS8 (collapse the 28 agent-facing MCP tools to CLI) land in this issue, or be split to a follow-up after the core event-pump is proven?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Land WS8 in this issue (collapses prompt + action surface in one pass; larger blast radius but more deletion)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Split WS8 to a follow-up (smaller core change; ships event-pump first, MCP collapse after the new control flow is validated in production)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Land WS8 partially in this issue (only the net-new CLI commands needed by WS3 \u2014 get-state, list-blocking, get-context \u2014 and the deletion of MCP tools with existing CLI parity; defer prose-bearing propose/ack/nack collapse to a follow-up so the #2741 stdin/file-path rule can be designed separately)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "If the WS0 spike shows the Qwen-route provider cache TTL is materially worse than the Anthropic route, how should v1 ship?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship v1 with the Qwen route enabled and a keep-warm loop sized to the measured provider-cache TTL (full route parity at the cost of a recurring keep-warm token spend)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship v1 with the Qwen route gated off behind a per-route flag (Anthropic route gets the durable fix immediately; Qwen route stays on the old capped-restart path until keep-warm or a provider TTL change makes it economical)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Block v1 on Qwen-route cache validation (no ship until the Qwen route's per-event cost is within the operator's per-cycle budget; treat the Anthropic route's measured-clear status as not enough to justify a partial rollout)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "What is the desired terminal state when the new safety budget (replacing the 3-restart FAIL cap) is exhausted?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "OVERSEER_ALERT only; pipeline keeps running indefinitely (operator must intervene to stop it; suits the 'no-progress' interpretation where there is nothing wrong, just nothing happening)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hard FAIL after a configurable wall-clock cap (preserves the #2806 'producer permanent death \u2192 FAILED' semantics but on time rather than restart count)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "How long should the old capped-restart wrapper path be retained behind a flag after the new event-pump path lands?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Until the next release tag, then delete (forcing-function for full migration; smallest carrying cost)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Until N successful pipelines complete on the new path (e.g. 50) without any new restart-related alerts, then delete (data-driven)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Indefinitely as a configurable opt-out (operator can always escape-hatch to the legacy path; largest carrying cost but lowest risk)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-31T19:50:48.010906Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Should WS8 (collapse the 28 agent-facing MCP tools to CLI) land in this issue, or be split to a follow-up after the core event-pump is proven?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Land WS8 in this issue (collapses prompt + action surface in one pass; larger blast radius but more deletion)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Split WS8 to a follow-up (smaller core change; ships event-pump first, MCP collapse after the new control flow is validated in production)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Land WS8 partially in this issue (only the net-new CLI commands needed by WS3 \u2014 get-state, list-blocking, get-context \u2014 and the deletion of MCP tools with existing CLI parity; defer prose-bearing propose/ack/nack collapse to a follow-up so the #2741 stdin/file-path rule can be designed separately)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should WS8 (collapse the 28 agent-facing MCP tools...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:02.610492Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "If the WS0 spike shows the Qwen-route provider cache TTL is materially worse than the Anthropic route, how should v1 ship?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship v1 with the Qwen route enabled and a keep-warm loop sized to the measured provider-cache TTL (full route parity at the cost of a recurring keep-warm token spend)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship v1 with the Qwen route gated off behind a per-route flag (Anthropic route gets the durable fix immediately; Qwen route stays on the old capped-restart path until keep-warm or a provider TTL change makes it economical)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Block v1 on Qwen-route cache validation (no ship until the Qwen route's per-event cost is within the operator's per-cycle budget; treat the Anthropic route's measured-clear status as not enough to justify a partial rollout)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: If the WS0 spike shows the Qwen-route provider cac...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:03.130568Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "What is the desired terminal state when the new safety budget (replacing the 3-restart FAIL cap) is exhausted?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "OVERSEER_ALERT only; pipeline keeps running indefinitely (operator must intervene to stop it; suits the 'no-progress' interpretation where there is nothing wrong, just nothing happening)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hard FAIL after a configurable wall-clock cap (preserves the #2806 'producer permanent death \u2192 FAILED' semantics but on time rather than restart count)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the desired terminal state when the new sa...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:15.112902Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "How long should the old capped-restart wrapper path be retained behind a flag after the new event-pump path lands?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Until the next release tag, then delete (forcing-function for full migration; smallest carrying cost)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Until N successful pipelines complete on the new path (e.g. 50) without any new restart-related alerts, then delete (data-driven)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Indefinitely as a configurable opt-out (operator can always escape-hatch to the legacy path; largest carrying cost but lowest risk)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How long should the old capped-restart wrapper pat...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:15.633452Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 2 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
