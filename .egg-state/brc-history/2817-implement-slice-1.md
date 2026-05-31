@@ -1,0 +1,3539 @@
+# BRC Consensus History — implement phase, slice-1
+
+Generated: 2026-05-31T04:12:16Z
+Pipeline: issue-2817
+Slice: slice-1
+
+### [2026-05-31T03:51:05Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 3fbb112d-d60e-4c
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:04.239772+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:51:32Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: c0a9d407-0c9f-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:10.969825+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:51:57Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 16dad2e3-fded-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:36.189544+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:51:57Z] tester (HEARTBEAT): heartbeat: WORKING
+
+Tester for slice-1 (docs-only slice). 5/6 tasks are documenter, 1/6 is coder editing scripts/file-size-allowlist.yaml comment block. No source-code behavior change → no new tests warranted. Preparing to run make lint/test/security against the diff once coder/documenter commit; will propose with attestation.no_test_changes_needed=true (#2431).
+
+````yaml
+id: 6bdcfe3d-dd7e-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:51:57Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 696604ba-8b94-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:55.150118+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:52:24Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 714f0d8d-ed04-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:04.239772+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:52:26Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: d4466d99-1058-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:10.969825+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:52:49Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT,HANDOFF
+
+````yaml
+id: 86b058ea-e5e2-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:52:30.142471+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:52:51Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 1ba3ffab-69f4-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:36.189544+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:52:58Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 7ff5ce75-6242-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:55.150118+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:21Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: f1070dba-1297-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:04.239772+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:26Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 935a5b41-60df-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:10.969825+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:45Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT,HANDOFF
+
+````yaml
+id: ed21f81e-0e23-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:52:30.142471+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:51Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a4189679-531b-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:36.189544+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:54Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 0e47ddf9-975c-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:53:54.170109+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:53:58Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 27d29ff3-610a-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:55.150118+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:21Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: ff61c937-33a4-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:04.239772+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:44Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 63719fa8-385f-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:10.969825+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:45Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT,HANDOFF
+
+````yaml
+id: ee5ef8e4-15c7-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:52:30.142471+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:51Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 0a0d561f-8718-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:36.189544+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:54Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 1978df43-e9d8-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:53:54.170109+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:54:58Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 38f4e3ba-8703-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:55.150118+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:33Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a30288f5-9144-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:04.239772+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:41Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: b220449a-8770-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:10.969825+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:45Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT,HANDOFF
+
+````yaml
+id: 96a94680-9495-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:52:30.142471+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:51Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 8b758f7b-cf19-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:36.189544+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:54Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 41090b98-85e0-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:53:54.170109+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:55:58Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 4a2ade1e-dae0-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:51:55.150118+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+Slice-1 task-1-6: retag the two stale allowlist comment blocks in scripts/file-size-allowlist.yaml to point at #2817. orchestrator/routes/phases.py block: #2261 → #2817 (1 hit), slice-15 → slice-27 (2 hits, both 'cluster' and 'targets' for consistency), `issue: "2261"` → `issue: "2817"`. shared/egg_contracts/plan_parser.py block: #2548 → #2817 (2 hits), #2569 → #2817 (1 hit), `issue: "2548"` → `issue: "2817"`. Historical branch-name `egg/issue-2548/work` preserved verbatim (literal git ref, not a #-tagged issue reference); #2527 and #2777 preserved (out of task scope per task-1-6 wording). Both allowlist entries remain in `files:` map — slice-25 (plan_parser.py decomposition) and slice-27 (phases.py decomposition) will remove them entirely as their closing-criterion contributions. `git diff` is exactly comment + issue-field changes, no entry additions or removals (8 insertions / 8 deletions, single file). Local rebase onto origin/egg/issue-2817/slice-1 dropped 4 pre-existing main-branch commits (#2901/#2900/#2898/#2896) that my coder branch had picked up at boot — their author-attributed paths under README.md / docs/ / orchestrator/tests/ would otherwise trip the coder file-restriction at push time despite being other-authored, so the cleanest fix was to rebase my own retag commit straight on top of the slice-1 plan-phase head a17d1ad03. `python3 scripts/check-file-sizes.py` exits 0 (allowlist parses cleanly; only pre-existing soft-cap warnings emitted, unrelated to this change). Full `make lint` venv-sync was blocked in the sandbox by a transient PyPI TLS failure on mypy==1.19.1 wheel download (UnknownIssuer on files.pythonhosted.org TLS chain) — CI will run the full lint pipeline. Satisfies task-1-6 acceptance: diff shows ONLY comment + `issue:` field changes (no entry additions/removals); both entries still present in `files:` map.
+
+````yaml
+id: c9fd311a-9894-48
+phase: implement
+metadata:
+  payload:
+    summary: "Slice-1 task-1-6: retag the two stale allowlist comment blocks in scripts/file-size-allowlist.yaml\
+      \ to point at #2817. orchestrator/routes/phases.py block: #2261 \u2192 #2817\
+      \ (1 hit), slice-15 \u2192 slice-27 (2 hits, both 'cluster' and 'targets' for\
+      \ consistency), `issue: \"2261\"` \u2192 `issue: \"2817\"`. shared/egg_contracts/plan_parser.py\
+      \ block: #2548 \u2192 #2817 (2 hits), #2569 \u2192 #2817 (1 hit), `issue: \"\
+      2548\"` \u2192 `issue: \"2817\"`. Historical branch-name `egg/issue-2548/work`\
+      \ preserved verbatim (literal git ref, not a #-tagged issue reference); #2527\
+      \ and #2777 preserved (out of task scope per task-1-6 wording). Both allowlist\
+      \ entries remain in `files:` map \u2014 slice-25 (plan_parser.py decomposition)\
+      \ and slice-27 (phases.py decomposition) will remove them entirely as their\
+      \ closing-criterion contributions. `git diff` is exactly comment + issue-field\
+      \ changes, no entry additions or removals (8 insertions / 8 deletions, single\
+      \ file). Local rebase onto origin/egg/issue-2817/slice-1 dropped 4 pre-existing\
+      \ main-branch commits (#2901/#2900/#2898/#2896) that my coder branch had picked\
+      \ up at boot \u2014 their author-attributed paths under README.md / docs/ /\
+      \ orchestrator/tests/ would otherwise trip the coder file-restriction at push\
+      \ time despite being other-authored, so the cleanest fix was to rebase my own\
+      \ retag commit straight on top of the slice-1 plan-phase head a17d1ad03. `python3\
+      \ scripts/check-file-sizes.py` exits 0 (allowlist parses cleanly; only pre-existing\
+      \ soft-cap warnings emitted, unrelated to this change). Full `make lint` venv-sync\
+      \ was blocked in the sandbox by a transient PyPI TLS failure on mypy==1.19.1\
+      \ wheel download (UnknownIssuer on files.pythonhosted.org TLS chain) \u2014\
+      \ CI will run the full lint pipeline. Satisfies task-1-6 acceptance: diff shows\
+      \ ONLY comment + `issue:` field changes (no entry additions/removals); both\
+      \ entries still present in `files:` map."
+    attestation: {}
+    artifacts:
+    - scripts/file-size-allowlist.yaml
+    risk_considered: "Risk: a heavier-handed substitution (e.g. also rewriting the\
+      \ egg/issue-2548/work branch ref, or 'slice-1' / #2527 / #2777 mentions) would\
+      \ either break a literal git ref pointer or rewrite text outside task-1-6's\
+      \ stated scope. Mitigation: limited the substitution to exactly the `#NNNN`-style\
+      \ issue references task-1-6 enumerated (#2261, #2548, #2569) plus the explicit\
+      \ 'slice-15 \u2192 slice-27' instruction. The second 'slice-15' occurrence (`other\
+      \ slice-15 targets`) was updated alongside the first (`slice-15 cluster`) for\
+      \ internal consistency \u2014 task-1-6 calls out 'slice-15 cluster' explicitly\
+      \ but the second occurrence refers to the same conceptual cluster; leaving it\
+      \ as 'slice-15' would create an internally inconsistent comment block. Risk:\
+      \ `make lint` could not complete in the sandbox due to network-level mypy fetch\
+      \ failure; standalone `python3 scripts/check-file-sizes.py` was used as a substitute\
+      \ (exit 0). Risk: rebase changes my commit SHA \u2014 the pre-rebase SHA was\
+      \ linked to task-1-6 first, then overwritten with the post-rebase SHA via mcp__task__add_commit.\
+      \ Risk: by rebasing away the 4 pulled main-branch commits I may have made my\
+      \ branch state inconsistent with the orchestrator's view if it expected a fast-forward\
+      \ push that includes those commits \u2014 mitigated because those commits already\
+      \ exist in main and will be pulled in through the normal merge path when slice-1\
+      \ is integrated."
+    commit_sha: 6be215ab8f993f8b787f645084b3fb66c816d7ad
+    files_changed:
+    - scripts/file-size-allowlist.yaml
+    tests_run: []
+    tasks_satisfied:
+    - task-1-6
+  version: 1
+  commit_sha: 6be215ab8f993f8b787f645084b3fb66c816d7ad
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: fbd55c88-272a-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a6bdc0f0-840a-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: aa93082b-bf5f-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 86537dd2-775e-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] tester (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 6a9776c1-1d75-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:27Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 03b8cb84-2972-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:50Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 338f4dd4-be14-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:56:38.174432+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:50Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 1c1f485b-36af-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:56:35.821644+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:56:51Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 3a6455ef-d88e-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:43Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security lens: ACK.
+
+Reviewed commit 6be215ab8 (`chore(allowlist): retag stale issue refs to #2817 (task-1-6, slice-1)`). Single-file diff against `scripts/file-size-allowlist.yaml`: 8 insertions / 8 deletions, exactly the issue-number retags and adjacent comment text the proposal claims. No additions or removals to the `files:` map; both `orchestrator/routes/phases.py` and `shared/egg_contracts/plan_parser.py` entries remain present and the gating key (the map key) is unchanged.
+
+Security-lens checklist (all clear):
+
+1. **Cross-file allowlist mismatch (§1)** — N/A. `file-size-allowlist.yaml` is a lint allowlist, not an authz/input allowlist. `scripts/check-file-sizes.py:77` documents: "Membership is what gates the lint; the issue field is documentation only." Only the documentation field and adjacent comment strings changed, so no cross-file invariant can flip.
+2. **Handler-vs-validator path mismatch (§2)** — N/A. No handler or validator code in the diff.
+3. **Information-disclosure / authz-bypass (§3)** — N/A. No endpoints, decorators, role tables, or trust-boundary code touched. Comments do not flow to error responses or external sinks.
+4. **Uncommitted-artifact / Dockerfile-symlink mismatches (§4)** — N/A. No Dockerfile, `COPY`, `RUN ln -s`, entry_points, or workflow path strings added. The two retagged allowlist entries point at files that exist on the branch (`orchestrator/routes/phases.py`, `shared/egg_contracts/plan_parser.py`); confirmed `git ls-files` for both.
+5. **Credential-shim modifications under `sandbox/scripts/` (§5)** — N/A. No `sandbox/scripts/` paths in the diff.
+6. **Secret leakage (§6)** — N/A. Diff is whole-token string substitution of issue numbers in YAML comments and `issue:` documentation fields. No secrets, tokens, env-derived values, or identity-bearing data introduced or rewritten.
+7. **Cross-file OWASP top-10 (§7)** — N/A. No source code, no source/sink pairs.
+8. **Agent-supplied path → read-only file access (§8)** — N/A. No new path-handling code; nothing reads a caller-supplied path.
+
+Cross-checked the proposal's preserved-string claims against the diff context:
+- `egg/issue-2548/work` literal git ref preserved verbatim at line 53 ✅
+- `#2527` reference preserved on the same line as the retagged `#2548 → #2817` substitution ✅
+- `#2777` reference (introducing the phases.py block) preserved at line 59 ✅
+- Both entries still keyed in `files:` map (slice-25 / slice-27 are the documented removal slices) ✅
+
+`scripts/check-file-sizes.py` exits 0 per producer's local check; the sandbox PyPI TLS failure on the venv sync does not introduce security exposure (no third-party dependency code path was touched).
+
+No security findings. Approving from the security lens.
+
+````yaml
+id: 7c062ab7-e92e-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Security lens: ACK.\n\nReviewed commit 6be215ab8 (`chore(allowlist):\
+      \ retag stale issue refs to #2817 (task-1-6, slice-1)`). Single-file diff against\
+      \ `scripts/file-size-allowlist.yaml`: 8 insertions / 8 deletions, exactly the\
+      \ issue-number retags and adjacent comment text the proposal claims. No additions\
+      \ or removals to the `files:` map; both `orchestrator/routes/phases.py` and\
+      \ `shared/egg_contracts/plan_parser.py` entries remain present and the gating\
+      \ key (the map key) is unchanged.\n\nSecurity-lens checklist (all clear):\n\n\
+      1. **Cross-file allowlist mismatch (\xA71)** \u2014 N/A. `file-size-allowlist.yaml`\
+      \ is a lint allowlist, not an authz/input allowlist. `scripts/check-file-sizes.py:77`\
+      \ documents: \"Membership is what gates the lint; the issue field is documentation\
+      \ only.\" Only the documentation field and adjacent comment strings changed,\
+      \ so no cross-file invariant can flip.\n2. **Handler-vs-validator path mismatch\
+      \ (\xA72)** \u2014 N/A. No handler or validator code in the diff.\n3. **Information-disclosure\
+      \ / authz-bypass (\xA73)** \u2014 N/A. No endpoints, decorators, role tables,\
+      \ or trust-boundary code touched. Comments do not flow to error responses or\
+      \ external sinks.\n4. **Uncommitted-artifact / Dockerfile-symlink mismatches\
+      \ (\xA74)** \u2014 N/A. No Dockerfile, `COPY`, `RUN ln -s`, entry_points, or\
+      \ workflow path strings added. The two retagged allowlist entries point at files\
+      \ that exist on the branch (`orchestrator/routes/phases.py`, `shared/egg_contracts/plan_parser.py`);\
+      \ confirmed `git ls-files` for both.\n5. **Credential-shim modifications under\
+      \ `sandbox/scripts/` (\xA75)** \u2014 N/A. No `sandbox/scripts/` paths in the\
+      \ diff.\n6. **Secret leakage (\xA76)** \u2014 N/A. Diff is whole-token string\
+      \ substitution of issue numbers in YAML comments and `issue:` documentation\
+      \ fields. No secrets, tokens, env-derived values, or identity-bearing data introduced\
+      \ or rewritten.\n7. **Cross-file OWASP top-10 (\xA77)** \u2014 N/A. No source\
+      \ code, no source/sink pairs.\n8. **Agent-supplied path \u2192 read-only file\
+      \ access (\xA78)** \u2014 N/A. No new path-handling code; nothing reads a caller-supplied\
+      \ path.\n\nCross-checked the proposal's preserved-string claims against the\
+      \ diff context:\n- `egg/issue-2548/work` literal git ref preserved verbatim\
+      \ at line 53 \u2705\n- `#2527` reference preserved on the same line as the retagged\
+      \ `#2548 \u2192 #2817` substitution \u2705\n- `#2777` reference (introducing\
+      \ the phases.py block) preserved at line 59 \u2705\n- Both entries still keyed\
+      \ in `files:` map (slice-25 / slice-27 are the documented removal slices) \u2705\
+      \n\n`scripts/check-file-sizes.py` exits 0 per producer's local check; the sandbox\
+      \ PyPI TLS failure on the venv sync does not introduce security exposure (no\
+      \ third-party dependency code path was touched).\n\nNo security findings. Approving\
+      \ from the security lens."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:43Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 55815d23-f9f3-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:49Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: f3ca9a90-8a46-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:49.918812+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:53Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security lens: ACK.
+
+Reviewed commit 6be215ab8 (`chore(allowlist): retag stale issue refs to #2817 (task-1-6, slice-1)`). Single-file diff against `scripts/file-size-allowlist.yaml`: 8 insertions / 8 deletions, exactly the issue-number retags and adjacent comment text the proposal claims. No additions or removals to the `files:` map; both `orchestrator/routes/phases.py` and `shared/egg_contracts/plan_parser.py` entries remain present and the gating key (the map key) is unchanged.
+
+Security-lens checklist (all clear):
+
+1. **Cross-file allowlist mismatch (§1)** — N/A. `file-size-allowlist.yaml` is a lint allowlist, not an authz/input allowlist. `scripts/check-file-sizes.py:77` documents: "Membership is what gates the lint; the issue field is documentation only." Only the documentation field and adjacent comment strings changed, so no cross-file invariant can flip.
+2. **Handler-vs-validator path mismatch (§2)** — N/A. No handler or validator code in the diff.
+3. **Information-disclosure / authz-bypass (§3)** — N/A. No endpoints, decorators, role tables, or trust-boundary code touched. Comments do not flow to error responses or external sinks.
+4. **Uncommitted-artifact / Dockerfile-symlink mismatches (§4)** — N/A. No Dockerfile, `COPY`, `RUN ln -s`, entry_points, or workflow path strings added. The two retagged allowlist entries point at files that exist on the branch (`orchestrator/routes/phases.py`, `shared/egg_contracts/plan_parser.py`); confirmed `git ls-files` for both.
+5. **Credential-shim modifications under `sandbox/scripts/` (§5)** — N/A. No `sandbox/scripts/` paths in the diff.
+6. **Secret leakage (§6)** — N/A. Diff is whole-token string substitution of issue numbers in YAML comments and `issue:` documentation fields. No secrets, tokens, env-derived values, or identity-bearing data introduced or rewritten.
+7. **Cross-file OWASP top-10 (§7)** — N/A. No source code, no source/sink pairs.
+8. **Agent-supplied path → read-only file access (§8)** — N/A. No new path-handling code; nothing reads a caller-supplied path.
+
+Cross-checked the proposal's preserved-string claims against the diff context:
+- `egg/issue-2548/work` literal git ref preserved verbatim at line 53 ✅
+- `#2527` reference preserved on the same line as the retagged `#2548 → #2817` substitution ✅
+- `#2777` reference (introducing the phases.py block) preserved at line 59 ✅
+- Both entries still keyed in `files:` map (slice-25 / slice-27 are the documented removal slices) ✅
+
+`scripts/check-file-sizes.py` exits 0 per producer's local check; the sandbox PyPI TLS failure on the venv sync does not introduce security exposure (no third-party dependency code path was touched).
+
+No security findings. Approving from the security lens.
+
+````yaml
+id: c3c6f9ce-4b90-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Security lens: ACK.\n\nReviewed commit 6be215ab8 (`chore(allowlist):\
+      \ retag stale issue refs to #2817 (task-1-6, slice-1)`). Single-file diff against\
+      \ `scripts/file-size-allowlist.yaml`: 8 insertions / 8 deletions, exactly the\
+      \ issue-number retags and adjacent comment text the proposal claims. No additions\
+      \ or removals to the `files:` map; both `orchestrator/routes/phases.py` and\
+      \ `shared/egg_contracts/plan_parser.py` entries remain present and the gating\
+      \ key (the map key) is unchanged.\n\nSecurity-lens checklist (all clear):\n\n\
+      1. **Cross-file allowlist mismatch (\xA71)** \u2014 N/A. `file-size-allowlist.yaml`\
+      \ is a lint allowlist, not an authz/input allowlist. `scripts/check-file-sizes.py:77`\
+      \ documents: \"Membership is what gates the lint; the issue field is documentation\
+      \ only.\" Only the documentation field and adjacent comment strings changed,\
+      \ so no cross-file invariant can flip.\n2. **Handler-vs-validator path mismatch\
+      \ (\xA72)** \u2014 N/A. No handler or validator code in the diff.\n3. **Information-disclosure\
+      \ / authz-bypass (\xA73)** \u2014 N/A. No endpoints, decorators, role tables,\
+      \ or trust-boundary code touched. Comments do not flow to error responses or\
+      \ external sinks.\n4. **Uncommitted-artifact / Dockerfile-symlink mismatches\
+      \ (\xA74)** \u2014 N/A. No Dockerfile, `COPY`, `RUN ln -s`, entry_points, or\
+      \ workflow path strings added. The two retagged allowlist entries point at files\
+      \ that exist on the branch (`orchestrator/routes/phases.py`, `shared/egg_contracts/plan_parser.py`);\
+      \ confirmed `git ls-files` for both.\n5. **Credential-shim modifications under\
+      \ `sandbox/scripts/` (\xA75)** \u2014 N/A. No `sandbox/scripts/` paths in the\
+      \ diff.\n6. **Secret leakage (\xA76)** \u2014 N/A. Diff is whole-token string\
+      \ substitution of issue numbers in YAML comments and `issue:` documentation\
+      \ fields. No secrets, tokens, env-derived values, or identity-bearing data introduced\
+      \ or rewritten.\n7. **Cross-file OWASP top-10 (\xA77)** \u2014 N/A. No source\
+      \ code, no source/sink pairs.\n8. **Agent-supplied path \u2192 read-only file\
+      \ access (\xA78)** \u2014 N/A. No new path-handling code; nothing reads a caller-supplied\
+      \ path.\n\nCross-checked the proposal's preserved-string claims against the\
+      \ diff context:\n- `egg/issue-2548/work` literal git ref preserved verbatim\
+      \ at line 53 \u2705\n- `#2527` reference preserved on the same line as the retagged\
+      \ `#2548 \u2192 #2817` substitution \u2705\n- `#2777` reference (introducing\
+      \ the phases.py block) preserved at line 59 \u2705\n- Both entries still keyed\
+      \ in `files:` map (slice-25 / slice-27 are the documented removal slices) \u2705\
+      \n\n`scripts/check-file-sizes.py` exits 0 per producer's local check; the sandbox\
+      \ PyPI TLS failure on the venv sync does not introduce security exposure (no\
+      \ third-party dependency code path was touched).\n\nNo security findings. Approving\
+      \ from the security lens."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:53Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 8fe122b4-939f-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:57:57Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 7c9ec269-5aca-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:05Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e54b159d-feaa-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:05.053385+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:07Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+Concurrency-lens review of coder's slice-1 task-1-6 proposal (commit 6be215ab8f, version 1).
+
+Reviewed the full diff: `scripts/file-size-allowlist.yaml` only, 8 insertions / 8 deletions, retag of #2261 → #2817 and #2548/#2569 → #2817 in the two oversize-Python allowlist comment blocks plus their `issue:` fields, and `slice-15` → `slice-27` in the orchestrator/routes/phases.py block. No source files are touched.
+
+Walked the concurrency-lens checklist against the change:
+- Race conditions: none. The YAML is parsed by `scripts/check-file-sizes.py` as a one-shot lint pass; no shared-state reader/writer pair exists.
+- Deadlocks: none. No locks, no subprocess wait/pipe pairs, no async ordering changes.
+- Shared-state mutation without synchronization: none. No new module-level mutables, caches, or singletons.
+- Async-context leakage: none. No asyncio Task / lock / context manager touched; no sync-in-async or async-in-sync mixing introduced.
+- Retry-storm patterns: none. No new external calls, polling cadences, or retry loops.
+- Resource-cleanup ordering: none. No file handles, subprocesses, tempdirs, or pooled connections introduced.
+- BRC-protocol invariants (send→wait ordering, `--since` cursor threading per #1925, heartbeat-stall windows per #2012, `stale_reviewers` invalidation, `max_flip_flops=3`): not touched. The diff does not interact with orchestrator, gateway, or BRC code paths.
+
+The rebase-away of 4 main-branch commits noted in the proposal summary is a producer-branch hygiene matter (commit graph / push semantics) outside the concurrency lens; not flagging.
+
+No blocking concurrency findings. No non-blocking concurrency observations either — the change has no concurrency surface to comment on.
+
+````yaml
+id: f63d9aa8-f02a-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Concurrency-lens review of coder's slice-1 task-1-6 proposal (commit\
+      \ 6be215ab8f, version 1).\n\nReviewed the full diff: `scripts/file-size-allowlist.yaml`\
+      \ only, 8 insertions / 8 deletions, retag of #2261 \u2192 #2817 and #2548/#2569\
+      \ \u2192 #2817 in the two oversize-Python allowlist comment blocks plus their\
+      \ `issue:` fields, and `slice-15` \u2192 `slice-27` in the orchestrator/routes/phases.py\
+      \ block. No source files are touched.\n\nWalked the concurrency-lens checklist\
+      \ against the change:\n- Race conditions: none. The YAML is parsed by `scripts/check-file-sizes.py`\
+      \ as a one-shot lint pass; no shared-state reader/writer pair exists.\n- Deadlocks:\
+      \ none. No locks, no subprocess wait/pipe pairs, no async ordering changes.\n\
+      - Shared-state mutation without synchronization: none. No new module-level mutables,\
+      \ caches, or singletons.\n- Async-context leakage: none. No asyncio Task / lock\
+      \ / context manager touched; no sync-in-async or async-in-sync mixing introduced.\n\
+      - Retry-storm patterns: none. No new external calls, polling cadences, or retry\
+      \ loops.\n- Resource-cleanup ordering: none. No file handles, subprocesses,\
+      \ tempdirs, or pooled connections introduced.\n- BRC-protocol invariants (send\u2192\
+      wait ordering, `--since` cursor threading per #1925, heartbeat-stall windows\
+      \ per #2012, `stale_reviewers` invalidation, `max_flip_flops=3`): not touched.\
+      \ The diff does not interact with orchestrator, gateway, or BRC code paths.\n\
+      \nThe rebase-away of 4 main-branch commits noted in the proposal summary is\
+      \ a producer-branch hygiene matter (commit graph / push semantics) outside the\
+      \ concurrency lens; not flagging.\n\nNo blocking concurrency findings. No non-blocking\
+      \ concurrency observations either \u2014 the change has no concurrency surface\
+      \ to comment on."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:07Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 20e4e0dc-19a3-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:11Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 87ea4c5e-40e7-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:12Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 1ef437bb-e1f7-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:12.033875+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:57Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+Reviewed the single-file allowlist retag commit (6be215ab8) against the four holistic passes.
+
+**Pass 1 — End-to-end primary use case:** The downstream consumers of this diff are the slice-25 implementer (plan_parser.py decomposition) and the slice-27 implementer (phases.py decomposition). Both will read the `issue:` field and surrounding comment to learn (a) the parent tracking issue and (b) which slice removes the entry. Verified against `.egg-state/contracts/issue-2817.json` slices array: slice-25 = "shared/egg_contracts/plan_parser.py decomposition", slice-27 = "orchestrator/routes/phases.py decomposition". The retagged "slice-27 cluster in #2817" and "decompose under #2817" point at the right slices end-to-end.
+
+**Pass 2 — Doc ↔ code symmetry:** Proposal summary claims (8 ins / 8 del, single file; #2548×2 → #2817; #2569×1 → #2817; #2261×1 → #2817; slice-15×2 → slice-27; literal `egg/issue-2548/work` branch ref preserved; #2527 / #2777 out of scope and preserved) all match the actual diff line-for-line. Acceptance criterion for task-1-6 (`git diff` shows ONLY comment + `issue:` field changes, both entries still in the `files:` map) is satisfied.
+
+**Pass 3 — Synthetic-key / sentinel coordination:** The synthetic keys in scope are issue numbers and slice numbers. Post-merge `grep '2261|2548|2569'` against the file returns exactly one hit — the `egg/issue-2548/work` literal git ref on line 53, correctly preserved. Slice numbers (slice-25, slice-27) cross-check against the contract's `slices[].id` / `slices[].name`. No dead-end / asymmetric reference.
+
+**Pass 4 — Silent-fallback hunt:** N/A — YAML-comment-only change, no code path touched, no error swallowing added.
+
+Independently confirmed `python3 scripts/check-file-sizes.py` exits 0 with only pre-existing soft-cap warnings; the relevant lint for this file is green.
+
+### Non-blocking
+- **scripts/file-size-allowlist.yaml:55** — The `plumbing (#2817)` retag changes a historical "this plumbing was added under #2548" attribution into a "...added under #2817" one, which is technically a small revisionist shift (the plumbing was indeed authored under #2548). The HITL cq-5 resolution explicitly approved this retag for as-long-as-the-entry-exists tracking-issue consistency and the entry is removed entirely by slice-25, so this is per-spec and not blocking — flagging only because the commit body could note it explicitly to forestall a confused archaeologist reading `git blame` later.
+- Commit body hedges that full `make lint` was blocked by a transient PyPI TLS failure on `mypy==1.19.1`. For this comment-only YAML change the relevant check (`check-file-sizes.py`) was run and is green; mypy on a YAML diff has nothing to check. CI will close the loop.
+
+````yaml
+id: 0998f089-53ea-4d
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Reviewed the single-file allowlist retag commit (6be215ab8) against the\
+      \ four holistic passes.\n\n**Pass 1 \u2014 End-to-end primary use case:** The\
+      \ downstream consumers of this diff are the slice-25 implementer (plan_parser.py\
+      \ decomposition) and the slice-27 implementer (phases.py decomposition). Both\
+      \ will read the `issue:` field and surrounding comment to learn (a) the parent\
+      \ tracking issue and (b) which slice removes the entry. Verified against `.egg-state/contracts/issue-2817.json`\
+      \ slices array: slice-25 = \"shared/egg_contracts/plan_parser.py decomposition\"\
+      , slice-27 = \"orchestrator/routes/phases.py decomposition\". The retagged \"\
+      slice-27 cluster in #2817\" and \"decompose under #2817\" point at the right\
+      \ slices end-to-end.\n\n**Pass 2 \u2014 Doc \u2194 code symmetry:** Proposal\
+      \ summary claims (8 ins / 8 del, single file; #2548\xD72 \u2192 #2817; #2569\xD7\
+      1 \u2192 #2817; #2261\xD71 \u2192 #2817; slice-15\xD72 \u2192 slice-27; literal\
+      \ `egg/issue-2548/work` branch ref preserved; #2527 / #2777 out of scope and\
+      \ preserved) all match the actual diff line-for-line. Acceptance criterion for\
+      \ task-1-6 (`git diff` shows ONLY comment + `issue:` field changes, both entries\
+      \ still in the `files:` map) is satisfied.\n\n**Pass 3 \u2014 Synthetic-key\
+      \ / sentinel coordination:** The synthetic keys in scope are issue numbers and\
+      \ slice numbers. Post-merge `grep '2261|2548|2569'` against the file returns\
+      \ exactly one hit \u2014 the `egg/issue-2548/work` literal git ref on line 53,\
+      \ correctly preserved. Slice numbers (slice-25, slice-27) cross-check against\
+      \ the contract's `slices[].id` / `slices[].name`. No dead-end / asymmetric reference.\n\
+      \n**Pass 4 \u2014 Silent-fallback hunt:** N/A \u2014 YAML-comment-only change,\
+      \ no code path touched, no error swallowing added.\n\nIndependently confirmed\
+      \ `python3 scripts/check-file-sizes.py` exits 0 with only pre-existing soft-cap\
+      \ warnings; the relevant lint for this file is green.\n\n### Non-blocking\n\
+      - **scripts/file-size-allowlist.yaml:55** \u2014 The `plumbing (#2817)` retag\
+      \ changes a historical \"this plumbing was added under #2548\" attribution into\
+      \ a \"...added under #2817\" one, which is technically a small revisionist shift\
+      \ (the plumbing was indeed authored under #2548). The HITL cq-5 resolution explicitly\
+      \ approved this retag for as-long-as-the-entry-exists tracking-issue consistency\
+      \ and the entry is removed entirely by slice-25, so this is per-spec and not\
+      \ blocking \u2014 flagging only because the commit body could note it explicitly\
+      \ to forestall a confused archaeologist reading `git blame` later.\n- Commit\
+      \ body hedges that full `make lint` was blocked by a transient PyPI TLS failure\
+      \ on `mypy==1.19.1`. For this comment-only YAML change the relevant check (`check-file-sizes.py`)\
+      \ was run and is green; mypy on a YAML diff has nothing to check. CI will close\
+      \ the loop."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:57Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 3ce34aad-500f-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:57Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 74cceb5d-ab4d-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:58:59Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+Reviewed coder's commit 6be215ab against contract slice-1 task-1-6 (the only coder-owned task in slice-1; the other 5 tasks belong to the documenter).
+
+### Criterion-by-criterion verification
+
+**(1) "`git diff scripts/file-size-allowlist.yaml` shows ONLY comment + `issue:` field changes (no entry additions or removals)."** — MET.
+- `git diff --numstat a17d1ad03..6be215ab8` confirms a single touched file with 8 insertions / 8 deletions.
+- Walking every changed line: all 8 deletions / 8 insertions are either commented (`#` prefix) or the literal `issue:` value on the entry line. No structural map keys added or removed; the `files:` mapping shape is preserved.
+
+**(2) "Both entries still present in `files:` map."** — MET.
+- `shared/egg_contracts/plan_parser.py:` present at line 60 of the new file (preceded by its retagged 7-line comment block on lines 53–59).
+- `orchestrator/routes/phases.py:` present at line 69 (preceded by its retagged 7-line comment block on lines 62–68).
+- Both still nested under `files:` (line 21). No removals.
+
+**(3) Task description sub-checks (a) orchestrator/routes/phases.py block:**
+- `issue: "2261"` → `issue: "2817"`: MET (line 70).
+- 7-line comment block `#2261` rewrites: MET. The block contained one `#NNNN`-style hit (`in #2261 tracks` → `in #2817 tracks` on line 67), correctly rewritten. The leading `# #2777 slice-1:` on line 62 is correctly preserved — that's the heading of the comment, not an in-scope retag target, and rewriting it would have falsely re-attributed the original #2777 plan-preflight rationale.
+- "slice-15 cluster" → "slice-27 cluster": MET (line 66).
+- "slice-15 targets" → "slice-27 targets": MET (line 68). Task wording named only "slice-15 cluster" explicitly, but both occurrences refer to the same conceptual cluster; updating both is internally consistent and matches the task intent ("reflect this plan's slice numbering"). The risk_considered field on the proposal calls this out explicitly — reasonable judgment.
+
+**(4) Task description sub-checks (b) shared/egg_contracts/plan_parser.py block:**
+- `issue: "2548"` → `issue: "2817"`: MET (line 61).
+- `#2548` rewrites in the comment block: MET. Two `#NNNN`-style `#2548` hits — `plumbing (#2548) stacks` (line 55) and `Allowlisting under #2548` (line 58) — both rewritten to `#2817`.
+- `#2569` rewrite: MET. One hit (`decompose under #2569` → `decompose under #2817`) on line 59.
+- Out-of-scope retention: the historical `egg/issue-2548/work` branch-name ref on line 53 is correctly preserved verbatim — it is a literal git ref, not a `#NNNN` issue reference; rewriting it would have broken the historical pointer. `#2527` (validate_task_role_alignment author) on line 55 is correctly preserved — task-1-6 enumerates only #2261/#2548/#2569 as in-scope retag targets and `#2527` is a separate cross-reference.
+
+**(5) "`make lint` is green."** — NOT BLOCKING.
+- Coder reports `make lint` venv-sync failed in the sandbox on a transient PyPI TLS error fetching the mypy==1.19.1 wheel (UnknownIssuer on files.pythonhosted.org). Standalone `python3 scripts/check-file-sizes.py` returned exit 0, confirming the allowlist YAML parses and the file-size check (the only lint stage with a structural dependency on this file's content) is satisfied.
+- The diff is comment text + two string-field values in a YAML file — there is no realistic path for ruff / mypy / shellcheck / hadolint to fail on a change that touches no Python, no shell, and no Dockerfile. The mypy fetch failure is orthogonal infrastructure noise.
+- CI will run the full lint pipeline against this commit at the gateway-push / PR step; failure there would surface for the next BRC cycle.
+
+### Risk-acknowledgement crosscheck
+The proposal's `risk_considered` field flags one item I want to confirm on the record: the local rebase off origin/egg/issue-2817/slice-1 dropped 4 main-branch commits (#2901 / #2900 / #2898 / #2896) that the coder branch had picked up at boot. This is contract-neutral — those commits are already in `main` and will re-enter via normal slice→main integration. The retag commit's parent is the plan-phase head `a17d1ad03` ("Persist statefiles after plan phase"), which is the correct base for slice-1 implement work. No contract-level concern.
+
+### Verdict
+All task-1-6 acceptance criteria are met. The slice-1 docs/seam-table scaffolding contract is fully satisfied on the coder dimension. ACK.
+
+### Non-blocking
+- **scripts/file-size-allowlist.yaml:60-70** — The two retagged entries will both be removed entirely by slice-25 (plan_parser.py decomposition) and slice-27 (phases.py decomposition) per the contract's slice plan. The interim retag is the right call for slice-1; just flagging that any future re-review of these entries should expect to see them disappear, not be re-edited.
+- **make lint completeness** — Recommend the reviewer_code / tester roles confirm `make lint` runs clean on this commit if their sandboxes have working PyPI access; the YAML-only diff makes lint failure unlikely but a clean run would close the loop on criterion (5).
+
+````yaml
+id: 2c21b8e5-4ce1-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Reviewed coder's commit 6be215ab against contract slice-1 task-1-6 (the\
+      \ only coder-owned task in slice-1; the other 5 tasks belong to the documenter).\n\
+      \n### Criterion-by-criterion verification\n\n**(1) \"`git diff scripts/file-size-allowlist.yaml`\
+      \ shows ONLY comment + `issue:` field changes (no entry additions or removals).\"\
+      ** \u2014 MET.\n- `git diff --numstat a17d1ad03..6be215ab8` confirms a single\
+      \ touched file with 8 insertions / 8 deletions.\n- Walking every changed line:\
+      \ all 8 deletions / 8 insertions are either commented (`#` prefix) or the literal\
+      \ `issue:` value on the entry line. No structural map keys added or removed;\
+      \ the `files:` mapping shape is preserved.\n\n**(2) \"Both entries still present\
+      \ in `files:` map.\"** \u2014 MET.\n- `shared/egg_contracts/plan_parser.py:`\
+      \ present at line 60 of the new file (preceded by its retagged 7-line comment\
+      \ block on lines 53\u201359).\n- `orchestrator/routes/phases.py:` present at\
+      \ line 69 (preceded by its retagged 7-line comment block on lines 62\u201368).\n\
+      - Both still nested under `files:` (line 21). No removals.\n\n**(3) Task description\
+      \ sub-checks (a) orchestrator/routes/phases.py block:**\n- `issue: \"2261\"\
+      ` \u2192 `issue: \"2817\"`: MET (line 70).\n- 7-line comment block `#2261` rewrites:\
+      \ MET. The block contained one `#NNNN`-style hit (`in #2261 tracks` \u2192 `in\
+      \ #2817 tracks` on line 67), correctly rewritten. The leading `# #2777 slice-1:`\
+      \ on line 62 is correctly preserved \u2014 that's the heading of the comment,\
+      \ not an in-scope retag target, and rewriting it would have falsely re-attributed\
+      \ the original #2777 plan-preflight rationale.\n- \"slice-15 cluster\" \u2192\
+      \ \"slice-27 cluster\": MET (line 66).\n- \"slice-15 targets\" \u2192 \"slice-27\
+      \ targets\": MET (line 68). Task wording named only \"slice-15 cluster\" explicitly,\
+      \ but both occurrences refer to the same conceptual cluster; updating both is\
+      \ internally consistent and matches the task intent (\"reflect this plan's slice\
+      \ numbering\"). The risk_considered field on the proposal calls this out explicitly\
+      \ \u2014 reasonable judgment.\n\n**(4) Task description sub-checks (b) shared/egg_contracts/plan_parser.py\
+      \ block:**\n- `issue: \"2548\"` \u2192 `issue: \"2817\"`: MET (line 61).\n-\
+      \ `#2548` rewrites in the comment block: MET. Two `#NNNN`-style `#2548` hits\
+      \ \u2014 `plumbing (#2548) stacks` (line 55) and `Allowlisting under #2548`\
+      \ (line 58) \u2014 both rewritten to `#2817`.\n- `#2569` rewrite: MET. One hit\
+      \ (`decompose under #2569` \u2192 `decompose under #2817`) on line 59.\n- Out-of-scope\
+      \ retention: the historical `egg/issue-2548/work` branch-name ref on line 53\
+      \ is correctly preserved verbatim \u2014 it is a literal git ref, not a `#NNNN`\
+      \ issue reference; rewriting it would have broken the historical pointer. `#2527`\
+      \ (validate_task_role_alignment author) on line 55 is correctly preserved \u2014\
+      \ task-1-6 enumerates only #2261/#2548/#2569 as in-scope retag targets and `#2527`\
+      \ is a separate cross-reference.\n\n**(5) \"`make lint` is green.\"** \u2014\
+      \ NOT BLOCKING.\n- Coder reports `make lint` venv-sync failed in the sandbox\
+      \ on a transient PyPI TLS error fetching the mypy==1.19.1 wheel (UnknownIssuer\
+      \ on files.pythonhosted.org). Standalone `python3 scripts/check-file-sizes.py`\
+      \ returned exit 0, confirming the allowlist YAML parses and the file-size check\
+      \ (the only lint stage with a structural dependency on this file's content)\
+      \ is satisfied.\n- The diff is comment text + two string-field values in a YAML\
+      \ file \u2014 there is no realistic path for ruff / mypy / shellcheck / hadolint\
+      \ to fail on a change that touches no Python, no shell, and no Dockerfile. The\
+      \ mypy fetch failure is orthogonal infrastructure noise.\n- CI will run the\
+      \ full lint pipeline against this commit at the gateway-push / PR step; failure\
+      \ there would surface for the next BRC cycle.\n\n### Risk-acknowledgement crosscheck\n\
+      The proposal's `risk_considered` field flags one item I want to confirm on the\
+      \ record: the local rebase off origin/egg/issue-2817/slice-1 dropped 4 main-branch\
+      \ commits (#2901 / #2900 / #2898 / #2896) that the coder branch had picked up\
+      \ at boot. This is contract-neutral \u2014 those commits are already in `main`\
+      \ and will re-enter via normal slice\u2192main integration. The retag commit's\
+      \ parent is the plan-phase head `a17d1ad03` (\"Persist statefiles after plan\
+      \ phase\"), which is the correct base for slice-1 implement work. No contract-level\
+      \ concern.\n\n### Verdict\nAll task-1-6 acceptance criteria are met. The slice-1\
+      \ docs/seam-table scaffolding contract is fully satisfied on the coder dimension.\
+      \ ACK.\n\n### Non-blocking\n- **scripts/file-size-allowlist.yaml:60-70** \u2014\
+      \ The two retagged entries will both be removed entirely by slice-25 (plan_parser.py\
+      \ decomposition) and slice-27 (phases.py decomposition) per the contract's slice\
+      \ plan. The interim retag is the right call for slice-1; just flagging that\
+      \ any future re-review of these entries should expect to see them disappear,\
+      \ not be re-edited.\n- **make lint completeness** \u2014 Recommend the reviewer_code\
+      \ / tester roles confirm `make lint` runs clean on this commit if their sandboxes\
+      \ have working PyPI access; the YAML-only diff makes lint failure unlikely but\
+      \ a clean run would close the loop on criterion (5)."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:00Z] reviewer_contract (CONSENSUS_CONFIRMED): Confirmed by reviewer_contract (pending_acks)
+
+Agent reviewer_contract cannot confirm: producers ['tester', 'documenter'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.
+
+````yaml
+id: b60130b2-f839-4b
+phase: implement
+metadata:
+  pending_acks: true
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:03Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: ce28b31d-1500-48
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:03.168280+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:03Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 72f7ecbf-7e06-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:08Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+Reviewed the single-file allowlist retag commit (6be215ab8) against the four holistic passes.
+
+**Pass 1 — End-to-end primary use case:** The downstream consumers of this diff are the slice-25 implementer (plan_parser.py decomposition) and the slice-27 implementer (phases.py decomposition). Both will read the `issue:` field and surrounding comment to learn (a) the parent tracking issue and (b) which slice removes the entry. Verified against `.egg-state/contracts/issue-2817.json` slices array: slice-25 = "shared/egg_contracts/plan_parser.py decomposition", slice-27 = "orchestrator/routes/phases.py decomposition". The retagged "slice-27 cluster in #2817" and "decompose under #2817" point at the right slices end-to-end.
+
+**Pass 2 — Doc ↔ code symmetry:** Proposal summary claims (8 ins / 8 del, single file; #2548×2 → #2817; #2569×1 → #2817; #2261×1 → #2817; slice-15×2 → slice-27; literal `egg/issue-2548/work` branch ref preserved; #2527 / #2777 out of scope and preserved) all match the actual diff line-for-line. Acceptance criterion for task-1-6 (`git diff` shows ONLY comment + `issue:` field changes, both entries still in the `files:` map) is satisfied.
+
+**Pass 3 — Synthetic-key / sentinel coordination:** The synthetic keys in scope are issue numbers and slice numbers. Post-merge `grep '2261|2548|2569'` against the file returns exactly one hit — the `egg/issue-2548/work` literal git ref on line 53, correctly preserved. Slice numbers (slice-25, slice-27) cross-check against the contract's `slices[].id` / `slices[].name`. No dead-end / asymmetric reference.
+
+**Pass 4 — Silent-fallback hunt:** N/A — YAML-comment-only change, no code path touched, no error swallowing added.
+
+Independently confirmed `python3 scripts/check-file-sizes.py` exits 0 with only pre-existing soft-cap warnings; the relevant lint for this file is green.
+
+### Non-blocking
+- **scripts/file-size-allowlist.yaml:55** — The `plumbing (#2817)` retag changes a historical "this plumbing was added under #2548" attribution into a "...added under #2817" one, which is technically a small revisionist shift (the plumbing was indeed authored under #2548). The HITL cq-5 resolution explicitly approved this retag for as-long-as-the-entry-exists tracking-issue consistency and the entry is removed entirely by slice-25, so this is per-spec and not blocking — flagging only because the commit body could note it explicitly to forestall a confused archaeologist reading `git blame` later.
+- Commit body hedges that full `make lint` was blocked by a transient PyPI TLS failure on `mypy==1.19.1`. For this comment-only YAML change the relevant check (`check-file-sizes.py`) was run and is green; mypy on a YAML diff has nothing to check. CI will close the loop.
+
+````yaml
+id: 4d454375-7c78-46
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Reviewed the single-file allowlist retag commit (6be215ab8) against the\
+      \ four holistic passes.\n\n**Pass 1 \u2014 End-to-end primary use case:** The\
+      \ downstream consumers of this diff are the slice-25 implementer (plan_parser.py\
+      \ decomposition) and the slice-27 implementer (phases.py decomposition). Both\
+      \ will read the `issue:` field and surrounding comment to learn (a) the parent\
+      \ tracking issue and (b) which slice removes the entry. Verified against `.egg-state/contracts/issue-2817.json`\
+      \ slices array: slice-25 = \"shared/egg_contracts/plan_parser.py decomposition\"\
+      , slice-27 = \"orchestrator/routes/phases.py decomposition\". The retagged \"\
+      slice-27 cluster in #2817\" and \"decompose under #2817\" point at the right\
+      \ slices end-to-end.\n\n**Pass 2 \u2014 Doc \u2194 code symmetry:** Proposal\
+      \ summary claims (8 ins / 8 del, single file; #2548\xD72 \u2192 #2817; #2569\xD7\
+      1 \u2192 #2817; #2261\xD71 \u2192 #2817; slice-15\xD72 \u2192 slice-27; literal\
+      \ `egg/issue-2548/work` branch ref preserved; #2527 / #2777 out of scope and\
+      \ preserved) all match the actual diff line-for-line. Acceptance criterion for\
+      \ task-1-6 (`git diff` shows ONLY comment + `issue:` field changes, both entries\
+      \ still in the `files:` map) is satisfied.\n\n**Pass 3 \u2014 Synthetic-key\
+      \ / sentinel coordination:** The synthetic keys in scope are issue numbers and\
+      \ slice numbers. Post-merge `grep '2261|2548|2569'` against the file returns\
+      \ exactly one hit \u2014 the `egg/issue-2548/work` literal git ref on line 53,\
+      \ correctly preserved. Slice numbers (slice-25, slice-27) cross-check against\
+      \ the contract's `slices[].id` / `slices[].name`. No dead-end / asymmetric reference.\n\
+      \n**Pass 4 \u2014 Silent-fallback hunt:** N/A \u2014 YAML-comment-only change,\
+      \ no code path touched, no error swallowing added.\n\nIndependently confirmed\
+      \ `python3 scripts/check-file-sizes.py` exits 0 with only pre-existing soft-cap\
+      \ warnings; the relevant lint for this file is green.\n\n### Non-blocking\n\
+      - **scripts/file-size-allowlist.yaml:55** \u2014 The `plumbing (#2817)` retag\
+      \ changes a historical \"this plumbing was added under #2548\" attribution into\
+      \ a \"...added under #2817\" one, which is technically a small revisionist shift\
+      \ (the plumbing was indeed authored under #2548). The HITL cq-5 resolution explicitly\
+      \ approved this retag for as-long-as-the-entry-exists tracking-issue consistency\
+      \ and the entry is removed entirely by slice-25, so this is per-spec and not\
+      \ blocking \u2014 flagging only because the commit body could note it explicitly\
+      \ to forestall a confused archaeologist reading `git blame` later.\n- Commit\
+      \ body hedges that full `make lint` was blocked by a transient PyPI TLS failure\
+      \ on `mypy==1.19.1`. For this comment-only YAML change the relevant check (`check-file-sizes.py`)\
+      \ was run and is green; mypy on a YAML diff has nothing to check. CI will close\
+      \ the loop."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:10Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 2e460cea-4354-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:10.083321+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:10Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 0b4af39a-5595-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:11Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: d76d70a8-6519-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:13Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: ebdaf181-7071-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:13.690779+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:13Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: a7041dc7-c696-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:13.931944+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:43Z] coder (CONSENSUS_CONFIRMED): Confirmed by coder (pending_acks)
+
+Agent coder cannot confirm: producers ['tester', 'documenter'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.
+
+````yaml
+id: 8032ce31-29a0-47
+phase: implement
+metadata:
+  pending_acks: true
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:43Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+
+Reviewed the single-file diff in commit 6be215ab8f99 against task-1-6 acceptance.
+
+### Verified
+1. **Exactly comment + `issue:` field changes — no entry add/remove.** `git diff` stat: 8 insertions / 8 deletions, single file. `files:` map cardinality unchanged at 17 entries (verified by `yaml.safe_load` + `len(data['files'])`). Both targeted entries (`orchestrator/routes/phases.py`, `shared/egg_contracts/plan_parser.py`) remain in the map — matches the explicit task-1-6 "Do NOT remove either allowlist entry in this slice" constraint.
+2. **`shared/egg_contracts/plan_parser.py` block (task-1-6(b)):** `#2548` (2 hits — `(#2548)` plumbing tag + "Allowlisting under #2548") → `#2817`; `#2569` (1 hit — "decompose under #2569") → `#2817`; `issue: "2548"` → `issue: "2817"`. **Branch-ref `egg/issue-2548/work` preserved verbatim** — this is a literal git ref to the historical merge target where the breach was first observed, not a `#-tagged` issue reference, so it is correctly out of the "rewrite #2548 references" scope. `#2527` and `#2777` are also out of task scope and correctly preserved.
+3. **`orchestrator/routes/phases.py` block (task-1-6(a)):** `#2261` (1 hit) → `#2817`; `issue: "2261"` → `issue: "2817"`; "slice-15 cluster" / "slice-15 targets" → "slice-27 cluster" / "slice-27 targets" — both phrase variants updated for internal consistency, which matches the plan_parser.py block's pattern of touching every paraphrase of the stale slice tag. slice-27 in the #2817 DAG is the phases.py decomposition (confirmed against `.egg-state/contracts/issue-2817.json`).
+4. **Residual-stale-tag sweep clean.** Grep `issue: *"(2261|2548|2569)"` in `scripts/file-size-allowlist.yaml` returns no hits.
+5. **Allowlist parser surface.** `python3 scripts/check-file-sizes.py` exits 0 against the post-change tree; YAML is `yaml.safe_load`-clean; `caps` block unchanged. Existing tests at `tests/tools/test_select_tests_package_shape.py` only look up the `select_tests` package legacy key and the `caps` block — neither is touched by this diff, so the test surface this allowlist participates in is structurally unaffected.
+
+### Non-blocking
+- **`make lint` / `make test` / `make security` could not be executed in this sandbox.** Same root cause the coder noted: `make deps` / `make venv` fails on PyPI TLS chain (`UnknownIssuer` on `files.pythonhosted.org`) — reproduced here with `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1` wheel downloads, so the failure is sandbox network, not the diff. The diff is data-only (YAML comment + scalar value retags), so the only Python check that exercises this file at all — `scripts/check-file-sizes.py` — ran offline and exits 0. CI will run the full pipeline against this commit.
+- **`#2527` / `#2777` references preserved** — confirmed out of task-1-6's "rewrite #2261 / #2548 / #2569" scope by the task wording. No action.
+- **Rebase note** in the proposal — coder dropped 4 main-branch commits (`#2901`/`#2900`/`#2898`/`#2896`) from the local branch before pushing to avoid coder file-restriction trips on other-authored paths. The pushed commit is a clean child of `a17d1ad03` (plan-phase head), which is fine for this slice.
+
+
+````yaml
+id: 95a12a0d-4d32-4e
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "\nReviewed the single-file diff in commit 6be215ab8f99 against task-1-6\
+      \ acceptance.\n\n### Verified\n1. **Exactly comment + `issue:` field changes\
+      \ \u2014 no entry add/remove.** `git diff` stat: 8 insertions / 8 deletions,\
+      \ single file. `files:` map cardinality unchanged at 17 entries (verified by\
+      \ `yaml.safe_load` + `len(data['files'])`). Both targeted entries (`orchestrator/routes/phases.py`,\
+      \ `shared/egg_contracts/plan_parser.py`) remain in the map \u2014 matches the\
+      \ explicit task-1-6 \"Do NOT remove either allowlist entry in this slice\" constraint.\n\
+      2. **`shared/egg_contracts/plan_parser.py` block (task-1-6(b)):** `#2548` (2\
+      \ hits \u2014 `(#2548)` plumbing tag + \"Allowlisting under #2548\") \u2192\
+      \ `#2817`; `#2569` (1 hit \u2014 \"decompose under #2569\") \u2192 `#2817`;\
+      \ `issue: \"2548\"` \u2192 `issue: \"2817\"`. **Branch-ref `egg/issue-2548/work`\
+      \ preserved verbatim** \u2014 this is a literal git ref to the historical merge\
+      \ target where the breach was first observed, not a `#-tagged` issue reference,\
+      \ so it is correctly out of the \"rewrite #2548 references\" scope. `#2527`\
+      \ and `#2777` are also out of task scope and correctly preserved.\n3. **`orchestrator/routes/phases.py`\
+      \ block (task-1-6(a)):** `#2261` (1 hit) \u2192 `#2817`; `issue: \"2261\"` \u2192\
+      \ `issue: \"2817\"`; \"slice-15 cluster\" / \"slice-15 targets\" \u2192 \"slice-27\
+      \ cluster\" / \"slice-27 targets\" \u2014 both phrase variants updated for internal\
+      \ consistency, which matches the plan_parser.py block's pattern of touching\
+      \ every paraphrase of the stale slice tag. slice-27 in the #2817 DAG is the\
+      \ phases.py decomposition (confirmed against `.egg-state/contracts/issue-2817.json`).\n\
+      4. **Residual-stale-tag sweep clean.** Grep `issue: *\"(2261|2548|2569)\"` in\
+      \ `scripts/file-size-allowlist.yaml` returns no hits.\n5. **Allowlist parser\
+      \ surface.** `python3 scripts/check-file-sizes.py` exits 0 against the post-change\
+      \ tree; YAML is `yaml.safe_load`-clean; `caps` block unchanged. Existing tests\
+      \ at `tests/tools/test_select_tests_package_shape.py` only look up the `select_tests`\
+      \ package legacy key and the `caps` block \u2014 neither is touched by this\
+      \ diff, so the test surface this allowlist participates in is structurally unaffected.\n\
+      \n### Non-blocking\n- **`make lint` / `make test` / `make security` could not\
+      \ be executed in this sandbox.** Same root cause the coder noted: `make deps`\
+      \ / `make venv` fails on PyPI TLS chain (`UnknownIssuer` on `files.pythonhosted.org`)\
+      \ \u2014 reproduced here with `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1`\
+      \ wheel downloads, so the failure is sandbox network, not the diff. The diff\
+      \ is data-only (YAML comment + scalar value retags), so the only Python check\
+      \ that exercises this file at all \u2014 `scripts/check-file-sizes.py` \u2014\
+      \ ran offline and exits 0. CI will run the full pipeline against this commit.\n\
+      - **`#2527` / `#2777` references preserved** \u2014 confirmed out of task-1-6's\
+      \ \"rewrite #2261 / #2548 / #2569\" scope by the task wording. No action.\n\
+      - **Rebase note** in the proposal \u2014 coder dropped 4 main-branch commits\
+      \ (`#2901`/`#2900`/`#2898`/`#2896`) from the local branch before pushing to\
+      \ avoid coder file-restriction trips on other-authored paths. The pushed commit\
+      \ is a clean child of `a17d1ad03` (plan-phase head), which is fine for this\
+      \ slice.\n"
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:43Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 97724cc9-70e8-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T03:59:43Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: c11575e8-9eaa-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:10Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b54331ec-0567-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:10Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 57477c5f-ef6f-4c
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:10Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 816e6f5e-c745-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:49.612829+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:10Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 2efe8af7-56dd-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:10Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 5d48e8d5-16e0-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:12Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 5e0f63e9-3877-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:36Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 9fcd2c0e-fba4-4e
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:00:17.208709+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:00:54Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Slice-1 documenter completes the 5 doc/scaffolding tasks (TASK-1-1..1-5) for #2817: retag stale #2261 references to #2817 (preserving the single historical-pointer in docs/guides/decomposition-pattern.md's docstring per the slice acceptance), add section (i) documenting the cq-4 relaxation of non-negotiable #10, add Submodule seam tables to sandbox/CLAUDE.md (TBD rows for slice-13/19), create net-new shared/CLAUDE.md (TBD rows for slice-17/25), and refresh orchestrator/CLAUDE.md and gateway/CLAUDE.md in-flight tables with current wc -l sizes + new #2817 slice IDs (incl. new TBD rows for kubernetes_spawner.py slice-24 and routes/phases.py slice-27). No source decomposition lands. Branch rebased so only the doc commit sits above origin/egg/issue-2817/slice-1; all upstream commits authored by other roles should be exempt under #2489.
+
+````yaml
+id: b8e09b88-f634-4f
+phase: implement
+metadata:
+  payload:
+    summary: 'Slice-1 documenter completes the 5 doc/scaffolding tasks (TASK-1-1..1-5)
+      for #2817: retag stale #2261 references to #2817 (preserving the single historical-pointer
+      in docs/guides/decomposition-pattern.md''s docstring per the slice acceptance),
+      add section (i) documenting the cq-4 relaxation of non-negotiable #10, add Submodule
+      seam tables to sandbox/CLAUDE.md (TBD rows for slice-13/19), create net-new
+      shared/CLAUDE.md (TBD rows for slice-17/25), and refresh orchestrator/CLAUDE.md
+      and gateway/CLAUDE.md in-flight tables with current wc -l sizes + new #2817
+      slice IDs (incl. new TBD rows for kubernetes_spawner.py slice-24 and routes/phases.py
+      slice-27). No source decomposition lands. Branch rebased so only the doc commit
+      sits above origin/egg/issue-2817/slice-1; all upstream commits authored by other
+      roles should be exempt under #2489.'
+    attestation: {}
+    artifacts:
+    - docs/guides/decomposition-pattern.md
+    - orchestrator/CLAUDE.md
+    - gateway/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    risk_considered: "Doc-only changes \u2014 no source decomposition, no behaviour\
+      \ change. Verified no stray #2261 references remain outside the preserved docstring\
+      \ historical pointer."
+    commit_sha: 94655515a15386e00d0c720d743a3f0a4a1e93a6
+    files_changed:
+    - docs/guides/decomposition-pattern.md
+    - orchestrator/CLAUDE.md
+    - gateway/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    tests_run: []
+    tasks_satisfied:
+    - TASK-1-1
+    - TASK-1-2
+    - TASK-1-3
+    - TASK-1-4
+    - TASK-1-5
+  version: 1
+  commit_sha: 94655515a15386e00d0c720d743a3f0a4a1e93a6
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 87fb86dd-0ca9-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b7d6c2c2-a230-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 3be67dcb-fbfa-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:08.732101+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+Reviewed scripts/file-size-allowlist.yaml end-to-end against task-1-6's acceptance criteria and the cq-6 operator decision ("yes, update them"). The diff is exactly what the task ordered: 8 insertions / 8 deletions in a single file — both comment blocks have their stale issue refs and slice numbers retagged (#2261→#2817, #2548→#2817, #2569→#2817, slice-15→slice-27 in both 'cluster' and 'targets' phrasings), the two `issue:` fields move to "2817", and no `files:` entries are added or removed. The historical `egg/issue-2548/work` branch-name reference is correctly preserved (it is a literal git ref, not an issue tag), and #2527 / #2777 historical attributions on bordering text are preserved as task-1-6 specified.
+
+Verification:
+- `yaml.safe_load` parses the file cleanly (validated independently).
+- `python3 scripts/check-file-sizes.py` exits 0 against the merged worktree; both entries still gate their files (plan_parser.py at 1835 LOC, phases.py at 1654 LOC — both > hard cap, but allowlisted by membership).
+- `scripts/check-file-sizes.py` treats the `issue:` field as documentation only (`Config.allowlist[rel] = str(issue)` is read but never gates evaluate()); membership in `config.allowlist` is what suppresses the hard-cap error. So the retag is semantically a no-op for the lint and cannot break check-file-sizes. The custom-check lint target `lint-custom` shell-loops `scripts/check-*.py` and propagates any non-zero, so a clean local exit transfers.
+- All yamllint rules in `.yamllint.yaml` (line-length max 120, comments min-spaces-from-content 1, indentation 2) are satisfied in the edited region — longest new line is 75 chars and the existing 2-space comment indent is preserved.
+- slice-25 = plan_parser.py decomposition and slice-27 = phases.py decomposition match `.egg-state/agent-outputs/2817-architect-slices.yaml` lines 459 and 503 respectively, so the retagged slice numbers are factually correct against the #2817 plan.
+- grep confirms zero remaining `#2261`, `#2548`, `#2569`, or `slice-15` strings in the file — the retag is exhaustive within the targeted scope.
+- The rebase decision (dropping 4 pre-existing main-branch commits authored under README.md / docs/ / orchestrator/tests/ to keep the diff coder-restriction-clean) is sensible and produced a 16-line single-file diff with no stray changes.
+
+The coder's commit message faithfully describes the diff (counts, preserved refs, rebase rationale, lint outcome). The `make lint` venv-sync was blocked by a transient PyPI TLS failure on mypy==1.19.1 — acceptable here because the change is yaml-only, the relevant lints (yamllint, check-file-sizes, the issue-field schema read by load_config) are verifiable without mypy, and CI will run the full pipeline before any merge.
+
+### Non-blocking
+- **scripts/file-size-allowlist.yaml:55** — The retag of `plumbing (#2548) → plumbing (#2817)` is what task-1-6 ordered (the planner specified "the 7-line comment block has its `#2548`/`#2569` references rewritten to `#2817`"), but the resulting sentence — "On the egg/issue-2548/work merge target, slice-1's … plumbing (#2817) stacks on top of #2527's …" — anachronistically attributes the plumbing addition to #2817, when historically that work landed under #2548 and the worktree reference on the same line still says 2548. The narrative is mildly self-contradicting. This is a planner-spec call, not a coder decision — flagging for awareness; safe to leave as-is until slice-25 removes the entry entirely.
+- **scripts/file-size-allowlist.yaml:68** — Similarly, "follows the same pattern as the other slice-27 targets" is structurally retained from the original "other slice-15 targets" wording, but phases.py is the only slice-27 entry in the current allowlist (no peers). Misleading-but-harmless; resolves itself when slice-27 removes the entry.
+- The coder's note that "decompose under #2569 → #2817" lost the explicit pointer to the follow-up decomposition issue is acceptable here because #2817 IS the decomposition program, but a future reader losing the #2569 thread is something to be aware of for any cross-link audits.
+
+````yaml
+id: 7edfc054-b7ca-42
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    reason: "Reviewed scripts/file-size-allowlist.yaml end-to-end against task-1-6's\
+      \ acceptance criteria and the cq-6 operator decision (\"yes, update them\").\
+      \ The diff is exactly what the task ordered: 8 insertions / 8 deletions in a\
+      \ single file \u2014 both comment blocks have their stale issue refs and slice\
+      \ numbers retagged (#2261\u2192#2817, #2548\u2192#2817, #2569\u2192#2817, slice-15\u2192\
+      slice-27 in both 'cluster' and 'targets' phrasings), the two `issue:` fields\
+      \ move to \"2817\", and no `files:` entries are added or removed. The historical\
+      \ `egg/issue-2548/work` branch-name reference is correctly preserved (it is\
+      \ a literal git ref, not an issue tag), and #2527 / #2777 historical attributions\
+      \ on bordering text are preserved as task-1-6 specified.\n\nVerification:\n\
+      - `yaml.safe_load` parses the file cleanly (validated independently).\n- `python3\
+      \ scripts/check-file-sizes.py` exits 0 against the merged worktree; both entries\
+      \ still gate their files (plan_parser.py at 1835 LOC, phases.py at 1654 LOC\
+      \ \u2014 both > hard cap, but allowlisted by membership).\n- `scripts/check-file-sizes.py`\
+      \ treats the `issue:` field as documentation only (`Config.allowlist[rel] =\
+      \ str(issue)` is read but never gates evaluate()); membership in `config.allowlist`\
+      \ is what suppresses the hard-cap error. So the retag is semantically a no-op\
+      \ for the lint and cannot break check-file-sizes. The custom-check lint target\
+      \ `lint-custom` shell-loops `scripts/check-*.py` and propagates any non-zero,\
+      \ so a clean local exit transfers.\n- All yamllint rules in `.yamllint.yaml`\
+      \ (line-length max 120, comments min-spaces-from-content 1, indentation 2) are\
+      \ satisfied in the edited region \u2014 longest new line is 75 chars and the\
+      \ existing 2-space comment indent is preserved.\n- slice-25 = plan_parser.py\
+      \ decomposition and slice-27 = phases.py decomposition match `.egg-state/agent-outputs/2817-architect-slices.yaml`\
+      \ lines 459 and 503 respectively, so the retagged slice numbers are factually\
+      \ correct against the #2817 plan.\n- grep confirms zero remaining `#2261`, `#2548`,\
+      \ `#2569`, or `slice-15` strings in the file \u2014 the retag is exhaustive\
+      \ within the targeted scope.\n- The rebase decision (dropping 4 pre-existing\
+      \ main-branch commits authored under README.md / docs/ / orchestrator/tests/\
+      \ to keep the diff coder-restriction-clean) is sensible and produced a 16-line\
+      \ single-file diff with no stray changes.\n\nThe coder's commit message faithfully\
+      \ describes the diff (counts, preserved refs, rebase rationale, lint outcome).\
+      \ The `make lint` venv-sync was blocked by a transient PyPI TLS failure on mypy==1.19.1\
+      \ \u2014 acceptable here because the change is yaml-only, the relevant lints\
+      \ (yamllint, check-file-sizes, the issue-field schema read by load_config) are\
+      \ verifiable without mypy, and CI will run the full pipeline before any merge.\n\
+      \n### Non-blocking\n- **scripts/file-size-allowlist.yaml:55** \u2014 The retag\
+      \ of `plumbing (#2548) \u2192 plumbing (#2817)` is what task-1-6 ordered (the\
+      \ planner specified \"the 7-line comment block has its `#2548`/`#2569` references\
+      \ rewritten to `#2817`\"), but the resulting sentence \u2014 \"On the egg/issue-2548/work\
+      \ merge target, slice-1's \u2026 plumbing (#2817) stacks on top of #2527's \u2026\
+      \" \u2014 anachronistically attributes the plumbing addition to #2817, when\
+      \ historically that work landed under #2548 and the worktree reference on the\
+      \ same line still says 2548. The narrative is mildly self-contradicting. This\
+      \ is a planner-spec call, not a coder decision \u2014 flagging for awareness;\
+      \ safe to leave as-is until slice-25 removes the entry entirely.\n- **scripts/file-size-allowlist.yaml:68**\
+      \ \u2014 Similarly, \"follows the same pattern as the other slice-27 targets\"\
+      \ is structurally retained from the original \"other slice-15 targets\" wording,\
+      \ but phases.py is the only slice-27 entry in the current allowlist (no peers).\
+      \ Misleading-but-harmless; resolves itself when slice-27 removes the entry.\n\
+      - The coder's note that \"decompose under #2569 \u2192 #2817\" lost the explicit\
+      \ pointer to the follow-up decomposition issue is acceptable here because #2817\
+      \ IS the decomposition program, but a future reader losing the #2569 thread\
+      \ is something to be aware of for any cross-link audits."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: d9122f75-ff4c-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 1a90ec00-1513-48
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:18Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 478b3886-e187-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:23Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: f2d75189-3bd4-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:23.318485+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:23Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 4a0ca3a3-fade-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:01:55Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6b09b95b-6d7d-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:36.177004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:18Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: ac2f9f6f-1e2d-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:18Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 51e34864-f221-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:18Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 784f3838-1b44-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:08.732101+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:18Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 4df05105-cfc0-4c
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:18Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: d7dccbff-5001-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:02:51Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 8008148a-ab2d-4e
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:36.177004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:03:18Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 60df0801-32e2-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:03:18Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 4aab21cb-f606-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:03:18Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 00f2c1fc-9c60-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:08.732101+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:03:18Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 94360f5e-9a9d-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:03:18Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 8acbd4b1-c88d-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:06Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d7ffab3f-06f1-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:36.177004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:33Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 4d5eb819-8c0c-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:33Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b0182c26-ae26-4e
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:33Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: def9553f-e437-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:33Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: c874c7b1-25d6-4e
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:08.732101+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:33Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 78779cbc-6aff-48
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:43Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+Reviewed all five documenter artifacts file-by-file against the cq-4 / cq-6 operator decisions and the 28-slice plan in `.egg-state/agent-outputs/2817-architect-slices.yaml`. All five docs are correct and merge-safe.
+
+Verification against the architect plan (every cited line count and slice ID independently checked):
+- shared/CLAUDE.md NEW — slice-17 = checkpoint_cli.py decomposition (matches), slice-25 = plan_parser.py decomposition (matches plan line 459). Cited sizes 2,233 and 1,835 match `wc -l` exactly. Barrel-as-stable-API framing mirrors HITL decision-7 of #2817 correctly. Doc pointer chain (README → docs/index.md → decomposition-pattern.md → testing.md → root CLAUDE.md) is internally consistent and all targets exist in the repo.
+- sandbox/CLAUDE.md — slice-13 = orch_cli.py (matches plan line 257; 4,034 LOC matches `wc -l` exactly), slice-19 = entrypoint.py (matches plan line 342; 2,210 LOC matches). Section structure mirrors shared/CLAUDE.md and orchestrator/CLAUDE.md (table format, barrel-API paragraph, pattern-doc link).
+- orchestrator/CLAUDE.md — pipelines.py size updated 16,400 → 24,578 (matches `wc -l` exactly), slice mapping 2–7 (linear chain) matches plan slices 2–7 (slice-2 = baseline + 5 flat clusters; 3 = _prompt_building; 4 = _pr_lifecycle; 5 = _worktree_ops; 6 = _concurrent_phase; 7 = _run_loop + per-phase handlers + allowlist drop) — terminal-slice characterization is accurate. "Other in-flight decompositions" table: every cited size matches `wc -l` (mcp_tools 2,820 → slice-15, gateway_client 3,713 → slice-14, signals 2,557 → slice-16, peer_consensus 2,215 → slice-18, monitor 2,024 → slices 22–23 PREP/TERMINAL, kubernetes_spawner 1,873 → slice-24 TBD, phases 1,654 → slice-27 TBD, deployment 1,650 → slice-28). HITL decision-7 reference correctly retagged from #2261 to #2817.
+- gateway/CLAUDE.md — gateway.py size updated 9,890 → 10,690 (matches `wc -l` exactly). Slices 8–12 linear-chain framing matches plan (slice-8 baseline + flat clusters with _app_factory/_auth/_checkpoint_routes/_gh_routes per plan line 157; slice-9 = _git_routes; slice-10 = _jira_routes; slice-11 = _confluence_routes + _worktree_routes + _anthropic_proxy; slice-12 = _sessions terminal + allowlist drop). Pre-allocated submodule table correctly extended with the five new clusters (_confluence_routes, _worktree_routes, _anthropic_proxy, _checkpoint_routes, _gh_routes). "Other in-flight" table sizes all match `wc -l` exactly (worktree_manager 2,087 → slice-20, git_client 2,068 → slice-21, checkpoint_handler 1,777 → slice-26). The "R5 mitigation" parenthetical removal from _git_routes is consistent with the plan dropping the #2261 risk register; #2817 has its own risk numbering.
+- docs/guides/decomposition-pattern.md — Section (i) ("Test-file layout: guidance, not a 1:1 gate") faithfully implements cq-4's resolution: scenario-organized suites preserved, `scripts/select_tests/` cited as canonical example, barrel-surface decoupling identified as the load-bearing requirement, pre-merge checklist updated to reference section (i). All #2261→#2817 retags applied to body refs; the single historical pointer in the docstring intro ("which is a refresh of #2261 — #2261 originated the pattern via PR #2335 …") is correctly preserved per the operator's "single historical exception" framing. The retagged "allowlist empty" acceptance criterion claim now correctly points at #2817 (cq-1 supersession chain holds).
+
+Grep audit: `grep -n "#2261"` across all five files returns exactly the two preserved historical-pointer hits in the pattern doc's intro docstring (lines 5–6). All other `#2261` references in the documenter's scope have been cleanly retagged.
+
+### Non-blocking
+- **gateway/CLAUDE.md:21** — The narrative paragraph says "slices 9–11 each extract one sub-sub-package," but plan slice-11 actually extracts three (_confluence_routes/, _worktree_routes, _anthropic_proxy — see architect-slices.yaml lines 213–238). The TBD table immediately below correctly lists all three, so a careful reader will not be misled, but the prose claim is imprecise. Suggest: "slices 9–10 each extract one sub-sub-package; slice-11 extracts three (the Confluence cluster plus _worktree_routes and _anthropic_proxy)."
+- **shared/CLAUDE.md:29** — "folded into #2817 on 2026-05-30" is a day off — the decisions cq-1/cq-4/cq-6/cq-7 that closed #2569's slot for plan_parser.py and folded it into #2817 resolved at 2026-05-31T00:21:59Z / T00:23:17Z UTC. Trivial; safe to leave as-is.
+- **docs/guides/decomposition-pattern.md:5–7** — The historical claim "via PR #2335 … was closed after six follow-up pipelines failed to land any further slice" is asserted as background and is not independently verifiable from the contract or local artifacts. If a future reader fact-checks the count and finds it off, the integrity of the surrounding rationale dips — consider citing the source (e.g. "see #2261 closing comment" or a linked PR) so the claim can be audited cheaply.
+- **shared/CLAUDE.md:1–30** — The new file's "Testing" section duplicates the same `make test`/`make test-all` paragraph already present in orchestrator/CLAUDE.md, gateway/CLAUDE.md, and sandbox/CLAUDE.md. Consistent (good for slice consumers), but worth tracking for eventual extraction into a single canonical pointer if the count keeps growing.
+
+````yaml
+id: 3562b3c7-5083-4b
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/guides/decomposition-pattern.md
+    - gateway/CLAUDE.md
+    - orchestrator/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    reason: "Reviewed all five documenter artifacts file-by-file against the cq-4\
+      \ / cq-6 operator decisions and the 28-slice plan in `.egg-state/agent-outputs/2817-architect-slices.yaml`.\
+      \ All five docs are correct and merge-safe.\n\nVerification against the architect\
+      \ plan (every cited line count and slice ID independently checked):\n- shared/CLAUDE.md\
+      \ NEW \u2014 slice-17 = checkpoint_cli.py decomposition (matches), slice-25\
+      \ = plan_parser.py decomposition (matches plan line 459). Cited sizes 2,233\
+      \ and 1,835 match `wc -l` exactly. Barrel-as-stable-API framing mirrors HITL\
+      \ decision-7 of #2817 correctly. Doc pointer chain (README \u2192 docs/index.md\
+      \ \u2192 decomposition-pattern.md \u2192 testing.md \u2192 root CLAUDE.md) is\
+      \ internally consistent and all targets exist in the repo.\n- sandbox/CLAUDE.md\
+      \ \u2014 slice-13 = orch_cli.py (matches plan line 257; 4,034 LOC matches `wc\
+      \ -l` exactly), slice-19 = entrypoint.py (matches plan line 342; 2,210 LOC matches).\
+      \ Section structure mirrors shared/CLAUDE.md and orchestrator/CLAUDE.md (table\
+      \ format, barrel-API paragraph, pattern-doc link).\n- orchestrator/CLAUDE.md\
+      \ \u2014 pipelines.py size updated 16,400 \u2192 24,578 (matches `wc -l` exactly),\
+      \ slice mapping 2\u20137 (linear chain) matches plan slices 2\u20137 (slice-2\
+      \ = baseline + 5 flat clusters; 3 = _prompt_building; 4 = _pr_lifecycle; 5 =\
+      \ _worktree_ops; 6 = _concurrent_phase; 7 = _run_loop + per-phase handlers +\
+      \ allowlist drop) \u2014 terminal-slice characterization is accurate. \"Other\
+      \ in-flight decompositions\" table: every cited size matches `wc -l` (mcp_tools\
+      \ 2,820 \u2192 slice-15, gateway_client 3,713 \u2192 slice-14, signals 2,557\
+      \ \u2192 slice-16, peer_consensus 2,215 \u2192 slice-18, monitor 2,024 \u2192\
+      \ slices 22\u201323 PREP/TERMINAL, kubernetes_spawner 1,873 \u2192 slice-24\
+      \ TBD, phases 1,654 \u2192 slice-27 TBD, deployment 1,650 \u2192 slice-28).\
+      \ HITL decision-7 reference correctly retagged from #2261 to #2817.\n- gateway/CLAUDE.md\
+      \ \u2014 gateway.py size updated 9,890 \u2192 10,690 (matches `wc -l` exactly).\
+      \ Slices 8\u201312 linear-chain framing matches plan (slice-8 baseline + flat\
+      \ clusters with _app_factory/_auth/_checkpoint_routes/_gh_routes per plan line\
+      \ 157; slice-9 = _git_routes; slice-10 = _jira_routes; slice-11 = _confluence_routes\
+      \ + _worktree_routes + _anthropic_proxy; slice-12 = _sessions terminal + allowlist\
+      \ drop). Pre-allocated submodule table correctly extended with the five new\
+      \ clusters (_confluence_routes, _worktree_routes, _anthropic_proxy, _checkpoint_routes,\
+      \ _gh_routes). \"Other in-flight\" table sizes all match `wc -l` exactly (worktree_manager\
+      \ 2,087 \u2192 slice-20, git_client 2,068 \u2192 slice-21, checkpoint_handler\
+      \ 1,777 \u2192 slice-26). The \"R5 mitigation\" parenthetical removal from _git_routes\
+      \ is consistent with the plan dropping the #2261 risk register; #2817 has its\
+      \ own risk numbering.\n- docs/guides/decomposition-pattern.md \u2014 Section\
+      \ (i) (\"Test-file layout: guidance, not a 1:1 gate\") faithfully implements\
+      \ cq-4's resolution: scenario-organized suites preserved, `scripts/select_tests/`\
+      \ cited as canonical example, barrel-surface decoupling identified as the load-bearing\
+      \ requirement, pre-merge checklist updated to reference section (i). All #2261\u2192\
+      #2817 retags applied to body refs; the single historical pointer in the docstring\
+      \ intro (\"which is a refresh of #2261 \u2014 #2261 originated the pattern via\
+      \ PR #2335 \u2026\") is correctly preserved per the operator's \"single historical\
+      \ exception\" framing. The retagged \"allowlist empty\" acceptance criterion\
+      \ claim now correctly points at #2817 (cq-1 supersession chain holds).\n\nGrep\
+      \ audit: `grep -n \"#2261\"` across all five files returns exactly the two preserved\
+      \ historical-pointer hits in the pattern doc's intro docstring (lines 5\u2013\
+      6). All other `#2261` references in the documenter's scope have been cleanly\
+      \ retagged.\n\n### Non-blocking\n- **gateway/CLAUDE.md:21** \u2014 The narrative\
+      \ paragraph says \"slices 9\u201311 each extract one sub-sub-package,\" but\
+      \ plan slice-11 actually extracts three (_confluence_routes/, _worktree_routes,\
+      \ _anthropic_proxy \u2014 see architect-slices.yaml lines 213\u2013238). The\
+      \ TBD table immediately below correctly lists all three, so a careful reader\
+      \ will not be misled, but the prose claim is imprecise. Suggest: \"slices 9\u2013\
+      10 each extract one sub-sub-package; slice-11 extracts three (the Confluence\
+      \ cluster plus _worktree_routes and _anthropic_proxy).\"\n- **shared/CLAUDE.md:29**\
+      \ \u2014 \"folded into #2817 on 2026-05-30\" is a day off \u2014 the decisions\
+      \ cq-1/cq-4/cq-6/cq-7 that closed #2569's slot for plan_parser.py and folded\
+      \ it into #2817 resolved at 2026-05-31T00:21:59Z / T00:23:17Z UTC. Trivial;\
+      \ safe to leave as-is.\n- **docs/guides/decomposition-pattern.md:5\u20137**\
+      \ \u2014 The historical claim \"via PR #2335 \u2026 was closed after six follow-up\
+      \ pipelines failed to land any further slice\" is asserted as background and\
+      \ is not independently verifiable from the contract or local artifacts. If a\
+      \ future reader fact-checks the count and finds it off, the integrity of the\
+      \ surrounding rationale dips \u2014 consider citing the source (e.g. \"see #2261\
+      \ closing comment\" or a linked PR) so the claim can be audited cheaply.\n-\
+      \ **shared/CLAUDE.md:1\u201330** \u2014 The new file's \"Testing\" section duplicates\
+      \ the same `make test`/`make test-all` paragraph already present in orchestrator/CLAUDE.md,\
+      \ gateway/CLAUDE.md, and sandbox/CLAUDE.md. Consistent (good for slice consumers),\
+      \ but worth tracking for eventual extraction into a single canonical pointer\
+      \ if the count keeps growing."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:43Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: c9f3bf6f-f609-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:04:47Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e63b4dcd-cfcb-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:04:47.615169+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:05:06Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 28a8dfa2-577b-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:01:36.177004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:05:33Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 85948861-4076-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:47.914980+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:05:33Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 71c46e6f-f2b1-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:58:11.741003+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:05:33Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: eb722d29-7789-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:59:48.042383+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:05:33Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 16940828-b9d5-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T03:57:57.444616+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:02Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: b2eb0cc2-4bd2-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:04:47.615169+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Slice-1 documenter v2 addresses reviewer_code's non-blocking nit on gateway/CLAUDE.md's slice-11 narrative. Original v1 prose said "slices 9–11 each extract one sub-sub-package" but slice-11 actually extracts three (`_confluence_routes/`, `_worktree_routes`, `_anthropic_proxy`) per architect-slices.yaml line 213–238. The TBD table below already listed all three correctly; this aligns the narrative with the plan. No other changes from v1 — TASK-1-1 through TASK-1-5 still completed: cq-4 relaxation section (i), #2261 → #2817 retag (one historical pointer preserved in pattern doc docstring per slice acceptance), sandbox/CLAUDE.md seam table, net-new shared/CLAUDE.md, orchestrator/CLAUDE.md size refresh + 2 new TBD rows.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: eb89fa14-d32d-42
+phase: implement
+metadata:
+  payload:
+    summary: "Slice-1 documenter v2 addresses reviewer_code's non-blocking nit on\
+      \ gateway/CLAUDE.md's slice-11 narrative. Original v1 prose said \"slices 9\u2013\
+      11 each extract one sub-sub-package\" but slice-11 actually extracts three (`_confluence_routes/`,\
+      \ `_worktree_routes`, `_anthropic_proxy`) per architect-slices.yaml line 213\u2013\
+      238. The TBD table below already listed all three correctly; this aligns the\
+      \ narrative with the plan. No other changes from v1 \u2014 TASK-1-1 through\
+      \ TASK-1-5 still completed: cq-4 relaxation section (i), #2261 \u2192 #2817\
+      \ retag (one historical pointer preserved in pattern doc docstring per slice\
+      \ acceptance), sandbox/CLAUDE.md seam table, net-new shared/CLAUDE.md, orchestrator/CLAUDE.md\
+      \ size refresh + 2 new TBD rows."
+    attestation: {}
+    artifacts:
+    - docs/guides/decomposition-pattern.md
+    - orchestrator/CLAUDE.md
+    - gateway/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    risk_considered: "Doc-only follow-up \u2014 single prose adjustment in gateway/CLAUDE.md\
+      \ slice-11 paragraph to accurately reflect the architect-slices.yaml composition.\
+      \ No behaviour change, no source touched."
+    commit_sha: 3662b070ac65c5d77ad183c0f95c2744146c0b1c
+    files_changed:
+    - gateway/CLAUDE.md
+    tests_run: []
+    tasks_satisfied:
+    - TASK-1-1
+    - TASK-1-2
+    - TASK-1-3
+    - TASK-1-4
+    - TASK-1-5
+  version: 2
+  commit_sha: 3662b070ac65c5d77ad183c0f95c2744146c0b1c
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+**TESTS UNVERIFIED — tests_execution_blocked.** Slice-1 is a docs / seam-table scaffolding + allowlist comment retag slice. Producer commits on slice-1 base at propose time: coder `6be215ab8f99` retag of `scripts/file-size-allowlist.yaml` (8 ins / 8 del, single file; `#2261`/`#2548`/`#2569` → `#2817` in two allowlist comment blocks + their `issue:` fields) and documenter `94655515a1` docs/seam-table updates across `docs/guides/decomposition-pattern.md`, `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md`, and the net-new `shared/CLAUDE.md` (134 ins / 35 del, 5 files). No runtime code paths touched in the slice. **No new test surface is warranted** by this slice — it is the documentation / seam-table scaffolding wave for the broader #2817 decomposition program; the canonical recipe sections of `docs/guides/decomposition-pattern.md` are unchanged in shape. **Configured checks (make lint / make test / make security) could not be executed in the sandbox**: every one of them depends on `make venv`, which fails with `invalid peer certificate: UnknownIssuer` on `files.pythonhosted.org` wheel downloads (reproduced for `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1`, `requests==2.32.5`; the sandbox HTTPS proxy presents a self-signed chain that the uv/pip toolchain does not trust). Same root cause the coder hit on `mypy==1.19.1`. Offline checks that exercise the changed surface all pass: `python3 scripts/check-file-sizes.py` exits 0, the YAML is `yaml.safe_load`-clean (caps block intact, 17 file entries, both targeted entries still present), grep confirms no residual stale (`#2261` / `#2548` / `#2569`) issue tags remain in `scripts/file-size-allowlist.yaml`. CI will run the full lint / test / security pipeline against the merged slice commit — that is where definitive verification lands. ACKed coder v1 (commit 6be215ab8f99) based on offline static review + manual diff verification of the four task-1-6 acceptance criteria. **Do NOT treat this proposal as substitute for CI** — `tests_execution_blocked=true` is the conservative signal here; the slice is structurally test-no-op but the configured-check evidence is absent from the sandbox.
+
+````yaml
+id: 446dbf44-723c-45
+phase: implement
+metadata:
+  payload:
+    summary: "**TESTS UNVERIFIED \u2014 tests_execution_blocked.** Slice-1 is a docs\
+      \ / seam-table scaffolding + allowlist comment retag slice. Producer commits\
+      \ on slice-1 base at propose time: coder `6be215ab8f99` retag of `scripts/file-size-allowlist.yaml`\
+      \ (8 ins / 8 del, single file; `#2261`/`#2548`/`#2569` \u2192 `#2817` in two\
+      \ allowlist comment blocks + their `issue:` fields) and documenter `94655515a1`\
+      \ docs/seam-table updates across `docs/guides/decomposition-pattern.md`, `gateway/CLAUDE.md`,\
+      \ `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md`, and the net-new `shared/CLAUDE.md`\
+      \ (134 ins / 35 del, 5 files). No runtime code paths touched in the slice. **No\
+      \ new test surface is warranted** by this slice \u2014 it is the documentation\
+      \ / seam-table scaffolding wave for the broader #2817 decomposition program;\
+      \ the canonical recipe sections of `docs/guides/decomposition-pattern.md` are\
+      \ unchanged in shape. **Configured checks (make lint / make test / make security)\
+      \ could not be executed in the sandbox**: every one of them depends on `make\
+      \ venv`, which fails with `invalid peer certificate: UnknownIssuer` on `files.pythonhosted.org`\
+      \ wheel downloads (reproduced for `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1`,\
+      \ `requests==2.32.5`; the sandbox HTTPS proxy presents a self-signed chain that\
+      \ the uv/pip toolchain does not trust). Same root cause the coder hit on `mypy==1.19.1`.\
+      \ Offline checks that exercise the changed surface all pass: `python3 scripts/check-file-sizes.py`\
+      \ exits 0, the YAML is `yaml.safe_load`-clean (caps block intact, 17 file entries,\
+      \ both targeted entries still present), grep confirms no residual stale (`#2261`\
+      \ / `#2548` / `#2569`) issue tags remain in `scripts/file-size-allowlist.yaml`.\
+      \ CI will run the full lint / test / security pipeline against the merged slice\
+      \ commit \u2014 that is where definitive verification lands. ACKed coder v1\
+      \ (commit 6be215ab8f99) based on offline static review + manual diff verification\
+      \ of the four task-1-6 acceptance criteria. **Do NOT treat this proposal as\
+      \ substitute for CI** \u2014 `tests_execution_blocked=true` is the conservative\
+      \ signal here; the slice is structurally test-no-op but the configured-check\
+      \ evidence is absent from the sandbox."
+    attestation:
+      tests_execution_blocked: true
+      tests_execution_blocked_reason: 'Configured checks (lint/test/security) all
+        depend on `make venv`, which fails with TLS `UnknownIssuer` on `files.pythonhosted.org`
+        wheel downloads (attrs==25.4.0, httpcore==1.0.9, oauthlib==3.3.1, requests==2.32.5).
+        The sandbox HTTPS proxy presents a self-signed chain that the uv/pip toolchain
+        does not trust. Offline static checks against the changed YAML pass: yaml.safe_load
+        clean, scripts/check-file-sizes.py exits 0, 17/17 allowlist entries preserved,
+        no residual stale (#2261 / #2548 / #2569) issue tags in the file. CI will
+        run the full pipeline against the merged slice commit.'
+      checks_passed: []
+    artifacts:
+    - scripts/file-size-allowlist.yaml
+    - docs/guides/decomposition-pattern.md
+    - gateway/CLAUDE.md
+    - orchestrator/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    risk_considered: "Risk 1 \u2014 coder or documenter may re-propose; mitigated\
+      \ by my augmented dual-role wait staying live for CONSENSUS_PROPOSE / CONSENSUS_RE_REVIEW\
+      \ so I will pick up any v2 with a fresh review pass. Risk 2 \u2014 TESTS UNVERIFIED\
+      \ makes this proposal less confident than a no_test_changes_needed propose would;\
+      \ explicitly chose tests_execution_blocked over no_test_changes_needed per the\
+      \ spec's 'prefer the blocked path when checks could not run' guidance \u2014\
+      \ conservative signal even though the slice IS structurally test-no-op. Risk\
+      \ 3 \u2014 Documenter commit had not been ACKed at propose-time; mitigated by\
+      \ the documenter being its own producer with its own reviewer fleet, and by\
+      \ my reviewer half re-engaging on their PROPOSE event when it arrives."
+    commit_sha: 94655515a15386e00d0c720d743a3f0a4a1e93a6
+    files_changed: []
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 94655515a15386e00d0c720d743a3f0a4a1e93a6
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 12e4ce5b-e126-43
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 11d725b4-b917-4a
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 2
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 3805c6c7-90d5-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 32cdaffa-5d37-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: d069268d-dbd7-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: e56f46f4-a2b7-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:03Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 59fbc084-e44a-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:29Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 4b3e390e-dbc5-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:06:08.729101+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:29Z] coder (CONSENSUS_CONFIRMED): Confirmed by coder
+
+````yaml
+id: ec7520bf-ad25-40
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:29Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 80eaf09e-c843-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:29Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 8a87f006-568a-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:32Z] documenter (CONSENSUS_CONFIRMED): Confirmed by documenter
+
+````yaml
+id: 09d5a69f-7f67-44
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:55Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 96611abb-bd09-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:06:42.294630+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:55Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 4886be71-5543-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:06:46.098749+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:55Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+v2 re-review.
+
+**(a) v1 non-blocking nit addressed.** The slice-11 narrative now reads: "slices 9–10 each extract one sub-sub-package (`_git_routes/`, then `_jira_routes/`); slice-11 extracts three (`_confluence_routes/`, `_worktree_routes`, and `_anthropic_proxy`)". This matches architect-slices.yaml lines 213–238 (slice-11 = Confluence cluster + _worktree_routes.py + _anthropic_proxy.py). The slash/no-slash on the three names mirrors the TBD-table format (sub-sub-package vs flat .py module).
+
+**(b) Fresh-reviewer audit of the v2 delta** — `git diff` from v1 commit `94655515a` to v2 commit `3662b070a` is +4/-2 lines on a single file (gateway/CLAUDE.md), all prose. Bounded scope means a tight rubric pass:
+- **Doc-snippet executability** — no commands, install steps, or API calls in the delta. N/A.
+- **Factual accuracy against plan** — verified slice-9 = _git_routes (plan line 185), slice-10 = _jira_routes (line 199), slice-11 = the three named (lines 213–238). Names and counts hold.
+- **Internal consistency** — the TBD table immediately below was already correct; the prose now agrees with it.
+- **Silent fallbacks / operator misconfig / data-flow drift** — N/A (pure documentation).
+- **Concurrency, security, atomicity, deprecation** — N/A (pure documentation).
+- **No other text edits hidden in the diff** — confirmed: only the slice-11 paragraph changed; the rest of the file, the other four docs from v1 (decomposition-pattern.md, orchestrator/CLAUDE.md, sandbox/CLAUDE.md, shared/CLAUDE.md), and the cq-4 section (i) work all remain intact and merge-safe per the v1 ACK.
+- **External-bot anchor** — `egg-reviewer[bot]` reading this delta with no context would see a 6-line prose clarification with no code or executable artifacts; nothing to flag.
+
+ACK.
+
+### Non-blocking
+- **gateway/CLAUDE.md:23** — the noun "three" after "slice-11 extracts" is implicitly "sub-sub-packages" by context-carry from the previous clause, but strictly only `_confluence_routes/` is a sub-sub-package (per the plan and the trailing-slash table convention); `_worktree_routes` and `_anthropic_proxy` are flat .py modules. The TBD table's slash/no-slash convention self-disambiguates this for any reader who reaches the table, so it's safe to leave. If a future polish pass tightens it, the more precise framing would be "extracts one sub-sub-package and two flat submodules." Not asking for another spin.
+
+````yaml
+id: 8490f933-86db-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - gateway/CLAUDE.md
+    reason: "v2 re-review.\n\n**(a) v1 non-blocking nit addressed.** The slice-11\
+      \ narrative now reads: \"slices 9\u201310 each extract one sub-sub-package (`_git_routes/`,\
+      \ then `_jira_routes/`); slice-11 extracts three (`_confluence_routes/`, `_worktree_routes`,\
+      \ and `_anthropic_proxy`)\". This matches architect-slices.yaml lines 213\u2013\
+      238 (slice-11 = Confluence cluster + _worktree_routes.py + _anthropic_proxy.py).\
+      \ The slash/no-slash on the three names mirrors the TBD-table format (sub-sub-package\
+      \ vs flat .py module).\n\n**(b) Fresh-reviewer audit of the v2 delta** \u2014\
+      \ `git diff` from v1 commit `94655515a` to v2 commit `3662b070a` is +4/-2 lines\
+      \ on a single file (gateway/CLAUDE.md), all prose. Bounded scope means a tight\
+      \ rubric pass:\n- **Doc-snippet executability** \u2014 no commands, install\
+      \ steps, or API calls in the delta. N/A.\n- **Factual accuracy against plan**\
+      \ \u2014 verified slice-9 = _git_routes (plan line 185), slice-10 = _jira_routes\
+      \ (line 199), slice-11 = the three named (lines 213\u2013238). Names and counts\
+      \ hold.\n- **Internal consistency** \u2014 the TBD table immediately below was\
+      \ already correct; the prose now agrees with it.\n- **Silent fallbacks / operator\
+      \ misconfig / data-flow drift** \u2014 N/A (pure documentation).\n- **Concurrency,\
+      \ security, atomicity, deprecation** \u2014 N/A (pure documentation).\n- **No\
+      \ other text edits hidden in the diff** \u2014 confirmed: only the slice-11\
+      \ paragraph changed; the rest of the file, the other four docs from v1 (decomposition-pattern.md,\
+      \ orchestrator/CLAUDE.md, sandbox/CLAUDE.md, shared/CLAUDE.md), and the cq-4\
+      \ section (i) work all remain intact and merge-safe per the v1 ACK.\n- **External-bot\
+      \ anchor** \u2014 `egg-reviewer[bot]` reading this delta with no context would\
+      \ see a 6-line prose clarification with no code or executable artifacts; nothing\
+      \ to flag.\n\nACK.\n\n### Non-blocking\n- **gateway/CLAUDE.md:23** \u2014 the\
+      \ noun \"three\" after \"slice-11 extracts\" is implicitly \"sub-sub-packages\"\
+      \ by context-carry from the previous clause, but strictly only `_confluence_routes/`\
+      \ is a sub-sub-package (per the plan and the trailing-slash table convention);\
+      \ `_worktree_routes` and `_anthropic_proxy` are flat .py modules. The TBD table's\
+      \ slash/no-slash convention self-disambiguates this for any reader who reaches\
+      \ the table, so it's safe to leave. If a future polish pass tightens it, the\
+      \ more precise framing would be \"extracts one sub-sub-package and two flat\
+      \ submodules.\" Not asking for another spin."
+    ack_version: 2
+  version: 2
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:56Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security lens: ACK.
+
+Reviewed the tester's `tests_execution_blocked` no-new-tests proposal against the slice-1 changeset (`6be215ab8` coder allowlist retag + `94655515a`/`3662b070a` documenter docs/seam-table updates). The tester is not introducing source files or test files in this slice; the attestation is that no new test surface is warranted because the slice is documentation / seam-table scaffolding + a comment-only allowlist retag.
+
+Security-lens evaluation of the tester's proposal:
+
+1. **Cross-file allowlist mismatch (§1)** — N/A. The tester proposes no code. The slice-wide allowlist change is the coder's previously-ACKed comment retag; verified the gating field (the `files:` map key) is unchanged across both retagged entries.
+2. **Handler-vs-validator path mismatch (§2)** — N/A. No handler, validator, or test fixture introduces a new path.
+3. **Information disclosure / authz bypass (§3)** — N/A. No new endpoints, no test routes touching production data, no diagnostic surface added.
+4. **Uncommitted-artifact / Dockerfile-symlink mismatches (§4)** — N/A. No new path strings, no new `COPY` / symlink / entry-point references. Spot-checked the docs/seam-table commits: the new `shared/CLAUDE.md` references `shared/egg_contracts/checkpoint_cli.py` and `shared/egg_contracts/plan_parser.py`, both confirmed present via `git ls-files`. `sandbox/CLAUDE.md` references `sandbox/egg_lib/orch_cli.py` and `sandbox/entrypoint.py`, both confirmed present.
+5. **Credential-shim modifications under `sandbox/scripts/` (§5)** — N/A. The slice touches `sandbox/CLAUDE.md` (a docs file at sandbox root) but does NOT touch anything under `sandbox/scripts/`. The credential-shim wrappers are untouched.
+6. **Secret leakage (§6)** — N/A. The docs commits are markdown prose / tables; no tokens, env values, or identity-bearing data introduced. The tester's proposal carries no test fixtures or env dumps.
+7. **Cross-file OWASP top-10 (§7)** — N/A. No source code in the slice; tester's attestation is no-op.
+8. **Agent-supplied path → read-only file access (§8)** — N/A. No new path-handling code; the tester proposes no test that would exercise an attacker-supplied path.
+
+Two ancillary security observations on the tester's process (both clear, noted for completeness):
+
+- The tester's `tests_execution_blocked` justification cites a transient PyPI TLS chain failure (`UnknownIssuer` on `files.pythonhosted.org`) blocking `make venv` reinstall. From the security lens this is an environmental signal, not a CI-bypass attempt — the tester is explicit that CI will run the full lint/test/security pipeline on the merged commit and is not claiming green checks they did not run. The conservative blocked-attestation is the correct posture.
+- The offline checks the tester DID perform (`python3 scripts/check-file-sizes.py` exit 0, `yaml.safe_load` clean, grep for residual stale issue tags) match what I would have asked them to perform for a comment-only allowlist diff. No fabricated evidence.
+
+No security findings. Approving from the security lens.
+
+````yaml
+id: ee2842e4-99c2-42
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    - docs/guides/decomposition-pattern.md
+    - gateway/CLAUDE.md
+    - orchestrator/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    reason: "Security lens: ACK.\n\nReviewed the tester's `tests_execution_blocked`\
+      \ no-new-tests proposal against the slice-1 changeset (`6be215ab8` coder allowlist\
+      \ retag + `94655515a`/`3662b070a` documenter docs/seam-table updates). The tester\
+      \ is not introducing source files or test files in this slice; the attestation\
+      \ is that no new test surface is warranted because the slice is documentation\
+      \ / seam-table scaffolding + a comment-only allowlist retag.\n\nSecurity-lens\
+      \ evaluation of the tester's proposal:\n\n1. **Cross-file allowlist mismatch\
+      \ (\xA71)** \u2014 N/A. The tester proposes no code. The slice-wide allowlist\
+      \ change is the coder's previously-ACKed comment retag; verified the gating\
+      \ field (the `files:` map key) is unchanged across both retagged entries.\n\
+      2. **Handler-vs-validator path mismatch (\xA72)** \u2014 N/A. No handler, validator,\
+      \ or test fixture introduces a new path.\n3. **Information disclosure / authz\
+      \ bypass (\xA73)** \u2014 N/A. No new endpoints, no test routes touching production\
+      \ data, no diagnostic surface added.\n4. **Uncommitted-artifact / Dockerfile-symlink\
+      \ mismatches (\xA74)** \u2014 N/A. No new path strings, no new `COPY` / symlink\
+      \ / entry-point references. Spot-checked the docs/seam-table commits: the new\
+      \ `shared/CLAUDE.md` references `shared/egg_contracts/checkpoint_cli.py` and\
+      \ `shared/egg_contracts/plan_parser.py`, both confirmed present via `git ls-files`.\
+      \ `sandbox/CLAUDE.md` references `sandbox/egg_lib/orch_cli.py` and `sandbox/entrypoint.py`,\
+      \ both confirmed present.\n5. **Credential-shim modifications under `sandbox/scripts/`\
+      \ (\xA75)** \u2014 N/A. The slice touches `sandbox/CLAUDE.md` (a docs file at\
+      \ sandbox root) but does NOT touch anything under `sandbox/scripts/`. The credential-shim\
+      \ wrappers are untouched.\n6. **Secret leakage (\xA76)** \u2014 N/A. The docs\
+      \ commits are markdown prose / tables; no tokens, env values, or identity-bearing\
+      \ data introduced. The tester's proposal carries no test fixtures or env dumps.\n\
+      7. **Cross-file OWASP top-10 (\xA77)** \u2014 N/A. No source code in the slice;\
+      \ tester's attestation is no-op.\n8. **Agent-supplied path \u2192 read-only\
+      \ file access (\xA78)** \u2014 N/A. No new path-handling code; the tester proposes\
+      \ no test that would exercise an attacker-supplied path.\n\nTwo ancillary security\
+      \ observations on the tester's process (both clear, noted for completeness):\n\
+      \n- The tester's `tests_execution_blocked` justification cites a transient PyPI\
+      \ TLS chain failure (`UnknownIssuer` on `files.pythonhosted.org`) blocking `make\
+      \ venv` reinstall. From the security lens this is an environmental signal, not\
+      \ a CI-bypass attempt \u2014 the tester is explicit that CI will run the full\
+      \ lint/test/security pipeline on the merged commit and is not claiming green\
+      \ checks they did not run. The conservative blocked-attestation is the correct\
+      \ posture.\n- The offline checks the tester DID perform (`python3 scripts/check-file-sizes.py`\
+      \ exit 0, `yaml.safe_load` clean, grep for residual stale issue tags) match\
+      \ what I would have asked them to perform for a comment-only allowlist diff.\
+      \ No fabricated evidence.\n\nNo security findings. Approving from the security\
+      \ lens."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:58Z] reviewer_security (CONSENSUS_CONFIRMED): Confirmed by reviewer_security
+
+````yaml
+id: 4c324b53-ab18-40
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:06:58Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 2d61507f-ed5e-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:23Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: cbc2c7a6-6dff-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:03.166918+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:23Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 7df0de67-08af-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:03.501533+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:23Z] reviewer_code_holistic → tester (CONSENSUS_ACK): ACK from reviewer_code_holistic for tester
+
+Holistic review of the tester's no-test-changes proposal for slice-1 (docs + allowlist comment retag).
+
+**Pass 1 — End-to-end primary use case:** The tester asserts "no new test surface is warranted." Walked this end-to-end: slice-1's only behavioural surface is the `scripts/file-size-allowlist.yaml` change consumed by `scripts/check-file-sizes.py`. Confirmed by reading `tests/scripts/test_check_file_sizes.py:96-100` (`test_allowlisted_with_no_issue_link_still_allowed` — "Membership alone gates the lint; the issue field is documentation."). The retag changes only the `issue:` field (documentation-only per the existing test contract) plus surrounding comment text — there is no behavioural path to cover, so the no-test-changes attestation is correct.
+
+**Pass 2 — Doc ↔ code symmetry:** Tester's claim that "no runtime code paths touched in the slice" matches the commit list — `6be215ab8` (YAML comments only), `94655515a` + `3662b070a` (markdown only). Verified `git diff origin/main...origin/egg/issue-2817/slice-1 -- '*.py'` is empty. The tester's `tests_execution_blocked=true` attestation matches reality (the documented PyPI TLS failure in the sandbox is consistent with the coder's earlier identical hit on `mypy==1.19.1`).
+
+**Pass 3 — Synthetic-key / sentinel coordination:** N/A — no new identifiers, callbacks, or cross-module wiring introduced.
+
+**Pass 4 — Silent-fallback hunt:** N/A — no error-handling surface added.
+
+The conservative choice of `tests_execution_blocked=true` over `no_test_changes_needed=true` is defensible given the sandbox could not complete `make venv`; CI will run the full lint/test/security pipeline against the merged slice commit.
+
+### Non-blocking
+- The existing `tests/scripts/test_check_file_sizes.py` uses synthetic `Config` fixtures (not the real YAML), so the live-YAML changes have no test surface to exercise. Worth noting for the merge reviewer's mental model — no action.
+- Future docs-only slices in this 28-slice DAG will hit the same sandbox TLS issue. If it persists, consider routing wheel downloads through a trusted proxy or seeding `.venv` in the sandbox image so the `make venv` requirement is satisfied without network. Out of scope for slice-1.
+
+````yaml
+id: ec21819c-0671-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    - tests/scripts/test_check_file_sizes.py
+    - docs/guides/decomposition-pattern.md
+    - orchestrator/CLAUDE.md
+    - gateway/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    reason: "Holistic review of the tester's no-test-changes proposal for slice-1\
+      \ (docs + allowlist comment retag).\n\n**Pass 1 \u2014 End-to-end primary use\
+      \ case:** The tester asserts \"no new test surface is warranted.\" Walked this\
+      \ end-to-end: slice-1's only behavioural surface is the `scripts/file-size-allowlist.yaml`\
+      \ change consumed by `scripts/check-file-sizes.py`. Confirmed by reading `tests/scripts/test_check_file_sizes.py:96-100`\
+      \ (`test_allowlisted_with_no_issue_link_still_allowed` \u2014 \"Membership alone\
+      \ gates the lint; the issue field is documentation.\"). The retag changes only\
+      \ the `issue:` field (documentation-only per the existing test contract) plus\
+      \ surrounding comment text \u2014 there is no behavioural path to cover, so\
+      \ the no-test-changes attestation is correct.\n\n**Pass 2 \u2014 Doc \u2194\
+      \ code symmetry:** Tester's claim that \"no runtime code paths touched in the\
+      \ slice\" matches the commit list \u2014 `6be215ab8` (YAML comments only), `94655515a`\
+      \ + `3662b070a` (markdown only). Verified `git diff origin/main...origin/egg/issue-2817/slice-1\
+      \ -- '*.py'` is empty. The tester's `tests_execution_blocked=true` attestation\
+      \ matches reality (the documented PyPI TLS failure in the sandbox is consistent\
+      \ with the coder's earlier identical hit on `mypy==1.19.1`).\n\n**Pass 3 \u2014\
+      \ Synthetic-key / sentinel coordination:** N/A \u2014 no new identifiers, callbacks,\
+      \ or cross-module wiring introduced.\n\n**Pass 4 \u2014 Silent-fallback hunt:**\
+      \ N/A \u2014 no error-handling surface added.\n\nThe conservative choice of\
+      \ `tests_execution_blocked=true` over `no_test_changes_needed=true` is defensible\
+      \ given the sandbox could not complete `make venv`; CI will run the full lint/test/security\
+      \ pipeline against the merged slice commit.\n\n### Non-blocking\n- The existing\
+      \ `tests/scripts/test_check_file_sizes.py` uses synthetic `Config` fixtures\
+      \ (not the real YAML), so the live-YAML changes have no test surface to exercise.\
+      \ Worth noting for the merge reviewer's mental model \u2014 no action.\n- Future\
+      \ docs-only slices in this 28-slice DAG will hit the same sandbox TLS issue.\
+      \ If it persists, consider routing wheel downloads through a trusted proxy or\
+      \ seeding `.venv` in the sandbox image so the `make venv` requirement is satisfied\
+      \ without network. Out of scope for slice-1."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:23Z] reviewer_concurrency → tester (CONSENSUS_ACK): ACK from reviewer_concurrency for tester
+
+Concurrency-lens review of tester's slice-1 proposal (commit 94655515a1, version 1, tests_execution_blocked path).
+
+Tester's proposal is a test-no-op: `files_changed=[]`, no new test files added. The proposal attests that slice-1 is structurally test-no-op (docs / seam-table scaffolding + allowlist retag, no runtime code paths touched) and that configured checks could not be executed in-sandbox due to a TLS chain failure on `files.pythonhosted.org` wheel downloads; CI will run the full pipeline against the merged slice commit.
+
+Walked the concurrency-lens checklist against the union of slice-1 producer commits (coder 6be215ab8f, documenter 94655515a1) since the tester's test surface is the empty set:
+- Race conditions: none. The diff is a YAML retag plus markdown docs / seam-table additions. No shared-state reader/writer pair exists.
+- Deadlocks: none. No locks, subprocess wait/pipe pairs, or async ordering changes.
+- Shared-state mutation without synchronization: none. No new module-level mutables, caches, or singletons; no Python modules added or modified.
+- Async-context leakage: none. No asyncio Task / lock / context manager touched; no sync-in-async or async-in-sync mixing introduced.
+- Retry-storm patterns: none. No new external calls, polling cadences, or retry loops.
+- Resource-cleanup ordering: none. No file handles, subprocesses, tempdirs, or pooled connections introduced.
+- BRC-protocol invariants (send→wait ordering, `--since` cursor threading per #1925, heartbeat-stall windows per #2012, `stale_reviewers` invalidation, `max_flip_flops=3`): not touched. The diff does not interact with orchestrator, gateway, or BRC code paths.
+
+The `tests_execution_blocked=true` signal is a code-quality / CI-evidence matter (sandbox lint/test/security wheel-fetch path), not a concurrency-lens concern, and the choice between `tests_execution_blocked` vs `no_test_changes_needed` for a structurally test-no-op slice is outside the concurrency lens — deferring to `reviewer_code` / `reviewer_contract`.
+
+No blocking concurrency findings. No non-blocking concurrency observations — the slice has no concurrency surface to comment on.
+
+````yaml
+id: f0aae496-b950-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    - docs/guides/decomposition-pattern.md
+    - gateway/CLAUDE.md
+    - orchestrator/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    reason: "Concurrency-lens review of tester's slice-1 proposal (commit 94655515a1,\
+      \ version 1, tests_execution_blocked path).\n\nTester's proposal is a test-no-op:\
+      \ `files_changed=[]`, no new test files added. The proposal attests that slice-1\
+      \ is structurally test-no-op (docs / seam-table scaffolding + allowlist retag,\
+      \ no runtime code paths touched) and that configured checks could not be executed\
+      \ in-sandbox due to a TLS chain failure on `files.pythonhosted.org` wheel downloads;\
+      \ CI will run the full pipeline against the merged slice commit.\n\nWalked the\
+      \ concurrency-lens checklist against the union of slice-1 producer commits (coder\
+      \ 6be215ab8f, documenter 94655515a1) since the tester's test surface is the\
+      \ empty set:\n- Race conditions: none. The diff is a YAML retag plus markdown\
+      \ docs / seam-table additions. No shared-state reader/writer pair exists.\n\
+      - Deadlocks: none. No locks, subprocess wait/pipe pairs, or async ordering changes.\n\
+      - Shared-state mutation without synchronization: none. No new module-level mutables,\
+      \ caches, or singletons; no Python modules added or modified.\n- Async-context\
+      \ leakage: none. No asyncio Task / lock / context manager touched; no sync-in-async\
+      \ or async-in-sync mixing introduced.\n- Retry-storm patterns: none. No new\
+      \ external calls, polling cadences, or retry loops.\n- Resource-cleanup ordering:\
+      \ none. No file handles, subprocesses, tempdirs, or pooled connections introduced.\n\
+      - BRC-protocol invariants (send\u2192wait ordering, `--since` cursor threading\
+      \ per #1925, heartbeat-stall windows per #2012, `stale_reviewers` invalidation,\
+      \ `max_flip_flops=3`): not touched. The diff does not interact with orchestrator,\
+      \ gateway, or BRC code paths.\n\nThe `tests_execution_blocked=true` signal is\
+      \ a code-quality / CI-evidence matter (sandbox lint/test/security wheel-fetch\
+      \ path), not a concurrency-lens concern, and the choice between `tests_execution_blocked`\
+      \ vs `no_test_changes_needed` for a structurally test-no-op slice is outside\
+      \ the concurrency lens \u2014 deferring to `reviewer_code` / `reviewer_contract`.\n\
+      \nNo blocking concurrency findings. No non-blocking concurrency observations\
+      \ \u2014 the slice has no concurrency surface to comment on."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:26Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Confirmed by reviewer_concurrency
+
+````yaml
+id: 3ca025e0-ee44-43
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:26Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Confirmed by reviewer_code_holistic
+
+````yaml
+id: a0159043-ec60-47
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:26Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: bd57447b-a9f1-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:50Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: ca0d1dd7-cd54-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:31.463810+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:50Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: d062e5c0-51ff-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:31.971212+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:50Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 45129710-0a6d-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:32.446306+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:50Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 7d5f4663-10cc-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:50Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: e8ffa77f-9438-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:54Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: e9c8baee-baf0-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:54.117525+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:54Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 08a93f7c-e927-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:54.442849+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:07:55Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: b02f9697-1619-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:06:42.294630+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:01Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: c1496600-4e68-4e
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:01.167334+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:18Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6fa4c3ef-9728-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:07:03.501533+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:32Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+Reviewed the tester's `tests_execution_blocked=true` proposal against the BRC strict-mode rubric for blocked attestations.
+
+**Attestation validity.** The blockage is clearly documented (`tests_execution_blocked_reason`: TLS `UnknownIssuer` on `files.pythonhosted.org` during `make venv` wheel downloads — named packages `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1`, `requests==2.32.5`; sandbox HTTPS proxy presents a self-signed chain the uv/pip toolchain does not trust). Same root cause the coder independently hit on `mypy==1.19.1`, so this is environmental, reproducible, and not a producer-side defect. The "tests are syntactically valid" condition is vacuously satisfied — no new test files exist because the slice is genuinely test-no-op (verified below).
+
+**Slice is genuinely behavior-preserving** (the parallel check for the no_test_changes_needed path): I walked the entire merged slice diff `origin/main..origin/egg/issue-2817/slice-1` and confirmed:
+- coder `6be215ab8`: scripts/file-size-allowlist.yaml — 8 ins / 8 del comment + `issue:` field rewrites only; YAML semantically unchanged (load_config-equivalent dict identical except for documentation-only `issue` strings).
+- documenter `94655515a` + `3662b070a`: docs/guides/decomposition-pattern.md, gateway/CLAUDE.md, orchestrator/CLAUDE.md, sandbox/CLAUDE.md, shared/CLAUDE.md — pure Markdown and the cq-4 relaxation prose; zero runtime code paths touched.
+
+No production import surface, no test surface. The tester correctly chose `tests_execution_blocked` over `no_test_changes_needed` per spec: path (c) requires `checks ran and passed`, but the configured make lint/test/security did not run — the blocked path is the honest signal. Path (b) and (c) are mutually exclusive per #2431, and the producer respected that.
+
+**Offline static-check coverage of the changed surface, independently re-verified:**
+- `python3 scripts/check-file-sizes.py` exits 0 against the merged worktree (re-ran during my coder/documenter reviews).
+- `yaml.safe_load(scripts/file-size-allowlist.yaml)` returns the expected 17-entry caps+files structure (independently parsed during coder review).
+- `grep -nE "#2261|#2548|#2569|slice-15" scripts/file-size-allowlist.yaml` returns zero (no residual stale tags).
+- `grep -n "#2261" docs/guides/decomposition-pattern.md gateway/CLAUDE.md orchestrator/CLAUDE.md sandbox/CLAUDE.md shared/CLAUDE.md` returns exactly the two lines in the pattern doc's intro docstring that the slice acceptance explicitly preserves as the single historical-pointer exception.
+
+**CI as safety net is reasonable here** — the slice changes no runtime behavior, has no producer-authored test scaffolding to validate, and the full lint/test/security pipeline at merge time will catch any environmental fog the sandbox masked. This is the appropriate trade-off for a docs/scaffolding root slice; it would NOT be appropriate for a slice that touched runtime code or modified test fixtures.
+
+**Tester also dual-reviewed the coder v1 commit** — their ACK is on record (they confirm matching task-1-6 acceptance: comment + `issue:` only, no `files:` map mutations, both entries still present). My independent review reached the same conclusion.
+
+ACK. Conditions for NACK on a blocked-tests attestation (per reviewer playbook): "NACK unless the limitation is clearly documented and the tests are syntactically valid" — both satisfied (former: yes; latter: vacuously, no tests written). The slice is the documentation/scaffolding root of the 28-slice DAG; no test surface is warranted, and the offline checks the tester did run cover 100% of the changed surface area.
+
+### Non-blocking
+- The TLS UnknownIssuer issue blocking `make venv` from `files.pythonhosted.org` has now hit both the coder (mypy 1.19.1) and the tester (4 named packages) in the same slice. If subsequent slices on this branch keep tripping it, the program may want to either (a) pre-stage wheels in the sandbox image, or (b) configure the uv/pip TLS chain to trust the sandbox proxy's CA. Not a slice-1 blocker — flagging as program-level operational signal.
+- The tester explicitly declines to substitute their proposal for CI. That's the right framing and worth reiterating in any reviewer-summary text that flows downstream — `tests_execution_blocked=true` should land verbatim in the PR body so merge-time review knows the configured-check evidence comes from CI, not the producer sandbox.
+
+````yaml
+id: 28fd983d-c9d8-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - scripts/file-size-allowlist.yaml
+    - docs/guides/decomposition-pattern.md
+    - gateway/CLAUDE.md
+    - orchestrator/CLAUDE.md
+    - sandbox/CLAUDE.md
+    - shared/CLAUDE.md
+    reason: "Reviewed the tester's `tests_execution_blocked=true` proposal against\
+      \ the BRC strict-mode rubric for blocked attestations.\n\n**Attestation validity.**\
+      \ The blockage is clearly documented (`tests_execution_blocked_reason`: TLS\
+      \ `UnknownIssuer` on `files.pythonhosted.org` during `make venv` wheel downloads\
+      \ \u2014 named packages `attrs==25.4.0`, `httpcore==1.0.9`, `oauthlib==3.3.1`,\
+      \ `requests==2.32.5`; sandbox HTTPS proxy presents a self-signed chain the uv/pip\
+      \ toolchain does not trust). Same root cause the coder independently hit on\
+      \ `mypy==1.19.1`, so this is environmental, reproducible, and not a producer-side\
+      \ defect. The \"tests are syntactically valid\" condition is vacuously satisfied\
+      \ \u2014 no new test files exist because the slice is genuinely test-no-op (verified\
+      \ below).\n\n**Slice is genuinely behavior-preserving** (the parallel check\
+      \ for the no_test_changes_needed path): I walked the entire merged slice diff\
+      \ `origin/main..origin/egg/issue-2817/slice-1` and confirmed:\n- coder `6be215ab8`:\
+      \ scripts/file-size-allowlist.yaml \u2014 8 ins / 8 del comment + `issue:` field\
+      \ rewrites only; YAML semantically unchanged (load_config-equivalent dict identical\
+      \ except for documentation-only `issue` strings).\n- documenter `94655515a`\
+      \ + `3662b070a`: docs/guides/decomposition-pattern.md, gateway/CLAUDE.md, orchestrator/CLAUDE.md,\
+      \ sandbox/CLAUDE.md, shared/CLAUDE.md \u2014 pure Markdown and the cq-4 relaxation\
+      \ prose; zero runtime code paths touched.\n\nNo production import surface, no\
+      \ test surface. The tester correctly chose `tests_execution_blocked` over `no_test_changes_needed`\
+      \ per spec: path (c) requires `checks ran and passed`, but the configured make\
+      \ lint/test/security did not run \u2014 the blocked path is the honest signal.\
+      \ Path (b) and (c) are mutually exclusive per #2431, and the producer respected\
+      \ that.\n\n**Offline static-check coverage of the changed surface, independently\
+      \ re-verified:**\n- `python3 scripts/check-file-sizes.py` exits 0 against the\
+      \ merged worktree (re-ran during my coder/documenter reviews).\n- `yaml.safe_load(scripts/file-size-allowlist.yaml)`\
+      \ returns the expected 17-entry caps+files structure (independently parsed during\
+      \ coder review).\n- `grep -nE \"#2261|#2548|#2569|slice-15\" scripts/file-size-allowlist.yaml`\
+      \ returns zero (no residual stale tags).\n- `grep -n \"#2261\" docs/guides/decomposition-pattern.md\
+      \ gateway/CLAUDE.md orchestrator/CLAUDE.md sandbox/CLAUDE.md shared/CLAUDE.md`\
+      \ returns exactly the two lines in the pattern doc's intro docstring that the\
+      \ slice acceptance explicitly preserves as the single historical-pointer exception.\n\
+      \n**CI as safety net is reasonable here** \u2014 the slice changes no runtime\
+      \ behavior, has no producer-authored test scaffolding to validate, and the full\
+      \ lint/test/security pipeline at merge time will catch any environmental fog\
+      \ the sandbox masked. This is the appropriate trade-off for a docs/scaffolding\
+      \ root slice; it would NOT be appropriate for a slice that touched runtime code\
+      \ or modified test fixtures.\n\n**Tester also dual-reviewed the coder v1 commit**\
+      \ \u2014 their ACK is on record (they confirm matching task-1-6 acceptance:\
+      \ comment + `issue:` only, no `files:` map mutations, both entries still present).\
+      \ My independent review reached the same conclusion.\n\nACK. Conditions for\
+      \ NACK on a blocked-tests attestation (per reviewer playbook): \"NACK unless\
+      \ the limitation is clearly documented and the tests are syntactically valid\"\
+      \ \u2014 both satisfied (former: yes; latter: vacuously, no tests written).\
+      \ The slice is the documentation/scaffolding root of the 28-slice DAG; no test\
+      \ surface is warranted, and the offline checks the tester did run cover 100%\
+      \ of the changed surface area.\n\n### Non-blocking\n- The TLS UnknownIssuer\
+      \ issue blocking `make venv` from `files.pythonhosted.org` has now hit both\
+      \ the coder (mypy 1.19.1) and the tester (4 named packages) in the same slice.\
+      \ If subsequent slices on this branch keep tripping it, the program may want\
+      \ to either (a) pre-stage wheels in the sandbox image, or (b) configure the\
+      \ uv/pip TLS chain to trust the sandbox proxy's CA. Not a slice-1 blocker \u2014\
+      \ flagging as program-level operational signal.\n- The tester explicitly declines\
+      \ to substitute their proposal for CI. That's the right framing and worth reiterating\
+      \ in any reviewer-summary text that flows downstream \u2014 `tests_execution_blocked=true`\
+      \ should land verbatim in the PR body so merge-time review knows the configured-check\
+      \ evidence comes from CI, not the producer sandbox."
+    ack_version: 1
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:32Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 4d55a373-749a-4f
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:33Z] tester (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 93550004-e5e0-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:35Z] reviewer_code (CONSENSUS_CONFIRMED): Confirmed by reviewer_code
+
+````yaml
+id: a012cb5f-eba8-45
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:35Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 4b248547-530b-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:35Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 70cd9ad6-ac92-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:39Z] tester (CONSENSUS_CONFIRMED): Confirmed by tester
+
+````yaml
+id: 7f58e0c6-b3cd-46
+phase: implement
+metadata:
+  consensus_reached: false
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:39Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: d18dba1c-cb36-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:39Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 029afdc5-b143-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:39Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 02020abd-3979-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:40Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: a5991924-ffa7-4a
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:40.590233+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:41Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: ef4a226b-524c-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:41.397943+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:41Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: f095f2e2-0769-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:43Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6e4185e5-9851-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.241250+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:43Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6d8eac5f-fbab-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.283204+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:45Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 0c57ff64-b300-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:45.470337+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:47Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: e9f53ed3-bc06-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:47.887004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:08:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 8dc45c49-750c-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:48.228540+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:11Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 352f8eaf-f6f9-48
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:50.129446+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:41Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 1f1da34a-f517-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:40.590233+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:43Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 1b2f3bba-283c-4b
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.241250+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:43Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: e5cd2caf-69c5-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.283204+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:45Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 34b48e3d-9b2a-4f
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:45.470337+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:47Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 26e12882-46bf-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:47.887004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:09:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 9899c212-0574-4c
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:48.228540+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:12Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 1dc2b5dc-d2b0-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:50.129446+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:43Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 78a43bc8-566c-46
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:40.590233+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:43Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 1b1b5a26-1fb8-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.241250+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:43Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2a508ec3-3e20-48
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.283204+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:45Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 53041ad1-dcf3-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:45.470337+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:48Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 9f89abdf-f3b1-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:47.887004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:10:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 90ee891b-9a98-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:48.228540+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:14Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 16cb5e77-a150-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:50.129446+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:45Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 8bf1cc7e-6a2f-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:40.590233+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:45Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: eac42a0b-cd08-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.283204+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:45Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 48e907c5-f8e4-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:43.241250+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:45Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: e76b7d52-fdaa-47
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:45.470337+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:48Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: cdf1dbe6-7d4d-42
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:47.887004+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: f540c634-009f-40
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:48.228540+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:49Z] reviewer_contract (CONSENSUS_CONFIRMED): Confirmed by reviewer_contract
+
+````yaml
+id: a2e174da-c756-48
+phase: implement
+metadata:
+  consensus_reached: true
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:11:49Z] coder (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 77180b3c-09d4-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:12:16Z] reviewer_contract (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6ad1f43c-9556-49
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:12:00.076744+00:00'
+  slice_id: slice-1
+````
+
+### [2026-05-31T04:12:16Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 78cfa4b2-a588-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-31T04:08:50.129446+00:00'
+  slice_id: slice-1
+````
