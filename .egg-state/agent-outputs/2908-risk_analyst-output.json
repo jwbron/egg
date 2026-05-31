@@ -1,0 +1,417 @@
+{
+  "issue": 2908,
+  "phase": "plan",
+  "role": "risk_analyst",
+  "version": 1,
+  "summary": "Technical risk assessment for the BRC event-pump + durable memory refactor. The proposal removes the structural seam (model volunteering to re-enter blocking wait) by lifting the wait to the wrapper, with memory carried in a per-role brc-memory.md and continuity sequenced from server-side next-action queries. Most risks are MEDIUM and manageable with explicit mitigations the planner must encode. Two risks are HIGH and gate plan-phase consensus: (R1) the existing state-store and health-monitor durability does NOT meet the cq-3 hard requirement that the no-progress safety budget and parked HITL decisions survive SDLC-host failure, and (R2) the Qwen-route provider-cache TTL ceiling against realistic ~10-13 min BRC idles is unmeasured. R1 must be addressed by an explicit durability extension in the plan (synchronous flush on HITL writes + state-store-backed safety budget); R2 must be addressed by WS0 spike instrumentation of a ~15 min idle on the Qwen route before any v1 cutover. Verdict on the plan-as-framed (Option B + the cq-1/2/3/4 HITL resolutions): ACK with the two HIGH risks tracked and mitigations enforced; the architect / task_planner producers will be reviewed against the same lens when they propose.",
+  "verdict": "ACK",
+  "verdict_rationale": "The recommended Option B is the only option that removes the structural seam rather than narrowing it. The WS7 measurement work has already de-risked the cache concern on both routes for short/medium idles. The remaining HIGH risks (cq-3 durability gap, Qwen TTL ceiling) are addressable in the plan and the issue body explicitly leaves them as 'resolve during implementation against spike data'. NACK conditions for architect / task_planner are tracked separately under blocking_concerns once those producers propose.",
+  "blocking_concerns": [],
+  "feedback": "",
+  "top_3_risks": [
+    "R1-durability-cq3-gap",
+    "R2-qwen-cache-ttl-ceiling",
+    "R5-memory-shape-decision"
+  ],
+  "risks": [
+    {
+      "id": "R1-durability-cq3-gap",
+      "title": "Existing state-store + health-monitor do NOT meet cq-3's host-death-recoverable hard requirement",
+      "category": "data-loss / operator-hard-requirement",
+      "impact": "HIGH",
+      "likelihood": "HIGH",
+      "severity": "HIGH",
+      "evidence": [
+        "orchestrator/state_store.py:719-740 — pipeline state is written atomically to disk via temp-file+rename, then committed to git, then pushed to remote via an async best-effort daemon thread (lines 805, 890-928).",
+        "If a save_pipeline() returns successfully and the host crashes before the async push fires, the state is stranded on emptyDir-backed pod-local disk. orchestrator-deployment.yaml:188-191 — both /home and .egg-state are emptyDir volumes, so a pod restart wipes them.",
+        "orchestrator/state_store.py:304-305 — _restore_from_remote() finds nothing on remote and silently creates a fresh orphan branch, losing the decision state.",
+        "orchestrator/health_monitor.py:82-103, 133-144, 286-810 — _agents, _last_heartbeat, AgentState.last_progress, progress_escalated are entirely in-memory. No persistence. A pod restart resets all wall-clock progress anchors to zero; a pipeline that had been silently progressing for 550s before a crash will have 0s elapsed when the monitor re-initializes.",
+        "HITL cq-3 resolution explicitly states: 'this no-progress safety budget is now the ONLY safety net, so it must be robust to SDLC-host failure. The parked HITL decision AND the safety-budget / no-progress state must be persisted DURABLY SERVER-SIDE.'"
+      ],
+      "primitive_existence_check": "FAIL — the operator's requirement assumes a primitive (durable server-side state) that exists in the form 'best-effort async git push' rather than 'synchronous flush before returning'. The current shape is a known stochastic-loss surface.",
+      "trust_boundary_check": "BOUNDARY VIOLATION — the orchestrator returns success to the agent before the durable write has actually crossed the host boundary onto remote storage.",
+      "mitigations": [
+        "Plan MUST introduce a synchronous-flush variant of save_pipeline() for HITL-decision writes and safety-budget writes. Either (a) synchronously await the git push and surface failure to the caller, or (b) write to a remote-first store (orchestrator Redis with AOF / Postgres / git-server via blocking HTTP) before acking the mutation.",
+        "Plan MUST extend the health monitor to checkpoint last_progress + progress_escalated to the same durable store on every heartbeat-threshold-crossing transition (not on every heartbeat — that would thrash). Reload on startup as part of startup_reconciliation.py.",
+        "Plan MUST add a startup-reconciliation path that replays the safety budget from the durable store rather than reinitialising to zero (the BRC consensus-tracker reconstruction at cli.py:292-387 is the existing precedent).",
+        "Tester / coder verification gate: end-to-end test that kills the orchestrator pod mid-HITL-resolution and confirms the resolved decision survives the restart."
+      ],
+      "rollback": "If durability work proves too large for this issue's scope, the plan should fall back to keeping the old capped-restart wrapper available (which contradicts cq-4 — operator override required) OR explicitly defer cq-3's durable-safety-budget requirement to a follow-up and surface the resulting reduced-durability posture as a HITL gate before v1 cutover. The current plan-phase risk register flags either fallback path as an operator escalation.",
+      "owner": "coder (durability work) + reviewer_plan (gate enforcement) + operator (if rollback path taken)"
+    },
+    {
+      "id": "R2-qwen-cache-ttl-ceiling",
+      "title": "Qwen-route provider-cache TTL ceiling vs realistic ~10-13 min BRC idles is unmeasured",
+      "category": "external-dependency / cost-regression",
+      "impact": "MEDIUM (cost) / HIGH (if widespread cache misses force a redesign post-cutover)",
+      "likelihood": "MEDIUM — TTL is known ≥5.5 min, unknown vs ~15 min; observed BRC idles reach 10-13 min on real pipelines.",
+      "severity": "HIGH",
+      "evidence": [
+        "Issue WS7 follow-up comment: 'TTL ceiling unmeasured. Observed BRC idles reached ~10-13 min (a producer composing). So the only open question: does the Qwen provider cache survive a ~15-min idle?'",
+        "config/litellm/patch_litellm_cache.py:104-152 — egg only unstrips OpenRouter's native Qwen cache_control header; it adds no custom caching. OpenRouter / Alibaba TTL is provider-side, undocumented in this codebase.",
+        "HITL cq-2 resolution: 'WS0 must instrument the actual per-event cold-read / cache-creation cost on the Qwen route across a realistic worst-case BRC idle (specifically a reviewer parked while a producer addresses a NACK and re-proposes — observed ~7-8 min in practice).'",
+        "config/litellm/cost_callback.py:1-60 — per-call usage is logged to stdout; the host-side ~/.local/state/clm/cost-*.json is NOT how in-pod agents observe their own cache. The WS0 instrumentation must source Qwen numbers from the litellm callback, not from the Agent SDK result (which is all-zero on the Qwen route)."
+      ],
+      "primitive_existence_check": "PASS structurally — the cost callback exists and emits per-call cache numbers. But the WS0 work needs to wire those into an aggregated 'per-event cold-read cost across a synthetic 15-min idle' measurement that does not exist today.",
+      "trust_boundary_check": "External provider — egg cannot guarantee the TTL ceiling and has no recourse if OpenRouter/Alibaba changes it. The plan must treat this as an external-dependency risk and instrument continuously rather than assume.",
+      "mitigations": [
+        "WS0 spike MUST include a ~15 min idle measurement on the Qwen route, sourced from the cost_callback stdout stream (not Agent SDK usage.* which is zero on this route). Per HITL cq-2: 'ONLY if that measured cold-read waste proves material should a BOUNDED keep-warm be added, and then: Qwen-route only, active only during idles approaching the TTL, with a capped total number of refreshes, and SUPPRESSED during HITL / awaiting-human waits.'",
+        "If the TTL ceiling proves <15 min: keep-warm cadence < measured TTL, Qwen-route only, with a cap on total refreshes and explicit suppression during AWAITING_HUMAN states. The keep-warm must NOT run on the Anthropic route (1h TTL makes it unnecessary).",
+        "Instrument provider cache_read ratio in steady-state ops (not just spike) so a TTL change post-cutover is detected before it costs serial pipeline runs.",
+        "Per HITL feedback Q1: no hard caps; instrument-and-report. The operator will judge go/no-go from the reported numbers — the plan must surface those numbers, not gate them automatically."
+      ],
+      "rollback": "If WS0 measures the Qwen TTL ceiling as materially worse than the Anthropic route AND keep-warm cost projection is unacceptable to the operator, the plan ships v1 on the Anthropic route only and the Qwen route stays on the new event-pump without keep-warm (accepting the higher cold-read cost — operator decision under cq-2 explicitly allows this since Qwen tokens are cheap).",
+      "owner": "spike-author (WS0 measurement) + coder (keep-warm if needed) + operator (go/no-go judgment)"
+    },
+    {
+      "id": "R3-cursor-pod-restart-loss",
+      "title": "Wait-loop cursor at /tmp/egg-wait-cursor-* is wiped on pod restart; wrapper-side wait must handle stale cursors",
+      "category": "correctness / event-delivery",
+      "impact": "MEDIUM — stale cursor causes either duplicate event processing or missed events depending on server-side since_id handling",
+      "likelihood": "LOW per pipeline (pod restart is rare under normal ops) / HIGH across the deployment lifetime",
+      "severity": "MEDIUM",
+      "evidence": [
+        "sandbox/egg_lib/orch_cli.py:1377-1512 — cursor file path is /tmp/egg-wait-cursor-{pipeline_id}-{role}-{md5_hash} (line 1426). /tmp is ephemeral in Kubernetes.",
+        "Lines 1461-1465 document that stale cursors are deleted when the server signals since_id_stale: true; recovery depends on the orchestrator's server-side since_id resolution (#2464).",
+        "Wrapper takeover of the wait does not change the cursor mechanism's ephemerality — same /tmp path, same wipe-on-restart behaviour."
+      ],
+      "primitive_existence_check": "PASS — the server-side since_id_stale signal exists per #2464.",
+      "trust_boundary_check": "PASS — cursor is correctly scoped per-(pipeline, role, filter-hash).",
+      "mitigations": [
+        "Plan MUST confirm the new wrapper-driven wait continues to honour the since_id_stale server signal (i.e. the egg-orch message wait-loop CLI's existing behaviour must not be circumvented by a bespoke wrapper-side wait that bypasses the CLI).",
+        "If the wrapper builds its own wait loop instead of invoking the existing egg-orch message wait-loop CLI, it MUST reimplement the cursor file write/read + stale-signal handling.",
+        "Tester verification: simulate pod restart mid-wait; confirm event delivery resumes correctly (either replay-from-start or server-side cursor recovery)."
+      ],
+      "rollback": "Wrapper's wait can fall back to a durable cursor location under .egg-state/ (gateway-allowed) instead of /tmp.",
+      "owner": "coder (wrapper wait implementation) + tester (pod-restart simulation)"
+    },
+    {
+      "id": "R4-gateway-credential-expiry",
+      "title": "Gateway credential / session expiry during long event-pump idles",
+      "category": "auth / liveness",
+      "impact": "HIGH — agent re-spawn fails silently with stale bearer tokens; gateway treats the role as session-expired",
+      "likelihood": "LOW for short idles / MEDIUM for long HITL-awaiting waits (which the operator explicitly noted can last hours, per HITL cq-2)",
+      "severity": "MEDIUM",
+      "evidence": [
+        "Existing consensus_wrapper risk note (from code exploration): 'If gateway credentials expire during a 15-minute restart wait, agents re-spawned on restart will fail with stale bearer tokens.'",
+        "sandbox/egg_agent_tools/handlers/message.py — wait-loop heartbeat at 60s interval drives gateway-session keep-alive (#2451). Default gateway idle window is 60 minutes.",
+        "Wrapper takeover: the wait-loop's daemon thread (_start_wait_loop_heartbeat, lines 234-264) is currently inside the in-pod agent process. If wrapper takes ownership of the wait, the wrapper must also take ownership of the keep-alive POST with the same slice_id resolution semantics."
+      ],
+      "primitive_existence_check": "PASS — heartbeat endpoint, slice_id resolution, container-id reconstruction (egg-agent-{pid}-{slice}-{role}) all exist.",
+      "trust_boundary_check": "BOUNDARY-PRESERVING — wrapper runs in same pod, has same env vars (EGG_AGENT_ROLE, EGG_PIPELINE_ID, EGG_SLICE_ID, EGG_GATEWAY_BEARER_TOKEN), can emit heartbeats on the agent's behalf.",
+      "mitigations": [
+        "Plan MUST migrate the 60s heartbeat from the in-agent message_wait_loop daemon thread to the wrapper. Wrapper resolves slice_id at entry (existing resolve_slice_id helper) and POSTs WAITING_FOR_EVENT heartbeats during waits, WORKING heartbeats during agent invocations.",
+        "Plan MUST handle the AWAITING_HUMAN case (idles up to hours per cq-2): keep-alive must continue during HITL waits, OR the gateway session must be specifically marked as 'human-bound' and not subject to the 60-min idle expiry.",
+        "Tester verification: artificially induce a 75-min idle; confirm gateway session survives, agent re-spawn succeeds, no 401s from gateway."
+      ],
+      "rollback": "If wrapper-side heartbeat proves fragile, retain the in-agent message_wait_loop heartbeat as a fallback by keeping that primitive callable but moving its triggering to a wrapper-spawned background helper.",
+      "owner": "coder (heartbeat migration) + tester (long-idle integration test)"
+    },
+    {
+      "id": "R5-memory-shape-decision",
+      "title": "Memory file shape (append-only vs distill) is load-bearing for both cost AND correctness; no committed decision criterion yet",
+      "category": "design / correctness",
+      "impact": "MEDIUM — wrong choice either inflates per-event cost (distilled bursts memory-cache) or constrains agent attention (append-only sea-of-context per agent-mode-design.md)",
+      "likelihood": "HIGH — Open Decision #1 in the issue body is not yet resolved",
+      "severity": "HIGH",
+      "evidence": [
+        "Issue body 'Open decisions (resolve during implementation, several against spike data)' item 1: 'Memory location/schema/shape — append-only (cache-friendly, grows, needs compaction) vs rewrite/distill (bounded, busts memory-cache each event).'",
+        "Refine-phase analysis line 360-367: 'The planner should additionally evaluate against the orient, don't constrain axis from docs/guides/agent-mode-design.md: an unbounded append-only memory eventually starts constraining what the per-event agent can attend to (sea-of-context), while a distilled memory keeps small summaries that orient as the target shape.'",
+        "Refine-phase analysis line 168-177: memory-delta MUST be metadata not content; the agent fetches diffs on demand. This constrains both shape options — the memory file holds prior verdicts, not file contents.",
+        "HITL feedback Q2 (operator): 'Ephemeral coordination state — brc-memory.md can be cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop. HARD CAVEAT: this is acceptable ONLY because recovery must NOT depend on the ephemeral memory file surviving.'"
+      ],
+      "primitive_existence_check": "MIXED — .egg-state/agent-outputs/<role>/ already exists in every role's allowlist per shared/egg_restrictions/patterns.py; the memory file shape itself is the open question.",
+      "trust_boundary_check": "PASS — within role's write boundary. Cross-role reads (a producer reading another producer's memory) should be confirmed against the existing allowlist before relying on it for the dual-role-reviewer flow.",
+      "mitigations": [
+        "Plan MUST commit to a memory shape with explicit rationale evaluated against BOTH axes: (a) cache cost (does the shape burst the per-event prefix?) AND (b) orient-don't-constrain (does the shape constrain the agent's attention as it grows?). The refine-phase analysis flags this — the plan should not leave it open.",
+        "Plan MUST encode the cq-2-Q2 hard caveat: any plan slice that depends on brc-memory.md surviving a pod restart for correctness escalates back as a NACK condition. Memory file is coordination state; orchestrator message history is the recovery backstop.",
+        "Plan MUST action-scaffold the memory writes off brc_ack / brc_nack handlers (which already carry reason + files_reviewed) rather than free-form journaling — mitigates curation reliability (per refine-phase Option B 'Cons' / 'Mitigated by').",
+        "Tester verification: agent invocation with prior memory + new event produces verdict consistent with what an agent without prior memory would produce given the same event + delta — i.e., memory orients, does not bias.",
+        "Spike verification: measure per-event cache_read ratio under both shapes on the Qwen route (sensitive case); pick the one that meets both axes."
+      ],
+      "rollback": "Start with distilled / bounded shape (per orient-don't-constrain); if WS0 measurement shows it busts cache materially on Qwen, add an append-only tail with compaction at a threshold. Distilled is the default if the decision must be made before spike data lands.",
+      "owner": "architect (shape decision) + spike-author (measurement) + reviewer_plan (decision-criterion enforcement)"
+    },
+    {
+      "id": "R6-mcp-cli-test-surface-drift",
+      "title": "Adding CLI commands without retiring MCP tools breaks the existing drift-test invariant",
+      "category": "test-regression",
+      "impact": "MEDIUM — CI break that blocks merge; not a correctness regression",
+      "likelihood": "HIGH — the existing test asserts gap-set equality and will FAIL when new CLI verbs are added",
+      "severity": "MEDIUM",
+      "evidence": [
+        "tests/tools/test_mcp_cli_drift.py:264-290 — maintains an explicit expected_gaps set; test_cli_less_tools_are_documented_gaps() at line 243 asserts actual_gaps == expected_gaps at line 286.",
+        "tests/sandbox/egg_agent_tools/test_server.py:110 — hard-coded TOOL_LIST count of 31; will FAIL if new MCP tools added.",
+        "HITL cq-1 resolution: 'Do NOT delete the existing MCP tools in this issue — just guarantee CLI availability for the event-pump's needs.'",
+        "New CLI verbs required by WS3 (and used by the wrapper / per-event agent): brc get-state, brc list-blocking, phase get-context, brc resolve-obligation (iter-2), brc read-peer-artifact (iter-2)."
+      ],
+      "primitive_existence_check": "PASS — handlers (brc.brc_get_state at handlers/brc.py:679, etc.) all accept dict[str, Any] kwargs cleanly serializable as CLI args.",
+      "trust_boundary_check": "PASS — adding a CLI is parity with existing handler invocation; no new write boundary.",
+      "mitigations": [
+        "Plan MUST budget for updating test_mcp_cli_drift.py:264 expected_gaps and test_server.py:110 TOOL_LIST count as part of WS3 / WS8-net-new task scope.",
+        "Plan SHOULD update test_mcp_cli_drift.py to assert 'no MCP tool exists without a CLI peer' (which is what the test is really driving toward) rather than maintaining a hand-tended gap list — the cq-1-resolved direction is 'reduce the gap, eventually delete the MCP surface'.",
+        "Plan MUST flag that prose-bearing CLIs (consensus propose/ack/nack) are explicitly DEFERRED per cq-1 and the new CLI commands (read-only queries) do not trigger the #2741 prose-corruption risk — but the pattern-consistency rule (stdin/file for prose) still applies if any new CLI accepts prose arguments."
+      ],
+      "rollback": "Tests can be temporarily marked xfail if the underlying invariant change scope blows the issue's diff budget; coder then opens a follow-up to land the gap-set / count update.",
+      "owner": "coder (CLI commands + test updates) + reviewer_plan (test-budget enforcement)"
+    },
+    {
+      "id": "R7-prior-fix-regression",
+      "title": "Prior-fix preservation: cursor threading (#2323), pre-confirm-wait (#2064/#2482), gap-race (#1995), heartbeat (#2036), gateway keep-alive (#2451), open-NACK aggregation (#2142), conditional-ACK + stale-version re-review (#2482), producer-allowlist scope (#2725)",
+      "category": "correctness / regression-risk",
+      "impact": "HIGH per individual regression (one of these is the root cause of every prior production incident in the lineage)",
+      "likelihood": "MEDIUM — the wrapper takeover restructures the surface that hosts each of these, and the BRC preamble (_build_brc_preamble at orchestrator/routes/pipelines.py:12348) is being prompt-collapsed",
+      "severity": "MEDIUM (each is mitigated by existing test coverage if it's exercised; risk is in the prompt-collapse losing the operator instructions that named the fix)",
+      "evidence": [
+        "Refine-phase analysis line 181-185 explicitly calls out these as prior-fix preservation requirements.",
+        "Existing tests: cursor-related in sandbox/egg_lib/orch_cli.py:1377-1512 (md5 cursor key); pre-confirm-wait rejection at handler level (HTTP 400 on CONSENSUS_CONFIRMED in pre-confirm wait); gap-race in sandbox/egg_agent_tools/handlers/message.py (since_id threading); heartbeat at message.py:175-264; gateway keep-alive at orchestrator/routes/heartbeats (egg-agent container_id reconstruction); open-NACK aggregation at orchestrator BRC propose handler (HTTP 409 inline details); conditional-ACK + stale-version at orchestrator/routes/consensus.",
+        "WS6 prompt collapse target (_build_brc_preamble) currently encodes some of these as inline instructions to the agent. If they're collapsed into a lean event-handler contract that omits the instruction, the agent may regress behaviour that the orchestrator still enforces — most failure modes become 400/409 retries, which is loud but wasteful."
+      ],
+      "primitive_existence_check": "PASS — each fix has both code + tests today.",
+      "trust_boundary_check": "MIXED — some fixes (e.g. #2142 open-NACK aggregation) are orchestrator-side enforced and survive prompt collapse; others (e.g. #2323 cursor threading) live in the CLI and are preserved only if the wrapper uses the CLI rather than rolling its own.",
+      "mitigations": [
+        "Plan MUST inventory each prior fix in the WS1 wrapper migration plan and identify whether it survives by (a) being orchestrator-enforced (safe), (b) being in the CLI the wrapper invokes (safe if wrapper uses CLI), or (c) being inline prompt instruction (REQUIRES preserving the instruction in the lean event-handler contract).",
+        "Tester verification gate: the existing tests for each of these fixes (#2323 cursor tests, #2064/#2482 pre-confirm rejection tests, #1995 gap-race tests, #2036 heartbeat tests, #2451 gateway keep-alive tests, #2142 aggregation tests, #2725 allowlist tests) MUST still pass under the new wrapper.",
+        "Plan MUST include a regression test gate for each fix; reviewer_plan blocks consensus if any are removed without explicit operator approval."
+      ],
+      "rollback": "If a fix proves load-bearing in a way that doesn't survive the lean event-handler contract, restore the relevant prompt instruction explicitly. The mission is reducing the BRC preamble, not eliminating it.",
+      "owner": "coder (fix preservation) + tester (regression suite) + reviewer_plan (gate)"
+    },
+    {
+      "id": "R8-old-wrapper-deletion-no-rollback",
+      "title": "cq-4 deletes the old capped-restart wrapper entirely — no flag — invalidating any in-flight or stuck pipeline at cutover",
+      "category": "migration / availability",
+      "impact": "HIGH — pipelines mid-restart-loop at cutover are dropped into the new event-pump with no recovery instructions; could orphan in-flight work",
+      "likelihood": "MEDIUM — cutover timing controls this",
+      "severity": "MEDIUM",
+      "evidence": [
+        "HITL cq-4 resolution: 'Delete the old capped-restart wrapper path entirely — do NOT retain it behind a flag.'",
+        "Refine-phase analysis line 178-180 (Constraints): 'Backwards compatibility for in-flight pipelines. The capped-restart wrapper path must remain reachable behind a flag until the new path is validated, so cohorts that started on the old path can finish on it.' — DIRECTLY CONTRADICTED by cq-4 resolution.",
+        "orchestrator/consensus_wrapper.py:38 (MAX_CONSENSUS_RESTARTS = 3) and the surrounding restart-loop logic are the deletion target.",
+        "concurrent_executor.py:37 and routes/pipelines.py:2792 are the consumers of build_consensus_wrapped_command — both must be migrated atomically."
+      ],
+      "primitive_existence_check": "PASS — both consumers are identified; atomic migration is achievable in one PR.",
+      "trust_boundary_check": "PASS — same wrapper boundary, just different control flow inside it.",
+      "mitigations": [
+        "Plan MUST include a cutover procedure (drain in-flight pipelines before the deployment containing the deletion, OR gate the new path on a per-pipeline 'event_pump_enabled' flag set at pipeline creation so cohorts opt in cleanly).",
+        "Plan MUST update routes/pipelines.py:2792 (which currently calls build_consensus_wrapped_command inside a phase-restart flow) to be a no-op or removed if phase-restart concept survives the safety-budget redesign.",
+        "Tester verification: simulate a pipeline mid-restart-loop at the moment of cutover; confirm graceful migration or graceful FAIL (not silent orphaning).",
+        "Note: refine-phase constraint 'capped-restart must remain reachable behind a flag' is REPLACED by the cq-4 operator override; the plan should not re-introduce a flag without an operator decision."
+      ],
+      "rollback": "If cutover orphans pipelines, redeploy the old path is the only option (revert + rebuild). This is one-way without a flag, so the cutover plan must be exceptionally well-rehearsed.",
+      "owner": "coder (deletion + cutover) + operator (deployment timing)"
+    },
+    {
+      "id": "R9-ws3-next-action-endpoint-scope",
+      "title": "Server-side 'consensus next-action --role R' endpoint underspecified; risks reproducing orchestrator state-machine logic in the per-event agent",
+      "category": "design / scope-creep",
+      "impact": "MEDIUM — if next-action is incomplete, the agent re-derives lifecycle state from raw consensus status, which is fragile and was the prior failure mode",
+      "likelihood": "MEDIUM",
+      "severity": "MEDIUM",
+      "evidence": [
+        "Issue body WS3: 'Reuse egg-orch consensus status --json if sufficient, else a thin consensus next-action --role R.'",
+        "Refine-phase analysis line 327-330 — primitive 'egg-orch consensus status --json' is identified but lifecycle decoding is left to the agent.",
+        "Lifecycle complexity that the endpoint must cover: producer step (orient → work → propose → respond-to-reviews → confirm → stay-alive), reviewer step (prepare → poll → sync → review → ack/nack → confirm → stay-alive), dual-role agents (producer-step first per #2749), open-NACK aggregation barrier #2142 (HTTP 409 inline details for 2+ reviewer NACKs), conditional-ACK with pre-merge-condition (#1998), stale-version rejection #2482, resolve_obligation #2338.",
+        "Per the dual-role banner in this role's task description: 'Execute the lifecycles in this strict order' — encoding this rule in a server endpoint moves the rule out of the prompt where it's currently lived-by-instruction."
+      ],
+      "primitive_existence_check": "PARTIAL — consensus status exists; next-action does not. Building it is WS3-net-new and must precede WS1's dependence on it.",
+      "trust_boundary_check": "PASS — server-side endpoint within orchestrator.",
+      "mitigations": [
+        "Plan MUST decompose WS3 into: (a) define the next-action enum (PROPOSE, RESPOND_TO_REVIEW, REVIEW_PROPOSAL, CONFIRM, STAY_ALIVE, RESOLVE_OBLIGATION, IMPASSE-ESCALATE) and (b) implement the endpoint that maps {role, current consensus state, slice scope, dual-role mode} → next-action. Both before WS1 depends on it.",
+        "Plan MUST cover the dual-role producer-first ordering (#2749) explicitly in the endpoint, since this is currently a prompt-only rule.",
+        "Plan MUST cover the open-NACK aggregation barrier (#2142) in the endpoint's return: a producer with 2+ pending NACKs should see RESPOND_TO_REVIEW with all-NACKs inline, not just the most recent one.",
+        "Tester verification: contract tests for the endpoint covering each lifecycle step + each known prior-fix scenario."
+      ],
+      "rollback": "If WS3 scope blows up, fall back to consensus status + agent-side lifecycle decoding, retaining the BRC preamble's lifecycle instructions until WS3 lands. This effectively makes WS6 (prompt collapse) partially-blocked on WS3 completion.",
+      "owner": "architect (endpoint design) + coder (implementation) + reviewer_plan (scope enforcement)"
+    },
+    {
+      "id": "R10-per-event-subprocess-latency",
+      "title": "Per-event subprocess + Python interpreter startup latency accumulates across rapid event arrivals",
+      "category": "performance",
+      "impact": "LOW per event (~100ms-1s); MEDIUM if event-storms (e.g. multiple concurrent ACKs converging) cause wall-clock inflation",
+      "likelihood": "MEDIUM — BRC events are often clustered (e.g. all reviewers ACK within seconds of each other)",
+      "severity": "LOW",
+      "evidence": [
+        "shared/egg_agent/command.py:11-46 — each build_agent_command() call constructs a fresh subprocess; consensus_wrapper.py:178-180 executes it freshly per event.",
+        "shared/egg_agent/__main__.py:24-64 — run_agent() invoked fresh per process spawn; no cross-event state accumulation.",
+        "Issue body Open Decision 6: 'WS8 latency trade — CLI = subprocess + interpreter spawn per call vs in-process MCP dispatch. Likely negligible for a handful of calls per event, but measure per-event wall-clock; if it bites, a persistent egg-orch daemon/socket or batched calls are fallbacks.'"
+      ],
+      "primitive_existence_check": "PASS — subprocess spawn is the current pattern; no new primitive.",
+      "trust_boundary_check": "PASS.",
+      "mitigations": [
+        "WS0 spike MUST measure per-event wall-clock for the SDK entry point invocation (not just cache cost) across a representative BRC cycle.",
+        "If latency proves material, the plan SHOULD consider event coalescing in the wrapper (e.g. drain the queue and pass all pending events in one invocation), with the constraint that the per-event agent's verdicts on each must remain independent.",
+        "The CLI commands added in WS3 (get-state, list-blocking, get-context) are CLI = subprocess + interpreter — if WS3 calls accumulate, consider a persistent CLI daemon socket as a Phase 2 optimisation."
+      ],
+      "rollback": "If latency is unacceptable on the Qwen route specifically, the in-process MCP server stays (cq-1 already preserves this) and only the new CLI commands need to be wired for the wrapper itself, not the agent.",
+      "owner": "spike-author (measurement) + coder (coalescing if needed)"
+    },
+    {
+      "id": "R11-claude-print-anti-pattern-regression",
+      "title": "Risk that implementation regresses the refine-phase fix and re-introduces 'claude -p' / 'claude --print' as the per-event invocation",
+      "category": "design-correctness / process",
+      "impact": "HIGH — would re-introduce the EGG100-linted anti-pattern that the refine phase explicitly corrected",
+      "likelihood": "LOW — the refine analysis is explicit, but the issue body itself still contains 'SDK-native one-shot claude -p' phrasing in the design block",
+      "severity": "MEDIUM",
+      "evidence": [
+        "Refine analysis line 41-58: 'Primitive correction relative to the issue body. The issue text refers to SDK-native one-shot claude -p. That phrasing is incorrect for egg: claude --print is an EGG100-linted anti-pattern (docs/guides/agent-mode-design.md:90-104).'",
+        "docs/guides/agent-mode-design.md:90-104 documents the lint rule; sandbox/egg_lib/gha_exec.py:101 is the only documented exception (one-shot GHA exec), whose docstring at lines 88-92 explicitly steers long-running tool-using agents toward build_agent_command().",
+        "orchestrator/consensus_wrapper.py:748-759 already uses 'python3 -m egg_agent' with the explicit comment 'Uses the Agent SDK entry point instead of the claude CLI.'",
+        "Risk: a coder reading the issue body's 'claude -p' phrasing as authoritative could re-introduce the anti-pattern; the refine analysis is the authoritative correction."
+      ],
+      "primitive_existence_check": "PASS — build_agent_command() and python3 -m egg_agent exist and are the correct primitive.",
+      "trust_boundary_check": "PASS.",
+      "mitigations": [
+        "Plan MUST cite docs/guides/agent-mode-design.md:90-104 in the wrapper-migration task description and require coder to use build_agent_command() / python3 -m egg_agent (NOT claude --print).",
+        "Plan MUST budget the EGG100 lint to remain enforced; any new claude --print call would be caught by lint and is acceptable ONLY in the existing gha_exec.py exception (which is not the consensus wrapper).",
+        "Reviewer_plan verification: read the WS1 wrapper migration task; confirm the primitive named is python3 -m egg_agent, not claude --print or claude -p."
+      ],
+      "rollback": "If the coder regresses, the EGG100 lint catches it pre-merge.",
+      "owner": "coder (primitive choice) + reviewer_plan (lint enforcement) + reviewer_code (lint enforcement in implement)"
+    },
+    {
+      "id": "R12-memory-content-baking-anti-pattern",
+      "title": "Risk of baking large diffs / file-contents into per-event prompts instead of metadata-only delta",
+      "category": "design-correctness",
+      "impact": "MEDIUM — re-introduces the 'baking in large diffs' anti-pattern from agent-mode-design.md; inflates per-event cost and constrains agent attention",
+      "likelihood": "MEDIUM — the easiest implementation of 'delta-only re-analysis' is to inline the diff; the correct implementation is to surface only metadata",
+      "severity": "MEDIUM",
+      "evidence": [
+        "Refine-phase analysis line 168-177 (Constraints): 'Memory-delta is metadata, not content. Delta-only re-analysis means the agent receives the prior assessment summary + a metadata delta (changed file paths, commit SHAs, version markers, NACK reasons), NOT an inlined diff blob or file-contents snapshot baked into the per-event prompt.'",
+        "docs/guides/agent-mode-design.md (referenced in refine analysis) — 'baking in large diffs' is named anti-pattern.",
+        "Risk surfaces in WS5 (delta-scoped re-analysis): the simplest implementation is changed_artifacts-style metadata; the wrong implementation is a pre-fetched diff blob."
+      ],
+      "primitive_existence_check": "PASS — git tools available in-pod; agent can fetch its own diffs.",
+      "trust_boundary_check": "PASS.",
+      "mitigations": [
+        "Plan MUST encode the 'metadata not content' constraint in WS5's task description. The per-event prompt shape includes: (a) prior assessment summary, (b) changed_artifacts as file paths + commit SHAs, (c) NACK reasons as text, (d) the event payload — NOT diff blobs or file contents.",
+        "Plan MUST preserve agent's git/Read tools in-pod so the per-event agent can fetch its own diffs on demand.",
+        "Reviewer_plan verification: read the WS5 task description for delta shape; confirm metadata-only."
+      ],
+      "rollback": "If metadata-only proves insufficient (e.g. agent makes wrong calls because it didn't fetch diffs), fall back to including a bounded diff summary (changed lines count, top changed files) — NOT full diff blobs.",
+      "owner": "architect (WS5 design) + coder (implementation) + reviewer_plan (constraint enforcement)"
+    },
+    {
+      "id": "R13-cross-role-memory-read-allowlist",
+      "title": "Dual-role and cross-role memory reads must be validated against the existing allowlist",
+      "category": "trust-boundary / permissions",
+      "impact": "LOW per access (data is co-located by design) / MEDIUM if the allowlist surprises a workflow at runtime",
+      "likelihood": "LOW",
+      "severity": "LOW",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py — every role can write .egg-state/agent-outputs/ per the refine analysis. The question is reads.",
+        "Per-role memory at .egg-state/agent-outputs/<role>/brc-memory.md — when reviewer_plan wants to read architect's memory (e.g. to reconstruct prior assessment for re-review), this is a cross-role read.",
+        "Per cq-2-Q2: 'orchestrator message history is the durable reconstruction backstop' — implies cross-role memory reads are NOT the recovery channel, the message bus is."
+      ],
+      "primitive_existence_check": "PASS structurally — files are co-located.",
+      "trust_boundary_check": "VERIFY — must confirm cross-role READS are permitted by the in-pod tool interceptor and gateway push filter, not just writes.",
+      "mitigations": [
+        "Plan MUST clarify that brc-memory.md is per-role and never depended on across roles for correctness (the message bus is the cross-role channel).",
+        "Plan SHOULD confirm via shared/egg_restrictions/patterns.py that the existing role allowlists already permit reads-of-others-outputs (or explicitly scope reads if needed).",
+        "Tester verification: dual-role agent reads its own memory; cross-role read attempts (if any) are validated against the allowlist."
+      ],
+      "rollback": "If cross-role reads are not permitted, memory must remain strictly intra-role and any cross-role reconstruction happens via message history.",
+      "owner": "coder (memory write location) + reviewer_plan (boundary verification)"
+    },
+    {
+      "id": "R14-sse-silent-failure-during-long-waits",
+      "title": "SSE event-pump silent-failure mode (consensus_wrapper.py:423-501) has no fallback alert if curl times out without consensus.reached",
+      "category": "observability",
+      "impact": "MEDIUM — silent stuck pipeline; operator only learns when downstream timeouts fire (which may not exist)",
+      "likelihood": "MEDIUM — SSE endpoint failures are infrequent but happen (network blips, orchestrator restarts)",
+      "severity": "LOW",
+      "evidence": [
+        "Existing code at orchestrator/consensus_wrapper.py:423-501 — SSE primary with curl --max-time, fall through to egg-orch message wait, fall through to sleep. The new event-pump generalises this pattern.",
+        "Risk note from code exploration: 'If curl times out without consensus.reached event, falls through with no observability. The new always-on event-pump must add explicit heartbeats during long waits.'"
+      ],
+      "primitive_existence_check": "PASS — wrapper heartbeat is being added under WS4 anyway.",
+      "trust_boundary_check": "PASS.",
+      "mitigations": [
+        "Plan MUST ensure the wrapper emits WAITING_FOR_EVENT heartbeats during long waits (the WS4 liveness migration covers this).",
+        "Plan SHOULD add an OVERSEER_ALERT trigger if the wrapper sees N consecutive curl-timeout-without-event cycles (e.g. 5x the expected event interval), so the operator gets visibility on stuck waits before the no-progress safety budget fires.",
+        "Tester verification: kill the SSE endpoint mid-wait, confirm the wrapper emits heartbeats and eventually alerts."
+      ],
+      "rollback": "Heartbeats are already in scope (WS4); the extra OVERSEER_ALERT trigger is an optional addition.",
+      "owner": "coder (wrapper alerting) + tester (chaos test)"
+    }
+  ],
+  "human_review_areas": [
+    {
+      "area": "cq-3 durability extension scope",
+      "reason": "The operator's hard requirement (durable server-side state for no-progress budget + parked HITL decisions) requires extending state_store.py with a synchronous-flush variant. This is a non-trivial change that could expand into a separate issue if not scoped carefully. Architect should present the scope explicitly so the operator can confirm before implement starts.",
+      "trigger": "Plan-phase reviewer_plan ACK is gated on the architect explicitly addressing R1; if the architect's plan does not extend state_store + health_monitor durability, NACK with R1 cited."
+    },
+    {
+      "area": "Qwen-route v1 cutover gate",
+      "reason": "cq-2 ships Qwen on the new event-pump but reserves the right to add keep-warm if WS0 measures material cost. The exact threshold for 'material' is operator-judgment per HITL feedback Q1 (no hard cap). The plan should surface the WS0 measurement format to the operator so the go/no-go is on shared numbers.",
+      "trigger": "Implement-phase: WS0 spike data presented as HITL decision; operator picks 'ship as-is' or 'add keep-warm'."
+    },
+    {
+      "area": "Memory shape decision (Open Decision #1)",
+      "reason": "The shape decision is load-bearing (R5). Architect should commit to a shape with rationale evaluated against BOTH cache and orient-don't-constrain axes; if architect leaves this open, NACK."
+    },
+    {
+      "area": "Old wrapper deletion cutover (cq-4)",
+      "reason": "cq-4 deletes the old capped-restart wrapper entirely. The cutover procedure (drain vs flag vs other) is operator-facing; plan should surface it explicitly."
+    }
+  ],
+  "runtime_primitive_audit": {
+    "passed": [
+      "python3 -m egg_agent via shared/egg_agent/command.py:11-46 — exists, is one-shot, accepts stdin or argv, inherits env per-invocation",
+      "egg-orch message wait-loop CLI (sandbox/egg_lib/orch_cli.py:1377+) — exists, threads cursor, server-side stale signal works",
+      "egg-orch consensus status --json — exists",
+      "egg-orch consensus propose/ack/nack/confirmed — exist; prose args via argv today (#2741 risk is deferred per cq-1)",
+      ".egg-state/agent-outputs/<role>/ writes allowed for every producer + reviewer per shared/egg_restrictions/patterns.py:479-514",
+      "tool_interceptor.check_file_write_permission — exists, per-invocation",
+      "phase_filter.validate_agent_push — exists, gateway-side",
+      "EGG_AGENT_ROLE / EGG_PIPELINE_ID / EGG_SLICE_ID — env-injected per pod",
+      "consensus.reached SSE event (/api/v1/pipelines/{pid}/stream) — exists, used today",
+      "build_agent_command() in shared/egg_agent/command.py — used today at consensus_wrapper.py:748-759",
+      "config/litellm/cost_callback.py — exists; emits cache numbers per call to stdout",
+      "config/litellm/patch_litellm_cache.py — patches cache_control header for Qwen / DeepSeek through OpenRouter Anthropic adapter",
+      "Cross-process Anthropic cache hit (~92%, 1h TTL) — measured per issue WS7 comment",
+      "Cross-session Qwen cache hit (~99.99%, ≥5.5min TTL) — measured per issue WS7 follow-up comment"
+    ],
+    "missing_or_underspecified": [
+      "consensus next-action --role R CLI / endpoint — NOT YET BUILT (WS3 net-new). The lifecycle decoding logic must be encoded server-side; underspecified per R9.",
+      "brc get-state CLI — NOT YET BUILT (WS3 / WS8-net-new). Handler exists at sandbox/egg_agent_tools/handlers/brc.py:679; only the CLI wrapping is missing.",
+      "brc list-blocking CLI — NOT YET BUILT. Handler exists at sandbox/egg_agent_tools/handlers/brc.py:726.",
+      "phase get-context CLI — NOT YET BUILT. Handler exists at sandbox/egg_agent_tools/handlers/phase.py:139.",
+      "brc resolve-obligation CLI — NOT YET BUILT (iter-2). Handler exists at sandbox/egg_agent_tools/handlers/brc.py:743.",
+      "brc read-peer-artifact CLI — NOT YET BUILT (iter-2). Handler exists at sandbox/egg_agent_tools/handlers/brc.py:901.",
+      "Durable safety-budget state in orchestrator — NOT IMPLEMENTED. health_monitor.py:82-103 is entirely in-memory (R1).",
+      "Synchronous-flush save_pipeline() for HITL decisions — NOT IMPLEMENTED. state_store.py best-effort async push (R1).",
+      "Wrapper-side heartbeat with slice_id resolution — NOT IMPLEMENTED. Currently lives in message_wait_loop daemon thread (R4).",
+      "Qwen-route TTL ceiling instrumentation against ~15min idle — NOT MEASURED (R2; WS0 must add).",
+      "Per-event subprocess latency baseline — NOT MEASURED (R10; WS0 should add)."
+    ]
+  },
+  "trust_boundary_audit": {
+    "passed": [
+      "Wrapper runs in same pod as agent, shares EGG_AGENT_ROLE / EGG_PIPELINE_ID / EGG_SLICE_ID / EGG_GATEWAY_BEARER_TOKEN env",
+      "Per-invocation tool_interceptor enforcement preserves role write boundary across multiple python3 -m egg_agent invocations",
+      "Gateway phase_filter.validate_agent_push runs per-push, unaffected by wait ownership change",
+      "Memory file .egg-state/agent-outputs/<role>/brc-memory.md is within every role's existing write allowlist"
+    ],
+    "needs_validation": [
+      "Cross-role memory READS — most roles need only their own; verify R13 against the read-side of the allowlist not just the write-side",
+      "Wrapper invoking CLI commands on the agent's behalf during a wait — verify the wrapper has gateway-credential parity with the agent it spawns (it does, via env, but document this dependency)"
+    ],
+    "boundary_violations": [
+      "R1 cq-3 durability — orchestrator returns success on HITL decision write before remote push has crossed the host boundary; technically a boundary violation against the operator's hard requirement"
+    ]
+  },
+  "rollback_plan_summary": "Rollback granularity is per-workstream. WS0 (spike) is informational — no rollback. WS1 (wrapper) deletes the old capped-restart path per cq-4 with no flag — rollback is git revert + redeploy, which orphans any in-flight pipelines started post-deletion. WS2 (memory) is additive — rollback by deleting the brc-memory.md files (none of which are authoritative per cq-2-Q2). WS3 (next-action) is additive — rollback by reverting the endpoint + CLI. WS4 (liveness migration) is the one area where rollback is hardest — if the wrapper-side heartbeat breaks gateway sessions in production, the fix is to re-enable the in-agent daemon thread, which requires re-deploying the old message_wait_loop primitive. WS5/WS6 (delta + prompt collapse) are agent-side and rollback is by reverting the BRC preamble. WS7 (cache, if keep-warm needed) is Qwen-route-only, ops-time-gated, suppressed during AWAITING_HUMAN — rollback by disabling the loop. WS8 (net-new CLI commands only — no MCP deletion in this issue per cq-1) is additive, rollback by removing the CLI verbs. Most workstreams are individually revert-safe; WS1 + WS4 require coordinated rollback if cutover goes wrong, and the cq-4 no-flag deletion makes WS1 rollback the highest-effort path.",
+  "rollback_plan_per_workstream": {
+    "WS0": "Informational spike; no rollback.",
+    "WS1": "git revert + redeploy. Orphans any pipelines started on the new path (cq-4 chose no flag). Rollback procedure must drain in-flight pipelines first.",
+    "WS2": "Delete brc-memory.md files; no authoritative state is lost (cq-2-Q2 hard caveat: recovery must NOT depend on them).",
+    "WS3": "Revert endpoint + CLI verbs; agent falls back to consensus status + agent-side lifecycle decoding; this implicitly partially-rolls-back WS6.",
+    "WS4": "Re-enable in-agent message_wait_loop heartbeat daemon (kept as deletable-but-not-deleted in this issue until rollback window closes).",
+    "WS5": "Revert delta-shape; full prior assessment instead of delta.",
+    "WS6": "Revert _build_brc_preamble.",
+    "WS7": "Disable keep-warm loop (if built); accept cold-read cost.",
+    "WS8 (net-new CLI only per cq-1)": "Remove CLI verbs; agent falls back to MCP tools (which remain registered per cq-1)."
+  }
+}
