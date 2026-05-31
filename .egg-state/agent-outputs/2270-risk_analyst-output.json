@@ -1,5 +1,6 @@
 {
   "verdict": "ACK",
+  "refine_phase_notes": "Incorporated findings from .egg-state/drafts/2270-analysis.md: (1) two-monitor architecture (orchestrator-side vs sandbox-side) is architecturally load-bearing — new signal-routing for the file-issue path must be plumbed through sandbox-side monitor's tier-1 gate; new corrective-action logic belongs in orchestrator-side monitor. (2) EventBus (orchestrator/events.py) has NO production subscribers for HEALTH_CHECK_* events today — the only production consumer is the container monitor inspecting returned HealthResult lists directly via worst_action(). New Tier-1 checks that emit events without a subscription chain are wasted emissions. (3) Issue text's Tier-2 claim (agent_inspector) is FALSE for current source — no orchestrator/health_checks/tier2/ directory exists. Tier-2 is greenfield; planner must not describe it as a migration target. (4) issue_filer.py is 'live-but-always-dead' — reachable (Sonnet decision-maker lists 'issue' as a first-class action) but production outcome shadowed by sandbox-side filing. Test anchor byte-equality invariant must be relocated not just deleted.",
   "risks": [
     {
       "id": "R1",
@@ -7,7 +8,7 @@
       "title": "Generation token absent from health endpoint — recycle detection cannot be built without new primitive",
       "severity": "high",
       "likelihood": "high",
-      "description": "The orchestrator /health endpoint (orchestrator/routes/health.py:66-136) returns status, timestamp, state-store probe, and process_start_time — but NO pod UID, boot_timestamp, or generation_token. The refine-phase HITL feedback (Q1) explicitly states: 'This issue must define and implement the primitive as a prerequisite for the overseer's recycle-detection logic.' Without this primitive, the overseer cannot detect orchestrator pod recycling mid-phase, leaving _consecutive_orch_failures, dedup windows, escalation history, and _last_phase_name stale against a new orchestrator process.",
+      "description": "The orchestrator /health endpoint (orchestrator/routes/health.py:66-136) returns status, timestamp, state-store probe, and process_start_time — but NO pod UID, boot_timestamp, or generation_token. Grep for generation/boot_time/boot_timestamp/pod_uid/generation_token across orchestrator/ returned zero matches. The refine-phase HITL feedback (Q1) explicitly states: 'This issue must define and implement the primitive as a prerequisite for the overseer's recycle-detection logic.' Without this primitive, the overseer cannot detect orchestrator pod recycling mid-phase, leaving _consecutive_orch_failures, dedup windows, escalation history, and _last_phase_name stale against a new orchestrator process. The refine-phase analysis (2270-analysis.md) independently verified this gap.",
       "affected_files": [
         "orchestrator/routes/health.py:66-136",
         "orchestrator/overseer/monitor.py:139"
