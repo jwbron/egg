@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Split the MCP\u2192CLI collapse to a SEPARATE follow-up issue \u2014 specifically the deletion of the 28 agent-facing MCP tools and the prose-bearing propose/ack/nack CLI migration (with the #2741 stdin/file-path rule) all go to the follow-up. HOWEVER, this issue MUST build any net-new CLI commands the new wait-loop / event-pump depends on (e.g. brc get-state, brc list-blocking, phase get-context, and any other tool the per-event handler invokes) so the new control flow has full CLI coverage for everything it needs. Do NOT delete the existing MCP tools in this issue \u2014 just guarantee CLI availability for the event-pump's needs; the actual collapse/deletion of the MCP surface is the follow-up issue's scope.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:28:40.405570Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Ship v1 with the Qwen route ENABLED on the new event-pump (do NOT gate it onto the old capped-restart path \u2014 that path is being deleted per cq-4). Operator has confirmed both the Anthropic and Qwen routes have a free cache TTL > 5 minutes (Anthropic measured at 1h in WS7). Therefore: do NOT build a keep-warm / cache-refresh loop for v1. WS0 must instrument the actual per-event cold-read / cache-creation cost on the Qwen route across a realistic worst-case BRC idle (specifically a reviewer parked while a producer addresses a NACK and re-proposes \u2014 observed ~7-8 min in practice). ONLY if that measured cold-read waste proves material should a BOUNDED keep-warm be added, and then: Qwen-route only, active only during idles approaching the TTL, with a capped total number of refreshes, and SUPPRESSED during HITL / awaiting-human waits (which can last hours and would otherwise burn tokens keeping a cache warm for an event that is hours away). Never add keep-warm on the Anthropic route (1h TTL makes it unnecessary). Rationale: Qwen token costs are low, so worst-case cold-read waste is at most a few cents per occurrence; a speculative background refresh loop adds exactly the kind of stateful liveness mechanism this issue is trying to delete.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:41:37.475302Z",
       "debounce_until": null
     },
     {
@@ -103,10 +103,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL). HARD REQUIREMENT (operator-added): because the old capped-restart wrapper is being deleted entirely (cq-4), this no-progress safety budget is now the ONLY safety net, so it must be robust to SDLC-host failure. The parked HITL decision AND the safety-budget / no-progress state must be persisted DURABLY SERVER-SIDE (in the orchestrator), not held only in the host process driving the pipeline. If the host running the SDLC pipeline dies, a restarted host must be able to resume the awaiting-human decision and the budget state rather than losing them. Treat host-death recoverability as a requirement of this decision, not a nice-to-have.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:42:44.260670Z",
       "debounce_until": null
     },
     {
@@ -136,10 +136,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Delete the old capped-restart wrapper path entirely \u2014 do NOT retain it behind a flag. Operator decision: the event-pump replaces it outright; there is no flagged fallback to the old MAX_CONSENSUS_RESTARTS=3 / restart-and-FAIL behaviour. (Note the interaction the operator flagged: because the old path is gone, the Qwen route cannot 'fall back to the old path' \u2014 see cq-2, which ships Qwen on the new event-pump directly. And the new no-progress safety budget from cq-3 is therefore the sole safety net, with its durable-server-side-state requirement.) This overrides the canned options, all of which assumed retaining the old path for some duration.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:42:44.391398Z",
       "debounce_until": null
     }
   ],
@@ -361,17 +361,17 @@
       {
         "id": "Q1",
         "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
-        "answer": null
+        "answer": "Instrument only, no hard caps. WS0 should measure and report per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm-loop $/hour, but nothing should auto-fail on a fixed threshold; the operator will judge go/no-go from the reported numbers. Note: the operator has confirmed both routes have a free cache TTL > 5 min, so the Qwen-route cache risk that motivated tight caps is substantially de-risked."
       },
       {
         "id": "Q2",
         "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
-        "answer": null
+        "answer": "Ephemeral coordination state \u2014 brc-memory.md can be cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop. HARD CAVEAT: this is acceptable ONLY because recovery must NOT depend on the ephemeral memory file surviving. Pipeline/host recovery (see cq-3) must work from durable server-side orchestrator state + message history alone. If during implementation the brc-memory.md file turns out to be load-bearing for correct recovery after a host or pod restart, revisit this answer and make the artifact durable instead of ephemeral."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-31T20:43:15.570258Z",
     "comment_id": null,
     "debounce_until": null
   },
