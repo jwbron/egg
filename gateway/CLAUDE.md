@@ -14,32 +14,41 @@ Run `make test` from the repo root — it's changeset-aware and selects only the
 
 Several of the gateway's largest source files are being decomposed into sub-packages so each module fits the 1,500-line / 100 KB cap from `scripts/file-size-allowlist.yaml`. The canonical pattern (sub-package + explicit per-symbol re-export barrel + underscore-prefixed submodules) is documented in [../docs/guides/decomposition-pattern.md](../docs/guides/decomposition-pattern.md). The tables below map each decomposed module to its current submodule layout so contributors can find code without scanning the barrel.
 
-The barrel `__init__.py` is the **stable public API** (HITL decision-7 of #2261). External consumers — tests, production importers, mocks — keep importing through the barrel (`from gateway.gateway import get_anthropic_client`); the submodule paths below are package-private and may move between releases. `gateway.py`'s routes still register via `@app.route(...)` decorators on thin wrappers in `__init__.py`; submodules hold the implementation bodies (HITL decision-8, refine feedback Q5).
+The barrel `__init__.py` is the **stable public API** (HITL decision-7 of #2817). External consumers — tests, production importers, mocks — keep importing through the barrel (`from gateway.gateway import get_anthropic_client`); the submodule paths below are package-private and may move between releases. `gateway.py`'s routes still register via `@app.route(...)` decorators on thin wrappers in `__init__.py`; submodules hold the implementation bodies (HITL decision-8, refine feedback Q5).
 
-### `gateway/gateway/` — TBD (#2261 slice-14)
+### `gateway/gateway/` — TBD (#2817 slices 8–12)
 
-Placeholder. Slice-14 of #2261 lands the decomposition of
-`gateway/gateway.py` (~9,890 lines). Pre-allocated submodule
-clusters per the plan:
+Placeholder. Slices 8–12 of #2817 land the decomposition of
+`gateway/gateway.py` (~10,690 lines) as a linear chain. Slice-8 lands
+the step-0 baseline + flat clusters (`_app_factory`, `_auth`,
+`_checkpoint_routes`, `_gh_routes`); slices 9–11 each extract one
+sub-sub-package; slice-12 is terminal — it extracts `_sessions` and
+drops the allowlist entry. Pre-allocated submodule clusters per the
+plan:
 
 | Submodule | Owned symbols |
 |-----------|---------------|
-| `_git_routes/` | TBD — `git_push`, `git_execute`, `git_fetch` (+ named helpers split out of the security-critical `git_push` mega-handler, R5 mitigation) |
+| `_git_routes/` | TBD — `git_push`, `git_execute`, `git_fetch` (+ named helpers split out of the security-critical `git_push` mega-handler) |
 | `_jira_routes/` | TBD — Jira reads, writes, validators |
+| `_confluence_routes/` | TBD — Confluence reads, writes |
+| `_worktree_routes` | TBD — worktree lifecycle endpoints |
+| `_anthropic_proxy` | TBD — Anthropic API proxy + UpstreamRegistry routing |
+| `_checkpoint_routes` | TBD — checkpoint endpoints |
+| `_gh_routes` | TBD — GitHub passthrough endpoints |
 | `_auth.py` | TBD — credential injection / token refresh |
 | `_sessions.py` | TBD — session lifecycle |
 | `_app_factory.py` | TBD — Flask app construction, middleware wiring |
 
-The terminal slice (#2261 slice-14) replaces the TBD rows with the
+The terminal slice (#2817 slice-12) replaces the TBD rows with the
 concrete submodule layout once the decomposition lands.
 
 ### Other in-flight decompositions
 
 The following gateway-side files are also under decomposition in
-#2261; rows will be filled in as each slice lands:
+#2817; rows will be filled in as each slice lands:
 
 | File | Current size | Slice |
 |------|--------------|-------|
-| `gateway/worktree_manager.py` | ~2,090 lines | slice-8 (#2261) |
-| `gateway/git_client.py` | ~2,032 lines | slice-6 (#2261) |
-| `gateway/checkpoint_handler.py` | ~1,655 lines | slice-3 (#2261) |
+| `gateway/worktree_manager.py` | ~2,087 lines | slice-20 (#2817) |
+| `gateway/git_client.py` | ~2,068 lines | slice-21 (#2817) |
+| `gateway/checkpoint_handler.py` | ~1,777 lines | slice-26 (#2817) |

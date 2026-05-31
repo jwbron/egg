@@ -2,10 +2,12 @@
 
 > Canonical pattern for decomposing oversized Python source files
 > ratcheted by `scripts/file-size-allowlist.yaml`. This is the shape
-> every slice in issue #2261 follows; future contributors who need to
-> decompose another file should follow the same recipe so the codebase
-> grows one consistent seam shape rather than a handful of bespoke
-> ones.
+> every slice in issue #2817 follows (which is a refresh of #2261 —
+> #2261 originated the pattern via PR #2335 but was closed after six
+> follow-up pipelines failed to land any further slice; the program
+> resumed under #2817). Future contributors who need to decompose
+> another file should follow the same recipe so the codebase grows one
+> consistent seam shape rather than a handful of bespoke ones.
 
 ## Why we decompose
 
@@ -23,9 +25,9 @@ grow it. The decomposition program drives those baselines down to
 zero.
 
 The complete acceptance contract for this program lives in issue
-[#2261](https://github.com/jwbron/egg/issues/2261); the HITL decisions
-that locked the pattern shape (decisions 1, 5, 6, 7, 8) are
-referenced inline below.
+[#2817](https://github.com/jwbron/egg/issues/2817); the HITL decisions
+that locked the pattern shape (decisions 1, 5, 6, 7, 8) are referenced
+inline below.
 
 ## (a) Sub-package layout
 
@@ -258,7 +260,7 @@ pre-allocate the canonical further-splits expected per cluster, e.g.
 
 A fresh allowlist entry for "this new submodule is also over the cap"
 is **not allowed** — it directly contradicts the
-"allowlist empty" acceptance criterion of the parent issue (#2261).
+"allowlist empty" acceptance criterion of the parent issue (#2817).
 If the further-split is non-obvious, escalate via a HITL
 question rather than adding the entry.
 
@@ -273,7 +275,7 @@ Decompositions are pure refactors. If a slice surfaces a latent bug
 or a test-coverage gap, **file a follow-up issue** rather than
 bundling the fix:
 
-- Reference the parent issue (`Part of #2261`) in the follow-up.
+- Reference the parent issue (`Part of #2817`) in the follow-up.
 - Note the slice that discovered the gap (`surfaced in slice-7
   during decomposition of orchestrator/overseer/monitor.py`).
 - Don't bundle the fix into the slice's PR — bundling makes the
@@ -285,6 +287,37 @@ mechanical patch-path updates: the slice may fix a one-line
 `patch("orchestrator.routes.pipelines._foo")` →
 `patch("routes.pipelines._foo")` rewrite (feedback Q1), but
 anything more invasive is a follow-up.
+
+## (i) Test-file layout: guidance, not a 1:1 gate
+
+When a source file `foo.py` becomes the sub-package `foo/`, tests for
+the new sub-package live alongside the source in a matching
+`tests/.../foo/` sub-package. The pattern keeps a `test_package_shape.py`
+(exercises the barrel) and a `test_main.py` (exercises `__main__.py`);
+where one source `_<submodule>.py` maps cleanly to one behavioral
+cluster, prefer one `test_<submodule>.py` per submodule so tests are
+easy to find from the source.
+
+**This is guidance, not a hard 1:1 gate** (refresh contract decision
+cq-4 under #2817). Suites that are organized by behavioral scenario,
+and whose scenarios legitimately span multiple submodules, may stay
+topically grouped rather than being force-fit into per-submodule
+buckets. The load-bearing requirement is **not** filename mirroring —
+it is the decoupling guarantee that test files keep using the barrel
+surface (`from foo import _bar`, `patch("foo._bar")`) so they don't
+move when the source's internal layout shifts. As long as that
+decoupling holds, the suite's topical organization is fine.
+
+`scripts/select_tests/`'s test suite is the canonical example of a
+legitimately scenario-organized suite (`fallbacks`, `monorepo`,
+`baseline`, `lkg`, …). Several of its files span multiple submodules
+and don't have a natural single-submodule home; it is **not** required
+to be retrofitted to per-submodule mirroring.
+
+When in doubt: pick the layout that minimises future churn. If a
+single behavioral scenario will keep touching the same N submodules
+together, a topical file is correct. If a submodule maps cleanly to a
+discrete set of tests, the 1:1 mirror is correct.
 
 ## Pre-merge checklist (per slice)
 
@@ -299,13 +332,17 @@ anything more invasive is a follow-up.
 - [ ] Slice's CLAUDE.md seam table is updated with the new
       submodule layout (see `orchestrator/CLAUDE.md` and
       `gateway/CLAUDE.md`).
+- [ ] Test layout follows section (i) — 1:1 mirroring is **guidance**,
+      not a gate. Scenario-organized suites may stay topical so long
+      as test files use the barrel surface
+      (`from foo import _bar`, `patch("foo._bar")`).
 - [ ] `make lint` and `make test-all` are green.
 - [ ] No behaviour change in the diff; behaviour-adjacent fixes are
       filed as follow-ups (section (h)).
 
 ## See also
 
-- [Issue #2261](https://github.com/jwbron/egg/issues/2261) — full
+- [Issue #2817](https://github.com/jwbron/egg/issues/2817) — full
   scope and acceptance contract for the decomposition program.
 - [Issue #2248](https://github.com/jwbron/egg/issues/2248) and
   [#2250](https://github.com/jwbron/egg/issues/2250) — the file-size
