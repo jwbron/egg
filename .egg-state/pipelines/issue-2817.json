@@ -286,10 +286,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "[SUPERSEDES cq-1] Should stale #2261 references in the pattern doc, CLAUDE.md seam tables, and allowlist comments be updated as part of #2817's work, or left as historical pointers?",
+      "context": "Open contract question cq-6, registered by an agent during the refine phase.",
+      "options": [
+        "Yes, update them as part of this work (planner picks slice packaging — separate docs-only slice, inlined per slice, or some hybrid)",
+        "No, leave as historical pointers; #2261 is reachable through the supersession chain and the program does not need to absorb the doc-hygiene churn",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T00:12:41.759195Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-30T22:56:20.843632Z",
-  "updated_at": "2026-05-31T00:12:41.733690Z",
+  "updated_at": "2026-05-31T00:12:41.764764Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -302,7 +320,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
