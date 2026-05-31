@@ -192,10 +192,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments: how should the program handle them?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Mass refresh in a docs-only slice up front (update docs/guides/decomposition-pattern.md, both CLAUDE.md seam-table comments, and allowlist comment blocks to point at #2817 before any source decomposition lands)",
+        "Inline as each slice lands (the slice for a given file updates its own seam-table row and replaces any stale references it touches; no separate docs slice)",
+        "Leave stale references as historical pointers (operator can follow the supersession chain; do not update existing #2261 references)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T00:12:41.546299Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-30T22:56:20.843632Z",
-  "updated_at": "2026-05-31T00:12:15.740865Z",
+  "updated_at": "2026-05-31T00:12:41.552751Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -208,7 +227,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
