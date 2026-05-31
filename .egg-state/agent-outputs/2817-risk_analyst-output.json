@@ -1,0 +1,338 @@
+{
+  "issue": 2817,
+  "pipeline_id": "issue-2817",
+  "phase": "plan",
+  "role": "risk_analyst",
+  "summary": "Risk register for the 17-file decomposition program (refresh of #2261). The pattern and worked reference are already merged via #2335 so primitive existence is well-grounded. The dominant risks are program-discipline risks (slice sequencing, allowlist serialization, _run_pipeline carve-out, history of six failed pipelines) rather than novel technical risks. Verdict on architect / task_planner is pending — this artifact will be re-proposed with a verdict block once those producers PROPOSE.",
+  "scope_inputs": {
+    "files_in_scope": 17,
+    "files_in_scope_includes_plan_parser": true,
+    "cq3_resolution": "plan_parser.py is now in scope of #2817 (#2569 closed); planner must add it as a full decomposition target",
+    "cq6_resolution": "Stale #2261 references in pattern doc, CLAUDE.md seam tables, allowlist comments must be refreshed under #2817; packaging shape deferred to planner",
+    "cq2_resolution": "Add seam table to sandbox/CLAUDE.md AND create shared/CLAUDE.md with seam table; both add rows when relevant files decompose",
+    "cq4_resolution": "Update pattern doc to reflect relaxed non-negotiable #10 (scenario-organized tests may stay topical; select_tests reference not retrofit)",
+    "cq5_resolution": "Correct both allowlist comments: plan_parser.py retags to #2817 (entry then removed when it decomposes); phases.py retags from #2261 to #2817; lands in whichever slice touches the allowlist first"
+  },
+  "verdict": null,
+  "verdict_target": null,
+  "verdict_version": null,
+  "feedback": "",
+  "blocking_concerns": [
+    {
+      "id": "blocker-1",
+      "title": "Plan must include explicit per-phase carve-out of _run_pipeline",
+      "rationale": "Non-negotiable #7 forbids both mechanical extraction and punting. _run_pipeline at orchestrator/routes/pipelines.py:20799 is now ~2,937 lines (vs ~2,300 cited in the issue). _run_implement_phase_slices exists at line 15913 already, but _run_refine_phase, _run_plan_phase, _run_pr_phase do NOT exist as module-level defs (verified via `grep '^def _run_(refine|plan|pr)_phase'`). The plan must call out the per-phase extraction strategy explicitly (which phase first, how the orchestration loop stays thin, how the BRC consensus + signal handling sequencing is preserved). If the plan ducks this — proposing 'pipelines.py decomposed as a follow-up' or 'mechanical extraction with a permanent allowlist exception' — NACK.",
+      "nack_trigger": "Plan that lacks a concrete per-phase extraction sequence for _run_pipeline, OR plan that defers _run_pipeline carve-out to a separate issue, OR plan that proposes leaving _run_pipeline allowlisted."
+    },
+    {
+      "id": "blocker-2",
+      "title": "Plan must address the allowlist serialization bottleneck",
+      "rationale": "scripts/file-size-allowlist.yaml is a strict-ordered YAML mapping (lines 22-70). 15 of 17 entries are 2 adjacent lines each; 2 (plan_parser.py, phases.py) are 9-line entries with comment blocks. Git cannot dict-merge YAML, so two concurrent slices removing neighboring entries will conflict on the same hunk. The pipeline was given concurrency cap 4 (slice_admit.cap=4 from BRC state). Without a serialization strategy — explicit serialize-on-allowlist, rebase-before-propose discipline, or single-writer ordering — slices will collide and create wasted re-review cycles. This is the recurring failure mode that contributed to the #2261-v3..v10 cancellations (six prior pipelines failed without landing a single slice).",
+      "nack_trigger": "Plan that does not name the allowlist-yaml as a serialization point, OR plan that schedules >1 parallel slice modifying the allowlist without a merge-conflict protocol, OR plan that ignores the 9-line comment blocks for plan_parser.py / phases.py (the comment-block lines are also load-bearing for cq-5 retagging)."
+    },
+    {
+      "id": "blocker-3",
+      "title": "Plan must include plan_parser.py as a full decomposition target",
+      "rationale": "cq-3 was resolved 'Other' (operator override): #2569 has been CLOSED by the operator and plan_parser.py is now in scope of #2817. The refine analysis still has lingering 'tracked under #2569' language (lines 16, 40, 84, 130, 137 of 2817-analysis.md). If the planner reads the analysis without also reading the cq-3 resolution text, plan_parser.py will be omitted from the plan's task list — the closing criterion (allowlist files: map empty) will then be unattainable.",
+      "nack_trigger": "Plan whose task list does not include plan_parser.py as a decomposition target, OR plan that lists plan_parser.py as 'out of scope / tracked under #2569'."
+    },
+    {
+      "id": "blocker-4",
+      "title": "Plan must address barrel re-export audit for in-function lazy imports",
+      "rationale": "orchestrator/routes/phases.py has 8 in-function lazy imports of routes.pipelines symbols (lines 405, 535, 612, 711, 733, 1010, 1189, 1307) and orchestrator/mcp_tools.py has 2 (lines 1609 _read_phase_draft, 1680 _pipeline_identifier). All use the single-prefix `from routes.pipelines import …` shape. These are EASY to miss in an external-importer audit because they are NOT at module top — a `git grep '^from routes.pipelines'` will not surface them. Pattern doc §(d)'s audit recipe must be applied per slice to lazy imports too. If the plan does not call out lazy-import audits explicitly, slices that drop a symbol from the barrel will break phases.py / mcp_tools.py at runtime with opaque ImportError inside a function body — typically surfaced only when that code path is hit in production.",
+      "nack_trigger": "Plan whose pipelines.py slice does not list 'audit in-function lazy imports of routes.pipelines symbols across all importers, not just module-top imports' as an explicit step."
+    },
+    {
+      "id": "blocker-5",
+      "title": "Plan must respect non-negotiable #8 for gateway.py: 47 Flask @app.route decorators stay in __init__.py",
+      "rationale": "gateway/gateway.py has 47 @app.route( decorators (e.g. line 936 GET /api/v1/health, line 1084 POST /api/v1/config/reload, line 1112 POST /api/v1/git/push). #2261 HITL decision-8 (carried forward as non-negotiable #8) requires decorators to stay in __init__.py with thin wrappers delegating to submodule bodies. This is mechanical but error-prone — 47 wrappers must be authored. If the plan proposes moving decorators into submodules (or uses Flask blueprints to side-step the convention without operator sign-off), it breaks the operator-locked HITL decision-8.",
+      "nack_trigger": "Plan whose gateway.py slice proposes moving @app.route decorators into submodules, OR plan that introduces Flask blueprints for gateway routes without first registering a new HITL decision to supersede #2261 decision-8."
+    }
+  ],
+  "top_3_risks": [
+    "RISK-1 (program-discipline): six prior pipelines on the same surface (#2261-v3..v10) cancelled without merging a single slice. Without conservative slicing and bounded concurrency, #2817 inherits the same failure mode.",
+    "RISK-2 (technical): _run_pipeline per-phase refactor is the structural high-water mark. ~2,937 lines, holds the BRC consensus state machine + signal handling + slice DAG + HITL gates. Extraction must preserve sequencing exactly; #2319 unit-test follow-up is the safety net.",
+    "RISK-3 (operational): scripts/file-size-allowlist.yaml is the serialization bottleneck for the entire program. 17 adjacent entries; git cannot dict-merge YAML; concurrency cap is 4. Conflict choreography must be explicit in the plan."
+  ],
+  "risks": [
+    {
+      "id": "RISK-1",
+      "category": "program-discipline",
+      "title": "Six prior pipelines on the same surface failed without merging a follow-up slice",
+      "evidence": "git log --all --grep='2261' shows pipeline state breadcrumbs for #2261-v3, v4, v5, v6, v9, v10 — all 'cancelled' or 'failed' followed by 'Delete pipeline'. No surviving egg/issue-2261* branches. v10 had four commit-authorship entries for coder + documenter roles but no merged slice. Only artifact that survived is #2335 (the pattern + worked reference), merged 2026-04-30.",
+      "impact": "high",
+      "likelihood": "high",
+      "severity": "high",
+      "mitigations": [
+        "Plan starts with the SMALLEST oversize file (orchestrator/routes/deployment.py at 1,650 lines, only 10% over the cap) as slice-1 to validate the pipeline end-to-end before tackling structural outliers.",
+        "Concurrency cap stays at 4 (current slice_admit.cap=4) or lower; the planner should explicitly justify if concurrency goes higher.",
+        "Each slice carries its own bisectable step-0 commit (`git mv foo.py foo/__init__.py`) per pattern doc §(b); reviewers can verify the no-op move before reviewing cluster carve-outs.",
+        "pipelines.py and gateway.py (the two structural outliers) are NOT slice-1 or slice-2; the planner should sequence them after at least 3-4 smaller decompositions have landed cleanly."
+      ],
+      "rollback": "Each slice is a single PR; reverting one PR rolls back that slice cleanly. The allowlist ratchet means re-adding the entry to scripts/file-size-allowlist.yaml is mechanical. No cross-slice rollback coupling unless slices are sub-stacked.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-2",
+      "category": "technical",
+      "title": "_run_pipeline per-phase carve-out is the highest-risk extraction",
+      "evidence": "orchestrator/routes/pipelines.py:20799 defines _run_pipeline (~2,937 lines). Only _run_implement_phase_slices exists today at line 15913. _run_refine_phase, _run_plan_phase, _run_pr_phase do not exist as module-level defs — they are inline branches inside _run_pipeline. The function holds the BRC consensus state machine, signal handling (heartbeat / readiness / OVERSEER_ALERT), slice DAG admission, HITL gates, and re-entry semantics.",
+      "impact": "high",
+      "likelihood": "medium",
+      "severity": "high",
+      "mitigations": [
+        "Extract per-phase one at a time (4 sub-slices, not one mega-slice). Each sub-slice extracts ONE phase handler and validates that the orchestration loop is unchanged for the others.",
+        "Land #2319 (unit tests for per-phase handlers) ALONGSIDE the pipelines.py decomposition, not as a follow-up. The pattern doc §(c) notes the test follow-up is tracked by #2319 — the planner should explicitly attach #2319 work to the pipelines.py slice family.",
+        "Pre-extraction baseline: capture a `pytest tests/orchestrator/routes/test_pipelines.py -q` golden output before slice-1 of pipelines.py lands; reviewer for each subsequent pipelines.py sub-slice compares against it.",
+        "The thin orchestration loop must be reviewed for sequencing: signal handling order, BRC re-entry, HITL gate placement — these are the load-bearing invariants."
+      ],
+      "rollback": "Per-phase extraction is per-sub-slice rollback. If a sub-slice surfaces a regression that escapes review, revert just that sub-slice; the orchestration loop falls back to the inline branch for that phase.",
+      "human_review_needed": true
+    },
+    {
+      "id": "RISK-3",
+      "category": "operational",
+      "title": "scripts/file-size-allowlist.yaml is a serialization bottleneck under concurrency cap 4",
+      "evidence": "scripts/file-size-allowlist.yaml is 70 lines: caps block (lines 17-21), files: map starts at line 22. 15 entries are 2 adjacent lines each (path + issue:); 2 entries (plan_parser.py lines 53-61; phases.py lines 62-70) carry 7-line comment blocks above 2-line entries. Git cannot dict-merge YAML — two slices removing neighboring entries collide on the same hunk. Concurrency cap is currently 4 (BRC state slice_admit.cap).",
+      "impact": "medium",
+      "likelihood": "high",
+      "severity": "medium-high",
+      "mitigations": [
+        "Plan declares scripts/file-size-allowlist.yaml a single-writer surface: at most one slice in flight against the same allowlist hunk window at any time.",
+        "Sub-stacking discipline: slices that target adjacent allowlist entries are merged sequentially (rebase-before-propose, not parallel-and-merge).",
+        "cq-5 retagging (phases.py from #2261 to #2817; plan_parser.py from #2548 to #2817) lands in whichever slice touches the allowlist first — the planner should NAME that slice explicitly so subsequent slices don't re-do the retag.",
+        "The 9-line comment blocks for plan_parser.py and phases.py are removed entirely when those files decompose; the remaining 15 entries shrink to 30 lines, reducing collision surface as the program progresses."
+      ],
+      "rollback": "Allowlist mutations are idempotent re-additions of the dropped entry. Conflict-driven re-review costs cycles but does not corrupt state.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-4",
+      "category": "technical",
+      "title": "In-function lazy imports of routes.pipelines symbols evade module-top import audits",
+      "evidence": "orchestrator/routes/phases.py has 8 in-function `from routes.pipelines import …` (lines 405, 535, 612, 711, 733, 1010, 1189, 1307). orchestrator/mcp_tools.py has 2: line 1609 (_read_phase_draft), line 1680 (_pipeline_identifier). All single-prefix form. A `git grep '^from routes.pipelines'` (anchored to module top) misses all 10.",
+      "impact": "high",
+      "likelihood": "medium",
+      "severity": "medium-high",
+      "mitigations": [
+        "Each pipelines.py sub-slice runs pattern doc §(d)'s external-importer audit recipe and explicitly looks for in-function imports too (un-anchor the grep pattern: `git grep 'from routes.pipelines'` without `^`).",
+        "Barrel __init__.py re-exports every symbol referenced by these 10 lazy imports (list them explicitly in the audit deliverable).",
+        "Add a make-test target or pytest fixture that imports every public-and-underscore-prefixed symbol from routes.pipelines as a smoke test; missed re-exports surface as AttributeError at test collection, not at runtime."
+      ],
+      "rollback": "Symbol-restore is mechanical (add the symbol back to __init__.py re-export list); no data corruption.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-5",
+      "category": "technical",
+      "title": "Test patch-target stability across ~51 distinct strings (analysis count) for routes.pipelines.*",
+      "evidence": "Refine analysis (2817-analysis.md:60-62) reports 49 distinct symbols / 51 distinct full patch-target strings at (orchestrator.)?routes.pipelines.<sym> across the full repo, plus 6 distinct full strings at (gateway.)?gateway.gateway.<sym>. Re-grep scoped just to tests/ + integration_tests/ returns 7 / 15 / 0 respectively — the broader analysis count includes patch references in sandbox/, shared/, and scripts/. Either way, the barrel must re-export every patched symbol.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Pre-extraction audit per slice: `grep -rhE 'patch\\(\"(orchestrator\\.)?routes\\.pipelines\\.[_a-zA-Z0-9]+\"' --include='*.py' .` and diff against post-extraction barrel re-exports.",
+        "make test-all is the gate (non-negotiable, already in acceptance criteria); a missing patch target surfaces as a collection-time failure.",
+        "Pattern doc §(d) already mandates this audit; the plan must reference it explicitly per slice."
+      ],
+      "rollback": "Symbol-restore is mechanical (re-add to barrel)."
+    },
+    {
+      "id": "RISK-6",
+      "category": "operational",
+      "title": "Reviewer bandwidth and rebase choreography across stacked slices",
+      "evidence": "Concurrency cap 4 + 17 files = at minimum 5 rounds of 4 parallel slices (one slice per file) plus 1-4 sub-slices for pipelines.py's per-phase extraction. Each rebase forces re-review of the slice. The downstream-reviewer chain (reviewer_code, reviewer_contract, reviewer_test) reviews every re-propose.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Plan orders slices to minimize rebases: smallest files first (least review surface) so the reviewer cohort builds confidence early.",
+        "Slices are author-rebased on origin/main before proposal, not at merge time.",
+        "Reviewer-bandwidth budget: planner should NOT schedule >4 concurrent slices unless the operator has explicitly raised the concurrency cap.",
+        "Cohorts can share a documenter slice (e.g. seam-table updates + pattern-doc cq-4 refresh in one slice) to amortize doc-review cost."
+      ]
+    },
+    {
+      "id": "RISK-7",
+      "category": "operational",
+      "title": "Stale #2261 → #2817 reference refresh packaging (cq-6 resolved YES, planner-owned packaging)",
+      "evidence": "cq-6 resolved 'Yes, update them as part of this work'; packaging deferred to planner. Surface: docs/guides/decomposition-pattern.md, orchestrator/CLAUDE.md seam table, gateway/CLAUDE.md seam table, scripts/file-size-allowlist.yaml comments for phases.py + plan_parser.py (the latter is also covered by cq-5).",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low-medium",
+      "mitigations": [
+        "Two natural packaging shapes (per analysis 169-176): docs-only-up-front slice OR inlined-per-slice. Either is acceptable.",
+        "If docs-only-up-front: slice-1 cost is one extra slice that drops no allowlist entries but establishes a coherent doc state for the rest of the program.",
+        "If inlined-per-slice: each slice that touches a seam table also updates that table's references. Risk is inconsistency window across slices, mitigated if the planner orders the slices so the affected seam table is touched once.",
+        "Hybrid: pattern doc refresh + sandbox/shared CLAUDE.md scaffolding in slice-1; per-file CLAUDE.md row updates inlined per slice."
+      ]
+    },
+    {
+      "id": "RISK-8",
+      "category": "technical",
+      "title": "Sandbox / shared seam-table scaffolding (cq-2 resolved: ADD both)",
+      "evidence": "cq-2 resolved 'Add Submodule seam table to sandbox/CLAUDE.md and create shared/CLAUDE.md with a seam table'. Surface: sandbox/CLAUDE.md (existing, no seam table today), shared/CLAUDE.md (does not exist today — new file). Files in scope: sandbox/entrypoint.py, sandbox/egg_lib/orch_cli.py, shared/egg_contracts/checkpoint_cli.py, shared/egg_contracts/plan_parser.py.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Scaffolding (table headers + initial rows) lands in slice-1 (docs-only or hybrid).",
+        "Each subsequent sandbox/ or shared/ slice fills in its row when it decomposes (mirrors orchestrator/CLAUDE.md and gateway/CLAUDE.md convention).",
+        "Risk is just doc drift — easily caught by reviewer_documenter or reviewer_plan reading the seam table during PR review."
+      ]
+    },
+    {
+      "id": "RISK-9",
+      "category": "operational",
+      "title": "plan_parser.py scope shift (cq-3): refine analysis still contains stale 'out of scope / tracked under #2569' language",
+      "evidence": "2817-analysis.md lines 16 (decomposition omits plan_parser.py from 'fourteen per-file decompositions'), 40 ('tracked under #2569'), 84 ('plan_parser.py is tracked under #2569 separately'), 130 ('tracked under #2569'), 137 ('plan_parser.py decomposition. Separate tracker, in-flight'). cq-3 resolution OVERRIDES all of these — plan_parser.py is now in scope and #2569 is closed.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Planner must read cq-3 resolution text and treat plan_parser.py as a full decomposition target.",
+        "Acceptance criterion: closing requires the allowlist files: map to be empty — including the plan_parser.py entry — so this is contract-tracked.",
+        "blocker-3 in the verdict section catches this if the architect's plan omits plan_parser.py."
+      ]
+    },
+    {
+      "id": "RISK-10",
+      "category": "technical",
+      "title": "Allowlist comment retagging (cq-5 resolved: fix both)",
+      "evidence": "cq-5 resolution: phases.py retags from #2261 to #2817; plan_parser.py retags from #2548 to #2817 (then removed entirely when it decomposes). Both lands in 'whichever slice touches the allowlist first'.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Planner names the slice that owns the cq-5 retagging explicitly (e.g. 'slice-1 retags both, even if slice-1 itself does not decompose phases.py or plan_parser.py').",
+        "Each subsequent slice that removes an allowlist entry also reviews neighboring comment blocks for stale references — but if cq-5 is done up-front, neighboring comments are already correct."
+      ]
+    },
+    {
+      "id": "RISK-11",
+      "category": "technical",
+      "title": "Latent bugs surfaced during extraction must be filed separately per pattern doc §(h)",
+      "evidence": "Pattern doc §(h) and non-negotiable on behavior preservation (out-of-scope section of issue: 'Behavior changes. This is a pure refactor.').",
+      "impact": "low",
+      "likelihood": "medium",
+      "severity": "low-medium",
+      "mitigations": [
+        "Each PR's description states 'no behavior change' explicitly; reviewer cross-checks `git diff` for non-mechanical edits.",
+        "Latent bugs (e.g. dead-code paths, mismatched type hints, missed exception handlers) get GitHub-issue refs in the PR body and are NOT bundled into the decomposition slice.",
+        "Reviewer should flag any non-mechanical change (renamed variable, changed default, swapped condition) as a NACK blocker."
+      ]
+    },
+    {
+      "id": "RISK-12",
+      "category": "runtime-primitive",
+      "title": "Lint primitives (scripts/check-file-sizes.py, make lint) run in trusted-CI-runner context",
+      "evidence": "scripts/file-size-allowlist.yaml is read by scripts/check-file-sizes.py (pre-commit hook + CI). make lint is the local equivalent. make test-all is the full-suite gate.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "All lint primitives exist and are exercised in CI today (verified by 2817-analysis.md: 'These primitives all exist today; the plan phase Primitive-Existence audit should be cheap').",
+        "Agents must run `make lint` and (ideally) `make test` locally before proposing each slice; CI is the ground-truth gate."
+      ]
+    },
+    {
+      "id": "RISK-13",
+      "category": "technical",
+      "title": "gateway.py: 47 @app.route decorators must stay in __init__.py (non-negotiable #8)",
+      "evidence": "gateway/gateway.py has 47 @app.route( decorators (verified: lines 936, 1084, 1112 sampled). #2261 HITL decision-8 (non-negotiable #8) requires decorators to stay in __init__.py with thin wrappers delegating to submodule bodies.",
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Plan explicitly references non-negotiable #8 in the gateway.py slice text.",
+        "Reviewer checks `git diff` to confirm no @app.route decorator moved out of __init__.py.",
+        "Each route's thin wrapper signature matches the submodule body's signature exactly (review-pattern: signature parity)."
+      ]
+    },
+    {
+      "id": "RISK-14",
+      "category": "runtime-primitive",
+      "title": "Dual-import pattern (`try: from ..foo import X / except ImportError: from foo import X`) must remain consistent within a sub-package (non-negotiable #4)",
+      "evidence": "Non-negotiable #4. Existing files use dual-import shape. Submodules must follow one convention consistently — mixing relative + absolute inside the same sub-package risks ImportError under different execution contexts (sandbox-agent vs production runtime vs tests).",
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "low-medium",
+      "mitigations": [
+        "Reviewer checks that all submodules in a new sub-package use the same import shape.",
+        "Pattern doc has the recipe; planner re-references it per slice."
+      ]
+    },
+    {
+      "id": "RISK-15",
+      "category": "trust-boundary",
+      "title": "File-boundary gateway enforcement constrains who can author which slice",
+      "evidence": "shared/egg_restrictions/patterns.py defines per-role file-boundary rules. risk_analyst (this role) cannot push source code; coder cannot push docs-only; documenter cannot push tests/. Each slice's author-role must match the file pattern of the change.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Planner assigns each slice to the correct author role (coder for source decomposition; documenter for seam-table updates; tester for test additions).",
+        "Conditional-ACK pattern (per BRC protocol) handles the rare case where one role must satisfy another role's obligation in-cycle (e.g. tester cherry-picking a coder commit to a tests/ path the coder is blocked from)."
+      ]
+    },
+    {
+      "id": "RISK-16",
+      "category": "technical",
+      "title": "Branch prefix `egg/` convention (non-negotiable #9) — every slice branch must comply",
+      "evidence": "Non-negotiable #9. Gateway enforces this on push.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Existing pipeline convention already prefixes all per-slice branches `egg/issue-2817/slice-N`; no incremental work needed."
+      ]
+    },
+    {
+      "id": "RISK-17",
+      "category": "operational",
+      "title": "Closing criterion ambiguity if downstream consumer (#2562) starts before allowlist is empty",
+      "evidence": "#2562 (restore coder/reviewer access to full configured check suite) is a downstream consumer of this issue's closing. If the planner ships slices that don't fully empty the allowlist (e.g. plan_parser.py is skipped), #2562 cannot start.",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Acceptance criterion already mandates empty files: map; cq-3 resolved that plan_parser.py is in scope; blocker-3 catches a plan that omits it.",
+        "Downstream consumer (#2562) is out of scope; just track that #2817 closing unblocks it."
+      ]
+    }
+  ],
+  "primitive_existence_findings": {
+    "all_primitives_exist": true,
+    "details": [
+      "scripts/check-file-sizes.py: exists; reads scripts/file-size-allowlist.yaml.",
+      "scripts/file-size-allowlist.yaml: exists; 17 entries in files: map; schema documented inline (caps: + files:).",
+      "make lint, make test-all: exist; verified by docs/guides/testing.md reference in project CLAUDE.md.",
+      "docs/guides/decomposition-pattern.md: exists (318 lines per analysis); canonical recipe.",
+      "scripts/select_tests/: exists; worked reference (already removed from allowlist).",
+      "orchestrator/CLAUDE.md, gateway/CLAUDE.md: exist with seam tables (TBD rows for in-flight decompositions).",
+      "sandbox/CLAUDE.md: exists but NO seam table (cq-2 adds one).",
+      "shared/CLAUDE.md: does NOT exist (cq-2 creates it).",
+      "Barrel pattern primitives (__init__.py + per-symbol re-exports + underscore-prefixed _foo.py submodules): exist via scripts/select_tests/ reference."
+    ],
+    "trust_boundary_audit": [
+      "Lint and CI primitives run in trusted-CI-runner context (GitHub Actions); agents do not need to invoke them with elevated privileges.",
+      "scripts/file-size-allowlist.yaml is writable by any role that the gateway permits to push to scripts/ — primarily coder. risk_analyst cannot push to scripts/; documenter can push to docs/ but not scripts/. The slice author-role must match.",
+      "shared/egg_restrictions/patterns.py is the authoritative per-role file-boundary source. Gateway-enforced on every push."
+    ]
+  },
+  "external_dependencies_research": {
+    "third_party_changes": "None. This is a pure internal refactor — no third-party library, no API, no version pin changes.",
+    "deprecation_notices": "None applicable.",
+    "known_vulnerabilities": "None applicable — no third-party surface touched."
+  },
+  "rollback_plan_summary": "Each slice is a single PR; reverting one PR rolls back that slice cleanly. Allowlist mutations are idempotent (re-add the dropped entry). No cross-slice rollback coupling unless slices are sub-stacked (in which case the planner must call out the sub-stack rollback order in the slice text). For _run_pipeline per-phase carve-out, per-sub-slice rollback restores the inline branch for that phase.",
+  "human_review_recommended": [
+    "Plan's per-phase carve-out strategy for _run_pipeline (RISK-2 / blocker-1): the orchestration loop is the BRC consensus state machine — operator should sanity-check that the sequencing invariants the planner names are complete.",
+    "Plan's sub-stacking strategy for pipelines.py (the structural outlier at 24,559 lines): is it 4 sub-slices in one PR family? Or 4 PRs landed sequentially? Operator should confirm reviewer bandwidth.",
+    "Plan's packaging decision for stale #2261 → #2817 reference refresh (RISK-7): docs-only-up-front vs inlined-per-slice vs hybrid — operator may want to see the planner's choice and rationale."
+  ],
+  "notes": [
+    "This artifact is the producer output of risk_analyst. Verdict / verdict_target / feedback fields are pending until architect and task_planner PROPOSE. The dual-role banner mandates this artifact PROPOSE first so the BRC round can close; the verdict will be re-proposed (--changed-artifacts) once architect / task_planner artifacts are available to review.",
+    "Risk priorities are calibrated against the six-cycle failure history of #2261-v3..v10 — the dominant lesson from that history is 'conservative slicing wins; ambitious decomposition under concurrent pressure does not'. The planner should treat that as a first-class constraint."
+  ]
+}
