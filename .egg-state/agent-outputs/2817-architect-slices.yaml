@@ -1,0 +1,510 @@
+slices:
+  - id: 1
+    name: |-
+      Docs and seam-table scaffolding
+    goal: |-
+      Lay the canvas for the 16 downstream decomposition slices. Update
+      docs/guides/decomposition-pattern.md to reflect the non-negotiable #10
+      relaxation (cq-4: scenario-organized test suites may stay topical;
+      select_tests retrofit is not required). Update Pre-merge checklist
+      accordingly. Retag all stale #2261 references in the pattern doc,
+      orchestrator/CLAUDE.md, and gateway/CLAUDE.md to #2817 (cq-6). Add a
+      Submodule seam table to sandbox/CLAUDE.md and create shared/CLAUDE.md
+      with a Submodule seam table; sandbox/entrypoint.py,
+      sandbox/egg_lib/orch_cli.py, shared/egg_contracts/checkpoint_cli.py,
+      and shared/egg_contracts/plan_parser.py each get a TBD row in the
+      new tables (cq-2). Refresh in-flight decomposition tables in
+      orchestrator/CLAUDE.md and gateway/CLAUDE.md with current sizes; add
+      seam-table rows for orchestrator/kubernetes_spawner.py and
+      orchestrator/routes/phases.py (which were not in #2261's original
+      table). Fix allowlist comments in scripts/file-size-allowlist.yaml:
+      orchestrator/routes/phases.py issue field #2261 → #2817; the long
+      comment block is retagged; shared/egg_contracts/plan_parser.py issue
+      field #2548 → #2817 (cq-5). NO source decomposition lands in this
+      slice. Acceptance: docs/guides/decomposition-pattern.md reflects
+      cq-4; no #2261 references remain except the historical "refresh of
+      #2261" pointer in the docstring of the pattern doc; sandbox/CLAUDE.md
+      and shared/CLAUDE.md both carry a Submodule seam table; allowlist
+      comments cite #2817 throughout.
+
+  - id: 2
+    name: |-
+      pipelines.py baseline + simple clusters
+    goal: |-
+      Step-0 baseline plus the five small-to-medium flat clusters of
+      orchestrator/routes/pipelines.py. Land the git mv
+      orchestrator/routes/pipelines.py → orchestrator/routes/pipelines/__init__.py
+      as its own bisectable commit (docs/guides/decomposition-pattern.md
+      step-0 recipe). Then extract _criteria.py, _readers.py,
+      _decisions.py, _status_helpers.py, _brc_verdicts.py as flat
+      submodules with explicit per-symbol re-exports from __init__.py. The
+      five sub-sub-packages (_run_loop/, _concurrent_phase/,
+      _prompt_building/, _pr_lifecycle/, _worktree_ops/) are
+      pre-allocated as TBD placeholders in __init__.py but NOT yet
+      extracted — subsequent chained sub-slices fill them. The allowlist
+      entry stays (file is still over the cap after this slice). Run the
+      external-importer audit (docs/guides/decomposition-pattern.md
+      section (d)) before each extraction; preserve every symbol
+      referenced outside the package as a barrel re-export.
+    dependencies: slice-1
+
+  - id: 3
+    name: |-
+      pipelines.py _prompt_building/ sub-sub-package
+    goal: |-
+      Extract the ~13 _build_* / _render_* prompt-building helpers
+      (_build_phase_prompt, _build_agent_prompt, _build_brc_preamble,
+      _build_role_context, _build_reviewer_preparation,
+      _build_producer_orientation, _build_file_boundary_section,
+      _build_agent_roster, _re_review_priming_block,
+      _build_role_restrictions_section,
+      _build_impasse_escape_hatch_section, _render_contract_tasks,
+      _build_review_prompt) into orchestrator/routes/pipelines/_prompt_building/
+      as a nested sub-sub-package. The sub-sub-package gets its own
+      __init__.py barrel re-exporting every symbol the parent
+      orchestrator/routes/pipelines/__init__.py needs to surface to
+      external consumers. Allowlist entry stays. Allowlist must show
+      strict size decrease for pipelines/__init__.py (ratchet).
+    dependencies: slice-2
+
+  - id: 4
+    name: |-
+      pipelines.py _pr_lifecycle/ sub-sub-package
+    goal: |-
+      Extract the PR lifecycle cluster (_handle_pr_creation_failure,
+      _open_context_pr_at_implement_start, _persist_context_pr_number,
+      _build_pre_merge_obligations_section,
+      _collect_pre_merge_obligations, _build_brc_history_link_line,
+      _pr_metadata_from_plan_draft, _build_github_staging_manual_step,
+      _render_brc_history_markdown, _write_brc_history*,
+      _rewrite_brc_history_for_pr, _persist_phase_brc_history,
+      _derive_producer_roles_with_tasks, _fetch_pr_state,
+      _format_rescue_hint) into
+      orchestrator/routes/pipelines/_pr_lifecycle/ as a nested
+      sub-sub-package. Same barrel + ratchet expectations as slice-3.
+    dependencies: slice-3
+
+  - id: 5
+    name: |-
+      pipelines.py _worktree_ops/ sub-sub-package
+    goal: |-
+      Extract the worktree-operations cluster (_sync_worktree_with_remote,
+      _rebase_pipeline_branch_onto_base,
+      _refresh_pipeline_branch_against_current_base, _read_tree_head,
+      _restore_missing_state_files_from_head,
+      _commit_statefiles_to_worktree, _cleanup_agent_outputs_for_pr,
+      _ensure_statefiles_on_branch, _collect_local_only_commits,
+      _create_sync_recovery_backup_ref, _build_sync_recovery_backup_ref,
+      _resolve_pipeline_worktree_path, _detect_default_branch,
+      _resolve_origin_ref, plus WorktreeSyncOutcome /
+      StalePipelineBranchError / SyncRebaseAndResetFailedError) into
+      orchestrator/routes/pipelines/_worktree_ops/. Same barrel + ratchet
+      expectations.
+    dependencies: slice-4
+
+  - id: 6
+    name: |-
+      pipelines.py _concurrent_phase/ sub-sub-package
+    goal: |-
+      Extract the concurrent-phase / slice-DAG runtime cluster
+      (_run_concurrent_phase, _run_concurrent_phase_with_impasse_retry,
+      _run_implement_phase_slices, _spawn_and_wait,
+      _clear_stale_impasses_for_producers) into
+      orchestrator/routes/pipelines/_concurrent_phase/. This cluster
+      depends on _prompt_building, _pr_lifecycle, and _worktree_ops (all
+      already landed by parent slices), so the extraction is mechanical.
+      Same barrel + ratchet expectations.
+    dependencies: slice-5
+
+  - id: 7
+    name: |-
+      pipelines.py _run_loop/ + per-phase handler factoring (TERMINAL for pipelines.py)
+    goal: |-
+      Terminal sub-slice for orchestrator/routes/pipelines.py
+      decomposition. Two-stage refactor inside the slice (mirrors prior
+      #2261 plan's TASK-15-4 + TASK-15-5):
+      (1) introduce PHASE_HANDLERS dispatch table inside _run_pipeline;
+      bodies stay as local closures (bisectable indirection, no size
+      win);
+      (2) lift each per-phase handler body into its own module under
+      _run_loop/ — _run_loop/_orchestration.py (thin _run_pipeline, <300
+      LOC, + _PipelineRunContext dataclass), _run_loop/_run_refine.py,
+      _run_loop/_run_plan.py, _run_loop/_run_implement.py,
+      _run_loop/_run_pr.py. The _run_loop/__init__.py barrel re-exports
+      _run_pipeline, _spawn_pipeline_run_thread, PHASE_HANDLERS,
+      _PipelineRunContext. Acceptance: pipelines/__init__.py and every
+      submodule lands under 1500 LOC; scripts/file-size-allowlist.yaml
+      entry for orchestrator/routes/pipelines.py is REMOVED; the TBD row
+      in orchestrator/CLAUDE.md is replaced with the concrete submodule
+      layout; manual smoke-run of a refine→plan→implement→pr pipeline
+      verifies no behaviour change. Follow-up issue #2319 (per-phase
+      handler unit tests) tracked separately.
+    dependencies: slice-6
+
+  - id: 8
+    name: |-
+      gateway.py baseline + _app_factory + _auth + checkpoint/gh routes
+    goal: |-
+      Step-0 baseline plus the small-to-medium flat clusters of
+      gateway/gateway.py. Land git mv gateway/gateway.py →
+      gateway/gateway/__init__.py as its own bisectable commit. Then
+      extract _app_factory.py (Flask app object + handle_unhandled_exception
+      + make_response / make_error / make_success / make_worktree_not_found_error
+      + audit_log + health_check + _check_orchestrator_connectivity +
+      _check_squid_health + config_reload + main + _run_health_server),
+      _auth.py (LauncherSecretNotConfiguredError + get_launcher_secret +
+      check_launcher_auth + require_launcher_auth +
+      require_session_or_launcher_auth + _verify_orchestrator_transition_auth
+      + _is_in_cluster_source + translate_to_host_path + mount helpers +
+      _is_checkpoint_repo_for_request + _detached_head_hint +
+      _lookup_commit_observer_fn), _checkpoint_routes.py
+      (checkpoint_list / checkpoint_cost / checkpoint_show +
+      _resolve_checkpoint_repo / _resolve_checkpoint_token /
+      _ensure_checkpoint_scratch_repo / _resolve_repo_path_for_checkpoints),
+      and _gh_routes.py (_apply_pr_labels + gh_pr_create / gh_pr_comment /
+      gh_pr_edit / gh_pr_close + gh_execute). The three sub-sub-packages
+      (_git_routes/, _jira_routes/, _confluence_routes/) are
+      pre-allocated as TBD placeholders. Routes still register via
+      @app.route(...) thin wrappers in __init__.py (HITL decision-8 of
+      #2261). Allowlist entry stays.
+    dependencies: slice-1
+
+  - id: 9
+    name: |-
+      gateway.py _git_routes/ sub-sub-package
+    goal: |-
+      Extract gateway/gateway.py's git routes (git_push, git_execute,
+      git_fetch — ~2.8K LOC total) into gateway/gateway/_git_routes/. The
+      ~1040-LOC git_push body decomposes into named helpers per the prior
+      plan's R5 mitigation (gateway/CLAUDE.md row notes 'named helpers
+      split out of the security-critical git_push mega-handler');
+      sub-sub-package may itself need a further-split if git_push's
+      helper module crosses the cap. security_review reviewer must ACK
+      this slice. Allowlist entry stays.
+    dependencies: slice-8
+
+  - id: 10
+    name: |-
+      gateway.py _jira_routes/ sub-sub-package
+    goal: |-
+      Extract gateway/gateway.py's ~1.8K LOC Jira route cluster
+      (_session_jira_context + _jira_error_from_upstream +
+      _jira_not_configured_error + _project_not_allowlisted_response +
+      _jira_write_audit_meta + _validate_jira_* + jira_ticket_get / search /
+      comments / remotelinks / transition / execute / create / edit +
+      jira_ticket_comment_add + jira_issue_link_create) into
+      gateway/gateway/_jira_routes/. Routes still register via
+      @app.route(...) thin wrappers in __init__.py. Allowlist entry stays.
+    dependencies: slice-9
+
+  - id: 11
+    name: |-
+      gateway.py _confluence_routes/ + _worktree_routes + _anthropic_proxy
+    goal: |-
+      Extract gateway/gateway.py's Confluence cluster (~1.1K LOC:
+      _session_confluence_context + _confluence_error_from_upstream +
+      _redact_upstream_error_body + _confluence_not_configured_error +
+      _confluence_response_too_large + _confluence_forbidden_response +
+      _confluence_space_denied_response + _resolve_space_key_* +
+      _confluence_clamp_limit + _validate_confluence_* +
+      _check_post_fetch_space_allowlist + routes
+      confluence_page_get/descendants/footer-comments/inline-comments +
+      confluence_space_pages/list + confluence_search + confluence_execute)
+      into gateway/gateway/_confluence_routes/. Also extract
+      _worktree_routes.py (get_worktree_manager + map_container_path_to_worktree
+      + _cleanup_stale_pack_files + _cleanup_empty_container_dir +
+      worktree_create / delete / list + _derive_worktree_anchor_ids +
+      _container_ids_from_sessions + _collect_active_container_ids +
+      worktrees_prune) and _anthropic_proxy.py (~1K LOC: get_anthropic_client
+      + _get_forwarded_headers + _filter_response_headers +
+      _inject_upstream_credentials + _inject_anthropic_credentials +
+      _resolve_proxy_session + _filter_blocked_tools + _is_streaming_request
+      + _capture_non_streaming_response + _capture_streaming_response +
+      _parse_sse_response + _SSEAccumulator + proxy_anthropic_messages +
+      proxy_count_tokens). Allowlist entry stays.
+    dependencies: slice-10
+
+  - id: 12
+    name: |-
+      gateway.py _sessions + allowlist drop (TERMINAL for gateway.py)
+    goal: |-
+      Terminal sub-slice for gateway/gateway.py decomposition. Extract
+      _sessions.py (_branch_exists_on_remote + session_create +
+      _cleanup_container_worktrees + session_delete +
+      session_delete_by_container + session_heartbeat_by_container +
+      session_get + session_heartbeat + session_update +
+      session_update_phase + repos_visibility + sessions_list).
+      Acceptance: gateway/gateway/__init__.py and every submodule lands
+      under 1500 LOC; scripts/file-size-allowlist.yaml entry for
+      gateway/gateway.py is REMOVED; the TBD row in gateway/CLAUDE.md is
+      replaced with the concrete submodule layout. security_review ACK
+      required (final security pass on the decomposed gateway).
+    dependencies: slice-11
+
+  - id: 13
+    name: |-
+      sandbox/egg_lib/orch_cli.py decomposition
+    goal: |-
+      Decompose sandbox/egg_lib/orch_cli.py (4034 LOC) into a sub-package
+      with flat submodule clusters: _http.py, _cmd_pipeline.py,
+      _cmd_signal.py, _cmd_phase.py, _cmd_decision.py,
+      _cmd_container_gateway.py, _cmd_message.py, _cmd_overseer.py,
+      _cmd_consensus.py, _cmd_misc.py, _parser.py (may itself need
+      further-split given create_parser is ~940 LOC). Allowlist entry
+      REMOVED. sandbox/CLAUDE.md Submodule seam-table row populated with
+      concrete layout (the TBD row added in slice-1).
+    dependencies: slice-1
+
+  - id: 14
+    name: |-
+      orchestrator/gateway_client.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose orchestrator/gateway_client.py (3713 LOC) using the
+      method-modules-on-class pattern. GatewayClient class identity stays
+      in __init__.py; methods become thin wrappers that delegate to
+      module-level helpers in _http.py, _sessions.py, _worktrees.py,
+      _push.py, _pr.py, _rebase.py, _remotes.py, _errors.py. Tests
+      patching gateway_client.GatewayClient.<method> keep working
+      because the class object is still attached to the same module
+      path. Allowlist entry REMOVED. orchestrator/CLAUDE.md in-flight
+      table row updated.
+    dependencies: slice-1
+
+  - id: 15
+    name: |-
+      orchestrator/mcp_tools.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose orchestrator/mcp_tools.py (2820 LOC) using the
+      method-modules-on-class pattern. PipelineToolHandler class stays in
+      __init__.py; ~30 _handle_* methods become thin wrappers delegating
+      to module-level helpers grouped into _dispatch.py,
+      _pipeline_tools.py, _status.py, _gateway_tools.py,
+      _consensus_tools.py, _phase_tools.py, _checkpoint_tools.py,
+      _deployment_tools.py. Allowlist entry REMOVED.
+      orchestrator/CLAUDE.md in-flight table row updated.
+    dependencies: slice-1
+
+  - id: 16
+    name: |-
+      orchestrator/routes/signals.py decomposition
+    goal: |-
+      Decompose orchestrator/routes/signals.py (2557 LOC) into a
+      sub-package. Routes (handle_signal at line 287, handle_batch_signals
+      at 2461) stay as thin @signals_bp.route wrappers in __init__.py;
+      the ~14 module-level handle_*_signal functions extract into
+      _dispatch.py, _validation.py, _lifecycle.py, _consensus_propose.py,
+      _consensus_ack_nack.py, _consensus_confirmed.py, _consensus_admin.py.
+      Allowlist entry REMOVED. orchestrator/CLAUDE.md in-flight table row
+      updated.
+    dependencies: slice-1
+
+  - id: 17
+    name: |-
+      shared/egg_contracts/checkpoint_cli.py decomposition
+    goal: |-
+      Decompose shared/egg_contracts/checkpoint_cli.py (2233 LOC) into a
+      sub-package with flat clusters: _http.py, _git.py, _formatting.py,
+      _resolution.py, _cmd_list_show.py, _cmd_context_cost.py,
+      _cmd_search.py, _parser.py. Allowlist entry REMOVED.
+      shared/CLAUDE.md Submodule seam-table row populated (the TBD row
+      added in slice-1).
+    dependencies: slice-1
+
+  - id: 18
+    name: |-
+      orchestrator/peer_consensus.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose orchestrator/peer_consensus.py (2215 LOC) using the
+      method-modules-on-class pattern. PeerConsensusTracker class stays
+      in __init__.py; ~40 methods extract by responsibility into
+      _state.py, _propose.py, _ack_nack.py, _confirm.py, _admin.py,
+      _nudge.py, _invariants.py, _lookup.py. The implementing agent
+      decides whether _run_invariant_checks lives in _invariants.py (and
+      is imported into every mutation cluster) or stays as a private
+      method on the class itself (preferred if extraction creates
+      circular imports). Allowlist entry REMOVED.
+      orchestrator/CLAUDE.md in-flight table row updated.
+    dependencies: slice-1
+
+  - id: 19
+    name: |-
+      sandbox/entrypoint.py decomposition
+    goal: |-
+      Decompose sandbox/entrypoint.py (2210 LOC) into a sub-package
+      mirroring its existing section banners: _config.py, _logging.py,
+      _subprocess.py, _user_setup.py, _env_setup.py, _claude_setup.py,
+      _health_exec.py. Allowlist entry REMOVED. sandbox/CLAUDE.md
+      Submodule seam-table row populated (the TBD row added in slice-1).
+    dependencies: slice-1
+
+  - id: 20
+    name: |-
+      gateway/worktree_manager.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose gateway/worktree_manager.py (2087 LOC) using the
+      method-modules-on-class pattern. WorktreeManager class stays in
+      __init__.py; ~25 methods extract into _create.py, _remove.py,
+      _chown.py, _lookup.py, _prune.py, _startup.py. Allowlist entry
+      REMOVED. gateway/CLAUDE.md in-flight table row updated.
+    dependencies: slice-1
+
+  - id: 21
+    name: |-
+      gateway/git_client.py decomposition
+    goal: |-
+      Decompose gateway/git_client.py (2068 LOC) into a sub-package.
+      No dominant class — extraction is flat: _remotes.py (git_cmd /
+      ssh_url_to_https / is_ssh_url / is_url_remote / resolve_remote_url /
+      get_authenticated_remote_target), _repo_paths.py
+      (is_repos_parent_directory / validate_repo_path), _validation.py
+      (normalize_flag / validate_git_args / is_branch_switching_checkout /
+      is_branch_switching_operation / is_branch_switch /
+      extract_reset_target_ref — the ~150-LOC validate_git_args
+      whitelist switch dominates; may need further-split inside
+      _validation/), _credentials.py (create_credential_helper /
+      cleanup_credential_helper / get_token_for_repo), _push_attribution.py
+      (get_changed_files_in_push + AttributedFile / AttributedPushRange
+      + _enumerate_push_commits / _files_for_commit /
+      get_attributed_changed_files_in_push), _rebase.py
+      (build_rebase_onto_args). Allowlist entry REMOVED. gateway/CLAUDE.md
+      in-flight table row updated. security_review ACK required (git_client
+      sits on the policy-enforcement seam).
+    dependencies: slice-1
+
+  - id: 22
+    name: |-
+      orchestrator/overseer/monitor.py decomposition (HARD — preparatory refactor)
+    goal: |-
+      Decompose orchestrator/overseer/monitor.py (2024 LOC) using the
+      method-modules-on-class pattern. OverseerMonitor class stays in
+      __init__.py. NON-MECHANICAL prep work: break up the 885-LOC
+      write_health_summary method (lines 198-1083) into ≤300-LOC helpers
+      BEFORE extracting submodules. Then extract: _health_summary/ (the
+      broken-up helpers), _phase_transitions.py
+      (_load_pipeline_for_transition_check, _blocking_agents_are_active,
+      _get_recent_proposal_age, _reset_incomplete_consensus_tracking),
+      _infra_dedup.py (_infra_error_hash, _is_infra_error_deduped,
+      _record_infra_error_escalation, _cleanup_infra_error_dedup),
+      _logging.py (_resolve_oversight_dir, _log_oversight_event),
+      _filtering.py (_filter_current_phase_agents, generate_health_summary).
+      Allowlist entry REMOVED. orchestrator/CLAUDE.md in-flight table row
+      updated. If the implementing agent finds the prep work + extraction
+      exceeds 3-4 BRC cycles, NACK on slice_size and the architect
+      re-proposes as a 2-slice chain (prep refactor + submodule extract).
+    dependencies: slice-1
+
+  - id: 23
+    name: |-
+      orchestrator/kubernetes_spawner.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose orchestrator/kubernetes_spawner.py (1873 LOC) using the
+      method-modules-on-class pattern. KubernetesSpawner class stays in
+      __init__.py; ~20 methods extract into _spawn.py (spawn_agent_job +
+      __init__ + _build_k8s_job_names + _build_agent_worktree_id +
+      _find_missing_worktrees + _get_restart_lock + _host_to_local_volumes
+      + _role_needs_worktree + _resolve_wait_producer_allowlist +
+      SpawnedContainer dataclass), _retry.py (_is_transient_spawn_failure
+      + _classify_spawn_error + KubernetesSpawnError + SpawnFailureError),
+      _stop_remove.py (stop_agent_job + remove_agent_job +
+      list_pipeline_jobs + list_slice_jobs + cleanup_pipeline),
+      _restart.py (restart_agent_job + get_restart_count +
+      reset_restart_counts + detect_uncommitted_changes), _overseer.py
+      (spawn_overseer_job + create_concurrent_spawn_fn), _singleton.py
+      (get_kubernetes_spawner + k8s/backend/gateway properties).
+      Allowlist entry REMOVED. orchestrator/CLAUDE.md seam table gains a
+      row for kubernetes_spawner.py (added in slice-1 as TBD; this slice
+      finalises).
+    dependencies: slice-1
+
+  - id: 24
+    name: |-
+      shared/egg_contracts/plan_parser.py decomposition
+    goal: |-
+      Decompose shared/egg_contracts/plan_parser.py (1835 LOC) into a
+      sub-package: _models.py (ParsedTask / ParsedPhase / ParseWarning /
+      ParseResult / PlanPreflightError), _yaml.py (parse_yaml_code_fence
+      / parse_yaml_frontmatter / parse_tasks_from_yaml /
+      parse_phases_from_yaml / extract_pr_metadata_from_yaml +
+      _normalize_optional_string / _line_value_is_none), _markdown.py
+      (parse_tasks_from_markdown + parse_phases_from_markdown +
+      _extract_jira_task_fields), _top.py (parse_plan + parse_plan_file
+      + format_warnings_for_comment), _forest.py (validate_forest +
+      _detect_cycles + ForestValidationError), _role_alignment.py
+      (_is_file_blocked_for_role + _eligible_producer_roles +
+      _check_role_files + validate_task_role_alignment), _preflight.py
+      (validate_plan_preflight). Allowlist entry REMOVED.
+      shared/CLAUDE.md Submodule seam-table row populated (the TBD row
+      added in slice-1).
+    dependencies: slice-1
+
+  - id: 25
+    name: |-
+      gateway/checkpoint_handler.py decomposition (method-modules-on-class)
+    goal: |-
+      Decompose gateway/checkpoint_handler.py (1777 LOC) using the
+      method-modules-on-class pattern. CheckpointHandler class stays in
+      __init__.py; methods extract into _capture.py (capture_checkpoint
+      + capture_session_end_checkpoint + _create_minimal_checkpoint_v2),
+      _redact.py (_redact_transcript + _redact_tool_calls), _resolve.py
+      (_resolve_repo + _resolve_issue_number + _resolve_pipeline_phase
+      + _resolve_pipeline_id + _resolve_pr_number + _resolve_checkpoint_target
+      + _validate_checkpoint_repo + _extract_repo_from_remote +
+      _resolve_agent_type + _resolve_github_token), _store.py
+      (store_checkpoint_v2 + _fetch_inter_agent_messages +
+      CheckpointError), _read.py (fetch_and_read_index + read_checkpoint
+      + ensure_ref + _read_git_file + _branch_exists + _run_git),
+      _module_api.py (_get_store_lock + get_checkpoint_handler +
+      capture_and_store_checkpoint + capture_and_store_checkpoints_for_push
+      + _get_checkpoint_repo_for_path + capture_session_end_checkpoint).
+      Allowlist entry REMOVED. gateway/CLAUDE.md in-flight table row
+      updated.
+    dependencies: slice-1
+
+  - id: 26
+    name: |-
+      orchestrator/routes/phases.py decomposition (preserve lazy imports)
+    goal: |-
+      Decompose orchestrator/routes/phases.py (1654 LOC) into a
+      sub-package. Routes stay as thin @phases_bp.route wrappers in
+      __init__.py (HITL decision-8). Submodule clusters: _dispatch.py
+      (make_error_response + make_success_response +
+      validate_phase_transition + _clear_concurrent_state),
+      _advance.py (advance_phase route body, ~540 LOC — may itself
+      need further-split if internal seams found during inspection),
+      _complete.py (complete_phase route body +
+      _existing_conditional_ack_gate + _ensure_conditional_ack_gate +
+      _collect_unresolved_phase_decisions), _populate.py
+      (populate_contract route body), _start_fail.py (start_phase +
+      fail_phase). CRITICAL: preserve lazy in-function imports
+      (e.g. `from routes.pipelines import _foo`) inside each route body —
+      hoisting to module-level reintroduces the import cycle with
+      pipelines.py. Allowlist entry REMOVED. orchestrator/CLAUDE.md seam
+      table gains a row for routes/phases.py (added in slice-1 as TBD;
+      this slice finalises).
+    dependencies: slice-1
+
+  - id: 27
+    name: |-
+      orchestrator/routes/deployment.py decomposition
+    goal: |-
+      Decompose orchestrator/routes/deployment.py (1650 LOC) into a
+      sub-package mirroring its existing section banners. Routes stay as
+      thin @deployment_bp.route wrappers in __init__.py. Submodule
+      clusters: _runtime.py (_resolve_runtime + _current_runtime +
+      _not_available_on_runtime + _runtime_detection_failed +
+      _probe_kubernetes_reachable), _context.py (_detect_k3s +
+      _detect_cni + _collect_egg_image_tags +
+      _build_deployment_context_payload + get_deployment_context route),
+      _logs.py (get_service_logs route), _manifests.py (_run_kustomize +
+      _warn + _deployment_containers + _deployment_volumes +
+      _validate_deployment_docs + validate_deployment_manifests route),
+      _prune.py (prune_worktrees_proxy route), _network.py
+      (_build_probe_env + _build_probe_job_manifest + _submit_probe_job +
+      _wait_for_probe_pod + _read_probe_log + _delete_probe_job +
+      _parse_probe_output + validate_network_isolation route),
+      _rebuild.py (_stream_append + _stream_mark_done +
+      _reap_stale_streams_locked + _stream_is_done + _stream_snapshot +
+      _run_redeploy_subprocess + rebuild_and_rollout route +
+      rebuild_stream_read route). Allowlist entry REMOVED.
+      orchestrator/CLAUDE.md in-flight table row updated.
+    dependencies: slice-1

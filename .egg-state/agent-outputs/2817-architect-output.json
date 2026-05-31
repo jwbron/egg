@@ -1,0 +1,399 @@
+{
+  "issue": 2817,
+  "pipeline_id": "issue-2817",
+  "phase": "plan",
+  "role": "architect",
+  "summary": "Decompose 17 oversize Python source files into sub-packages following the canonical pattern in docs/guides/decomposition-pattern.md so the global 1500-line / 100KB file-size lint cap holds without grandfathering. The acceptance criterion is binary: scripts/file-size-allowlist.yaml `files:` map empties, every entry's source file lands under the cap, and the seam tables in orchestrator/CLAUDE.md, gateway/CLAUDE.md (and the new sandbox/CLAUDE.md + shared/CLAUDE.md per cq-2) carry concrete submodule layouts rather than TBD rows. This pipeline is the second-pass attempt — #2261 stalled after only the pattern + select_tests reference landed (#2335).",
+  "background": {
+    "is_refresh_of": 2261,
+    "why_refresh": "Six pipeline attempts on #2261 (v3 through v10) failed to land any follow-up decomposition slice after #2335. Files have grown 30-50% since the prior plan was written (pipelines.py: 16,401 -> 24,559 LOC; gateway.py: 9,890 -> 10,690 LOC; orch_cli.py: 3,537 -> 4,034 LOC). Cluster pre-allocations from the prior plan still match seams structurally but the larger files now require sub-sub-packages.",
+    "operator_hitl_resolutions": {
+      "cq-1": "Superseded by cq-6: update stale #2261 references; planner picks packaging.",
+      "cq-2": "Add Submodule seam table to sandbox/CLAUDE.md AND create shared/CLAUDE.md with seam table. sandbox/entrypoint.py, sandbox/egg_lib/orch_cli.py, shared/egg_contracts/checkpoint_cli.py, shared/egg_contracts/plan_parser.py each get a seam-table row.",
+      "cq-3": "#2569 closed by operator; shared/egg_contracts/plan_parser.py is IN SCOPE of this pipeline. All 17 files (including plan_parser.py) are owned by #2817. Closing criterion: allowlist files: map empty.",
+      "cq-4": "Update docs/guides/decomposition-pattern.md to reflect the non-negotiable #10 relaxation (scenario-organized test suites may stay topical; select_tests retrofit is not required) and the Pre-merge checklist.",
+      "cq-5": "Fix allowlist comments. orchestrator/routes/phases.py: retag issue: field from #2261 to #2817. shared/egg_contracts/plan_parser.py: retag from #2548 to #2817 (until its decomposition removes the entry).",
+      "cq-6": "Update stale #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments as part of this work. Planner picks packaging (separate docs slice vs inline-per-slice vs hybrid)."
+    }
+  },
+  "primitive_citations": {
+    "documentation_canvas": {
+      "purpose": "deployed-artifact (markdown docs render in GitHub UI; agents load CLAUDE.md when navigating each subtree)",
+      "execution_context": "n/a (text artifacts)",
+      "files": [
+        "docs/guides/decomposition-pattern.md — canonical recipe (sub-package + per-symbol re-export barrel + underscore submodules)",
+        "orchestrator/CLAUDE.md:20-55 — `routes/pipelines/` TBD row + in-flight decomposition table; references #2261 throughout",
+        "gateway/CLAUDE.md:19-45 — `gateway/gateway/` TBD row + in-flight decomposition table; references #2261",
+        "sandbox/CLAUDE.md (currently 12 lines, no seam table) — must gain Submodule seam table per cq-2",
+        "shared/CLAUDE.md (does not exist) — must be created with Submodule seam table per cq-2"
+      ]
+    },
+    "ratchet_lint": {
+      "purpose": "production-CI lint (`make lint` runs scripts/check-file-sizes.py)",
+      "execution_context": "trusted-CI-runner (the lint runs against the working tree from CI; ratchet semantics enforce 'each PR that touches an allowlisted file must reduce its size, never grow it' per docs/guides/decomposition-pattern.md:19-23)",
+      "files": [
+        "scripts/check-file-sizes.py — the lint script",
+        "scripts/file-size-allowlist.yaml — allowlist (currently 17 entries; closing condition is `files:` map empty)"
+      ],
+      "caps": {
+        "hard_lines": 1500,
+        "hard_bytes": 100000,
+        "soft_lines": 800,
+        "soft_bytes": 60000
+      }
+    },
+    "barrel_invariant": {
+      "purpose": "stable public API surface (HITL decision-7 of #2261, restated in docs/guides/decomposition-pattern.md:70-88)",
+      "execution_context": "n/a (Python import resolution at runtime in BOTH in-sandbox-agent containers and trusted-CI-runner test invocations)",
+      "guarantee": "External consumers — tests, production importers, mocks — keep importing through the barrel. Tests patching `routes.pipelines._foo` resolve through whatever __init__.py re-exports. A submodule extraction that drops a re-export is a regression, not a refactor.",
+      "audit_recipe": "git grep -nE '(<module>\\.|from .* import .*\\b<symbol>\\b)' -- '*.py' (docs/guides/decomposition-pattern.md:160-178)"
+    },
+    "step_zero_baseline": {
+      "purpose": "git-bisectable refactor scaffolding (docs/guides/decomposition-pattern.md:90-114)",
+      "execution_context": "n/a (git operation against the working tree)",
+      "shape": "git mv <module>.py <module>/__init__.py as its OWN commit before any cluster extraction so `git blame` preserves authorship and bisect can cut between move and extract"
+    },
+    "routes_handling_convention": {
+      "purpose": "Flask URL-routing seam (docs/guides/decomposition-pattern.md:221-249, HITL decision-8 of #2261)",
+      "execution_context": "in-sandbox-agent + deployed-pod (gateway sidecar Flask app; orchestrator Flask blueprints register at module-import time)",
+      "rule": "Route decorators (@app.route for gateway.py; @<bp>.route for orchestrator/routes/*.py) stay in __init__.py on thin wrappers; submodule bodies hold the implementation. This is the normalized shape EVEN where Flask Blueprints would allow attaching decorators inside submodules — uniformity matters more than the indirection."
+    },
+    "method_modules_on_class": {
+      "purpose": "decomposition pattern for class-dominated files (docs/guides/decomposition-pattern.md:116-152)",
+      "execution_context": "n/a (Python import + class-attribute resolution at runtime)",
+      "applicable_files": [
+        "orchestrator/gateway_client.py (GatewayClient class at line 410, ~30 methods)",
+        "orchestrator/mcp_tools.py (PipelineToolHandler class at line 1117, ~30 _handle_* methods)",
+        "orchestrator/peer_consensus.py (PeerConsensusTracker class at line 69, ~40 methods)",
+        "gateway/worktree_manager.py (WorktreeManager class at line 140, ~25 methods)",
+        "gateway/checkpoint_handler.py (CheckpointHandler class at line 376, ~15 methods)",
+        "orchestrator/kubernetes_spawner.py (KubernetesSpawner class at line 321, ~20 methods)",
+        "orchestrator/overseer/monitor.py (OverseerMonitor class at line 82; bulk is in an 885-LOC write_health_summary method — special-case, see risks)"
+      ],
+      "rule": "Class identity stays in __init__.py; method bodies extract to module-level helpers in `_<cluster>.py` taking explicit `self`; methods become thin wrappers; barrel re-exports the class and any module-level helpers with external consumers. Tests patching `mcp_tools.PipelineToolHandler` keep working."
+    },
+    "slice_dag_runtime": {
+      "purpose": "implement-phase runtime (drives every slice in the plan)",
+      "execution_context": "trusted-orchestrator-pod (orchestrator/slice_scheduler.py + orchestrator/routes/pipelines.py:_run_implement_phase_slices)",
+      "files": [
+        "docs/architecture/slice-dag.md — full design + forest constraint",
+        "shared/egg_contracts/plan_parser.py:validate_forest — hard-rejects multi-parent slices with ForestValidationError (422)",
+        "shared/egg_contracts/dependency_graph.py — generic DependencyGraph[NodeT: Hashable] used by SliceScheduler",
+        "orchestrator/slice_scheduler.py:SliceScheduler — wave scheduler with two-tier max_cycles, failure cascade, stacked-PR reconciler"
+      ],
+      "forest_constraint": "every slice has AT MOST ONE DAG parent; multi-parent slices are rejected at plan ingestion. Serialise upstream clusters into a chain via `serialized_chain_order` (#2137 TASK-2-3, HITL decision-17 of #2137)",
+      "concurrency_caps": {
+        "EGG_ORCH_MAX_PARALLEL_SLICES": "2 (per-pipeline, default; orchestrator/CLAUDE.md:688)",
+        "EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES": "4 (process-wide, default; orchestrator/CLAUDE.md:689)"
+      }
+    },
+    "phases_py_lazy_imports": {
+      "purpose": "deployed-pod cycle breaker (orchestrator/routes/phases.py uses lazy in-function `from routes.pipelines import _foo` to avoid import cycles with pipelines.py)",
+      "execution_context": "in-sandbox-agent + deployed-pod (orchestrator Flask app boot)",
+      "constraint": "submodules carved out of phases.py MUST preserve the lazy in-function imports, not hoist them to module-level — hoisting reintroduces the cycle."
+    },
+    "dual_import_pattern": {
+      "purpose": "support both packaged and flat execution (docs/guides/decomposition-pattern.md:63-68)",
+      "execution_context": "n/a (Python import resolution; affects both in-sandbox-agent and trusted-CI-runner runs)",
+      "shape": "`try: from ..foo import X\\nexcept ImportError: from foo import X` — new submodules either all use the dual-import shape OR all use relative imports; never mix the two within one sub-package"
+    },
+    "allowlist_rebase_recipe": {
+      "purpose": "trusted-CI-runner conflict reconciliation (scripts/file-size-allowlist.yaml conflicts mechanically when parallel slices each drop their own entry)",
+      "execution_context": "in-sandbox-agent (the slice agent's `git rebase`)",
+      "documented_at": "docs/guides/decomposition-pattern.md:186-214",
+      "recipe": "git rebase origin/<parent>; resolve conflict by taking 'theirs' for unrelated entries and re-applying own removal; make lint to verify"
+    }
+  },
+  "file_inventory": {
+    "count": 17,
+    "structural_outliers": ["orchestrator/routes/pipelines.py", "gateway/gateway.py"],
+    "current_sizes_2026_05_31": [
+      {"file": "orchestrator/routes/pipelines.py", "lines": 24559, "bytes": 1131966, "decomposition_difficulty": "extreme", "needs_sub_sub_packages": true},
+      {"file": "gateway/gateway.py", "lines": 10690, "bytes": 417679, "decomposition_difficulty": "hard", "needs_sub_sub_packages": true},
+      {"file": "sandbox/egg_lib/orch_cli.py", "lines": 4034, "bytes": 152215, "decomposition_difficulty": "easy", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/gateway_client.py", "lines": 3713, "bytes": 151421, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/mcp_tools.py", "lines": 2820, "bytes": 122478, "decomposition_difficulty": "easy-medium", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/routes/signals.py", "lines": 2557, "bytes": 101393, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "shared/egg_contracts/checkpoint_cli.py", "lines": 2233, "bytes": 81968, "decomposition_difficulty": "easy", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/peer_consensus.py", "lines": 2215, "bytes": 96901, "decomposition_difficulty": "hard", "needs_sub_sub_packages": false, "note": "invariant checks thread through every mutation"},
+      {"file": "sandbox/entrypoint.py", "lines": 2210, "bytes": 90563, "decomposition_difficulty": "easy", "needs_sub_sub_packages": false},
+      {"file": "gateway/worktree_manager.py", "lines": 2087, "bytes": 83788, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "gateway/git_client.py", "lines": 2068, "bytes": 69084, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/overseer/monitor.py", "lines": 2024, "bytes": 84829, "decomposition_difficulty": "hard", "needs_sub_sub_packages": false, "note": "865-LOC write_health_summary method must be broken up before submodule clusters can be named"},
+      {"file": "orchestrator/kubernetes_spawner.py", "lines": 1873, "bytes": 82651, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "shared/egg_contracts/plan_parser.py", "lines": 1835, "bytes": 70233, "decomposition_difficulty": "easy-medium", "needs_sub_sub_packages": false, "note": "in scope of #2817 per cq-3 (was tracked under #2569; #2569 closed)"},
+      {"file": "gateway/checkpoint_handler.py", "lines": 1777, "bytes": 69606, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
+      {"file": "orchestrator/routes/phases.py", "lines": 1654, "bytes": 71459, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false, "note": "uses lazy in-function imports to break cycles with pipelines.py; ~540-LOC advance_phase route body"},
+      {"file": "orchestrator/routes/deployment.py", "lines": 1650, "bytes": 58831, "decomposition_difficulty": "easy", "needs_sub_sub_packages": false}
+    ]
+  },
+  "cluster_scaffold_recommendations": {
+    "rationale": "Cluster names are GUIDANCE for the implementing producer, not hard prescriptions. Final cluster boundaries land per-slice when the producer reads the file and decides. The scaffold is sized to verify each landing fits under the cap.",
+    "orchestrator/routes/pipelines.py": {
+      "shape": "sub-package + 5 sub-sub-packages + 5 flat clusters",
+      "submodules": [
+        {"name": "_run_loop/", "owns": "_run_pipeline (lines 20799-23734, ~2935 LOC), _spawn_pipeline_run_thread, PHASE_HANDLERS dispatch, per-phase handlers (_run_refine.py, _run_plan.py, _run_implement.py, _run_pr.py)", "sub_sub_package": true, "note": "_run_pipeline is a single loop that branches per-phase only ~3 times; per-phase split requires NON-MECHANICAL factoring of the loop body into helper functions taking (pipeline, phase, store, spawner, ...) explicitly"},
+        {"name": "_concurrent_phase/", "owns": "_run_concurrent_phase, _run_concurrent_phase_with_impasse_retry, _run_implement_phase_slices, _spawn_and_wait, _clear_stale_impasses_for_producers, etc.", "sub_sub_package": true},
+        {"name": "_prompt_building/", "owns": "_build_phase_prompt, _build_agent_prompt, _build_brc_preamble, _build_role_context, _build_reviewer_preparation, _build_producer_orientation, _build_file_boundary_section, _build_agent_roster, _re_review_priming_block, _build_role_restrictions_section, _build_impasse_escape_hatch_section, _render_contract_tasks, _build_review_prompt", "sub_sub_package": true},
+        {"name": "_pr_lifecycle/", "owns": "_handle_pr_creation_failure, _open_context_pr_at_implement_start, _persist_context_pr_number, _build_pre_merge_obligations_section, _collect_pre_merge_obligations, _build_brc_history_link_line, _pr_metadata_from_plan_draft, _build_github_staging_manual_step, _render_brc_history_markdown, _write_brc_history*, _rewrite_brc_history_for_pr, _persist_phase_brc_history, _derive_producer_roles_with_tasks, _fetch_pr_state, _format_rescue_hint", "sub_sub_package": true},
+        {"name": "_worktree_ops/", "owns": "_sync_worktree_with_remote, _rebase_pipeline_branch_onto_base, _refresh_pipeline_branch_against_current_base, _read_tree_head, _restore_missing_state_files_from_head, _commit_statefiles_to_worktree, _cleanup_agent_outputs_for_pr, _ensure_statefiles_on_branch, _collect_local_only_commits, _create_sync_recovery_backup_ref, _build_sync_recovery_backup_ref, _resolve_pipeline_worktree_path, _detect_default_branch, _resolve_origin_ref, WorktreeSyncOutcome dataclass, StalePipelineBranchError, SyncRebaseAndResetFailedError", "sub_sub_package": true},
+        {"name": "_criteria.py", "owns": "_read_shared_criteria, _get_{agent_design,code_review,contract_review,refine_review,plan_review,security_review,code_review_holistic,concurrency_review}_criteria, _get_review_criteria_for_type, _get_reviewer_scope_preamble"},
+        {"name": "_readers.py", "owns": "_read_phase_draft, _pipeline_identifier, _brc_history_identifier, _get_draft_path, _get_generic_draft_path, _draft_filename, _git_show_draft, _read_source_branch_artifacts, _pull_contract_from_source_branch, _summarize_issue, _extract_plan_overview, _cleanup_stale_generic_drafts, _verdict_path_for_type"},
+        {"name": "_decisions.py", "owns": "_populate_contract_from_plan{,_safe}, _sync_pipeline_decisions_to_contract, _queue_and_await_contract_decisions, _synthesize_plan_draft, _slice_gate_block_monolithic_demotion, _empty_contract_*, _populate_outcome_to_hitl_reason, _origin_has_plan_draft, _populate_result_is_empty_contract, _apply_inline_hitl_kickback_to_phase, PlanDraftMissing*/PopulateOutcome/PopulateResult/PopulateProducedEmptyContractError/SliceGateMonolithicBlock/ContextPrCreationReason/ContextPrCreationError/ForestValidationError"},
+        {"name": "_status_helpers.py", "owns": "_get_pipeline_status route, wait_pipeline_status route, _parse_status_wait_cursor, _build_status_wait_cursor, _build_minimal_status_envelope, _message_store_tip_id, _get_concurrent_status, _get_pr_info, _track_host_wait_{start,end}"},
+        {"name": "_brc_verdicts.py", "owns": "_aggregate_review_verdicts, _read_review_verdict, _read_tester_gaps, _format_nack_summary, _incomplete_consensus_decision_text, _check_brc_progress_gate, _handle_brc_consensus_timeout, _publish_consensus_timeout_alert, _latest_active_role_heartbeat, _emit_producer_death_alert, _check_branch_divergence_for_alert, _publish_branch_divergence_alert, _branch_divergence_tick, _send_brc_confirmation_nudge, _lookup_peer_consensus_tracker_or_none, _slice_has_pending_decision, _classify_non_complete_slice, _escalate_*_hitl, _commit_slice_brc_history_to_integration_branch, _build_phase_iteration_context, _build_iteration_summary_from_tracker"}
+      ],
+      "routes_stay_in_init": ["list_pipelines", "get_pipeline", "create_pipeline", "update_pipeline", "delete_pipeline", "restart_agent", "restart_phase", "list_pipeline_local_commits", "salvage_pipeline_local_commits", "start_pipeline", "get_pipeline_visualization", "stream_all_pipelines", "stream_pipeline"]
+    },
+    "gateway/gateway.py": {
+      "shape": "sub-package + 3 sub-sub-packages + 6 flat clusters",
+      "submodules": [
+        {"name": "_app_factory.py", "owns": "app = Flask(__name__) (line 508), handle_unhandled_exception (532), make_response/make_error/make_success/make_worktree_not_found_error, audit_log, _check_orchestrator_connectivity, _check_squid_health, health_check route, _reload_all_config, config_reload route, main, _run_health_server"},
+        {"name": "_auth.py", "owns": "LauncherSecretNotConfiguredError, get_launcher_secret, check_launcher_auth, require_launcher_auth, require_session_or_launcher_auth, _verify_orchestrator_transition_auth, _is_in_cluster_source, translate_to_host_path + mount helpers, _is_checkpoint_repo_for_request, _detached_head_hint, _lookup_commit_observer_fn"},
+        {"name": "_git_routes/", "owns": "git_push (line 1114, body ~1040 LOC — R5 security-critical, decompose into named helpers per gateway/CLAUDE.md prior plan), git_execute (~740 LOC), git_fetch", "sub_sub_package": true, "note": "git_push body alone exceeds the cap; further split inside _git_routes/ is required"},
+        {"name": "_checkpoint_routes.py", "owns": "_int_param, checkpoint_list, checkpoint_cost, checkpoint_show, _resolve_checkpoint_repo, _resolve_checkpoint_token, _ensure_checkpoint_scratch_repo, _resolve_repo_path_for_checkpoints"},
+        {"name": "_gh_routes.py", "owns": "_apply_pr_labels, gh_pr_create, gh_pr_comment, gh_pr_edit, gh_pr_close, gh_execute (~680 LOC)"},
+        {"name": "_jira_routes/", "owns": "Jira session/error helpers + jira_ticket_get/search/comments/remotelinks/transition/execute/create/edit + jira_ticket_comment_add + jira_issue_link_create", "sub_sub_package": true, "loc": "~1800"},
+        {"name": "_confluence_routes/", "owns": "confluence_page_get/descendants/footer-comments/inline-comments, confluence_space_pages/list, confluence_search, confluence_execute + validators + error helpers", "sub_sub_package": true, "loc": "~1100"},
+        {"name": "_worktree_routes.py", "owns": "get_worktree_manager, map_container_path_to_worktree, _cleanup_stale_pack_files, _cleanup_empty_container_dir, worktree_create, worktree_delete, worktree_list, _derive_worktree_anchor_ids, _container_ids_from_sessions, _collect_active_container_ids, worktrees_prune"},
+        {"name": "_sessions.py", "owns": "_branch_exists_on_remote, session_create (~430 LOC), _cleanup_container_worktrees, session_delete, session_delete_by_container, session_heartbeat_by_container, session_get, session_heartbeat, session_update, session_update_phase, repos_visibility, sessions_list"},
+        {"name": "_anthropic_proxy.py", "owns": "get_anthropic_client, _get_forwarded_headers, _filter_response_headers, _inject_upstream_credentials, _inject_anthropic_credentials, _resolve_proxy_session, _filter_blocked_tools, _is_streaming_request, _capture_non_streaming_response, _capture_streaming_response, _parse_sse_response, _SSEAccumulator class, proxy_anthropic_messages, proxy_count_tokens"}
+      ],
+      "note": "@app.route decorators stay in __init__.py per HITL decision-8 of #2261 and docs/guides/decomposition-pattern.md:221-249. The Flask app object also stays in __init__.py."
+    },
+    "smaller_files_scaffold_summary": "Each of the remaining 15 files has 3-7 cluster candidates identified in the architect's per-file survey (recorded in this output's `per_file_clusters` field). The implementing producer for each slice does the final cluster boundary call when reading the file.",
+    "per_file_clusters_terse": {
+      "sandbox/egg_lib/orch_cli.py": "_http, _cmd_pipeline, _cmd_signal, _cmd_phase, _cmd_decision, _cmd_container_gateway, _cmd_message, _cmd_overseer, _cmd_consensus, _cmd_misc, _parser",
+      "orchestrator/gateway_client.py": "_http, _sessions, _worktrees, _push, _pr, _rebase, _remotes, _errors (GatewayClient class stays in __init__.py, method-modules-on-class)",
+      "orchestrator/mcp_tools.py": "_dispatch, _pipeline_tools, _status, _gateway_tools, _consensus_tools, _phase_tools, _checkpoint_tools, _deployment_tools (PipelineToolHandler class stays in __init__.py)",
+      "orchestrator/routes/signals.py": "_dispatch, _validation, _lifecycle, _consensus_propose, _consensus_ack_nack, _consensus_confirmed, _consensus_admin (routes stay in __init__.py)",
+      "shared/egg_contracts/checkpoint_cli.py": "_http, _git, _formatting, _resolution, _cmd_list_show, _cmd_context_cost, _cmd_search, _parser",
+      "orchestrator/peer_consensus.py": "_state, _propose, _ack_nack, _confirm, _admin, _nudge, _invariants (PeerConsensusTracker class stays in __init__.py); planner should flag that _run_invariant_checks threads through every mutation",
+      "sandbox/entrypoint.py": "_config, _logging, _subprocess, _user_setup, _env_setup, _claude_setup, _health_exec",
+      "gateway/worktree_manager.py": "_create, _remove, _chown, _lookup, _prune, _startup (WorktreeManager class stays in __init__.py)",
+      "gateway/git_client.py": "_remotes, _repo_paths, _validation, _credentials, _push_attribution, _rebase",
+      "orchestrator/overseer/monitor.py": "BLOCKED on in-slice breakup of the 885-LOC write_health_summary method (lines 198-1083). Candidate clusters after breakup: _health_summary/, _phase_transitions, _infra_dedup, _consensus_tracking. Flag as needs-deeper-inspection-by-implementing-agent.",
+      "orchestrator/kubernetes_spawner.py": "_spawn, _retry, _stop_remove, _restart, _overseer, _singleton (KubernetesSpawner class stays in __init__.py)",
+      "shared/egg_contracts/plan_parser.py": "_models, _yaml, _markdown, _top, _forest, _role_alignment, _preflight",
+      "gateway/checkpoint_handler.py": "_capture, _redact, _resolve, _store, _read, _module_api (CheckpointHandler class stays in __init__.py)",
+      "orchestrator/routes/phases.py": "_dispatch, _advance (~540-LOC route body), _complete, _populate, _start_fail. Lazy in-function imports MUST be preserved.",
+      "orchestrator/routes/deployment.py": "_runtime, _context, _logs, _manifests, _prune, _network, _rebuild"
+    }
+  },
+  "approaches_considered": [
+    {
+      "name": "Monolithic-per-file slices (prior #2261 shape)",
+      "shape": "One slice per oversize file (15-17 slices), each landing the entire decomposition in one PR. pipelines.py and gateway.py each as a single slice with internal task list.",
+      "pros": ["Fewest slices; minimal scheduler overhead", "Each slice's PR review is a complete picture of one file's decomposition"],
+      "cons": ["Prior plan tried this; six pipeline attempts (v3-v10) stalled with NO follow-up slices landing", "pipelines.py at 24,559 LOC requires extracting 10 clusters + factoring a 2,935-LOC function; one BRC cycle cannot converge this — the prompt explicitly forbids slices that would require >3-4 commit-propose-revise cycles", "gateway.py at 10,690 LOC has the same scaling problem; git_push alone is ~1k LOC and security-critical (R5)"],
+      "verdict": "REJECTED — this is the documented failure mode."
+    },
+    {
+      "name": "Parallel sub-slices for outliers (forest violation)",
+      "shape": "Decompose pipelines.py via parallel children of a baseline slice: _prompt_building/, _pr_lifecycle/, _worktree_ops/, _concurrent_phase/, _run_loop/ as sibling sub-slices.",
+      "pros": ["Maximum parallelism inside pipelines.py decomposition"],
+      "cons": ["The allowlist entry stays until ALL sub-slices land; the slice that drops the entry would depend on all siblings — forest violation (multi-parent)", "Parallel sub-slices all mutate pipelines/__init__.py barrel re-exports + scripts/file-size-allowlist.yaml; rebase conflicts compound", "serialized_chain_order would have to encode the chain anyway"],
+      "verdict": "REJECTED — forest-violating + concurrent barrel mutation."
+    },
+    {
+      "name": "Chained sub-slices for outliers + parallel siblings for the 15 smaller files (RECOMMENDED)",
+      "shape": "Slice-1 (docs scaffolding root). Then: pipelines.py as 6 chained sub-slices (slice-2 baseline+small -> slice-3 _prompt_building -> slice-4 _pr_lifecycle -> slice-5 _worktree_ops -> slice-6 _concurrent_phase -> slice-7 _run_loop terminal). Gateway.py as 5 chained sub-slices (slice-8 baseline+small -> slice-9 _git_routes -> slice-10 _jira_routes -> slice-11 _confluence_routes+small -> slice-12 terminal). The other 15 files as one slice each, all siblings of slice-1.",
+      "pros": ["Each sub-slice converges in one BRC cycle (small enough that 1-2 commit-propose-revise iterations suffice)", "Forest-valid (every slice has exactly one parent)", "Chains serialise barrel mutation inside each outlier file, avoiding rebase storms", "The 15 simpler files run in parallel (limited by EGG_ORCH_MAX_PARALLEL_SLICES=2 per pipeline), so wall-clock is bounded by the longer of the two chains (6 + small terminal vs 5 + small terminal)", "The terminal sub-slice of each chain owns the allowlist drop + seam-table finalization — clean acceptance boundary", "Docs prep up-front (slice-1) means downstream slices don't need to do scaffolding work"],
+      "cons": ["27 slices total — large slice count vs prior plan's 15", "Outlier chains serialise wall-clock: pipelines.py decomposition is ~6 sequential PRs"],
+      "verdict": "RECOMMENDED — this is the only shape that respects the forest constraint AND the 'no slice requires >3-4 BRC cycles' rule."
+    },
+    {
+      "name": "Inline cq-2/cq-4/cq-5/cq-6 doc work into each per-file slice (no separate docs slice)",
+      "shape": "No slice-1. Each per-file slice owns the doc updates relevant to its file (e.g. the pipelines.py terminal slice updates pipelines.py's seam-table row; the docs-pattern relaxation lands in whichever slice touches docs/guides/decomposition-pattern.md first).",
+      "pros": ["Smaller slice count (~26)"],
+      "cons": ["The docs/guides/decomposition-pattern.md update (cq-4) and #2261->#2817 reference fixup (cq-6) have no natural single owner among the per-file slices; first-touch is arbitrary and reviewers can't predict where to look", "Creating sandbox/CLAUDE.md (cq-2) and shared/CLAUDE.md (cq-2) likewise has no natural per-file owner — those files don't exist yet so they're not in any per-file slice's scope", "Without an up-front docs slice, allowlist-comment fixes (cq-5) end up duplicated across slices, increasing conflict surface"],
+      "verdict": "REJECTED — fragmenting docs across slices creates coordination overhead with no compensating benefit."
+    }
+  ],
+  "recommended_approach": {
+    "name": "Chained sub-slices for outliers + parallel siblings for smaller files, with up-front docs slice",
+    "slice_count": 27,
+    "wave_structure": {
+      "wave_1": ["slice-1 (docs scaffolding root)"],
+      "subsequent_waves": "26 sibling slices of slice-1 enter the scheduler as soon as slice-1 lands. With EGG_ORCH_MAX_PARALLEL_SLICES=2 per-pipeline, ~13 waves of 2 slices each (interleaved with the chained sub-slices waiting on their parents)",
+      "longest_path": "slice-1 -> slice-2 -> slice-3 -> slice-4 -> slice-5 -> slice-6 -> slice-7 (the pipelines.py chain). 7 sequential merges define the wall-clock floor."
+    },
+    "justification": [
+      "Respects the forest constraint hard rule (each slice has ≤1 DAG parent)",
+      "Each slice is sized for 1-2 BRC cycles (subdivision rule from architect prompt: 'if a slice would require >3-4 commit-propose-revise cycles to converge, subdivide it')",
+      "Up-front docs slice consolidates cq-2, cq-4, cq-5, cq-6 work into one reviewable PR rather than scattering across 15+ slices",
+      "Outlier chains serialise barrel-mutation against pipelines/__init__.py and gateway/__init__.py so the rebase recipe in docs/guides/decomposition-pattern.md:186-214 only has to handle scripts/file-size-allowlist.yaml conflicts (not barrel conflicts)",
+      "Terminal sub-slice owns allowlist-entry drop + seam-table finalization for its file — clean per-file acceptance boundary that reviewer_plan and reviewer_code can verify",
+      "Acceptance contract closes cleanly: when all 27 slices land, scripts/file-size-allowlist.yaml `files:` map is empty (every terminal slice drops its entry); every TBD row in orchestrator/CLAUDE.md and gateway/CLAUDE.md is replaced (every terminal slice writes its concrete row); new sandbox/CLAUDE.md / shared/CLAUDE.md seam tables get filled (per-file slices that target sandbox/ or shared/ files write their rows)"
+    ]
+  },
+  "technical_decisions": [
+    {
+      "id": "td-1",
+      "decision": "Up-front docs-only slice (slice-1) absorbs cq-2, cq-4, cq-5, cq-6 doc work",
+      "rationale": "cq-6 explicitly delegates packaging to the planner ('separate docs-only slice up-front', 'inlined per slice', or 'hybrid'). Up-front is the most coherent because cq-4 (pattern doc relaxation) and cq-2 (new sandbox/shared CLAUDE.md seam tables) have no natural per-file owner.",
+      "trade_off": "Adds 1 extra slice; in exchange every per-file slice's task list shrinks (no doc-scaffolding work to coordinate)."
+    },
+    {
+      "id": "td-2",
+      "decision": "Chained sub-slices for pipelines.py (6) and gateway.py (5)",
+      "rationale": "Forest constraint forbids multi-parent slices. Parallel sub-slices that all touch the barrel + allowlist would either violate the forest (if the terminal depended on all) or create rebase storms (if they all landed against the same parent simultaneously). Chained sub-slices serialise barrel mutation cleanly; the only rebase conflict surface is scripts/file-size-allowlist.yaml, which has a documented recipe.",
+      "trade_off": "Wall-clock floor of 7 sequential merges (slice-1 -> slice-7); smaller files complete in parallel inside that window."
+    },
+    {
+      "id": "td-3",
+      "decision": "Outlier terminal sub-slice owns the allowlist drop + final seam-table row",
+      "rationale": "scripts/file-size-allowlist.yaml's lint enforces a RATCHET — each PR touching an allowlisted entry must reduce its size. Intermediate sub-slices reduce size (each extracts a cluster) but the entry only comes out once the file drops below 1500 lines. Likewise the seam-table row in orchestrator/CLAUDE.md is TBD until the FULL submodule layout is known; intermediate sub-slices may update with partial info but the terminal one writes the concrete final layout.",
+      "trade_off": "Intermediate sub-slices need to keep the allowlist entry intact even though they shrink the file (no risk to lint as long as size strictly decreases)."
+    },
+    {
+      "id": "td-4",
+      "decision": "Cluster names in the architect output are GUIDANCE, not prescriptions",
+      "rationale": "The architect prompt says 'right-size slices for a single BRC cycle' but does not say the architect prescribes the final submodule shape. The implementing producer for each slice reads the file and makes the final cluster boundary call. The architect's job is to verify each slice fits in the cap with SOME reasonable split, not to dictate the exact submodule names.",
+      "trade_off": "Slight risk that an implementing agent splits differently from the scaffold; reviewer_code is empowered to NACK on slice_size if the producer's choices don't fit."
+    },
+    {
+      "id": "td-5",
+      "decision": "monitor.py and phases.py flagged needs-deeper-inspection",
+      "rationale": "monitor.py's 865-LOC write_health_summary method (lines 198-1083) must be broken up BEFORE submodule cluster boundaries can be named. phases.py's 540-LOC advance_phase route body dominates the file; the implementing agent must find its internal seams. The architect output flags both for the planner so the slices include in-slice 'break up the mega-function first' tasks.",
+      "trade_off": "Two slices may take more BRC cycles than the others; if either looks heading toward >3-4 cycles, reviewer_plan can NACK on slice_size and the architect re-proposes with a further-split (e.g. monitor.py as a 2-slice chain: 'break up write_health_summary' + 'extract submodules')."
+    },
+    {
+      "id": "td-6",
+      "decision": "phases.py decomposition preserves lazy in-function imports",
+      "rationale": "phases.py uses `from routes.pipelines import _foo` inside route bodies (not at module level) specifically to break the import cycle with pipelines.py. Carving out _advance.py / _complete.py / etc. submodules must preserve this — hoisting to module-level imports reintroduces the cycle and breaks orchestrator boot.",
+      "trade_off": "Per-submodule code is slightly uglier (each route body re-imports the pipelines.py helpers it needs); cycle-safety is the dominant constraint."
+    },
+    {
+      "id": "td-7",
+      "decision": "monitor.py and peer_consensus.py terminal sub-slicing left to architect re-propose if reviewer_plan NACKs on slice_size",
+      "rationale": "Both files are HARD (885-LOC method; invariant checks threading through every mutation). The first attempt is single-slice; if the implementing agent's first commit pushes the BRC cycle count past 3-4, the architect re-proposes the slice as a 2-slice chain ('preparatory refactor' + 'extract submodules'). The reviewer_plan NACK-on-slice_size mechanism is the safety net.",
+      "trade_off": "Slight risk of mid-pipeline scaffold re-emission; preferable to over-prescribing a 2-slice split that may not be needed."
+    }
+  ],
+  "risks_for_risk_analyst": [
+    {
+      "id": "r-1",
+      "category": "scaling",
+      "title": "27 slices is 80% more than the prior plan's 15; scheduler/agent-team overhead may surface new failure modes",
+      "context": "Each slice spawns ~8 containers per orchestrator/CLAUDE.md:705-707. EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES=4 caps process-wide concurrency. With 27 slices, the scheduler runs ~7-13 waves over the pipeline lifetime; each wave needs gateway connectivity, K8s scheduling, BRC consensus etc. to stay healthy.",
+      "mitigation_candidates": ["Operator can lower EGG_ORCH_MAX_PARALLEL_SLICES to 1 if the scheduler shows pressure", "Per-slice agent teams are small and short-lived; the gateway's per-session-secret rotation is already proven at this scale (#2777 ran 4 slices in waves and the load was healthy)"]
+    },
+    {
+      "id": "r-2",
+      "category": "lint-ratchet",
+      "title": "Intermediate sub-slice that fails to reduce size trips the lint ratchet",
+      "context": "scripts/file-size-allowlist.yaml enforces strict-decrease for allowlisted files (docs/guides/decomposition-pattern.md:19-23). An intermediate sub-slice of pipelines.py that EXTRACTS a cluster but accidentally adds boilerplate (e.g. extensive barrel re-exports) could land the file at greater-or-equal size and fail the lint.",
+      "mitigation_candidates": ["Each intermediate sub-slice's acceptance criterion explicitly says 'reduces pipelines.py LOC by ≥X' so the producer pre-checks", "If the lint fails, the rebase recipe gives the producer a tight feedback loop"]
+    },
+    {
+      "id": "r-3",
+      "category": "barrel-regression",
+      "title": "Missing re-export breaks tests post-decomposition",
+      "context": "Tests patch `routes.pipelines._foo` and `gateway.gateway.<sym>` heavily (~45 distinct symbols across ~72 test files per issue body). A missed re-export surfaces as `AttributeError: module 'routes.pipelines' has no attribute '_foo'`.",
+      "mitigation_candidates": ["docs/guides/decomposition-pattern.md:154-184 documents the git grep audit recipe; every slice's tasks include 'run the external-importer audit'", "Each slice's terminal commit runs make test-all; CI catches missed re-exports before merge", "reviewer_code lens explicitly checks for re-exports per the pattern doc's pre-merge checklist"]
+    },
+    {
+      "id": "r-4",
+      "category": "non-mechanical-extraction",
+      "title": "pipelines.py _run_pipeline factoring is non-mechanical and behaviour-sensitive",
+      "context": "_run_pipeline (lines 20799-23734, ~2935 LOC) loops over phases with only ~3 inline branches; per-phase split (_run_refine.py, _run_plan.py, _run_implement.py, _run_pr.py) requires extracting helper functions taking explicit (pipeline, phase, store, spawner, ...) parameters. A subtle wrong factor can change behaviour. Prior plan called for manual smoke-run beyond test-all.",
+      "mitigation_candidates": ["The pipelines.py chain's terminal sub-slice (slice-7) owns this; preceding sub-slices handle the easier cluster extractions, so reviewers focus full attention on slice-7", "slice-7's acceptance includes manual smoke-run + #2319 (follow-up unit tests for per-phase handlers)", "If slice-7 looks too hot for one BRC cycle, the architect re-proposes a further split (slice-7a: PHASE_HANDLERS dispatch table introduction; slice-7b: per-phase body extraction)"]
+    },
+    {
+      "id": "r-5",
+      "category": "security",
+      "title": "gateway/_git_routes/git_push (R5) carries security-critical validation",
+      "context": "git_push is the policy-enforcement seam between agent commits and origin. Its ~1040-LOC body decomposes into named helpers per the prior plan's R5 mitigation (gateway/CLAUDE.md:27); a sloppy extraction could weaken validation.",
+      "mitigation_candidates": ["security_review reviewer runs per slice; slice-9 (_git_routes) requires security_review ACK", "Decomposition is mechanical (extract helpers, no logic change); security review verifies the helpers compose to identical behaviour", "The slice's tasks include 'git_push extraction = named-helpers ONLY, no logic edits; logic changes file separately per non-negotiable on pure refactor'"]
+    },
+    {
+      "id": "r-6",
+      "category": "phases.py-import-cycle",
+      "title": "phases.py decomposition can reintroduce pipelines.py import cycle",
+      "context": "phases.py uses lazy in-function imports (e.g. `from routes.pipelines import _foo` inside route bodies) specifically to break cycles. Carving out submodules naively (e.g. hoisting all imports to module level) breaks orchestrator boot.",
+      "mitigation_candidates": ["td-6 documents this constraint", "Slice's task list includes 'preserve lazy in-function imports; do NOT hoist'", "make test-all catches at PR time (orchestrator boot test)"]
+    },
+    {
+      "id": "r-7",
+      "category": "monitor-prep-work",
+      "title": "monitor.py write_health_summary mega-method blocks meaningful cluster naming",
+      "context": "The 885-LOC method (lines 198-1083) is the bulk of the file. Without breaking it up first, submodule clusters can't be sized. If the slice's producer fails to break it up cleanly, the slice doesn't converge.",
+      "mitigation_candidates": ["td-5 + td-7 carry the contingency: if the slice runs past 3-4 BRC cycles, the architect re-proposes as a 2-slice chain", "The slice's task list explicitly orders the work: TASK-N-1 = 'break up write_health_summary into <=300-LOC helpers'; TASK-N-2 = 'extract submodules per cluster scaffold'"]
+    },
+    {
+      "id": "r-8",
+      "category": "peer-consensus-invariants",
+      "title": "peer_consensus.py _run_invariant_checks threads through every mutation",
+      "context": "_run_invariant_checks (line 267) is called from handle_propose/handle_ack/handle_nack/handle_confirmed/handle_withdraw/etc. — every state-mutating method. Naively extracting it to _invariants.py risks circular imports back to the class. The implementing agent may need to keep _run_invariant_checks as a private method on the class itself (still in __init__.py).",
+      "mitigation_candidates": ["per_file_clusters_terse documents this; the implementing agent decides on inspection", "If the natural seam keeps _run_invariant_checks on the class but extracts the per-handler logic to submodules, the slice still meets the cap"]
+    },
+    {
+      "id": "r-9",
+      "category": "wall-clock",
+      "title": "Pipelines.py chain serialises 6 sub-slice merges; pipeline wall-clock dominated by this chain",
+      "context": "Operator may want pipelines.py done sooner; the chain trade-off makes wall-clock predictable but not minimal.",
+      "mitigation_candidates": ["The 15 smaller files run in parallel siblings, so much of the program completes in the same window as the pipelines.py chain", "If wall-clock matters more than slice convergence safety, operator can override and request a more parallel structure via HITL", "Once #2562 unblocks (restores full configured check suite for coder/reviewer), iteration cost per slice drops, making sequential merges faster"]
+    },
+    {
+      "id": "r-10",
+      "category": "allowlist-yaml-conflicts",
+      "title": "Multiple slices land allowlist-entry-drop commits in parallel; rebase conflicts mechanical",
+      "context": "With EGG_ORCH_MAX_PARALLEL_SLICES=2, two slices may both try to drop their entry from scripts/file-size-allowlist.yaml at the same time. Conflicts are guaranteed but documented.",
+      "mitigation_candidates": ["docs/guides/decomposition-pattern.md:186-214 documents the rebase recipe (take 'theirs' for unrelated entries; re-apply own removal)", "Per-slice producers know the recipe (task description references it explicitly)"]
+    },
+    {
+      "id": "r-11",
+      "category": "prior-program-failure",
+      "title": "Six prior pipelines (issue-2261-v3 through v10) stalled with NO follow-up slice landing",
+      "context": "Issue body documents this. The hypothesis is that prior slices were too large (especially slice-15 pipelines.py as one slice). Current plan addresses this via aggressive sub-slicing; if it stalls in the same shape, the plan itself needs rethinking.",
+      "mitigation_candidates": ["risk_analyst should explicitly call out this prior-art and the planned mitigation (sub-slicing of outliers)", "Operator HITL escalation paths remain available if pipeline stalls"]
+    }
+  ],
+  "out_of_scope": [
+    "Behavior changes (pure refactor only; bugs surfaced by decomposition are filed as follow-ups per docs/guides/decomposition-pattern.md:270-287)",
+    "Test file size (test_*.py / tests/ are exempt from the lint per scripts/check-file-sizes.py)",
+    "Non-Python file decomposition (JSON/YAML/Markdown not in scope)",
+    "select_tests test 1:1 retrofit (relaxed per cq-4; non-negotiable #10 is guidance, not a gate)",
+    "Wiring of #2562 (restore full check suite) — separate tracker; this issue closes the prerequisite (allowlist empty), #2562 acts on that"
+  ],
+  "acceptance_contract": {
+    "files_decomposed": "All 17 oversize files drop below the 1500-line / 100KB cap.",
+    "allowlist": "scripts/file-size-allowlist.yaml `files:` map is empty.",
+    "seam_tables": "orchestrator/CLAUDE.md and gateway/CLAUDE.md TBD rows are replaced with concrete submodule layouts. sandbox/CLAUDE.md gains a Submodule seam table. shared/CLAUDE.md is created with a Submodule seam table. All four document the entrypoint.py, orch_cli.py, checkpoint_cli.py, plan_parser.py decompositions.",
+    "ratchet": "make lint and make test-all green at every slice's PR merge.",
+    "no_behavior_change": "No production importer breaks; no test patch target moves without an in-PR rewrite.",
+    "doc_updates": "docs/guides/decomposition-pattern.md reflects non-negotiable #10 relaxation (cq-4); all #2261 references in pattern doc, CLAUDE.md seam tables, and allowlist comments point at #2817 (cq-5, cq-6).",
+    "closing_criterion": "Issue closes when allowlist `files:` map is empty AND seam tables are fully populated (no TBDs)."
+  },
+  "open_questions_for_planner": [
+    {
+      "id": "q-1",
+      "question": "Should slice-22 (monitor.py) and slice-18 (peer_consensus.py) be pre-split into 2-slice chains, or single-slice with reviewer_plan slice_size NACK as the safety net?",
+      "current_recommendation": "Single-slice; safety net suffices. Pre-splitting commits the architect to a shape the implementing agent may find unnecessary.",
+      "authority": "task_planner enumerates tasks within the slices the architect defines; the architect owns slice composition. If task_planner finds during enumeration that one of these slices can't be reasonably decomposed by a single agent team in one BRC cycle, raise NACK pressure on the architect via plan prose (per planner section in docs/architecture/slice-dag.md:633-655)."
+    },
+    {
+      "id": "q-2",
+      "question": "Should slice-7 (pipelines.py _run_loop terminal) be pre-split into 7a (PHASE_HANDLERS dispatch table introduction) + 7b (per-phase handler body extraction)?",
+      "current_recommendation": "Single-slice; the prior plan's two-stage B2 refactor (decision-2 of #2261) was described inside slice-15 as TASK-15-4 and TASK-15-5 — i.e. two TASKS within one slice. Mirror that.",
+      "authority": "Same as q-1."
+    },
+    {
+      "id": "q-3",
+      "question": "Allowlist-comment fixes (cq-5) — should plan_parser.py's comment retag to #2817 happen in slice-1 (docs) or in slice-24 (plan_parser.py terminal)?",
+      "current_recommendation": "slice-1 owns the retag (purely a doc comment fix; lives in scripts/file-size-allowlist.yaml). slice-24 owns the entry removal itself.",
+      "authority": "Planner discretion; either is defensible."
+    }
+  ],
+  "research_notes": {
+    "external_research_skipped": "This is a purely internal refactor program (no third-party libraries, APIs, frameworks). External research not warranted per architect-prompt step 3 ('Skip external research for purely internal changes').",
+    "prior_art_consulted": [
+      "PR #2335 (the worked reference; scripts/select_tests/ sub-package)",
+      ".egg-state/drafts/2261-plan.md (the prior plan; cluster pre-allocations still match seams structurally)",
+      "docs/guides/decomposition-pattern.md (canonical recipe)",
+      "docs/architecture/slice-dag.md (forest constraint + scheduler model)",
+      ".egg/schemas/yaml-tasks.schema.json (single-string `dependencies` field; serialized_chain_order array)"
+    ]
+  }
+}
