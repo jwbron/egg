@@ -43,9 +43,12 @@
 #      changing kubelet serving-cert provisioning (today k3s rotates kubelet
 #      certs signed by the cluster CA; if that flips back to self-signed,
 #      scrapes would start failing with `x509: certificate signed by unknown
-#      authority` and re-open the wedge). Security cost ~zero: the kubelet
-#      endpoint is already authenticated via the metrics-server SA token, and
-#      this is internal cluster traffic on an internal-only metrics surface.
+#      authority` and re-open the wedge). Security cost ~zero: --kubelet-
+#      insecure-tls skips server→client cert verification (metrics-server
+#      confirming the kubelet's identity), and on hostNetwork this is
+#      loopback-equivalent traffic on a single host — no realistic
+#      interception surface. (Client→server auth, metrics-server proving its
+#      identity to the kubelet via SA token, is unchanged and independent.)
 # Everything else is semantically equivalent to upstream v0.8.1 — the diff is
 # the four `egg:` markers below (some upstream lists were re-indented by the
 # editor, which is YAML-cosmetic; for a clean diff against a newer upstream
