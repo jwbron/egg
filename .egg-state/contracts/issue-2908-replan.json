@@ -1,0 +1,1580 @@
+{
+  "schemaVersion": "1.2",
+  "issue": {
+    "number": 2908,
+    "title": "Issue #2908",
+    "url": "https://github.com/jwbron/egg/issues/2908"
+  },
+  "pipeline_id": "issue-2908-replan",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "WS0 de-risking spike \u2014 event-pump prototype + Qwen cache TTL measurement on #2906 repro",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Build the throwaway event-pump prototype script under `scripts/spike/2908_event_pump_prototype.sh`. The script must (a) loop on `egg-orch message wait-loop --timeout 60` to mimic the production wrapper; (b) on each actionable BRC event, invoke `python3 -m egg_agent` via the existing `shared/egg_agent/command.py:build_agent_command` entry point \u2014 **NOT** `claude --print`, which is an EGG100 anti-pattern per `docs/guides/agent-mode-design.md:90-104` and which the refine-phase analysis explicitly corrects; (c) carry a minimal in-script memory of prior actions across iterations (a tmp-file is sufficient for the spike \u2014 durable file format is decided in slice-5); (d) exit cleanly when the orchestrator reports the role consensus-confirmed and `is_complete`. The script is throwaway; no test coverage is required.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`scripts/spike/2908_event_pump_prototype.sh` exists; `grep -n 'claude --print\\|claude -p\\b'` returns zero hits in the script; running it against a mock orchestrator that emits one CONSENSUS_PROPOSE \u2192 ACK \u2192 CONSENSUS_CONFIRMED sequence completes without a Python traceback and exits 0; the script invokes `python3 -m egg_agent`, verifiable via `grep -n`.",
+          "files_affected": [
+            "scripts/spike/2908_event_pump_prototype.sh"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Run TASK-1-1's prototype against the #2906 reproducer (issue-2270, qwen3.7-max in a k3s test cluster). Drive a single BRC cycle to CONFIRMED. Capture wall-clock per-event, agent exit status, and the count of CONSENSUS_RE_REVIEW events (which under the old wrapper would trigger restarts). The run output is the raw evidence input to TASK-1-4's report.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A run log (raw orchestrator pipeline-status output + per-event timings + cost-callback log scrape) is committed under `scripts/spike/2908_run_log.txt`; the run reaches CONSENSUS_CONFIRMED without the wrapper restarting the agent; no \"Agent exited without BRC consensus\" message appears in the run log.",
+          "files_affected": [
+            "scripts/spike/2908_run_log.txt"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Instrument Qwen-route provider-cache survival across the full worst-case BRC idle. **Trust-boundary correction**: the refine-phase analysis references `~/.local/state/clm/cost-*.json` but `grep -rn` for that path in the repo returns zero hits \u2014 the LiteLLM cost callback at `config/litellm/cost_callback.py` emits structured log lines (no on-disk JSON files in the agent pod). This task must source Qwen cache-read counts from the litellm container's structured logs (via `kubectl logs deployment/egg-litellm` or equivalent) rather than from a path inside the agent pod. Inject a synthetic idle of ~15 minutes (cover the observed 10-13 min worst-case BRC idle) between two consecutive `python3 -m egg_agent` invocations on the Qwen route; record `prompt_tokens`, `cache_read_tokens`, `cache_creation_tokens` for the second invocation. Repeat for 5.5 min and 10 min idles to bracket the TTL ceiling.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A measurements file at `scripts/spike/2908_qwen_cache_measurements.json` (or `.csv`) records at least 3 idle durations (5.5, 10, 15 min) with the cache_read_tokens / cache_creation_tokens ratio at each; the file is committed under coder allowlist (scripts/, not docs/). The measurements come from the litellm container's structured logs, not from a path inside the agent pod.",
+          "files_affected": [
+            "scripts/spike/2908_qwen_cache_measurements.json"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Write the spike report at `docs/spike/2908-event-pump-spike.md` summarising TASK-1-2 and TASK-1-3 findings. The report must explicitly answer: (a) did the event-pump prototype reach consensus on the #2906 repro without the 3-restart churn? (b) what Qwen-route TTL ceiling did the measurements show \u2014 survives \u2265 15 min, lapses between 5.5 and 15 min, or ambiguous? (c) what per-event cold-read cost would the production wrapper incur given the measured TTL? The report also records the **check** against the slice-5 distilled-memory commitment \u2014 does the measured cache burst per ACK/NACK materially bust the Qwen prefix cache? slice-5 commits to distilled at plan time; this report's role is to validate the commitment, not gate it.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`docs/spike/2908-event-pump-spike.md` exists; explicitly states one of {survives \u2265 15 min, lapses 5.5\u201315 min, ambiguous}; lists the per-event cold-read cost in tokens; includes a \"Distilled-memory check\" section that says either \"distilled commitment validated by measurement\" or \"distilled commitment at risk because <numeric finding>\".",
+          "files_affected": [
+            "docs/spike/2908-event-pump-spike.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "cq-3 durable HITL + no-progress-budget persistence schema (sync-flush + startup_reconciliation)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Bump the contract schema from 1.2 \u2192 1.3 in `shared/egg_contracts/models.py` to add two durable fields under `pipeline`: (a) `pipeline.no_progress_budget` \u2014 an object holding `{remaining_seconds: int, last_progress_at: ISO8601 | null, threshold_seconds: int, alert_emitted: bool}` so a restarted SDLC host can resume monitoring the same budget rather than reseting it on host death (cq-3 HARD requirement); (b) `pipeline.parked_hitl` \u2014 an object holding `{decision_id: str, parked_at: ISO8601, options: list[str], selected: str | null, wake_on: list[str], resume_token: str}` so a restarted host can find the awaiting-human gate and resume waiting on it. Add a `_migrate_schema_version_to_1_3(contract: dict) -> dict` helper following the existing migrator pattern. Defaults preserve current behaviour (`no_progress_budget = None`, `parked_hitl = None`).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Existing contracts at schemaVersion 1.2 load + migrate + round-trip to 1.3 without data loss; `tests/orchestrator/test_contract_schema_migration_to_1_3.py` (TASK-2-4) covers the migrator. Schema version constant in `shared/egg_contracts/models.py` bumps to `\"1.3\"`.",
+          "files_affected": [
+            "shared/egg_contracts/models.py",
+            "shared/egg_contracts/loader.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add the sync-flush variant `_save_pipeline_durable(state)` (or equivalently `commit_and_push_sync(state)`) in `orchestrator/state_store.py` alongside the existing async-best-effort `save_pipeline`. The new method returns ONLY after `git push origin <branch>` completes successfully (synchronous, blocking) \u2014 the implementation calls the same local-commit path as `save_pipeline` but inlines the push (no daemon thread) and surfaces push failure to the caller. The existing async path stays the default for high-frequency writes \u2014 split is at the call-site, not at the helper level. Use the existing `gateway_client.push_branch` (or equivalent) so role-write boundary enforcement is preserved. Concurrent-write safety follows existing `save_pipeline` patterns (lock acquisition order matches).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_save_pipeline_durable` (or `commit_and_push_sync`) exists with signature `(state, /, *, branch=None)`; calling it on a happy path returns only after `git push` reports success; on push failure, the method raises a clear exception; existing async `save_pipeline` calls are unchanged; `tests/orchestrator/test_save_pipeline_durable.py` (TASK-2-5) covers the happy path, the push-failure fail-closed path, and the production failure-mode (emptyDir wipe + remote ref behind \u2192 fresh host loads from `origin/<branch>`).",
+          "files_affected": [
+            "orchestrator/state_store.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add `_startup_reconciliation_replay_safety_budget` step in `orchestrator/startup_reconciliation.py` (existing file) that on orchestrator boot iterates the active pipelines on the contract store and for each: (i) reads the durable `pipeline.no_progress_budget` from `load_contract_from_branch` (`orchestrator/contract_store.py:139-142` \u2014 origin-first); (ii) primes the in-memory `health_monitor.py:82-103` anchors with the recovered state; (iii) honours `alert_emitted=true` from durable state so a fresh host does NOT re-fire the OVERSEER_ALERT for an already-alerted budget. Add a re-prime entry point on `health_monitor.py` that accepts the recovered budget state.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The new step runs on orchestrator boot; `tests/orchestrator/test_startup_reconciliation_safety_budget.py` (TASK-2-5) simulates host-kill mid-budget \u2192 fresh host primes the same budget state from `origin/<branch>`; an `alert_emitted=true` recovered state is honoured (no re-fire).",
+          "files_affected": [
+            "orchestrator/startup_reconciliation.py",
+            "orchestrator/health_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "Write a unit test at `tests/orchestrator/test_contract_schema_migration_to_1_3.py` covering the `_migrate_schema_version_to_1_3` helper. Cases: existing 1.2 contract with no extra state \u2192 1.3 with `no_progress_budget=None` + `parked_hitl=None`; 1.2 contract with arbitrary other fields round-trip (load \u2192 save \u2192 load) without corruption; 1.3 \u2192 1.3 is a no-op; non-1.2 inputs raise a clear error.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All four cases pass; `make test` passes.",
+          "files_affected": [
+            "tests/orchestrator/test_contract_schema_migration_to_1_3.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-5",
+          "description": "Write two tests: (a) `tests/orchestrator/test_save_pipeline_durable.py` covering: happy path returns only after `git push` succeeds; mock `git push` failure \u2192 method raises and the caller observes the error; the **production failure-mode** test \u2014 write durably, simulate an emptyDir wipe (clear the local working tree state, drop the local branch ref), spawn a fresh reader, assert the reader recovers the durable fields from `origin/<branch>` via `load_contract_from_branch`. (b) `tests/orchestrator/test_startup_reconciliation_safety_budget.py` covering: host-kill mid-budget \u2192 fresh host loads same budget state via `_startup_reconciliation_replay_safety_budget`; `alert_emitted=true` recovered state does NOT re-fire OVERSEER_ALERT.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases pass; the production failure-mode test explicitly simulates emptyDir wipe + remote ref behind (NOT just process-exit-same-FS); `make test` passes both files.",
+          "files_affected": [
+            "tests/orchestrator/test_save_pipeline_durable.py",
+            "tests/orchestrator/test_startup_reconciliation_safety_budget.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Server-side next-action endpoint (orchestrator/routes \u2014 pure additive)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Extend the existing `consensus status` HTTP payload (consumed by `cmd_consensus_status` at `sandbox/egg_lib/orch_cli.py:2783` and ultimately by `handlers/brc.py:679` `brc_get_state` against `/api/v1/pipelines/<pid>/status`) to additionally return a `next_action` field per role under the agent matrix. Value is one of: `propose`, `ack_required`, `nack_required`, `re_review_required`, `confirm_required`, `wait_on_peers`, `wait_on_human`, `address_nacks`, `complete`, derived server-side from the existing matrix in `orchestrator/routes/signals.py` handlers (`:1204` propose, `:1428` ack, `:1559` nack, `:1806` confirmed). The derivation must encode: (i) open-NACK aggregation barrier (#2142) \u2014 `next_action: address_nacks` when \u22652 distinct reviewers have NACKed the current version; (ii) stale-version re-review (#2482) \u2014 `next_action: re_review_required` plus a bumped `current_version` + `last_observed_version` so the agent can detect a re-propose race; (iii) dual-role producer-first ordering (#2749); (iv) resolve_obligation surface \u2014 `next_action: resolve_obligation` when a conditional-ACK obligation is in-cycle and the producer can resolve it; (v) confirm-precondition met \u2192 `confirm_required` (the directed nudge case from #2531). The endpoint MAY additionally surface `pipeline.no_progress_budget` state in the same payload so slice-6's safety-budget consumer reads it in one call. **Per architect open-decision od-3**: prefer extending `consensus status` over a new verb; only add an `egg-orch brc next-action` shim (slice-4 TASK-4-3) if extension proves insufficient.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`consensus status --json --role <R>` returns a `next_action` key under each agent matrix entry; for a producer with \u22652 unresolved reviewer NACKs the value is `address_nacks`; for a reviewer whose target producer has not re-proposed since the prior ACK the value is `wait_on_peers`; for a dual-role agent the producer phase derivation takes precedence per #2749; unit tests at `tests/orchestrator/test_consensus_next_action.py` (TASK-3-3) cover all five branches above.",
+          "files_affected": [
+            "orchestrator/routes/signals.py",
+            "orchestrator/routes/pipelines.py",
+            "sandbox/egg_agent_tools/handlers/brc.py",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Extend the same endpoint to optionally include `pipeline.no_progress_budget` + `pipeline.parked_hitl` state (the slice-2 fields) in the payload, gated on a query parameter (e.g. `?include=durable_state`). The wrapper's safety-budget consumer (slice-6 TASK-6-5) uses this to read budget + parked-HITL in a single call rather than two separate fetches. Schema documented in the endpoint's docstring; the response is backwards-compatible when the query param is absent.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`consensus status --json --role R --include durable_state` returns the slice-2 durable fields under a `durable_state` key; absent the query param, the response is byte-identical to the baseline (backwards-compat); unit test at `tests/orchestrator/test_consensus_next_action.py` covers the optional include.",
+          "files_affected": [
+            "orchestrator/routes/signals.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "Write unit tests for the next-action derivation landed in TASK-3-1 and TASK-3-2 at `tests/orchestrator/test_consensus_next_action.py`. Coverage must include: producer with no NACKs \u2192 `propose` (initial) or `wait_on_peers` (post-propose); producer with one reviewer NACK \u2192 `address_nack`; producer with \u22652 reviewer NACKs \u2192 `address_nacks` (open-NACK barrier #2142); reviewer with target producer at unreviewed version \u2192 `ack_required` or `nack_required` depending on review-graph; reviewer whose ACK is stale (producer re-proposed) \u2192 `re_review_required` (#2482); dual-role agent producer-first ordering (#2749); confirm-precondition met \u2192 `confirm_required` (#2531 directed nudge case); resolve_obligation surface; all confirmed \u2192 `complete`; `?include=durable_state` query param round-trip.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases have a unit test; tests pass under `make test`; coverage on the next-action derivation function \u2265 95% lines.",
+          "files_affected": [
+            "tests/orchestrator/test_consensus_next_action.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Net-new CLI verbs (`egg-orch brc list-blocking`, `egg-contract get-context`, `egg-orch brc next-action`) \u2014 sandbox/egg_lib only",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add a new `brc` subparser to `sandbox/egg_lib/orch_cli.py` (root `egg-orch brc ...`) and a `list-blocking` subcommand that wraps the existing `brc_list_blocking` handler at `sandbox/egg_agent_tools/handlers/brc.py:726`. Use `_handler_dispatch` so the CLI and MCP tool share a single handler call path. Flip the `TOOL_REGISTRY` entry for `mcp__brc__list_blocking` from `cli_command=None` to the new verb name.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-orch brc list-blocking --pipeline <pid>` prints the same JSON the MCP tool returns; `make test` passes `tests/tools/test_mcp_cli_drift.py`; the registry entry's `cli_command` is no longer `None`.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py",
+            "sandbox/egg_agent_tools/tools/brc.py",
+            "sandbox/egg_agent_tools/tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add `egg-contract get-context` CLI verb that wraps the existing `phase_get_context` handler at `sandbox/egg_agent_tools/handlers/phase.py:139`. Use `_handler_dispatch` for parity. Flip the `TOOL_REGISTRY` entry for `mcp__phase__get_context` from `cli_command=None` to the new verb name. Note `phase_get_context` returns a fixed bundle (no arbitrary field projection); for arbitrary contract-field projection, see TASK-4-5.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-contract get-context --pipeline <pid>` prints the same payload the MCP tool returns; drift test green; registry entry's `cli_command` is no longer `None`.",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py",
+            "sandbox/egg_agent_tools/tools/phase.py",
+            "sandbox/egg_agent_tools/tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "(Conditional on slice-3 outcome.) If slice-3 TASK-3-1 extended `consensus status --json` to carry `next_action` and reviewers confirm the extension is sufficient (architect open-decision od-3 preferred path), this task is **not-applicable** \u2014 the slice ships without an `egg-orch brc next-action` shim. If slice-3's extension proved insufficient, add `egg-orch brc next-action --role <R>` CLI verb under the new `brc` subparser, wrapping the new endpoint's handler. Document the decision in the slice-4 PR description.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Either (a) the task is marked not-applicable in the propose summary with a brief rationale \"consensus status extension carries next_action cleanly\" (preferred), OR (b) `egg-orch brc next-action --role R` reachable via `--help`; drift test green.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add `egg-orch brc resolve-obligation`, `egg-orch brc read-peer-artifact`, and `egg-orch brc get-state` CLI verbs under the new `brc` subparser landed in TASK-4-1, wrapping `brc_resolve_obligation` (handlers/brc.py:743), `brc_read_peer_artifact` (handlers/brc.py:901), and `brc_get_state` (handlers/brc.py:679). All via `_handler_dispatch`. Flip the registry entries: `mcp__brc__resolve_obligation` from `cli_command=None` to `brc resolve-obligation`; `mcp__brc__read_peer_artifact` from `cli_command=None` to `brc read-peer-artifact`; `mcp__brc__get_state` (already reachable indirectly via `consensus status`) gets a direct verb. Update `tests/tools/test_mcp_cli_drift.py:28` documented-gaps list accordingly.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All three verbs reachable via `--help`; drift test green; the documented-gaps list in the drift test no longer includes `brc__read_peer_artifact` or `brc__resolve_obligation`.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py",
+            "sandbox/egg_agent_tools/tools/brc.py",
+            "sandbox/egg_agent_tools/tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add `egg-contract show --field <name>` CLI verb that wraps `mcp__sdlc__show_contract`'s field-projection capability (the MCP tool already supports a `fields=[...]` parameter; only the CLI shim is missing). The wrapper's host-restart recovery (slice-6 TASK-6-9) uses this verb to read `pipeline.no_progress_budget` and `pipeline.parked_hitl` durable fields without depending on the fixed `phase_get_context` bundle. Implementation: locate the existing `sdlc_show_contract` handler (or equivalent) and add a CLI shim that accepts repeated `--field <dotted.path>` arguments and returns a JSON object containing only the named fields. Use `_handler_dispatch`. **This addresses reviewer_plan blocking item B3** \u2014 TASK-6-9 cannot use `egg-contract get-context --field ...` because `phase_get_context` returns a fixed bundle, not arbitrary projection.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-contract show --pipeline <pid> --field pipeline.no_progress_budget --field pipeline.parked_hitl` returns a JSON object with those two top-level keys; drift test green; the new verb flips `mcp__sdlc__show_contract`'s registry entry to a CLI command.",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py",
+            "sandbox/egg_agent_tools/tools/sdlc.py",
+            "sandbox/egg_agent_tools/tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-6",
+          "description": "Write unit tests for the new CLI verbs at `tests/sandbox/egg_lib/test_brc_cli_verbs.py` covering: invocation reaches the handler (handler-import parity); `--json` output matches the corresponding MCP tool's payload byte-for-byte; error paths (missing args, invalid pipeline) return non-zero exit; stdin/file-path rule check \u2014 if any of the new CLI verbs accept prose-bearing arguments (e.g. `resolve-obligation --note`), the test confirms the input takes `--note-file` or stdin rather than argv (regression guard against #2741); `egg-contract show --field` returns the requested fields and only those (TASK-4-5).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases have a unit test; `make test` passes.",
+          "files_affected": [
+            "tests/sandbox/egg_lib/test_brc_cli_verbs.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-7",
+          "description": "Update `tests/tools/test_mcp_cli_drift.py` to reflect the new CLI verbs (TASK-4-1 to TASK-4-5). Specifically: flip the parity-matrix expectations so `mcp__brc__list_blocking`, `mcp__brc__get_state`, `mcp__brc__resolve_obligation`, `mcp__brc__read_peer_artifact`, `mcp__phase__get_context`, and `mcp__sdlc__show_contract` have non-None `cli_command` values; ensure `test_cli_less_tools_are_documented_gaps` reflects the new state (only `task__mark_gap` and any remaining MCP-only tools remain in the gap list).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make test` passes `test_mcp_cli_drift.py`; the post-update gap list contains only the remaining MCP-only tools.",
+          "files_affected": [
+            "tests/tools/test_mcp_cli_drift.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "`brc-memory.md` artifact (distilled default) + brc_ack/brc_nack handler memory-write scaffolding (dict-arg path)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Document the brc-memory.md file format in a docstring at the top of `sandbox/egg_agent_tools/handlers/brc.py` (or in a new helper module `sandbox/egg_agent_tools/brc_memory.py` if the format helpers grow beyond a single function). The format is markdown with stable headings: `## Codebase / change model`, `## Per-producer assessment`, `## Decision log`. The memory shape is **distilled / rewrite-and-distill** (committed at plan time per the architect v2 slice-5 goal and refine analysis lines 360-367); export `BRC_MEMORY_PATH_TEMPLATE = \".egg-state/agent-outputs/{role}/brc-memory.md\"` as a helper constant. The docstring cites both axes (cache cost + orient-don't-constrain).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The memory shape is named in code as `distilled` (a constant or docstring); the file path template is exported; the docstring cites the refine analysis rationale spans both axes.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/brc.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add a `_append_brc_memory_entry(role, producer_role, version, verdict, reason, files_reviewed)` helper in `sandbox/egg_agent_tools/handlers/brc.py` (or `brc_memory.py`). The helper reads the existing memory file (creating it from a template if missing), parses the structured sections, appends a decision-log entry under `## Decision log`, and **compacts** the `## Per-producer assessment` section by collapsing prior entries for the same producer + role pair into a single distilled summary (rewrite-and-distill behavior committed in TASK-5-1). Write the file atomically (write-temp + rename). Errors writing the memory file must be non-fatal (log at WARNING + continue) \u2014 the memory file is ephemeral coordination state and a write failure must NOT block consensus.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The helper exists with the named signature; calling it twice in a row produces a deterministic file; the file path resolves under `.egg-state/agent-outputs/<role>/brc-memory.md`; an idempotency test passes (replaying the same entry yields no duplicate decision-log line); the per-producer assessment section compacts on each call.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/brc.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Wire `_append_brc_memory_entry` into `brc_ack` and `brc_nack` in `sandbox/egg_agent_tools/handlers/brc.py`. Both handlers already receive `req: dict[str, Any]` with `reason`, `files_reviewed`, `producer_role` (verify against the existing handler payload schema \u2014 read `req.get(\"producer_role\")` and `req.get(\"reason\")` and `req.get(\"files_reviewed\")`) plus a `version` field for the proposal version reviewed. The memory append fires AFTER the orchestrator returns success (a rejected ACK/NACK does not pollute the memory). Because the input is the **dict-arg handler interface** (in-process MCP, NOT argv), there is no possibility of #2741-class shell-metachar corruption \u2014 call this out in the docstring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`brc_ack` and `brc_nack` call the memory helper on success path only; a unit test confirms a write-permission error on the memory file does NOT cause the handler to raise; the consensus action still succeeds; the handler reads its inputs from the existing `req: dict` schema; docstring notes the dict-arg path eliminates the shell-metachar exposure.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/brc.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-4",
+          "description": "Document the ephemeral retention treatment AND the R13 cross-role memory READ allowlist verification in `docs/architecture/orchestrator.md` (or a new `docs/architecture/brc-event-pump.md` placeholder section if the architect doc is landed in slice-6). Make explicit: (a) brc-memory.md is ephemeral coordination state; reconstruction backstop is the orchestrator message history (already durable per `mcp__brc__read_peer_artifact` and the durable BRC history at `.egg-state/brc-history/<id>-<phase>.json`); if recovery ever proves to depend on the memory file, slice-5 is revisited and the artifact made durable; cite refine feedback Q2's hard caveat. (b) Cross-role READS are NOT gated \u2014 the file-write interceptor at `shared/egg_agent/tool_interceptor.py:17` (`_WRITE_TOOLS`) only covers Write/Edit/NotebookEdit; reads use the standard Read tool with no role check. The implication for memory: dual-role agents can read both their producer and reviewer memory files (intentional, not a leak); single-role agents read only their own. Document the design intent so coders don't add an unintended read-gate.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A documenter-visible paragraph in `docs/architecture/orchestrator.md` explicitly names brc-memory.md as ephemeral, cites refine Q2's caveat, AND documents the cross-role read allowlist semantics (writes gated, reads not; dual-role agents can read both files).",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-5",
+          "description": "Write unit tests at `tests/sandbox/egg_agent_tools/handlers/test_brc_memory.py` covering: `_append_brc_memory_entry` creates the file from a template when missing; appending preserves stable headings; idempotency (same entry twice \u2192 no duplicate); partial-file recovery (truncated file at section boundary \u2192 next append rebuilds it); distilled rewrite-and-distill behavior on the per-producer assessment section (replay multiple ACKs from same producer \u2192 single distilled entry); `brc_ack` / `brc_nack` dict-arg side-effect (handler call \u2192 memory entry); write-permission error path (mock write failure \u2192 handler still succeeds, warning logged).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All seven listed cases have a unit test; `make test` passes; coverage on `_append_brc_memory_entry` \u2265 90% lines.",
+          "files_affected": [
+            "tests/sandbox/egg_agent_tools/handlers/test_brc_memory.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-6",
+          "description": "Write an integration test at `integration_tests/local_pipeline/test_brc_memory_handler_e2e.py` that exercises the brc_ack / brc_nack handlers through the live MCP server in a `local_pipeline_stack` fixture, performs one ACK and one NACK against a synthetic producer, and asserts the memory file lands at `.egg-state/agent-outputs/<role>/brc-memory.md` with a populated decision log. **Lives under `integration_tests/local_pipeline/` per the trust-boundary docs** so the `gateway_url` fixture + `local_pipeline_stack` are reachable; `integration_tests/conftest.py:78`'s `EggStack.gateway_url` attribute is NOT a fixture and cannot be injected here. **This addresses reviewer_plan blocking item B4** \u2014 TASK-3-3 acceptance previously referenced this integration test with no owner.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The test runs under `make test-all` (or the `local_pipeline` integration marker) and passes; the test file is located under `integration_tests/local_pipeline/`; the memory file landed at the expected path with a decision log entry per ACK + NACK.",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_brc_memory_handler_e2e.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Event-pump consensus_wrapper + wrapper-side liveness migration + safety-budget consumer + legacy deletion",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Rewrite `_CONSENSUS_WRAPPER_TEMPLATE` in `orchestrator/consensus_wrapper.py` (current lines 116-713) as a deterministic Bash event pump. The new template: (i) reads `EGG_PIPELINE_ID`, `EGG_AGENT_ROLE`, `EGG_SLICE_ID` from env; (ii) in a `while true` loop, calls `egg-orch consensus status --json --role $EGG_AGENT_ROLE --include durable_state` and inspects the returned `next_action` field landed by slice-3 (TASK-3-1) + the durable_state landed by TASK-3-2; (iii) if `next_action == complete`, exits 0; (iv) if `next_action == wait_on_peers` or `wait_on_human`, calls `egg-orch message wait-loop --for CONSENSUS_PROPOSE --for CONSENSUS_NACK --for CONSENSUS_ACK --for CONSENSUS_RE_REVIEW --for STATUS --for HANDOFF --for HITL_RESOLVED --for OVERSEER_ALERT --timeout 60` (full event-type set; the wrapper does NOT roll its own wait/cursor logic \u2014 invokes the CLI which owns cursor threading per #2323); (v) on any other `next_action` (propose, ack_required, nack_required, etc.), spawns the agent via `build_agent_command` (see TASK-6-3) and re-loops. Rewrite `build_consensus_wrapped_command(...)` at the same file's lines 716-775 to emit the new template.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_CONSENSUS_WRAPPER_TEMPLATE` no longer contains `MAX_CONSENSUS_RESTARTS`, `_RECOVERY_SYSTEM_PROMPT`, or `_RECOVERY_USER_PROMPT` placeholders; `build_consensus_wrapped_command` returns a bash script that invokes `egg-orch message wait-loop` (no rolled-own wait); a unit test snapshot of the emitted script asserts the new control flow.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Delete the legacy restart path from `orchestrator/consensus_wrapper.py`: the `MAX_CONSENSUS_RESTARTS = 3` constant (line 38), the `_RECOVERY_SYSTEM_PROMPT` template (lines 64-99), the `_RECOVERY_USER_PROMPT` template (lines 102-105), and the restart loop wrapping them (lines 555-695). Per cq-4, do NOT retain any of these behind a flag \u2014 the deletion is final in this slice. The per-restart OVERSEER_ALERT block at lines 570-585 is **re-purposed (not duplicated)** for safety-budget exhaustion in TASK-6-5 \u2014 extract the existing helper and re-wire it; do NOT copy/paste a new alert call site.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n` for `MAX_CONSENSUS_RESTARTS`, `_RECOVERY_SYSTEM_PROMPT`, `_RECOVERY_USER_PROMPT` in `orchestrator/consensus_wrapper.py` returns zero hits; `grep -n OVERSEER_ALERT` shows the alert is now wired into the safety-budget-exhaustion block (TASK-6-5), not the restart loop; the alert helper is the same function as the deleted-block source (re-purposed, not duplicated).",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-3",
+          "description": "Wire the new wrapper template (TASK-6-1) to spawn the agent via `python3 -m egg_agent`, built by `shared/egg_agent/command.py:build_agent_command(prompt, *, model, max_turns, system_prompt)`. The per-event invocation passes a minimal event payload as the prompt \u2014 the event JSON from the wait-loop wakeup plus a pointer to `.egg-state/agent-outputs/<role>/brc-memory.md` (from slice-5) \u2014 NOT the full agent prompt template. Pin the model to the orchestrator-side `decision.claude_code_alias` already used at `orchestrator/concurrent_executor.py:489`. **Hard constraint**: do NOT introduce `claude --print` or any `claude -p` invocation; the refine analysis flagged this as an EGG100 anti-pattern and the spike (TASK-1-1) already demonstrates the correct entry point.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The emitted bash script invokes `python3 -m egg_agent` per event with the event payload as the prompt; `grep -n 'claude --print\\|claude -p\\b' orchestrator/consensus_wrapper.py` returns zero hits; a unit test mocks `build_agent_command` and asserts the per-event call signature.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-4",
+          "description": "Migrate heartbeat + gateway-session keep-alive emission from `sandbox/egg_agent_tools/handlers/message.py:234-264` (the `_start_wait_loop_heartbeat` daemon thread firing every `_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS = 60` seconds at file line 47) to the wrapper. The wrapper invokes the existing `egg-orch message heartbeat` CLI verb (sandbox/egg_lib/orch_cli.py:1832) every 60s while blocked on `wait-loop`, carrying `(pipeline_id, role, slice_id, state=WAITING_FOR_EVENT)`. The heartbeat side-effect preserves the gateway keep-alive (#2451) and the orchestrator-side threshold consumer at `orchestrator/health_monitor.py:771` (120s default / 600s implement). Do NOT remove the agent-side helper outright in this slice \u2014 the agent's `message_wait_loop` is still callable for backward compatibility; remove the daemon-thread auto-start only.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The wrapper emits heartbeats at 60s intervals during a long blocking wait (verifiable via a unit test that mocks the orchestrator and counts heartbeat signals over a simulated 180s wait); `_start_wait_loop_heartbeat` no longer auto-fires from `message_wait_loop` (callable still exists for the deprecation period); the heartbeat invocation uses the existing CLI verb (no new heartbeat primitive introduced).",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py",
+            "sandbox/egg_agent_tools/handlers/message.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-5",
+          "description": "Wire the safety-budget consumer in the new wrapper template against the slice-2 durable `pipeline.no_progress_budget` field. Each wait-loop iteration: (i) read the current `no_progress_budget` from the slice-3 endpoint's `durable_state` payload (TASK-3-2 query param `?include=durable_state`); (ii) if the wait returns an event, reset `last_progress_at` to now and persist via the slice-2 sync-flush helper `_save_pipeline_durable` (TASK-2-2); (iii) if `remaining_seconds <= 0` and `alert_emitted == false`, fire the re-purposed OVERSEER_ALERT helper from TASK-6-2 (carry `--priority high --summary 'BRC consensus no-progress budget exhausted' --recommend 'resume_or_abort'`), set `alert_emitted = true` via `_save_pipeline_durable`, then open a parked HITL decision via `egg-contract add-decision` with options `[resume, abort]` and persist the decision to `pipeline.parked_hitl` via `_save_pipeline_durable`; (iv) keep looping (no auto-FAIL per cq-3). On `parked_hitl.selected == abort`, the wrapper signals error and exits non-zero; on `resume`, the wrapper clears `parked_hitl` (sync-flush) and resets the budget. **Host-restart re-fire suppression** (risk_analyst NB4): if the wrapper reads `alert_emitted=true` from the durable state on startup (e.g. after host restart), the alert is NOT re-emitted \u2014 `alert_emitted` is the dedupe key. Threshold defaults derived from slice-1 spike data are documented in TASK-6-12.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A unit test injects a budget=0 condition and asserts: (i) OVERSEER_ALERT fires exactly once (`alert_emitted` flag is honored); (ii) a HITL decision is created with the correct options; (iii) wait-loop continues until decision lands; (iv) operator-selected `abort` causes a non-zero exit, `resume` clears and continues. A separate unit test asserts host-restart with `alert_emitted=true` in durable state does NOT re-emit OVERSEER_ALERT.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-6",
+          "description": "Replace the SSE consensus.reached blocking path at `orchestrator/consensus_wrapper.py:397-548` (the `check_confirmed_and_wait` function + the curl SSE subscription at lines 449-501 + the egg-orch message wait fallback at 506-542) with the new wrapper template's `egg-orch consensus status --json --role $EGG_AGENT_ROLE --include durable_state` polling invocation from TASK-6-1 (the architect refers to this as a `consensus check` operation; the verb name is `consensus status`). The replacement reads `next_action` and either re-loops (still working) or exits 0 (`complete`). Note: orchestrator-side SSE emission stays (`orchestrator/sse.py:111` for the operator-facing stream); only the wrapper-side SSE consumer is deleted.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n 'curl.*stream\\|consensus\\\\.reached\\|check_confirmed_and_wait' orchestrator/consensus_wrapper.py` returns zero hits; the new wrapper template uses `egg-orch consensus status --json` (TASK-6-1) instead; `orchestrator/sse.py` is unchanged.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-7",
+          "description": "Rewire the two production callers of `build_consensus_wrapped_command` to use the new event-pump template: `orchestrator/concurrent_executor.py:489` (initial spawn) and `orchestrator/routes/pipelines.py:2792-2796` (restart path). The signature change in TASK-6-1 may drop some parameters (e.g. `max_restarts`); the callers update accordingly. Restart paths now resume the same event pump rather than rebuilding with recovery-prompt placeholders.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both call sites pass `make test` for any existing wrapper-spawn tests; the import at `orchestrator/concurrent_executor.py:37` resolves to the new template; restart paths no longer pass `restart_number` / recovery-prompt placeholders.",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-8",
+          "description": "Drop the STAY-ALIVE loop instruction from `_build_brc_preamble` at `orchestrator/routes/pipelines.py:12348+`. This is the minimal preamble nudge needed for the new wrapper to work: the agent must exit after handling one event rather than re-entering a blocking wait. Leave the rest of the preamble intact \u2014 the FULL collapse (wait-loop / cursor-threading / pre-confirm-wait text removal) is slice-7's job. The minimal nudge is a one-line edit to the producer / reviewer / dual-role STAY-ALIVE step text: \"Exit cleanly after handling the one event; the wrapper will re-invoke you on the next event.\"",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The `_build_brc_preamble` output contains a one-line \"exit cleanly\" instruction in the STAY-ALIVE step; the rest of the preamble (cursor-threading examples, wait-loop semantics) is unchanged; a snapshot test catches any unintended drift.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-9",
+          "description": "Host-restart recovery: the new wrapper template (TASK-6-1) reads `pipeline.no_progress_budget` and `pipeline.parked_hitl` from the durable contract on startup (before entering the wait-loop) via the slice-4 TASK-4-5 `egg-contract show --field` CLI verb (which provides arbitrary field projection \u2014 `phase_get_context` returns a fixed bundle and cannot be used here per reviewer_plan B3). Implementation: the first action in the new template is an `egg-contract show --pipeline $EGG_PIPELINE_ID --field pipeline.no_progress_budget --field pipeline.parked_hitl` call; if the budget is mid-countdown, the wrapper resumes from the durable `remaining_seconds`; if a parked HITL is unresolved, the wrapper blocks on `wait-loop --for HITL_RESOLVED` (or the equivalent message-type) until it resolves. The slice-2 `_startup_reconciliation_replay_safety_budget` step (TASK-2-3) handles the orchestrator-side health-monitor anchor re-prime; this task handles the wrapper-side read.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A simulated host-restart integration test at `tests/orchestrator/test_event_pump_host_restart.py` writes a mid-countdown budget + a parked HITL via `_save_pipeline_durable`, restarts the wrapper process, and asserts the wrapper resumes monitoring the same budget and observes the HITL resolution event when the operator lands a decision; the wrapper-side read uses `egg-contract show --field` (verifiable via subprocess mock).",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-10",
+          "description": "Write unit tests for the new wrapper at `tests/orchestrator/test_consensus_wrapper.py` (extend the existing file) plus a host-restart test at `tests/orchestrator/test_event_pump_host_restart.py`. Coverage: event-pump reaches consensus without a restart cap (mock orchestrator emits PROPOSE \u2192 ACK \u2192 CONFIRMED; wrapper exits 0); clean post-event exit does NOT trigger FAIL (mock a normal `python3 -m egg_agent` exit code 0 and assert wrapper loops); wrapper-emitted heartbeats fire on the migrated interval (TASK-6-4 invariant \u2014 mock the orchestrator and count `egg-orch message heartbeat` invocations over a 180s simulated wait); `egg-orch consensus status --json` replaces SSE consumer cleanly (TASK-6-6 \u2014 assert no curl invocation against the SSE stream); host-restart with `alert_emitted=true` in durable state does NOT re-emit OVERSEER_ALERT (TASK-6-5 + TASK-6-9 invariant); fix-lineage assertions: cursor threading (#2323), gateway keep-alive (#2451), heartbeat (#2036), open-NACK barrier surfaced through next-action (#2142), pre-confirm-wait rejection (#2064/#2482), gap-race (#1995).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases have a unit test; `make test` passes; coverage on the wrapper template generator \u2265 90% lines; explicit fix-lineage tests are named after their issue numbers; the host-restart no-re-fire test passes.",
+          "files_affected": [
+            "tests/orchestrator/test_consensus_wrapper.py",
+            "tests/orchestrator/test_event_pump_host_restart.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-11",
+          "description": "Write an integration test at `integration_tests/local_pipeline/test_event_pump_qwen_repro.py` that runs the #2906 reproducer (qwen3.7-max on a representative pipeline) end-to-end under the new event-pump and asserts: (i) no \"Agent exited without BRC consensus\" message; (ii) the pipeline reaches `consensus_reached` without the wrapper restarting the agent; (iii) `.egg-state/agent-outputs/<role>/brc-memory.md` exists and contains at least one decision-log entry; (iv) the gateway push from each role is accepted (role permissions still enforced \u2014 `phase_filter.validate_agent_push` invariant). **Trust-boundary constraint**: this test MUST live under `integration_tests/local_pipeline/` because it needs the `gateway_url` fixture from `integration_tests/local_pipeline/conftest.py:261` and the `local_pipeline_stack` machinery; `integration_tests/conftest.py:78`'s `EggStack.gateway_url` attribute is NOT a fixture and cannot be injected.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The test runs under `make test-all` (or the `local_pipeline` integration marker) and passes; the test file is located under `integration_tests/local_pipeline/`, NOT under `integration_tests/` directly; `kubectl logs` against the wrapper pod shows no \"Agent exited without BRC consensus\" line.",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_event_pump_qwen_repro.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-12",
+          "description": "Write the new architecture doc at `docs/architecture/brc-event-pump.md` describing the event-pump topology, the no-progress safety budget defaults (sized against slice-1 measurements), the durable contract-side persistence model (`pipeline.no_progress_budget` + `pipeline.parked_hitl` + the sync-flush helper + the startup_reconciliation step), the cutover playbook (drain in-flight pipelines on the old wrapper before deploying this slice; new pipelines start on the event-pump at deploy time; no flagged fallback per cq-4), and the operator-facing message for the no-rollback transition. Cross-link from `docs/architecture/orchestrator.md`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`docs/architecture/brc-event-pump.md` exists; lists the safety-budget threshold defaults; explicitly states the no-rollback cutover playbook (cq-4 derived); links from `docs/architecture/orchestrator.md`.",
+          "files_affected": [
+            "docs/architecture/brc-event-pump.md",
+            "docs/architecture/orchestrator.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "Prompt collapse + delta-scoped re-analysis + prior-fix preservation audit",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Collapse `_build_brc_preamble` at `orchestrator/routes/pipelines.py:12348` (callers at lines 13659, 13692, 13720). The collapse MUST be gated on a **prior-fix preservation audit table** committed as a docstring at the top of the function, enumerating: #2323 cursor-threading (classify: CLI-enforced, safe to remove prompt text \u2014 wrapper uses CLI); #2064 / #2482 pre-confirm-wait (classify: orchestrator-enforced, safe); #1995 gap-race (classify: CLI-enforced, safe); #2036 reviewer heartbeats (classify: CLI-enforced via TASK-6-4, safe); #2451 gateway keep-alive (classify: CLI-enforced, safe); #2142 open-NACK aggregation barrier (classify: orchestrator-enforced via TASK-3-1, safe); #2725 producer-allowlist scope (classify: gateway-enforced, safe). Remove the STAY-ALIVE step text, the wait-loop semantics block, the cursor-threading examples, and the pre-confirm-wait foot-gun warning. Keep: the file-write boundary callout (per-role), the prose-via-stdin/file rule for `consensus propose/ack/nack` (#2741), the role-specific BRC lifecycle summary (proposer ACK/NACK semantics, conditional-ACK, etc.). The new preamble is a lean event-handler contract: \"here is the one event; handle it; exit cleanly; the wrapper handles the rest.\"",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n 'STAY ALIVE\\|stay-alive\\|wait-loop\\|cursor.*threading\\|pre-confirm-wait' orchestrator/routes/pipelines.py` returns zero hits in the `_build_brc_preamble` block; the function docstring contains the prior-fix audit table with each fix classified; `grep -n 'file-write boundary\\|stdin\\|--reason-file'` still finds the retained invariants; a snapshot test catches drift.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-2",
+          "description": "Collapse the BRC-related sections in `sandbox/agent-config/rules/*.md` (mission.md, overseer.md, and any other rule files referencing the agent-held wait pattern) to match the lean event-handler contract from TASK-7-1. Remove instructions like \"after PROPOSE, run egg-orch message wait-loop --for CONSENSUS_ACK ...\" and replace with \"the wrapper invokes you per event; exit cleanly after handling it.\"",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -rn 'wait-loop\\|wait_loop\\|STAY ALIVE\\|stay-alive' sandbox/agent-config/rules/` returns zero hits in BRC sections; the rule files still describe the file-write boundary and the prose-via-stdin/file rule.",
+          "files_affected": [
+            "sandbox/agent-config/rules/mission.md",
+            "sandbox/agent-config/rules/overseer.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-3",
+          "description": "Extend the slice-3 next-action endpoint (TASK-3-1) to additionally return `changed_artifacts` metadata + version delta + a memory-file pointer. The new fields on the per-role matrix entry: `changed_artifacts: list[str]` (paths only, never inlined contents), `current_version: int`, `last_observed_version: int` (per the per-role review-graph tracking already in place per #2482), `memory_file: str` (the `.egg-state/agent-outputs/<role>/brc-memory.md` path). Per refine analysis lines 168-177 \"Memory-delta is metadata, not content\" (R12), the endpoint MUST NOT include file contents in the payload \u2014 the agent fetches its own diffs via git tools from the warm working tree. The architecture/design constraint that this is metadata only is encoded in the endpoint's docstring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The endpoint payload includes the four named fields; a unit test asserts no field longer than N bytes (sanity check that file contents are not inlined); the docstring explicitly references the metadata-only constraint and cites `docs/guides/agent-mode-design.md`'s \"baking in large diffs\" anti-pattern.",
+          "files_affected": [
+            "orchestrator/routes/signals.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-4",
+          "description": "Add a handler-side delta adapter in `sandbox/egg_agent_tools/handlers/brc.py` (or a new `handlers/brc_delta.py` module if cleaner) that consumes the slice-7 endpoint payload (TASK-7-3) and returns a structured `BrcDelta` object the per-event prompt template can render compactly. The adapter must NOT fetch file contents \u2014 that is the agent's job via git tools. Wire the adapter via the slice-3 `consensus status` extension (or slice-4's `egg-orch brc next-action` if that path was taken).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The adapter exists; calling it returns a structured object with `changed_artifacts`, `current_version`, `last_observed_version`, `memory_file`; never returns file contents; unit-tested for the metadata-only contract.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/brc.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-5",
+          "description": "Update the per-event prompt template the wrapper passes to `build_agent_command` (the event payload format from TASK-6-3) to render the delta from TASK-7-4 compactly and to instruct the agent: \"Evaluate ONLY the named changed_artifacts against your memory file at <path>. Do not re-read the codebase, earlier commits, or the analysis draft. If the changed_artifacts list does not give you enough context, fetch only the named files via git tools.\" This is the smallest possible per-event prompt that preserves the agent's judgement.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The per-event prompt template contains the literal \"Evaluate ONLY the named changed_artifacts\" instruction; a snapshot test of the rendered prompt for a sample event asserts the template stays small (a token-count upper bound is documented in the test).",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-6",
+          "description": "Write unit tests at `tests/orchestrator/test_brc_preamble.py` (snapshot the lean preamble; assert zero hits for STAY-ALIVE / wait-loop / cursor-threading / pre-confirm-wait text; assert the retained invariants are still present; assert the prior-fix audit table from TASK-7-1 is in the docstring) and at `tests/sandbox/egg_agent_tools/handlers/test_brc_delta.py` (delta adapter never inlines file contents; metadata-only round-trip).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both test files exist; `make test` passes; the preamble snapshot test catches any unintended drift; the audit-table assertion passes.",
+          "files_affected": [
+            "tests/orchestrator/test_brc_preamble.py",
+            "tests/sandbox/egg_agent_tools/handlers/test_brc_delta.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-7",
+          "description": "Update `docs/reference/agent-wait-patterns.md` to reflect the new event-handler contract. Mark the prior anti-patterns (STAY-ALIVE loop, agent-held wait-loop) as historical; cross-link to `docs/architecture/brc-event-pump.md` (landed in TASK-6-12). The five anti-patterns previously enumerated in this doc become an \"old model\" appendix for archaeology.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The doc explicitly marks the old patterns as historical; the new event-handler contract is summarised at the top; cross-links to brc-event-pump.md.",
+          "files_affected": [
+            "docs/reference/agent-wait-patterns.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-8",
+      "name": "Qwen-route bounded keep-warm cache refinement (conditional on slice-1 spike data)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Read the slice-1 spike report at `docs/spike/2908-event-pump-spike.md` (TASK-1-4) and classify the outcome: (a) Qwen cache survives \u2265 15 min worst-case idle; (b) cache lapses between 5.5 and 15 min; (c) data ambiguous. Document the classification in `docs/architecture/brc-event-pump.md` under a new \"Qwen-route keep-warm\" section. If outcome (a): mark the section \"no keep-warm needed on either route, confirmed by slice-1 measurement\" and the rest of slice-8 (TASK-8-2 / 8-3 / 8-4) becomes not-applicable. If outcome (b): proceed to TASK-8-2 and TASK-8-4. If outcome (c): proceed to TASK-8-3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`docs/architecture/brc-event-pump.md` has a \"Qwen-route keep-warm\" section that explicitly names one of {a, b, c} and cites the slice-1 measurement.",
+          "files_affected": [
+            "docs/architecture/brc-event-pump.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-2",
+          "description": "(Outcome (b) only.) Implement bounded keep-warm in `orchestrator/consensus_wrapper.py` \u2014 Qwen-route only, fires only during reviewer-parked-on-NACK idles where the wait is approaching the measured TTL ceiling, with a hard cap on total refreshes (e.g. 10 per pipeline) and an explicit suppression while `pipeline.parked_hitl` is unresolved or the wait is `wait_on_human`. Cadence < measured TTL. The keep-warm fires from the wrapper (NOT the agent) by issuing a minimal cached-prefix invocation against the Qwen route. If outcome was (a) per TASK-8-1, this task is skipped and its acceptance is \"no code change needed; slice-8 ships docs only\".",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "(Outcome b) `grep -n 'keep_warm\\|keep-warm' orchestrator/consensus_wrapper.py` finds the new helper; the helper is no-op on the Anthropic route; a unit test at `tests/orchestrator/test_qwen_keep_warm.py` (TASK-8-4) asserts: Qwen-route activation, Anthropic-route no-op, HITL/awaiting-human suppression, hard refresh cap. (Outcome a/c) Task is marked not-applicable in the BRC propose summary; no production code lands.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-3",
+          "description": "(Outcome (c) only.) Open a HITL decision via `mcp__sdlc__register_open_question` (or `egg-contract add-decision`) asking the operator to choose between {ship without keep-warm and absorb cold-read cost, ship with bounded keep-warm at <measured TTL minus 10%> cadence, block v1 on Qwen route until a more accurate measurement}. Document the path forward in `docs/architecture/brc-event-pump.md`. If outcome was (a) or (b) per TASK-8-1, this task is skipped.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "(Outcome c) A HITL decision is registered for the operator; the docs section explicitly says the decision is pending operator input. (Outcomes a/b) Task is marked not-applicable; no decision is registered.",
+          "files_affected": [
+            "docs/architecture/brc-event-pump.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-4",
+          "description": "(Outcome (b) only.) Write the unit test at `tests/orchestrator/test_qwen_keep_warm.py` that covers Qwen-route-only activation, HITL/awaiting-human suppression, and the hard refresh cap. If outcome was (a) or (c), this task is marked not-applicable.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "(Outcome b) All three cases have a test; `make test` passes. (Outcomes a/c) Task is marked not-applicable.",
+          "files_affected": [
+            "tests/orchestrator/test_qwen_keep_warm.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Should WS8 (collapse the 28 agent-facing MCP tools to CLI) land in this issue, or be split to a follow-up after the core event-pump is proven?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Land WS8 in this issue (collapses prompt + action surface in one pass; larger blast radius but more deletion)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Split WS8 to a follow-up (smaller core change; ships event-pump first, MCP collapse after the new control flow is validated in production)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Land WS8 partially in this issue (only the net-new CLI commands needed by WS3 \u2014 get-state, list-blocking, get-context \u2014 and the deletion of MCP tools with existing CLI parity; defer prose-bearing propose/ack/nack collapse to a follow-up so the #2741 stdin/file-path rule can be designed separately)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Split the MCP\u2192CLI collapse to a SEPARATE follow-up issue \u2014 specifically the deletion of the 28 agent-facing MCP tools and the prose-bearing propose/ack/nack CLI migration (with the #2741 stdin/file-path rule) all go to the follow-up. HOWEVER, this issue MUST build any net-new CLI commands the new wait-loop / event-pump depends on (e.g. brc get-state, brc list-blocking, phase get-context, and any other tool the per-event handler invokes) so the new control flow has full CLI coverage for everything it needs. Do NOT delete the existing MCP tools in this issue \u2014 just guarantee CLI availability for the event-pump's needs; the actual collapse/deletion of the MCP surface is the follow-up issue's scope.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:28:40.405570Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "If the WS0 spike shows the Qwen-route provider cache TTL is materially worse than the Anthropic route, how should v1 ship?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship v1 with the Qwen route enabled and a keep-warm loop sized to the measured provider-cache TTL (full route parity at the cost of a recurring keep-warm token spend)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship v1 with the Qwen route gated off behind a per-route flag (Anthropic route gets the durable fix immediately; Qwen route stays on the old capped-restart path until keep-warm or a provider TTL change makes it economical)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Block v1 on Qwen-route cache validation (no ship until the Qwen route's per-event cost is within the operator's per-cycle budget; treat the Anthropic route's measured-clear status as not enough to justify a partial rollout)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Ship v1 with the Qwen route ENABLED on the new event-pump (do NOT gate it onto the old capped-restart path \u2014 that path is being deleted per cq-4). Operator has confirmed both the Anthropic and Qwen routes have a free cache TTL > 5 minutes (Anthropic measured at 1h in WS7). Therefore: do NOT build a keep-warm / cache-refresh loop for v1. WS0 must instrument the actual per-event cold-read / cache-creation cost on the Qwen route across a realistic worst-case BRC idle (specifically a reviewer parked while a producer addresses a NACK and re-proposes \u2014 observed ~7-8 min in practice). ONLY if that measured cold-read waste proves material should a BOUNDED keep-warm be added, and then: Qwen-route only, active only during idles approaching the TTL, with a capped total number of refreshes, and SUPPRESSED during HITL / awaiting-human waits (which can last hours and would otherwise burn tokens keeping a cache warm for an event that is hours away). Never add keep-warm on the Anthropic route (1h TTL makes it unnecessary). Rationale: Qwen token costs are low, so worst-case cold-read waste is at most a few cents per occurrence; a speculative background refresh loop adds exactly the kind of stateful liveness mechanism this issue is trying to delete.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:41:37.475302Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "What is the desired terminal state when the new safety budget (replacing the 3-restart FAIL cap) is exhausted?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "OVERSEER_ALERT only; pipeline keeps running indefinitely (operator must intervene to stop it; suits the 'no-progress' interpretation where there is nothing wrong, just nothing happening)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hard FAIL after a configurable wall-clock cap (preserves the #2806 'producer permanent death \u2192 FAILED' semantics but on time rather than restart count)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL). HARD REQUIREMENT (operator-added): because the old capped-restart wrapper is being deleted entirely (cq-4), this no-progress safety budget is now the ONLY safety net, so it must be robust to SDLC-host failure. The parked HITL decision AND the safety-budget / no-progress state must be persisted DURABLY SERVER-SIDE (in the orchestrator), not held only in the host process driving the pipeline. If the host running the SDLC pipeline dies, a restarted host must be able to resume the awaiting-human decision and the budget state rather than losing them. Treat host-death recoverability as a requirement of this decision, not a nice-to-have.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:42:44.260670Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "How long should the old capped-restart wrapper path be retained behind a flag after the new event-pump path lands?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Until the next release tag, then delete (forcing-function for full migration; smallest carrying cost)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Until N successful pipelines complete on the new path (e.g. 50) without any new restart-related alerts, then delete (data-driven)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Indefinitely as a configurable opt-out (operator can always escape-hatch to the legacy path; largest carrying cost but lowest risk)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Delete the old capped-restart wrapper path entirely \u2014 do NOT retain it behind a flag. Operator decision: the event-pump replaces it outright; there is no flagged fallback to the old MAX_CONSENSUS_RESTARTS=3 / restart-and-FAIL behaviour. (Note the interaction the operator flagged: because the old path is gone, the Qwen route cannot 'fall back to the old path' \u2014 see cq-2, which ships Qwen on the new event-pump directly. And the new no-progress safety budget from cq-3 is therefore the sole safety net, with its durable-server-side-state requirement.) This overrides the canned options, all of which assumed retaining the old path for some duration.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:42:44.391398Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Instrument only, no hard caps. WS0 should measure and report per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm-loop $/hour, but nothing should auto-fail on a fixed threshold; the operator will judge go/no-go from the reported numbers. Note: the operator has confirmed both routes have a free cache TTL > 5 min, so the Qwen-route cache risk that motivated tight caps is substantially de-risked.\", \"Q2\": \"Ephemeral coordination state \u2014 brc-memory.md can be cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop. HARD CAVEAT: this is acceptable ONLY because recovery must NOT depend on the ephemeral memory file surviving. Pipeline/host recovery (see cq-3) must work from durable server-side orchestrator state + message history alone. If during implementation the brc-memory.md file turns out to be load-bearing for correct recovery after a host or pod restart, revisit this answer and make the artifact durable instead of ephemeral.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T20:42:45.471030Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-05-31T19:50:48.010906Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Should WS8 (collapse the 28 agent-facing MCP tools to CLI) land in this issue, or be split to a follow-up after the core event-pump is proven?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Land WS8 in this issue (collapses prompt + action surface in one pass; larger blast radius but more deletion)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Split WS8 to a follow-up (smaller core change; ships event-pump first, MCP collapse after the new control flow is validated in production)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Land WS8 partially in this issue (only the net-new CLI commands needed by WS3 \u2014 get-state, list-blocking, get-context \u2014 and the deletion of MCP tools with existing CLI parity; defer prose-bearing propose/ack/nack collapse to a follow-up so the #2741 stdin/file-path rule can be designed separately)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should WS8 (collapse the 28 agent-facing MCP tools...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:02.610492Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "If the WS0 spike shows the Qwen-route provider cache TTL is materially worse than the Anthropic route, how should v1 ship?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship v1 with the Qwen route enabled and a keep-warm loop sized to the measured provider-cache TTL (full route parity at the cost of a recurring keep-warm token spend)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship v1 with the Qwen route gated off behind a per-route flag (Anthropic route gets the durable fix immediately; Qwen route stays on the old capped-restart path until keep-warm or a provider TTL change makes it economical)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Block v1 on Qwen-route cache validation (no ship until the Qwen route's per-event cost is within the operator's per-cycle budget; treat the Anthropic route's measured-clear status as not enough to justify a partial rollout)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: If the WS0 spike shows the Qwen-route provider cac...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:03.130568Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "What is the desired terminal state when the new safety budget (replacing the 3-restart FAIL cap) is exhausted?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "OVERSEER_ALERT + HITL decision (current behaviour preserved: operator picks resume/abort, no automatic FAIL)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "OVERSEER_ALERT only; pipeline keeps running indefinitely (operator must intervene to stop it; suits the 'no-progress' interpretation where there is nothing wrong, just nothing happening)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hard FAIL after a configurable wall-clock cap (preserves the #2806 'producer permanent death \u2192 FAILED' semantics but on time rather than restart count)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the desired terminal state when the new sa...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:15.112902Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "How long should the old capped-restart wrapper path be retained behind a flag after the new event-pump path lands?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Until the next release tag, then delete (forcing-function for full migration; smallest carrying cost)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Until N successful pipelines complete on the new path (e.g. 50) without any new restart-related alerts, then delete (data-driven)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Indefinitely as a configurable opt-out (operator can always escape-hatch to the legacy path; largest carrying cost but lowest risk)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How long should the old capped-restart wrapper pat...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T19:51:15.633452Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 2 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Replace agent-held BRC waits with deterministic event-pump + durable memory",
+    "description": "Closes #2906 and resolves the structural seam that produced the entire lineage of BRC wait bugs (#2323, #2064/#2482, #2036, #1995, #2451). Today the BRC consensus agent holds a blocking `egg-orch message wait-loop` between each event; every re-entry is a seam at which the model can emit a final assistant message and exit `success=True` instead of looping. Claude usually re-enters; qwen3.7-max does not (#2906) \u2014 it exits at ~30\u201350 of a 1000-turn budget, the wrapper sees no `CONSENSUS_CONFIRMED`, and the 3-restart cap (#2806) burns ~$1 and ~20 min per cycle.\n\nThis PR reframes consensus-agent execution from a *persistent participant that holds a wait* into a *stateless per-event handler the wrapper invokes*, with continuity carried by a durable distilled memory file. Eight slices ship sequentially as stacked PRs:\n\n1. **WS0 spike** (slice-1) \u2014 empirically validate the event-pump on the #2906 reproducer (qwen3.7-max) and measure Qwen-route provider-cache TTL against the worst-case ~15-min BRC idle; output is a `docs/spike/2908-event-pump-spike.md` report.\n2. **cq-3 durable persistence schema + sync-flush + startup_reconciliation** (slice-2) \u2014 bump contract schemaVersion 1.2 \u2192 1.3 with `pipeline.no_progress_budget` + `pipeline.parked_hitl` fields; add `_save_pipeline_durable()` / `commit_and_push_sync()` synchronous-flush variant that returns only after `git push origin <branch>` completes; add `_startup_reconciliation_replay_safety_budget` step that re-reads the durable budget from the on-branch contract on host boot and primes the in-memory `health_monitor.py` anchors. Closes the cq-3 durability gap risk_analyst named (R1).\n3. **Server-side next-action endpoint** (slice-3) \u2014 extend `consensus status --json` per architect open-decision od-3 to return `next_action` per role (review/ACK/NACK/propose/confirm/wait vs. all-confirmed), encoding open-NACK aggregation (#2142), conditional ACK, stale-version re-review (#2482), producer-first ordering (#2749), and resolve_obligation surface. Pure additive route work.\n4. **Net-new CLI verbs** (slice-4) \u2014 `egg-orch brc list-blocking`, `egg-contract get-context`, `egg-orch brc {get-state, resolve-obligation, read-peer-artifact}`, `egg-contract show --field <name>` (arbitrary contract-field projection wrapping `mcp__sdlc__show_contract` \u2014 used by slice-6 host-restart recovery), and optionally `egg-orch brc next-action` if slice-3's extension proves insufficient. All via `_handler_dispatch` so they share existing MCP handlers (preserves `tests/tools/test_mcp_cli_drift.py` invariant; no MCP retirement per cq-1).\n5. **Durable distilled memory artifact** (slice-5) \u2014 `.egg-state/agent-outputs/<role>/brc-memory.md` with structured sections (codebase/change model, per-producer assessment, decision log); **memory shape COMMITTED to distilled / rewrite-and-distill** per refine analysis lines 360-367; handler scaffolding in `sandbox/egg_agent_tools/handlers/brc.py` writes memory entries on every ACK/NACK off the existing `reason` + `files_reviewed` dict-arg payload (no shell-metachar exposure).\n6. **Event-pump rewrite + WS1/WS4/safety-budget consumer + legacy deletion** (slice-6) \u2014 rewrite `orchestrator/consensus_wrapper.py` as a deterministic event pump that invokes the existing `egg-orch message wait-loop` CLI directly (preserves #2323 cursor threading) and spawns the agent via `build_agent_command` per event (NOT `claude --print`); delete `MAX_CONSENSUS_RESTARTS=3`, `_RECOVERY_SYSTEM_PROMPT`, `_RECOVERY_USER_PROMPT`, the SSE consensus.reached blocking path, and the restart loop (cq-4 \u2014 no flagged fallback); migrate heartbeat ownership from the agent's `_start_wait_loop_heartbeat` to the wrapper invoking `egg-orch message heartbeat` at the same 60s cadence (preserves #2036 and #2451); wire the safety-budget consumer against the durable schema landed in slice-2 with host-restart recovery via the slice-2 startup_reconciliation; host-restart suppresses re-firing of `alert_emitted=true` from durable state.\n7. **Prompt collapse + delta-scoped re-analysis + prior-fix audit** (slice-7) \u2014 replace STAY-ALIVE / wait-loop / cursor-threading text in `_build_brc_preamble` and `sandbox/agent-config/rules/*.md` with a lean event-handler contract, gated on an explicit prior-fix preservation audit table that classifies each fix as orchestrator-enforced / CLI-enforced / prompt-only and preserves only the prompt-only ones; extend the next-action endpoint to return `changed_artifacts` metadata so per-event context stays metadata-only (no inlined diffs per refine lines 168-177).\n8. **Qwen keep-warm (conditional)** (slice-8) \u2014 based on slice-1 measurement, either land a docs note (\"no keep-warm needed\") or implement a bounded Qwen-route-only keep-warm with HITL suppression and a hard refresh cap, or open a HITL decision if data is ambiguous.\n\nFor operators: drain in-flight pipelines on the old wrapper before deploying slice-6's PR; new pipelines start on the event-pump immediately at deploy time. The structural seam is gone: a deterministic Bash loop, not the model, drives BRC waits and termination; no model can fall out by exiting between events. The per-cycle restart cost (~$1 / ~20 min) goes to zero on the failure modes #2906 surfaced.",
+    "test_plan": "Automated:\n- slice-1: no tests; spike report at `docs/spike/2908-event-pump-spike.md` captures measurements.\n- slice-2: `tests/orchestrator/test_contract_schema_migration_to_1_3.py` covers migrator round-trip; `tests/orchestrator/test_save_pipeline_durable.py` covers sync-flush returns only after `git push origin <branch>` succeeds, fails-closed on push failure, and the production failure mode (emptyDir wipe + remote ref behind \u2192 fresh host loads the budget from `origin/<branch>`); `tests/orchestrator/test_startup_reconciliation_safety_budget.py` covers host-kill mid-budget reconciliation.\n- slice-3: `tests/orchestrator/test_consensus_next_action.py` covers producer/reviewer/dual-role lifecycles, open-NACK aggregation (#2142), conditional ACK, stale-version re-review (#2482), resolve_obligation, producer-first ordering (#2749).\n- slice-4: `tests/sandbox/egg_lib/test_brc_cli_verbs.py` covers handler-import parity, JSON payload byte-equality, stdin/file-path rule for prose-bearing inputs (#2741 regression guard); `tests/tools/test_mcp_cli_drift.py` extended for the new CLI shims.\n- slice-5: `tests/sandbox/egg_agent_tools/handlers/test_brc_memory.py` covers distilled rewrite-and-distill, idempotency, partial-file recovery, dict-arg side-effect, write-permission failure non-fatal; `integration_tests/local_pipeline/test_brc_memory_handler_e2e.py` covers ACK through live MCP server \u2192 memory file at correct per-role path.\n- slice-6 unit: extend `tests/orchestrator/test_consensus_wrapper.py` for event-pump reach-consensus, clean-exit no-FAIL, wrapper-emitted heartbeats, `egg-orch consensus status --json` replaces SSE consumer, and fix-lineage assertions (cursor #2323, gateway keep-alive #2451, heartbeat #2036, open-NACK barrier #2142 surfaced through next-action, pre-confirm-wait #2064/#2482, gap-race #1995); `tests/orchestrator/test_event_pump_host_restart.py` asserts host-restart with recovered `alert_emitted=true` does NOT re-fire the OVERSEER_ALERT.\n- slice-6 integration: `integration_tests/local_pipeline/test_event_pump_qwen_repro.py` runs the #2906 reproducer end-to-end under the event-pump and asserts no churn, memory populated, permissions enforced.\n- slice-7: `tests/orchestrator/test_brc_preamble.py` snapshot-asserts the lean preamble + the prior-fix audit table; `tests/sandbox/egg_agent_tools/handlers/test_brc_delta.py` asserts metadata-only delta contract.\n- slice-8 (conditional, path b only): `tests/orchestrator/test_qwen_keep_warm.py` covers Qwen-route activation, HITL/awaiting-human suppression, hard refresh cap.\n\nManual:\n- After slice-4, run `egg-orch --help` and `egg-contract --help` to confirm new verbs are discoverable.\n- After slice-6, run `make test-all` (or the `local_pipeline` subset) and inspect orchestrator status to confirm wrapper-emitted heartbeats land at the expected cadence.\n- After slice-8 path-b, simulate a long awaiting-human HITL gate and confirm keep-warm is suppressed during the wait.",
+    "manual_steps": "Pre-merge: none \u2014 every change ships behind the BRC cycle's review gate; no `.github/` files are touched.\n\nPost-merge:\n- slice-2: schema bump auto-applies on next contract load via the existing `_migrate_schema_version_to_1_3` migrator pattern; no manual step.\n- slice-6: **CUTOVER PLAYBOOK** \u2014 drain in-flight pipelines on the old capped-restart wrapper before deploying slice-6's PR (operator monitors `egg-orch pipeline status` for all active pipelines, waits for them to reach `is_complete=true` or quiesce). New pipelines start on the event-pump immediately at deploy time. There is no flagged fallback per cq-4. Documented in `docs/architecture/brc-event-pump.md` per TASK-6-12.\n- slice-8 path-b only: redeploy the litellm container so the new keep-warm route configuration takes effect.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
+        "answer": "Instrument only, no hard caps. WS0 should measure and report per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm-loop $/hour, but nothing should auto-fail on a fixed threshold; the operator will judge go/no-go from the reported numbers. Note: the operator has confirmed both routes have a free cache TTL > 5 min, so the Qwen-route cache risk that motivated tight caps is substantially de-risked."
+      },
+      {
+        "id": "Q2",
+        "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
+        "answer": "Ephemeral coordination state \u2014 brc-memory.md can be cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop. HARD CAVEAT: this is acceptable ONLY because recovery must NOT depend on the ephemeral memory file surviving. Pipeline/host recovery (see cq-3) must work from durable server-side orchestrator state + message history alone. If during implementation the brc-memory.md file turns out to be load-bearing for correct recovery after a host or pod restart, revisit this answer and make the artifact durable instead of ephemeral."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-31T20:43:15.570258Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}
