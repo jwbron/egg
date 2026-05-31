@@ -26,14 +26,36 @@ This issue proposes to remove the seam by reframing the consensus agent from a
 *persistent participant that holds a wait* into a *stateless per-event handler
 the wrapper invokes*, with continuity carried by a **durable distilled memory
 file** rather than a live session. The wrapper (deterministic Bash) owns the
-blocking wait, and on each actionable event invokes `claude -p` against a warm
-pod; the agent reads its prefix + memory + the one event, acts, updates memory,
-and exits naturally. The wrapper loops until the orchestrator reports the
-role's consensus complete.
+blocking wait, and on each actionable event invokes the agent against a warm
+pod **via the Agent SDK entry point** (`python3 -m egg_agent`, built by
+`egg_agent.build_agent_command()` — the same primitive
+`orchestrator/consensus_wrapper.py:748–759` already uses today); the agent
+reads its prefix + memory + the one event, acts, updates memory, and exits
+naturally. The wrapper loops until the orchestrator reports the role's
+consensus complete.
 
 The desired outcome is that **no model can stall BRC consensus by exiting
 between events** — a property of the control flow, not of any one model's
 prompt-following.
+
+**Primitive correction relative to the issue body.** The issue text refers
+to "SDK-native one-shot `claude -p`". That phrasing is incorrect for egg:
+`claude --print` is an EGG100-linted anti-pattern
+(`docs/guides/agent-mode-design.md:90–104`) because it exits after one
+response and cannot use tools or handle multi-turn work. The only documented
+exception is the GitHub-Actions one-shot entry point at
+`sandbox/egg_lib/gha_exec.py:101` (carries `# noqa: EGG100`), whose own
+docstring (lines 88–92) explicitly steers long-running, tool-using agents —
+exactly what a BRC consensus participant is — toward `build_agent_command()`
+instead. The stateless-event-pump *shape* is unaffected: `python3 -m
+egg_agent` is already one-shot (it exits when the agent reaches its stop
+state) and wires MCP, tool permissions, `EGG_AGENT_ROLE` scoping, and the
+tool-interceptor checks into a single process. The "no new harness" pillar
+reads correctly under this correction: the proposal converges on the
+*already-existing* SDK entry point the wrapper template uses today, rather
+than introducing a `--print` subprocess form that would regress an
+architectural decision already enforced in the file the proposal is
+rewriting.
 
 ## Current Behavior
 
@@ -94,9 +116,9 @@ at `integration_tests/test_sandbox_mcp_tools_e2e.py` and
 **Pod & worktree isolation** — `orchestrator/kubernetes_spawner.py`
 - One Job per `(pipeline_id, role)` (slice-scoped:
   `egg-agent-{pipeline_id}-{slice_id}-{role}`). Pods are warm for the
-  agent's lifetime, so successive `claude -p` invocations from the wrapper
-  reuse the same pod, the same worktree, the same `EGG_AGENT_ROLE`, and the
-  same per-role MCP/handler permissions.
+  agent's lifetime, so successive `python3 -m egg_agent` invocations from
+  the wrapper reuse the same pod, the same worktree, the same
+  `EGG_AGENT_ROLE`, and the same per-role MCP/handler permissions.
 
 **Provider cache** — `config/litellm/patch_litellm_cache.py`
 - Patches openrouter/anthropic adapters for Qwen/DeepSeek cache support.
@@ -118,9 +140,13 @@ which the env already exposes.
 - **No change to the agent primitive.** Pod, worktree, role-scoping, SDK
   choice, gateway, and permissions all stay as-is. The change is the *shape
   of the agent's session*, not the agent itself.
-- **Gateway-enforced role boundaries persist per-invocation.** Each `claude -p`
-  call inherits the pod's `EGG_AGENT_ROLE` and the gateway's push filter, so
-  no per-event re-authentication or boundary re-check is needed.
+- **Gateway-enforced role boundaries persist per-invocation.** Each
+  `python3 -m egg_agent` invocation inherits the pod's `EGG_AGENT_ROLE` and
+  the gateway's push filter, so no per-event re-authentication or boundary
+  re-check is needed. The Agent SDK entry point also wires MCP, tool
+  permissions, and `tool_interceptor.check_file_write_permission` into the
+  same process — no per-event `--allowed-tools` / `--mcp-config` re-plumbing
+  is required.
 - **Prose-bearing CLI invocations must take text via stdin or a file path,
   never argv.** Issue #2741 mitigated `bash -c`'s shell-metachar corruption
   of `consensus propose --summary`, `nack --reason`, and `--files-reviewed`
@@ -132,11 +158,23 @@ which the env already exposes.
   benefit" objection does not apply on the Anthropic route. **Qwen-route
   provider-cache TTL is unmeasured** and is the WS0 stop/go gate.
 - **No new harness.** The proposal explicitly avoids a persistent-streaming
-  agent process and uses SDK-native one-shot `claude -p`. A tail
+  agent process and reuses the SDK entry point already invoked by
+  `build_agent_command()` (each `python3 -m egg_agent` invocation is itself
+  one-shot — it exits when the agent reaches its stop state). A tail
   cache-breakpoint (to cache accumulated work, not just prefix) likely needs
-  prompt-construction control `claude -p` does not expose; if work-caching
+  prompt-construction control that path does not expose; if work-caching
   becomes required, that constraint conflicts with the "no custom harness"
   pillar.
+- **Memory-delta is metadata, not content.** "Delta-only re-analysis"
+  means the agent receives the **prior assessment summary + a metadata
+  delta** (changed file paths, commit SHAs, version markers, NACK reasons),
+  **not** an inlined diff blob or file-contents snapshot baked into the
+  per-event prompt. The agent fetches its own diffs and file contents via
+  the warm working tree and git tools when needed. Pre-fetching large
+  content into prompts is the agent-mode-design "baking in large diffs"
+  anti-pattern (`docs/guides/agent-mode-design.md`) and trades flexibility
+  for short-term token savings. The constraint applies to memory-file
+  shape too — see Open Decision #1 in the issue body.
 - **Backwards compatibility for in-flight pipelines.** The capped-restart
   wrapper path must remain reachable behind a flag until the new path is
   validated, so cohorts that started on the old path can finish on it.
@@ -176,10 +214,11 @@ the agent-held wait, keep the 3-restart cap.
 
 ### Option B: Stateless event-pump + durable distilled memory (the issue's proposal)
 
-**Approach**: Wrapper blocks on `egg-orch message wait-loop`, invokes
-`claude -p` on the warm pod per actionable event. Agent loads cached prefix +
-durable memory file + the one event, acts, writes memory, exits. Wrapper
-loops until orchestrator reports role consensus complete.
+**Approach**: Wrapper blocks on `egg-orch message wait-loop`, invokes the
+agent via the Agent SDK entry point (`python3 -m egg_agent` from
+`build_agent_command()`) on the warm pod per actionable event. Agent loads
+cached prefix + durable memory file + the one event, acts, writes memory,
+exits. Wrapper loops until orchestrator reports role consensus complete.
 
 **Pros**:
 - Removes the structural seam — a deterministic loop drives waits and
@@ -213,10 +252,10 @@ loops until orchestrator reports role consensus complete.
 
 ### Option C: Persistent agent session with SDK `--resume`
 
-**Approach**: Keep the agent process alive across "events" using
-`claude --resume`. The wrapper still owns the wait, but instead of
-re-invoking `claude -p` each event, it sends new turns to the same session
-via SDK resume.
+**Approach**: Keep the agent process alive across "events" using the SDK's
+`--resume` continuation. The wrapper still owns the wait, but instead of
+re-invoking a fresh `python3 -m egg_agent` per event, it sends new turns to
+the same resumed session.
 
 **Pros**:
 - Continuity is natural — no externalised memory artifact needed for the
@@ -285,7 +324,7 @@ plan-phase Primitive-Existence and Trust-Boundary audits):
 
 | Primitive | Where | Context |
 |---|---|---|
-| `claude -p` SDK one-shot mode | `sandbox` (already used in `sandbox/egg_lib/gha_exec.py:101`) | in-sandbox-agent |
+| Agent SDK entry point `python3 -m egg_agent` (built by `egg_agent.build_agent_command()`) | `shared/egg_agent/`; **already invoked by `orchestrator/consensus_wrapper.py:748–759`** | orchestrator-spawned containers. **NOT** `claude --print` (EGG100 anti-pattern per `docs/guides/agent-mode-design.md:90–104`); the `gha_exec.py:101` `claude --print` call is the documented one-shot-CI exception and is **not** a precedent for long-running tool-using agents. |
 | `egg-orch message wait-loop` CLI | `sandbox/egg_lib/orch_cli.py` | wrapper-side, in-pod |
 | `egg-orch consensus status --json` | `sandbox/egg_lib/orch_cli.py:2783` | wrapper-side and agent-side |
 | `egg-orch consensus propose/ack/nack/confirmed` | same | agent-side, prose-bearing (constraint above) |
@@ -316,7 +355,16 @@ spike instrumentation), and **tests** (handler-direct tests if WS8 lands).
 implementation, several against spike data)". Those are explicitly
 implementation-strategy decisions for the planner/coder against measured
 data; they are not registered here. The WS7 follow-up comment resolves the
-Anthropic-route cache question empirically.)
+Anthropic-route cache question empirically.
+
+**Planner note on Open Decision #1 (memory shape).** The issue frames
+append-only vs rewrite/distill against cache behaviour only. The planner
+should additionally evaluate against the "orient, don't constrain" axis
+from `docs/guides/agent-mode-design.md`: an unbounded append-only memory
+eventually starts *constraining* what the per-event agent can attend to
+(sea-of-context), while a distilled memory keeps "small summaries that
+orient" as the target shape. The decision should be made against both
+axes, not just token cost.)
 
 <!-- egg-hitl-decision id=cq-1 -->
 
