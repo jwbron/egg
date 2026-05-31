@@ -93,16 +93,18 @@ done
 
 # Final smoke test: a real `kubectl top nodes` proves the scrape path end to
 # end (pod Ready + APIService Available is necessary but not sufficient — the
-# first scrape must also have landed).
+# first scrape must also have landed). 60s deadline because --metric-resolution
+# is 15s and the kubelet's cAdvisor can take a beat to spin up on a cold k3s,
+# so the first scrape can land well after APIService=Available.
 log "Verifying 'kubectl top nodes' returns data..."
-deadline=$((SECONDS + 30))
+deadline=$((SECONDS + 60))
 while ! kubectl top nodes &>/dev/null; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     error "'kubectl top nodes' still failing after metrics-server became Available."
     kubectl top nodes 2>&1 | sed 's/^/    /' >&2
     exit 1
   fi
-  sleep 3
+  sleep 2
 done
 
 log "metrics-server is Ready; 'kubectl top' is working."

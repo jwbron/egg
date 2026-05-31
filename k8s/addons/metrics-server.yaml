@@ -21,7 +21,7 @@
 #
 # Fix: run metrics-server in the host network namespace, where it reaches the
 # kubelet exactly as the host itself does (`curl -k https://<nodeIP>:10250` —
-# returns 401, i.e. the socket is reachable). Two coupled changes are required:
+# returns 401, i.e. the socket is reachable). Four coupled changes:
 #   1. hostNetwork: true + dnsPolicy: ClusterFirstWithHostNet
 #      (the latter so the pod still resolves the in-cluster API server via
 #      CoreDNS while sharing the host netns).
@@ -30,7 +30,26 @@
 #      by the kubelet. 4443 is free. The port is still named "https", so the
 #      Service targetPort and the liveness/readiness probes follow it
 #      unchanged.
-# Everything else is byte-for-byte upstream v0.8.1.
+#   3. strategy: Recreate (was rollingUpdate with maxUnavailable:0). Upstream's
+#      rolling strategy + maxUnavailable:0 means the controller brings up the
+#      new pod before deleting the old one. With hostNetwork + single replica
+#      on one node, the new pod would try to bind 0.0.0.0:4443 while the old
+#      one still holds it, CrashLoopBackOff forever, and the rollout would
+#      deadlock (maxUnavailable:0 also forbids evicting the old pod to make
+#      room). Recreate deletes-then-creates: bounded ~25s gap during rollouts,
+#      well below the namespace-controller's discovery window — the wedge only
+#      reopens if the APIService stays unavailable across a discovery cycle.
+#   4. --kubelet-insecure-tls: defense-in-depth against a future k3s release
+#      changing kubelet serving-cert provisioning (today k3s rotates kubelet
+#      certs signed by the cluster CA; if that flips back to self-signed,
+#      scrapes would start failing with `x509: certificate signed by unknown
+#      authority` and re-open the wedge). Security cost ~zero: the kubelet
+#      endpoint is already authenticated via the metrics-server SA token, and
+#      this is internal cluster traffic on an internal-only metrics surface.
+# Everything else is semantically equivalent to upstream v0.8.1 — the diff is
+# the four `egg:` markers below (some upstream lists were re-indented by the
+# editor, which is YAML-cosmetic; for a clean diff against a newer upstream
+# release, normalize indentation first).
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -154,12 +173,19 @@ metadata:
   name: metrics-server
   namespace: kube-system
 spec:
+  # egg: explicit replicas:1 to make the rollout-strategy reasoning legible;
+  # under hostNetwork on a single node, two replicas would fight for the same
+  # host port. Pair with strategy:Recreate below.
+  replicas: 1
   selector:
     matchLabels:
       k8s-app: metrics-server
+  # egg: Recreate (was rollingUpdate + maxUnavailable:0). See header for the
+  # full reasoning — short version: rolling update + hostNetwork + single
+  # replica deadlocks at the first rollout because the new pod can't bind the
+  # already-held host port. Recreate accepts a bounded ~25s gap instead.
   strategy:
-    rollingUpdate:
-      maxUnavailable: 0
+    type: Recreate
   template:
     metadata:
       labels:
@@ -175,6 +201,9 @@ spec:
             # egg: 10250 is the kubelet's port; on hostNetwork we must move
             # metrics-server's own serving port off it. 4443 is free.
             - --secure-port=4443
+            # egg: defense-in-depth against future k3s kubelet-cert changes
+            # (see header). No-op today; prevents a silent x509 wedge tomorrow.
+            - --kubelet-insecure-tls
             - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
             - --kubelet-use-node-status-port
             - --metric-resolution=15s
