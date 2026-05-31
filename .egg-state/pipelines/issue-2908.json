@@ -288,16 +288,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-31T20:25:36.439229Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-31T20:42:45.471030Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Instrument only, no hard caps. WS0 should measure and report per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm-loop $/hour, but nothing should auto-fail on a fixed threshold; the operator will judge go/no-go from the reported numbers. Note: the operator has confirmed both routes have a free cache TTL > 5 min, so the Qwen-route cache risk that motivated tight caps is substantially de-risked.\", \"Q2\": \"Ephemeral coordination state — brc-memory.md can be cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop. HARD CAVEAT: this is acceptable ONLY because recovery must NOT depend on the ephemeral memory file surviving. Pipeline/host recovery (see cq-3) must work from durable server-side orchestrator state + message history alone. If during implementation the brc-memory.md file turns out to be load-bearing for correct recovery after a host or pod restart, revisit this answer and make the artifact durable instead of ephemeral.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-31T19:44:16.923334Z",
-  "updated_at": "2026-05-31T20:42:44.315498Z",
+  "updated_at": "2026-05-31T20:42:45.476731Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -310,7 +310,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
