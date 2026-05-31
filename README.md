@@ -93,17 +93,17 @@ The overseer is phase-scoped: it is spawned at the start of each pipeline phase 
 egg structures work into phases with mandatory human gates:
 
 ```
-┌──────────┐      ┌──────────┐      ┌──────────────┐      ┌──────────┐
-│  REFINE  │─────▶│   PLAN   │─────▶│  IMPLEMENT   │─────▶│    PR    │
-└────┬─────┘      └────┬─────┘      └──────────────┘      └────┬─────┘
-     │                 │                                       │
-Human gate        Human gate                              Human merge
+┌──────────┐      ┌──────────┐      ┌─────────────────────────────────────┐
+│  REFINE  │─────▶│   PLAN   │─────▶│             IMPLEMENT               │
+└────┬─────┘      └────┬─────┘      └─────────────────────────────────────┘
+     │                 │                   │                         │
+Human gate        Human gate     Context PR opened          Human merges
+                                 at phase start             context + slice PRs
 ```
 
 1. **Refine**: Agents analyze the task, research the codebase, produce requirements. Reviewers validate. Human approves before planning.
 2. **Plan**: Architect recommends approach, task planner breaks it into discrete tasks with acceptance criteria, risk analyst flags concerns. Human approves before any code is written.
-3. **Implement**: The plan's tasks are split into a **DAG of independent slices** — each slice runs as its own agent team on its own integration branch with its own BRC consensus and stacked PR. Slices whose dependencies are satisfied run concurrently (up to `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2 per pipeline; a separate `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, bounds the total across all running pipelines); slices with unmet dependencies wait in subsequent waves. Within each slice, the coder writes code, the tester writes regression tests and adversarially probes the coder's implementation for bugs (NACKing with failing tests as bug reports), and the documenter updates docs. Code and contract reviewers provide line-level feedback; security and concurrency lens reviewers add targeted cross-file analysis and block consensus on a NACK. Cycles continue until all checks pass and BRC consensus is reached for that slice. See [Slice-DAG Implement Phase](docs/architecture/slice-dag.md) for the full model.
-4. **PR**: Orchestrator auto-creates the PR from plan metadata. Only a human can merge via GitHub UI.
+3. **Implement**: The plan's tasks are split into a **DAG of independent slices** — each slice runs as its own agent team on its own integration branch with its own BRC consensus and stacked PR. Slices whose dependencies are satisfied run concurrently (up to `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2 per pipeline; a separate `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, bounds the total across all running pipelines); slices with unmet dependencies wait in subsequent waves. Within each slice, the coder writes code, the tester writes regression tests and adversarially probes the coder's implementation for bugs (NACKing with failing tests as bug reports), and the documenter updates docs. Code and contract reviewers provide line-level feedback; security and concurrency lens reviewers add targeted cross-file analysis and block consensus on a NACK. Cycles continue until all checks pass and BRC consensus is reached for that slice. See [Slice-DAG Implement Phase](docs/architecture/slice-dag.md) for the full model. A context PR (`egg/<pipeline_id>/work → main`) is opened automatically at the plan→implement boundary; slice PRs stack on it. Only a human can merge via GitHub UI.
 
 For **Jira epic-mode pipelines** (when `jira_ticket` resolves to a Jira Epic), an **Apply** phase is inserted between Plan and Implement: the `applier` role drives Jira mutations (epic Description writes, child ticket creates/edits, link creates, Won't-Do handoffs) on operator approval, before code implementation begins. Pass `mode='fresh'` (no existing children) or `mode='reassess'` (existing children to classify) to `submit_task`; `mode='auto'` (default) detects which to use at submit time.
 
@@ -139,13 +139,6 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 │   ✓ reviewer_security  ✓ reviewer_concurrency │
 │   [1h11m]                                     │
 ╚═══════════════════════════════════════════════╝
-    │
-    ▼
-╔════════════╗
-│ ✓ PR       │
-│   complete │
-│   [2s]     │
-╚════════════╝
 ```
 
 ## Architecture

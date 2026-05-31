@@ -9,7 +9,7 @@ For operational details, CLI commands, and triggering instructions, see the [SDL
 **The core guarantee**: An agent cannot bypass verification gates or self-approve its own work. All state transitions are enforced structurally through role-based mutations and gateway policy enforcement.
 
 **Key properties:**
-- **Phased execution**: Work progresses through defined phases (refine → plan → implement → pr)
+- **Phased execution**: Work progresses through defined phases (refine → plan → implement); implement is terminal — the context PR opens at the plan→implement boundary
 - **Role-based control**: Implementer, Reviewer, and Human roles have distinct permissions
 - **Human-in-the-loop**: Critical transitions pause for human approval
 - **Audit trail**: All mutations are logged for accountability
@@ -39,12 +39,13 @@ This architecture implements **structural enforcement**: the agent physically ca
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                            SDLC Pipeline                                │
 │                                                                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
-│  │   Refine    │───▶│    Plan     │───▶│  Implement  │───▶│    PR    │  │
-│  │  (Human)    │    │  (Human)    │    │ (Reviewer)  │    │ (Human)  │  │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │                  │                  │                  │       │
-│        ▼                  ▼                  ▼                  ▼       │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
+│  │   Refine    │───▶│    Plan     │───▶│         Implement           │  │
+│  │  (Human)    │    │  (Human)    │    │  (Reviewer; context PR      │  │
+│  └─────────────┘    └─────────────┘    │   opened at phase start)    │  │
+│                                        └─────────────────────────────┘  │
+│        │                  │                  │                          │
+│        ▼                  ▼                  ▼                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
 │  │  .egg-state/contracts/{identifier}.json                         │    │
@@ -65,8 +66,7 @@ This architecture implements **structural enforcement**: the agent physically ca
 |-------|---------|---------------|
 | **refine** | Problem analysis and requirements gathering | Human approval |
 | **plan** | Implementation planning with task breakdown | Human approval |
-| **implement** | Task execution and code changes | All checks pass (CI + PR review) |
-| **pr** | Pull request creation and merge | Human merge |
+| **implement** | Task execution and code changes; context PR opened automatically at phase start | All checks pass + human merge (terminal phase) |
 
 ### Role Permissions
 
@@ -83,7 +83,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "issue": { "number": 133, "title": "...", "url": "..." },
   "current_phase": "implement",
   "slices": [{
@@ -132,10 +132,12 @@ The contract is a JSON document tracking the complete state of an issue through 
 > derivable as `egg/<pipeline_id>/work` and the program-level title and
 > description live on the standard `pr.title` / `pr.description`. The
 > sole remaining context-PR field is `pr.context_pr_number` (still the
-> PR number of the `egg/<pipeline_id>/work → main` context PR). This is
-> a **clean break** (cq-2 resolution): in-flight contracts that contain
-> the removed fields fail to load until migrated, and there is no
-> backwards-compat shim — see [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
+> PR number of the `egg/<pipeline_id>/work → main` context PR). Pre-1.2
+> contracts on disk load transparently: a `model_validator(mode="wrap")`
+> migration (`Contract._migrate_schema_version_to_1_2`) strips the three
+> removed keys before Pydantic constructs `PRMetadata` and bumps
+> `schemaVersion` to `"1.2"`; the new value is persisted on the next
+> save. See [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
 >
 > **Context-PR mechanism (#2777 collapse).** The context PR is opened
 > **up-front at the plan→implement boundary**, **hard-required** and
@@ -161,9 +163,11 @@ The contract is a JSON document tracking the complete state of an issue through 
 Operational impact:
 
 - **In-flight contracts on disk** that still contain any of the three
-  removed fields will **fail to load** under v1.2. Per feedback-1 Q5,
-  there were no in-flight pipelines requiring compatibility at the
-  v1.2 cut-over; new pipelines start at v1.2 and never write the
+  removed fields load transparently under v1.2: the
+  `Contract._migrate_schema_version_to_1_2` wrap-mode migration strips
+  the three removed keys before Pydantic constructs `PRMetadata` and
+  bumps `schemaVersion` to `"1.2"`. The new value is persisted on the
+  next contract save. New pipelines start at v1.2 and never write the
   removed fields.
 - **Planner authoring**: plan YAML must no longer emit
   `pr.context_title` or `pr.context_description` — those keys are
@@ -171,11 +175,12 @@ Operational impact:
   the work→main context PR.
 - **PR-phase removal**: there is no longer a separate "PR" pipeline
   stage. The context PR opens up-front at plan→implement boundary
-  (hard-required, idempotent via `GatewayClient._lookup_open_pr`) and
-  per-slice PRs are opened inline by `create_slice_pr` (also
-  idempotent via the same `gh pr list --head ... --base ... --state
-  open` pre-flight, #2777). The legacy `_should_skip_pr_phase_auto_pr`
-  skip gate and the PR-phase route/runner were removed.
+  (hard-required, idempotent via `GatewayClient.list_open_prs` with a
+  client-side head+base filter) and per-slice PRs are opened inline by
+  `create_slice_pr` (also idempotent via the narrower
+  `GatewayClient._lookup_open_pr` server-side filter, #2777 cq-8). The
+  legacy `_should_skip_pr_phase_auto_pr` skip gate and the PR-phase
+  route/runner were removed.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
