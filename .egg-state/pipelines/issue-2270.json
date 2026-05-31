@@ -228,10 +228,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "For LLM substrate health (sustained Anthropic 5xx / rate-limit across calls), should the overseer diagnose this per-pipeline from its own call-failure rate, or consult a cluster-wide signal to prevent N pipelines filing N duplicate issues?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Per-pipeline inference — aggregate this pipeline's failures over a sliding window",
+        "Cluster-wide signal — poll a shared cache / status endpoint",
+        "Both — escalate distinctly only when correlated with cluster-wide signal",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T05:01:55.970611Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-31T04:42:29.412848Z",
-  "updated_at": "2026-05-31T05:01:55.930302Z",
+  "updated_at": "2026-05-31T05:01:55.977712Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -244,7 +263,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
