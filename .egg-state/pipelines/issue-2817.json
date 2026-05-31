@@ -267,10 +267,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Allowlist comment correctness (plan_parser.py says issue: 2548, phases.py cites slice-15 cluster in #2261): should these be corrected as part of #2817's work?",
+      "context": "Open contract question cq-5, registered by an agent during the refine phase.",
+      "options": [
+        "Yes, correct both: update plan_parser.py's comment to reference #2569 (the decomposition tracker, not the slice that breached the cap) and update phases.py's comment to reference #2817 (the current tracker; #2261 is closed/superseded). Lands in whichever slice touches the allowlist first",
+        "Yes, correct phases.py only (cite #2817 in place of #2261). Leave plan_parser.py's issue: 2548 comment alone since #2569 is a separate tracker and the comment is currently honest about the breach origin",
+        "No, leave both comments as-is. They are historical pointers and the operator can follow the supersession chain; correcting them is doc-hygiene churn the decomposition program does not need to absorb",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T00:12:41.723576Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-30T22:56:20.843632Z",
-  "updated_at": "2026-05-31T00:12:41.690722Z",
+  "updated_at": "2026-05-31T00:12:41.733690Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -283,7 +302,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
