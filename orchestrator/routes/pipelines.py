@@ -15989,7 +15989,7 @@ def _run_implement_phase_slices(
     try:
         scheduler = SliceScheduler(
             contract,
-            max_parallel_slices=getattr(pipeline.config, "max_parallel_slices", None),
+            max_parallel_slices=pipeline.config.max_parallel_slices,
         )
     except ValueError as exc:
         logger.error(
