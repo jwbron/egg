@@ -70,6 +70,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "d9de3e1bf8e5620c00c8a526f493788160108f34": {
+      "branch": "egg/issue-2908-replan/work",
+      "pipeline_id": "issue-2908-replan",
+      "registered_at": "2026-05-31T23:24:40.295654+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
     "f037e2a17a2dbca42737f27b4f06f5f4422245c9": {
       "branch": "egg/issue-2908-replan/work",
       "pipeline_id": "issue-2908-replan",
