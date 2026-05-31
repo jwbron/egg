@@ -1,0 +1,167 @@
+{
+  "verdict": "ACK",
+  "risks": [
+    {
+      "id": "R1",
+      "category": "runtime-primitive",
+      "title": "Generation token absent from health endpoint — recycle detection cannot be built without new primitive",
+      "severity": "high",
+      "likelihood": "high",
+      "description": "The orchestrator /health endpoint (orchestrator/routes/health.py:66-136) returns status, timestamp, state-store probe, and process_start_time — but NO pod UID, boot_timestamp, or generation_token. The refine-phase HITL feedback (Q1) explicitly states: 'This issue must define and implement the primitive as a prerequisite for the overseer's recycle-detection logic.' Without this primitive, the overseer cannot detect orchestrator pod recycling mid-phase, leaving _consecutive_orch_failures, dedup windows, escalation history, and _last_phase_name stale against a new orchestrator process.",
+      "affected_files": [
+        "orchestrator/routes/health.py:66-136",
+        "orchestrator/overseer/monitor.py:139"
+      ],
+      "mitigation": "Implement a generation token (pod UID from K8s downward API or UUID minted at orchestrator startup) surfaced on the health-status response. The overseer stores the token on first poll and compares on each subsequent poll; mismatch triggers state reset + orchestrator_generation_change alert. This is a prerequisite task — must land before or alongside the recycle-detection slice."
+    },
+    {
+      "id": "R2",
+      "category": "runtime-primitive",
+      "title": "_run_pipeline thread has no liveness probe — wedged threads are invisible to the overseer",
+      "severity": "high",
+      "likelihood": "medium",
+      "description": "The _run_pipeline thread (orchestrator/routes/pipelines.py:20818-24370) has no heartbeat, watchdog, or liveness probe. If it deadlocks (e.g., inside _run_concurrent_phase), the only signal is wedged_no_successor (orchestrator/mcp_tools.py:1519-1545), which is ONLY surfaced via the MCP status tool — NOT consumed by the overseer or any health check. A pipeline can be RUNNING with a dead runner thread indefinitely until a human notices.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:20818",
+        "orchestrator/mcp_tools.py:1519-1545"
+      ],
+      "mitigation": "Add a heartbeat mechanism to _run_pipeline (e.g., a last-active timestamp updated on each significant step). Create a new Tier-1 health check that fires when the thread heartbeat is stale and pipeline status is non-terminal. Alternatively, promote wedged_no_successor from MCP-only to a Tier-1 consumed signal."
+    },
+    {
+      "id": "R3",
+      "category": "security",
+      "title": "OverseerSelfMonitor alerts are terminal-only — no live escape path for overseer self-health degradation",
+      "severity": "medium",
+      "likelihood": "medium",
+      "description": "OverseerSelfMonitor (orchestrator/overseer/self_monitor.py:24-165) tracks poll duration, message volume, and LLM cost with configurable thresholds. However, should_self_report() is defined but NOT wired to any live alert path. Concerns are written only to the terminal health summary markdown (orchestrator/overseer/monitor.py:2005-2008). If the overseer wedges (poll cycle >60s, LLM cost >$5/hr), no external observer sees it until the pipeline terminates.",
+      "affected_files": [
+        "orchestrator/overseer/self_monitor.py:150",
+        "orchestrator/overseer/monitor.py:1989"
+      ],
+      "mitigation": "Wire should_self_report() concerns into an OVERSEER_ALERT emission in the monitor poll loop. Alternatively, expose OverseerSelfMonitor health data on the /health endpoint or a dedicated /overseer/health sub-route. The issue body already identifies this gap under 'Overseer self-health' — the implementer must close it, not just add new Tier-1 checks."
+    },
+    {
+      "id": "R4",
+      "category": "trust-boundary",
+      "title": "Slice-DAG health checks lack slice affinity — overseer is slice-blind during concurrent implement phases",
+      "severity": "high",
+      "likelihood": "high",
+      "description": "In slice-DAG implement phase, N slices run concurrently but there is one phase-scoped overseer. The overseer's poll cycle (orchestrator/overseer/monitor.py:330-509) queries consensus/pipeline data WITHOUT slice_id. The only slice-aware status endpoint (pipelines.py:3984) requires ?slice_id= to be passed opt-in. The health checks (tier1/) have zero slice awareness. Alerts do not carry EGG_SLICE_ID. The slice scheduler (orchestrator/slice_scheduler.py) emits cascade events as OVERSEER_ALERT but the overseer has no API to introspect scheduler state. This means: stall detection misfires (it monitors the pipeline-level BRC tracker, not per-slice); dedup/escalation windows collide across slices; alerts cannot attribute to a specific slice.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py:330-509",
+        "orchestrator/health_checks/tier1/",
+        "orchestrator/slice_scheduler.py:1-630"
+      ],
+      "mitigation": "Extend the overseer's poll cycle to fan out across admitted slices when a SliceScheduler is active. Tag alerts with EGG_SLICE_ID. Implement per-slice dedup windows keyed by (alert_type, slice_id). The SliceScheduler.poll_cascades() already emits cascade events — extend this to expose per-slice BRC status. This is a cross-cutting change that touches the consensus tracker, health checks, and alert emission."
+    },
+    {
+      "id": "R5",
+      "category": "compatibility",
+      "title": "Dead issue_filer import is reachable in production code — deletion requires import cleanup",
+      "severity": "medium",
+      "likelihood": "high",
+      "description": "orchestrator/overseer/monitor.py:665-674 calls file_diagnostic_issue() when the decision maker emits action='issue'. The import at monitor.py:35 loads the dead module. Refine-phase HITL decision cq-3 resolves to 'Delete the branch entirely.' Deleting issue_filer.py without also removing the action handlers (monitor.py:665-674 and the import at monitor.py:35) will cause an ImportError at module load, breaking the overseer. The __init__.py re-export (orchestrator/overseer/__init__.py:27,39) also needs updating.",
+      "affected_files": [
+        "orchestrator/overseer/issue_filer.py",
+        "orchestrator/overseer/monitor.py:35,665-674",
+        "orchestrator/overseer/__init__.py:27,39",
+        "orchestrator/tests/test_overseer_issue_filer.py"
+      ],
+      "mitigation": "The deletion slice must atomically: (1) remove the issue_filer.py file, (2) remove the import from monitor.py:35, (3) remove the action='issue' handler branch at monitor.py:665-674, (4) remove the re-export from __init__.py, (5) update the test to not import the deleted module. This is a single-PR atomic change — partial deletion leaves a broken import chain."
+    },
+    {
+      "id": "R6",
+      "category": "runtime-primitive",
+      "title": "incomplete_consensus_absolute_start reset on every re-propose — unbounded deferral via slow re-propose cadence",
+      "severity": "medium",
+      "likelihood": "medium",
+      "description": "The incomplete-consensus deferral mechanism (orchestrator/overseer/monitor.py:1332-1344) resets _incomplete_consensus_absolute_start on every CONSENSUS_PROPOSE within the grace window. A sufficiently slow cadence of re-proposals (one every <5 min) can indefinitely push back the absolute deferral clock. The max_deferral bound is per-episode, not per-pipeline-lifetime. The refine-phase HITL (cq-1) resolves: 'Soft cap with repetition detector — escalate if recent logs are >N% repetitive content.' This introduces a new repetition-detection primitive that does not yet exist.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py:1332-1344"
+      ],
+      "mitigation": "Implement a log-content repetition detector that runs alongside the activity check. Define a repetition threshold (e.g., >80% repetitive content in the last N log entries) and treat high-repetition activity as non-activity for deferral purposes. This is a new primitive — no existing code does content similarity comparison on log lines. Consider using a sliding-window hash of log content."
+    },
+    {
+      "id": "R7",
+      "category": "runtime-primitive",
+      "title": "Overseer spawn ordering — orphan overseer on agent spawn failure",
+      "severity": "medium",
+      "likelihood": "low",
+      "description": "Overseer spawn (orchestrator/routes/pipelines.py:21888) happens BEFORE the phase-agent spawn loop. If agents fail to spawn (e.g., Docker socket unavailable, image pull failure), the overseer container is already running and the teardown path must catch it in a window where the pipeline hasn't fully entered RUNNING. The 4 teardown call sites (22364, 22554, 22687, 23254) all protect against this, but the invariant is enforced by repetition rather than by a single seam.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:21888"
+      ],
+      "mitigation": "The issue body proposes making the overseer spawn WITH phase agents, not separately ahead. The current pattern works but is fragile to refactoring. Consider extracting the teardown invariant into a context manager or guaranteed finalizer rather than replicating it across 4 call sites."
+    },
+    {
+      "id": "R8",
+      "category": "security",
+      "title": "External PR mutation — agent state silently diverges from GitHub PR state",
+      "severity": "medium",
+      "likelihood": "medium",
+      "description": "During PR phase, external actors (GitHub Actions, humans, bots) can close, merge, force-push, or delete the PR branch. The agent's next git operation fails opaquely — no overseer signal today. The issue body identifies this gap but it's a new signal category (external state coupling) with no existing detection code.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/health_checks/"
+      ],
+      "mitigation": "Add a Tier-1 check that polls PR state (via gh pr view or API) during PR phase and compares expected state. Emit pr_external_mutation alert when state changes unexpectedly. Must handle the race between the agent's push and GitHub webhook processing delay. Consider a debounce window to avoid false positives from webhook lag."
+    },
+    {
+      "id": "R9",
+      "category": "performance",
+      "title": "LLM substrate health per-pipeline inference may generate spurious alerts during cluster-wide outages",
+      "severity": "low",
+      "likelihood": "medium",
+      "description": "Refine-phase HITL (cq-2) resolves: 'Per-pipeline inference — aggregate this pipeline's failures over a sliding window.' Without a cluster-wide signal, N pipelines diagnosing an Anthropic API outage independently each file separate issues. This is acceptable per the human decision but means the dedup path (sandbox-side file-issue dedup) becomes the de-facto cluster-wide suppression mechanism.",
+      "affected_files": [
+        "sandbox/egg_lib/overseer_issue_body.py",
+        "shared/egg_overseer/issue_template.py"
+      ],
+      "mitigation": "Ensure the file-issue dedup cache and gh issue list search use a stable fingerprint that groups LLM-substrate failures across pipelines. Consider adding a substrate-health alert class to the issue template with a recognizable signature. The dedup system already exists — it just needs substrate-specific fingerprinting."
+    },
+    {
+      "id": "R10",
+      "category": "compatibility",
+      "title": "monitor.py ~2024 lines — decomposition ordering conflict with #2261 slice-7",
+      "severity": "low",
+      "likelihood": "high",
+      "description": "orchestrator/overseer/monitor.py is 2024 lines. Issue #2261 slice-7 is designated for its decomposition. This issue should NOT re-decompose monitor.py. If this issue lands cleanup changes (file_filer deletion, new check additions) to monitor.py while the decomposition slice is in-flight, merge conflicts are inevitable.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py"
+      ],
+      "mitigation": "Coordinate ordering with #2261 slice-7. If this issue lands first, cleanup changes must be surgical (delete file_filer imports/handlers) and avoid structural refactoring. If #2261 slice-7 lands first, this issue's slices target the decomposed submodules. The task planner must explicitly order this dependency."
+    }
+  ],
+  "top_3_risks": [
+    {
+      "id": "R1",
+      "title": "Generation token missing from health endpoint",
+      "summary": "No orchestrator generation/boot identity primitive exists. This is a PREREQUISITE for recycle detection. Must be implemented as a new primitive before or alongside the overseer overhaul. Blocking for any slice that depends on recycle detection."
+    },
+    {
+      "id": "R4",
+      "title": "Slice-DAG health checks lack slice affinity",
+      "summary": "The overseer cannot distinguish between slices in concurrent implement phases. Stall detection, dedup, escalation, and alert attribution are all slice-blind. This is a cross-cutting architectural gap that touches the consensus tracker, health checks, and alert emission."
+    },
+    {
+      "id": "R2",
+      "title": "_run_pipeline thread has no liveness probe",
+      "summary": "A dead _run_pipeline thread leaves the pipeline in RUNNING with no automated detection. The only signal (wedged_no_successor) is MCP-only and not consumed by the overseer. New Tier-1 check or thread heartbeat is required."
+    }
+  ],
+  "blocking_concerns": [],
+  "feedback": "",
+  "human_review_flags": [
+    "R1: Generation token design — operator must validate the primitive (pod UID vs UUID) and confirm the health endpoint schema change is acceptable across all consumers (kubelet probes, dashboards, mcp__egg__check_health).",
+    "R4: Slice-DAG overseer affinity — operator must validate that per-slice overseer fan-out is the right granularity vs. a single slice-aware overseer. Cost implications of N-times more health checks per poll cycle.",
+    "R6: Repetition detector threshold — the cq-1 decision requires a new content-similarity primitive. Operator must validate the threshold (what % repetition triggers escalation) and the hash window size."
+  ],
+  "dependency_ordering_notes": [
+    "R1 (generation token) MUST land before or alongside recycle-detection slices. It is a prerequisite primitive, not optional.",
+    "R5 (issue_filer deletion) must be a single atomic PR — partial deletion leaves broken imports. Schedule it early to reduce the surface area for subsequent slices.",
+    "R10 (monitor.py decomposition) must coordinate with #2261 slice-7. The task planner must explicitly declare ordering: this issue first (surgical cleanups) or decomposition first (then this issue targets decomposed modules)."
+  ],
+  "external_risks_assessed": false,
+  "external_risks_note": "No third-party dependency upgrades or new external service integrations identified in the issue scope. The LLM substrate health monitoring (R9) uses existing Anthropic API integration patterns; no new SDK versions or API deprecations to research.",
+  "methodology": "Code-first analysis: explored overseer subsystem (monitor.py 2024 lines), health endpoint (health.py:66-136), health checks (6 Tier-1 checks), slice scheduler (slice_scheduler.py), SelfMonitor class, issue_filer dead code path, and restart mechanics. Cross-referenced with refine-phase HITL decisions (cq-1 through cq-3, Q1 feedback) to identify prerequisite primitives. No external dependency research needed — the change is purely internal infrastructure."
+}
