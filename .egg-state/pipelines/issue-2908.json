@@ -193,10 +193,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should WS8 (collapse the 28 agent-facing MCP tools to CLI) land in this issue, or be split to a follow-up after the core event-pump is proven?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Land WS8 in this issue (collapses prompt + action surface in one pass; larger blast radius but more deletion)",
+        "Split WS8 to a follow-up (smaller core change; ships event-pump first, MCP collapse after the new control flow is validated in production)",
+        "Land WS8 partially in this issue (only the net-new CLI commands needed by WS3 — get-state, list-blocking, get-context — and the deletion of MCP tools with existing CLI parity; defer prose-bearing propose/ack/nack collapse to a follow-up so the #2741 stdin/file-path rule can be designed separately)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T20:25:36.243427Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-31T19:44:16.923334Z",
-  "updated_at": "2026-05-31T20:25:33.433140Z",
+  "updated_at": "2026-05-31T20:25:36.254337Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -209,7 +228,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
