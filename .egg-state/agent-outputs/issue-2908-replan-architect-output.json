@@ -343,6 +343,36 @@
         "(b) Auto-fail if per-pipeline tokens exceed N or per-event wall-clock exceeds M."
       ],
       "rationale": "Operator chose (a). Both routes are measured cache-clear (>=60min TTL); the residual risk is per-event invocation cost relative to today's persistent-session cost. WS0 produces a measurement report; the operator reads it and approves the rest of the work."
+    },
+    {
+      "id": "d-9",
+      "decision": "Cache measurements MUST be re-taken under the real egg-agent harness, not raw `claude`",
+      "options_considered": [
+        "(a) Re-measure under `python3 -m egg_agent` with the production BRC preamble (_build_brc_preamble) and the 31 MCP tool schemas in the prefix (chosen — risk_analyst BC-1).",
+        "(b) Trust the WS7 comment-thread numbers from raw `claude --output-format json` and skip re-measurement.",
+        "(c) Defer measurement to slice-8 integration validation."
+      ],
+      "rationale": "The egg-agent prefix layers (i) `_build_brc_preamble` (orchestrator/routes/pipelines.py:12348+, ~600+ lines of rendered prompt), (ii) the per-role mission / rules text from sandbox/agent-config/rules/, (iii) the 31 MCP tool schemas registered via sandbox/egg_agent_tools/tools/__init__.py:TOOL_REGISTRY. The WS7 raw-`claude` numbers are not representative because the prefix shape is materially different. Option (a) keeps the cost gate honest. Option (c) is too late — if cache fails out under the real prefix, every subsequent slice's economics change."
+    },
+    {
+      "id": "d-10",
+      "decision": "Per-event prompt MUST be passed via shlex.quote argv OR stdin/tempfile (#2741 constraint)",
+      "options_considered": [
+        "(a) shlex.quote-applied argv mirroring consensus_wrapper.py:759-760's existing pattern (chosen as primary).",
+        "(b) stdin / tempfile path (chosen as acceptable alternative; safer for large payloads).",
+        "(c) Naive bash variable substitution — REJECTED."
+      ],
+      "rationale": "Per-event prompts contain LLM-authored prose (NACK reasons, files_reviewed lists, memory snapshots). Bash's `bash -c \"$VAR\"` interprets backticks / `$()` / etc., which is exactly the corruption #2741 mitigated for the EggContract tool surface. The new event-pump regenerates the prompt every iteration from BRC payloads, so the constraint binds every cycle. Option (c) reintroduces #2741. A regression test injecting `$`, backtick, single/double quote, and newline must be added to the event-pump test suite (risk_analyst BC-2)."
+    },
+    {
+      "id": "d-11",
+      "decision": "Durable safety budget save has explicit success + partial-failure semantics",
+      "options_considered": [
+        "(a) Typed exception on `git push` failure; safety-budget consumer falls back to in-memory snapshot + OVERSEER_ALERT; continues wait-loop (chosen — risk_analyst BC-3).",
+        "(b) Best-effort save (today's StateStore pattern) — caller can't tell if the durable write made it.",
+        "(c) Block the wrapper until push succeeds — risk wedging the pipeline on a transient git-remote outage."
+      ],
+      "rationale": "The safety-budget consumer (the next-action endpoint + wrapper) needs to know whether the decremented budget is durable. Option (b) is fine for HITL decisions (which retry on next save) but wrong for a budget that gates HITL escalation. Option (c) makes a transient remote outage indistinguishable from a host crash. Option (a) preserves liveness AND surfaces the durability gap via OVERSEER_ALERT so the operator can act if pushes start failing systemically. Bounded retry policy documented inline; unit tests cover both paths in orchestrator/tests/test_state_store.py."
     }
   ],
 
@@ -447,6 +477,18 @@
     {
       "risk": "Sandbox entrypoint at sandbox/entrypoint.py:2083-2206 runs the wrapper as ONE subprocess.run. If the new event-pump wrapper wants per-event agent invocations to be isolated subprocesses (not children-of-children), the entrypoint may need to be aware.",
       "mitigation": "It already is: subprocess.run on the bash script; the script's `python3 -m egg_agent` invocations are normal child processes. No entrypoint change needed unless we want process-group cleanup semantics, which is a separate concern."
+    },
+    {
+      "risk": "(risk_analyst BC-1) Cache-survival numbers in the issue body's WS7 measurements were taken with raw `claude --output-format json`, not via `python3 -m egg_agent`. The egg prefix (BRC preamble + role rules + 31 MCP schemas) is larger and structurally different; cache hit rates may not transfer.",
+      "mitigation": "Slice-1 spike re-measures under the production harness BEFORE any later slice gates on the numbers. Slice-7 (prompt collapse) explicitly does NOT depend on raw-`claude` measurements — its prompt changes happen on top of slice-1's harness-real numbers."
+    },
+    {
+      "risk": "(risk_analyst BC-2 / #2741) Per-event prompt regeneration introduces a NEW shell-prose corruption surface — every iteration the bash event-pump renders a prompt from LLM-authored payloads (NACK reasons, memory text). One naive variable substitution would reintroduce the #2741 backtick/$()/$VAR injection class.",
+      "mitigation": "Decision d-10 hard-requires shlex.quote argv OR stdin/tempfile; regression test mandated in slice-5 with adversarial shell-metachar payloads."
+    },
+    {
+      "risk": "(risk_analyst BC-3) Durable-save partial-failure semantics. A `git push` failure during safety-budget decrement leaves an ambiguous gap between in-memory state and remote state.",
+      "mitigation": "Decision d-11 splits the call into success + typed-exception paths; OVERSEER_ALERT on failure; in-memory fallback keeps the wrapper alive. Bounded retry documented in the function docstring."
     }
   ],
 

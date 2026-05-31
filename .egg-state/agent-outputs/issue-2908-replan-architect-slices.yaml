@@ -6,14 +6,28 @@ slices:
       Throwaway prototype proving the deterministic event-pump reaches BRC
       consensus without restart churn on the #2906 repro (issue-2270 on
       qwen3.7-max). Instrument per-event token spend (Anthropic via
-      AgentResult.cost_usd, Qwen via config/litellm/cost_callback.py) and
-      per-event wall-clock across a realistic worst-case BRC idle
+      AgentResult.cost_usd, Qwen via config/litellm/cost_callback.py
+      stdout captured by `kubectl logs` against the litellm pod — NOT
+      `~/.local/state/clm/cost-*.json` which is host-developer-only)
+      and per-event wall-clock across a realistic worst-case BRC idle
       (reviewer parked ~7-8 min while producer addresses a NACK).
-      Deliverable: measurement report under .egg-state/agent-outputs/
-      that gates the rest of the work per operator feedback Q1
-      (instrument only, no auto-fail). No production code change beyond
-      a small hook in cost_callback.py if/only if needed to surface
-      per-event attribution.
+      HARD MEASUREMENT CONSTRAINT (risk_analyst BC-1): the
+      cache_read_input_tokens / cache_creation numbers MUST come from
+      actual `python3 -m egg_agent` invocations under the new
+      event-pump prototype with the production BRC preamble (assembled
+      via orchestrator/routes/pipelines.py::_build_brc_preamble) and
+      the 31 MCP tool schemas registered via
+      sandbox/egg_agent_tools/tools/*. Raw `claude --output-format
+      json` measurements from the WS7 issue-body comments are NOT
+      sufficient because the egg prefix layers are larger and
+      structurally different — they must be re-measured under the
+      real harness before any later slice (especially slice-7 prompt
+      collapse) is gated on the numbers. Deliverable: measurement
+      report under .egg-state/agent-outputs/ that gates the rest of
+      the work per operator feedback Q1 (instrument only, no
+      auto-fail). No production code change beyond a small hook in
+      cost_callback.py if/only if needed to surface per-event
+      attribution.
     # root slice — omit dependencies
   - id: 2
     name: |-
@@ -60,6 +74,19 @@ slices:
       pattern at orchestrator/routes/decisions.py:77-200. Tests must
       cover host-death recoverability — kill the orchestrator
       mid-cycle, restart, verify counter + parked decision survive.
+      DURABILITY PARTIAL-FAILURE SEMANTICS (risk_analyst BC-3): the
+      sync-flush variant of StateStore.save_pipeline (or a new
+      `_save_pipeline_durable`) must specify BOTH the success path
+      (returns only after `git push` succeeds) AND the
+      partial-failure path. On `git push` failure: raise a typed
+      exception (e.g. `DurableSaveFailed`) — the safety-budget
+      consumer (the wrapper / next-action endpoint) handles this by
+      emitting an OVERSEER_ALERT and falling back to an in-memory
+      budget snapshot, continuing the wait-loop. Do NOT exit the
+      wrapper on partial failure. Bounded retry policy documented in
+      the function's docstring. Unit tests in
+      orchestrator/tests/test_state_store.py must cover both paths
+      (push-succeeds and mock push-failure).
     dependencies: slice-3
   - id: 5
     name: |-
@@ -88,11 +115,23 @@ slices:
       exhaustion). Add `--memory-file PATH` and `--event-json STRING`
       flags to `python3 -m egg_agent`; behaviour with neither flag
       MUST remain identical to today (legacy regression guard).
-      Tests pivot from restart-semantics
-      (test_consensus_wrapper.py, test_consensus_polling.py,
-      test_consensus_race_on_exit.py, test_consensus_timeout_recheck.py,
-      test_brc_nack_iteration.py, test_producer_death_alert.py,
-      test_agent_exits_recorded.py) to event-pump semantics.
+      SHELL-PROSE CORRUPTION GUARD (risk_analyst BC-2, #2741): the
+      per-event prompt + event-json + memory snapshot are all
+      LLM-authored prose (NACK reasons, files_reviewed lists,
+      reviewer reasoning); the new event-pump template MUST pass
+      them to `python3 -m egg_agent` either (a) via shlex.quote-
+      applied argv (mirroring consensus_wrapper.py:759-760's existing
+      `shlex.quote(prompt_text)` pattern) OR (b) via stdin / a
+      tempfile path. A regression test in
+      orchestrator/tests/test_consensus_wrapper.py (renamed for the
+      event-pump) must inject a prompt + event payload containing
+      $, backtick, single-quote, double-quote, newline and assert
+      the agent receives the payload byte-identical. Tests pivot
+      from restart-semantics (test_consensus_wrapper.py,
+      test_consensus_polling.py, test_consensus_race_on_exit.py,
+      test_consensus_timeout_recheck.py, test_brc_nack_iteration.py,
+      test_producer_death_alert.py, test_agent_exits_recorded.py)
+      to event-pump semantics.
     dependencies: slice-4
   - id: 6
     name: |-
