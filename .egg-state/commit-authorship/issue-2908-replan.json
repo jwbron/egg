@@ -7,6 +7,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "1f1c946a2be4ab9cf90f5515e0f94da6a03c66a2": {
+      "branch": "egg/issue-2908-replan/work",
+      "pipeline_id": "issue-2908-replan",
+      "registered_at": "2026-05-31T22:40:02.409369+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "52c9a91d7184d51c7ccb078ba341e622bf26bc7d": {
       "branch": "egg/issue-2908-replan/work",
       "pipeline_id": "issue-2908-replan",
