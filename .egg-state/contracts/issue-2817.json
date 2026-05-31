@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Superseded by cq-6 (decision-7), which the operator answered 'yes, update them'. Resolve cq-1 consistently \u2014 update the stale #2261 references \u2014 and defer slice packaging (docs-only-up-front vs inline-per-slice vs hybrid) to the planner; do not pre-commit a packaging shape here.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:21:59.969758Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a Submodule seam table to sandbox/CLAUDE.md and create shared/CLAUDE.md with a seam table; sandbox/entrypoint.py, sandbox/egg_lib/orch_cli.py, and shared/egg_contracts/checkpoint_cli.py each get a seam-table row when they decompose (mirrors orchestrator/CLAUDE.md and gateway/CLAUDE.md)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:22:26.079321Z",
       "debounce_until": null
     },
     {
@@ -103,10 +103,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: #2569 has been CLOSED by the operator and shared/egg_contracts/plan_parser.py is now IN SCOPE of this pipeline (#2817), no longer tracked separately. #2817 owns all 17 allowlisted files including plan_parser.py \u2014 the planner must add plan_parser.py as a full decomposition target (the refine draft's 'tracked under #2569, not in scope' exclusion is now void). Closing criterion: #2817 closes when all 17 files are decomposed and the allowlist files: map is empty; there is no remaining external dependency on #2569.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:22:52.033159Z",
       "debounce_until": null
     },
     {
@@ -131,10 +131,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Update the pattern doc to reflect the relaxation (add a short subsection explaining that scenario-organized test suites may stay topical and that the select_tests reference is intentionally not retrofit; update the Pre-merge checklist accordingly)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:23:17.730319Z",
       "debounce_until": null
     },
     {
@@ -164,10 +164,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Fix both, reconciled with the cq-3 scope change. phases.py: retag the issue: field and comment from #2261 to #2817. plan_parser.py: since #2569 is now closed and plan_parser.py is in-scope of #2817, retag #2548 to #2817 (not #2569) for as long as the entry exists \u2014 and the entry is then removed entirely when plan_parser.py decomposes under this pipeline. Lands in whichever slice touches the allowlist first.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:23:17.822382Z",
       "debounce_until": null
     },
     {
@@ -192,10 +192,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes, update them as part of this work (planner picks slice packaging \u2014 separate docs-only slice, inlined per slice, or some hybrid)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T00:23:17.830712Z",
       "debounce_until": null
     }
   ],
