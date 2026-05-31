@@ -9,15 +9,286 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Incomplete-consensus deferral is effectively unbounded because agents in tool-call loops emit activity without progress. Should we impose a hard absolute time cap on a single incomplete-consensus session, after which escalation is unconditional?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hard cap (e.g. 2 hours) \u2014 unconditional escalation regardless of activity",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Soft cap with repetition detector \u2014 escalate if recent logs are >N% repetitive content",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No cap \u2014 keep activity-based deferral as-is",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "For LLM substrate health (sustained Anthropic 5xx / rate-limit across calls), should the overseer diagnose this per-pipeline from its own call-failure rate, or consult a cluster-wide signal to prevent N pipelines filing N duplicate issues?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-pipeline inference \u2014 aggregate this pipeline's failures over a sliding window",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Cluster-wide signal \u2014 poll a shared cache / status endpoint",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 escalate distinctly only when correlated with cluster-wide signal",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "The orchestrator-side action==issue branch (monitor.py:665-674) and the issue_filer.py module it calls are reachable in principle (the Sonnet decision maker can emit the issue action), but production filing has lived sandbox-side since #1962. What should the planner do with this orphaned/fallback path?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Delete the branch entirely \u2014 the sandbox-side egg-orch overseer file-issue path is authoritative",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-route the branch through the sandbox-side CLI \u2014 keep orchestrator-side visibility but canonicalize dedup and templating",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Preserve as an explicit fallback \u2014 document the fallback and keep both paths under active test coverage",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-31T04:46:02.273198Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Incomplete-consensus deferral is effectively unbounded because agents in tool-call loops emit activity without progress. Should we impose a hard absolute time cap on a single incomplete-consensus session, after which escalation is unconditional?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hard cap (e.g. 2 hours) \u2014 unconditional escalation regardless of activity",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Soft cap with repetition detector \u2014 escalate if recent logs are >N% repetitive content",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No cap \u2014 keep activity-based deferral as-is",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Incomplete-consensus deferral is effectively unbou...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T04:46:02.763066Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Does the orchestrator currently expose a persistent generation token (e.g., pod UID or boot timestamp) in its health-status response, or must this issue define and implement that primitive as a prerequisite for the overseer's recycle-detection logic?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 1 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T04:46:03.258735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "For LLM substrate health (sustained Anthropic 5xx / rate-limit across calls), should the overseer diagnose this per-pipeline from its own call-failure rate, or consult a cluster-wide signal to prevent N pipelines filing N duplicate issues?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-pipeline inference \u2014 aggregate this pipeline's failures over a sliding window",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Cluster-wide signal \u2014 poll a shared cache / status endpoint",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 escalate distinctly only when correlated with cluster-wide signal",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: For LLM substrate health (sustained Anthropic 5xx ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-31T04:54:48.650815Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "The orchestrator-side action==issue branch (monitor.py:665-674) and the issue_filer.py module it calls are reachable in principle (the Sonnet decision maker can emit the issue action), but production filing has lived sandbox-side since #1962. What should the planner do with this orphaned/fallback path?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Delete the branch entirely \u2014 the sandbox-side egg-orch overseer file-issue path is authoritative",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Re-route the branch through the sandbox-side CLI \u2014 keep orchestrator-side visibility but canonicalize dedup and templating",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Preserve as an explicit fallback \u2014 document the fallback and keep both paths under active test coverage",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The orchestrator-side action==issue branch (monito...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Does the orchestrator currently expose a persistent generation token (e.g., pod UID or boot timestamp) in its health-status response, or must this issue define and implement that primitive as a prerequisite for the overseer's recycle-detection logic?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
