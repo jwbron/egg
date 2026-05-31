@@ -45,12 +45,14 @@ slices:
       (b) `egg-orch brc list-blocking` (handler `brc_list_blocking`
       at sandbox/egg_agent_tools/handlers/brc.py:726-740; backs onto
       the orchestrator status endpoint whose `blocking_agents` list
-      is computed inline in PeerConsensusTracker.get_state at
-      orchestrator/peer_consensus.py:1594-1626);
+      comes from PeerConsensusTracker.get_state — method def at
+      orchestrator/peer_consensus.py:1637; the `blocking_agents`
+      computation it returns is the comprehension at :1594-1626);
       (c) `egg-orch phase get-context` (handler at
       sandbox/egg_agent_tools/handlers/phase.py:139);
-      (d) `egg-orch phase get-assigned-tasks` (handler at
-      sandbox/egg_agent_tools/handlers/phase.py);
+      (d) `egg-orch phase get-assigned-tasks` (handler
+      `phase_get_assigned_tasks` at
+      sandbox/egg_agent_tools/handlers/phase.py:193);
       (e) Extension to `egg-orch consensus status` (handler
       `brc_get_state` at sandbox/egg_agent_tools/handlers/brc.py:679+
       backs onto orchestrator-side `/api/v1/pipelines/<pid>/status`)
@@ -213,14 +215,37 @@ slices:
       (b) Delete per cq-4: MAX_CONSENSUS_RESTARTS at
       consensus_wrapper.py:38, _RECOVERY_SYSTEM_PROMPT at :64-99,
       _RECOVERY_USER_PROMPT at :102-105, check_confirmed_and_wait
-      and its SSE consumer at :397-548 (the curl SSE machinery
-      :405-501 specifically), the restart loop at :555-695, the
-      recovery-prompt re-templating at :614-633, the terminal
-      exit-1 at :697-712.
-      (c) Delete sandbox/egg_agent_tools/handlers/message.py
-      message_wait_loop body at :267-432 (the wrapper-side wait is
-      the only wait now). The lower-level message_wait at :81-172
-      STAYS — it backs the wait CLI the wrapper invokes.
+      function whole at :397-548 (its curl SSE consumer block
+      against `/api/v1/pipelines/<pid>/stream` is at :419-501;
+      the :397-418 prologue is function setup/comments), the
+      restart loop at :555-695, the recovery-prompt re-templating
+      at :614-633, the terminal exit-1 at :697-712.
+      (c) Strip ONLY the heartbeat machinery from
+      sandbox/egg_agent_tools/handlers/message.py
+      `message_wait_loop` while preserving its cursor-threaded
+      core (reviewer_plan v2 blocker — option (c) minimum-blast-
+      radius). Specifically: DELETE the heartbeat-emission block at
+      :306-347 (the `pipeline_id_hb` / `role_hb` capture, `_tick`
+      closure, `start_hb(_tick, hb_interval)` autostart); DELETE
+      the `stop_hb()` + final-WORKING-heartbeat block at :421-432
+      inside the `finally`; DELETE the related helpers
+      `_default_emit_wait_loop_heartbeat` at :175-231 and
+      `_start_wait_loop_heartbeat` at :234-264, plus the
+      `_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS = 60.0` constant at :47.
+      KEEP the cursor-threaded loop at :349-420 — this is the
+      #2323 cursor-threading invariant slice-5(b) explicitly cites
+      as preserved, AND the body that `cmd_message_wait_loop` at
+      sandbox/egg_lib/orch_cli.py:1779 still calls. The wrapper
+      takes over heartbeat emission via `egg-orch message
+      heartbeat` (60s cadence preserved by the wrapper's own
+      timer). NOTE WHY THIS MATTERS: deleting message_wait_loop
+      wholesale would break `egg-orch message wait-loop` (its CLI
+      shim at orch_cli.py:1695-1825 calls `_handlers.message_wait_loop`
+      at :1779) which slice-5(b) names as the wait primitive the
+      event-pump bash invokes. The lower-level `message_wait` at
+      :81-172 STAYS unchanged — it backs the single-shot
+      `egg-orch message wait` verb and the wait-loop's inner
+      iterations.
       (d) Rewire the 3-restart trigger arm in
       orchestrator/routes/pipelines.py:18100-18159 so the
       `_emit_producer_death_alert` call site is gated on

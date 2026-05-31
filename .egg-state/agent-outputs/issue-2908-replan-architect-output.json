@@ -252,9 +252,9 @@
       "orchestrator/consensus_wrapper.py:555-695 (restart loop with recovery-prompt re-templating)",
       "orchestrator/consensus_wrapper.py:614-633 (agent re-invocation with $RECOVERY_SYS as --system-prompt)",
       "orchestrator/consensus_wrapper.py:697-712 (terminal 3-restart-exhausted exit 1)",
-      "sandbox/egg_agent_tools/handlers/message.py:267-432 (message_wait_loop — the blocking handler) AND its in-loop cursor-threading at 402-404 AND its heartbeat plumbing at 313-347, 421-432. The lower-level message_wait at :81-172 STAYS (the new wrapper uses it via the existing CLI shim).",
+      "sandbox/egg_agent_tools/handlers/message.py: STRIP ONLY heartbeat machinery (reviewer_plan v2 blocker — minimum blast radius option). Delete :306-347 (heartbeat-emission block + start_hb autostart) and :421-432 (stop_hb + final WORKING in finally). KEEP the cursor-threaded loop body at :349-420 (the #2323 invariant) AND keep `message_wait_loop` callable from `cmd_message_wait_loop` at sandbox/egg_lib/orch_cli.py:1779. Deleting the function wholesale would break the wrapper's `egg-orch message wait-loop` invocation (the very wait primitive slice-5(b) cites). The lower-level message_wait at :81-172 also stays.",
       "sandbox/egg_agent_tools/handlers/message.py:47 (_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS) — constant moves to wrapper",
-      "sandbox/egg_agent_tools/handlers/message.py:175-264 (_default_emit_wait_loop_heartbeat + _start_wait_loop_heartbeat) — replaced by wrapper-side bash + curl",
+      "sandbox/egg_agent_tools/handlers/message.py:175-264 (_default_emit_wait_loop_heartbeat + _start_wait_loop_heartbeat) — replaced by wrapper-side `egg-orch message heartbeat` invocation at 60s cadence",
       "orchestrator/routes/pipelines.py:18100-18159 (the 3-restart-trigger arm only — the function _emit_producer_death_alert at :15310-15390 STAYS as the safety-budget exhaustion callable)",
       "All consensus-wrapper tests gated on 3-restart semantics: orchestrator/tests/test_consensus_wrapper.py, test_consensus_polling.py, test_consensus_race_on_exit.py, test_consensus_timeout_recheck.py, test_brc_nack_iteration.py, test_producer_death_alert.py, test_agent_exits_recorded.py (incrementally replaced with event-pump tests)"
     ],
