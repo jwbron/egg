@@ -7,6 +7,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
     },
+    "5515a1299dbf456776f578b0c33e04a58d772113": {
+      "branch": "egg/issue-2908/work",
+      "pipeline_id": "issue-2908",
+      "registered_at": "2026-05-31T19:59:18.034460+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
+    },
     "86b604fb8a0105a5286f3c82212c17032f134a08": {
       "branch": "egg/issue-2908/work",
       "pipeline_id": "issue-2908",
