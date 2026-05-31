@@ -33,7 +33,7 @@ The gateway is a trusted sidecar that sits between every agent and the outside w
 - **No merging.** The merge endpoint doesn't exist. There's no prompt saying "don't merge"; the capability is simply absent from the agent's world.
 - **Phase-locked operations.** Every git/gh operation is validated against the pipeline's current SDLC phase. An agent in the plan phase physically cannot push code; an agent implementing one slice cannot rewrite the contract.
 - **Branch ownership.** Agents may only push to `egg/`-prefixed branches (or branches with an open egg-authored PR). Role-based file restrictions reject pushes that touch protected paths with `403 restricted_path_modified`.
-- **Network isolation.** In private mode (default) the sandbox reaches the Anthropic API and nothing else, enforced by a Squid proxy and Cilium NetworkPolicies. In public mode, all external access is proxied and audited through the gateway.
+- **Network isolation.** Each pipeline's mode is determined by the repo's GitHub visibility: private repos get private mode (the sandbox reaches the Anthropic API and nothing else, enforced by a Squid proxy and Cilium NetworkPolicies); public repos get public mode (all external access is proxied and audited through the gateway).
 - **Bounded Jira/Confluence access.** Optional, private-mode-only gateway wrappers expose read verbs (ticket/page reads, JQL/CQL search) plus a bounded write extension (create/edit ticket, add comment, create link), gated by a project/space allowlist with per-verb schemas and response redaction.
 
 This is zero-trust architecture applied to AI agents. The agent doesn't need to be trustworthy because the environment is structurally safe. See [Capability Removal](docs/design/capability-removal.md) for the design philosophy and the [Gateway README](gateway/README.md) for the policy surface.
@@ -80,10 +80,11 @@ Detect anomaly (stall, loop, error, off-track behavior)
     ├─→ Restart agent: stop and respawn the stuck agent (preserves worktree, up to 2x)
     ├─→ HITL escalation: queue a decision for human review
     ├─→ Restart phase (HITL): restart all phase agents after human approval
-    └─→ File a diagnostic GitHub issue with full context
+    ├─→ File a diagnostic GitHub issue with full context
+    └─→ Slack notification to the team
 ```
 
-Health monitoring is **two-tier**. Tier 1 is deterministic and LLM-free: orchestrator-side tripwires for heartbeat timeouts and stalls (longer thresholds during the implement phase to accommodate deep work). Tier 2 is the overseer agent itself, which reasons about ambiguous situations using a Sonnet-class decision-maker and escalates to an Opus-class advisor only when an anomaly *and* a Tier-1 alert are active simultaneously. Infrastructure errors (git failures, gateway rejections, permission denials) fast-path straight to a human-in-the-loop decision.
+Health monitoring is **two-tier**. Tier 1 is deterministic and LLM-free: orchestrator-side tripwires for heartbeat timeouts and stalls (longer thresholds during the implement phase to accommodate deep work). Tier 2 is the overseer agent itself: a Haiku classifier runs every poll cycle to flag anomalies, a Sonnet-class decision-maker reasons about ambiguous situations and chooses a corrective action, and an Opus-class advisor is consulted only when a Haiku-flagged anomaly *and* a Tier-1 alert are active simultaneously. Infrastructure errors (git failures, gateway rejections, permission denials) fast-path straight to a human-in-the-loop decision.
 
 The overseer is phase-scoped: spawned at the start of each phase and torn down when that phase completes, advances, or fails, giving each phase a fresh instance with no accumulated state. If it crashes mid-phase, the orchestrator respawns it (up to 3x per phase). See [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md).
 
@@ -196,7 +197,7 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 |-----------|-----------|------|-------|
 | **Orchestrator** | `egg-system` | Pipeline state, slice scheduling, BRC consensus, overseer, HITL, MCP server (`:9850`) + REST API (`:9849`) | Trusted |
 | **Gateway** | `egg-system` | Credential injection, phase/branch/path enforcement, network isolation, Jira/Confluence wrappers (`:9848`, proxy `:3129`) | Trusted |
-| **LiteLLM** | `egg-system` | Optional proxy for routing individual agent roles to non-Claude models (`:4000`); no-op by default | Trusted |
+| **LiteLLM** | `egg-system` | Optional proxy for routing individual agent roles to non-Claude models (`:4000`); inert by default (no agent role routes to it unless configured) | Trusted |
 | **Sandbox** | `egg-agents` | Untrusted agent Jobs: Claude Code via the Agent SDK, per-agent worktree, zero credentials | Untrusted |
 
 ## Driving Pipelines: the MCP Server
