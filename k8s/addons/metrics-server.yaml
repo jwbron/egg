@@ -1,0 +1,276 @@
+# metrics-server (egg-vendored)
+#
+# Source: https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
+# Pinned version: v0.8.1  (sha256 of upstream components.yaml:
+#   4a672c4891902573a3ff753cece5de1bf1f55dd053403dfec39df9d1636b7ff1)
+#
+# Provides the metrics.k8s.io API that backs `kubectl top nodes/pods` and any
+# HPA. k3s ships its own bundled metrics-server, but `make k3s-setup` disables
+# it (`--disable=metrics-server`) and deploys THIS manifest instead. See the
+# egg modifications below for why the bundled one cannot work here.
+#
+# === egg modifications vs upstream v0.8.1 (search "egg:") ===
+# Under our Cilium datapath (kubeProxyReplacement=false, legacy host routing,
+# chained portmap — see scripts/install-cilium.sh), a metrics-server pod on the
+# pod network cannot complete a TCP handshake to the kubelet on the node's
+# InternalIP:10250 — the scrape fails with "connect: connection refused" and
+# the pod never becomes Ready. A perpetually-unavailable v1beta1.metrics.k8s.io
+# APIService then wedges the namespace controller's discovery step, leaving
+# every deleted namespace stuck in `Terminating` indefinitely (this is the
+# original reason #2703 disabled metrics-server outright).
+#
+# Fix: run metrics-server in the host network namespace, where it reaches the
+# kubelet exactly as the host itself does (`curl -k https://<nodeIP>:10250` —
+# returns 401, i.e. the socket is reachable). Four coupled changes:
+#   1. hostNetwork: true + dnsPolicy: ClusterFirstWithHostNet
+#      (the latter so the pod still resolves the in-cluster API server via
+#      CoreDNS while sharing the host netns).
+#   2. --secure-port 10250 -> 4443 (and the matching containerPort): on
+#      hostNetwork the pod shares the node's ports, and 10250 is already held
+#      by the kubelet. 4443 is free. The port is still named "https", so the
+#      Service targetPort and the liveness/readiness probes follow it
+#      unchanged.
+#   3. strategy: Recreate (was rollingUpdate with maxUnavailable:0). Upstream's
+#      rolling strategy + maxUnavailable:0 means the controller brings up the
+#      new pod before deleting the old one. With hostNetwork + single replica
+#      on one node, the new pod would try to bind 0.0.0.0:4443 while the old
+#      one still holds it, CrashLoopBackOff forever, and the rollout would
+#      deadlock (maxUnavailable:0 also forbids evicting the old pod to make
+#      room). Recreate deletes-then-creates: bounded ~25s gap during rollouts,
+#      well below the namespace-controller's discovery window — the wedge only
+#      reopens if the APIService stays unavailable across a discovery cycle.
+#   4. --kubelet-insecure-tls: defense-in-depth against a future k3s release
+#      changing kubelet serving-cert provisioning (today k3s rotates kubelet
+#      certs signed by the cluster CA; if that flips back to self-signed,
+#      scrapes would start failing with `x509: certificate signed by unknown
+#      authority` and re-open the wedge). Security cost ~zero: --kubelet-
+#      insecure-tls skips server→client cert verification (metrics-server
+#      confirming the kubelet's identity), and on hostNetwork this is
+#      loopback-equivalent traffic on a single host — no realistic
+#      interception surface. (Client→server auth, metrics-server proving its
+#      identity to the kubelet via SA token, is unchanged and independent.)
+# Everything else is semantically equivalent to upstream v0.8.1 — the diff is
+# the four `egg:` markers below (some upstream lists were re-indented by the
+# editor, which is YAML-cosmetic; for a clean diff against a newer upstream
+# release, normalize indentation first).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    k8s-app: metrics-server
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+  name: system:aggregated-metrics-reader
+rules:
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: system:metrics-server
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/metrics
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: metrics-server
+    namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server:system:auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: metrics-server
+    namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: system:metrics-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:metrics-server
+subjects:
+  - kind: ServiceAccount
+    name: metrics-server
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+spec:
+  ports:
+    - appProtocol: https
+      name: https
+      port: 443
+      protocol: TCP
+      targetPort: https
+  selector:
+    k8s-app: metrics-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+spec:
+  # egg: explicit replicas:1 to make the rollout-strategy reasoning legible;
+  # under hostNetwork on a single node, two replicas would fight for the same
+  # host port. Pair with strategy:Recreate below.
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: metrics-server
+  # egg: Recreate (was rollingUpdate + maxUnavailable:0). See header for the
+  # full reasoning — short version: rolling update + hostNetwork + single
+  # replica deadlocks at the first rollout because the new pod can't bind the
+  # already-held host port. Recreate accepts a bounded ~25s gap instead.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        k8s-app: metrics-server
+    spec:
+      # egg: run in the host netns so the scraper can reach kubelet:10250
+      # under our Cilium datapath. dnsPolicy keeps cluster DNS working.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - args:
+            - --cert-dir=/tmp
+            # egg: 10250 is the kubelet's port; on hostNetwork we must move
+            # metrics-server's own serving port off it. 4443 is free.
+            - --secure-port=4443
+            # egg: defense-in-depth against future k3s kubelet-cert changes
+            # (see header). No-op today; prevents a silent x509 wedge tomorrow.
+            - --kubelet-insecure-tls
+            - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+            - --kubelet-use-node-status-port
+            - --metric-resolution=15s
+          image: registry.k8s.io/metrics-server/metrics-server:v0.8.1
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /livez
+              port: https
+              scheme: HTTPS
+            periodSeconds: 10
+          name: metrics-server
+          ports:
+            # egg: matches --secure-port=4443 above (named "https" so the
+            # Service targetPort and the probes resolve to it unchanged).
+            - containerPort: 4443
+              name: https
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      serviceAccountName: metrics-server
+      volumes:
+        - emptyDir: {}
+          name: tmp-dir
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: v1beta1.metrics.k8s.io
+spec:
+  group: metrics.k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: metrics-server
+    namespace: kube-system
+  version: v1beta1
+  versionPriority: 100

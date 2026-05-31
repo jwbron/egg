@@ -481,18 +481,22 @@ build: sync-venv-if-uv
 #   --flannel-backend=none: Cilium replaces flannel as the CNI dataplane.
 #   --disable-network-policy: Cilium owns NetworkPolicy enforcement; the
 #     k3s-builtin policy controller would otherwise conflict.
-#   --disable=metrics-server: egg does not use metrics-server. Under Cilium
-#     its pod cannot reach the kubelet on the node IP, so it never becomes
-#     Ready; the resulting perpetually-unavailable v1beta1.metrics.k8s.io
-#     APIService makes the namespace controller's discovery step fail,
-#     which wedges *all* namespace deletion (stuck Terminating forever).
+#   --disable=metrics-server: disables k3s's BUNDLED metrics-server, which
+#     runs on the pod network and under Cilium cannot reach the kubelet on
+#     the node IP — it never becomes Ready, and the resulting
+#     perpetually-unavailable v1beta1.metrics.k8s.io APIService makes the
+#     namespace controller's discovery step fail, wedging *all* namespace
+#     deletion (stuck Terminating forever). install-metrics-server.sh below
+#     deploys a hostNetwork variant that reaches the kubelet and works; see
+#     k8s/addons/metrics-server.yaml.
 k3s-setup:  ## Install k3s with Cilium CNI
 	@echo "Setting up k3s cluster..."
 	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
 	export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && \
 	scripts/install-cilium.sh && \
 	echo "Waiting for k3s node to be ready..." && \
-	kubectl wait --for=condition=Ready node --all --timeout=120s
+	kubectl wait --for=condition=Ready node --all --timeout=120s && \
+	scripts/install-metrics-server.sh
 	@echo "k3s cluster ready"
 
 k3s-secrets:  ## Create gateway secrets from ~/.config/egg/

@@ -58,13 +58,14 @@ kubectl get pods -n egg-system
 ```bash
 # What make k3s-setup does:
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
-scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
+scripts/install-cilium.sh          # downloads cilium-cli and runs `cilium install`
 # Waits for cluster to become ready
+scripts/install-metrics-server.sh  # deploys the hostNetwork metrics-server addon
 ```
 
 > **Why Cilium?** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies, which are required for agent network isolation. Cilium replaces Flannel and enforces the NetworkPolicies that prevent agents from reaching the internet directly. Calico filled this role until [#2703](https://github.com/jwbron/egg/issues/2703) — see that issue for the swap rationale.
 >
-> **Why `--disable=metrics-server`?** Under Cilium, the metrics-server pod cannot reach the kubelet on the node IP, so it never becomes Ready. The resulting perpetually-unavailable `v1beta1.metrics.k8s.io` APIService causes the namespace controller's discovery step to fail, which wedges all namespace deletion (namespaces become stuck in `Terminating` indefinitely). egg does not use metrics-server; disabling it avoids this hang with no functional loss.
+> **Why `--disable=metrics-server`?** This disables k3s's *bundled* metrics-server, which runs on the pod network and under Cilium cannot reach the kubelet on the node IP — it never becomes Ready, and the resulting perpetually-unavailable `v1beta1.metrics.k8s.io` APIService causes the namespace controller's discovery step to fail, wedging all namespace deletion (namespaces stuck in `Terminating` indefinitely). `scripts/install-metrics-server.sh` then deploys a **hostNetwork** variant ([`k8s/addons/metrics-server.yaml`](../../k8s/addons/metrics-server.yaml)) that shares the node's network namespace and reaches the kubelet exactly as the host does, so `kubectl top` works without re-triggering the wedge. (Prior to this, metrics-server was disabled outright in [#2703](https://github.com/jwbron/egg/issues/2703); it was believed unfixable under Cilium until the hostNetwork approach.)
 >
 > **Migrating from a pre-#2703 install:** in-place CNI swap on a live k3s cluster is not supported (host CNI binaries, conflists, CRDs, `tunl0`, and per-pod veth pairs persist after deleting the calico-node DaemonSet). Run `make k3s-teardown && make k3s-setup` for a clean install. `install-cilium.sh` will refuse if it detects leftover Calico state.
 >

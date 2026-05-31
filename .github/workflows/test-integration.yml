@@ -81,10 +81,12 @@ jobs:
         # state; the idempotent install-cilium.sh is safe to re-run
         # after k3s recovers.
         run: |
-          # --disable=metrics-server: egg doesn't use it, and under Cilium it
-          # never becomes Ready (its pod can't reach the kubelet on the node
-          # IP). The dead v1beta1.metrics.k8s.io APIService then wedges all
-          # namespace deletion, hanging test teardown and CI cleanup.
+          # --disable=metrics-server: disables k3s's BUNDLED metrics-server,
+          # which under Cilium can't reach the kubelet on the node IP, never
+          # becomes Ready, and whose dead v1beta1.metrics.k8s.io APIService
+          # wedges all namespace deletion (hanging test teardown / CI cleanup).
+          # install-metrics-server.sh below deploys a hostNetwork variant that
+          # works — see k8s/addons/metrics-server.yaml.
           curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
@@ -98,6 +100,8 @@ jobs:
           fi
           # Wait for node to be ready
           kubectl wait --for=condition=Ready node --all --timeout=120s
+          # Deploy egg's hostNetwork metrics-server (replaces the disabled bundled one)
+          scripts/install-metrics-server.sh
 
       - name: Import images into k3s
         # Flake guard (HITL Q1 of #2474): retry the image-import step

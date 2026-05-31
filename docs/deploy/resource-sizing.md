@@ -1,5 +1,7 @@
 # Pod resource sizing
 
+> **Requires `kubectl top`.** The sampling loops below depend on the metrics.k8s.io API. egg's k3s setup ships a hostNetwork metrics-server addon ([`k8s/addons/metrics-server.yaml`](../../k8s/addons/metrics-server.yaml), installed by `make k3s-setup`); without it, `kubectl top` and the snapshots in this doc cannot be reproduced.
+
 Resource requests and limits for the four pod types in the egg stack. The `gateway`, `orchestrator`, and `egg-sandbox-*` allocations were tuned against the observed telemetry below; the `litellm` row mirrors `k8s/base/litellm-deployment.yaml`, whose 2Gi memory limit was raised after an observed OOMKill in #2853. It postdates the snapshots below (so no sampled telemetry exists for it), but the OOMKill is the runtime signal behind the current limit. See #1888 / #1895 for the right-sizing initiative.
 
 ## Current allocations
