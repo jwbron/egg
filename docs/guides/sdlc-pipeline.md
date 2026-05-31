@@ -47,7 +47,7 @@ The pipeline enforces role-based field ownership in contracts:
 | **Reviewer** | `status`, `review_feedback`, `current_phase` | `commit`, task definitions |
 | **Human** | All fields | — |
 
-Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on draft PRs created during the implement phase.
+Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on the context PR opened by the orchestrator at the plan→implement boundary.
 
 ### 4. Human-in-the-Loop at Critical Points
 
@@ -62,24 +62,24 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │                           SDLC PIPELINE                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
-│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
-│  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │ ╎                │                  │                  │       │
-│        ▼ ╎                ▼                  ▼                  ▼       │
-│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐        ┌─────────┐  │
-│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
-│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │        │  MERGE  │  │
-│   └────┬────┘ ╎      └────┬────┘        └─────────┘        └─────────┘  │
-│        │      ╎           │                                             │
-│        ▼      ╎           ▼                                             │
-│   ┌─────────┐ ╎      ┌─────────┐                                        │
-│   │ HITL    │ ╎      │ HITL    │                                        │
-│   │ Approve │ ╎      │ Approve │                                        │
-│   └─────────┘ ╎      └─────────┘                                        │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
+│  │   REFINE    │───▶│    PLAN     │───▶│         IMPLEMENT           │  │
+│  │  (cycles)   │    │  (cycles)   │    │  (cycles; context PR opened │  │
+│  └─────────────┘    └─────────────┘    │   at phase start)           │  │
+│        │ ╎                │            └─────────────────────────────┘  │
+│        ▼ ╎                ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │                     │
+│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │                     │
+│   └────┬────┘ ╎      └────┬────┘        └─────────┘                     │
+│        │      ╎           │                  │                          │
+│        ▼      ╎           ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ HITL    │ ╎      │ HITL    │        │  HUMAN  │                     │
+│   │ Approve │ ╎      │ Approve │        │  MERGE  │                     │
+│   └─────────┘ ╎      └─────────┘        └─────────┘                     │
 │               ╎                                                         │
-│                                                                        │
+│                                                                         │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -124,7 +124,7 @@ Returns the current pipeline status for polling-based monitoring.
 
 Once the context PR is opened (up-front at the plan→implement boundary; see [#2777](https://github.com/jwbron/egg/issues/2777)), two additional fields appear in `data`:
 
-- `pr_url` — full GitHub URL of the created PR (e.g. `"https://github.com/owner/repo/pull/42"`)
+- `pr_url` — full GitHub URL of the context PR (e.g. `"https://github.com/owner/repo/pull/42"`)
 - `pr_number` — integer PR number parsed from the URL (e.g. `42`); omitted if the URL has an unexpected shape
 
 This avoids a separate `gh pr list` call by monitoring clients.
@@ -249,8 +249,7 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 |-------|---------|-------------------|---------------|
 | **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
-| **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract complete-task/complete-phase` | All checks pass (CI + PR review) |
-| **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
+| **Implement** | Execute tasks with CI and review feedback; context PR opened automatically at phase start | `git push`, `egg-contract complete-task/complete-phase` | All checks pass + human merge (terminal phase) |
 
 ### Multi-Reviewer Architecture
 
@@ -490,9 +489,11 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > `egg/<pipeline_id>/work → main`, so the head branch is derivable and
 > the program-level title and description reuse the standard
 > `pr.title` / `pr.description`. The only remaining context-PR field is
-> `pr.context_pr_number`. The v1.1 → v1.2 cut-over is a clean break:
-> in-flight contracts that still carry the removed fields fail to load,
-> and there is no backwards-compat shim (see the
+> `pr.context_pr_number`. Pre-1.2 contracts on disk load cleanly — a
+> Pydantic `model_validator(mode="wrap")`
+> (`Contract._migrate_schema_version_to_1_2`) strips the three removed
+> keys before constructing `PRMetadata` and bumps `schemaVersion` to
+> `"1.2"`; the new value is persisted on the next save (see the
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
 
 ### Role-Based Field Ownership
@@ -543,20 +544,19 @@ The SDLC pipeline automatically merges the latest main branch into the issue bra
    - Pulls the resolved changes and continues
    - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
 
-This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
+This ensures agents always work with the latest codebase and conflicts are resolved before work begins.
 
 ### Implement and PR-Based Review
 
 The implement phase uses PR-based automated code review:
 
-1. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
-2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
-3. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
+1. **Context PR opened** — At phase start, the orchestrator opens the context PR (`egg/<pipeline_id>/work → main`) with the plan metadata; no agent is spawned for this step
+2. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
+3. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
 4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the context PR
 6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-7. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
-8. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
+7. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 
 This approach provides:
 - Line-level code review comments visible to humans
@@ -872,7 +872,7 @@ This happens in the plan phase itself (before human approval) to provide early v
 
 **Plan pre-flight validation at plan→implement** (#2777): when `advance_phase` transitions from plan to implement (without `force=true`), the orchestrator runs a structural pre-flight check on the plan draft *before* the populate step. The check verifies that the plan contains a parseable `yaml-tasks` block, non-empty `pr.title` / `pr.description` / `pr.test_plan` fields, and a present `pr.manual_steps` key (an empty string is allowed — the contract default — but the key must exist in the YAML). If any field is missing the call returns **422** with `reason: preflight_invalid_plan` and a `missing_fields` list naming each absent field — so the operator sees the full set of issues in one response rather than discovering them one at a time. Passing `force=true` bypasses the pre-flight validator (useful when a plan draft is unrecoverable and the operator needs to unstick the pipeline manually). Infra failures (dependency import errors, worktree probe / draft-read `OSError`s) surface as **500** with `reason: preflight_unavailable` so the operator retries rather than mistaking infra trouble for a passing check; if the draft path is undeclared or the draft file is absent on disk, the validator skips silently and lets the populate step handle the gap.
 
-The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation. If neither the contract nor the plan draft on disk contains a `pr.title`, the PR falls through to a stub (issue title or pipeline ID) and is opened as a **draft** with a warning banner listing parse failures so reviewers can diagnose and repair before merging.
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to open the context PR at the plan→implement boundary. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation. The pre-flight validator above is the structural gate that ensures `contract.pr.title` is populated on the normal path. If the opener is reached with a missing or empty title — reachable when the validator silently skips (no plan draft on disk) *and* the plan-exit populate step fails to write `contract.pr`, or via `force=true` which bypasses both the validator and the canonical opener call — it raises `ContextPrCreationError(reason="missing_pr_metadata")`. On the canonical `advance_phase` path the orchestrator returns **HTTP 422** with `reason: context_pr_open_failed` and the pipeline remains in its prior phase (`PLAN`); on the runner-side soft-fail backstops the raise is logged and execution continues without a context PR, leaving the slice stack stranded on `egg/<pipeline_id>/work` with no integrating context PR. There is no stub-title fall-through on any path.
 
 ## Phase Checks
 
@@ -964,10 +964,10 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - Test check (required)
 - Auto-fixer (optional)
 
-**PR creation (auto-PR at plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777)):**
-- The terminal "PR phase" was **deleted** as a separate pipeline stage. The context PR (`egg/<id>/work → main`) is opened up-front at the plan→implement boundary, hard-required and idempotent (`GatewayClient.list_open_prs` pre-flight with client-side head+base filter). Per-slice PRs are opened inline by `create_slice_pr`, which uses `GatewayClient._lookup_open_pr` (server-side `gh pr list --head … --base … --limit 1` pre-flight; #2777 cq-8).
+**Context PR (opened at implement-phase start, #2777):**
+- The terminal "PR phase" was **deleted** as a separate pipeline stage; `IMPLEMENT` is now terminal. The context PR (`egg/<pipeline_id>/work → main`) is opened by the orchestrator at the plan→implement boundary via `_open_context_pr_at_implement_start` — no separate phase or agent is spawned for this. The open is hard-required and idempotent (`GatewayClient.list_open_prs` pre-flight with client-side head+base filter). Per-slice PRs are opened inline by `create_slice_pr`, which uses `GatewayClient._lookup_open_pr` (server-side `gh pr list --head … --base … --limit 1` pre-flight; #2777 cq-8).
 - The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a one-line pointer to the committed per-phase BRC history transcripts is included in the PR body (linked from `.egg-state/brc-history/`). See [Concurrent Execution — BRC History Link in PR Body](concurrent-execution.md#brc-history-link-in-pr-body) for details.
-- **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713).
+- **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (#1713).
 - If the up-front context-PR open fails (after the idempotent pre-flight returns no existing PR and `gh pr create` itself fails), the pipeline is marked **FAILED** immediately — there is no terminal back-stop because the open is hard-required up-front.
 
 ### Customizing Phase Checks
@@ -1614,6 +1614,8 @@ For pre-plan phase gates (refine→plan), there are no contract tasks yet to att
 ### Context-PR / Slice-PR State File Troubleshooting
 
 The PR phase as a separate pipeline stage was **deleted** in [#2777](https://github.com/jwbron/egg/issues/2777). BRC history, drafts and other `.egg-state/` artifacts now reach the context PR (`egg/<id>/work → main`) through the post-phase push points described in [Worktree State Synchronization](#worktree-state-synchronization) — one push at the end of each completed phase. There is no longer a separate "before PR creation" rewrite/push step. The per-phase write path itself (`_write_brc_history` → `_commit_statefiles_to_worktree` → `push_worktree_branch`) is unchanged; only the PR-phase wrapper that used to re-invoke it as a safety net is gone.
+
+Before opening the context PR at the plan→implement boundary, the orchestrator runs BRC history writing and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
