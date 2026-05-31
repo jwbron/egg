@@ -15940,7 +15940,10 @@ def _run_implement_phase_slices(
     Returns ``(exit_code, logs)`` where ``exit_code == 0`` means every
     slice reached CONFIRMED; non-zero means at least one slice failed.
     """
-    from orchestrator.slice_scheduler import SliceScheduler
+    try:
+        from orchestrator.slice_scheduler import SliceScheduler
+    except ImportError:
+        from slice_scheduler import SliceScheduler
 
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -16040,9 +16043,18 @@ def _run_implement_phase_slices(
 
     from egg_contracts.models import SliceStatus
 
-    from orchestrator import global_slice_admit
-    from orchestrator.peer_consensus import remove_peer_consensus_tracker
-    from orchestrator.state_store import get_pipeline_state_lock
+    try:
+        from orchestrator import global_slice_admit
+    except ImportError:
+        import global_slice_admit  # type: ignore[no-redef]
+    try:
+        from orchestrator.peer_consensus import remove_peer_consensus_tracker
+    except ImportError:
+        from peer_consensus import remove_peer_consensus_tracker  # type: ignore[no-redef]
+    try:
+        from orchestrator.state_store import get_pipeline_state_lock
+    except ImportError:
+        from state_store import get_pipeline_state_lock  # type: ignore[no-redef]
 
     def _persist_slice_status_complete(slice_id: str) -> None:
         """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
@@ -17117,11 +17129,18 @@ def _run_concurrent_phase_with_impasse_retry(
     the routing helper falls back to a contract-wide search for the
     impassed task.
     """
-    from orchestrator.impasse_routing import (
-        ImpasseAction,
-        collect_impasses,
-        route_impasses,
-    )
+    try:
+        from orchestrator.impasse_routing import (
+            ImpasseAction,
+            collect_impasses,
+            route_impasses,
+        )
+    except ImportError:
+        from impasse_routing import (  # type: ignore[no-redef]
+            ImpasseAction,
+            collect_impasses,
+            route_impasses,
+        )
 
     try:
         from egg_contracts.agent_roles import AgentRole as ContractAgentRoleEnum
