@@ -49,6 +49,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "b8dbd25252095b626667fc3523d7afbf3b9bc62c": {
+      "branch": "egg/issue-2817/work",
+      "pipeline_id": "issue-2817",
+      "registered_at": "2026-05-31T00:32:20.769835+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
+    },
     "ed1a916e8a8891b1afaa777044e6e7c90b14952a": {
       "branch": "egg/issue-2817/work",
       "pipeline_id": "issue-2817",
