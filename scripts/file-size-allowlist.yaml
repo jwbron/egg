@@ -52,19 +52,19 @@ files:
     issue: "2248"
   # On the egg/issue-2548/work merge target, slice-1's
   # extract_pr_context_metadata_from_yaml + ParseResult.pr_context_*
-  # plumbing (#2548) stacks on top of #2527's validate_task_role_alignment
+  # plumbing (#2817) stacks on top of #2527's validate_task_role_alignment
   # additions, pushing the file to ~1,530 lines. The slice-1 branch alone
   # is 1,388 lines (under the 1,500-line hard cap), but the merged
-  # work-branch state breaches the cap. Allowlisting under #2548 so the
-  # BRC implement-phase lint passes; decompose under #2569.
+  # work-branch state breaches the cap. Allowlisting under #2817 so the
+  # BRC implement-phase lint passes; decompose under #2817.
   shared/egg_contracts/plan_parser.py:
-    issue: "2548"
+    issue: "2817"
   # #2777 slice-1: the new plan-pre-flight validator wiring and the
   # restructured pre-state-lock plan-exit block (validator → populate →
   # opener) add ~199 lines to advance_phase, pushing this file from
   # ~1,442 lines to ~1,641 — over the 1,500-line hard cap. Slice-1
-  # cannot also land a phases.py decomposition; the slice-15 cluster
-  # in #2261 tracks the broader decomposition work, so the allowlist
-  # entry follows the same pattern as the other slice-15 targets.
+  # cannot also land a phases.py decomposition; the slice-27 cluster
+  # in #2817 tracks the broader decomposition work, so the allowlist
+  # entry follows the same pattern as the other slice-27 targets.
   orchestrator/routes/phases.py:
-    issue: "2261"
+    issue: "2817"
