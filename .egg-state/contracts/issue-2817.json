@@ -8,7 +8,2949 @@
   "pipeline_id": "issue-2817",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Docs and seam-table scaffolding",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Update docs/guides/decomposition-pattern.md to reflect the\ncq-4 relaxation of non-negotiable #10. Add a short subsection\nexplaining that scenario-organized test suites (e.g.\nselect_tests/) may stay topical rather than being force-fit\nto a per-submodule layout; the load-bearing requirement is\nthat test files use the barrel surface (patch(\"foo._bar\"))\nso they don't move when source internal layout shifts. Add a\nnote in the Pre-merge checklist that 1:1 test mirroring is\nguidance, not a gate. Leave the canonical recipe sections\n(a)-(h) unchanged in shape.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "docs/guides/decomposition-pattern.md gains a new subsection\n(or paragraph) explaining the cq-4 relaxation in the\nnon-negotiable #10 area; the Pre-merge checklist references\nthe relaxation; reviewer_documenter ACK.",
+          "files_affected": [
+            "docs/guides/decomposition-pattern.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Retag all stale #2261 references to #2817 across\ndocs/guides/decomposition-pattern.md (5 hits at lines 5,\n26, 261, 276, 308 \u2014 preserve the docstring's historical\n\"refresh of #2261\" pointer if any),\norchestrator/CLAUDE.md (11 hits at lines 18, 20, 22, 40,\n46, 50-55), and gateway/CLAUDE.md (8 hits at lines 17,\n19, 21, 33, 39, 43-45). Each occurrence becomes #2817 in\nthe same syntactic context (issue link, slice label,\nparent reference). Keep the slice numbers from the prior\n#2261 plan (e.g. \"slice-12\") only if the planner has\nchosen to preserve them \u2014 otherwise mark them TBD in\nline with this plan's slice IDs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`git grep -n '#2261' docs/guides/decomposition-pattern.md\norchestrator/CLAUDE.md gateway/CLAUDE.md` returns no hits\nexcept the explicitly-preserved \"refresh of #2261\"\ndocstring pointer in the pattern doc (if kept). All other\noccurrences resolve to #2817 in context.",
+          "files_affected": [
+            "docs/guides/decomposition-pattern.md",
+            "orchestrator/CLAUDE.md",
+            "gateway/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add a \"Submodule seam tables\" section to sandbox/CLAUDE.md\n(currently 11 lines, no seam table). Section mirrors the\nexisting convention in orchestrator/CLAUDE.md and\ngateway/CLAUDE.md: header, a paragraph pointing at\ndocs/guides/decomposition-pattern.md, then a primary\ntable for in-flight decompositions with TBD rows for\nsandbox/egg_lib/orch_cli.py (slice-13) and\nsandbox/entrypoint.py (slice-19).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/CLAUDE.md has a \"Submodule seam tables\" section\nwith header text matching the orchestrator/CLAUDE.md\nconvention and two TBD rows for the two in-scope sandbox\nfiles. reviewer_documenter ACK.",
+          "files_affected": [
+            "sandbox/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Create the net-new file shared/CLAUDE.md with a header\n(subsystem name + 1-line summary), a pointer to docs/index.md\nand docs/guides/decomposition-pattern.md, and a \"Submodule\nseam tables\" section with TBD rows for\nshared/egg_contracts/checkpoint_cli.py (slice-17) and\nshared/egg_contracts/plan_parser.py (slice-25).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/CLAUDE.md exists with the required sections; TBD rows\npresent for both in-scope shared/ files. reviewer_documenter\nACK.",
+          "files_affected": [
+            "shared/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add TBD rows to orchestrator/CLAUDE.md's in-flight\ndecomposition table for orchestrator/kubernetes_spawner.py\n(slice-24) and orchestrator/routes/phases.py (slice-27).\nRefresh the line-count column in the table with current\n`wc -l` numbers for the existing rows (mcp_tools.py 2820,\ngateway_client.py 3713, overseer/monitor.py 2024,\npeer_consensus.py 2215, routes/signals.py 2557,\nroutes/deployment.py 1650).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/CLAUDE.md in-flight table has rows for all 8\norchestrator-side files in scope (the 6 existing rows\nrefreshed + 2 new). reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Retag allowlist comment blocks in\nscripts/file-size-allowlist.yaml (cq-5):\n(a) orchestrator/routes/phases.py entry: `issue: \"2261\"`\n    becomes `issue: \"2817\"`; the 7-line comment block above\n    the entry has its `#2261` references rewritten to `#2817`\n    (and the \"slice-15 cluster\" phrase updated to reflect\n    this plan's slice numbering \u2014 slice-27).\n(b) shared/egg_contracts/plan_parser.py entry:\n    `issue: \"2548\"` becomes `issue: \"2817\"`; the 7-line\n    comment block has its `#2548`/`#2569` references rewritten\n    to `#2817` (the entry is removed entirely when slice-25\n    decomposes plan_parser.py; this retag is interim).\nDo NOT remove either allowlist entry in this slice \u2014 only\nthe comment text and `issue:` fields change.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`git diff scripts/file-size-allowlist.yaml` shows ONLY\ncomment + `issue:` field changes (no entry additions or\nremovals). `make lint` is green. Both entries still present\nin `files:` map.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "pipelines.py baseline + simple clusters",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Step-0 baseline commit. Run `git mv orchestrator/routes/pipelines.py\norchestrator/routes/pipelines/__init__.py`. The file becomes a\nsingle-file sub-package. Run `make test-all` to verify all\nimports still resolve. Commit as its own bisectable commit with\nmessage \"refactor: convert routes/pipelines.py to sub-package\nbaseline\". Do NOT extract any clusters in this commit.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/__init__.py exists at HEAD with\nidentical content to the original orchestrator/routes/pipelines.py;\n`make test-all` green; commit isolated (no other changes in\nsame commit). `git log --follow` correctly attributes blame\nhistory.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/__init__.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "External-importer audit deliverable for pipelines.py. Run\n`git grep -nE \"from (orchestrator\\.)?routes\\.pipelines\" -- '*.py'`\n(UN-anchored to catch in-function lazy imports). Also run\n`grep -rhE 'patch\\(\"(orchestrator\\.)?routes\\.pipelines\\.[_a-zA-Z0-9]+'\n--include='*.py' .` for test-patch targets. Aggregate into an\naudit report file at .egg-state/agent-outputs/2817-slice-2-audit.md\nlisting every external-referenced symbol and confirming it\nwill be re-exported from the barrel after slice-7. The lazy\nimport sites at orchestrator/routes/phases.py:405, 535, 612,\n711, 733, 1010, 1189, 1307 and orchestrator/mcp_tools.py:1609,\n1680 MUST appear in the audit (RISK-4 / blocker-4). If any\npatch target cannot be served by a barrel re-export (e.g. a\ntests/ file patches a symbol that the audit identifies as\nunsafe to re-export), mark the gap via\n`mcp__task__mark_gap` so the tester role can rewrite the\ntest in a follow-up \u2014 DO NOT silently drop the re-export\n(a missed re-export surfaces as AttributeError at test\ncollection or as ImportError at function-call time in\nproduction).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": ".egg-state/agent-outputs/2817-slice-2-audit.md exists; lists\n\u226549 distinct symbols at routes.pipelines.* test-patch targets\nand the 10 lazy-import sites; the audit confirms each symbol\nwill be re-exported through the barrel after the full\npipelines.py chain (slices 2-7) lands; any gap flagged via\nmark_gap is referenced in the deliverable.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-2-audit.md"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Extract `_criteria.py`, `_readers.py`, `_decisions.py`,\n`_status_helpers.py`, `_brc_verdicts.py` as flat submodules\n(cluster names pre-allocated in orchestrator/CLAUDE.md:34-38).\nEach submodule receives the symbols its cluster owns (see\narchitect output for cluster\u2192symbol mapping). After each\nextraction, add explicit per-symbol re-exports to\norchestrator/routes/pipelines/__init__.py (e.g.\n`from ._criteria import _criterion_check, ...`). Verify the\nallowlist ratchet shows strict size decrease for\npipelines/__init__.py after each commit (do not skip the\nper-commit ratchet check). Chunk the PR's commit log so each\nextraction is its own commit.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Five new submodules exist under orchestrator/routes/pipelines/;\norchestrator/routes/pipelines/__init__.py re-exports every\nsymbol the audit identified; `make test-all` green;\n`make lint` confirms strict size decrease for\npipelines/__init__.py vs. its post-step-0 baseline; commit\nlog is chunked one-extraction-per-commit.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_criteria.py",
+            "orchestrator/routes/pipelines/_readers.py",
+            "orchestrator/routes/pipelines/_decisions.py",
+            "orchestrator/routes/pipelines/_status_helpers.py",
+            "orchestrator/routes/pipelines/_brc_verdicts.py",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add valid-Python TBD placeholders for the five\nsub-sub-packages (_run_loop/, _concurrent_phase/,\n_prompt_building/, _pr_lifecycle/, _worktree_ops/) inside\norchestrator/routes/pipelines/__init__.py. The placeholders\nMUST be valid Python \u2014 use docstring comments or `pass`\nstatements rather than imports of non-existent submodules.\nThe file is loaded at orchestrator boot and an ImportError\nwould brick the pipeline. Allowlist entry STAYS (file still\nover cap).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/__init__.py contains\nplaceholder comments naming the five sub-sub-packages with\nTBD references to slices 3-7. `python -c \"from\norchestrator.routes import pipelines\"` succeeds (no\nImportError). `make lint` green.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "pipelines.py _prompt_building/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create the orchestrator/routes/pipelines/_prompt_building/\nsub-sub-package directory with __init__.py + per-helper\nsubmodules (suggested grouping: `_phase_prompts.py`,\n`_agent_prompts.py`, `_role_sections.py`, `_brc_preamble.py`,\n`_review_prompts.py` \u2014 final grouping is the implementing\nproducer's call based on size limits). Run the\nexternal-importer audit (un-anchored grep per TASK-2-2) for\neach helper before extraction; preserve every external\nreference as a barrel re-export.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/_prompt_building/__init__.py\nexists and re-exports the 13 _build_* / _render_* helpers;\nevery helper body lives in an underscore-prefixed submodule\ninside _prompt_building/; the parent __init__.py re-exports\nfrom _prompt_building. `make test-all` green; allowlist\nratchet shows strict size decrease for\npipelines/__init__.py.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_prompt_building/__init__.py",
+            "orchestrator/routes/pipelines/_prompt_building/",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Verify allowlist ratchet shows strict decrease for the file\n(allowlist entry still present). If any submodule lands at\nor over the cap, further-split it within this slice per\ndocs/guides/decomposition-pattern.md section (g) rather\nthan adding a new allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make lint` green; no new allowlist entry added; if any\nsubmodule exceeded the cap it was further-split in-slice.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "pipelines.py _pr_lifecycle/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create orchestrator/routes/pipelines/_pr_lifecycle/\nsub-sub-package with __init__.py + submodule grouping\n(suggested: `_creation.py`, `_obligations.py`,\n`_brc_history.py`, `_state_reads.py` \u2014 implementing\nproducer's call). Run un-anchored external-importer audit\nper TASK-2-2 for each helper; preserve every external\nreference as a barrel re-export through the parent\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/_pr_lifecycle/__init__.py\nexists and re-exports the listed cluster symbols; parent\n__init__.py re-exports from _pr_lifecycle; `make test-all`\ngreen; allowlist ratchet shows strict decrease for\npipelines/__init__.py.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_pr_lifecycle/__init__.py",
+            "orchestrator/routes/pipelines/_pr_lifecycle/",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Verify allowlist ratchet; further-split any submodule\nthat lands over the cap per pattern doc section (g).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make lint` green; no new allowlist entry; in-slice\nfurther-splits if needed.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "pipelines.py _worktree_ops/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create orchestrator/routes/pipelines/_worktree_ops/\nsub-sub-package with __init__.py + submodule grouping\n(suggested: `_sync.py`, `_rebase.py`, `_state_files.py`,\n`_path_resolution.py`, `_errors.py` \u2014 implementing\nproducer's call). Run un-anchored audit per TASK-2-2.\nPreserve dataclasses (WorktreeSyncOutcome) and exception\ntypes (StalePipelineBranchError, SyncRebaseAndResetFailedError)\nas re-exports through the parent __init__.py \u2014 they are\nreferenced by external consumers.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/_worktree_ops/ exists with\n__init__.py + submodules; parent __init__.py re-exports\nevery cluster symbol; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_worktree_ops/__init__.py",
+            "orchestrator/routes/pipelines/_worktree_ops/",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Verify allowlist ratchet; further-split any submodule\nthat lands over the cap.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make lint` green; no new allowlist entry.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "pipelines.py _concurrent_phase/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Create orchestrator/routes/pipelines/_concurrent_phase/\nsub-sub-package with __init__.py + submodule grouping\n(suggested: `_spawn.py` for `_spawn_and_wait`,\n`_consensus_wait.py` for `_run_concurrent_phase` +\n`_run_concurrent_phase_with_impasse_retry`,\n`_implement_phase.py` for `_run_implement_phase_slices`,\n`_impasse.py` for `_clear_stale_impasses_for_producers` \u2014\nimplementing producer's call). The\n`_run_implement_phase_slices` symbol at\norchestrator/routes/pipelines.py:15913 has the most\ncomplex import-cycle surface; verify it imports from\n_prompt_building / _pr_lifecycle / _worktree_ops via the\nparent __init__.py barrel rather than reaching into\nsubmodules directly.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/_concurrent_phase/ exists with\n__init__.py + submodules; parent __init__.py re-exports\nevery cluster symbol; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_concurrent_phase/__init__.py",
+            "orchestrator/routes/pipelines/_concurrent_phase/",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Verify allowlist ratchet; further-split any submodule\nthat lands over the cap.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make lint` green; no new allowlist entry.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "pipelines.py _run_loop/ + per-phase handler factoring (TERMINAL for pipelines.py)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Capture a pre-extraction golden output: run\n`.venv/bin/pytest tests/orchestrator/routes/test_pipelines.py -q`\nand save the result to\n.egg-state/agent-outputs/2817-slice-7-pre-baseline.txt as\nthe reference fingerprint. The downstream commits in this\nslice must produce a result identical (or strictly\nsuperset-passing) to this baseline.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": ".egg-state/agent-outputs/2817-slice-7-pre-baseline.txt\nexists with the pytest output of test_pipelines.py captured\non slice-6 HEAD.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-7-pre-baseline.txt"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-2",
+          "description": "Stage 1 \u2014 introduce PHASE_HANDLERS dispatch table. Inside\n_run_pipeline (currently\norchestrator/routes/pipelines/__init__.py at the line that\ncorresponds to original :20799), wrap each per-phase branch\nas a local closure (e.g. `def _run_refine_phase(...)`,\n`def _run_plan_phase(...)`, `def _run_implement_phase(...)`,\n`def _run_pr_phase(...)`) and dispatch via a\n`PHASE_HANDLERS: dict[PipelinePhase, Callable] = {...}` table.\nBodies stay as local closures inside `_run_pipeline` \u2014 no\nmodule-level lift yet. This commit is BISECTABLE INDIRECTION:\nline count unchanged or marginally higher; behaviour\nidentical.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_run_pipeline` now uses a dispatch table; per-phase logic is\nisolated into closures named `_run_refine_phase`,\n`_run_plan_phase`, `_run_implement_phase`, `_run_pr_phase`;\n`make test-all` green; pytest output matches\nslice-7-pre-baseline.txt.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-3",
+          "description": "Stage 2 prep \u2014 extract `_PipelineRunContext` dataclass. Audit\nwhich locals are shared across the four phase closures; lift\nthem onto a `_PipelineRunContext` dataclass that each phase\nhandler receives explicitly. Place the dataclass in\norchestrator/routes/pipelines/_run_loop/_orchestration.py\n(which does NOT yet exist \u2014 this task creates it). The\nclosures inside _run_pipeline now take a context arg.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_PipelineRunContext dataclass exists in\n_run_loop/_orchestration.py; phase closures inside\n_run_pipeline receive it explicitly; `make test-all` green;\npytest output matches the baseline.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_loop/__init__.py",
+            "orchestrator/routes/pipelines/_run_loop/_orchestration.py",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-4",
+          "description": "Stage 2 \u2014 lift `_run_refine_phase` body from a local closure\nto a module-level function in\norchestrator/routes/pipelines/_run_loop/_run_refine.py. The\nfunction takes `_PipelineRunContext` as its first arg.\nPHASE_HANDLERS now references the imported module-level\nfunction. Re-export `_run_refine_phase` from the\n_run_loop/__init__.py barrel.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/pipelines/_run_loop/_run_refine.py exists\nwith module-level `_run_refine_phase`; PHASE_HANDLERS\nreferences it; barrel re-exports it; `make test-all` green;\npytest matches baseline.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_loop/_run_refine.py",
+            "orchestrator/routes/pipelines/_run_loop/__init__.py",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-5",
+          "description": "Stage 2 \u2014 lift `_run_plan_phase` body to\n_run_loop/_run_plan.py (parallel to TASK-7-4 shape). Same\ndispatch + barrel re-export pattern.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_run_loop/_run_plan.py exists; PHASE_HANDLERS references\nit; barrel re-exports it; `make test-all` green.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_loop/_run_plan.py",
+            "orchestrator/routes/pipelines/_run_loop/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-6",
+          "description": "Stage 2 \u2014 lift `_run_implement_phase` body to\n_run_loop/_run_implement.py. NOTE:\n`_run_implement_phase_slices` (existing module-level\nfunction at original pipelines.py:15913 \u2014 now in\n_concurrent_phase/ per slice-6) is called BY the new\n`_run_implement_phase` handler. Verify the import path\nthrough the barrel resolves correctly.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_run_loop/_run_implement.py exists; calls into\n_concurrent_phase via the barrel; PHASE_HANDLERS references\nit; `make test-all` green.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_loop/_run_implement.py",
+            "orchestrator/routes/pipelines/_run_loop/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-7",
+          "description": "Stage 2 \u2014 lift `_run_pr_phase` body to\n_run_loop/_run_pr.py. After this task, the original\n`_run_pipeline` in pipelines/__init__.py is a thin <300-LOC\ndispatcher that delegates entirely to PHASE_HANDLERS and\nloops until the pipeline reaches a terminal state.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_run_loop/_run_pr.py exists; `_run_pipeline` in\npipelines/__init__.py is <300 LOC and delegates to\nPHASE_HANDLERS; `make test-all` green; pytest matches\nbaseline.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_loop/_run_pr.py",
+            "orchestrator/routes/pipelines/_run_loop/__init__.py",
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-8",
+          "description": "Remove orchestrator/routes/pipelines.py entry from\nscripts/file-size-allowlist.yaml. Verify pipelines/__init__.py\nand every submodule are under 1500 LOC. `make lint` green.\nThis is the closing-criterion contribution for pipelines.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "scripts/file-size-allowlist.yaml no longer contains\n`orchestrator/routes/pipelines.py` in `files:`; `make lint`\ngreen; pipelines/__init__.py and every submodule under 1500\nLOC / 100 KB.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-9",
+          "description": "Replace the TBD row in orchestrator/CLAUDE.md (the\n\"orchestrator/routes/pipelines/ \u2014 TBD (#2817 slice-7)\"\nplaceholder, retagged in slice-1 from #2261) with the\nconcrete submodule layout produced by slices 2-7: list\neach cluster (_criteria.py, _readers.py, _decisions.py,\n_status_helpers.py, _brc_verdicts.py, _prompt_building/,\n_pr_lifecycle/, _worktree_ops/, _concurrent_phase/,\n_run_loop/) and the owned symbols. Update the line counts\ncolumn for the in-flight table by removing the\npipelines.py row (it now meets the cap).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/CLAUDE.md no longer shows a TBD row for\npipelines/; concrete submodule layout is documented with\nowned symbols; reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-10",
+          "description": "Human-operator manual smoke test (RISK-2 safety net). After\nslice-7 lands, the operator runs a small refine\u2192plan\u2192implement\u2192pr\nSDLC pipeline against a doc-only issue (e.g. a typo fix) and\nconfirms no behaviour change in BRC consensus, signal\nhandling, HITL gates, or slice-DAG admission. This is a\nmanual_step in the PR body, NOT a code-authoring task \u2014\nincluded here for traceability with RISK-2 / blocker-1.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Slice-7 PR body lists \"operator smoke-run\" as a manual\npre-merge step; the operator-verified result is captured in\nthe PR comments before merge.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-7-smoke-test-checklist.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-8",
+      "name": "gateway.py baseline + _app_factory + _auth + checkpoint/gh routes",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Step-0 baseline commit. `git mv gateway/gateway.py\ngateway/gateway/__init__.py`. The 47 @app.route(...)\ndecorators remain on their existing handler functions inside\n__init__.py \u2014 DO NOT move them. `make test-all` green.\nCommit isolated as \"refactor: convert gateway/gateway.py to\nsub-package baseline\".",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/__init__.py exists at HEAD with identical\ncontent to original gateway/gateway.py; all 47 @app.route\ndecorators still in __init__.py; `make test-all` green;\ncommit isolated.",
+          "files_affected": [
+            "gateway/gateway/__init__.py",
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-2",
+          "description": "External-importer audit deliverable for gateway.py. Run\n`git grep -nE \"from (gateway\\.)?gateway\\.gateway\" -- '*.py'`\n(un-anchored) and\n`grep -rhE 'patch\\(\"(gateway\\.)?gateway\\.gateway\\.[_a-zA-Z0-9]+'\n--include='*.py' .`. Aggregate into\n.egg-state/agent-outputs/2817-slice-8-audit.md listing the\n6 distinct symbols at gateway.gateway.* test-patch targets\nand any production importer paths.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": ".egg-state/agent-outputs/2817-slice-8-audit.md exists; lists\nthe 6 distinct symbols and confirms barrel re-export plan;\nno untracked production importer surfaces left out.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-8-audit.md"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-3",
+          "description": "Extract _app_factory.py \u2014 Flask app object construction,\nerror handlers, response helpers, health/config endpoints,\nand main entrypoint. Decorators (@app.route, @app.errorhandler)\nstay in __init__.py as thin wrappers; bodies move to\n_app_factory.py. The barrel re-exports\n`make_response`, `make_error`, `make_success`,\n`make_worktree_not_found_error`, `audit_log` (production\nimporters may exist via gateway.gateway.make_error etc.).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_app_factory.py exists with the named\nsymbols; __init__.py uses thin wrappers; `make test-all`\ngreen; allowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_app_factory.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-4",
+          "description": "Extract _auth.py \u2014 credential and mount helpers, plus\nlauncher-auth + orchestrator-transition-auth surface.\nsecurity_review ACK required for this task (auth seam).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_auth.py exists with the named symbols;\nsecurity_review ACK; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_auth.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-5",
+          "description": "Extract _checkpoint_routes.py and _gh_routes.py \u2014 Flask\n@app.route decorators stay in __init__.py as thin wrappers\ndelegating to functions in these submodules.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_checkpoint_routes.py and\ngateway/gateway/_gh_routes.py exist with the named symbols;\nall @app.route decorators still in __init__.py;\n`make test-all` green; allowlist ratchet shows strict\ndecrease.",
+          "files_affected": [
+            "gateway/gateway/_checkpoint_routes.py",
+            "gateway/gateway/_gh_routes.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-8-6",
+          "description": "Add valid-Python TBD placeholders for the three\nsub-sub-packages (_git_routes/, _jira_routes/,\n_confluence_routes/) inside\ngateway/gateway/__init__.py. Same valid-Python constraint\nas TASK-2-4 \u2014 comments / pass statements, not imports.\nAllowlist entry STAYS.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/__init__.py has placeholder comments naming\nthe three sub-sub-packages with references to slices 9-11;\n`python -c \"from gateway import gateway\"` succeeds; `make\nlint` green.",
+          "files_affected": [
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-9",
+      "name": "gateway.py _git_routes/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-9-1",
+          "description": "Decompose git_push (~1040 LOC) into named helpers\nco-located in gateway/gateway/_git_routes/_push.py. Suggested\ninternal seams: payload-validation helpers,\ncredential-injection helpers, attribution helpers,\ncheckpoint-capture helpers. If _push.py crosses the 1500-LOC\ncap, further-split into a nested _git_routes/_push/\nsub-sub-sub-package. security_review ACK required (R5\nmitigation: this is the git-push gateway seam).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_git_routes/_push.py exists (or\n_git_routes/_push/__init__.py if further-split); git_push\n@app.route decorator still in __init__.py as a thin\nwrapper; `make test-all` green; allowlist ratchet shows\nstrict decrease; security_review ACK.",
+          "files_affected": [
+            "gateway/gateway/_git_routes/__init__.py",
+            "gateway/gateway/_git_routes/_push.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-9-2",
+          "description": "Extract git_execute and git_fetch bodies to\ngateway/gateway/_git_routes/_execute.py and\ngateway/gateway/_git_routes/_fetch.py. Decorators stay in\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both submodules exist with bodies; thin wrappers in\n__init__.py preserve decorator placement; `make test-all`\ngreen; allowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_git_routes/_execute.py",
+            "gateway/gateway/_git_routes/_fetch.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-8"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-10",
+      "name": "gateway.py _jira_routes/ sub-sub-package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-10-1",
+          "description": "Create gateway/gateway/_jira_routes/ with __init__.py +\nsubmodule grouping (suggested: `_context.py`, `_errors.py`,\n`_validators.py`, `_ticket_routes.py`, `_comment_routes.py`,\n`_link_routes.py` \u2014 implementing producer's call). Routes\n@app.route stay in __init__.py as thin wrappers. Run the\nun-anchored audit for each helper.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_jira_routes/ exists with __init__.py +\nsubmodules; all @app.route decorators still in\ngateway/gateway/__init__.py; `make test-all` green;\nallowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_jira_routes/__init__.py",
+            "gateway/gateway/_jira_routes/",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-9"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-11",
+      "name": "gateway.py _confluence_routes/ + _worktree_routes + _anthropic_proxy",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-11-1",
+          "description": "Create gateway/gateway/_confluence_routes/ as a\nsub-sub-package. Routes stay in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_confluence_routes/ exists; @app.route\ndecorators preserved in __init__.py; `make test-all`\ngreen; allowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_confluence_routes/__init__.py",
+            "gateway/gateway/_confluence_routes/",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-11-2",
+          "description": "Extract gateway/gateway/_worktree_routes.py. Thin\n@app.route wrappers in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_worktree_routes.py exists; `make test-all`\ngreen; allowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/gateway/_worktree_routes.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-11-3",
+          "description": "Extract gateway/gateway/_anthropic_proxy.py (~1K LOC,\ncredential-injection + SSE proxy). security_review ACK\nrequired (proxy seam handles credential injection).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_anthropic_proxy.py exists; security_review\nACK; `make test-all` green; allowlist ratchet shows strict\ndecrease.",
+          "files_affected": [
+            "gateway/gateway/_anthropic_proxy.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-10"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-12",
+      "name": "gateway.py _sessions + allowlist drop (TERMINAL for gateway.py)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-12-1",
+          "description": "Extract gateway/gateway/_sessions.py \u2014 session lifecycle +\nrepos/visibility routes. Thin @app.route wrappers in\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/gateway/_sessions.py exists with the named symbols;\n`make test-all` green; allowlist ratchet shows strict\ndecrease.",
+          "files_affected": [
+            "gateway/gateway/_sessions.py",
+            "gateway/gateway/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-12-2",
+          "description": "Remove gateway/gateway.py allowlist entry from\nscripts/file-size-allowlist.yaml. Verify\ngateway/gateway/__init__.py and every submodule are under\n1500 LOC / 100 KB.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "scripts/file-size-allowlist.yaml no longer contains\n`gateway/gateway.py` in `files:`; `make lint` green;\ngateway/__init__.py and every submodule under cap.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-12-3",
+          "description": "Replace the TBD row in gateway/CLAUDE.md (the \"gateway/gateway/\n\u2014 TBD (#2817 slice-12)\" placeholder, retagged in slice-1)\nwith the concrete submodule layout from slices 8-12.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/CLAUDE.md no longer shows a TBD row for gateway/;\nconcrete submodule layout documented; reviewer_documenter\nACK.",
+          "files_affected": [
+            "gateway/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-12-4",
+          "description": "Final security_review pass on the decomposed gateway/.\nsecurity_review verifies the 47 @app.route decorators all\nstill in __init__.py; no auth/credential-injection helper\nescaped the _auth.py or _anthropic_proxy.py boundary; no\nnew credential-handling code path introduced. Captured in\nPR description as a security-review checklist.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "security_review ACK; PR description carries the security\nchecklist as a manual gate.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-12-security-checklist.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-11"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-13",
+      "name": "sandbox/egg_lib/orch_cli.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-13-1",
+          "description": "Step-0 baseline: `git mv sandbox/egg_lib/orch_cli.py\nsandbox/egg_lib/orch_cli/__init__.py`. CRITICAL:\n`sandbox/bin/egg-orch` is a SYMLINK pointing at\n`../egg_lib/orch_cli.py` \u2014 verify with `ls -la\nsandbox/bin/egg-orch`. There is NO console-script entry in\nany pyproject.toml (the top-level egg CLI was removed in\n#1762 per `pyproject.toml:47-52`). After the `git mv`, the\nsymlink dangles. This task also lands an\n`__main__.py` and re-points the symlink in the same\nbaseline commit so `egg-orch \u2026` invocations keep working:\n(a) create `sandbox/egg_lib/orch_cli/__main__.py` with\n    an `if __name__ == \"__main__\": main()` shim (mirror\n    `scripts/select_tests/__main__.py:34 LOC`); the shim\n    imports `main` from `__init__.py` and dispatches argv.\n(b) repoint the symlink: `rm sandbox/bin/egg-orch && ln\n    -s ../egg_lib/orch_cli/__main__.py\n    sandbox/bin/egg-orch` (relative symlink so the\n    chmod+x and shebang transparently carry through).\n(c) verify `sandbox/bin/egg-orch --help` runs without\n    `No such file or directory`; verify `python -m\n    egg_lib.orch_cli --help` succeeds; `make test-all`\n    green.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/egg_lib/orch_cli/__init__.py exists with the\noriginal implementation; sandbox/egg_lib/orch_cli/__main__.py\nexists with a working CLI shim; sandbox/bin/egg-orch\nsymlink resolves to the new __main__.py (`readlink -f\nsandbox/bin/egg-orch` shows the new target); `egg-orch\n--help` runs without error; `make test-all` green; commit\nisolated.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli/__init__.py",
+            "sandbox/egg_lib/orch_cli/__main__.py",
+            "sandbox/bin/egg-orch",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-13-2",
+          "description": "Extract flat submodule clusters (_http, _parser, and the\n~9 `_cmd_*` modules). The 940-LOC `create_parser` lands in\n`_parser.py`; if `_parser.py` exceeds the cap,\nfurther-split into _parser/ sub-sub-package per pattern\ndoc section (g). Barrel re-exports the `egg-orch` entry\nsymbol.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/egg_lib/orch_cli/ has the named submodules; no\nsubmodule over the cap; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli/_http.py",
+            "sandbox/egg_lib/orch_cli/_parser.py",
+            "sandbox/egg_lib/orch_cli/_cmd_pipeline.py",
+            "sandbox/egg_lib/orch_cli/_cmd_signal.py",
+            "sandbox/egg_lib/orch_cli/_cmd_phase.py",
+            "sandbox/egg_lib/orch_cli/_cmd_decision.py",
+            "sandbox/egg_lib/orch_cli/_cmd_container_gateway.py",
+            "sandbox/egg_lib/orch_cli/_cmd_message.py",
+            "sandbox/egg_lib/orch_cli/_cmd_overseer.py",
+            "sandbox/egg_lib/orch_cli/_cmd_consensus.py",
+            "sandbox/egg_lib/orch_cli/_cmd_misc.py",
+            "sandbox/egg_lib/orch_cli/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-13-3",
+          "description": "Drop sandbox/egg_lib/orch_cli.py allowlist entry. `make lint`\ngreen.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist `files:` map no longer contains\n`sandbox/egg_lib/orch_cli.py`; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-13-4",
+          "description": "Populate the TBD row in sandbox/CLAUDE.md (added in slice-1)\nwith the concrete submodule layout for orch_cli/.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/CLAUDE.md row for orch_cli/ is concrete (no TBD);\nreviewer_documenter ACK.",
+          "files_affected": [
+            "sandbox/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-14",
+      "name": "orchestrator/gateway_client.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-14-1",
+          "description": "Step-0 baseline: `git mv orchestrator/gateway_client.py\norchestrator/gateway_client/__init__.py`. GatewayClient\nclass stays in __init__.py. `make test-all` green.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/gateway_client/__init__.py exists with class\nGatewayClient; `make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/gateway_client/__init__.py",
+            "orchestrator/gateway_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-14-2",
+          "description": "Apply method-modules-on-class pattern. Extract method bodies\ninto module-level helpers in _http.py, _sessions.py,\n_worktrees.py, _push.py, _pr.py, _rebase.py, _remotes.py,\n_errors.py. Methods on GatewayClient become thin wrappers\n(`def push(self, *a, **kw): return _push.push(self, *a,\n**kw)`). The barrel re-exports GatewayClient and any\nmodule-level helpers with external consumers (audit per\npattern doc section (d)).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/gateway_client/ has the named submodules;\nGatewayClient class still in __init__.py; methods delegate\nto module-level helpers; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/gateway_client/_http.py",
+            "orchestrator/gateway_client/_sessions.py",
+            "orchestrator/gateway_client/_worktrees.py",
+            "orchestrator/gateway_client/_push.py",
+            "orchestrator/gateway_client/_pr.py",
+            "orchestrator/gateway_client/_rebase.py",
+            "orchestrator/gateway_client/_remotes.py",
+            "orchestrator/gateway_client/_errors.py",
+            "orchestrator/gateway_client/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-14-3",
+          "description": "Drop allowlist entry; update orchestrator/CLAUDE.md\nin-flight table row.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist `files:` map no longer contains\n`orchestrator/gateway_client.py`; CLAUDE.md row replaced\nwith concrete layout; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-14-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight table \u2014 remove the\ngateway_client.py row (now meets cap); add a concrete\nsubmodule-layout row.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/CLAUDE.md row for gateway_client.py is\nconcrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-15",
+      "name": "orchestrator/mcp_tools.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-15-1",
+          "description": "Step-0 baseline: `git mv orchestrator/mcp_tools.py\norchestrator/mcp_tools/__init__.py`. PipelineToolHandler\nclass at original :1117 stays in __init__.py.\nNOTE: mcp_tools.py at original :1609 and :1680 has lazy\nimports of `routes.pipelines._read_phase_draft` and\n`routes.pipelines._pipeline_identifier`; verify these still\nresolve through pipelines' barrel after slice-2.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/mcp_tools/__init__.py exists; class still\npresent; lazy imports of pipelines symbols still resolve;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/mcp_tools/__init__.py",
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-15-2",
+          "description": "Apply method-modules-on-class. Extract the 31 _handle_*\nmethod bodies into module-level helpers grouped by\nresponsibility (_dispatch, _pipeline_tools, _status,\n_gateway_tools, _consensus_tools, _phase_tools,\n_checkpoint_tools, _deployment_tools). Methods become thin\n`return _dispatch.handle_X(self, ...)` wrappers.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/mcp_tools/ has the named submodules;\nPipelineToolHandler in __init__.py has thin-wrapper\nmethods; `make test-all` green; allowlist ratchet shows\nstrict decrease.",
+          "files_affected": [
+            "orchestrator/mcp_tools/_dispatch.py",
+            "orchestrator/mcp_tools/_pipeline_tools.py",
+            "orchestrator/mcp_tools/_status.py",
+            "orchestrator/mcp_tools/_gateway_tools.py",
+            "orchestrator/mcp_tools/_consensus_tools.py",
+            "orchestrator/mcp_tools/_phase_tools.py",
+            "orchestrator/mcp_tools/_checkpoint_tools.py",
+            "orchestrator/mcp_tools/_deployment_tools.py",
+            "orchestrator/mcp_tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-15-3",
+          "description": "Drop allowlist entry; update orchestrator/CLAUDE.md row.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop confirmed; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-15-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight row with concrete\nmcp_tools/ submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row for mcp_tools.py is concrete; reviewer_documenter\nACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-16",
+      "name": "orchestrator/routes/signals.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-16-1",
+          "description": "Step-0 baseline: `git mv orchestrator/routes/signals.py\norchestrator/routes/signals/__init__.py`. Routes\n(handle_signal, handle_batch_signals) and the signals_bp\nblueprint registration stay in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/signals/__init__.py exists with\nhandle_signal + handle_batch_signals + signals_bp;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/routes/signals/__init__.py",
+            "orchestrator/routes/signals.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-16-2",
+          "description": "Extract the ~14 handle_*_signal functions into named\nsubmodules (_dispatch, _validation, _lifecycle,\n_consensus_propose, _consensus_ack_nack, _consensus_confirmed,\n_consensus_admin). @signals_bp.route decorators stay in\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/signals/ has the named submodules;\ndecorator placement preserved; `make test-all` green;\nallowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/routes/signals/_dispatch.py",
+            "orchestrator/routes/signals/_validation.py",
+            "orchestrator/routes/signals/_lifecycle.py",
+            "orchestrator/routes/signals/_consensus_propose.py",
+            "orchestrator/routes/signals/_consensus_ack_nack.py",
+            "orchestrator/routes/signals/_consensus_confirmed.py",
+            "orchestrator/routes/signals/_consensus_admin.py",
+            "orchestrator/routes/signals/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-16-3",
+          "description": "Drop allowlist entry; update orchestrator/CLAUDE.md row.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-16-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight row with concrete\nsignals/ submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row for signals.py is concrete; reviewer_documenter\nACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-17",
+      "name": "shared/egg_contracts/checkpoint_cli.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-17-1",
+          "description": "Step-0 baseline: `git mv shared/egg_contracts/checkpoint_cli.py\nshared/egg_contracts/checkpoint_cli/__init__.py`. Verify\nthe `egg-checkpoint` console-script entry resolves.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "checkpoint_cli/__init__.py exists; `egg-checkpoint --help`\nsucceeds; commit isolated.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli/__init__.py",
+            "shared/egg_contracts/checkpoint_cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-17-2",
+          "description": "Extract the flat clusters (_http, _git, _formatting,\n_resolution, _cmd_list_show, _cmd_context_cost, _cmd_search,\n_parser). Barrel re-exports console entries.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "checkpoint_cli/ has the named submodules; barrel re-exports\nthe entry symbols; `make test-all` green; allowlist ratchet\nshows strict decrease.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli/_http.py",
+            "shared/egg_contracts/checkpoint_cli/_git.py",
+            "shared/egg_contracts/checkpoint_cli/_formatting.py",
+            "shared/egg_contracts/checkpoint_cli/_resolution.py",
+            "shared/egg_contracts/checkpoint_cli/_cmd_list_show.py",
+            "shared/egg_contracts/checkpoint_cli/_cmd_context_cost.py",
+            "shared/egg_contracts/checkpoint_cli/_cmd_search.py",
+            "shared/egg_contracts/checkpoint_cli/_parser.py",
+            "shared/egg_contracts/checkpoint_cli/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-17-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-17-4",
+          "description": "Populate the TBD row in shared/CLAUDE.md (added in slice-1)\nwith concrete checkpoint_cli/ layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/CLAUDE.md row for checkpoint_cli/ is concrete;\nreviewer_documenter ACK.",
+          "files_affected": [
+            "shared/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-18",
+      "name": "orchestrator/peer_consensus.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-18-1",
+          "description": "Step-0 baseline: `git mv orchestrator/peer_consensus.py\norchestrator/peer_consensus/__init__.py`. PeerConsensusTracker\nclass at original :69 stays in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/peer_consensus/__init__.py exists with class;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/peer_consensus/__init__.py",
+            "orchestrator/peer_consensus.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-18-2",
+          "description": "Apply method-modules-on-class. Extract ~40 methods into\n_state, _propose, _ack_nack, _confirm, _admin, _nudge,\n_invariants, _lookup. If `_run_invariant_checks` cannot\nextract without circular import, leave it as a private\nmethod on the class.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/peer_consensus/ has named submodules;\nPeerConsensusTracker class in __init__.py has thin-wrapper\nmethods; `make test-all` green; allowlist ratchet shows\nstrict decrease.",
+          "files_affected": [
+            "orchestrator/peer_consensus/_state.py",
+            "orchestrator/peer_consensus/_propose.py",
+            "orchestrator/peer_consensus/_ack_nack.py",
+            "orchestrator/peer_consensus/_confirm.py",
+            "orchestrator/peer_consensus/_admin.py",
+            "orchestrator/peer_consensus/_nudge.py",
+            "orchestrator/peer_consensus/_invariants.py",
+            "orchestrator/peer_consensus/_lookup.py",
+            "orchestrator/peer_consensus/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-18-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-18-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight row with concrete\npeer_consensus/ submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row for peer_consensus.py is concrete;\nreviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-19",
+      "name": "sandbox/entrypoint.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-19-1",
+          "description": "Step-0 baseline: `git mv sandbox/entrypoint.py\nsandbox/entrypoint/__init__.py`. CRITICAL: the sandbox\ncontainer Dockerfile copies and invokes this file by\npath. Verified:\n`sandbox/Dockerfile:322: COPY sandbox/entrypoint.py\n/usr/local/bin/entrypoint.py`,\n`sandbox/Dockerfile:323: RUN chmod +x\n/usr/local/bin/entrypoint.py`,\n`sandbox/Dockerfile:327: ENTRYPOINT [\"python3\",\n\"/usr/local/bin/entrypoint.py\"]`. After the `git mv`,\nthe Dockerfile build FAILS at the COPY step because\nsandbox/entrypoint.py no longer exists at that path.\n`make test-all` will NOT catch this \u2014 only `make build`\nor the deployment pipeline does. This task lands the\nfile move AND the Dockerfile update in the same\nbaseline commit:\n(a) `git mv sandbox/entrypoint.py\n    sandbox/entrypoint/__init__.py`.\n(b) Create `sandbox/entrypoint/__main__.py` with an\n    `if __name__ == \"__main__\": main()` shim that\n    imports the entrypoint function from `__init__.py`\n    (mirrors the worked reference\n    `scripts/select_tests/__main__.py`).\n(c) Update `sandbox/Dockerfile`:\n    - line 322: `COPY sandbox/entrypoint/\n      /usr/local/bin/entrypoint/`\n    - line 323: drop the per-file chmod (the package\n      doesn't need an exec bit; `python3 -m` works on\n      the package).\n    - line 327: `ENTRYPOINT [\"python3\", \"-m\",\n      \"entrypoint\"]` (with WORKDIR or PYTHONPATH set so\n      the package resolves; the simpler alternative\n      `ENTRYPOINT [\"python3\",\n      \"/usr/local/bin/entrypoint/__main__.py\"]` also\n      works.\n(d) Verify with `docker build -f sandbox/Dockerfile .`\n    that the image builds; verify `docker run --rm\n    <image> --help` (or the closest non-build smoke\n    test) executes the entrypoint shim.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/entrypoint/__init__.py + __main__.py both exist;\nsandbox/Dockerfile lines 322 / 323 / 327 updated;\n`docker build -f sandbox/Dockerfile .` succeeds (image\nbuilds without \"no such file\" errors); the entrypoint\nsmoke test (docker run --rm or in-cluster pod start)\nexecutes the shim; `make test-all` green; commit\nisolated.",
+          "files_affected": [
+            "sandbox/entrypoint/__init__.py",
+            "sandbox/entrypoint/__main__.py",
+            "sandbox/Dockerfile",
+            "sandbox/entrypoint.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-19-2",
+          "description": "Extract the flat clusters mirroring section banners\n(_config, _logging, _subprocess, _user_setup, _env_setup,\n_claude_setup, _health_exec). Barrel re-exports any\nentry symbols and module-level dataclasses.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/entrypoint/ has the named submodules; entrypoint\ninvocation still works; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "sandbox/entrypoint/_config.py",
+            "sandbox/entrypoint/_logging.py",
+            "sandbox/entrypoint/_subprocess.py",
+            "sandbox/entrypoint/_user_setup.py",
+            "sandbox/entrypoint/_env_setup.py",
+            "sandbox/entrypoint/_claude_setup.py",
+            "sandbox/entrypoint/_health_exec.py",
+            "sandbox/entrypoint/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-19-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-19-4",
+          "description": "Populate sandbox/CLAUDE.md TBD row with concrete entrypoint/\nlayout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/CLAUDE.md row for entrypoint/ is concrete;\nreviewer_documenter ACK.",
+          "files_affected": [
+            "sandbox/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-20",
+      "name": "gateway/worktree_manager.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-20-1",
+          "description": "Step-0 baseline: `git mv gateway/worktree_manager.py\ngateway/worktree_manager/__init__.py`. WorktreeManager\nclass at original :140 stays in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/worktree_manager/__init__.py exists with class;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "gateway/worktree_manager/__init__.py",
+            "gateway/worktree_manager.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-20-2",
+          "description": "Apply method-modules-on-class. Extract methods into _create,\n_remove, _chown, _lookup, _prune, _startup.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/worktree_manager/ has named submodules; class\nmethods are thin wrappers; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/worktree_manager/_create.py",
+            "gateway/worktree_manager/_remove.py",
+            "gateway/worktree_manager/_chown.py",
+            "gateway/worktree_manager/_lookup.py",
+            "gateway/worktree_manager/_prune.py",
+            "gateway/worktree_manager/_startup.py",
+            "gateway/worktree_manager/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-20-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-20-4",
+          "description": "Update gateway/CLAUDE.md in-flight row with concrete\nworktree_manager/ layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row is concrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "gateway/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-21",
+      "name": "gateway/git_client.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-21-1",
+          "description": "Step-0 baseline: `git mv gateway/git_client.py\ngateway/git_client/__init__.py`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/git_client/__init__.py exists; `make test-all`\ngreen; commit isolated.",
+          "files_affected": [
+            "gateway/git_client/__init__.py",
+            "gateway/git_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-21-2",
+          "description": "Extract flat clusters (_remotes, _repo_paths, _validation,\n_credentials, _push_attribution, _rebase). If\n_validation.py exceeds the cap (validate_git_args's\n~150-LOC whitelist switch), further-split into _validation/\nsub-sub-package per pattern doc section (g).\nsecurity_review ACK required (git_client is on the\npolicy-enforcement seam).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "gateway/git_client/ has named submodules; no submodule over\ncap; security_review ACK; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "gateway/git_client/_remotes.py",
+            "gateway/git_client/_repo_paths.py",
+            "gateway/git_client/_validation.py",
+            "gateway/git_client/_credentials.py",
+            "gateway/git_client/_push_attribution.py",
+            "gateway/git_client/_rebase.py",
+            "gateway/git_client/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-21-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-21-4",
+          "description": "Update gateway/CLAUDE.md in-flight row with concrete\ngit_client/ layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row is concrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "gateway/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-22",
+      "name": "monitor.py write_health_summary in-place breakup (PREP)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-22-0",
+          "description": "Pre-extraction golden-output baseline (symmetric to\nTASK-7-1). Run `.venv/bin/pytest\ntests/orchestrator/overseer/ -q` against slice-22's\nbranch base (slice-1 HEAD) and save the result to\n.egg-state/agent-outputs/2817-slice-22-pre-baseline.txt.\nThe downstream commits in slice-22 (and slice-23) must\nproduce a result identical to this baseline. monitor.py\ndrives operational health alerts and infra-error\ndeduplication; a subtle helper-extraction regression\ncould surface as missed escalations rather than test\nfailures \u2014 the baseline is the safety net.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": ".egg-state/agent-outputs/2817-slice-22-pre-baseline.txt\nexists with the pytest output of the overseer test\ntree captured on slice-1 HEAD; the file is referenced\nin the PR description of slice-22 and slice-23 as the\nregression-prevention baseline.",
+          "files_affected": [
+            ".egg-state/agent-outputs/2817-slice-22-pre-baseline.txt"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-22-1",
+          "description": "Read orchestrator/overseer/monitor.py:198-1083 (the\n885-LOC write_health_summary method). Identify natural\nseams; document the seam set in a short PR description\nparagraph. Likely candidates per architect: per-pipeline\nsections, per-phase sections, consensus reporting,\ninfra-dedup, output rendering \u2014 final seam set is the\nimplementing producer's call. The number of seams is not\nload-bearing; the constraint is that no resulting helper\nexceeds 300 LOC.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR description paragraph names the chosen seams; no\nresulting helper exceeds 300 LOC.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-22-2",
+          "description": "Break write_health_summary into \u2264300-LOC named private\nhelpers (`_summarize_phases`, `_render_per_pipeline_section`,\netc.) co-located in monitor.py. Each helper extraction is\nits own commit so reviewer_code can review extractions\nindependently. Verify allowlist ratchet shows strict\nDECREASE for monitor.py (no allowlist entry drop yet).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "write_health_summary body \u2264300 LOC; named helpers\nco-located in monitor.py; `make test-all` green;\npytest output matches slice-22-pre-baseline.txt; allowlist\nratchet shows strict size decrease for monitor.py vs.\nslice-1 HEAD (monitor.py at the slice-22 branch base);\ncommit log chunked one-extraction-per-commit.",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-23",
+      "name": "monitor.py submodule extraction (TERMINAL for monitor.py)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-23-1",
+          "description": "Step-0 baseline: `git mv orchestrator/overseer/monitor.py\norchestrator/overseer/monitor/__init__.py`. OverseerMonitor\nclass at original :82 stays in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/overseer/monitor/__init__.py exists with class;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/overseer/monitor/__init__.py",
+            "orchestrator/overseer/monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-23-2",
+          "description": "Extract submodule clusters. Suggested layout:\n_health_summary/ (the broken-up helpers from slice-22 \u2014\nmay itself need a sub-sub-package), _phase_transitions.py,\n_infra_dedup.py, _logging.py, _filtering.py. Final\ncluster boundaries are the implementing producer's call.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "monitor/ has the cluster submodules; class methods are\nthin wrappers; no submodule over cap; `make test-all`\ngreen; allowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/overseer/monitor/_health_summary",
+            "orchestrator/overseer/monitor/_phase_transitions.py",
+            "orchestrator/overseer/monitor/_infra_dedup.py",
+            "orchestrator/overseer/monitor/_logging.py",
+            "orchestrator/overseer/monitor/_filtering.py",
+            "orchestrator/overseer/monitor/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-23-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-23-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight row with concrete\nmonitor/ submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row is concrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-22"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-24",
+      "name": "orchestrator/kubernetes_spawner.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-24-1",
+          "description": "Step-0 baseline: `git mv orchestrator/kubernetes_spawner.py\norchestrator/kubernetes_spawner/__init__.py`. KubernetesSpawner\nclass at original :321 stays in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "kubernetes_spawner/__init__.py exists with class;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/__init__.py",
+            "orchestrator/kubernetes_spawner.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-24-2",
+          "description": "Apply method-modules-on-class. Extract ~20 methods into\n_spawn, _retry, _stop_remove, _restart, _overseer,\n_singleton. Preserve dataclasses (SpawnedContainer) and\nexception types (KubernetesSpawnError, SpawnFailureError)\nas barrel re-exports.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "kubernetes_spawner/ has named submodules; class methods are\nthin wrappers; dataclasses/exceptions re-exported;\n`make test-all` green; allowlist ratchet shows strict\ndecrease.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/_spawn.py",
+            "orchestrator/kubernetes_spawner/_retry.py",
+            "orchestrator/kubernetes_spawner/_stop_remove.py",
+            "orchestrator/kubernetes_spawner/_restart.py",
+            "orchestrator/kubernetes_spawner/_overseer.py",
+            "orchestrator/kubernetes_spawner/_singleton.py",
+            "orchestrator/kubernetes_spawner/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-24-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-24-4",
+          "description": "Replace the TBD row in orchestrator/CLAUDE.md (added in\nslice-1 TASK-1-5 for kubernetes_spawner.py) with the\nconcrete submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/CLAUDE.md row for kubernetes_spawner/ is\nconcrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-25",
+      "name": "shared/egg_contracts/plan_parser.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-25-1",
+          "description": "Step-0 baseline: `git mv shared/egg_contracts/plan_parser.py\nshared/egg_contracts/plan_parser/__init__.py`. Verify\n`validate_forest` (which the orchestrator's slice-DAG\ningestion calls) still resolves through the package\nsurface. Note this is the cq-3 in-scope file.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/egg_contracts/plan_parser/__init__.py exists;\n`validate_forest` resolves; `make test-all` green; commit\nisolated.",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser/__init__.py",
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-25-2",
+          "description": "Extract the flat clusters (_models, _yaml, _markdown,\n_top, _forest, _role_alignment, _preflight). Barrel\nre-exports all class/exception types and top-level\nparse_plan / parse_plan_file / validate_forest /\nvalidate_task_role_alignment / validate_plan_preflight\nsymbols.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/egg_contracts/plan_parser/ has named submodules;\nbarrel re-exports the public API; `make test-all` green;\nallowlist ratchet shows strict decrease.",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser/_models.py",
+            "shared/egg_contracts/plan_parser/_yaml.py",
+            "shared/egg_contracts/plan_parser/_markdown.py",
+            "shared/egg_contracts/plan_parser/_top.py",
+            "shared/egg_contracts/plan_parser/_forest.py",
+            "shared/egg_contracts/plan_parser/_role_alignment.py",
+            "shared/egg_contracts/plan_parser/_preflight.py",
+            "shared/egg_contracts/plan_parser/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-25-3",
+          "description": "Drop allowlist entry (also removes the cq-5-retagged\ncomment block; the entire 9-line block goes away).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist `files:` map no longer contains\n`shared/egg_contracts/plan_parser.py`; 9-line comment\nblock also removed; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-25-4",
+          "description": "Populate shared/CLAUDE.md TBD row (added in slice-1) with\nconcrete plan_parser/ submodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/CLAUDE.md row for plan_parser/ is concrete;\nreviewer_documenter ACK.",
+          "files_affected": [
+            "shared/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-26",
+      "name": "gateway/checkpoint_handler.py decomposition (method-modules-on-class)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-26-1",
+          "description": "Step-0 baseline: `git mv gateway/checkpoint_handler.py\ngateway/checkpoint_handler/__init__.py`. CheckpointHandler\nclass at original :376 stays in __init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "checkpoint_handler/__init__.py exists with class;\n`make test-all` green; commit isolated.",
+          "files_affected": [
+            "gateway/checkpoint_handler/__init__.py",
+            "gateway/checkpoint_handler.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-26-2",
+          "description": "Apply method-modules-on-class. Extract methods into\n_capture, _redact, _resolve, _store, _read, _module_api.\nBarrel re-exports CheckpointError and the module-level\napi helpers (get_checkpoint_handler, etc.).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "checkpoint_handler/ has named submodules; class methods are\nthin wrappers; `make test-all` green; allowlist ratchet\nshows strict decrease.",
+          "files_affected": [
+            "gateway/checkpoint_handler/_capture.py",
+            "gateway/checkpoint_handler/_redact.py",
+            "gateway/checkpoint_handler/_resolve.py",
+            "gateway/checkpoint_handler/_store.py",
+            "gateway/checkpoint_handler/_read.py",
+            "gateway/checkpoint_handler/_module_api.py",
+            "gateway/checkpoint_handler/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-26-3",
+          "description": "Drop allowlist entry.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist drop; `make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-26-4",
+          "description": "Update gateway/CLAUDE.md in-flight row with concrete\ncheckpoint_handler/ layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row is concrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "gateway/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-27",
+      "name": "orchestrator/routes/phases.py decomposition (preserve lazy imports)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-27-1",
+          "description": "Step-0 baseline: `git mv orchestrator/routes/phases.py\norchestrator/routes/phases/__init__.py`. phases_bp blueprint\nand @phases_bp.route decorators stay in __init__.py. CRITICAL:\nall 8 lazy in-function imports of `from routes.pipelines import\n\u2026` at original lines 405, 535, 612, 711, 733, 1010, 1189, 1307\nMUST stay as in-function imports \u2014 hoisting them to module-top\nreintroduces the import cycle with pipelines.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/phases/__init__.py exists with blueprint\n+ decorators; all lazy imports still in-function. Verify\ntwo ways: (a) `grep -n 'from routes.pipelines'\norchestrator/routes/phases/__init__.py` shows 8 hits;\n(b) each hit's line is INDENTED (column > 0) \u2014 confirm\nvisually in the PR diff that each `from routes.pipelines`\nline starts with whitespace, never at column 0. `make\ntest-all` green; commit isolated.",
+          "files_affected": [
+            "orchestrator/routes/phases/__init__.py",
+            "orchestrator/routes/phases.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-27-2",
+          "description": "Extract route bodies into _dispatch, _advance, _complete,\n_populate, _start_fail. Decorators stay in __init__.py.\nLazy in-function imports MOVE WITH their function bodies\nand STAY in-function. The advance_phase route body (~540\nLOC) may need further-split into _advance/ sub-sub-package.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/phases/ has the named submodules; all\n@phases_bp.route decorators in __init__.py; lazy imports\npreserved inside function bodies in the submodules;\n`make test-all` green; allowlist ratchet shows strict\ndecrease.",
+          "files_affected": [
+            "orchestrator/routes/phases/_dispatch.py",
+            "orchestrator/routes/phases/_advance.py",
+            "orchestrator/routes/phases/_complete.py",
+            "orchestrator/routes/phases/_populate.py",
+            "orchestrator/routes/phases/_start_fail.py",
+            "orchestrator/routes/phases/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-27-3",
+          "description": "Drop allowlist entry (also retagged in slice-1 cq-5 \u2014 the\n9-line comment block goes away with the entry).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "allowlist `files:` map no longer contains\n`orchestrator/routes/phases.py`; comment block removed;\n`make lint` green.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-27-4",
+          "description": "Replace the TBD row in orchestrator/CLAUDE.md (added in\nslice-1 TASK-1-5 for routes/phases.py) with the concrete\nsubmodule layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/CLAUDE.md row for routes/phases/ is concrete;\nreviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-28",
+      "name": "orchestrator/routes/deployment.py decomposition",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-28-1",
+          "description": "Step-0 baseline: `git mv orchestrator/routes/deployment.py\norchestrator/routes/deployment/__init__.py`. deployment_bp\nblueprint and @deployment_bp.route decorators stay in\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/deployment/__init__.py exists with\nblueprint + decorators; `make test-all` green; commit\nisolated.",
+          "files_affected": [
+            "orchestrator/routes/deployment/__init__.py",
+            "orchestrator/routes/deployment.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-28-2",
+          "description": "Extract route bodies into _runtime, _context, _logs,\n_manifests, _prune, _network, _rebuild. Decorators stay in\n__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/routes/deployment/ has the named submodules;\ndecorators in __init__.py; `make test-all` green; allowlist\nratchet shows strict decrease.",
+          "files_affected": [
+            "orchestrator/routes/deployment/_runtime.py",
+            "orchestrator/routes/deployment/_context.py",
+            "orchestrator/routes/deployment/_logs.py",
+            "orchestrator/routes/deployment/_manifests.py",
+            "orchestrator/routes/deployment/_prune.py",
+            "orchestrator/routes/deployment/_network.py",
+            "orchestrator/routes/deployment/_rebuild.py",
+            "orchestrator/routes/deployment/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-28-3",
+          "description": "Drop the deployment.py allowlist entry. NOTE on merge\nordering: slices 13-28 are sibling leaves of slice-1\nunder concurrency cap 2, so whichever slice happens to\nmerge last empties the `files:` map (not necessarily\nslice-28). The closing criterion is metric-based\n(\"allowlist `files:` map is empty\"), not slice-specific.\nThe slice that observes the empty map should reference\nit in its PR description so the operator can close\n#2817.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "deployment.py no longer in allowlist `files:` map; if\nthis is the last entry, the `files:` map is empty and\n#2817 can close (operator post-merge step); `make lint`\ngreen.",
+          "files_affected": [
+            "scripts/file-size-allowlist.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-28-4",
+          "description": "Update orchestrator/CLAUDE.md in-flight row with concrete\nroutes/deployment/ layout.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md row is concrete; reviewer_documenter ACK.",
+          "files_affected": [
+            "orchestrator/CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "cq-1",
@@ -454,7 +3396,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Decompose 17 oversize Python files; empty file-size allowlist (#2817)",
+    "description": "Closes #2817 (refresh of #2261). The `make lint` step caps Python\nsource files at 1500 lines / 100 KB; 17 files are still\ngrandfathered in `scripts/file-size-allowlist.yaml`. Six prior\npipeline attempts on #2261 failed to land any follow-up slice after\nthe pattern + worked reference merged via #2335. This plan\ndecomposes all 17 files following the canonical pattern in\n`docs/guides/decomposition-pattern.md` (sub-package + explicit\nper-symbol re-export barrel + underscore-prefixed private\nsubmodules; `scripts/select_tests/` is the worked reference).\n\nThe work breaks into 28 slices in a single forest-shaped DAG:\n\n1. **slice-1 (root, docs/scaffolding)** retags stale `#2261`\n   references to `#2817` across the pattern doc, both CLAUDE.md\n   seam tables, and the allowlist comment blocks (cq-5, cq-6);\n   updates the pattern doc for the cq-4 relaxation of\n   non-negotiable #10; adds a Submodule seam table to\n   `sandbox/CLAUDE.md` and creates `shared/CLAUDE.md` with one\n   (cq-2); seeds TBD rows for `kubernetes_spawner.py` and\n   `routes/phases.py`. No source decomposition lands here.\n2. **slices 2\u20137** decompose `orchestrator/routes/pipelines.py` as a\n   linear chain. Slice-2 lands the step-0 baseline + five flat\n   clusters. Slices 3-6 each extract one sub-sub-package\n   (`_prompt_building/`, `_pr_lifecycle/`, `_worktree_ops/`,\n   `_concurrent_phase/`). Slice-7 is terminal: carves\n   `_run_pipeline` into per-phase handlers via a two-stage\n   refactor (PHASE_HANDLERS dispatch + per-phase module lift),\n   drops the allowlist entry, and fills the seam-table row.\n3. **slices 8\u201312** decompose `gateway/gateway.py` as a linear\n   chain (baseline + `_app_factory` / `_auth` / `_checkpoint_routes`\n   / `_gh_routes`; then `_git_routes/`; then `_jira_routes/`;\n   then `_confluence_routes/`/`_worktree_routes`/`_anthropic_proxy`;\n   terminal `_sessions` + allowlist drop). Non-negotiable #8\n   keeps every `@app.route` decorator in `__init__.py`.\n4. **slices 13\u201328** are independent per-file decompositions that\n   all root at slice-1. Each follows the canonical 4-task shape\n   (step-0 `git mv` baseline \u2192 external-importer audit \u2192 cluster\n   extraction \u2192 allowlist drop + seam-table fill). Slices 22-23\n   are a chained pair: slice-22 breaks the 885-LOC\n   `write_health_summary` method in-place into named helpers\n   (PREP); slice-23 mechanically extracts submodules (TERMINAL).\n\nImpact: every file under the global cap; the allowlist's `files:`\nmap empties; the seam tables in `orchestrator/CLAUDE.md`,\n`gateway/CLAUDE.md`, the new `sandbox/CLAUDE.md`, and the net-new\n`shared/CLAUDE.md` carry concrete submodule layouts. Pure refactor\n\u2014 no behaviour change. Test patch targets (49 distinct symbols\nacross `routes.pipelines.*`, 6 across `gateway.gateway.*`, 0\nacross `mcp_tools.*`) continue resolving through the barrel\n`__init__.py`. Downstream consumer #2562 (restore coder/reviewer\nfull check-suite access) becomes unblocked; #2319 (per-phase\nhandler unit tests) can start once slice-7 lands.",
+    "test_plan": "Automated:\n- `make lint` on every slice PR: ratchet check via\n  `scripts/check-file-sizes.py` confirms strict size decrease for\n  the touched file; pre-commit equivalents (ruff, ruff-format)\n  run via `Makefile:201` \u2192 `lint-custom:258-273` glob loop.\n- `make test-all` on every slice PR: full pytest suite, mypy,\n  and custom checks; reviewer confirms the existing 49 +\n  6 distinct test-patch targets continue resolving through the\n  barrel `__init__.py` (no test file moves required because\n  non-negotiable #10 is relaxed per cq-4).\n- Pre-extraction audit per slice: `git grep -nE\n  \"(<module>\\.|from .* import .*\\b<symbol>\\b)\" -- '*.py'`\n  (unanchored \u2014 catches in-function lazy imports). Audit\n  deliverable in the slice PR description.\nManual:\n- **Slice-7 (terminal pipelines.py)**: human-operator runs a\n  small refine\u2192plan\u2192implement\u2192pr SDLC pipeline against a\n  doc-only issue and confirms no behaviour change in BRC\n  consensus, signal handling, slice-DAG admission, HITL gates.\n  This is the RISK-2 safety net.\n- **Slice-12 (terminal gateway.py)**: security_review ACK\n  required (gateway sits on the policy-enforcement seam);\n  operator confirms the 47 `@app.route(...)` decorators are\n  still in `__init__.py` and that no decorator moved into a\n  submodule (non-negotiable #8).\n- **Slices 9 and 21** (security-adjacent: `_git_routes/` carve-out\n  from gateway.py / `git_client.py`): security_review ACK\n  required.",
+    "manual_steps": "Pre-merge: none beyond standard reviewer ACK + HITL approvals per\nBRC consensus protocol.\n\nPost-merge (after slice-28 lands and `scripts/file-size-allowlist.yaml`\n`files:` map is empty):\n1. Operator closes #2817 referencing the 28 merged slice PRs.\n2. Operator notifies #2562 (restore coder/reviewer full check-suite\n   access) \u2014 that issue becomes unblocked.\n3. Operator notifies #2319 (per-phase handler unit tests) \u2014 those\n   tests can be authored against the now-extracted\n   `_run_refine.py` / `_run_plan.py` / `_run_implement.py` /\n   `_run_pr.py` modules.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
