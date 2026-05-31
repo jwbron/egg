@@ -21,10 +21,12 @@ The barrel `__init__.py` is the **stable public API** (HITL decision-7 of #2817)
 Placeholder. Slices 8–12 of #2817 land the decomposition of
 `gateway/gateway.py` (~10,690 lines) as a linear chain. Slice-8 lands
 the step-0 baseline + flat clusters (`_app_factory`, `_auth`,
-`_checkpoint_routes`, `_gh_routes`); slices 9–11 each extract one
-sub-sub-package; slice-12 is terminal — it extracts `_sessions` and
-drops the allowlist entry. Pre-allocated submodule clusters per the
-plan:
+`_checkpoint_routes`, `_gh_routes`); slices 9–10 each extract one
+sub-sub-package (`_git_routes/`, then `_jira_routes/`); slice-11
+extracts three (`_confluence_routes/`, `_worktree_routes`, and
+`_anthropic_proxy`); slice-12 is terminal — it extracts `_sessions`
+and drops the allowlist entry. Pre-allocated submodule clusters per
+the plan:
 
 | Submodule | Owned symbols |
 |-----------|---------------|
