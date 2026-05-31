@@ -119,7 +119,7 @@
       {"file": "sandbox/entrypoint.py", "lines": 2210, "bytes": 90563, "decomposition_difficulty": "easy", "needs_sub_sub_packages": false},
       {"file": "gateway/worktree_manager.py", "lines": 2087, "bytes": 83788, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
       {"file": "gateway/git_client.py", "lines": 2068, "bytes": 69084, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
-      {"file": "orchestrator/overseer/monitor.py", "lines": 2024, "bytes": 84829, "decomposition_difficulty": "hard", "needs_sub_sub_packages": false, "note": "865-LOC write_health_summary method must be broken up before submodule clusters can be named"},
+      {"file": "orchestrator/overseer/monitor.py", "lines": 2024, "bytes": 84829, "decomposition_difficulty": "hard", "needs_sub_sub_packages": false, "note": "885-LOC write_health_summary method (lines 198-1083) must be broken up before submodule clusters can be named. Pre-split into 2-slice chain (slice-22 in-place breakup + slice-23 submodule extract) per reviewer_plan v1 NACK."},
       {"file": "orchestrator/kubernetes_spawner.py", "lines": 1873, "bytes": 82651, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
       {"file": "shared/egg_contracts/plan_parser.py", "lines": 1835, "bytes": 70233, "decomposition_difficulty": "easy-medium", "needs_sub_sub_packages": false, "note": "in scope of #2817 per cq-3 (was tracked under #2569; #2569 closed)"},
       {"file": "gateway/checkpoint_handler.py", "lines": 1777, "bytes": 69606, "decomposition_difficulty": "medium", "needs_sub_sub_packages": false},
@@ -172,7 +172,7 @@
       "sandbox/entrypoint.py": "_config, _logging, _subprocess, _user_setup, _env_setup, _claude_setup, _health_exec",
       "gateway/worktree_manager.py": "_create, _remove, _chown, _lookup, _prune, _startup (WorktreeManager class stays in __init__.py)",
       "gateway/git_client.py": "_remotes, _repo_paths, _validation, _credentials, _push_attribution, _rebase",
-      "orchestrator/overseer/monitor.py": "BLOCKED on in-slice breakup of the 885-LOC write_health_summary method (lines 198-1083). Candidate clusters after breakup: _health_summary/, _phase_transitions, _infra_dedup, _consensus_tracking. Flag as needs-deeper-inspection-by-implementing-agent.",
+      "orchestrator/overseer/monitor.py": "PRE-SPLIT into 2-slice chain (per reviewer_plan v1 NACK): slice-22 performs in-place breakup of the 885-LOC write_health_summary method (lines 198-1083) into <=300-LOC named helpers co-located in monitor.py (NO submodule extraction; allowlist entry stays). slice-23 extracts submodules using method-modules-on-class pattern; candidate clusters: _health_summary/, _phase_transitions.py, _infra_dedup.py, _logging.py, _filtering.py. Final cluster boundaries are the slice-23 implementing producer's call after reading slice-22's helper layout.",
       "orchestrator/kubernetes_spawner.py": "_spawn, _retry, _stop_remove, _restart, _overseer, _singleton (KubernetesSpawner class stays in __init__.py)",
       "shared/egg_contracts/plan_parser.py": "_models, _yaml, _markdown, _top, _forest, _role_alignment, _preflight",
       "gateway/checkpoint_handler.py": "_capture, _redact, _resolve, _store, _read, _module_api (CheckpointHandler class stays in __init__.py)",
@@ -212,11 +212,11 @@
   ],
   "recommended_approach": {
     "name": "Chained sub-slices for outliers + parallel siblings for smaller files, with up-front docs slice",
-    "slice_count": 27,
+    "slice_count": 28,
     "wave_structure": {
       "wave_1": ["slice-1 (docs scaffolding root)"],
-      "subsequent_waves": "26 sibling slices of slice-1 enter the scheduler as soon as slice-1 lands. With EGG_ORCH_MAX_PARALLEL_SLICES=2 per-pipeline, ~13 waves of 2 slices each (interleaved with the chained sub-slices waiting on their parents)",
-      "longest_path": "slice-1 -> slice-2 -> slice-3 -> slice-4 -> slice-5 -> slice-6 -> slice-7 (the pipelines.py chain). 7 sequential merges define the wall-clock floor."
+      "subsequent_waves": "27 slices descend from slice-1. With EGG_ORCH_MAX_PARALLEL_SLICES=2 per-pipeline, ~14 waves of 2 slices each (interleaved with the chained sub-slices waiting on their parents)",
+      "longest_path": "slice-1 -> slice-2 -> slice-3 -> slice-4 -> slice-5 -> slice-6 -> slice-7 (the pipelines.py chain). 7 sequential merges define the wall-clock floor. The monitor.py 2-slice chain (slice-22 -> slice-23) and gateway.py 5-chain (slice-8 -> slice-12) are shorter."
     },
     "justification": [
       "Respects the forest constraint hard rule (each slice has ≤1 DAG parent)",
@@ -254,9 +254,9 @@
     },
     {
       "id": "td-5",
-      "decision": "monitor.py and phases.py flagged needs-deeper-inspection",
-      "rationale": "monitor.py's 865-LOC write_health_summary method (lines 198-1083) must be broken up BEFORE submodule cluster boundaries can be named. phases.py's 540-LOC advance_phase route body dominates the file; the implementing agent must find its internal seams. The architect output flags both for the planner so the slices include in-slice 'break up the mega-function first' tasks.",
-      "trade_off": "Two slices may take more BRC cycles than the others; if either looks heading toward >3-4 cycles, reviewer_plan can NACK on slice_size and the architect re-proposes with a further-split (e.g. monitor.py as a 2-slice chain: 'break up write_health_summary' + 'extract submodules')."
+      "decision": "monitor.py pre-split into 2-slice chain (slice-22 prep + slice-23 extract); phases.py flagged needs-deeper-inspection but stays single-slice",
+      "rationale": "monitor.py's 885-LOC write_health_summary method (lines 198-1083) must be broken up BEFORE submodule cluster boundaries can be named — the prep work alone is ~3 named helper extractions plus 5 submodule extractions on top, which is 8+ distinct named code-motion changes plus two different review attention surfaces (prep-refactor vs cluster-extract) in one PR. Per the §11 slice_size rubric, this is too much for one BRC cycle. The v1 architect output had this as a single slice with td-7 noting the contingency; reviewer_plan correctly NACKed and the v2 scaffold pre-splits into slice-22 (in-place breakup, allowlist stays) + slice-23 (submodule extract, allowlist drops). phases.py's 540-LOC advance_phase route body dominates that file; the implementing agent must find its internal seams, but the slice has only one mega-function (not a 5-cluster extraction following it), so single-slice convergence is achievable.",
+      "trade_off": "One extra slice (28 total vs 27). In exchange, reviewer attention is focused on one risk profile at a time and the reactive NACK fallback no longer adds wall-clock pressure mid-cycle."
     },
     {
       "id": "td-6",
@@ -266,9 +266,20 @@
     },
     {
       "id": "td-7",
-      "decision": "monitor.py and peer_consensus.py terminal sub-slicing left to architect re-propose if reviewer_plan NACKs on slice_size",
-      "rationale": "Both files are HARD (885-LOC method; invariant checks threading through every mutation). The first attempt is single-slice; if the implementing agent's first commit pushes the BRC cycle count past 3-4, the architect re-proposes the slice as a 2-slice chain ('preparatory refactor' + 'extract submodules'). The reviewer_plan NACK-on-slice_size mechanism is the safety net.",
-      "trade_off": "Slight risk of mid-pipeline scaffold re-emission; preferable to over-prescribing a 2-slice split that may not be needed."
+      "decision": "peer_consensus.py stays single-slice; the implementing agent decides whether _run_invariant_checks extracts to _invariants.py or stays as a private method on the class",
+      "rationale": "peer_consensus.py is HARD but the complexity is localized to one method placement decision (whether _run_invariant_checks extracts or stays on the class), NOT an 885-LOC mega-method that needs in-place breakup. The implementing agent can decide on inspection. If extraction creates circular-import problems with the per-handler clusters, the safe fallback is keeping _run_invariant_checks on the class itself in __init__.py. Within one slice's scope. monitor.py's case was different and got pre-split into slice-22+23 per td-5."
+    },
+    {
+      "id": "td-8",
+      "decision": "Pre-allocated TBD placeholders in slice-2 must be VALID PYTHON (not import-of-non-existent-module)",
+      "rationale": "Slice-2 pre-allocates 5 sub-sub-package TBD entries in pipelines/__init__.py for downstream chained sub-slices to fill. The __init__.py is loaded at orchestrator boot time; an ImportError of a non-existent submodule would brick the pipeline. Placeholders must be docstring comments or `pass` statements, NOT `from ._prompt_building import *`.",
+      "trade_off": "None; correctness constraint."
+    },
+    {
+      "id": "td-9",
+      "decision": "External-importer audit grep must be UN-ANCHORED across the whole repo to catch in-function lazy importers",
+      "rationale": "mcp_tools.py uses the double-prefix form `from orchestrator.routes.pipelines import _read_phase_draft` inside function bodies (lazy import). A module-level-anchored grep misses this. The slice-2 description mandates `git grep -nE 'from (orchestrator\\.)?routes\\.pipelines' -- '*.py'` (un-anchored regex) to catch both single- and double-prefix forms and both module-level and in-function importers.",
+      "trade_off": "None; correctness constraint."
     }
   ],
   "risks_for_risk_analyst": [
@@ -317,9 +328,9 @@
     {
       "id": "r-7",
       "category": "monitor-prep-work",
-      "title": "monitor.py write_health_summary mega-method blocks meaningful cluster naming",
-      "context": "The 885-LOC method (lines 198-1083) is the bulk of the file. Without breaking it up first, submodule clusters can't be sized. If the slice's producer fails to break it up cleanly, the slice doesn't converge.",
-      "mitigation_candidates": ["td-5 + td-7 carry the contingency: if the slice runs past 3-4 BRC cycles, the architect re-proposes as a 2-slice chain", "The slice's task list explicitly orders the work: TASK-N-1 = 'break up write_health_summary into <=300-LOC helpers'; TASK-N-2 = 'extract submodules per cluster scaffold'"]
+      "title": "monitor.py write_health_summary mega-method requires in-place breakup before cluster naming",
+      "context": "The 885-LOC method (lines 198-1083) is the bulk of the file. Without breaking it up first, submodule clusters can't be sized.",
+      "mitigation_candidates": ["RESOLVED STRUCTURALLY (v2 scaffold per reviewer_plan v1 NACK): pre-split into slice-22 (in-place breakup, allowlist stays) + slice-23 (submodule extraction, allowlist drops). Each sub-slice has a single risk profile so reviewer attention is focused", "Per td-5, the chain shape mirrors gateway.py and pipelines.py: forest-valid, one slice per BRC cycle's worth of work"]
     },
     {
       "id": "r-8",
@@ -369,20 +380,20 @@
   "open_questions_for_planner": [
     {
       "id": "q-1",
-      "question": "Should slice-22 (monitor.py) and slice-18 (peer_consensus.py) be pre-split into 2-slice chains, or single-slice with reviewer_plan slice_size NACK as the safety net?",
-      "current_recommendation": "Single-slice; safety net suffices. Pre-splitting commits the architect to a shape the implementing agent may find unnecessary.",
-      "authority": "task_planner enumerates tasks within the slices the architect defines; the architect owns slice composition. If task_planner finds during enumeration that one of these slices can't be reasonably decomposed by a single agent team in one BRC cycle, raise NACK pressure on the architect via plan prose (per planner section in docs/architecture/slice-dag.md:633-655)."
+      "question": "RESOLVED in v2: monitor.py pre-split into slice-22 + slice-23 per reviewer_plan v1 NACK. peer_consensus.py (slice-18) stays single-slice — its complexity is one method-placement decision, not an 885-LOC mega-method.",
+      "current_recommendation": "Resolved structurally; no further planner action.",
+      "authority": "task_planner enumerates tasks within slices the architect defines."
     },
     {
       "id": "q-2",
       "question": "Should slice-7 (pipelines.py _run_loop terminal) be pre-split into 7a (PHASE_HANDLERS dispatch table introduction) + 7b (per-phase handler body extraction)?",
-      "current_recommendation": "Single-slice; the prior plan's two-stage B2 refactor (decision-2 of #2261) was described inside slice-15 as TASK-15-4 and TASK-15-5 — i.e. two TASKS within one slice. Mirror that.",
-      "authority": "Same as q-1."
+      "current_recommendation": "Single-slice; the prior plan's two-stage B2 refactor (decision-2 of #2261) was described inside slice-15 as TASK-15-4 and TASK-15-5 — i.e. two TASKS within one slice. Mirror that. reviewer_plan v1 review ACK'd this framing: 'by slice-7 the team has 5 prior pipelines.py sub-slices of bench-warming cadence; both TASKS operate on the same _run_pipeline function and the BRC state-machine sequencing must be reviewed as a whole; risk_analyst's RISK-2 attaches manual smoke-run + #2319 follow-up to this slice.'",
+      "authority": "If during slice-2..slice-6 the team's cycle count shows pressure, the architect can pre-emptively re-propose slice-7 as 7a+7b."
     },
     {
       "id": "q-3",
-      "question": "Allowlist-comment fixes (cq-5) — should plan_parser.py's comment retag to #2817 happen in slice-1 (docs) or in slice-24 (plan_parser.py terminal)?",
-      "current_recommendation": "slice-1 owns the retag (purely a doc comment fix; lives in scripts/file-size-allowlist.yaml). slice-24 owns the entry removal itself.",
+      "question": "Allowlist-comment fixes (cq-5) — should plan_parser.py's comment retag to #2817 happen in slice-1 (docs) or in slice-25 (plan_parser.py terminal)?",
+      "current_recommendation": "slice-1 owns the retag (purely a doc comment fix; lives in scripts/file-size-allowlist.yaml). slice-25 owns the entry removal itself.",
       "authority": "Planner discretion; either is defensible."
     }
   ],

@@ -41,11 +41,24 @@ slices:
       five sub-sub-packages (_run_loop/, _concurrent_phase/,
       _prompt_building/, _pr_lifecycle/, _worktree_ops/) are
       pre-allocated as TBD placeholders in __init__.py but NOT yet
-      extracted — subsequent chained sub-slices fill them. The allowlist
-      entry stays (file is still over the cap after this slice). Run the
-      external-importer audit (docs/guides/decomposition-pattern.md
-      section (d)) before each extraction; preserve every symbol
-      referenced outside the package as a barrel re-export.
+      extracted — subsequent chained sub-slices fill them. Placeholder
+      TBDs in __init__.py must be VALID PYTHON (use docstring comments
+      or pass statements rather than imports of non-existent submodules
+      — the file is loaded at orchestrator boot and an ImportError
+      would brick the pipeline). The allowlist entry stays (file is
+      still over the cap after this slice). Run the external-importer
+      audit (docs/guides/decomposition-pattern.md section (d)) before
+      each extraction; preserve every symbol referenced outside the
+      package as a barrel re-export. IMPORTANT: the audit grep must be
+      UN-ANCHORED across the whole repo — in-function lazy importers
+      (e.g. mcp_tools.py uses the double-prefix form
+      `from orchestrator.routes.pipelines import _read_phase_draft`)
+      will not show up in a module-level-anchored grep. Suggested
+      command: `git grep -nE "from (orchestrator\.)?routes\.pipelines"
+      -- '*.py'`. The implementing producer SHOULD chunk the PR's
+      commit log so reviewer_code can review each extraction
+      independently (one extraction per commit + final
+      placeholder/test-update commit).
     dependencies: slice-1
 
   - id: 3
@@ -373,27 +386,54 @@ slices:
 
   - id: 22
     name: |-
-      orchestrator/overseer/monitor.py decomposition (HARD — preparatory refactor)
+      monitor.py write_health_summary in-place breakup (PREP)
     goal: |-
-      Decompose orchestrator/overseer/monitor.py (2024 LOC) using the
-      method-modules-on-class pattern. OverseerMonitor class stays in
-      __init__.py. NON-MECHANICAL prep work: break up the 885-LOC
-      write_health_summary method (lines 198-1083) into ≤300-LOC helpers
-      BEFORE extracting submodules. Then extract: _health_summary/ (the
-      broken-up helpers), _phase_transitions.py
-      (_load_pipeline_for_transition_check, _blocking_agents_are_active,
-      _get_recent_proposal_age, _reset_incomplete_consensus_tracking),
-      _infra_dedup.py (_infra_error_hash, _is_infra_error_deduped,
-      _record_infra_error_escalation, _cleanup_infra_error_dedup),
-      _logging.py (_resolve_oversight_dir, _log_oversight_event),
-      _filtering.py (_filter_current_phase_agents, generate_health_summary).
-      Allowlist entry REMOVED. orchestrator/CLAUDE.md in-flight table row
-      updated. If the implementing agent finds the prep work + extraction
-      exceeds 3-4 BRC cycles, NACK on slice_size and the architect
-      re-proposes as a 2-slice chain (prep refactor + submodule extract).
+      PREP slice for orchestrator/overseer/monitor.py decomposition.
+      NON-MECHANICAL refactor performed in-place inside monitor.py — NO
+      submodule extraction in this slice. Break up the 885-LOC
+      write_health_summary method (lines 198-1083) into ≤300-LOC named
+      private helpers co-located in monitor.py. The implementing agent
+      finds the seams (likely candidates: a section per per-pipeline /
+      per-phase / consensus / infra-dedup / output-render concern, but
+      the actual seam set is the producer's call after reading the
+      method). Allowlist entry STAYS — monitor.py is still over the cap
+      after this slice, but the ratchet shows strict size DECREASE for
+      monitor.py (named-helper extraction adds a few wrapper lines but
+      the bulk of the method body relocates to helpers; net file size
+      may grow slightly only if the helpers add significant doc/type
+      annotation surface — verify pre-flight). Acceptance:
+      write_health_summary body is ≤300 LOC; named helpers are
+      co-located in monitor.py; `make test-all` green; no behavior
+      change. The implementing agent SHOULD chunk the PR's commit log so
+      reviewer_code can review each helper extraction independently
+      (one extraction per commit).
     dependencies: slice-1
 
   - id: 23
+    name: |-
+      monitor.py submodule extraction (TERMINAL for monitor.py)
+    goal: |-
+      Terminal sub-slice for orchestrator/overseer/monitor.py
+      decomposition. Builds on slice-22's in-place method breakup. Now
+      mechanical: extract the named helpers and existing methods into
+      submodule clusters using the method-modules-on-class pattern.
+      OverseerMonitor class stays in __init__.py. Candidate submodules:
+      _health_summary/ (the broken-up write_health_summary helpers from
+      slice-22 — may itself need a sub-sub-package given size),
+      _phase_transitions.py (_load_pipeline_for_transition_check,
+      _blocking_agents_are_active, _get_recent_proposal_age,
+      _reset_incomplete_consensus_tracking), _infra_dedup.py
+      (_infra_error_hash, _is_infra_error_deduped,
+      _record_infra_error_escalation, _cleanup_infra_error_dedup),
+      _logging.py (_resolve_oversight_dir, _log_oversight_event),
+      _filtering.py (_filter_current_phase_agents,
+      generate_health_summary). Final cluster boundaries are the
+      implementing producer's call after reading slice-22's helper
+      layout. Allowlist entry REMOVED. orchestrator/CLAUDE.md in-flight
+      table row updated with concrete submodule layout.
+    dependencies: slice-22
+
+  - id: 24
     name: |-
       orchestrator/kubernetes_spawner.py decomposition (method-modules-on-class)
     goal: |-
@@ -416,7 +456,7 @@ slices:
       finalises).
     dependencies: slice-1
 
-  - id: 24
+  - id: 25
     name: |-
       shared/egg_contracts/plan_parser.py decomposition
     goal: |-
@@ -437,7 +477,7 @@ slices:
       added in slice-1).
     dependencies: slice-1
 
-  - id: 25
+  - id: 26
     name: |-
       gateway/checkpoint_handler.py decomposition (method-modules-on-class)
     goal: |-
@@ -460,7 +500,7 @@ slices:
       updated.
     dependencies: slice-1
 
-  - id: 26
+  - id: 27
     name: |-
       orchestrator/routes/phases.py decomposition (preserve lazy imports)
     goal: |-
@@ -483,7 +523,7 @@ slices:
       this slice finalises).
     dependencies: slice-1
 
-  - id: 27
+  - id: 28
     name: |-
       orchestrator/routes/deployment.py decomposition
     goal: |-
