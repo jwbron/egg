@@ -21,6 +21,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
     },
+    "40b6638ae683a8c80cb0fab53b5dbcf00b43bc63": {
+      "branch": "egg/issue-2908-replan/work",
+      "pipeline_id": "issue-2908-replan",
+      "registered_at": "2026-05-31T23:00:44.526767+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "52c9a91d7184d51c7ccb078ba341e622bf26bc7d": {
       "branch": "egg/issue-2908-replan/work",
       "pipeline_id": "issue-2908-replan",
