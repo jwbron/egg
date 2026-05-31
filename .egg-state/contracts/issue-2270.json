@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Soft cap with repetition detector \u2014 escalate if recent logs are >N% repetitive content\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T05:04:05.862459Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-pipeline inference \u2014 aggregate this pipeline's failures over a sliding window\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T05:04:37.287970Z",
       "debounce_until": null
     },
     {
@@ -103,10 +103,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Delete the branch entirely \u2014 the sandbox-side egg-orch overseer file-issue path is authoritative\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-31T05:04:37.449632Z",
       "debounce_until": null
     }
   ],
@@ -280,12 +280,12 @@
       {
         "id": "Q1",
         "question": "Does the orchestrator currently expose a persistent generation token (e.g., pod UID or boot timestamp) in its health-status response, or must this issue define and implement that primitive as a prerequisite for the overseer's recycle-detection logic?",
-        "answer": null
+        "answer": "No \u2014 the orchestrator does not currently expose any persistent generation token (a grep of generation/boot_time/boot_timestamp/pod_uid/generation_token across orchestrator/ returned zero matches, and no route in orchestrator/routes/ includes boot metadata). This issue must define and implement the primitive as a prerequisite for the overseer's recycle-detection logic. Recommended primitive: orchestrator pod UID when running on K8s, or a UUID minted at orchestrator startup, surfaced on the health-status response so the overseer can store it and compare on each poll; mismatch triggers state reset + an orchestrator_generation_change alert."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-31T05:04:37.475204Z",
     "comment_id": null,
     "debounce_until": null
   },
