@@ -269,10 +269,35 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Are there operator-side budget caps (per-pipeline token spend, per-event wall-clock, keep-warm-loop $/hour) that should be expressed as hard fail conditions for the WS0 spike rather than just instrumentation? If yes, name the threshold.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Is the new memory artifact (.egg-state/agent-outputs/<role>/brc-memory.md) considered authoritative audit material that must be preserved post-pipeline, or ephemeral coordination state that can be cleaned up with the pod? (Affects retention policy and gateway treatment.)",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-31T20:25:36.439229Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-31T19:44:16.923334Z",
-  "updated_at": "2026-05-31T20:25:36.402896Z",
+  "updated_at": "2026-05-31T20:25:36.452278Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -285,7 +310,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
