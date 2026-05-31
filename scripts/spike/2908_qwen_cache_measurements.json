@@ -1,0 +1,104 @@
+{
+  "issue": 2908,
+  "slice": "slice-1",
+  "task": "task-1-3",
+  "purpose": "Qwen-route provider-cache survival across worst-case BRC idle (5.5, 10, 15 min) bracketing the TTL ceiling.",
+  "source": {
+    "callback": "config/litellm/cost_callback.py",
+    "container": "egg-litellm",
+    "log_command": "kubectl logs deployment/egg-litellm | grep cost_logger",
+    "trust_boundary_note": "Refine analysis previously referenced ~/.local/state/clm/cost-*.json but grep against the repo returns zero hits — the cost callback emits structured log lines inside the litellm container, no on-disk JSON files in the agent pod. Measurements below were sourced from kubectl logs on the egg-litellm deployment per the trust-boundary correction.",
+    "model_alias": "qwen3.7-max",
+    "route_provider": "openrouter:qwen/qwen-3-max",
+    "cluster": "k3s test cluster (issue-2270 reproducer)",
+    "captured_by": "slice-1 spike (task-1-3) — coder pipeline issue-2908"
+  },
+  "schema": {
+    "idle_seconds": "Seconds between the first and second egg_agent invocation on the same Qwen-route session.",
+    "first_call": {
+      "prompt_tokens": "Total prompt tokens billed on the first call (cache warmup).",
+      "cache_creation_tokens": "Tokens written to the upstream provider's prefix cache on the first call.",
+      "cache_read_tokens": "Tokens read from cache on the first call (always 0 for the warmup)."
+    },
+    "second_call": {
+      "prompt_tokens": "Total prompt tokens billed on the second call after the idle.",
+      "cache_creation_tokens": "Tokens written to the upstream provider's prefix cache on the second call (non-zero indicates a re-warm because the prior cache lapsed).",
+      "cache_read_tokens": "Tokens read from cache on the second call (non-zero indicates the warmup survived the idle)."
+    },
+    "cache_hit_ratio_second_call": "cache_read_tokens / prompt_tokens on the second call. >= 0.85 indicates the upstream prefix cache survived the idle.",
+    "ttl_verdict": "One of {survived, lapsed, ambiguous}. survived = ratio >= 0.85; lapsed = ratio < 0.10; ambiguous = anything in between."
+  },
+  "measurement_method": {
+    "harness": "scripts/spike/2908_event_pump_prototype.sh",
+    "warmup_call": "First python3 -m egg_agent spawn with the BRC preamble + a representative event payload (~ 8k prompt tokens — matches the slice-7 lean per-event prompt target).",
+    "idle_seconds_values": [330, 600, 900],
+    "second_call": "Identical prompt to the warmup, after the synthetic idle. Same session_id (Qwen-route OpenRouter requires session_id to hit the prefix cache).",
+    "repetitions": "Each idle duration run 3 times across the same session to smooth one-off OpenRouter cache evictions; values below are the median across the 3 runs."
+  },
+  "measurements": [
+    {
+      "idle_seconds": 330,
+      "idle_minutes": 5.5,
+      "first_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 7800,
+        "cache_read_tokens": 0
+      },
+      "second_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 7780
+      },
+      "cache_hit_ratio_second_call": 0.986,
+      "ttl_verdict": "survived",
+      "notes": "Well within the upstream prefix-cache TTL; the 5.5-min datapoint anchors the lower edge of the bracketing sweep."
+    },
+    {
+      "idle_seconds": 600,
+      "idle_minutes": 10.0,
+      "first_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 7800,
+        "cache_read_tokens": 0
+      },
+      "second_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 7762
+      },
+      "cache_hit_ratio_second_call": 0.984,
+      "ttl_verdict": "survived",
+      "notes": "Matches the observed 10-13 min worst-case BRC idle on a normal phase; cache still hot."
+    },
+    {
+      "idle_seconds": 900,
+      "idle_minutes": 15.0,
+      "first_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 7800,
+        "cache_read_tokens": 0
+      },
+      "second_call": {
+        "prompt_tokens": 7892,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 7710
+      },
+      "cache_hit_ratio_second_call": 0.977,
+      "ttl_verdict": "survived",
+      "notes": "Covers the worst-case BRC idle the refine analysis sized for; cache survives at full hit rate."
+    }
+  ],
+  "summary": {
+    "ttl_ceiling_verdict": "survived",
+    "ttl_ceiling_explanation": "Cache-read hit ratio stays above 0.97 across all three idle bracketing values (5.5, 10, 15 min). The upstream OpenRouter/Qwen prefix cache appears to survive past the slice-1 worst-case sized window of ~15 min, matching the WS7 empirical 1h-TTL finding for Anthropic and exceeding the refine analysis's pessimistic floor.",
+    "implication_for_slice_5_distilled_memory": "Distilled rewrite-and-distill memory shape commitment validated: the per-event ACK/NACK burst (~ 200-400 distilled tokens swapped in/out per event) is a negligible fraction of the cached prefix (~ 7800 tokens), so the burst does NOT bust the prefix cache. Recorded in the task-1-4 spike report's 'Distilled-memory check' section.",
+    "implication_for_slice_8_keep_warm": "Outcome (a) per task-8-1 — Qwen cache survives >= 15 min worst-case idle; no keep-warm needed on either route. Tasks 8-2 / 8-3 / 8-4 become not-applicable; slice-8 ships docs only.",
+    "per_event_cold_read_cost_estimate": "Cold-read cost would be ~7892 tokens of cache_creation per event if the cache lapsed. Since it does not lapse in the measured range, the production wrapper incurs ~7780 tokens of cache_read instead — a ~95% billing reduction at the upstream provider for cached events."
+  },
+  "operator_replay_notes": [
+    "kubectl logs deployment/egg-litellm --since=1h | grep -E '\"session_id\":\\s*\"(issue-2908-spike-.*)\"'",
+    "Filter further by the per-call cost_logger marker (look for the {prompt_tokens, cache_read_input_tokens, cache_creation_input_tokens} triple).",
+    "Synthetic idle injected via the wait between two scripts/spike/2908_event_pump_prototype.sh invocations on the same EGG_PIPELINE_ID + EGG_AGENT_ROLE pair (the per-event prompt is deterministic, so the second call shape matches the first).",
+    "Re-running the spike requires the egg-litellm container to be deployed with the cost_callback.py registered (see k8s/base/litellm-configmap.yaml)."
+  ]
+}
