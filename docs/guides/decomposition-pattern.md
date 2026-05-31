@@ -351,5 +351,5 @@ discrete set of tests, the 1:1 mirror is correct.
   [gateway/CLAUDE.md](../../gateway/CLAUDE.md) — submodule seam
   tables that downstream slices populate.
 - [docs/architecture/slice-dag.md](../architecture/slice-dag.md) —
-  the slice-DAG implement phase that drives the 15 slices in
+  the slice-DAG implement phase that drives the 28 slices in
   parallel.

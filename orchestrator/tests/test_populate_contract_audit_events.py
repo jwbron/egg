@@ -1214,7 +1214,7 @@ class TestPlanCompleteCallSiteWireUp:
     ``_run_pipeline`` integration setup just for the plan-complete
     branch.
 
-    Fragility note (#2261 slice-15): when ``_run_pipeline`` is
+    Fragility note (#2817 slice-7): when ``_run_pipeline`` is
     decomposed into per-phase handlers (``_run_plan.py``,
     ``_run_implement.py``, etc. — see ``orchestrator/CLAUDE.md``), the
     plan-complete branch body will live in a different function and
@@ -1338,7 +1338,7 @@ class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
     the inner call in ``try: ... except ForestValidationError:`` and
     synthesizes the same ``PopulateResult`` so both paths converge.
 
-    Fragility note (#2261 slice-15): same caveat as
+    Fragility note (#2817 slice-7): same caveat as
     :class:`TestPlanCompleteCallSiteWireUp` — the safety-net branch will
     move out of ``_run_pipeline`` when it is decomposed into per-phase
     handlers; ``inspect.getsource(_run_pipeline)`` will no longer cover
