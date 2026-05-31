@@ -4,7 +4,7 @@
 
 ## Approach
 
-The refine-phase analysis (`.egg-state/drafts/2908-analysis.md`) recommends
+The refine-phase analysis (`.egg-state/drafts/issue-2908-replan-analysis.md`) recommends
 **Option B**: reframe the consensus agent from a *persistent participant that
 holds a wait* into a *stateless per-event handler the wrapper invokes*. The
 wrapper (`orchestrator/consensus_wrapper.py`) becomes a deterministic event
@@ -53,7 +53,7 @@ and the decision is made now.
 ## Slice DAG (forest constraint preserved)
 
 The architect's slice scaffold at
-`.egg-state/agent-outputs/2908-architect-slices.yaml` (v2) is copied verbatim
+`.egg-state/agent-outputs/issue-2908-replan-architect-slices.yaml` is copied verbatim
 into the `yaml-tasks` appendix below. Eight slices, single-parent forest:
 
 ```
@@ -171,7 +171,7 @@ prompt-only and assert preservation:
 ## Slice rationale — risk-driven
 
 Each slice is anchored to the risks the refine-phase risk_analyst surfaced
-(see `.egg-state/agent-outputs/2908-risk_analyst-output.json`). The three
+(see `.egg-state/agent-outputs/issue-2908-replan-risk_analyst-output.json`). The three
 HIGH-severity risks are addressed inside slice-1, slice-2, and slice-5
 before any production wrapper change.
 
