@@ -292,7 +292,7 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2 per pipeline; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
+The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped per-pipeline by `PipelineConfig.max_parallel_slices` when set at pipeline creation, else by the `EGG_ORCH_MAX_PARALLEL_SLICES` env var; default 1 — a single slice at a time — raise on hosts with capacity; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
 
 Within each slice, concurrent BRC execution runs: specialized agents run simultaneously and coordinate via the message bus.
 
@@ -1310,6 +1310,7 @@ per-phase overrides unless that uniform behaviour is intended.
 | `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
+| `max_parallel_slices` | int \| null | `null` (effective `1` from env) | Per-pipeline cap on concurrent implement-phase slices in a wave. Each slice spawns ~8 containers; raise on hosts with capacity. When `null`, falls back to `EGG_ORCH_MAX_PARALLEL_SLICES` (default 1). |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int \| null | `null` | Global consensus timeout. When set, applies to every phase. When `null` (the default), each phase falls back to the calibrated per-phase default below. |
 | `consensus_timeout_minutes_refine` | int \| null | `null` (effective `30`) | Per-phase consensus timeout for refine. Wins over the legacy global. |

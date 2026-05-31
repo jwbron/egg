@@ -782,7 +782,7 @@ if is_orchestrator_mode():
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 | `HOST_HOME` | Host machine's home directory (e.g., `/home/user`); used to translate host worktree paths to orchestrator-accessible paths | None |
 | `EGG_LAUNCHER_SECRET` | Bearer secret the orchestrator presents to the gateway. Reused by the orchestrator-only `/api/v1/jira/ticket/transition` route (#1557 decision-15). Canonical mount is the file `/secrets/launcher-secret`; this env var is the fallback when the file is unavailable. Read by `orchestrator/wontdo_drain.py::_resolve_launcher_secret`. See [Orchestrator-Only Jira Transitions](#orchestrator-only-jira-transitions-apiv1jiratickettransition--1557-decision-15) for the trust model. | None |
-| `EGG_ORCH_MAX_PARALLEL_SLICES` | Slice-DAG: per-pipeline slice spawn concurrency cap (#2137) | `2` |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | Slice-DAG: per-pipeline slice spawn concurrency cap, fallback default (#2137). The per-pipeline `PipelineConfig.max_parallel_slices` field (set at creation) takes precedence when non-null. | `1` |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | Slice-DAG: orchestrator-process-wide cap on slices in flight across **all** running pipelines (#2241). Each slice spawns ~8 containers; the default of 4 reflects the observed host saturation ceiling. Slices that exceed the cap stay READY and re-yield next poll tick. Per-process — HA replicas each maintain their own counter. | `4` |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | Slice-DAG: per-slice BRC re-proposal ceiling before HITL escalation (#2137) | `3` |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |

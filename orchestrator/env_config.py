@@ -231,13 +231,15 @@ def get_heartbeat_rate_limit() -> int:
 # #2137 — slice-scheduler configuration knobs.
 #
 # EGG_ORCH_MAX_PARALLEL_SLICES — soft concurrency cap on slice spawns
-#   per wave. Default 2 (lowered from the original decision-5 cap of 5
-#   in #2466 to constrain container/gateway resource pressure during
-#   the implement phase; refine-phase decision-5 + Q1 sized the original
-#   cap against typical 3–7 slices / worst-case 10–15, trusting
-#   container limits and gateway throttling, but operational experience
-#   showed the lower default is safer). Operator-tunable knob;
-#   per-pipeline only.
+#   per wave. Default 1 — a single slice runs at once unless explicitly
+#   raised. Each slice spawns ~8 agent containers, so a higher cap can
+#   saturate a small/single-node host (lowered to 1 after a 2-slice wave
+#   overwhelmed a single-node cluster). This env var is the fallback
+#   default; the authoritative per-pipeline knob is the
+#   ``PipelineConfig.max_parallel_slices`` field, set at pipeline
+#   creation, which takes precedence when set. (History: original
+#   decision-5 cap of 5; lowered to 2 in #2466 for container/gateway
+#   pressure; lowered to 1 for single-node host safety.)
 #
 # EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES — orchestrator-process-wide
 #   cap on slices in flight across ALL running pipelines (#2241
@@ -266,7 +268,7 @@ def get_heartbeat_rate_limit() -> int:
 #   decision-16 opt-3 hybrid).
 # -----------------------------------------------------------------
 
-DEFAULT_MAX_PARALLEL_SLICES = 2
+DEFAULT_MAX_PARALLEL_SLICES = 1
 DEFAULT_GLOBAL_MAX_PARALLEL_SLICES = 4
 DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
 DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
@@ -327,7 +329,7 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
 
 
 def get_max_parallel_slices() -> int:
-    """Return the per-pipeline parallel-slice spawn cap (default 2)."""
+    """Return the per-pipeline parallel-slice spawn cap (default 1)."""
     return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
 
 

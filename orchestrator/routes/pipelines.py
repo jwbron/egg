@@ -15987,7 +15987,10 @@ def _run_implement_phase_slices(
     # them to the operator via the existing return path so the run
     # loop can route to HITL escalation rather than wedge the pipeline.
     try:
-        scheduler = SliceScheduler(contract)
+        scheduler = SliceScheduler(
+            contract,
+            max_parallel_slices=pipeline.config.max_parallel_slices,
+        )
     except ValueError as exc:
         logger.error(
             "Slice loop: scheduler refused to start (forest validation failed)",

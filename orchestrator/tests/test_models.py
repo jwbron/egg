@@ -545,6 +545,9 @@ class TestPipelineConfig:
         assert config.concurrent_phases == ["refine", "plan", "implement"]
         assert config.auto_repropose_debounce_seconds == 60
         assert config.max_auto_repropose == 5
+        # Unset by default → orchestrator falls back to the env var,
+        # whose default is a single slice at a time.
+        assert config.max_parallel_slices is None
 
     def test_custom_config(self):
         """Test custom configuration."""
@@ -552,6 +555,25 @@ class TestPipelineConfig:
             max_review_cycles=5,
         )
         assert config.max_review_cycles == 5
+
+    def test_max_parallel_slices_configurable_at_creation(self):
+        """The per-pipeline slice cap is set at pipeline creation."""
+        config = PipelineConfig(max_parallel_slices=3)
+        assert config.max_parallel_slices == 3
+
+    def test_max_parallel_slices_rejects_below_one(self):
+        """ge=1 — a zero/negative cap is invalid (clamp lives in the scheduler)."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PipelineConfig(max_parallel_slices=0)
+
+    def test_env_fallback_default_is_single_slice(self):
+        """When no per-pipeline value is set, the fallback default is 1 slice."""
+        from orchestrator.env_config import DEFAULT_MAX_PARALLEL_SLICES
+
+        assert DEFAULT_MAX_PARALLEL_SLICES == 1
 
 
 class TestResolveConsensusTimeoutMinutes:

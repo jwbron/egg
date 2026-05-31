@@ -577,6 +577,20 @@ class PipelineConfig(BaseModel):
     max_concurrent_agents: int = Field(
         default=6, ge=1, description="Maximum concurrent agents per phase"
     )
+    max_parallel_slices: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Per-pipeline cap on how many implement-phase slices run concurrently "
+            "in a slice-DAG wave. Set at pipeline creation. Each slice spawns ~8 "
+            "agent containers, so this is the primary host-load control for the "
+            "implement phase. When None (the default), the orchestrator falls back "
+            "to the EGG_ORCH_MAX_PARALLEL_SLICES env var, whose default is 1 — i.e. "
+            "a single slice runs at once unless explicitly raised here or via the "
+            "env var. The process-wide EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES cap "
+            "still applies across all pipelines."
+        ),
+    )
     message_poll_hint_seconds: int = Field(
         default=30, ge=1, description="Suggested message polling interval for agents"
     )

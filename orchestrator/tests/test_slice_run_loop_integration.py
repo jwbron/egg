@@ -878,6 +878,80 @@ class TestRunImplementPhaseSlices:
         assert exit_code == 0
         spawner.gateway.create_slice_pr.assert_not_called()
 
+    def test_scheduler_receives_max_parallel_slices_from_pipeline_config(self) -> None:
+        """``PipelineConfig.max_parallel_slices`` reaches the
+        ``SliceScheduler`` constructor (#2904 review).
+
+        Regression guard: a refactor that dropped the kwarg in
+        ``SliceScheduler(contract)`` would silently revert to the
+        env-var default and no other test would catch it.
+
+        Uses ``SliceScheduler`` raising ``ValueError`` to short-circuit
+        the run loop right after the constructor call — the existing
+        forest-validation failure return path. We only need to observe
+        the call kwargs, not exercise the rest of the loop.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.max_parallel_slices = 3
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+
+        sched_mock = MagicMock(side_effect=ValueError("short-circuit"))
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("orchestrator.slice_scheduler.SliceScheduler", sched_mock),
+            patch("slice_scheduler.SliceScheduler", sched_mock),
+        ):
+            exit_code, logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        sched_mock.assert_called_once()
+        assert sched_mock.call_args.kwargs["max_parallel_slices"] == 3
+        # Forest-validation short-circuit path returns cleanly.
+        assert exit_code == 1
+        assert "slice scheduler validation failed" in logs
+
+    def test_scheduler_receives_none_when_pipeline_config_unset(self) -> None:
+        """Default-unset ``PipelineConfig.max_parallel_slices`` (the
+        common case) passes ``None`` to the scheduler so it falls back
+        to ``EGG_ORCH_MAX_PARALLEL_SLICES`` itself (#2904 review)."""
+        pipeline = _make_pipeline()
+        assert pipeline.config.max_parallel_slices is None
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+
+        sched_mock = MagicMock(side_effect=ValueError("short-circuit"))
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("orchestrator.slice_scheduler.SliceScheduler", sched_mock),
+            patch("slice_scheduler.SliceScheduler", sched_mock),
+        ):
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        sched_mock.assert_called_once()
+        assert sched_mock.call_args.kwargs["max_parallel_slices"] is None
+
 
 # ---------------------------------------------------------------------------
 # #2549 — already-merged-slice detection (bootstrap + race protection)
