@@ -247,10 +247,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "The orchestrator-side action==issue branch (monitor.py:665-674) and the issue_filer.py module it calls are reachable in principle (the Sonnet decision maker can emit the issue action), but production filing has lived sandbox-side since #1962. What should the planner do with this orphaned/fallback path?",
+      "context": "Open contract question cq-3, registered by an agent during the refine phase.",
+      "options": [
+        "Delete the branch entirely — the sandbox-side egg-orch overseer file-issue path is authoritative",
+        "Re-route the branch through the sandbox-side CLI — keep orchestrator-side visibility but canonicalize dedup and templating",
+        "Preserve as an explicit fallback — document the fallback and keep both paths under active test coverage",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T05:01:56.003964Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-31T04:42:29.412848Z",
-  "updated_at": "2026-05-31T05:01:55.977712Z",
+  "updated_at": "2026-05-31T05:01:56.012393Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -263,7 +282,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
