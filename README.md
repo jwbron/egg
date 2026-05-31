@@ -2,7 +2,9 @@
 
 **Autonomous software engineering with structural guarantees.**
 
-egg turns GitHub issues (and Jira epics) into reviewed pull requests — not by asking agents to follow rules, but by making rule-breaking physically impossible. Untrusted LLM agents do the work inside a zero-credential sandbox; a trusted gateway sidecar holds every secret and validates every privileged operation; a deliberative consensus protocol forces agents to review each other's *actual* artifacts before anything ships.
+egg takes an idea, refines it into a plan, and turns that plan into reviewed pull requests. The agents do the labor: they research the codebase, draft requirements, write code and tests, and review each other's work. They do not make the decisions that matter. Whether the requirements are right, whether the plan is sound, how to resolve an ambiguity, whether anything merges: those judgments stay with a human, and the pipeline stops and asks rather than guessing.
+
+Underneath, rule-breaking isn't merely discouraged, it's impossible. Untrusted LLM agents work inside a zero-credential sandbox. A trusted gateway sidecar holds every secret and validates every privileged operation. A deliberative consensus protocol forces agents to review each other's *actual* artifacts before anything ships. The result is autonomy on the work and human authority on the decisions.
 
 > *Inspired by Andy Weir's short story "The Egg": a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
@@ -10,14 +12,14 @@ egg turns GitHub issues (and Jira epics) into reviewed pull requests — not by 
 
 ## The Problem
 
-LLM agents are capable enough to write real code. They are not reliable enough to be trusted with real credentials, real branches, and real merge buttons. The standard approach — system prompts that say "please don't merge" or "please run tests first" — fails because:
+LLM agents are capable enough to write real code. They are not reliable enough to be trusted with real credentials, real branches, and real merge buttons. The standard approach, system prompts that say "please don't merge" or "please run tests first," fails because:
 
 - **Prompts are suggestions, not constraints.** Agents ignore them under pressure.
 - **Agents self-approve their own work.** They hallucinate that tests pass.
 - **Concurrent agents produce sycophantic reviews** ("looks good!") with no actual evaluation.
 - **A single agent writing and reviewing its own code is a conflict of interest,** not a workflow.
 
-egg moves enforcement out of the prompt and into infrastructure.
+egg moves enforcement out of the prompt and into infrastructure, and keeps a human on every decision the agents should not make alone.
 
 ## What Makes egg Different
 
@@ -28,7 +30,7 @@ The gateway is a trusted sidecar that sits between every agent and the outside w
 **What the gateway enforces:**
 
 - **No credentials in the sandbox.** The agent environment has zero tokens and zero keys. The gateway holds every credential (GitHub, Anthropic, Jira, Confluence, LiteLLM) and injects them into proxied requests. Agents never see or handle secrets.
-- **No merging.** The merge endpoint doesn't exist. There's no prompt saying "don't merge" — the capability is simply absent from the agent's world.
+- **No merging.** The merge endpoint doesn't exist. There's no prompt saying "don't merge"; the capability is simply absent from the agent's world.
 - **Phase-locked operations.** Every git/gh operation is validated against the pipeline's current SDLC phase. An agent in the plan phase physically cannot push code; an agent implementing one slice cannot rewrite the contract.
 - **Branch ownership.** Agents may only push to `egg/`-prefixed branches (or branches with an open egg-authored PR). Role-based file restrictions reject pushes that touch protected paths with `403 restricted_path_modified`.
 - **Network isolation.** In private mode (default) the sandbox reaches the Anthropic API and nothing else, enforced by a Squid proxy and Cilium NetworkPolicies. In public mode, all external access is proxied and audited through the gateway.
@@ -38,7 +40,7 @@ This is zero-trust architecture applied to AI agents. The agent doesn't need to 
 
 ### 2. Agent Teams: Deliberative Consensus, Not Vote Counting
 
-When multiple agents work concurrently, they must agree that their combined output is coherent. The naive approach — each agent telling a central orchestrator "I'm ready" — fails because agents are unreliable self-assessors.
+When multiple agents work concurrently, they must agree that their combined output is coherent. The naive approach, each agent telling a central orchestrator "I'm ready," fails because agents are unreliable self-assessors.
 
 egg replaces orchestrator-decreed consensus with **Deliberative Consensus**: agents review each other's actual work, cite specific evidence, and individually confirm agreement through the **Broadcast-Review-Converge (BRC)** protocol.
 
@@ -60,11 +62,11 @@ Phase 3: Converge      When all reviewers have ACKed all assigned producers, eac
 **Anti-sycophancy by design:**
 
 - **Delphi-style ordering.** Reviewers form independent judgments from git artifacts *before* seeing the producer's self-assessment. The server withholds producer metadata until the reviewer submits their own evaluation.
-- **Costly signals.** Proposals and reviews require structured attestations tied to real artifacts (commit SHAs, file paths, test counts) — mechanically hard to fake without doing the work.
+- **Costly signals.** Proposals and reviews require structured attestations tied to real artifacts (commit SHAs, file paths, test counts), which are mechanically hard to fake without doing the work.
 - **Commitment devices.** Proposals have cooldown periods; retracting one requires citing specific new information; after repeated flip-flops the agent is locked out and escalated to a human.
 - **Adversarial tester.** The tester is a dual role: it writes regression tests *and* probes the coder's implementation for bugs, NACKing with a failing test as the bug report.
 
-The review topology is asymmetric and sparse — reviewers evaluate producers, not each other — keeping overhead at a handful of review edges instead of full pairwise review across the team. See [Agent Teams and Deliberative Consensus](docs/guides/agent-teams.md) for the full protocol, research foundations, and failure-mode analysis.
+The review topology is asymmetric and sparse: reviewers evaluate producers, not each other, which keeps overhead at a handful of review edges instead of full pairwise review across the team. See [Agent Teams and Deliberative Consensus](docs/guides/agent-teams.md) for the full protocol, research foundations, and failure-mode analysis.
 
 ### 3. The Overseer: AI Monitoring AI
 
@@ -75,15 +77,15 @@ Detect anomaly (stall, loop, error, off-track behavior)
     │
     ├─→ Auto-nudge: send a corrective message to the stuck agent
     ├─→ Redirect: send targeted instructions to change approach
-    ├─→ Restart agent: stop and respawn the stuck agent (preserves worktree, up to 2×)
+    ├─→ Restart agent: stop and respawn the stuck agent (preserves worktree, up to 2x)
     ├─→ HITL escalation: queue a decision for human review
     ├─→ Restart phase (HITL): restart all phase agents after human approval
     └─→ File a diagnostic GitHub issue with full context
 ```
 
-Health monitoring is **two-tier**. Tier 1 is deterministic and LLM-free: orchestrator-side tripwires for heartbeat timeouts and stalls (longer thresholds during the implement phase to accommodate deep work). Tier 2 is the overseer agent itself, which reasons about ambiguous situations using a Sonnet-class decision-maker and escalates to an Opus-class advisor only when an anomaly *and* a Tier-1 alert are active simultaneously. Infrastructure errors (git failures, gateway rejections, permission denials) fast-path straight to HITL.
+Health monitoring is **two-tier**. Tier 1 is deterministic and LLM-free: orchestrator-side tripwires for heartbeat timeouts and stalls (longer thresholds during the implement phase to accommodate deep work). Tier 2 is the overseer agent itself, which reasons about ambiguous situations using a Sonnet-class decision-maker and escalates to an Opus-class advisor only when an anomaly *and* a Tier-1 alert are active simultaneously. Infrastructure errors (git failures, gateway rejections, permission denials) fast-path straight to a human-in-the-loop decision.
 
-The overseer is phase-scoped: spawned at the start of each phase and torn down when that phase completes, advances, or fails — a fresh instance per phase with no accumulated state. If it crashes mid-phase, the orchestrator respawns it (up to 3× per phase). See [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md).
+The overseer is phase-scoped: spawned at the start of each phase and torn down when that phase completes, advances, or fails, giving each phase a fresh instance with no accumulated state. If it crashes mid-phase, the orchestrator respawns it (up to 3x per phase). See [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md).
 
 ### 4. The SDLC Pipeline: Humans at the Right Moments
 
@@ -99,12 +101,12 @@ Human gate        Human gate        Human gate*        stacked-PR slices; humans
                                     only)
 ```
 
-1. **Refine** — Agents analyze the task, research the codebase, and produce requirements; reviewers validate. A human approves before planning begins.
-2. **Plan** — An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria and a **DAG of slices**, and a risk analyst flags concerns. A human approves before any code is written.
-3. **Apply** *(Jira epic-mode only)* — When the task resolves to a Jira Epic, an `applier` role drives Jira mutations (epic description writes, child-ticket creates/edits, link creates, Won't-Do handoffs) on operator approval, before implementation begins.
-4. **Implement** — The plan's slices are scheduled as a **DAG**: each slice runs as its own agent team on its own integration branch, with its own BRC consensus and its own stacked PR. Slices whose dependencies are satisfied run concurrently (per-pipeline cap `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2; process-wide cap `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`, default 4); dependent slices wait for later waves. Within a slice the coder writes code, the tester writes and adversarially runs regression tests, and the documenter updates docs, while code, contract, security, and concurrency reviewers provide line-level feedback and can block consensus on a NACK.
+1. **Refine.** Agents analyze the task, research the codebase, and produce requirements; reviewers validate. A human approves before planning begins.
+2. **Plan.** An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria and a **DAG of slices**, and a risk analyst flags concerns. A human approves before any code is written.
+3. **Apply** *(Jira epic-mode only)*. When the task resolves to a Jira Epic, an `applier` role drives Jira mutations (epic description writes, child-ticket creates/edits, link creates, Won't-Do handoffs) on operator approval, before implementation begins.
+4. **Implement.** The plan's slices are scheduled as a **DAG**: each slice runs as its own agent team on its own integration branch, with its own BRC consensus and its own stacked PR. Slices whose dependencies are satisfied run concurrently (per-pipeline cap `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2; process-wide cap `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`, default 4); dependent slices wait for later waves. Within a slice the coder writes code, the tester writes and adversarially runs regression tests, and the documenter updates docs, while code, contract, security, and concurrency reviewers provide line-level feedback and can block consensus on a NACK.
 
-There is **no separate "PR" phase**. The pipeline's context PR (`egg/<id>/work → main`) is opened up-front at the plan→implement boundary; slice PRs stack onto it and are created automatically by the orchestrator as each slice reaches consensus. Only a human can merge, via the GitHub UI. See the [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) and [Slice-DAG Implement Phase](docs/architecture/slice-dag.md).
+There is **no separate "PR" phase**. The pipeline's context PR (`egg/<id>/work` into `main`) is opened up-front at the plan-to-implement boundary; slice PRs stack onto it and are created automatically by the orchestrator as each slice reaches consensus. Only a human can merge, via the GitHub UI. See the [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) and [Slice-DAG Implement Phase](docs/architecture/slice-dag.md).
 
 A completed pipeline looks like this:
 
@@ -134,12 +136,32 @@ A completed pipeline looks like this:
 ╚═══════════════════════════════════════════════╝
     │
     ▼
-  stacked PRs on egg/<id>/work → main  (humans merge)
+  stacked PRs on egg/<id>/work into main  (humans merge)
 ```
+
+### 5. Human-in-the-Loop: The Agents Don't Decide
+
+This is the principle the other four pillars exist to serve: agents do the work, but humans make the consequential calls. The gateway, the consensus protocol, and the overseer all funnel uncertainty and risk upward to a person instead of letting an agent resolve it alone.
+
+Every phase boundary is a gate where a human reviews the agents' artifacts and approves before the pipeline advances. Beyond those gates, whenever an agent or the overseer hits something it should not resolve on its own (ambiguous requirements, a design fork, an infrastructure error, repeated failed cycles), egg pauses the pipeline and queues a formal HITL decision instead of guessing. The operator answers through `provide_input` on the MCP or CLI surface, and the pipeline resumes exactly where it stopped. egg never auto-resolves these decisions, even in otherwise automated runs.
+
+The division of labor is explicit:
+
+| The agents do | A human decides |
+|---------------|-----------------|
+| Research the codebase, draft and review requirements | Whether the requirements are right (refine gate) |
+| Propose an approach and slice the work into a DAG | Whether the plan and approach are sound (plan gate) |
+| Draft Jira mutations for an epic | Whether to apply them (apply gate, epic-mode) |
+| Write code, tests, and docs; reach BRC consensus | When peer review can't converge, how to break the tie |
+| Surface ambiguities and open questions | How to resolve each one (feedback) |
+| Flag stalls, loops, and errors (overseer) | How to recover when self-correction fails (escalations) |
+| Open and stack PRs from plan metadata | Whether anything merges (only humans merge) |
+
+See [HITL Decisions](docs/hitl-decisions.md) for the decision, feedback, and approval workflow.
 
 ## Architecture
 
-egg deploys as a set of containers on **Kubernetes (k3s)**, split across two namespaces — trusted services in `egg-system`, untrusted agent Jobs in `egg-agents` — with Cilium NetworkPolicies enforcing isolation between them.
+egg deploys as a set of containers on **Kubernetes (k3s)**, split across two namespaces: trusted services in `egg-system` and untrusted agent Jobs in `egg-agents`, with Cilium NetworkPolicies enforcing isolation between them.
 
 ```
 ┌─────────────────────────── egg-system (trusted) ───────────────────────────┐
@@ -175,7 +197,7 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 | **Orchestrator** | `egg-system` | Pipeline state, slice scheduling, BRC consensus, overseer, HITL, MCP server (`:9850`) + REST API (`:9849`) | Trusted |
 | **Gateway** | `egg-system` | Credential injection, phase/branch/path enforcement, network isolation, Jira/Confluence wrappers (`:9848`, proxy `:3129`) | Trusted |
 | **LiteLLM** | `egg-system` | Optional proxy for routing individual agent roles to non-Claude models (`:4000`); no-op by default | Trusted |
-| **Sandbox** | `egg-agents` | Untrusted agent Jobs — Claude Code via the Agent SDK, per-agent worktree, zero credentials | Untrusted |
+| **Sandbox** | `egg-agents` | Untrusted agent Jobs: Claude Code via the Agent SDK, per-agent worktree, zero credentials | Untrusted |
 
 ## Driving Pipelines: the MCP Server
 
@@ -187,12 +209,12 @@ submit_task(issue_number=123, repo="owner/name")
 
 Representative tools (see the [Orchestrator CLI](docs/reference/orchestrator-cli.md) and [MCP Deployment Tools](docs/reference/mcp-deployment-tools.md) for the full set):
 
-- **Lifecycle** — `submit_task`, `cancel_task`, `list_tasks`, `start_pipeline`
-- **Monitoring** — `get_status`, `get_phase`, `get_pipeline_snapshot`, `get_consensus_status`, `check_health`
-- **HITL & coordination** — `provide_input`, `send_message`
-- **Phase & agent control** — `advance_phase`, `start_phase`, `complete_phase`, `restart_agent`, `restart_phase`, `populate_contract`
-- **Debugging** — `list_containers`, `get_container_logs`, `get_service_logs`, `validate_config`
-- **Deployment** — `get_deployment_context`, `validate_deployment_manifests`, `validate_network_isolation`, `prune_stale_worktrees`, `rebuild_and_rollout`
+- **Lifecycle:** `submit_task`, `cancel_task`, `list_tasks`, `start_pipeline`
+- **Monitoring:** `get_status`, `get_phase`, `get_pipeline_snapshot`, `get_consensus_status`, `check_health`
+- **HITL & coordination:** `provide_input`, `send_message`
+- **Phase & agent control:** `advance_phase`, `start_phase`, `complete_phase`, `restart_agent`, `restart_phase`, `populate_contract`
+- **Debugging:** `list_containers`, `get_container_logs`, `get_service_logs`, `validate_config`
+- **Deployment:** `get_deployment_context`, `validate_deployment_manifests`, `validate_network_isolation`, `prune_stale_worktrees`, `rebuild_and_rollout`
 
 Host-side CLIs in `bin/` (`egg-sdlc`, `egg-status`, `egg-pipeline-watch`, `egg-onboarding-docs`) wrap the same APIs for monitoring and visualization.
 
@@ -231,29 +253,29 @@ submit_task(issue_number=123, repo="owner/name")
 
 See:
 
-- [Local Quickstart](docs/guides/local-quickstart.md) — end-to-end k3s setup with a worked example.
-- [Deployment Guide](docs/guides/deployment.md) — production options and the full k3s flow.
-- [Per-Agent Models](docs/guides/per-agent-models.md) — routing a single agent role to a non-Claude model (e.g. Qwen) via the LiteLLM proxy.
+- [Local Quickstart](docs/guides/local-quickstart.md) for end-to-end k3s setup with a worked example.
+- [Deployment Guide](docs/guides/deployment.md) for production options and the full k3s flow.
+- [Per-Agent Models](docs/guides/per-agent-models.md) for routing a single agent role to a non-Claude model (e.g. Qwen) via the LiteLLM proxy.
 
 ## Repo Layout
 
 | Directory | What it is |
 |-----------|------------|
-| `orchestrator/` | Central SDLC pipeline engine — scheduling, slice DAG, BRC consensus, overseer, health monitoring, MCP server |
-| `gateway/` | Trusted policy-enforcement sidecar — validates git/gh/Jira/Confluence operations, injects credentials, enforces network isolation |
-| `sandbox/` | Untrusted agent container — Claude Code config, the `egg_agent` runtime, git/gh wrappers, host-side CLIs |
-| `shared/` | Shared Python packages (`egg_agent`, `egg_config`, `egg_contracts`, `egg_git`, `egg_logging`, `egg_anchor`, …) and agent prompt templates |
+| `orchestrator/` | Central SDLC pipeline engine: scheduling, slice DAG, BRC consensus, overseer, health monitoring, MCP server |
+| `gateway/` | Trusted policy-enforcement sidecar: validates git/gh/Jira/Confluence operations, injects credentials, enforces network isolation |
+| `sandbox/` | Untrusted agent container: Claude Code config, the `egg_agent` runtime, git/gh wrappers, host-side CLIs |
+| `shared/` | Shared Python packages (`egg_agent`, `egg_config`, `egg_contracts`, `egg_git`, `egg_logging`, `egg_anchor`, …) plus agent prompt templates |
 | `config/` | Repository and host configuration templates; `config/litellm/` builds the LiteLLM image |
-| `k8s/` | Kustomize manifests — `base/` plus `overlays/local/` |
+| `k8s/` | Kustomize manifests: `base/` plus `overlays/local/` |
 | `action/` | Composite GitHub Action and review-bot prompt builders |
-| `docs/` | All documentation — guides, architecture, references |
+| `docs/` | All documentation: guides, architecture, references |
 | `integration_tests/` | Cross-component integration and security tests (k3s required) |
 | `scripts/` | Build, release, and CI helpers (incl. changeset-aware test selection) |
 | `bin/` | Host-side CLI entry points |
 
 ## Documentation
 
-Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup tables, architecture docs, and component READMEs.
+Start with **[docs/index.md](docs/index.md)**, which has task-specific lookup tables, architecture docs, and component READMEs.
 
 | Topic | Link |
 |-------|------|
@@ -264,6 +286,7 @@ Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup ta
 | **Agent teams & deliberative consensus** | [Agent Teams Guide](docs/guides/agent-teams.md) |
 | **Slice-DAG implement phase** | [Slice-DAG Implement Phase](docs/architecture/slice-dag.md) |
 | **SDLC pipeline** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
+| **Human-in-the-loop decisions** | [HITL Decisions](docs/hitl-decisions.md) |
 | **Orchestrator & overseer** | [Orchestrator Architecture](docs/architecture/orchestrator.md) |
 | **Health monitoring** | [Pipeline Health Monitoring](docs/guides/pipeline-health-monitoring.md) |
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
@@ -278,7 +301,7 @@ Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup ta
 make setup             # Install dev dependencies + pre-commit hooks
 make lint              # Run all linters (Python, Shell, YAML, Dockerfile, Actions)
 make test              # Tests reachable from your diff (changeset-aware narrow default)
-make test-all          # Full unit-test suite — CI ground truth; updates LKG on green
+make test-all          # Full unit-test suite (CI ground truth); updates LKG on green
 make test-integration  # Integration tests (k3s required)
 make test-security     # Security/pentesting tests
 make lint-fix          # Auto-fix lint issues
@@ -286,7 +309,7 @@ make security          # Run security scans
 make build             # Build Docker images
 ```
 
-`make test` is changeset-aware: it narrows to the tests your diff transitively touches (via a `grimp`-backed reverse import graph), so you don't have to guess which suites to run. `make test-all` is the full suite CI enforces. Always use the `make` targets — they resolve to the project's `.venv` automatically.
+`make test` is changeset-aware: it narrows to the tests your diff transitively touches (via a `grimp`-backed reverse import graph), so you don't have to guess which suites to run. `make test-all` is the full suite CI enforces. Always use the `make` targets; they resolve to the project's `.venv` automatically.
 
 Requires Python >= 3.14 and the `uv` package manager. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and branching, and [docs/guides/testing.md](docs/guides/testing.md) for the changeset-aware test model.
 
