@@ -212,10 +212,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "If the WS0 spike shows the Qwen-route provider cache TTL is materially worse than the Anthropic route, how should v1 ship?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Ship v1 with the Qwen route enabled and a keep-warm loop sized to the measured provider-cache TTL (full route parity at the cost of a recurring keep-warm token spend)",
+        "Ship v1 with the Qwen route gated off behind a per-route flag (Anthropic route gets the durable fix immediately; Qwen route stays on the old capped-restart path until keep-warm or a provider TTL change makes it economical)",
+        "Block v1 on Qwen-route cache validation (no ship until the Qwen route's per-event cost is within the operator's per-cycle budget; treat the Anthropic route's measured-clear status as not enough to justify a partial rollout)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T20:25:36.302393Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-31T19:44:16.923334Z",
-  "updated_at": "2026-05-31T20:25:36.254337Z",
+  "updated_at": "2026-05-31T20:25:36.311070Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -228,7 +247,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
