@@ -249,10 +249,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Pattern-doc updates for relaxed non-negotiable #10 (test 1:1 retrofit is guidance, not a gate): should docs/guides/decomposition-pattern.md be updated?",
+      "context": "Open contract question cq-4, registered by an agent during the refine phase.",
+      "options": [
+        "Update the pattern doc to reflect the relaxation (add a short subsection explaining that scenario-organized test suites may stay topical and that the select_tests reference is intentionally not retrofit; update the Pre-merge checklist accordingly)",
+        "Leave the pattern doc unchanged; treat the issue body as the corrective (downstream agents loading the pattern doc will need to cross-reference #2817's issue text to see the relaxation)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-31T00:12:41.685175Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-30T22:56:20.843632Z",
-  "updated_at": "2026-05-31T00:12:41.650774Z",
+  "updated_at": "2026-05-31T00:12:41.690722Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -265,7 +283,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
