@@ -5,7 +5,7 @@
   "branch": "egg/issue-2270/work",
   "base_branch": null,
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -193,10 +193,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-31T05:04:42.416787Z",
       "work_started_at": "2026-05-31T05:05:09.331101Z",
-      "completed_at": null,
+      "completed_at": "2026-05-31T05:31:14.035497Z",
       "containers": [
         {
           "container_id": "7cc979f6-a929-4010-9d35-abbebeb1c9d0",
@@ -315,12 +315,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-31T05:05:09.331101Z",
-          "completed_at": null,
+          "completed_at": "2026-05-31T05:31:14.035438Z",
           "commit_sha": "956cc9839fe2125d5d6dc30f205be60ff8b66463"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-05-31 05:30:41 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_6ab33dc5377b4121a1d7d04f is_error=False content=\"(Bash completed with no output)\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:30:48 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_5640feb54b4c4c49a5bdb8ee input=\"{\\\"command\\\": \\\"ls -lh /tmp/claude-1000/-home-egg-repos-egg/d3b227b3-9a52-4320-b...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:30:48 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_5640feb54b4c4c49a5bdb8ee is_error=False content=\"-rw-r--r--. 1 egg egg 0 May 31 05:29 /tmp/claude-1000/-home-egg-repos-egg/d3b...\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:30:55 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_eb800a3fd9db4c17badf1b60 input=\"{\\\"command\\\": \\\"egg-orch brc state --json 2>&1\\\", \\\"description\\\": \\\"Check current B...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:30:55 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_eb800a3fd9db4c17badf1b60 is_error=True content=\"Exit code 2 usage: egg-orch [-h]                 {health,env,pipeline,signal,...\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:31:03 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_87249d8ea2764c31bdade927 input=\"{\\\"command\\\": \\\"cat .egg-state/brc-history/slice-1-plan.json | jq -r '.[] | sele...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:31:03 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_87249d8ea2764c31bdade927 is_error=False content=\"cat: .egg-state/brc-history/slice-1-plan.json: No such file or directory\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'architect' container exited with code 137 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "956cc9839fe2125d5d6dc30f205be60ff8b66463",
@@ -633,20 +633,20 @@
     }
   ],
   "created_at": "2026-05-31T04:42:29.412848Z",
-  "updated_at": "2026-05-31T05:31:09.023382Z",
+  "updated_at": "2026-05-31T05:31:14.035689Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-05-31 05:30:41 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_6ab33dc5377b4121a1d7d04f is_error=False content=\"(Bash completed with no output)\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:30:48 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_5640feb54b4c4c49a5bdb8ee input=\"{\\\"command\\\": \\\"ls -lh /tmp/claude-1000/-home-egg-repos-egg/d3b227b3-9a52-4320-b...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:30:48 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_5640feb54b4c4c49a5bdb8ee is_error=False content=\"-rw-r--r--. 1 egg egg 0 May 31 05:29 /tmp/claude-1000/-home-egg-repos-egg/d3b...\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:30:55 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_eb800a3fd9db4c17badf1b60 input=\"{\\\"command\\\": \\\"egg-orch brc state --json 2>&1\\\", \\\"description\\\": \\\"Check current B...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:30:55 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_eb800a3fd9db4c17badf1b60 is_error=True content=\"Exit code 2 usage: egg-orch [-h]                 {health,env,pipeline,signal,...\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n2026-05-31 05:31:03 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=call_87249d8ea2764c31bdade927 input=\"{\\\"command\\\": \\\"cat .egg-state/brc-history/slice-1-plan.json | jq -r '.[] | sele...\" [/opt/egg-runtime/shared/egg_agent/client.py:525]\n2026-05-31 05:31:03 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=call_87249d8ea2764c31bdade927 is_error=False content=\"cat: .egg-state/brc-history/slice-1-plan.json: No such file or directory\" [/opt/egg-runtime/shared/egg_agent/client.py:558]\n\n--- PRODUCER PERMANENT DEATH ---\nProducer 'architect' container exited with code 137 after the consensus-wrapper exhausted its retry budget. Pipeline failing (issue #2806).",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-31T05:04:40.761195Z",
-  "version": 28,
+  "version": 29,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
