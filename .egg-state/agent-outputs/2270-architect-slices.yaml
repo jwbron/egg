@@ -1,0 +1,54 @@
+slices:
+  - id: 1
+    name: |-
+      Foundation cleanup and lifecycle ordering
+    goal: |-
+      Delete issue_filer.py dead code. Move overseer spawn into phase-agent spawn loop. Consolidate teardown call sites. Remove dead action==issue branch from monitor.py.
+  - id: 2
+    name: |-
+      Respawn alignment and generation token
+    goal: |-
+      Align overseer respawn state-clearing with restart_agent. Add generation token primitive to orchestrator. Implement recycle-detection in overseer. Clear per-agent tracking on restart_agent.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Orchestrator runtime signal gaps
+    goal: |-
+      Add _run_pipeline thread liveness check. Promote wedged_no_successor to tier-1 check. Add decision queue staleness check. Add phase duration drift check. Add agent restart propagation deadline check.
+    dependencies: slice-1
+  - id: 4
+    name: |-
+      Worktree and gateway signal gaps
+    goal: |-
+      Add branch git-history sanity check (pre-PR). Add worktree corruption/lock anomaly check. Add gateway error-rate spike check. Add repeated gateway denial check. Add token-expiry detection.
+    dependencies: slice-1
+  - id: 5
+    name: |-
+      BRC and consensus signal gaps
+    goal: |-
+      Add reviewer thrash detection (NACK→ACK→NACK). Add producer thrash detection (>N propose-revise cycles). Add late-CONFIRMED detection. Add tool-call repetition detector (cq-1 soft cap).
+    dependencies: slice-1
+  - id: 6
+    name: |-
+      Container, K8s, and HITL signal gaps
+    goal: |-
+      Add repeated container restart detection. Add OOMKilled/eviction pattern detection. Add approved-decision-no-consumer check. Add decision-consumer staleness check.
+    dependencies: slice-1
+  - id: 7
+    name: |-
+      External state coupling signals
+    goal: |-
+      Add PR state drift detection during PR phase. Add pushed-but-PR-not-updated parity check. Integrate EGG_SLICE_ID affinity for slice-DAG checks.
+    dependencies: slice-1
+  - id: 8
+    name: |-
+      Self-health and LLM substrate signals
+    goal: |-
+      Wire OverseerSelfMonitor into alert path. Track classifier call failure rate. Track advisor call failure rate. Add overseer-vs-pipeline clock skew detection. Add per-pipeline LLM failure window (cq-2). Add effective model drift detection. Add LiteLLM proxy reachability check (#2769).
+    dependencies: slice-2
+  - id: 9
+    name: |-
+      Filing infrastructure and template expansion
+    goal: |-
+      Wire new tier1 checks into advisor gate. Add template entries for all new alert classes in issue_template.py. Update sandbox/overseer_monitor.py advisor gate to cover new checks. Ensure filed-issues.jsonl dedup handles new anomaly types.
+    dependencies: slice-8

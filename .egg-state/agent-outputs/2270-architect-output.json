@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "role": "architect",
+  "pipeline_id": "issue-2270",
+  "phase": "plan",
+  "issue_number": 2270,
+
+  "problem_statement": "The overseer subsystem has accreted complexity across many issue-driven patches. The auto-file-issue path is starved upstream because many failure modes never produce a Tier-1 alert. The overseer lifecycle has asymmetries with phase agents, signal coverage has systematic gaps across orchestrator runtime, worktree/branch, container/K8s, gateway, BRC, HITL, cost, self-health, external state, and LLM substrate layers. Dead code (issue_filer.py) persists. The 2,024-line monitor.py is bolted-on rather than composed.",
+
+  "current_state_analysis": {
+    "overseer_core": {
+      "orchestrator/overseer/monitor.py": {
+        "lines": 2024,
+        "key_classes": ["OverseerMonitor"],
+        "key_state": [
+          "_escalation_history (line 108): dict[str, deque] — per-agent escalation history, 50 deep",
+          "_post_consensus_stall_reported (line 115): bool dedup flag",
+          "_incomplete_consensus_first_seen (line 119): float | None — stall start",
+          "_incomplete_consensus_blocking (line 120): frozenset[str] | None — blocking agent roles",
+          "_incomplete_consensus_absolute_start (line 124): float | None — for activity-deferral cap (#1609)",
+          "_hitl_resolution_pending (line 134): dict[str, float] — decision_id → first-seen ts",
+          "_consecutive_orch_failures (line 139): int — orchestrator reachability counter",
+          "_agents_restart_exhausted (line 151): set[str] — agents past restart limit",
+          "_last_phase_name (line 154): str | None — cross-phase consistency tracking"
+        ],
+        "key_methods": [
+          "_poll_cycle() (line 330): main polling loop",
+          "_execute_action() (line 592): corrective action executor (nudge/redirect/restart/hitl/issue/slack)",
+          "_execute_restart_agent() (line 700): restart via REST API with exhaustion tracking",
+          "_check_post_consensus_stall() (line 1142): stall detection post-consensus",
+          "_check_incomplete_consensus_stall() (line 1290): incomplete consensus detection (#1471)",
+          "_check_orchestrator_reachability() (line 1467): orchestrator health tracking",
+          "_check_hitl_resolution_propagation() (line 1649): HITL decision propagation",
+          "_check_cross_phase_consistency() (line 1719): cross-phase decision consistency"
+        ],
+        "notes": "Scheduled for #2261 slice-7 decomposition. This issue must NOT re-decompose it."
+      },
+      "orchestrator/overseer/classifier.py": {
+        "lines": 341,
+        "key_functions": [
+          "classify_stall() (line 50): stuck/working/needs_help via Haiku",
+          "classify_error() (line 112): severity classification",
+          "detect_loop() (line 166): repetitive pattern detection",
+          "check_alignment() (line 213): activity vs contract alignment",
+          "check_decision_consistency() (line 277): prior HITL decision consistency"
+        ]
+      },
+      "orchestrator/overseer/decision_maker.py": {
+        "lines": 340,
+        "key_functions": [
+          "decide_corrective_action() (line 104): nudge/redirect/restart/hitl/escalate",
+          "_enforce_no_first_stall_restart() (line 192): prevent restart on first stall (#2190)",
+          "decide_escalation_level() (line 250): HITL escalation decision",
+          "compose_redirect_message() (line 304): redirect instruction composition"
+        ]
+      },
+      "orchestrator/overseer/issue_filer.py": {
+        "lines": 269,
+        "status": "DEAD CODE — explicitly marked. Production filing moved sandbox-side per #1962. Retained only for test imports.",
+        "resolution": "cq-3 resolved: DELETE entirely."
+      },
+      "orchestrator/overseer/self_monitor.py": {
+        "lines": 165,
+        "key_class": "OverseerSelfMonitor",
+        "integration_gap": "Instantiated at monitor.py:105, records poll cycles and LLM calls, but check_health() is only called from generate_health_summary() (line 1988). Health concerns do NOT auto-trigger alerts."
+      }
+    },
+
+    "health_checks_tier1": {
+      "directory": "orchestrator/health_checks/tier1/",
+      "existing_checks": [
+        {"file": "consensus_stall.py", "lines": 182, "detects": "consensus-complete but phase stuck"},
+        {"file": "container_liveness.py", "lines": 113, "detects": "RUNNING containers missing from Docker"},
+        {"file": "incomplete_consensus_stall.py", "lines": 328, "detects": "consensus incomplete and not progressing"},
+        {"file": "phase_output.py", "lines": 242, "detects": "completed agents with missing artifacts"},
+        {"file": "startup_state.py", "lines": 108, "detects": "stale containers/agents after startup"},
+        {"file": "state_consistency.py", "lines": 176, "detects": "pipeline state vs Docker vs contract mismatch"}
+      ],
+      "types": {
+        "HealthCheck": "Protocol at types.py:88 — name, tier, triggers, run()",
+        "HealthResult": "dataclass at types.py:43 — status, action, reasoning, details",
+        "HealthStatus": "enum at types.py:11 — HEALTHY, DEGRADED, FAILED",
+        "HealthAction": "enum at types.py:19 — CONTINUE, ALERT, FAIL_PIPELINE"
+      },
+      "runner": {
+        "file": "orchestrator/health_checks/runner.py",
+        "lines": 255,
+        "key_method": "HealthCheckRunner.register() (line 42), run() dispatches by trigger (line 70)"
+      }
+    },
+
+    "sandbox_overseer": {
+      "file": "sandbox/overseer_monitor.py",
+      "lines": 803,
+      "migrated_detectors": [
+        "agent-stall (line 321)",
+        "agent-silent (line 359)",
+        "agent-nack-unresolved (line 383)",
+        "phase-long-running (line 424)",
+        "config-unavailable tripwire (line 468)"
+      ],
+      "advisor_gate": "lines 598-613 — intersection of Haiku confidence >= 0.8 + Tier-1 alert + advisor file_issue decision",
+      "continuous_loop": "run_monitor() at line 676 with SIGTERM handling"
+    },
+
+    "lifecycle_primitives": {
+      "spawn": {
+        "file": "orchestrator/routes/pipelines.py",
+        "call": "spawner.spawn_overseer_container() at line 21888",
+        "ordering": "Currently spawned BEFORE phase agents — violates phase-peer invariant"
+      },
+      "teardown": {
+        "file": "orchestrator/routes/pipelines.py",
+        "function": "_teardown_phase_overseer() at lines 792-821",
+        "call_sites": [
+          "line 22362: phase completion teardown",
+          "line 22516: post_phase_sync hard-reset recovery hook",
+          "line 22685: HITL gate resolution teardown",
+          "line 23246: pre-phase-advance final teardown",
+          "line 23621: pipeline end cleanup"
+        ],
+        "problem": "5 call sites suggest lifecycle invariant enforced by repetition, not one seam"
+      },
+      "respawn": {
+        "file": "orchestrator/routes/pipelines.py",
+        "function": "_check_and_respawn_overseer() at lines 520-683",
+        "problem": "Overseer has dedicated respawn loop with overseer_max_respawns=3; phase agents are restarted BY the overseer. No analog exists for agents. Asymmetry.",
+        "run_epoch_guard": "lines 582-602 — prevents parallel respawn chains from advance_phase/restart_phase (#1916)"
+      },
+      "restart_state": {
+        "problem": "restart_agent does NOT clear per-agent escalation history (_escalation_history), restart-exhaustion tracking (_agents_restart_exhausted), or per-agent stall counters. New process inherits old counters.",
+        "gap": "Only restart_phase does phase-wide reset. Per-agent restart is the gap."
+      },
+      "generation_token": {
+        "status": "NOT IMPLEMENTED — no generation/boot_time/pod_uid/generation_token exists in orchestrator (confirmed by refine-phase feedback-1 human answer)"
+      }
+    },
+
+    "signal_coverage_gaps": {
+      "orchestrator_runtime": {
+        "gap": "_run_pipeline thread death undetected (#2234)",
+        "gap": "wedged_no_successor (mcp_tools.py:1539) is passive status only, no tier-1 check (#2219)",
+        "gap": "Decision queue staleness not monitored (#2234)",
+        "gap": "Agent restart has no propagation deadline — overseer assumes success on HTTP 200"
+      },
+      "worktree_branch": {
+        "gap": "Branch git-history sanity (main-commits-eaten) not checked pre-PR (#2222)",
+        "gap": "Worktree corruption / _ensure_worktree failures not surfaced"
+      },
+      "container_k8s": {
+        "gap": "K8s pod transitions go straight to FAILED bypassing overseer (#2210)",
+        "gap": "No repeated-container-restart detection",
+        "gap": "No OOMKilled/eviction pattern detection"
+      },
+      "gateway": {
+        "gap": "No gateway error-rate monitoring",
+        "gap": "No repeated-denial detection",
+        "gap": "No token-expiry detection"
+      },
+      "brc_consensus_thrashing": {
+        "gap": "No reviewer thrash detection (NACK→ACK→NACK)",
+        "gap": "No producer thrash detection (>N propose-revise cycles)",
+        "gap": "No late-CONFIRMED detection",
+        "gap": "No tool-call repetition detection (cq-1 resolved: soft cap)"
+      },
+      "hitl_decisions": {
+        "gap": "Approved decision with no consumer not detected",
+        "gap": "_check_hitl_resolution_propagation (monitor.py:1649) only monitors unresolved-past-timeout, not resolved-but-never-consumed"
+      },
+      "cost_budget": {
+        "gap": "Phase token-cost vs historical median not monitored",
+        "gap": "OverseerSelfMonitor not wired into alert path",
+        "gap": "Actual token count/cost propagation incomplete (TODO in classifier call site)"
+      },
+      "overseer_self_health": {
+        "gap": "Classifier call failure rate not tracked/alerted",
+        "gap": "Advisor call failure rate not tracked/alerted",
+        "gap": "Overseer-vs-pipeline clock skew not detected"
+      },
+      "external_state": {
+        "gap": "PR state drift during PR phase not monitored",
+        "gap": "Pushed-but-PR-not-updated not detected"
+      },
+      "llm_substrate": {
+        "gap": "Per-pipeline LLM failure window not tracked (cq-2 resolved: per-pipeline inference)",
+        "gap": "Effective model drift not detected",
+        "gap": "LiteLLM proxy reachability not monitored (#2769)"
+      }
+    }
+  },
+
+  "refine_decisions_consumed": {
+    "cq-1": "Soft cap with repetition detector — escalate if recent logs are >N% repetitive content",
+    "cq-2": "Per-pipeline inference — aggregate failures over sliding window for LLM substrate",
+    "cq-3": "Delete issue_filer.py branch entirely — sandbox-side is authoritative",
+    "feedback-1_Q1": "Generation token primitive must be defined and implemented as prerequisite. Recommended: orchestrator pod UID (K8s) or UUID minted at startup, surfaced on health-status response."
+  },
+
+  "architecture_decisions": {
+    "AD-1_tier1_for_new_checks": {
+      "decision": "All new signal-coverage checks go into orchestrator/health_checks/tier1/ as new files implementing the HealthCheck protocol (types.py:88).",
+      "rationale": "monitor.py is 2,024 lines and scheduled for #2261 slice-7 decomposition. Adding checks to monitor.py would conflict with that slice and violate the 1,500-line cap. New tier1 checks compose with the existing runner (runner.py:42 register()) and EventBus, keeping them independently testable and avoiding monitor.py bloat.",
+      "constraint": "Each new check file self-registers via HealthCheckRunner.register() at orchestrator startup. Concurrent slices add registration lines to a common startup file — minor merge-conflict, trivially resolved."
+    },
+    "AD-2_no_monitor_decomposition": {
+      "decision": "This issue does NOT extract or restructure monitor.py internals.",
+      "rationale": "monitor.py decomposition is owned by #2261 slice-7 (scheduled, in-flight). This issue's cleanup scope is: delete dead code (issue_filer.py), remove dead action paths, consolidate lifecycle seams in pipelines.py."
+    },
+    "AD-3_overseer_phase_peer": {
+      "decision": "Overseer lifecycle is a phase peer: spawn WITH phase agents, tear down WITH phase agents, no overseer alone between phases.",
+      "rationale": "The issue explicitly states this as Goal 1. Currently overseer spawns BEFORE agents (pipelines.py:21888) and has a dedicated respawn loop (lines 520-683). The asymmetry must be resolved.",
+      "implementation_approach": "Move spawn into the phase-agent spawn loop. If agents fail to spawn, overseer spawn is skipped. Consolidate 5 teardown call sites into one pre_event_hook factory (the _make_overseer_teardown_hook at line 20864 is already a step in this direction)."
+    },
+    "AD-4_respawn_convergence": {
+      "decision": "Resolve the respawn asymmetry: either fold overseer respawn into agent restart machinery, or document why it needs its own path.",
+      "approach": "After analysis, the overseer respawn loop serves a distinct purpose (infrastructure liveness vs agent behavioral restart). Rather than merging the paths, document the asymmetry as intentional and align the mechanics: overseer respawn respects the same run_epoch guard (#1916), respects the same overseer_lock, and clears overseer-local state on respawn (analogous to restart_phase clearing state).",
+      "rationale": "Overseer respawn handles infrastructure failures (container EXITED/FAILED/NOT_FOUND) while agent restart handles behavioral issues (stall, misalignment). Keeping them separate preserves the distinct semantics but the state-clearing gap must be closed."
+    },
+    "AD-5_restart_state_clearing": {
+      "decision": "restart_agent for a specific agent must clear that agent's tracking state in OverseerMonitor: _escalation_history[agent_role], _agents_restart_exhausted (remove role), per-agent stall counters.",
+      "rationale": "Current behavior: restarted agent inherits stale counters from the dead process. Next stall counted as 'attempt #N+1' of an N-deep history that belongs to a dead process.",
+      "implementation": "The REST restart-agent endpoint (or the overseer's _execute_restart_agent at monitor.py:700) must emit a state-clearing event. OverseerMonitor listens for restart events and calls a new _clear_agent_state(agent_role) method."
+    },
+    "AD-6_generation_token": {
+      "decision": "Add a generation token to orchestrator health-status responses. Value: K8s pod UID when on K8s, or a UUID minted at orchestrator startup.",
+      "rationale": "Refine feedback-1 Q1 confirmed this primitive does not exist. It is a prerequisite for recycle-detection (orchestrator pod restarts mid-phase while agent/overseer survive, leaving in-memory counters aligned with old generation).",
+      "scope": "Production primitive — the orchestrator's health-status route returns the generation token. The overseer reads it on each poll cycle; on mismatch, resets state and emits orchestrator_generation_change alert."
+    },
+    "AD-7_repetition_detector": {
+      "decision": "Implement a log-content repetition detector as part of the incomplete-consensus stall check, not as a standalone module.",
+      "rationale": "cq-1 resolved 'soft cap with repetition detector'. The incomplete_consensus_stall tier1 check (328 lines) already has activity-aware suppression (#1609). Extending it with a repetition-aware activity test is the natural home. When recent container logs are >N% repetitive content AND the stall exceeds a soft cap, treat agent activity as non-progress and escalate regardless."
+    },
+    "AD-8_llm_substrate_per_pipeline": {
+      "decision": "LLM substrate health uses per-pipeline inference via a sliding failure window per pipeline, not cluster-wide signals.",
+      "rationale": "cq-2 resolved 'per-pipeline inference'. The overseer already tracks LLM call failures via OverseerSelfMonitor.record_llm_call(). Extend this to track failure windows: if >N% of classification/advisor calls fail in a T-second window, emit overseer_classifier_unhealthy / overseer_advisor_unhealthy alerts."
+    },
+    "AD-9_template_per_check": {
+      "decision": "Each new tier1 check that emits alerts also adds its template entry to shared/egg_overseer/issue_template.py.",
+      "rationale": "Keeps each check self-contained. Template entries are small (dict additions). Avoids a template-only slice that would need to know all alert types in advance."
+    },
+    "AD-10_slice_dag_affinity": {
+      "decision": "Health checks running in slice-DAG implement phase need EGG_SLICE_ID affinity. Alerts carry the slice ID of the slice they monitor.",
+      "rationale": "In slice-DAG implement, N slices run concurrently but there is one phase-scoped overseer. Per-slice dedup/escalation windows must not collide. The health check context (context.py) already has pipeline_id and phase; add optional slice_id propagation."
+    }
+  },
+
+  "slice_composition": {
+    "total_slices": 9,
+    "waves": {
+      "wave_0": ["slice-1"],
+      "wave_1": ["slice-2", "slice-3", "slice-4", "slice-5", "slice-6", "slice-7"],
+      "wave_2": ["slice-8"],
+      "wave_3": ["slice-9"]
+    },
+    "forest_validation": "Every slice has ≤1 DAG parent. No multi-parent violations.",
+    "rationale": "Slice 1 is the foundation cleanup (dead code + lifecycle ordering). Slices 2-7 extend independently from it in parallel. Slice 8 (self-health/LLM substrate) depends on slice 2 (generation token). Slice 9 (filing infrastructure) depends on slice 8 (last signal slice). Signal slices are grouped by layer affinity: orchestrator runtime (3), worktree/gateway (4), BRC/consensus (5), container/K8s/HITL/cost (6), external state (7) — each is one coherent BRC cycle of work."
+  },
+
+  "runtime_primitive_inventory": {
+    "purpose_annotations": {
+      "unit_test_only": [
+        "ScriptedProvider (test double for LLM calls)",
+        "MockOverseerMonitor (test double for overseer)"
+      ],
+      "deployed_pod": [
+        "OverseerMonitor (orchestrator/overseer/monitor.py:82) — runs in orchestrator pod",
+        "HealthCheckRunner (orchestrator/health_checks/runner.py:42) — runs in orchestrator pod",
+        "HealthCheck protocol (orchestrator/health_checks/types.py:88) — implemented by tier1 checks in orchestrator pod",
+        "_check_and_respawn_overseer (orchestrator/routes/pipelines.py:520) — runs in orchestrator pod poll thread",
+        "_teardown_phase_overseer (orchestrator/routes/pipelines.py:792) — runs in orchestrator pod",
+        "spawn_overseer_container (orchestrator/routes/pipelines.py:21888) — orchestrator pod spawning overseer container",
+        "OverseerSelfMonitor (orchestrator/overseer/self_monitor.py:24) — instantiated inside OverseerMonitor",
+        "PipelineHealthContext (orchestrator/health_checks/context.py:33) — read-only snapshot for health checks"
+      ]
+    },
+    "execution_context_annotations": {
+      "in_sandbox_agent": [
+        "sandbox/overseer_monitor.py — entire file runs inside overseer container (sandbox)",
+        "run_migrated_detectors (sandbox/overseer_monitor.py:143) — detectors in overseer container",
+        "consult_advisor (shared/egg_overseer/advisor.py:201) — runs sandbox-side via egg-orch CLI",
+        "compose_issue_body (sandbox/egg_lib/overseer_issue_body.py:62) — runs sandbox-side",
+        "send_message (sandbox/overseer_monitor.py:113) — overseer container sending to orchestrator via GATEWAY_URL"
+      ],
+      "trusted_CI_runner": [
+        "HealthCheckRunner.run() (orchestrator/health_checks/runner.py:70) — runs in orchestrator pod, invoked by pytest during integration tests",
+        "HealthCheck tier1 implementations (orchestrator/health_checks/tier1/*.py) — run in orchestrator pod, testable from CI runner"
+      ],
+      "dual_context": [
+        "shared/egg_overseer/state.py — imported by both orchestrator (for filed-issues.jsonl reads) and sandbox (for agent-timing.json R/W)",
+        "shared/egg_overseer/scrubbing.py — imported by advisor (sandbox), issue_body (sandbox), and gateway (sandbox-side)"
+      ]
+    }
+  },
+
+  "file_change_inventory": {
+    "delete": [
+      "orchestrator/overseer/issue_filer.py (269 lines — dead code, cq-3)"
+    ],
+    "modify": [
+      "orchestrator/routes/pipelines.py — spawn ordering, teardown consolidation, respawn alignment",
+      "orchestrator/overseer/monitor.py — dead action==issue removal, restart state clearing, self-monitor wiring, generation token integration",
+      "orchestrator/overseer/__init__.py — remove issue_filer exports",
+      "orchestrator/health_checks/tier1/__init__.py — add new check re-exports",
+      "orchestrator/health_checks/context.py — add slice_id propagation",
+      "shared/egg_overseer/issue_template.py — new template entries for new alert classes",
+      "sandbox/overseer_monitor.py — advisor gate extension, new detector integration",
+      "orchestrator/overseer/self_monitor.py — new recording methods for failure tracking"
+    ],
+    "create": [
+      "orchestrator/health_checks/tier1/runner_liveness.py — _run_pipeline thread liveness",
+      "orchestrator/health_checks/tier1/wedged_phase.py — wedged_no_successor tier-1 check",
+      "orchestrator/health_checks/tier1/decision_staleness.py — decision queue staleness",
+      "orchestrator/health_checks/tier1/branch_sanity.py — branch git-history sanity",
+      "orchestrator/health_checks/tier1/worktree_health.py — worktree corruption/lock",
+      "orchestrator/health_checks/tier1/gateway_health.py — gateway error detection",
+      "orchestrator/health_checks/tier1/brc_thrashing.py — reviewer/producer thrash",
+      "orchestrator/health_checks/tier1/repetition_detector.py — log repetition soft-cap (cq-1)",
+      "orchestrator/health_checks/tier1/container_restart_rate.py — repeated K8s/container restarts",
+      "orchestrator/health_checks/tier1/decision_consumer.py — approved decision no consumer",
+      "orchestrator/health_checks/tier1/cost_anomaly.py — phase cost anomaly",
+      "orchestrator/health_checks/tier1/phase_duration_drift.py — phase duration vs median",
+      "orchestrator/health_checks/tier1/pr_state_drift.py — PR state external mutation",
+      "orchestrator/routes/generation_token.py — generation token primitive (new helper)"
+    ]
+  },
+
+  "risks_identified": [
+    {
+      "risk": "Concurrent tier1 check slices modifying tier1/__init__.py simultaneously",
+      "mitigation": "Each check registers via HealthCheckRunner.register() at startup. __init__.py re-exports are batched per slice or handled via a registration discovery mechanism to minimize merge conflicts."
+    },
+    {
+      "risk": "monitor.py changes across multiple slices (dead code removal in slice-1, state clearing in slice-2, self-monitor wiring in slice-8)",
+      "mitigation": "Slice-1 changes are deletions (low conflict risk). Slice-2 adds new methods (additive). Slice-8 wires existing methods into new call sites (additive). Stacked-PR serialization handles remaining conflicts."
+    },
+    {
+      "risk": "pipelines.py is 24,578 lines — lifecycle changes in slices 1-2 are in the same file",
+      "mitigation": "Slice-1 changes (spawn ordering, teardown consolidation) and slice-2 changes (respawn alignment, generation token) affect different regions of the file. Slice-2 depends on slice-1 so they don't run concurrently."
+    },
+    {
+      "risk": "Generation token primitive (AD-6) requires changes to orchestrator route handler — may need gateway policy consideration",
+      "mitigation": "The generation token is read-only metadata on the health-status response. No gateway mutation. Minimal attack surface."
+    },
+    {
+      "risk": "Repetition detector (AD-7, cq-1) requires log-content analysis which may be expensive for high-volume agents",
+      "mitigation": "Sample recent N log lines (configurable), compute entropy or n-gram repetition ratio in O(N*window). Only invoked when incomplete-consensus stall is already detected. Not on every poll cycle."
+    },
+    {
+      "risk": "Slice-DAG affinity (AD-10) requires slice_id propagation through health check context",
+      "mitigation": "Extend PipelineHealthContext with optional slice_id. Checks that don't need slice affinity ignore it. Backward compatible."
+    },
+    {
+      "risk": "#2261 slice-7 (monitor.py decomposition) landing during this issue's implementation",
+      "mitigation": "This issue avoids restructuring monitor.py. If slice-7 lands first, our monitor.py changes (dead code removal, method additions) apply to the decomposed modules. If ours lands first, slice-7 decomposes with our changes included."
+    }
+  ],
+
+  "out_of_scope_references": [
+    "#2272 — overseer internal architecture (Sonnet executor + specialist subagents). Parallel track.",
+    "#2111 — overseer_owns_host_detection default flip",
+    "#2261 slice-7 — monitor.py decomposition. Must not pre-empt or conflict."
+  ]
+}
