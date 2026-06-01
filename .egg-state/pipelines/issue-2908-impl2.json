@@ -69,8 +69,8 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-06-01T18:32:26.629604Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -658,7 +658,7 @@
   },
   "decisions": [],
   "created_at": "2026-06-01T05:15:27.685794Z",
-  "updated_at": "2026-06-01T18:31:48.567941Z",
+  "updated_at": "2026-06-01T18:32:26.629707Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -671,7 +671,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T18:31:48.564932Z",
-  "version": 52,
+  "version": 53,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
