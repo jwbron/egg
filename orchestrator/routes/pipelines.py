@@ -19489,6 +19489,10 @@ def _auto_populate_contract_at_implement_start(
     issue_number: int | None,
     current_phase: PipelinePhase,
     pipeline_branch: str,
+    *,
+    gateway: Any,
+    gateway_mode: str,
+    base_branch: str | None,
 ) -> int:
     """Attempt to auto-populate an empty contract at implement start (#2915).
 
@@ -19505,8 +19509,6 @@ def _auto_populate_contract_at_implement_start(
         issue_number=issue_number,
     )
     try:
-        from routes.pipelines import _populate_contract_from_plan
-
         _populate_result = _populate_contract_from_plan(
             worktree_repo_path,
             pipeline_id,
@@ -19541,12 +19543,10 @@ def _auto_populate_contract_at_implement_start(
 
     # Commit the populated contract
     try:
-        from routes.pipelines import _commit_statefiles_to_worktree
-
         _committed = _commit_statefiles_to_worktree(
             worktree_repo_path,
             "Auto-populate contract at implement start (#2915)",
-            issue_number,
+            _pipeline_identifier(issue_number, pipeline_id),
             pipeline_id=pipeline_id,
         )
         if not _committed:
@@ -19563,26 +19563,46 @@ def _auto_populate_contract_at_implement_start(
         )
         return 0
 
-    # Push the populated contract
+    # Push the populated contract. Failure is non-fatal — the contract is
+    # already committed locally — but mirror the canonical pattern from
+    # agent_salvage._push_recovery (try/except for transport, then check
+    # push_result.ok for gateway-reported rejections like non_fast_forward
+    # / auth_failed / gateway_unreachable). Thread gateway_mode and
+    # base_branch so private-mode pipelines route correctly and non-FF
+    # reconcile uses --onto and doesn't replay base-branch commits.
+    push_succeeded = False
     try:
-        _gw = get_gateway_client()
-        _gw.push_worktree_branch(
+        push_result = gateway.push_worktree_branch(
             pipeline_id=pipeline_id,
             repo_path=str(worktree_repo_path),
             branch=pipeline_branch,
+            mode=gateway_mode,
+            base_branch=base_branch,
         )
     except Exception as _push_err:  # noqa: BLE001
         logger.warning(
-            "Auto-populate: push failed (non-fatal, contract is committed locally)",
+            "Auto-populate: push transport failure (non-fatal, contract committed locally)",
             pipeline_id=pipeline_id,
             error=str(_push_err),
         )
-        # Push failure is not fatal — the contract is already committed locally
+    else:
+        if not push_result.ok:
+            logger.warning(
+                "Auto-populate: push rejected by gateway (non-fatal, contract committed locally)",
+                pipeline_id=pipeline_id,
+                category=push_result.category,
+                detail=push_result.detail,
+            )
+        else:
+            push_succeeded = True
 
     logger.info(
-        "Auto-populate contract succeeded",
+        "Auto-populate contract succeeded"
+        if push_succeeded
+        else "Auto-populate contract succeeded locally only (push did not land)",
         pipeline_id=pipeline_id,
         slice_count=_populate_result.slice_count,
+        push_succeeded=push_succeeded,
     )
     return _populate_result.slice_count
 
@@ -22168,6 +22188,9 @@ def _run_pipeline(
                                     pipeline.issue_number,
                                     pipeline.current_phase,
                                     pipeline.branch,
+                                    gateway=spawner.gateway,
+                                    gateway_mode=gateway_mode,
+                                    base_branch=pipeline.base_branch,
                                 )
                                 if _slice_count > 0:
                                     # Reload contract after successful populate
