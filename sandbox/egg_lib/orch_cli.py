@@ -2872,6 +2872,173 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# BRC verb-level subcommands (#2908 slice-1)
+#
+# These wrap the existing handler-layer surface
+# (``sandbox/egg_agent_tools/handlers/brc.py``) and the new orchestrator
+# next-action route in shell-friendly CLI form. The event-pump wrapper
+# (#2908 slice-2) drives ``egg-orch brc get-state`` /
+# ``egg-orch brc next-action`` / ``egg-orch brc list-blocking`` from
+# bash; surfacing them under their own ``brc`` parent (rather than
+# under ``consensus``) matches the MCP-tool naming so the wrapper bash
+# can call the CLI form directly without remembering a different verb
+# mapping.
+# ---------------------------------------------------------------------------
+
+
+def cmd_brc_next_action(args: argparse.Namespace) -> int:
+    """Derive the next BRC action for a role from the orchestrator.
+
+    Calls the new ``POST /api/v1/pipelines/{pid}/consensus/next-action``
+    route (#2908 slice-1, ``orchestrator/routes/consensus.py``). The
+    route inspects the in-memory consensus tracker (with replay
+    fallback) and returns one of::
+
+        {"action": "wait" | "propose" | "ack" | "nack" | "confirm" | "complete",
+         "event_payload": {...optional...}, "reason": "..."}
+
+    Used by the event-pump wrapper to decide whether to invoke the
+    agent (propose / review / confirm) or block on the message bus
+    (wait).
+    """
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print(
+            "Error: --role required or set EGG_AGENT_ROLE",
+            file=sys.stderr,
+        )
+        return 1
+
+    data: dict[str, Any] = {"role": role}
+    slice_id = getattr(args, "slice_id", None) or resolve_slice_id()
+    if slice_id:
+        data["slice_id"] = slice_id
+
+    result = orch_request(
+        f"/api/v1/pipelines/{pid}/consensus/next-action",
+        method="POST",
+        data=data,
+    )
+
+    if args.json:
+        # Drop the ``success`` envelope so jq-driven wrapper bash gets
+        # the action payload directly; preserve everything else.
+        body = {k: v for k, v in result.items() if k != "success"}
+        print_json(body)
+        return 0
+
+    action = result.get("action", "unknown")
+    reason = result.get("reason", "")
+    print(f"Next action for {role}: {action}")
+    if reason:
+        print(f"  Reason: {reason}")
+    event_payload = result.get("event_payload") or {}
+    if event_payload:
+        print("  Event payload:")
+        for k, v in event_payload.items():
+            print(f"    {k}: {v}")
+    return 0
+
+
+def cmd_brc_get_state(args: argparse.Namespace) -> int:
+    """Return the BRC consensus state as structured JSON.
+
+    Verb-level alias for ``mcp__brc__get_state``. The MCP-tool surface
+    exposed shape ``{ok, slice_id, consensus, is_complete,
+    blocking_agents, raw?}``; we mirror that exact shape so the
+    event-pump wrapper (#2908 slice-2) can call the CLI form
+    interchangeably with the MCP form.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    pid = require_pipeline_id(args)
+    req: dict[str, Any] = {"pipeline_id": pid}
+    slice_id = getattr(args, "slice_id", None) or resolve_slice_id()
+    if slice_id:
+        req["slice_id"] = slice_id
+    if getattr(args, "verbose", False):
+        req["verbose"] = True
+
+    try:
+        resp = _handlers.brc_get_state(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    # Always JSON — the handler's response is the only useful payload.
+    # ``--verbose`` flips ``raw`` on as documented in the MCP-tool
+    # description.
+    print_json(resp)
+    return 0
+
+
+def cmd_brc_list_blocking(args: argparse.Namespace) -> int:
+    """List agent roles currently blocking consensus.
+
+    Verb-level CLI wrapper around ``mcp__brc__list_blocking``. Default
+    output is one role per line for shell-friendly consumption
+    (``while read role; do …; done``); ``--json`` returns the
+    ``{blocking_agents: [...]}`` array. Exit code 0 even when the
+    list is empty so the wrapper bash can call this unconditionally
+    in the event-pump loop.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    pid = require_pipeline_id(args)
+    try:
+        resp = _handlers.brc_list_blocking({"pipeline_id": pid})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    blocking = list(resp.get("blocking_agents", []) or [])
+    if args.json:
+        print_json({"blocking_agents": blocking})
+        return 0
+
+    for role in blocking:
+        print(role)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Phase verb-level subcommands (#2908 slice-1)
+# ---------------------------------------------------------------------------
+
+
+def cmd_phase_get_context(args: argparse.Namespace) -> int:
+    """Bundle phase context (pipeline_id, phase, role, tasks, artifacts).
+
+    Verb-level alias for ``mcp__phase__get_context``. Returns the same
+    JSON shape the MCP tool produces so wrapper bash can call this
+    interchangeably. Defaults pull from ``$EGG_PIPELINE_ID`` /
+    ``$EGG_AGENT_ROLE`` / ``$EGG_PHASE`` env vars.
+    """
+    from egg_agent_tools.handlers import phase as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    req: dict[str, Any] = {}
+    pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if pid:
+        req["pipeline_id"] = validate_id(pid, "pipeline_id")
+    if getattr(args, "phase", None):
+        req["phase"] = args.phase
+    if getattr(args, "role", None):
+        req["role"] = args.role
+    if getattr(args, "no_artifacts", False):
+        req["include_artifacts"] = False
+
+    try:
+        resp = _handlers.phase_get_context(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    print_json(resp)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Environment info
 # ---------------------------------------------------------------------------
 
@@ -3625,6 +3792,84 @@ def create_parser() -> argparse.ArgumentParser:
     _add_json_flag(cons_status)
     cons_status.set_defaults(func=cmd_consensus_status)
 
+    # -- brc (verb-level BRC operations) --
+    #
+    # ``brc`` is the verb-level surface used by the event-pump wrapper
+    # (#2908 slice-2). It collects the read/derive verbs the wrapper
+    # invokes from bash — ``next-action``, ``get-state``,
+    # ``list-blocking`` (and in slice-5, ``resolve-obligation`` /
+    # ``read-peer-artifact``). The write-side BRC verbs (propose, ack,
+    # nack, withdraw, confirmed) remain under ``consensus`` to
+    # preserve the existing CLI surface; documenters note the
+    # cross-reference in ``docs/reference/agent-tools.md``.
+    brc_parser = subparsers.add_parser("brc", help="BRC verb-level operations")
+    brc_sub = brc_parser.add_subparsers(dest="brc_command")
+
+    # brc next-action
+    brc_next = brc_sub.add_parser(
+        "next-action",
+        help="Derive the next BRC action for a role from the orchestrator",
+    )
+    brc_next.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_next.add_argument(
+        "--role",
+        default=None,
+        help=(
+            "Role to derive the next action for (defaults to "
+            "$EGG_AGENT_ROLE). The wrapper passes the role of the "
+            "agent it is about to invoke."
+        ),
+    )
+    brc_next.add_argument(
+        "--slice-id",
+        dest="slice_id",
+        default=None,
+        help=(
+            "Slice to scope the derivation to (e.g. 'slice-7'). "
+            "Defaults to $EGG_SLICE_ID."
+        ),
+    )
+    _add_json_flag(brc_next)
+    brc_next.set_defaults(func=cmd_brc_next_action)
+
+    # brc get-state
+    brc_state = brc_sub.add_parser(
+        "get-state",
+        help=(
+            "Return the BRC consensus state (verb-level alias for "
+            "mcp__brc__get_state)"
+        ),
+    )
+    brc_state.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_state.add_argument(
+        "--slice-id",
+        dest="slice_id",
+        default=None,
+        help="Slice to scope the state to. Defaults to $EGG_SLICE_ID.",
+    )
+    brc_state.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Include the full orchestrator status payload under "
+            "the 'raw' key — matches the MCP-tool 'verbose' flag."
+        ),
+    )
+    brc_state.set_defaults(func=cmd_brc_get_state)
+
+    # brc list-blocking
+    brc_blocking = brc_sub.add_parser(
+        "list-blocking",
+        help=(
+            "List roles currently blocking consensus (verb-level "
+            "alias for mcp__brc__list_blocking). Newline-delimited "
+            "by default; --json returns the array."
+        ),
+    )
+    brc_blocking.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(brc_blocking)
+    brc_blocking.set_defaults(func=cmd_brc_list_blocking)
+
     # -- phase --
     phase_parser = subparsers.add_parser("phase", help="Phase operations")
     phase_sub = phase_parser.add_subparsers(dest="phase_command")
@@ -3660,6 +3905,40 @@ def create_parser() -> argparse.ArgumentParser:
     ph_complete.add_argument("--reason", help="Completion reason")
     _add_json_flag(ph_complete)
     ph_complete.set_defaults(func=cmd_phase_complete)
+
+    # phase get-context (verb-level alias for mcp__phase__get_context)
+    #
+    # The event-pump wrapper (#2908 slice-2) calls this when it needs
+    # the bundled phase context (pipeline_id, phase, role, assigned
+    # tasks, prior-phase artifact paths) before invoking the agent.
+    ph_ctx = phase_sub.add_parser(
+        "get-context",
+        help=(
+            "Bundle the caller's phase context (verb-level alias "
+            "for mcp__phase__get_context)"
+        ),
+    )
+    ph_ctx.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    ph_ctx.add_argument(
+        "--phase",
+        default=None,
+        help="Phase override. Defaults to $EGG_PHASE.",
+    )
+    ph_ctx.add_argument(
+        "--role",
+        default=None,
+        help="Role override. Defaults to $EGG_AGENT_ROLE.",
+    )
+    ph_ctx.add_argument(
+        "--no-artifacts",
+        dest="no_artifacts",
+        action="store_true",
+        help=(
+            "Skip the best-effort prior-phase artifact scan "
+            "(matches the MCP-tool ``include_artifacts=false`` flag)"
+        ),
+    )
+    ph_ctx.set_defaults(func=cmd_phase_get_context)
 
     # -- decision --
     decision_parser = subparsers.add_parser("decision", help="Decision queue operations")
