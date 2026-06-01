@@ -19561,6 +19561,131 @@ def _origin_has_plan_draft(repo_path: Path, branch: str, draft_rel: str) -> bool
         return False
 
 
+def _auto_populate_contract_at_implement_start(
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str,
+    issue_number: int | None,
+    current_phase: PipelinePhase,
+    pipeline_branch: str,
+    *,
+    gateway: Any,
+    gateway_mode: str,
+    base_branch: str | None,
+) -> int:
+    """Attempt to auto-populate an empty contract at implement start (#2915).
+
+    When a pipeline enters the implement phase with zero slices in the
+    contract, this helper tries to populate it from the plan draft. On
+    success, commits and pushes the populated contract; on failure, logs
+    and returns 0 (still empty).
+
+    Returns the number of slices in the contract after the attempt.
+    """
+    logger.info(
+        "Attempting to auto-populate empty contract at implement start (#2915)",
+        pipeline_id=pipeline_id,
+        issue_number=issue_number,
+    )
+    try:
+        _populate_result = _populate_contract_from_plan(
+            worktree_repo_path,
+            pipeline_id,
+            pipeline_mode,
+            issue_number,
+            current_phase=current_phase,
+        )
+    except ForestValidationError as _forest_err:
+        logger.warning(
+            "Auto-populate contract failed: forest validation error",
+            pipeline_id=pipeline_id,
+            errors=_forest_err.errors,
+        )
+        return 0
+    except Exception as _populate_err:  # noqa: BLE001
+        logger.warning(
+            "Auto-populate contract failed at implement start",
+            pipeline_id=pipeline_id,
+            error=str(_populate_err),
+            exc_info=True,
+        )
+        return 0
+
+    if _populate_result.outcome != PopulateOutcome.POPULATED or _populate_result.slice_count == 0:
+        logger.warning(
+            "Auto-populate contract returned empty or failed",
+            pipeline_id=pipeline_id,
+            outcome=_populate_result.outcome.value,
+            slice_count=_populate_result.slice_count,
+        )
+        return 0
+
+    # Commit the populated contract
+    try:
+        _committed = _commit_statefiles_to_worktree(
+            worktree_repo_path,
+            "Auto-populate contract at implement start (#2915)",
+            _pipeline_identifier(issue_number, pipeline_id),
+            pipeline_id=pipeline_id,
+        )
+        if not _committed:
+            logger.warning(
+                "Auto-populate: commit returned False (nothing to commit)",
+                pipeline_id=pipeline_id,
+            )
+            return 0
+    except Exception as _commit_err:  # noqa: BLE001
+        logger.warning(
+            "Auto-populate: commit failed",
+            pipeline_id=pipeline_id,
+            error=str(_commit_err),
+        )
+        return 0
+
+    # Push the populated contract. Failure is non-fatal — the contract is
+    # already committed locally — but mirror the canonical pattern from
+    # agent_salvage._push_recovery (try/except for transport, then check
+    # push_result.ok for gateway-reported rejections like non_fast_forward
+    # / auth_failed / gateway_unreachable). Thread gateway_mode and
+    # base_branch so private-mode pipelines route correctly and non-FF
+    # reconcile uses --onto and doesn't replay base-branch commits.
+    push_succeeded = False
+    try:
+        push_result = gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_repo_path),
+            branch=pipeline_branch,
+            mode=gateway_mode,
+            base_branch=base_branch,
+        )
+    except Exception as _push_err:  # noqa: BLE001
+        logger.warning(
+            "Auto-populate: push transport failure (non-fatal, contract committed locally)",
+            pipeline_id=pipeline_id,
+            error=str(_push_err),
+        )
+    else:
+        if not push_result.ok:
+            logger.warning(
+                "Auto-populate: push rejected by gateway (non-fatal, contract committed locally)",
+                pipeline_id=pipeline_id,
+                category=push_result.category,
+                detail=push_result.detail,
+            )
+        else:
+            push_succeeded = True
+
+    logger.info(
+        "Auto-populate contract succeeded"
+        if push_succeeded
+        else "Auto-populate contract succeeded locally only (push did not land)",
+        pipeline_id=pipeline_id,
+        slice_count=_populate_result.slice_count,
+        push_succeeded=push_succeeded,
+    )
+    return _populate_result.slice_count
+
+
 def _populate_contract_from_plan_safe(
     repo_path: Path,
     pipeline_id: str,
@@ -22130,6 +22255,28 @@ def _run_pipeline(
                             # the structured log when the populator dropped
                             # slices (#2337).
                             _use_slice_loop = _is_slice_dag_mode(_check_contract)
+
+                            # #2915: Auto-populate contract if empty at implement start
+                            # This fills the gap where start_phase=implement doesn't trigger
+                            # the plan-completion populate path, leaving agents with nothing to do.
+                            if _slice_count == 0:
+                                _slice_count = _auto_populate_contract_at_implement_start(
+                                    worktree_repo_path,
+                                    pipeline_id,
+                                    pipeline_mode,
+                                    pipeline.issue_number,
+                                    pipeline.current_phase,
+                                    pipeline.branch,
+                                    gateway=spawner.gateway,
+                                    gateway_mode=gateway_mode,
+                                    base_branch=pipeline.base_branch,
+                                )
+                                if _slice_count > 0:
+                                    # Reload contract after successful populate
+                                    _check_contract = _load_contract_for_slice_check(
+                                        pipeline_id, worktree_repo_path
+                                    )
+                                    _use_slice_loop = _is_slice_dag_mode(_check_contract)
 
                             # #2337 defensive recheck: if the contract has no
                             # slices but the on-disk plan draft parses to N>1
