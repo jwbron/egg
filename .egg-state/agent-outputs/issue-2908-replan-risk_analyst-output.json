@@ -4,55 +4,51 @@
   "phase": "plan",
   "role": "risk_analyst",
   "issue": 2908,
-  "summary": "Issue #2908 proposes a fundamental reframe of BRC consensus execution: replace the agent-held wait-loop with a deterministic event-pump (in the consensus_wrapper) plus a durable per-agent memory file. The agent primitive (pod / worktree / role / SDK / permissions) is unchanged. The blast radius is concentrated in the consensus subsystem — consensus_wrapper.py, brc handlers, message wait-loop, state_store, startup_reconciliation, prompt assembly, and a CLI surface (egg-orch brc ...) — and the change is deletion-heavy. Risk profile: medium-high overall. The dominant risks are (1) stateless re-spawn cache invalidation on the actual egg agent prefix (the issue body's measurements were done on raw `claude`, not through `python3 -m egg_agent` with the full BRC preamble), (2) trust-boundary drift between the WS7 measurements and the production cost-callback shape, (3) schema-1.3 migration durability under push failure, and (4) shell-prose corruption regression if the new event-pump prompt is not assembled with the same shlex.quote discipline as today's wrapper. Most risks are *known-class* and have concrete mitigations already woven into the contract slices; this register makes the mitigations explicit, anchors them to file:line, and flags a small set of items severe enough to NACK upstream producers on if their final proposals leave them unresolved.",
   "verdict": "ACK",
-  "verdict_rationale": "ACK applies to the plan as currently scaffolded in contract.slices[0..7] (which encodes the task_planner's de-facto plan output). The scaffolding correctly carries forward two trust-boundary corrections already raised at refine time (task-1-1 corrects the claude --print anti-pattern → python3 -m egg_agent per docs/guides/agent-mode-design.md:90-104; task-1-3 corrects the cost-callback path → kubectl logs not ~/.local/state/clm/cost-*.json). Risks identified below are either (a) addressable inside the existing slice scope without re-shaping the plan, or (b) appropriate to track as forward-looking notes in the risk register. No risk is severe enough to NACK the plan-as-scaffolded today. Re-evaluation hooks: when architect and task_planner formally PROPOSE, this verdict is re-applied to their concrete proposals; any blocking_concerns below that remain unaddressed in the final proposal convert to NACK with the same file:line evidence captured here.",
-  "blocking_concerns": [
+  "summary": "v2 of the plan-phase risk register — replan iteration 1 (HITL kickback). The operator's directive declared the cache-TTL question EMPIRICALLY CLOSED (both Anthropic and Qwen routes hand-measured to survive >=60-min idle with zero cache re-creation; no keep-warm needed on either route) and ordered slice-1 to stop re-deriving it. Surgical update to v1: (a) the Qwen-route cache-TTL ceiling is moved from `risks` to `operator_settled_inputs` — it is no longer a risk to mitigate; (b) BC-1 (egg-harness cache instrumentation gap) is REFRAMED — the live risk is whether the egg-prefix per-event prompt assembly actually HITS the cached prefix on each event (cache-breakpoint placement + cache_read ratio), NOT whether the cache survives long enough; (c) R-11 (slice-8 conditional keep-warm stall) is obsolete — architect's v4 slice DAG re-purposes slice-8 to prompt collapse (cq-1 MCP-split deferred), so the keep-warm conditional no longer exists in any slice; (d) R-14 (litellm-log scrape fragility) narrows to cost-instrumentation side effect (cache_read/cache_creation tokens) — no longer a dedicated TTL-bracketing spike; (e) new R-17 flags the recurrence risk that task_planner v4's slice-1 re-author might leave latent TTL-bracketing language in task-1-3 AC / task-1-4 report question, contradicting the operator directive. Everything else in the register is unchanged — the 8/9 of the plan the operator endorsed (slice-8 collapse, cq-1 MCP-split, cq-3 durable budget, cq-4 full deletion of capped-restart wrapper, brc-memory.md ephemeral, python3 -m egg_agent harness primitive, real egg_stack integration fixture) remains correctly risk-assessed. Verdict on the plan as scaffolded remains ACK conditional on the surgical TTL strip landing in task_planner v4. If task_planner v4 re-introduces TTL bracketing language in slice-1, this verdict converts to NACK with R-17 / BC-1-v2 as the blocking citation.",
+  "verdict_rationale": "ACK applies to the plan as currently scaffolded in contract.slices[0..8] PROVIDED task_planner v4 strips the TTL-bracketing language per the operator directive: (1) task-1-3 AC must remove 'at least 3 idle durations (5.5, 10, 15 min)' and the litellm-log-derived TTL-survival framing; (2) task-1-3 description must remove 'Repeat for 5.5 min and 10 min idles to bracket the TTL ceiling'; (3) task-1-4 report question (b) — 'what Qwen-route TTL ceiling did the measurements show — survives >= 15 min, lapses 5.5-15 min, or ambiguous?' — must be removed. What survives in slice-1 per the directive: (a) per-event cost / wall-clock instrumentation through python3 -m egg_agent with the production BRC preamble + tool schemas (BC-1 reframed, instrument-only, no fail thresholds — feedback-1 Q1); (b) event-pump-reaches-consensus de-risk on the #2906 repro (task-1-2 unchanged). Cache_read/cache_creation token counts may be recorded as a SIDE EFFECT of cost measurement (legitimate per directive), but the dedicated idle-duration TTL-ceiling spike and any stop/go gate keyed on TTL are forbidden. Re-evaluation hook: when architect v5 (if respin) and task_planner v4 PROPOSE, this verdict is re-applied to their concrete proposals; R-17 / BC-1-v2 / rubric items in review_targets convert to NACK if unaddressed in the final proposal.",
+  "operator_settled_inputs": [
     {
-      "id": "BC-1",
-      "title": "Cache-survival measurement gap — egg-agent prefix not measured",
-      "evidence": "Issue body WS7 measurements used `claude --output-format json` directly (not through python3 -m egg_agent). The egg agent prefix layers (i) the BRC preamble assembled in orchestrator/routes/pipelines.py::_build_brc_preamble at line ~12348, (ii) mission.md (sandbox/agent-config/rules/mission.md, ~195 lines), (iii) the 28 MCP tool schemas registered in sandbox/egg_agent_tools/tools/* via TOOL_REGISTRY, (iv) the per-event injected prompt the new wrapper will pass. The dynamic suffix on the egg path is much larger than the ~2K suffix Claude Code uses raw — and dynamic content placement in the new per-event prompt is what determines whether the prefix-cache-read benefit measured in WS7 actually transfers. If the new wrapper assembles per-event prompts so that pipeline-id / role / slice-id / memory-file-snapshot land *before* the cache-breakpoint, EVERY event busts the prefix on Anthropic *and* Qwen. Slice-1 (WS0 de-risking spike) must reproduce the measurement *through the egg agent harness*, not through raw `claude`, before slice-6 lands.",
-      "would_nack_if": "architect or task_planner PROPOSE without acknowledging that slice-1's spike report (docs/spike/2908-event-pump-spike.md, task-1-4) must measure cache_read_input_tokens *for the actual `python3 -m egg_agent` invocation* with the production BRC preamble + tool schemas, not for raw `claude` calls.",
-      "mitigation": "Add an explicit acceptance criterion on task-1-2 (slice-1) that the run-log evidence comes from python3 -m egg_agent invocations under the new event-pump prototype, AND that the measurement records the prefix that the *real* wrapper template would inject. Slice-7 (prompt collapse) must be gated on this measurement, not on the raw-`claude` numbers in the issue body.",
-      "owner_slice": "slice-1",
-      "blocking_for": ["architect", "task_planner"]
+      "id": "OSI-1",
+      "fact": "Qwen route prefix cache survives >= 60-min idle with ZERO re-creation. Anthropic route prefix cache survives >= 60-min idle with ZERO re-creation. Both confirmed by operator hand-measurement (cq-2 resolution + iteration-1 HITL directive). Observed BRC idles peak at ~10-13 min, so the cache always outlasts the gap on both routes.",
+      "consequence": "No keep-warm loop needed on either route. The TTL-ceiling question is closed; slice-1 must NOT re-derive it. Architect's v4 slice-8 collapse (slice-8 is prompt collapse, NOT conditional keep-warm) is the correct downstream consequence.",
+      "evidence": "contract.decisions[cq-2].resolution + iteration-1 operator directive (2026-06-01T02:06:14Z): 'BOTH the Anthropic and Qwen routes prefix cache survive a >=60-min idle with ZERO re-creation; observed BRC idles peak at ~10-13 min, so the cache always outlasts the gap on both routes. No keep-warm needed on either route. There is nothing left to measure here.'"
     },
     {
-      "id": "BC-2",
-      "title": "Shell-prose corruption regression risk (#2741) if event-pump template skips shlex.quote",
-      "evidence": "Today's consensus_wrapper.py:759-762 uses `shlex.quote()` on prompt_text and recovery_user_prompt before substitution into `_CONSENSUS_WRAPPER_TEMPLATE` and ultimately ['bash', '-c', script] at line 775. The new event-pump template (slice-6 task-6-1) regenerates the per-event prompt every iteration from BRC payload (memory snapshot, NACK reasons, files_reviewed lists) — every one of those is prose that can contain $, backticks, quotes, newlines. If task-6-1 substitutes prompt text into the bash template without shlex.quote (or, equivalently, if it doesn't pipe via stdin / a file), it re-introduces the exact corruption mitigated in #2741. The WS8 description in the issue body already flags this for the new CLI verbs (`reason` / `files_reviewed` must arrive via stdin or a file path, never argv) — but the wrapper template that *spawns the agent on each event* is the symmetric exposure and needs the same rule.",
-      "would_nack_if": "task-6-1 (slice-6) does not have an acceptance criterion that says the per-event prompt is passed to python3 -m egg_agent *either* via shlex.quote-applied argv *or* via stdin/file, with a regression-test asserting that a prompt containing shell-metachars round-trips uncorrupted.",
-      "mitigation": "Add an explicit AC on task-6-1: the per-event prompt MUST be substituted via shlex.quote (mirroring consensus_wrapper.py:759-760) or piped via a tempfile, AND a unit test in tests/orchestrator/test_consensus_wrapper.py (extended in task-6-10) must inject a prompt containing $, backtick, single-quote, double-quote, newline and assert the agent receives it byte-identically.",
-      "owner_slice": "slice-6",
-      "blocking_for": ["architect", "task_planner"]
+      "id": "OSI-2",
+      "fact": "Instrument-only stance: WS0 measures and reports per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm $/hour, but nothing auto-fails on a fixed threshold. The operator judges go/no-go from reported numbers.",
+      "consequence": "task-1-2 / task-1-4 must NOT have numeric stop/go gates. Slice-7 / slice-8 implementation gates must NOT be conditioned on a numeric threshold — they consume the instrumentation as forward-looking telemetry.",
+      "evidence": "contract.decisions[decision-5].resolution Q1: 'Instrument only, no hard caps. WS0 should measure and report per-pipeline token spend, per-event wall-clock, and (if ever built) keep-warm-loop $/hour, but nothing should auto-fail on a fixed threshold; the operator will judge go/no-go from the reported numbers.'"
     },
     {
-      "id": "BC-3",
-      "title": "Sync-flush durability requires partial-failure semantics, not just success path",
-      "evidence": "Slice-2 task-2-2 adds `_save_pipeline_durable(state)` alongside the existing best-effort `save_pipeline` at orchestrator/state_store.py:672-749. Today's path catches push failure at lines 741-747 and retries on the next save (idempotent best-effort). The new sync-flush path is invoked at exactly the moment the safety-budget consumer needs to know the budget is durably decremented (slice-6 task-6-5) — if sync-flush silently succeeds-on-local but the remote push fails, a host restart will resurrect the OLD budget and the safety net is undermined. Conversely, if sync-flush raises on push failure, the caller in the event-pump wrapper must NOT crash-loop the agent on transient git/gateway failures (the very class of failure the issue identifies as compounding restart churn).",
-      "would_nack_if": "task-2-2's acceptance criterion does not specify both (a) the success path (returns only after `git push` succeeds) AND (b) the partial-failure path (mock push failure → caller observes the failure AND has a documented bounded retry policy that does NOT restart the agent pod).",
-      "mitigation": "Add to task-2-2 AC: 'On push failure, _save_pipeline_durable raises a typed exception (e.g. DurableSaveFailed); the call-site in the safety-budget consumer (task-6-5) handles this by emitting an OVERSEER_ALERT and continuing the wait-loop with an in-memory budget snapshot, NOT by exiting the wrapper.' Also: task-2-5 unit tests must cover the partial-failure path.",
-      "owner_slice": "slice-2",
-      "blocking_for": ["architect", "task_planner"]
+      "id": "OSI-3",
+      "fact": "brc-memory.md is ephemeral coordination state — pod-scoped, cleaned up with the pod; the orchestrator message history is the durable reconstruction backstop.",
+      "consequence": "Slice-7 brc-memory.md write paths must NOT make the file load-bearing for host/pod-restart recovery. cq-3 durable safety budget on Pipeline.no_progress_budget + sync-flush + startup reconciliation must be the only recovery path.",
+      "evidence": "contract.decisions[decision-5].resolution Q2 + operator directive 'brc-memory.md ephemeral (good)'."
+    },
+    {
+      "id": "OSI-4",
+      "fact": "The capped-restart wrapper path is being fully deleted in slice-6 — no flagged fallback.",
+      "consequence": "Slice-6 deletion-sweep ACs are correct as scaffolded; R-7 (mass deletion blast radius) governance applies but no soft-deprecation period to plan for.",
+      "evidence": "contract.decisions[cq-4].resolution + operator directive 'cq-4 full deletion of the capped-restart wrapper with no flagged fallback (good)'."
     }
   ],
-  "top_3_risks": ["R-1", "R-3", "R-7"],
   "risks": [
     {
       "id": "R-1",
-      "title": "Stateless re-spawn cache invalidation on the production egg-agent prefix",
+      "title": "Egg-prefix cache-breakpoint placement may bust prefix cache on every event (REFRAMED — TTL ceiling concern moved to OSI-1)",
       "category": "performance",
       "impact": "high",
       "likelihood": "medium",
-      "description": "The central economic argument for the event-pump model is that cross-session prefix caching keeps per-event cost bounded. The WS7 measurements in the issue body (~92% cache_read on Anthropic, ~99.99% on Qwen, ≥60-min TTL on both routes) were taken with raw `claude` / `clm` calls, not through python3 -m egg_agent with the full production BRC preamble + tool schemas. Two risks compound: (a) the egg prefix is materially larger and structurally different from the raw-claude prefix (mission.md ~195 lines + 28 MCP tool schemas + BRC preamble assembled at orchestrator/routes/pipelines.py:_build_brc_preamble:12348), so its caching behavior must be re-measured; (b) the new per-event prompt is assembled freshly each event and its placement of *dynamic* content (memory snapshot, NACK reasons, version delta) relative to the cache breakpoint will determine whether the cache is read or busted. If dynamic content lands before the breakpoint, every event busts cache → cost regression vs the current persistent-session model that the issue is trying to *reduce*.",
+      "description": "The cache-survival TTL question is settled (OSI-1). The remaining live risk is whether the egg-prefix per-event prompt assembly actually HITS the cached prefix on each event, vs. busting it because dynamic content (memory snapshot, NACK reasons, version delta, pipeline-id, role, slice-id) lands BEFORE the cache breakpoint. The egg prefix is materially larger and structurally different from the raw-claude prefix that operator-measured cache-survival on: it includes the BRC preamble assembled at orchestrator/routes/pipelines.py::_build_brc_preamble:12348, mission.md (sandbox/agent-config/rules/mission.md ~195 lines), and 28 MCP tool schemas registered via sandbox/egg_agent_tools/tools/*. If the new wrapper template (slice-5) places per-event dynamic content before the cache breakpoint, every event busts the prefix on BOTH routes regardless of TTL — and the central economic argument for event-pump (bounded per-event cost via cache_read) collapses. The risk is structural prompt assembly, NOT cache survival.",
       "evidence_files": [
         "orchestrator/routes/pipelines.py:12348 (_build_brc_preamble)",
         "sandbox/agent-config/rules/mission.md:1-195",
         "sandbox/egg_agent_tools/tools/* (28 MCP tool schemas, per WS8)",
-        "Issue body WS7 comments — measurements via `claude --output-format json` not via python3 -m egg_agent"
+        "Operator iteration-1 directive (TTL closed); cache_read RATIO on egg-prefix structure remains unmeasured"
       ],
-      "mitigation": "Slice-1 spike (task-1-2 + task-1-3 + task-1-4) MUST measure cache_read_input_tokens *for python3 -m egg_agent invocations under the new event-pump prototype*, not raw `claude`. The spike report (task-1-4) must explicitly answer: 'with the egg BRC preamble + tool schemas, what is the per-event cache_read ratio across the worst-case 13-min idle?' Slice-6 / slice-7 / slice-8 implementation gates should consume this number, not the issue-body WS7 numbers. Additionally: slice-7 task-7-5 must ensure dynamic per-event content lands in the *suffix* (post-breakpoint) — define and assert breakpoint placement in a unit test.",
-      "owner_slice": "slice-1 + slice-7"
+      "mitigation": "Slice-1 task-1-2 (event-pump prototype run) MUST capture per-event prompt_tokens, cache_read_input_tokens, cache_creation_tokens from python3 -m egg_agent invocations with the production BRC preamble + tool schemas. This is the BC-1-v2 instrumentation — instrument-only, no threshold gate (OSI-2). Slice-5 (event-pump wrapper template) must define and assert breakpoint placement in a unit test: dynamic content (memory-file path, event-json) goes in the SUFFIX (post-breakpoint), with the BRC preamble + tool schemas frozen as PREFIX. Slice-8 prompt collapse (per architect v4 slice-8) is the place to lock breakpoint discipline into the prompt-assembly path.",
+      "owner_slice": "slice-1 + slice-5 + slice-8"
     },
     {
       "id": "R-2",
@@ -60,14 +56,14 @@
       "category": "trust-boundary",
       "impact": "medium",
       "likelihood": "high",
-      "description": "Per #2594, runtime-primitive and trust-boundary mismatches are a recurring high-impact failure mode. Concrete instance: the issue body WS7 comment references `~/.local/state/clm/cost-*.json` as the cost-callback source on the Qwen route. Empirical check: grep across the repo for `cost-.*\\.json` and `\\.local/state/clm` returns hits ONLY in .egg-state/brc-history/ (prior pipeline logs), NOT as a live artifact in this repo. The production path is config/litellm/cost_callback.py which logs to stdout only (lines 238-241) and holds in-memory LRU per session (lines 75-76). The contract has already corrected this in task-1-3 ('source Qwen cache-read counts from the litellm container's structured logs via `kubectl logs deployment/egg-litellm`'), but the correction is only as good as the test infrastructure that exercises it. Tests run outside k3s won't have `kubectl logs` available, and a stubbed equivalent must be wired.",
+      "description": "Per #2594, runtime-primitive and trust-boundary mismatches are a recurring high-impact failure mode. Concrete instance: the issue body WS7 comment references `~/.local/state/clm/cost-*.json` as the cost-callback source on the Qwen route. Empirical check: grep across the repo for `cost-.*\\.json` and `\\.local/state/clm` returns hits ONLY in .egg-state/brc-history/ (prior pipeline logs), NOT as a live artifact in this repo. The production path is config/litellm/cost_callback.py which logs to stdout only (lines 238-241) and holds in-memory LRU per session (lines 75-76). The contract has corrected this in task-1-3 ('source Qwen cache-read counts from the litellm container's structured logs via `kubectl logs deployment/egg-litellm`'), but the correction is only as good as the test infrastructure that exercises it. Tests run outside k3s won't have `kubectl logs` available, and a stubbed equivalent must be wired.",
       "evidence_files": [
         "config/litellm/cost_callback.py:238-241 (stdout-only)",
         "config/litellm/cost_callback.py:75-76 (in-memory _session_totals)",
         ".egg-state/contracts/issue-2908-replan slice-1 task-1-3 description (corrected path)"
       ],
-      "mitigation": "task-1-3 already corrects the source path. Add a sub-AC: the measurement script (or fixture) abstracts log-source behind a thin adapter so the same code can read from `kubectl logs` in cluster and from a stdout-tee file in CI/local — eliminates the trust-boundary assumption that kubectl is available everywhere. Also: slice-6 task-6-11 (integration test in local_pipeline) must run with the same adapter, not a separate k3s-only path that diverges.",
-      "owner_slice": "slice-1 + slice-6"
+      "mitigation": "task-1-3 corrects the source path. After the operator's TTL strip (iteration-1 directive), the litellm-log adapter is still needed — but now ONLY for the cost-instrumentation side effect (per-event prompt_tokens / cache_read_input_tokens / cache_creation_tokens on the Qwen route, where Claude Code's `usage.*` returns all-zero per refine analysis). Slice-9 integration validation must run with the same adapter, not a separate k3s-only path that diverges. NOTE: the prior 'reused by slice-8 TASK-8-1' rationale is OBSOLETE — slice-8 is now prompt collapse (per architect v4), not keep-warm.",
+      "owner_slice": "slice-1 + slice-9"
     },
     {
       "id": "R-3",
@@ -75,15 +71,15 @@
       "category": "compatibility",
       "impact": "high",
       "likelihood": "medium",
-      "description": "Slice-2 task-2-1 bumps shared/egg_contracts/models.py schemaVersion 1.2 → 1.3 and adds two pipeline fields (`no_progress_budget`, `parked_hitl`). Today's migration helpers (`_migrate_schema_version_to_1_1` lines 933-962, `_migrate_schema_version_to_1_2` lines 964-1014) are run at every Contract.model_validate() (line 948). 1.2 was *wrap*-style because it stripped fields; 1.1 was *after*-style because it only bumped the version. A new 1.3 that adds fields with defaults can be after-style — but only if the migration is idempotent AND the defaults are forward-compatible with downstream consumers. There are ~200 existing contracts in .egg-state/contracts/ (the live ones); ANY of them being loaded by upgraded orchestrator code must migrate cleanly. Risk: silent migration corrupts an in-flight contract; or the new fields are populated by old code paths that don't know about them, causing inconsistent state when slice-6's safety-budget consumer reads them.",
+      "description": "Slice-4 adds Pipeline.no_progress_budget + HITL park decision fields, bumping shared/egg_contracts/models.py schemaVersion 1.2 -> 1.3. Today's migration helpers (_migrate_schema_version_to_1_1 lines 933-962, _migrate_schema_version_to_1_2 lines 964-1014) are run at every Contract.model_validate() (line 948). 1.2 was wrap-style; 1.1 was after-style. A new 1.3 that adds fields with defaults can be after-style — but only if the migration is idempotent AND the defaults are forward-compatible with downstream consumers. There are ~200 existing contracts in .egg-state/contracts/ (the live ones); ANY of them being loaded by upgraded orchestrator code must migrate cleanly. Risk: silent migration corrupts an in-flight contract; or the new fields are populated by old code paths that don't know about them, causing inconsistent state when slice-5's safety-budget consumer reads them.",
       "evidence_files": [
         "shared/egg_contracts/models.py:780-798 (Contract.schemaVersion)",
         "shared/egg_contracts/models.py:933-962 (_migrate_schema_version_to_1_1, mode=after)",
         "shared/egg_contracts/models.py:964-1014 (_migrate_schema_version_to_1_2, mode=wrap)",
         ".egg-state/contracts/ (~200 existing 1.2 contracts in production state)"
       ],
-      "mitigation": "Add to task-2-1 AC: '_migrate_schema_version_to_1_3 is mode=after (the simpler validator path); idempotent; tested against (i) a fresh 1.0 contract, (ii) a fresh 1.1 contract, (iii) a fresh 1.2 contract, (iv) a 1.3 contract loaded twice (no-op).' task-2-4 already covers these cases per its description — make this explicit in the AC list. Add a CI smoke test that loads a representative sample of .egg-state/contracts/* and asserts migration succeeds.",
-      "owner_slice": "slice-2"
+      "mitigation": "Add to the slice-4 schema-bump task AC: '_migrate_schema_version_to_1_3 is mode=after (the simpler validator path); idempotent; tested against (i) a fresh 1.0 contract, (ii) a fresh 1.1 contract, (iii) a fresh 1.2 contract, (iv) a 1.3 contract loaded twice (no-op).' Add a CI smoke test that loads a representative sample of .egg-state/contracts/* and asserts migration succeeds.",
+      "owner_slice": "slice-4"
     },
     {
       "id": "R-4",
@@ -91,14 +87,13 @@
       "category": "concurrency",
       "impact": "medium",
       "likelihood": "low",
-      "description": "Slice-5 task-5-3 wires `_append_brc_memory_entry` into brc_ack and brc_nack at sandbox/egg_agent_tools/handlers/brc.py. Today, brc handlers run synchronously from the agent's tool-call thread, but the heartbeat daemon (sandbox/egg_agent_tools/handlers/message.py:234-264, `_start_wait_loop_heartbeat`) writes the same per-role artifact directory from a separate daemon thread. If the new memory file is written without a lock or atomic-rename, a concurrent heartbeat write could corrupt the markdown. Risk is *low likelihood* (heartbeat writes are to a different file today; the new memory file is brc-handler-only), but if any future code-path adds memory writes from the heartbeat thread (e.g. the wrapper-side heartbeat migration in task-6-4), the race surfaces silently.",
+      "description": "Slice-7 adds brc-memory.md write paths from brc_ack/brc_nack handlers. The new wrapper bash also reads this file on every agent boot. If the orchestrator pushes a brc_ack while the wrapper is still writing a memory update from the previous event, the agent could read a partial file. Today's heartbeat thread + state_store path has the same class of risk handled by lockfile semantics.",
       "evidence_files": [
-        "sandbox/egg_agent_tools/handlers/brc.py:505-637 (brc_ack, brc_nack — synchronous)",
-        "sandbox/egg_agent_tools/handlers/message.py:234-264 (daemon-thread heartbeat)",
-        "Slice-6 task-6-4 (heartbeat migration to wrapper)"
+        "Architect output runtime_primitive_assumptions.new_primitives_introduced: Per-role memory file `.egg-state/agent-outputs/<role>/brc-memory.md` -- in-sandbox-agent filesystem (per-pod, cleaned with pod)",
+        "Slice-7 description (action-scaffolded write + atomic tempfile-rename on read)"
       ],
-      "mitigation": "Add to task-5-2 (`_append_brc_memory_entry` helper) AC: 'writes use atomic-rename (write to .tmp then os.replace) to be crash-safe and concurrency-safe; a regression test fires 20 concurrent append calls and asserts file integrity.' Document the contract that only the brc handler writes this file; the heartbeat thread does NOT.",
-      "owner_slice": "slice-5"
+      "mitigation": "Slice-7 task AC should call out 'atomic tempfile-rename on read' — extend to write path: writers append to a temp file then os.rename (POSIX-atomic). Reader on agent boot opens the canonical path; partial-write window collapses to either old-or-new content. Unit test: write a 10-KB record from two threads concurrently and assert the reader observes the full content of exactly one of the two writes (never a mixed prefix).",
+      "owner_slice": "slice-7"
     },
     {
       "id": "R-5",
@@ -106,12 +101,12 @@
       "category": "performance",
       "impact": "medium",
       "likelihood": "medium",
-      "description": "Even if prefix caching is preserved, every BRC event spawns a fresh `python3 -m egg_agent` process. Python interpreter startup (~0.3-0.5s) + claude_agent_sdk import (typically 1-2s in this repo's environment) + tool registration is *not* cached. WS7 measurements in the issue body do not include this. A typical plan-phase BRC cycle has 4 producers × (propose + 2-3 NACK rounds × 2 reviewers) ≈ 20-30 events. At ~2s overhead per event, this is 40-60s of pure cold-start tax per cycle, compounding over multi-cycle phases. Not catastrophic, but a real wall-clock regression versus the current persistent-session model if not measured.",
+      "description": "Each BRC event spawns a fresh python3 -m egg_agent process. Cold Python+SDK import on the orchestrator pod is ~700ms-1.2s today; the egg_agent CLI imports shared/egg_agent/* + the Anthropic/LiteLLM SDK + sandbox/egg_agent_tools schemas. With ~20-40 BRC events per phase, the aggregate startup wall-clock can dominate the cache-read economic win on the cheap (cache-hot) path even if cache-read tokens stay bounded.",
       "evidence_files": [
-        "shared/egg_agent/command.py:34-46 (python3 -m egg_agent argv)",
-        "Issue body WS7 — measurements omit interpreter/SDK startup cost"
+        "shared/egg_agent/__main__.py (egg_agent entry point — measure import cost)",
+        "Today's persistent-session wrapper does this once per phase; new wrapper does it per event"
       ],
-      "mitigation": "Slice-1 task-1-2 run-log must record per-event wall-clock (not just cache_read tokens). Slice-1 task-1-4 must compare aggregate phase wall-clock for the event-pump prototype against the current persistent-session model. If the event-pump wall-clock regresses by >20% on the #2906 repro, slice-7 task-7-5 should evaluate a 'one-shot warm Python runner' fallback (e.g. a tiny daemon that accepts events over a unix socket) — but only if needed; do not pre-optimize.",
+      "mitigation": "Slice-1 task-1-2 records per-event wall-clock; task-1-4 report compares aggregate phase wall-clock vs the current persistent-session baseline. If aggregate phase wall-clock regresses by >20%, the spike report surfaces it as a forward-looking note (NOT a stop gate per OSI-2). The cure (if needed) is a warm-Python-runner fallback — out of scope for this issue; tracked as a follow-up note in the spike report.",
       "owner_slice": "slice-1"
     },
     {
@@ -120,13 +115,13 @@
       "category": "protocol-correctness",
       "impact": "high",
       "likelihood": "medium",
-      "description": "The current BRC preamble has detailed dual-role-execution-order guidance (Producer steps 1-3 BEFORE reviewer waits, etc.) that lives in the agent's working context and is enforced by the agent's judgment. When slice-7 task-7-1 collapses _build_brc_preamble and replaces STAY-ALIVE / wait-loop / cursor-threading text with a lean event-handler contract, the dual-role ordering can be lost — the agent no longer holds the wait, so the *wrapper* must decide which next-action to invoke. If the wrapper invokes a reviewer-side handler for a dual-role agent before that agent has produced its own work, the round self-blocks (the very failure mode the dual-role banner exists to prevent). Slice-3's next-action endpoint (task-3-1) is where this ordering moves from agent-judgment to server-derivation; the derivation logic must encode the dual-role producer-first rule.",
+      "description": "Today's persistent-session model preserves dual-role producer-FIRST ordering via the agent's own state machine + instruction-text in the BRC preamble. The new event-pump derives next-action from the server (slice-3 consensus next-action endpoint). If the next-action endpoint returns 'REVIEW peer X's proposal' to a dual-role agent that has not yet PROPOSED its own work, the agent self-blocks the BRC round (the exact failure mode #2749 fixed). The server-side derivation must encode producer-FIRST: for dual-role roles, when their own propose_version is 0, the next-action is always 'PROPOSE your work', NOT 'REVIEW peer X'.",
       "evidence_files": [
-        "orchestrator/routes/pipelines.py:_build_brc_preamble:12348+ (current dual-role ordering text)",
-        "Slice-3 task-3-1 + task-3-3 (next-action derivation + tests)",
-        "#2749 (dual-role ordering) referenced in current preamble"
+        "Architect d-3 (server-side next-action endpoint, not client-side)",
+        "BRC preamble Dual-Role Execution Order banner — producer-first invariant",
+        "#2749 — dual-role self-block failure mode"
       ],
-      "mitigation": "Slice-3 task-3-3 AC must include: 'dual-role agent with no own proposal yet → next_action = `propose` (not `review`); dual-role agent with own proposal + peer producer proposal pending review → next_action prioritizes the agent's own re-propose path on NACK, falls through to peer-review on no-NACK.' Provide an explicit table of dual-role state-transitions in the slice-3 task-3-1 description.",
+      "mitigation": "Architect's slice-3 component breakdown must include a dedicated unit test that asserts: given a dual-role agent with propose_version=0, the next-action endpoint returns PROPOSE (not REVIEW) regardless of pending peer proposals. Task_planner must lift this to a slice-3 task AC with explicit test naming.",
       "owner_slice": "slice-3"
     },
     {
@@ -135,7 +130,7 @@
       "category": "compatibility",
       "impact": "high",
       "likelihood": "high",
-      "description": "Slice-6 task-6-2 deletes `MAX_CONSENSUS_RESTARTS` (line 38), `_RECOVERY_SYSTEM_PROMPT` (lines 64-99), `_RECOVERY_USER_PROMPT` (lines 102-105), and the `check_confirmed_and_wait` SSE function (lines 397-548). Task-6-6 replaces the SSE consensus.reached blocking path. Today's test surface (tests/orchestrator/test_consensus_wrapper.py per task-6-10) asserts behavior on these symbols. Operational tooling and runbooks may also reference these names (e.g. docs/architecture/orchestrator.md, docs/guides/concurrent-execution.md). Risk: the deletion lands but downstream import sites break the build, OR docs continue to reference deleted concepts and operators reading them are misled. The 3-restart heuristic is also wired into health_monitor.py / startup_reconciliation.py behavior (containers that exit and don't get restarted may now be marked FAILED by reconciliation).",
+      "description": "Slice-6 deletes `MAX_CONSENSUS_RESTARTS` (consensus_wrapper.py line 38), `_RECOVERY_SYSTEM_PROMPT` (lines 64-99), `_RECOVERY_USER_PROMPT` (lines 102-105), and the `check_confirmed_and_wait` SSE function (lines 397-548). It replaces the SSE consensus.reached blocking path. Today's test surface (tests/orchestrator/test_consensus_wrapper.py) asserts behavior on these symbols. Operational tooling and runbooks reference these names (docs/architecture/orchestrator.md, docs/guides/concurrent-execution.md). Risk: the deletion lands but downstream import sites break the build, OR docs continue to reference deleted concepts and operators reading them are misled. The 3-restart heuristic is also wired into health_monitor.py / startup_reconciliation.py behavior (containers that exit and don't get restarted may now be marked FAILED by reconciliation).",
       "evidence_files": [
         "orchestrator/consensus_wrapper.py:38 (MAX_CONSENSUS_RESTARTS)",
         "orchestrator/consensus_wrapper.py:64-99 (_RECOVERY_SYSTEM_PROMPT)",
@@ -143,7 +138,7 @@
         "orchestrator/startup_reconciliation.py:39-445 (reconcile_stale_containers — runs on every orchestrator start)",
         "tests/orchestrator/test_consensus_wrapper.py (existing assertions on deleted symbols)"
       ],
-      "mitigation": "Slice-6 task-6-2 AC must list every downstream reference removed/updated, with grep evidence. Slice-6 task-6-10 (tester) must remove the now-obsolete restart-path tests in the same commit as the deletion (so the tree isn't briefly red). Slice-6 task-6-12 (documenter) must sweep docs/architecture/orchestrator.md, docs/guides/concurrent-execution.md, docs/reference/orchestrator-cli.md, sandbox/agent-config/rules/mission.md for references to the deleted symbols. Add an AC to task-6-12: 'grep -rn for MAX_CONSENSUS_RESTARTS, _RECOVERY_SYSTEM_PROMPT, _RECOVERY_USER_PROMPT, check_confirmed_and_wait across docs/ and sandbox/agent-config/rules/ returns zero hits.' Also ensure startup_reconciliation.py is updated if the absence of restarts changes how stale containers are detected.",
+      "mitigation": "Slice-6 deletion ACs must list every downstream reference removed/updated, with grep evidence. Slice-6 tester tasks must remove the now-obsolete restart-path tests in the same commit as the deletion (so the tree isn't briefly red). Slice-6 documenter must sweep docs/architecture/orchestrator.md, docs/guides/concurrent-execution.md, docs/reference/orchestrator-cli.md, sandbox/agent-config/rules/mission.md for references to the deleted symbols. Add an AC: 'grep -rn for MAX_CONSENSUS_RESTARTS, _RECOVERY_SYSTEM_PROMPT, _RECOVERY_USER_PROMPT, check_confirmed_and_wait across docs/ and sandbox/agent-config/rules/ returns zero hits.' Also ensure startup_reconciliation.py is updated if the absence of restarts changes how stale containers are detected.",
       "owner_slice": "slice-6"
     },
     {
@@ -152,57 +147,57 @@
       "category": "security",
       "impact": "medium",
       "likelihood": "medium",
-      "description": "WS8 in the issue body mandates that prose-bearing CLI args (`reason`, `files_reviewed` on `consensus propose/ack/nack`) take text via stdin or file path, NEVER argv, to avoid the shell-metachar corruption mitigated in #2741. Slice-4 introduces several new CLI verbs (`brc list-blocking`, `brc get-state`, `brc next-action`, `brc resolve-obligation`, `brc read-peer-artifact`, `contract get-context`, `contract show --field`). Of these, `brc resolve-obligation --note` and `brc next-action --reason` (if such fields exist) are prose-bearing and need the stdin/file rule. The contract slice-4 task-4-4 description references `brc_resolve_obligation` but does not explicitly call out the prose-arg rule for `--note`.",
+      "description": "Slice-2 adds new CLI verbs (`brc get-state`, `brc list-blocking`, `phase get-context`, `phase get-assigned-tasks`, `consensus resolve-obligation`). Several take prose arguments (`--reason`, `--files-reviewed`, `--note`) that may contain shell metacharacters (`$`, backticks, single/double quotes, newlines). Per #2741, the consensus_wrapper.py has historical regressions where prose substituted into bash templates corrupted the agent's invocation. If new CLI verbs accept prose on argv without shlex.quote (or stdin/file fallback for long prose), the same regression class re-emerges.",
       "evidence_files": [
-        "sandbox/egg_agent_tools/handlers/brc.py:743-809 (brc_resolve_obligation — accepts `note` as prose)",
-        "Issue body WS8 — 'prose-bearing commands MUST take text via stdin or a file path, never argv'",
-        "#2741 (the shell-metachar corruption the rule mitigates)"
+        "orchestrator/consensus_wrapper.py:759-762 (shlex.quote on prompt_text and recovery_user_prompt)",
+        "#2741 — shell-prose corruption regression",
+        "Architect d-decisions — new CLI verbs added in slice-2"
       ],
-      "mitigation": "Slice-4 task-4-4 AC must enumerate which new CLI flags are prose-bearing and require stdin/file. Task-4-6 unit tests must include a regression test that asserts a `--note` (or equivalent) containing $, backtick, single-quote, double-quote, newline survives a stdin/file round-trip via the CLI. Mirror the WS8 hard constraint as a code-comment in sandbox/egg_lib/orch_cli.py near the new subparser registration.",
-      "owner_slice": "slice-4"
+      "mitigation": "Slice-2 CLI-verb tasks must each have an AC: prose args accept either shlex.quoted argv OR `--<arg>-file PATH` / stdin. A unit test in tests/cli/test_<verb>.py must inject a prose arg containing $, backtick, single-quote, double-quote, newline and assert the server receives it byte-identically. Same rule for the wrapper template's per-event prompt substitution (BC-1 / BC-2 are symmetric exposures).",
+      "owner_slice": "slice-2"
     },
     {
       "id": "R-9",
-      "title": "MCP→CLI collapse (WS8) deferred to slice-7 prose-update but no slice owns MCP retirement",
+      "title": "MCP retirement scope deferred to follow-up — verify no slice claims it as completed",
       "category": "scope",
       "impact": "medium",
-      "likelihood": "medium",
-      "description": "Issue body WS8 says 'no agent MCP server registered' is the end-state. The contract slices 1-8 add CLI verbs (slice-4) and reduce the preamble (slice-7), but no slice explicitly removes the in-pod MCP server registration in sandbox/egg_agent_tools/server.py + the SYSTEM_PROMPT_NUDGE + the MCP registration in client.py:299-353 referenced by the issue. If those remain registered, the cached prefix is unchanged (28 tool schemas remain), and the WS8 supporting-win for prefix-token reduction is not realized. Two failure modes: (1) the work is implied but not assigned → it falls through; (2) the work is done by ambient drift across multiple slices without a single owner → review surface is hard to audit.",
+      "likelihood": "low",
+      "description": "Per cq-1 resolution, MCP-tool retirement (sandbox/egg_agent_tools/server.py + tool schemas) is split to a follow-up issue. Architect v4 has correctly preserved the SYSTEM_PROMPT_NUDGE at sandbox/egg_agent_tools/server.py:61 in slice-8 prompt collapse. Risk that lingers: if any slice or task claims 'prefix-token reduction' as a slice win on the basis of MCP retirement (which isn't happening this issue), the spike report's per-event-cost numbers will be wrong (the prefix still includes 28 MCP tool schemas). The prior register's R-9 concern about no slice owning retirement is now N/A by cq-1.",
       "evidence_files": [
-        "sandbox/egg_agent_tools/server.py (MCP server registration)",
-        "sandbox/egg_agent_tools/client.py:299-353 (per issue body — MCP tool registration)",
-        "Slice-4 task-4-7 (drift test update — doesn't retire MCP, only flips parity expectations)"
+        "contract.decisions[cq-1].resolution — WS8 MCP collapse split to follow-up",
+        "sandbox/egg_agent_tools/server.py:61 — SYSTEM_PROMPT_NUDGE stays (architect v4)",
+        "Architect output slice-8: 'SYSTEM_PROMPT_NUDGE at sandbox/egg_agent_tools/server.py:61 STAYS UNCHANGED (cq-1)'"
       ],
-      "mitigation": "Either (a) add a sub-task to slice-7 explicitly owning MCP retirement with file:line targets, OR (b) confirm with architect/task_planner that MCP retirement is out of scope for issue #2908 and the WS8 'shrinks the cached prefix' claim is deferred to a follow-up issue. If the latter, slice-1 spike report (task-1-4) must NOT claim cache savings from a schema reduction that didn't happen.",
-      "owner_slice": "slice-7 or follow-up issue"
+      "mitigation": "task_planner slice-1 task-1-4 (spike report) and slice-8 task ACs must explicitly state that per-event cost numbers include the 28 MCP tool schemas (i.e. they are the worst-case baseline, not a post-retirement optimistic floor). Reviewer rubric: NACK if any slice claims a 'prefix-token reduction' metric attributable to MCP retirement.",
+      "owner_slice": "slice-1 + slice-8"
     },
     {
       "id": "R-10",
       "title": "Concurrent slice execution on shared work branch — risk_analyst, architect, task_planner can step on each other",
       "category": "concurrency",
-      "impact": "low",
+      "impact": "medium",
       "likelihood": "high",
-      "description": "All three producers in this phase (architect, task_planner, risk_analyst) push to the same branch egg/issue-2908-replan/work. Files are role-scoped (.egg-state/agent-outputs/{role}.json) so direct file conflicts are rare, but commit-graph divergence on the shared branch will trigger merge-pull-rebase churn at push time. Standard BRC contention pattern, but worth flagging because the plan-phase has 3 concurrent producers (vs implement which is usually 2).",
+      "description": "All three plan-phase producers (this agent included) push to egg/issue-2908-replan/work. Merge conflicts on .egg-state/agent-outputs/* and .egg-state/contracts/* are mechanically unlikely (different files) but rebase-conflicts are real when the gateway force-syncs. The reviewer also syncs from this branch to review — a producer rebase mid-review window can break the reviewer's git-blame-style citations.",
       "evidence_files": [
-        "git branch -r | grep 2908-replan → single shared branch",
-        ".egg-state/agent-outputs/ → role-scoped output files (no direct conflict)"
+        "Git log on egg/issue-2908-replan/work — multiple producer commits interleaved with risk_analyst commit",
+        "BRC reviewer-sync.md — git fetch origin && git merge origin/<branch> --no-edit"
       ],
-      "mitigation": "Each producer fetches + merges origin/main before push; gateway already enforces rebase-on-push. No action required — flagging only.",
-      "owner_slice": "operational"
+      "mitigation": "Producers append (never amend) commits during a single propose cycle; never rebase mid-review. If a re-propose requires rebase, the rebase MUST be communicated in a directed STATUS message to the reviewer with the new HEAD sha BEFORE re-proposing.",
+      "owner_slice": "plan-phase coordination"
     },
     {
       "id": "R-11",
-      "title": "Slice-8 conditional execution can stall plan-phase indefinitely if outcome is ambiguous",
+      "title": "[OBSOLETE iteration-1] Slice-8 conditional execution can stall plan-phase indefinitely if outcome is ambiguous",
       "category": "scope",
       "impact": "low",
       "likelihood": "low",
-      "description": "Slice-8 has three conditional outcomes ((a) skip, (b) implement keep-warm, (c) HITL escalation). Outcome (c) opens a HITL decision via mcp__sdlc__register_open_question. If the human takes weeks to answer, slice-8 (and any downstream work) blocks. Recent measurements in the issue body (60-min TTL on both routes) make outcome (a) overwhelmingly likely, but the contingency exists.",
+      "description": "OBSOLETE: This risk was about the original slice-8 having three conditional outcomes ((a) skip keep-warm, (b) implement keep-warm, (c) HITL escalation). Per operator iteration-1 directive ('slice-8/keep-warm stays dropped (good)') and architect v4 slice DAG, slice-8 is now PROMPT COLLAPSE (a deterministic preamble revision), NOT a conditional keep-warm slice. There is no conditional execution and no HITL escalation path on slice-8. Retained in the register for traceability — flagged OBSOLETE so the reviewer rubric does not re-apply it.",
       "evidence_files": [
-        ".egg-state/contracts/issue-2908-replan slice-8 task-8-1 + task-8-3",
-        "Issue body WS7 ceiling sweep — '60-min idle survival on both routes'"
+        "Architect output slice_dag_overview slice-8: 'Prompt collapse — replace STAY-ALIVE / wait-loop mechanics / cursor-threading / pre-confirm-wait foot-gun guidance...'",
+        "Operator iteration-1 directive: 'slice-8/keep-warm stays dropped (good)'"
       ],
-      "mitigation": "Slice-8 task-8-1 AC should include a default timeout: if outcome is ambiguous, default to outcome (a) (skip keep-warm) and convert the HITL to a follow-up issue rather than blocking. The measured 60-min TTL gives strong prior that outcome (a) is correct; slice-8 is mostly a safety net.",
-      "owner_slice": "slice-8"
+      "mitigation": "N/A — risk does not exist in the v4 plan. No action required.",
+      "owner_slice": "[obsolete]"
     },
     {
       "id": "R-12",
@@ -210,12 +205,12 @@
       "category": "scope",
       "impact": "medium",
       "likelihood": "high",
-      "description": "Contract.acceptance_criteria is currently empty (ac_count: 0 per the contract projection). Per the BRC reviewer protocol, plan-phase reviewers (reviewer_plan) gate on slice-level ACs and task-level ACs, but the contract-level acceptance_criteria are the objective phase-completion target. If they're not populated, the plan phase can converge on slice/task ACs without an overall sanity check (e.g. 'the #2906 repro reaches CONFIRMED under the new wrapper').",
+      "description": "Contract.acceptance_criteria is currently empty (verified via projection). Per the BRC reviewer protocol, plan-phase reviewers (reviewer_plan) gate on slice-level ACs and task-level ACs, but the contract-level acceptance_criteria are the objective phase-completion target. If they're not populated, the plan phase can converge on slice/task ACs without an overall sanity check (e.g. 'the #2906 repro reaches CONFIRMED under the new wrapper'). The prior register's R-12 ACs (1)-(4) need a v2 amend post-TTL-strip: the cache-read AC should be RATIO-based (not TTL-based) and the threshold-language must be instrument-only (OSI-2).",
       "evidence_files": [
-        "Contract projection: ac_count: 0",
+        "Contract projection: contract.acceptance_criteria length = 0",
         "Refine-phase output is typically the source of these — refine has not landed all of them on this contract"
       ],
-      "mitigation": "Either architect or task_planner should populate contract-level acceptance_criteria during plan phase (or flag that refine-phase output for this contract is incomplete). Suggested ACs: (1) the #2906 repro (issue-2270 on qwen3.7-max) reaches CONSENSUS_CONFIRMED on the new wrapper without 'Agent exited without BRC consensus' messages in the run log; (2) cache_read_input_tokens per event ≥ 90% of prefix on both routes through the egg agent harness; (3) no MAX_CONSENSUS_RESTARTS / _RECOVERY_SYSTEM_PROMPT references remain in the codebase post-slice-6; (4) prose args (reason, files_reviewed, note) survive a shell-metachar round-trip uncorrupted on every new CLI verb.",
+      "mitigation": "Either architect or task_planner should populate contract-level acceptance_criteria during plan phase. Suggested ACs (v2 post-TTL-strip): (1) the #2906 repro (issue-2270 on qwen3.7-max) reaches CONSENSUS_CONFIRMED on the new wrapper without 'Agent exited without BRC consensus' messages in the run log; (2) per-event cache_read_input_tokens RATIO is reported through the egg-agent harness for both routes on a representative BRC idle (instrument-only — no fail threshold per OSI-2); (3) no MAX_CONSENSUS_RESTARTS / _RECOVERY_SYSTEM_PROMPT references remain in the codebase post-slice-6; (4) prose args (reason, files_reviewed, note) survive a shell-metachar round-trip uncorrupted on every new CLI verb.",
       "owner_slice": "plan-phase output"
     },
     {
@@ -224,28 +219,27 @@
       "category": "protocol-correctness",
       "impact": "medium",
       "likelihood": "medium",
-      "description": "Today's persistent agent has the entire conversation context — every prior tool call, every prior error, every prior peer message. The new stateless model loads only (cached prefix) + (memory file snapshot) + (one event payload). The memory file format (slice-5 task-5-1) must capture enough state that the agent can re-derive the right next action without re-reading the codebase. If memory is over-distilled (issue body's 'distilled' option), the agent may make decisions inconsistent with what it would have done with full context. If memory is append-only (the issue body's other option), it grows and may bust its own cache. The trade-off is identified as Open Decision #1 in the issue body; the contract slice-5 task-5-1 commits to 'distilled' at plan time and slice-1 task-1-4 validates the commitment.",
+      "description": "The current persistent-session model keeps the agent's tool-call history (which files were read, which greps were run, partial verdicts in progress) in the conversation context. The event-pump model spawns a fresh agent on each event with only the brc-memory.md snapshot as continuity. If the reviewer started reading a 1000-line file in event N and the agent terminates before reading further, event N+1 doesn't know the read was incomplete. Per OSI-3, brc-memory.md is ephemeral coordination state, not durable session state.",
       "evidence_files": [
-        "Issue body Open Decision #1 — memory location/schema/shape",
-        "Slice-5 task-5-1 description — 'brc-memory.md file format'",
-        "Slice-1 task-1-4 — 'Distilled-memory check' section"
+        "Architect output runtime_primitive_assumptions.new_primitives_introduced: brc-memory.md ephemeral",
+        "OSI-3 (decision-5 Q2): ephemeral coordination state, NOT durable session state"
       ],
-      "mitigation": "Slice-1 spike report (task-1-4) must explicitly answer: 'with the distilled format, does the agent produce ACK/NACK decisions consistent with the persistent-context baseline?' Compare on the #2906 repro: persistent agent's verdicts vs event-pump agent's verdicts on the same proposals. If divergence > 0 (any false ACK or false NACK), slice-5 task-5-3 must add the missing context to the memory schema before slice-6 lands.",
-      "owner_slice": "slice-1 + slice-5"
+      "mitigation": "Slice-7 brc-memory.md schema must include: 'in-progress action ledger' — what the agent was doing when the last event closed (e.g. 'reviewing peer architect proposal, read 3/7 files'). The schema is documented in mission.md (slice-8 prompt-collapse output). NACK if slice-7 schema ships without this field.",
+      "owner_slice": "slice-7"
     },
     {
       "id": "R-14",
-      "title": "Litellm container log scrape (task-1-3) is fragile to log format changes",
+      "title": "Litellm container log scrape (slice-1 task-1-3) is fragile to log format changes (NARROWED — cost instrumentation only)",
       "category": "third-party",
       "impact": "low",
       "likelihood": "medium",
-      "description": "task-1-3 sources Qwen cache numbers from `kubectl logs deployment/egg-litellm`. The litellm container's structured-log format is owned by upstream litellm (BerriAI) + the custom cost_callback in config/litellm/cost_callback.py. Either changing format breaks the scrape. The cost-callback's stdout format is at config/litellm/cost_callback.py:238-241 (json.dumps).",
+      "description": "task-1-3 sources Qwen cache numbers from `kubectl logs deployment/egg-litellm`. The litellm container's structured-log format is owned by upstream litellm (BerriAI) + the custom cost_callback in config/litellm/cost_callback.py. Either changing format breaks the scrape. The cost-callback's stdout format is at config/litellm/cost_callback.py:238-241 (json.dumps). NARROWING per operator iteration-1 directive: the TTL-bracketing use case is gone; the adapter is needed ONLY to record per-event cache_read_tokens / cache_creation_tokens as a side effect of cost instrumentation (BC-1 reframed). Lower exposure surface, lower likelihood of operator-impacting failure.",
       "evidence_files": [
         "config/litellm/cost_callback.py:238-241 (stdout json format)",
-        "Slice-1 task-1-3 — scraping kubectl logs"
+        "Slice-1 task-1-3 — scraping kubectl logs (post-TTL-strip, cost side effect only)"
       ],
-      "mitigation": "task-1-3 measurement script should pin specific log keys it depends on (e.g. `prompt`, `cached`, `cache_write`) and fail loudly on missing keys rather than silently zero. If slice-1 produces a long-lived measurement utility (vs throwaway), wrap the scrape in a tiny `from_litellm_log()` helper with a docstring listing the upstream format dependency.",
-      "owner_slice": "slice-1"
+      "mitigation": "task-1-3 measurement script should pin specific log keys it depends on (e.g. `prompt`, `cached`, `cache_write`) and fail loudly on missing keys rather than silently zero. The thin adapter abstraction stays so slice-9 integration tests can use a stdout-tee file in CI (R-2 mitigation symmetry).",
+      "owner_slice": "slice-1 + slice-9"
     },
     {
       "id": "R-15",
@@ -253,14 +247,13 @@
       "category": "third-party",
       "impact": "low",
       "likelihood": "low",
-      "description": "shared/egg_agent/command.py:34-46 returns argv with prompt as the LAST positional argument. Linux ARG_MAX is typically ~2 MiB. A memory-file snapshot + BRC preamble + per-event payload is well under this, but if memory grows unboundedly (slice-5 'append-only' option in Open Decision #1), or if a NACK reason includes a large diff, the argv could approach the limit. shlex.quote at consensus_wrapper.py:760 doesn't help with argv length, only with shell metachars.",
+      "description": "shared/egg_agent/command.py:build_agent_command places the user prompt as a single argv positional. POSIX argv length limits (ARG_MAX, typically ~2 MB on Linux) bound the per-event prompt size. With the BRC preamble + tool schemas + mission.md + memory snapshot + event-json, the prompt can grow toward this limit on a long-running pipeline (esp. with verbose NACK reason bodies).",
       "evidence_files": [
-        "shared/egg_agent/command.py:34-46 (argv with prompt as last positional)",
-        "orchestrator/consensus_wrapper.py:760 (shlex.quote on initial_prompt)",
-        "Linux ARG_MAX ~2 MiB"
+        "shared/egg_agent/command.py (build_agent_command)",
+        "Architect d-decisions — argv-shape of new --memory-file / --event-json flags"
       ],
-      "mitigation": "Distilled memory (the contract-committed choice in slice-5 task-5-1) keeps memory bounded → mitigation is structural. Add a size guard in build_agent_command: if len(prompt) > 1 MiB, log a warning and route via a temp file flag (e.g. --prompt-file). Defer to slice-7 task-7-5; not blocking today.",
-      "owner_slice": "slice-7"
+      "mitigation": "Slice-5 (event-pump wrapper template) AC: if the assembled per-event prompt exceeds 200 KB, pipe via stdin or a tempfile (--prompt-file PATH) instead of argv. Today's wrapper's shlex.quote substitution into bash template is already a chokepoint that can be extended to detect oversize.",
+      "owner_slice": "slice-5"
     },
     {
       "id": "R-16",
@@ -268,76 +261,148 @@
       "category": "scope",
       "impact": "medium",
       "likelihood": "medium",
-      "description": "Slice-5 task-5-1 commits to 'distilled' memory at plan time; slice-1 task-1-4 has a 'Distilled-memory check' section described as 'distilled commitment validated by measurement' or 'distilled commitment at risk because <numeric finding>'. Risk: the spike report defaults to 'validated' unless the measurement actively contradicts. The structure invites a confirmation-bias trap. Append-only with tail-breakpoint is the alternative the issue body flags (with the constraint that placing a tail cache-breakpoint may require prompt-construction control claude -p doesn't expose).",
+      "description": "Slice-7 commits to 'distilled' memory at plan time; slice-1 task-1-4 has a 'Distilled-memory check' section described as 'distilled commitment validated by measurement' or 'distilled commitment at risk because <numeric finding>'. Risk: the spike report defaults to 'validated' unless the measurement actively contradicts. The structure invites a confirmation-bias trap. Append-only with tail-breakpoint is the alternative the issue body flags.",
       "evidence_files": [
-        ".egg-state/contracts/issue-2908-replan slice-1 task-1-4 + slice-5 task-5-1",
+        ".egg-state/contracts/issue-2908-replan slice-1 task-1-4 + slice-7 task description",
         "Issue body Open Decision #1 — memory shape"
       ],
-      "mitigation": "task-1-4 AC must include a *falsifiable* condition for 'distilled is at risk': e.g. 'distilled is at risk if the per-event cache_read ratio with distilled memory is < 90% on either route, OR if any verdict diverges from the persistent-context baseline.' Define the threshold in the task description, not in the report.",
+      "mitigation": "task-1-4 AC must include a *falsifiable* condition for 'distilled is at risk': e.g. 'distilled is at risk if the per-event cache_read ratio with distilled memory is < 90% on either route, OR if any verdict diverges from the persistent-context baseline.' Define the threshold in the task description, not in the report. Per OSI-2 this is a forward-looking note (no auto-FAIL), but the threshold language frames the assessment.",
       "owner_slice": "slice-1"
+    },
+    {
+      "id": "R-17",
+      "title": "Replan-creep — task_planner v4 may re-introduce TTL-bracketing language in slice-1 (NEW iteration-1)",
+      "category": "scope",
+      "impact": "high",
+      "likelihood": "medium",
+      "description": "The operator iteration-1 directive declared cache TTL EMPIRICALLY CLOSED on both routes (OSI-1) and ordered slice-1's TTL bracketing stripped. The contract still has task-1-3 ('at least 3 idle durations (5.5, 10, 15 min)', 'bracket the TTL ceiling') and task-1-4 ('what Qwen-route TTL ceiling did the measurements show — survives >= 15 min, lapses 5.5-15 min, or ambiguous?'). task_planner v4 will re-author these. Risk: the re-author preserves latent TTL framing — e.g. keeps the 'survives ≥ 15 min' framing in the report or keeps multi-idle injection 'to characterize cache behavior across realistic BRC gaps.' Operator directive is the authority; any TTL-flavored AC text contradicts it and invites a second kickback.",
+      "evidence_files": [
+        "Operator iteration-1 directive (2026-06-01T02:06:14Z)",
+        "contract.slices[0] task-1-3 + task-1-4 (current, pre-strip)",
+        "OSI-1 (cache TTL >= 60 min on both routes, settled)"
+      ],
+      "mitigation": "Reviewer rubric for task_planner v4 (this register, review_targets.task_planner.rubric) explicitly checks: task-1-3 AC has NO 'idle durations' / 'TTL' / 'bracket' / 'survival' language; task-1-3 description has NO 'Repeat for X min and Y min idles to bracket the TTL ceiling' language; task-1-4 description has NO 'TTL ceiling' question. NACK task_planner v4 if any of these surface. Per-event cache_read_input_tokens / cache_creation_tokens may be recorded as a side effect of cost measurement (legitimate per OSI-2) — what is forbidden is the dedicated TTL-ceiling spike and any go/no-go gate keyed on TTL.",
+      "owner_slice": "slice-1"
+    }
+  ],
+  "top_3_risks": [
+    "R-1",
+    "R-17",
+    "R-7"
+  ],
+  "blocking_concerns": [
+    {
+      "id": "BC-1",
+      "title": "Egg-prefix cache-breakpoint placement gap (REFRAMED — TTL ceiling settled by OSI-1)",
+      "evidence": "v1 of this register flagged BC-1 as a cache-survival measurement gap on the egg-agent prefix. Operator iteration-1 directive declared TTL closed on both routes (OSI-1) — that part of BC-1 is no longer live. The reframed BC-1 is structural: the egg prefix (BRC preamble at orchestrator/routes/pipelines.py:_build_brc_preamble:12348 + mission.md ~195 lines + 28 MCP tool schemas) is materially larger and structurally different from the raw-claude prefix the operator measured TTL on, and the new wrapper's PER-EVENT prompt assembly determines whether the cache is read or busted regardless of TTL. If dynamic content (memory snapshot, NACK reasons, version delta, pipeline-id, role, slice-id) lands BEFORE the cache breakpoint, EVERY event busts the prefix on Anthropic AND Qwen. Slice-1 (WS0 spike) must reproduce the cache_read RATIO *through the egg-agent harness* on a representative BRC idle, NOT bracket the TTL ceiling.",
+      "would_nack_if": "architect or task_planner PROPOSE without acknowledging that slice-1's spike report (task-1-4) must measure cache_read_input_tokens / cache_creation_tokens *for the actual `python3 -m egg_agent` invocation* with the production BRC preamble + tool schemas — as a SIDE EFFECT of cost instrumentation, NOT as a dedicated TTL-ceiling spike. ALSO: NACK if any slice-7 task or slice-8 task gates ready-to-land on a numeric cache_read ratio threshold (violates OSI-2 instrument-only stance).",
+      "mitigation": "task-1-2 AC: 'records per-event prompt_tokens, cache_read_input_tokens, cache_creation_tokens from the AgentResult metadata (Anthropic route) AND from `kubectl logs deployment/egg-litellm` (Qwen route).' task-1-4 AC: 'report the per-event cache_read ratio observed on both routes through the egg-agent harness; explicitly state the prefix measured includes _build_brc_preamble + mission.md + 28 MCP tool schemas; forward-looking note only — no go/no-go gate per operator instrument-only stance.' Slice-5 task AC: define cache-breakpoint placement and assert in unit test that dynamic per-event content lands in the suffix.",
+      "owner_slice": "slice-1 + slice-5",
+      "blocking_for": [
+        "architect",
+        "task_planner"
+      ]
+    },
+    {
+      "id": "BC-2",
+      "title": "Shell-prose corruption regression risk (#2741) if event-pump template skips shlex.quote",
+      "evidence": "Today's consensus_wrapper.py:759-762 uses `shlex.quote()` on prompt_text and recovery_user_prompt before substitution into `_CONSENSUS_WRAPPER_TEMPLATE` and ultimately ['bash', '-c', script] at line 775. The new event-pump template (slice-5) regenerates the per-event prompt every iteration from BRC payload (memory snapshot, NACK reasons, files_reviewed lists) — every one of those is prose that can contain $, backticks, quotes, newlines. If task substitutes prompt text into the bash template without shlex.quote (or, equivalently, if it doesn't pipe via stdin / a file), it re-introduces the exact corruption mitigated in #2741. Slice-2's new CLI verbs (`reason` / `files_reviewed` must arrive via stdin or a file path, never argv) are the symmetric exposure (R-8).",
+      "would_nack_if": "slice-5 wrapper-template task does not have an acceptance criterion that says the per-event prompt is passed to python3 -m egg_agent *either* via shlex.quote-applied argv *or* via stdin/file, with a regression-test asserting that a prompt containing shell-metachars round-trips uncorrupted. ALSO NACK if slice-2 CLI-verb tasks accept prose on argv without shlex.quote-aware fallback.",
+      "mitigation": "Add an explicit AC on slice-5 wrapper-template task: the per-event prompt MUST be substituted via shlex.quote (mirroring consensus_wrapper.py:759-760) or piped via a tempfile, AND a unit test in tests/orchestrator/test_consensus_wrapper.py (extended in slice-6 tester task) must inject a prompt containing $, backtick, single-quote, double-quote, newline and assert the agent receives it byte-identically. Symmetric AC on slice-2 CLI-verb tasks (R-8).",
+      "owner_slice": "slice-5 + slice-2",
+      "blocking_for": [
+        "architect",
+        "task_planner"
+      ]
+    },
+    {
+      "id": "BC-3",
+      "title": "Sync-flush durability requires partial-failure semantics, not just success path",
+      "evidence": "Slice-4 adds `_save_pipeline_durable(state)` alongside the existing best-effort `save_pipeline` at orchestrator/state_store.py:672-749. Today's path catches push failure at lines 741-747 and retries on the next save (idempotent best-effort). The new sync-flush path is invoked at exactly the moment the safety-budget consumer needs to know the budget is durably decremented (slice-5 safety-budget consumer task) — if sync-flush silently succeeds-on-local but the remote push fails, a host restart will resurrect the OLD budget and the safety net is undermined. Conversely, if sync-flush raises on push failure, the caller in the event-pump wrapper must NOT crash-loop the agent on transient git/gateway failures (the very class of failure the issue identifies as compounding restart churn). Per cq-3 resolution, the terminal action on budget exhaustion is OVERSEER_ALERT + HITL (NOT auto-FAIL), so the partial-failure path must align with that policy.",
+      "would_nack_if": "slice-4 task ACs do not specify both (a) the success path (returns only after `git push` succeeds) AND (b) the partial-failure path (mock push failure → caller observes the failure AND has a documented bounded retry policy that does NOT restart the agent pod AND aligns with cq-3 OVERSEER_ALERT/HITL terminal action).",
+      "mitigation": "Add to slice-4 AC: 'On push failure, _save_pipeline_durable raises a typed exception (e.g. DurableSaveFailed); the call-site in the safety-budget consumer (slice-5) handles this by emitting an OVERSEER_ALERT and continuing the wait-loop with an in-memory budget snapshot, NOT by exiting the wrapper.' Slice-4 tester task must cover the partial-failure path.",
+      "owner_slice": "slice-4 + slice-5",
+      "blocking_for": [
+        "architect",
+        "task_planner"
+      ]
+    }
+  ],
+  "feedback": "v2 of the risk register — surgical update for operator iteration-1 directive: the cache-TTL question is EMPIRICALLY CLOSED (OSI-1) and slice-1's TTL bracketing must be stripped. Concrete asks for the upstream producers: (architect) confirm in the analysis that slice-1's per-event cost instrumentation and #2906-repro de-risk survive per directive; confirm slice-8 stays at prompt collapse (NOT keep-warm); confirm cache_read/cache_creation token capture is a SIDE EFFECT of cost measurement, not a dedicated TTL spike. (task_planner) v4 must rewrite task-1-3 AC to drop 'at least 3 idle durations (5.5, 10, 15 min)' and the TTL-survival framing, drop 'Repeat for X min and Y min idles to bracket the TTL ceiling' from the description, drop the 'what Qwen-route TTL ceiling did the measurements show — survives >= 15 min, lapses 5.5-15 min, or ambiguous?' question from task-1-4 description. What stays in slice-1: (a) the egg-agent harness primitive (BC-1-v2); (b) per-event cost / wall-clock instrumentation through python3 -m egg_agent with the production BRC preamble + tool schemas; (c) event-pump-reaches-consensus de-risk on the #2906 repro; (d) per-event cache_read_input_tokens / cache_creation_tokens as a side effect of cost measurement (legitimate per directive). Top-3 risks (v2): R-1 (egg-prefix cache-breakpoint placement — reframed from TTL to RATIO), R-17 (replan-creep — TTL bracketing may survive v4 re-author), R-7 (mass-deletion blast radius). Forward-looking: when architect's PROPOSE lands, audit slice-8 description to confirm prompt-collapse framing (NOT keep-warm); when task_planner's PROPOSE lands, audit task-1-3 / task-1-4 for residual TTL language (R-17 trigger).",
+  "review_targets": {
+    "architect": {
+      "rubric": [
+        "Does the architecture analysis cite file:line evidence for every component touched? (mirrors REVIEWER-SYNC.md anchor discipline)",
+        "Does the component breakdown address R-6 (dual-role next-action derivation) explicitly with a producer-FIRST invariant unit test?",
+        "Does slice-8 description frame the slice as PROMPT COLLAPSE (per cq-1 MCP-split + iteration-1 directive), NOT as conditional keep-warm?",
+        "Does the analysis acknowledge OSI-1 (cache TTL >= 60 min on both routes, settled by operator) and OSI-2 (instrument-only, no auto-FAIL) as inputs to slice-1/5/8 design?",
+        "Does the architecture preserve dual-role producer-first ordering after slice-8 preamble collapse?",
+        "Does the component breakdown account for R-2 (cost-callback trust-boundary) — i.e. is the kubectl-logs path treated as an integration-test seam, not as a runtime dependency in production code?"
+      ]
+    },
+    "task_planner": {
+      "rubric": [
+        "Are all live risk items (R-1..R-10, R-12..R-17; R-11 is obsolete) in this register addressed by at least one slice/task AC? Cross-reference R-id -> task-id.",
+        "Do BC-1 / BC-2 / BC-3 have explicit AC text in their owning slices (slice-1+slice-5 / slice-5+slice-2 / slice-4+slice-5 respectively)?",
+        "Is the contract-level acceptance_criteria populated (R-12)? Specifically the four v2 ACs listed in R-12 mitigation (cache_read RATIO, NOT TTL).",
+        "R-17 TRIPWIRE A: Does task-1-3 AC have ZERO TTL/idle-duration/bracket/survival language? (Operator iteration-1 directive — NACK if any of these surface.)",
+        "R-17 TRIPWIRE B: Does task-1-3 description have ZERO 'Repeat for X min and Y min idles to bracket the TTL ceiling' or equivalent multi-idle TTL framing?",
+        "R-17 TRIPWIRE C: Does task-1-4 description have ZERO 'Qwen-route TTL ceiling' or 'survives >= 15 min, lapses 5.5-15 min, or ambiguous' question?",
+        "Does task-1-2 AC include 'records per-event prompt_tokens, cache_read_input_tokens, cache_creation_tokens'? (BC-1-v2 instrumentation, side effect of cost measurement — legitimate per OSI-2.)",
+        "Does task-1-4 (spike report) have falsifiable criteria for the distilled-memory check (R-16) framed as forward-looking notes (NOT auto-FAIL — OSI-2)?",
+        "Does the slice-4 schema-bump task have partial-failure AC, not only success-path AC (BC-3)?",
+        "Does slice-5 (new wrapper template) explicitly require shlex.quote (or stdin/file) for per-event prompts (BC-2)?",
+        "Does any slice/task claim 'prefix-token reduction' attributable to MCP retirement (which is OUT OF SCOPE per cq-1)? NACK if so (R-9)."
+      ]
+    }
+  },
+  "human_review_flags": [
+    {
+      "id": "HRF-1",
+      "topic": "Cache-survival evidence scope (RESOLVED iteration-1)",
+      "ask": "RESOLVED: Operator iteration-1 directive declared TTL >= 60 min on both routes as settled input (OSI-1). No further human review needed on the TTL question. Slice-1 must measure cache_read RATIO through the egg-agent harness (BC-1-v2) but NOT re-derive the TTL ceiling."
+    },
+    {
+      "id": "HRF-2",
+      "topic": "MCP retirement scope (RESOLVED by cq-1)",
+      "ask": "RESOLVED: cq-1 split WS8 MCP collapse to a follow-up issue. Slice-8 is prompt collapse, not MCP retirement. Reviewer rubric (review_targets.task_planner) enforces that no slice claims 'prefix-token reduction' attributable to MCP retirement (R-9)."
+    },
+    {
+      "id": "HRF-3",
+      "topic": "Instrument-only enforcement (NEW iteration-1)",
+      "ask": "Confirm at PR review time that no slice has snuck a numeric cache_read ratio / per-event-cost / TTL stop-go gate into a slice AC. Per OSI-2, all WS0 numbers are forward-looking telemetry; the operator judges go/no-go from reported numbers."
     }
   ],
   "open_questions": [
     {
       "id": "OQ-1",
       "question": "Are MCP-tool retirements (WS8 'no agent MCP server registered') in scope for issue #2908, or deferred to a follow-up?",
-      "context": "R-9 — no slice currently owns the retirement of sandbox/egg_agent_tools/server.py registration. WS8 in the issue body describes the end-state but the contract doesn't allocate a coder task to the retirement itself, only to the CLI verbs (slice-4) that enable it.",
+      "context": "Resolved by cq-1 (split to follow-up). Reviewer rubric enforces (R-9).",
       "audience": "architect, task_planner",
-      "blocking": false
+      "blocking": false,
+      "status": "RESOLVED by cq-1"
     },
     {
       "id": "OQ-2",
-      "question": "Should slice-1 spike measure cache_read through the production python3 -m egg_agent harness (not raw `claude`) as a hard pre-requisite for slice-6/7/8 landing?",
-      "context": "R-1 / BC-1 — the WS7 numbers in the issue body don't carry over without the egg prefix being re-measured. If the answer is yes, this should be an AC on task-1-2.",
+      "question": "Should slice-1 spike measure cache_read RATIO (not TTL ceiling) through the production python3 -m egg_agent harness as a hard pre-requisite for slice-5/7/8 landing?",
+      "context": "Reframed per iteration-1: the TTL ceiling is closed (OSI-1). The remaining question is the cache_read RATIO on the egg-prefix structure (BC-1-v2). YES — this should be an AC on task-1-2.",
       "audience": "architect, task_planner",
-      "blocking": true
+      "blocking": true,
+      "status": "REFRAMED (TTL -> RATIO)"
     },
     {
       "id": "OQ-3",
       "question": "What is the safety-budget exhaustion behavior — agent pod restart? OVERSEER_ALERT only? Mark pipeline FAILED?",
-      "context": "Slice-2 task-2-1 + slice-6 task-6-5 wire the budget but the contract doesn't enumerate the terminal action when budget reaches zero. The current 3-restart-cap escalates to a process exit + reconciliation; the new model needs an equivalent terminal step.",
+      "context": "Resolved by cq-3 (durable server-side budget + sync-flush + startup reconciliation + OVERSEER_ALERT/HITL no-auto-FAIL). Slice-4 / slice-5 wiring must align.",
       "audience": "architect, task_planner",
-      "blocking": false
+      "blocking": false,
+      "status": "RESOLVED by cq-3"
     }
   ],
-  "feedback": "Risk register is ACK-shape — no blocking concerns force re-propose of the plan as currently scaffolded. The three BC-1/BC-2/BC-3 items are flagged so that when architect and task_planner formally PROPOSE their plan-phase artifacts, I'll re-review through this risk lens and convert any unaddressed BC item into a NACK with the file:line evidence captured here. The mitigations are mostly AC additions to existing slice tasks (no new slices needed). Top-3 risks: R-1 (cache invalidation through egg harness — distinct from the raw-claude measurements), R-3 (schema 1.3 migration durability for ~200 live 1.2 contracts), R-7 (mass deletion blast radius into tests + docs + reconciliation). Forward-looking: when architect's analysis lands, audit its component breakdown against R-6 (dual-role next-action derivation) and R-9 (MCP retirement ownership); when task_planner's task list lands, audit its ACs against BC-1/BC-2/BC-3, R-3, R-7, R-8, R-12.",
-  "human_review_flags": [
-    {
-      "id": "HRF-1",
-      "topic": "Cache-survival evidence scope",
-      "ask": "WS7 measurements in the issue body were on raw `claude` / `clm`. Confirm that the spike (slice-1) re-measures through the production python3 -m egg_agent harness with the full BRC preamble before slice-6/7/8 are gated as ready-to-land."
-    },
-    {
-      "id": "HRF-2",
-      "topic": "MCP retirement scope",
-      "ask": "Decide whether MCP retirement (sandbox/egg_agent_tools/server.py + tool schemas) is in scope for this issue or deferred. If in scope, an explicit slice/task owner is needed; if deferred, the 'prefix-token reduction' supporting win in WS8 should not be claimed as a slice-1 metric."
-    }
-  ],
-  "review_targets": {
-    "architect": {
-      "rubric": [
-        "Does the architecture analysis cite file:line evidence for every component touched? (mirrors REVIEWER-SYNC.md anchor discipline)",
-        "Does the component breakdown address R-6 (dual-role next-action derivation) explicitly?",
-        "Does the component breakdown either own (R-9) MCP retirement or explicitly defer it?",
-        "Does the component breakdown account for R-2 (cost-callback trust-boundary) — i.e. is the kubectl-logs path treated as an integration-test seam, not as a runtime dependency in production code?",
-        "Does the architecture preserve dual-role producer-first ordering after slice-7 preamble collapse?"
-      ]
-    },
-    "task_planner": {
-      "rubric": [
-        "Are all 16 risk items in this register addressed by at least one slice/task AC? Cross-reference R-id → task-id.",
-        "Do BC-1 / BC-2 / BC-3 have explicit AC text in their owning slice (slice-1 / slice-6 / slice-2 respectively)?",
-        "Is the contract-level acceptance_criteria populated (R-12)? Specifically the four ACs listed in R-12 mitigation.",
-        "Does task-1-4 (spike report) have falsifiable criteria for the distilled-memory check (R-16)?",
-        "Does task-2-2 (sync-flush) have partial-failure AC, not only success-path AC (BC-3)?",
-        "Does task-6-1 (new wrapper template) explicitly require shlex.quote (or stdin/file) for per-event prompts (BC-2)?"
-      ]
-    }
-  },
   "rereview_protocol": {
     "trigger": "CONSENSUS_PROPOSE from architect or task_planner (any version)",
-    "synchronization": "git fetch origin && git merge origin/egg/issue-2908-replan/work before reviewing",
-    "verdict_decision": "ACK if all BC items addressed AND review_targets rubric fully satisfied. NACK with file:line citations for each unaddressed BC item OR rubric miss.",
-    "scope_on_re_review": "Per the adversarial re-review framing in the BRC preamble: re-review the v(n)→v(n+1) delta, not the whole accumulated surface. Apply rubric to delta. NACK without hesitance on new findings outside the prior NACK scope."
+    "synchronization": "git fetch origin && git merge origin/egg/issue-2908-replan/work --no-edit before reviewing",
+    "verdict_decision": "ACK if all BC items addressed AND review_targets rubric fully satisfied AND R-17 TRIPWIRES clean (no TTL/idle-duration/bracket/survival language in task-1-3 AC, no 'Repeat for X min and Y min idles to bracket the TTL ceiling' in task-1-3 description, no 'Qwen-route TTL ceiling' question in task-1-4). NACK with file:line citations for each unaddressed BC item OR rubric miss.",
+    "scope_on_re_review": "Per the adversarial re-review framing in the BRC preamble: re-review the v(n)->v(n+1) delta, not the whole accumulated surface. Apply rubric to delta. NACK without hesitance on new findings outside the prior NACK scope. R-17 is a NEW tripwire for iteration-1 — apply it to any v(n) >= 1 of task_planner proposals."
   }
 }
