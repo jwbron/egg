@@ -1,0 +1,493 @@
+{
+  "schema_version": "1.0",
+  "pipeline_id": "issue-2908-replan2",
+  "issue": 2908,
+  "phase": "plan",
+  "role": "risk_analyst",
+  "title": "Risk assessment — BRC event-pump + durable agent memory (durable fix for #2906)",
+  "summary": "Issue #2908 reframes consensus-agent execution from a persistent participant that holds an MCP wait into a stateless per-event handler the wrapper invokes, with continuity carried by a durable distilled memory file. The change is deletion-heavy inside the BRC subsystem but does NOT touch the pod/worktree/role/SDK/permissions substrate. Cache behavior is measured-clear on both routes (see #2908 WS7 comments — 60-min idle survival on Anthropic and Qwen), so the original cache-fragility worry is downgraded. The dominant residual risks are: (a) the spawn-primitive shift the design implies (Agent SDK → `claude -p` per-event one-shots) and the system-prompt / MCP-tool-registration plumbing that does not transfer cleanly; (b) the slice-scoped gateway-session keepalive (#2451) and heartbeat (#2036) primitives that today live in the agent's `message_wait_loop` daemon thread and must migrate to the wrapper without dropping their slice scope; (c) the open-NACK barrier (#2142) / stale-version rejection (#2482) / conditional-ACK (#1998) / dual-role ordering (#2749) semantics that the server-side `next-action` derivation MUST encode correctly or the pipeline silently mis-sequences; (d) re-introduction of the shell-metachar corruption mitigated in #2741 if WS8 collapses MCP→CLI without routing prose-bearing fields through stdin/file; (e) the runtime-primitive footgun cluster (#2594) around `EGG_SLICE_ID`, `--append-system-prompt` ordering, memory-file atomicity, and idle-budget detection that mostly works state-shape-based today.",
+  "overall_risk_level": "HIGH",
+  "verdict_for_dual_role_review": "PRODUCER (this artifact). When ARCHITECT and TASK_PLANNER propose, I will emit ACK/NACK through the risk lens against my top_3_risks and runtime_primitive_audit_per_2594.",
+  "recommendation": "PROCEED WITH STAGED ROLLOUT, behind a flag, GATED ON WS0 SPIKE EVIDENCE. Sequence per the issue's stated rollout (Spike → next-action → memory → wrapper+liveness → prompt+MCP→CLI collapse → delta → cache) and DO NOT allow WS8 (MCP→CLI collapse) to land before its stdin/file prose plumbing exists end-to-end with a regression guard for the #2741 shell-metachar class. Validate on Qwen route first per the issue. Several risks below should be promoted to plan-phase acceptance criteria or HITL gates rather than left as forward-looking notes.",
+  "recommendation_rationale": "The architectural direction is sound and the WS7 cache measurements (cross-session caching survives 60-min idle on BOTH routes) eliminate what would otherwise have been the highest-likelihood risk. What remains is a cluster of integration risks where the new model interacts with primitives that today live elsewhere — heartbeats, slice-scoped session keepalive, prose-arg plumbing, MCP tool registration via Agent SDK options. These are knowable, testable, and within scope of the issue's own verification list; the risk shape is 'execution gets a primitive wrong and silently regresses something' rather than 'design is unsound'. A flagged staged rollout with route-by-route validation contains blast radius; spike-first sequencing converts the highest-uncertainty WS0 risks into measured facts before WS1–8 burn engineering effort.",
+  "external_research_done": "Issue #2908 body + three operator comments cited inline below. No external (npm/pip/CVE) lookups were applicable: the change is internal to egg's BRC subsystem; no third-party dependency is added or version-bumped. Anthropic prompt-cache TTL was measured empirically by the operator (60-min ceiling on both routes, separate processes) and the result is the authoritative answer; no web research could supersede that data point.",
+  "operator_directives_acknowledged": [
+    "Anthropic-route cache is a measured non-issue — keep-warm + pin/strip dynamic content are NOT required on this route (#2908 WS7 comment 1).",
+    "Qwen-route cache survives ≥60 min idle (cross-session) per #2908 WS7 comment 3 — keep-warm dropped on Qwen too.",
+    "Qwen cache instrumentation must read litellm / cost_callback side; Claude Code usage.* is all-zero there.",
+    "WS7 collapses to 'instrument cache_read across per-event invocations to verify no regression' — no TTL knob, no pin/strip on either route.",
+    "WS8 prose-bearing CLI args MUST take text via stdin or file — never argv — to avoid re-triggering #2741 Bash bash -c shell-metachar corruption.",
+    "Operator-facing orchestrator MCP (orchestrator/mcp_server.py) is OUT OF SCOPE — only sandbox/agent-side MCP retires."
+  ],
+  "top_3_risks": [
+    "R1 (HIGH/HIGH) — Spawn-primitive shift: design says 'SDK-native one-shot claude -p' but the BRC agent today is spawned via `python3 -m egg_agent` (Agent SDK / consensus_wrapper.py:750-758), with the MCP server registered through `options.mcp_servers` (shared/egg_agent/client.py:299-353) and the SYSTEM_PROMPT_NUDGE appended through `options.system_prompt` (client.py:332-346). Migrating to `claude -p` per event re-routes registration through `--mcp-config` / `--append-system-prompt` CLI flags whose semantics differ (e.g., `--append-system-prompt` only honors the last one — confirmed by the cllm bug noted in #2908). Risk: silent loss of MCP registration, role-restriction tool injection, or system-prompt nudge in the per-event handler.",
+    "R2 (HIGH/HIGH) — Liveness migration loses slice scope: `_start_wait_loop_heartbeat()` (handlers/message.py:234, heartbeats per #2036) and `slice_id_hb = resolve_slice_id(req)` (handlers/message.py:321, gateway-session keepalive per #2451) both live in the agent process and rely on the in-flight MCP request to derive slice scope. Moving these to the wrapper requires the wrapper to know `EGG_SLICE_ID` (which IS propagated by kubernetes_spawner.py:925, so the env path exists) AND to emit heartbeats / keepalive on the same cadence WHILE the agent process is short-lived per event. Risk: gateway session idle-timeout fires mid-event, container is reaped, BRC round stalls — the exact churn this issue aims to prevent.",
+    "R3 (HIGH/HIGH) — Server-side next-action derivation is high-blast-radius: WS3 makes the orchestrator the source of truth for what each agent does next, replacing model-volunteered re-entry. The derivation MUST correctly encode: (1) open-NACK barrier per #2142 (two distinct reviewers NACK → propose 409 until all addressed), (2) stale-version rejection per #2482 (re-propose invalidates in-flight verdicts), (3) conditional-ACK semantics per #1998 and the obligation-resolution path per #2338, (4) dual-role ordering per #2749 (propose-before-review), (5) CONSENSUS_RE_REVIEW vs CONSENSUS_PROPOSE-as-re-propose distinction. Any one of these wrong → silent mis-sequencing, hung phase, or rubber-stamp re-review. The lifecycle text these encode is currently ~3K tokens of in-context BRC preamble; encoding them as server logic concentrates a lot of correctness work in a small surface."
+  ],
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Spawn-primitive shift: Agent SDK → `claude -p` one-shot",
+      "category": "architecture",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "scope": "WS1 wrapper rewrite + WS8 MCP→CLI collapse",
+      "impact": "MCP tool injection, role-scoped tool restrictions, and SYSTEM_PROMPT_NUDGE could silently fail to register on the per-event handler, breaking role isolation OR producing agents that fall back to Bash for BRC actions (the very behavior #2741 mitigated). Caching benefits of WS7 also depend on system_prompt byte-stability — a per-event handler that re-renders the nudge with subtly different ordering busts the cache.",
+      "description": "Today's agent path is `consensus_wrapper.py:750-758` → `python3 -m egg_agent --model … --max-turns …` (Agent SDK). MCP servers are registered programmatically in `shared/egg_agent/client.py:299-353` via `options.mcp_servers`, and the SYSTEM_PROMPT_NUDGE is appended via `options.system_prompt` (lines 332-346, string-only path; preset/file system prompts skip the nudge with a warning). The issue's design says 'SDK-native one-shot `claude -p`' — that's a different binary and a different config surface. `--mcp-config` JSON and `--append-system-prompt` CLI flags would replace the programmatic paths. Per the operator's own cllm-bug aside in #2908, Claude Code honors only the LAST `--append-system-prompt` — any wrapper that chains them silently drops earlier prompts.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py:716-775 (build_consensus_wrapped_command)",
+        "shared/egg_agent/client.py:299-353 (MCP registration + SYSTEM_PROMPT_NUDGE append)",
+        "sandbox/egg_agent_tools/server.py:33-61 (_render_nudge)",
+        "sandbox/llm/runner.py:18 (build_claude_cmd — only docstring mention of --append-system-prompt today)",
+        "sandbox/egg_lib/sdlc_hitl.py:430 (only existing --append-system-prompt usage in egg)"
+      ],
+      "mitigation": {
+        "strategy": "(1) WS0 spike MUST exercise the actual per-event `claude -p` invocation pattern end-to-end with an MCP tool call AND a system-prompt nudge present — not a hand-rolled stub. (2) Add a regression guard test that asserts the per-event handler sees exactly one `--append-system-prompt` (no chaining) OR shifts to `--system-prompt` semantics. (3) Make role-tool-restriction injection a verified primitive at the handler level (issue's WS8 — `tool_interceptor.check_file_write_permission` is shared today; ensure the CLI-spawned path inherits it). (4) Decide explicitly: does the per-event agent still use `python3 -m egg_agent` (and inherit all Agent SDK options programmatically) or does it shift to `claude -p`? Both paths are viable; #2908 prose suggests `claude -p` but the safest landing is to keep the Agent SDK entrypoint and add the per-event semantics on top. Recommend the plan phase pin this decision.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — even with the test guard, subtle behavioral drift between Agent SDK options and CLI flags (e.g., MCP tool list pagination, system-prompt token positioning) could leak; the spike output is the gating signal."
+      },
+      "requires_human_review": true,
+      "review_reason": "Open Decision #2 ('SDK `--resume` for the tightly-coupled NACK→re-review thread only vs uniform fresh+memory everywhere') in the issue body is closely coupled to this — should be resolved by the architect/operator before WS1 lands."
+    },
+    {
+      "id": "R2",
+      "title": "Heartbeat + slice-scoped gateway-session keepalive migration",
+      "category": "operational",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "scope": "WS4 (Liveness migration) + WS1 (consensus_wrapper rewrite)",
+      "impact": "Gateway-side session fan-out keys on `egg-agent-{pid}-{slice}-{role}` containers (#2451). If the agent process is short-lived per event AND the wrapper does not push `slice_id`-tagged heartbeats / keepalive on the wait, the gateway treats the agent as idle and reaps the session. BRC round stalls AND restart-churn returns — the exact failure mode #2908 aims to eliminate.",
+      "description": "Today's heartbeat path: `handlers/message.py:234` (`_start_wait_loop_heartbeat`, daemon thread), `:321` (slice_id captured once per request via `resolve_slice_id(req)`), `:220-221` (default emitter forwards `slice_id`). Wait-side keepalive forwards the same slice_id field. In the event-pump model the agent doesn't hold the wait — the wrapper does. The wrapper today does NOT emit heartbeats (it's a bash script that delegates the wait to `egg-orch message wait-loop` invoked by the agent). WS4 must (a) make the wrapper emit heartbeats while it waits, (b) carry `EGG_SLICE_ID` from Pod env into the heartbeat payload, (c) match or exceed the current cadence (`_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS`). The env path exists (`kubernetes_spawner.py:925` writes `EGG_SLICE_ID`, inherited by `bash -c`), so the migration is wiring-not-design — but the wiring is easy to miss.",
+      "affected_files": [
+        "sandbox/egg_agent_tools/handlers/message.py:234, 220-221, 306-347, 321 (current heartbeat + slice_id capture)",
+        "orchestrator/consensus_wrapper.py:716-775 (where the wrapper-side heartbeat would land)",
+        "orchestrator/kubernetes_spawner.py:925 (EGG_SLICE_ID env writer)",
+        "integration_tests/regression/test_slice_spawn_env_threading.py (existing slice-scope env regression)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Write a wrapper-side heartbeat unit test that asserts every emitted heartbeat carries `slice_id` from `EGG_SLICE_ID` env. (2) Extend `test_slice_spawn_env_threading.py` (or add a peer) to assert wrapper-emitted heartbeats reach the gateway tagged with the spawned slice. (3) Verification — issue's WS0 spike on issue-2270 / qwen3.7-max must inject a long idle and confirm the gateway session does NOT reap. (4) Add a tier-1 health check 'wrapper-process alive but no recent heartbeat from this role' so the loss-mode surfaces as an overseer alert rather than a stall.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW IF the verification step lands — easy to test, hard to get wrong silently once tested."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R3",
+      "title": "Server-side next-action derivation correctness",
+      "category": "architecture",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "scope": "WS3 (server-side next-action sequencing)",
+      "impact": "Wrong next-action → silent mis-sequencing of the BRC round. Examples: (a) tells dual-role agent to 'review' before it has 'proposed' (violates #2749 ordering), (b) returns 'confirm' to a producer when a fresh `CONSENSUS_PROPOSE` from a peer is also pending and they're a reviewer of that peer, (c) returns 'propose' to a producer when an open-NACK barrier per #2142 should be blocking, (d) returns 'review' for a CONSENSUS_RE_REVIEW where the producer-version-cursor is stale per #2482. Each is a hung phase, not a noisy error.",
+      "description": "The current model: the agent process holds the wait AND reads the BRC matrix AND decides its next action from the BRC preamble + memory of which CONSENSUS_PROPOSE versions it has already verdicted. The issue moves the decision server-side via either `consensus status --json` reuse or a new `consensus next-action --role R`. The semantics the preamble encodes today are non-trivial: open-NACK barrier (#2142), stale-version (#2482), conditional-ACK + obligation resolution (#1998, #2338), dual-role ordering (#2749), CONSENSUS_RE_REVIEW as adversarial re-review (not blocker-verification), pre-confirm-wait CONSENSUS_CONFIRMED rejection (#2064, #2482). Each is presently a prose-prompt rule the model interprets; encoding them server-side is correct AND high-blast-radius.",
+      "affected_files": [
+        "sandbox/egg_lib/orch_cli.py:2783 (existing `cmd_consensus_status`)",
+        "sandbox/egg_agent_tools/handlers/brc.py (brc_get_state — what consensus_status delegates to)",
+        "orchestrator/routes/messages.py (BRC matrix authority)",
+        "shared/egg_agent_prompts/mission.md + _build_brc_preamble (the rules being migrated)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Treat next-action derivation as a tested orchestrator-side helper FROM DAY ONE, not as a CLI-output formatter. Unit tests must cover: producer-only WORKING, producer PROPOSED + 0/1/N reviewer ACKs, producer with 1 NACK (no barrier), producer with 2+ NACKs (barrier engaged per #2142), dual-role pre-propose, dual-role post-propose with peer CONSENSUS_PROPOSE pending, CONSENSUS_RE_REVIEW where reviewer last-reviewed version is stale, conditional-ACK with obligation pending vs resolved (#2338), pre-confirm-wait CONSENSUS_CONFIRMED suppression (#2064). (2) Test these against the same shaped scenarios that the existing wait-loop tests cover; reuse fixtures. (3) Gate WS3 on a 'derivation matches preamble semantics' parity test (start with both old + new running in shadow mode, alert on divergence). (4) Document next-action as a contracted return shape (action enum + reasoning string) so reviewer agents can sanity-check.",
+        "effort": "HIGH",
+        "residual_risk": "MEDIUM — semantic coverage is testable but the surface is large; shadow-mode parity in early rollout is the safety net."
+      },
+      "requires_human_review": true,
+      "review_reason": "Open Decision #3 ('next-action surface — reuse `consensus status` vs new endpoint') is open in the issue; pin before WS3 lands."
+    },
+    {
+      "id": "R4",
+      "title": "Re-introduction of shell-metachar corruption (#2741) via WS8 CLI collapse",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "scope": "WS8 (collapse agent action surface to `egg-orch`/`egg-contract` CLI)",
+      "impact": "Issue #2741 mitigated Bash `bash -c` shell-metachar corruption of prose args (reason, files_reviewed) by routing them through MCP tools (which don't argv-encode). WS8 retires the MCP tools. If `egg-orch consensus ack/nack/propose` `--reason` continues to be an argv string and the agent reaches it through the Bash tool, every reviewer reason containing `$`, backticks, `;`, `|`, `&&`, etc. is a corruption surface again.",
+      "description": "Today's CLI: `cmd_consensus_propose` reads `args.summary` / `args.risk`, `cmd_consensus_ack` reads `args.reason` directly, `cmd_consensus_nack` reads `args.reason` directly — all argv-only (verified at `sandbox/egg_lib/orch_cli.py:2574, 2576, 2659, 2706`). No `--reason-from-stdin` or `--reason-file` exists anywhere. WS8 lists this as a hard constraint, but the implementation is net-new: zero existing primitive to extend. The risk is sequencing — if WS8 lands the CLI collapse before the stdin/file primitive lands, the regression is immediate and silent (ACKs / NACKs render with mangled prose, NACKs may even fail the orchestrator's 50-char minimum and be rejected, blocking consensus).",
+      "affected_files": [
+        "sandbox/egg_lib/orch_cli.py:2528, 2574-2576, 2633, 2659, 2692, 2706, 2783",
+        "sandbox/egg_lib/orch_cli.py:3265, 3524, 3573, 3600, 3647, 3660 (other --reason arg definitions)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Make stdin/file prose plumbing land BEFORE any MCP tool deprecation in WS8. Recommend `--reason-file <path>` (preferred — survives multi-line robustly) AND `--reason -` for stdin. Apply to `propose --summary`, `ack --reason`, `nack --reason` minimally; consider `--files-reviewed-file` (JSON list) for symmetry. (2) Regression guard test that round-trips a string containing `$VAR`, backticks, `;`, `&&`, embedded newlines, and quote characters via the new primitive and asserts byte-equality after gateway parse. (3) Wrapper-side: when invoking the per-event agent, ensure the agent's actions tool surface is the CLI primitive with stdin/file, never raw `bash -c`. (4) Acceptance criterion: 'No `bash -c` argv-encoded prose path exists in the per-event handler for any of {summary, reason, files_reviewed}.'",
+        "effort": "LOW",
+        "residual_risk": "LOW IF the sequencing is enforced — the test is cheap and catches drift immediately."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R5",
+      "title": "Memory-file atomicity + concurrency",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS2 (durable BRC memory artifact)",
+      "impact": "Corruption of `.egg-state/agent-outputs/<role>/brc-memory.md` would make the agent re-analyze from zero (best case) or act on a partial decision log (worst case — phantom prior ACK). Concurrency risk: if the wrapper invokes the per-event handler twice quickly (e.g., two CONSENSUS_PROPOSE messages back-to-back) without serialization, two writers can race.",
+      "description": "No shared atomic-write helper exists in egg today: two independent implementations (`shared/egg_contracts/usage_loader.py:95` private `_atomic_write` JSON-only, and `shared/egg_overseer/state.py:265` with NamedTemporaryFile + fsync + os.replace + flock). Neither is sandbox-facing. The wrapper-driven event-pump makes back-to-back invocations more likely than the persistent-wait model — every CONSENSUS_PROPOSE / RE_REVIEW / ACK / NACK / STATUS wakeup is a separate spawn. The role-scoped path is fine for cross-role safety (`shared/egg_restrictions/patterns.py:382-390` allows `risk_analyst` to write `.egg-state/agent-outputs/`; reviewer roles also have it), but per-role within-pod serialization is the actual surface.",
+      "affected_files": [
+        ".egg-state/agent-outputs/<role>/brc-memory.md (the proposed artifact path)",
+        "shared/egg_restrictions/patterns.py:382-390 (RISK_ANALYST_PATTERNS — confirms write allowed)",
+        "shared/egg_overseer/state.py:265-289 (existing atomic-write+flock template to reuse)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Specify in the plan that all memory writes use atomic tempfile + os.replace + (optional) flock — promote the `egg_overseer/state.py` template to a shared helper or duplicate it. (2) Wrapper-side serialize per-event invocations per role (the wrapper loop is sequential, so this comes for free IF the wrapper does not parallelize event dispatch — pin this in WS1 design). (3) Test: spawn two synthetic concurrent invocations and assert memory file is still parseable after.",
+        "effort": "LOW",
+        "residual_risk": "LOW once specified — pattern is well-understood."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R6",
+      "title": "Stateless event-pump weakens adversarial re-review",
+      "category": "architecture",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS2 (memory) + WS5 (delta-scoped re-analysis)",
+      "impact": "Re-reviewers are explicitly mandated (BRC preamble Reviewer Lifecycle step 8) to audit the delta since their last review as a FRESH review with no NACK history — finding issues outside the scope of their prior NACK is the design. If the per-event handler reads the memory and only sees the producer's `changed_artifacts` (delta), the model may rationalize 'memory says no concerns, delta is small → ACK' and rubber-stamp. The 'named-blockers-anchor trap' the preamble warns about becomes a system-level rather than model-level vulnerability.",
+      "description": "The current preamble at Reviewer Lifecycle step 8 demands dual-mandate re-review: (1) prior blockers addressed AND (2) delta audited as fresh review. Memory artifact + delta-only context is OPTIMIZED for the first mandate and WEAKER for the second. Issue Open Decision #1 (append-only vs distill-rewrite) bears on this: append-only keeps full history (good for delta audit, bad for context size); distill-rewrite throws away the 'why I didn't catch this last time' context. Issue Open Decision #5 (memory shape) is unresolved.",
+      "affected_files": [
+        "shared/egg_agent_prompts/mission.md (current reviewer mandate)",
+        ".egg-state/agent-outputs/<role>/brc-memory.md (proposed artifact)",
+        "Reviewer Lifecycle step 8 in BRC preamble (the dual-mandate text)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Memory schema MUST include a 'last_reviewed_commit_sha' per producer and the per-event handler MUST be handed `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` (per REVIEWER-SYNC.md) explicitly in its event payload — not just `changed_artifacts`. (2) Memory schema MUST distinguish 'verdicted findings' from 'analysis summary'; the latter should be lightweight enough that the per-event handler does NOT skip the delta audit because 'memory already says no issues'. (3) Verification: a synthetic test where v2 introduces a regression outside the v1 NACK scope; assert the re-reviewer NACKs.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — depends on memory schema decisions still open; verification test is the strongest assurance."
+      },
+      "requires_human_review": true,
+      "review_reason": "Open Decision #1 (memory shape) directly bears; resolve in plan or refine."
+    },
+    {
+      "id": "R7",
+      "title": "Idle / no-progress safety budget removal without replacement",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS1 (consensus_wrapper rewrite — replace 3-restart FAIL cap)",
+      "impact": "The 3-restart cap was bumped 2→3 per #2806 precisely because pipelines were hanging on unrecoverable agent loops. Removing it without an idle/no-progress safety budget leaves the wrapper waiting indefinitely on a never-arriving event. Today's idle detection is state-shape based (`incomplete_consensus_stall.py` — blocking-agent set unchanged across N ticks) and overseer-side (`monitor.py:213 _classify_stall`); neither is wall-clock-silence-based on the wrapper.",
+      "description": "Open Decision #4 names this as 'Idle/no-progress safety budget shape replacing the 3-restart FAIL cap.' Existing health checks: `orchestrator/health_checks/tier1/consensus_stall.py` (consensus complete but phase stuck, 60s grace), `orchestrator/health_checks/tier1/incomplete_consensus_stall.py` (state-shape based), `orchestrator/overseer/monitor.py:213` (`_classify_stall`). Neither pure-silence-times-out a wait. If the wrapper waits forever and the agent never produces an action, the only escape is the overseer's state-shape detector which depends on the blocking-agent set changing — a silent agent doesn't change the set, so the detector never fires.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py:38 (MAX_CONSENSUS_RESTARTS = 3)",
+        "orchestrator/consensus_wrapper.py:555-712 (loop + exhaustion path)",
+        "orchestrator/health_checks/tier1/consensus_stall.py",
+        "orchestrator/health_checks/tier1/incomplete_consensus_stall.py",
+        "orchestrator/overseer/monitor.py:213, 1142"
+      ],
+      "mitigation": {
+        "strategy": "(1) Replace the 3-restart cap with a wrapper-side wall-clock budget: 'no actionable event for N minutes → emit OVERSEER_ALERT and exit non-zero so the orchestrator can re-classify and decide.' Recommend cap of 2×p99-phase-duration observed in production. (2) Add a tier-1 health check 'wrapper-process alive but no event activity for N minutes' so the silent-stall mode is detectable. (3) Preserve the 3-restart path behind the rollout flag until the new path is proven on the Qwen route per the issue's staged-rollout plan.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once the wall-clock budget lands and is observable."
+      },
+      "requires_human_review": true,
+      "review_reason": "Open Decision #4 — shape of the budget should be pinned in plan."
+    },
+    {
+      "id": "R8",
+      "title": "Cache-prefix stability across MCP→CLI collapse",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS6 (prompt collapse) + WS7 (cache handling) + WS8 (MCP→CLI collapse)",
+      "impact": "WS7 measurements show prefix caching is robust (Anthropic 1h TTL, Qwen ≥60min idle survival, both routes survive `git commit`/cwd change/`<env>` flips per WS7 comment 1). BUT the measurements assumed a stable prefix. WS8 drops the ~28-tool MCP schema set from the cached prefix — this IS a prefix change, and during the rollout the prefix will toggle between 'with schemas' and 'without schemas' as the flag flips. Risk: split-cache rollout creates a transient cold-read window per route that the WS7 measurements didn't cover.",
+      "description": "Per #2908 WS7 measurements, the dynamic `<env>` (date, git status, cwd) is in the ~2K uncached suffix — these don't bust the prefix. But the MCP tool schemas ARE in the cached prefix (~17K floor read on every call per WS7 measurements). Dropping them with WS8 is a one-time prefix change. The risk is procedural, not architectural: the WS7 cost-gate must measure BEFORE-WS8 and AFTER-WS8 separately so the cache-warming step in WS8 rollout is accounted for; otherwise WS8 looks like a regression.",
+      "affected_files": [
+        "shared/egg_agent_prompts/mission.md (current BRC preamble — the prompt-collapse target)",
+        "sandbox/egg_agent_tools/server.py:33-61 (_render_nudge — the schema-listing prompt)",
+        "shared/egg_agent/client.py:332-346 (system_prompt append site)"
+      ],
+      "mitigation": {
+        "strategy": "(1) WS7 cost-gate measures `cache_read_input_tokens` across the boundary (last invocation before flag flip, first invocation after) on both routes; the cold-read accounting is expected and bounded. (2) Sequence WS6 (prompt collapse) and WS8 (MCP→CLI collapse) into a SINGLE prefix-change window rather than two — one cold read on rollout, not two. (3) Validate per the issue's staged-rollout plan on Qwen first.",
+        "effort": "LOW",
+        "residual_risk": "LOW — procedural, not technical."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R9",
+      "title": "WS0 spike scope must include trust-boundary + runtime-primitive verification, not just 'reaches consensus'",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS0 (de-risking spike, gates everything)",
+      "impact": "If the spike only verifies 'loop reaches consensus without churn' (the issue's stated criterion), it can miss slice-id propagation, memory-file atomicity, per-event MCP tool re-registration, and `--append-system-prompt` ordering. Spike says 'works' → WS1–8 burn engineering effort → trust-boundary risk surfaces in production fan-out where slice cardinality is higher.",
+      "description": "The issue says the spike must 'Confirm bounded per-event context and that memory is populated + consulted (delta-only re-analysis, no full re-read).' That's correctness; it does not cover the runtime-primitive risks in R1, R2, R4, R5 above. The issue-2270 / qwen3.7-max #2906 repro is one slice; the production fan-out is N slices with concurrent agent containers.",
+      "affected_files": [
+        "(spike scope is the artifact; no specific files yet)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Extend the WS0 spike acceptance criteria to include: (a) heartbeats observed wrapper-side with correct `slice_id`, (b) `--append-system-prompt` invoked exactly once (or `--system-prompt` if shifted), (c) MCP tool list registered + first tool call is `mcp__*` not `Bash` (existing integration_test pattern from `integration_tests/test_sandbox_mcp_tools_e2e.py`), (d) memory file atomicity verified via synthetic concurrent invocation. (2) These are cheap additions on top of the existing scope.",
+        "effort": "LOW",
+        "residual_risk": "LOW — spike-scope-only risk; mitigation is a checklist."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R10",
+      "title": "Test migration loses end-to-end SDK-spawn drift coverage",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "scope": "WS8 (MCP→CLI collapse — retire `tests/tools/test_mcp_cli_drift.py`; migrate `integration_tests/test_sandbox_mcp_tools_e2e.py` + `tests/sandbox/egg_agent_tools/test_server.py`)",
+      "impact": "`integration_tests/test_sandbox_mcp_tools_e2e.py` is gated `@pytest.mark.integration` + `EGG_LIVE_SDK=1` and verifies that the agent's FIRST tool_use block names an `mcp__*` tool rather than `Bash`. This is the SDK-spawn drift guard. Migrating it to 'direct-handler tests' (per WS8) loses that guard — the agent could regress to using Bash for BRC actions and direct-handler tests would all pass.",
+      "description": "Issue WS8 says: 'Retire/repurpose the MCP↔CLI drift test (`tests/tools/test_mcp_cli_drift.py`); migrate `integration_tests/test_sandbox_mcp_tools_e2e.py` + `tests/sandbox/egg_agent_tools/test_server.py` to direct-handler tests.' The MCP→CLI drift test is genuinely retirable IF the CLI shims themselves are retired — but `consensus_wrapper.py` itself uses the CLI (lines 596, 256 per the exploration agent's note) so the CLI shim won't fully disappear. The SDK-spawn drift test serves a different purpose: it catches regressions where the agent picks Bash over MCP. Post-MCP-retirement there will be no MCP tools, but the analogous concern still applies — does the per-event handler use the CLI primitive with stdin/file plumbing per R4, or does it fall back to Bash + argv?",
+      "affected_files": [
+        "tests/tools/test_mcp_cli_drift.py",
+        "integration_tests/test_sandbox_mcp_tools_e2e.py",
+        "tests/sandbox/egg_agent_tools/test_server.py"
+      ],
+      "mitigation": {
+        "strategy": "(1) Don't retire `integration_tests/test_sandbox_mcp_tools_e2e.py` — re-purpose it: 'the agent's first action on a CONSENSUS_PROPOSE event is `egg-orch consensus ack/nack` via stdin/file, not raw `bash -c \"egg-orch ... --reason '...'\"`'. (2) The `tests/sandbox/egg_agent_tools/test_server.py` namespace-registration coverage IS handler-direct testable; that migration is safe. (3) `tests/tools/test_mcp_cli_drift.py` is retirable but only after the CLI shim surface is finalized; defer the retirement until WS8 closes out.",
+        "effort": "LOW",
+        "residual_risk": "LOW once the re-purposed e2e test exists."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R11",
+      "title": "Dual-role ordering enforcement under stateless handler",
+      "category": "architecture",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "scope": "WS3 (next-action) — encoding of #2749 ordering",
+      "impact": "Dual-role agents (tester, risk_analyst, applier) MUST propose before they review per #2749 or they self-block the BRC round (peer producers waiting for their version sit idle, their own reviewers have no version to ACK). In the agent-held-wait model the BRC preamble's *Dual-Role Execution Order* banner does this work via prompt. In the stateless handler model, the server-side next-action MUST encode the ordering OR the model still has to know it — but the model now has minimal in-context preamble per WS6, so the server-side encoding is the safety net.",
+      "description": "Issue body banner: 'Producer steps 1–3 (ORIENT → WORK → PROPOSE) come FIRST. Do NOT call `egg-orch message wait-loop --for CONSENSUS_PROPOSE` as your scheduling primitive before your own propose.' This is currently a prose rule. With WS3 server-side sequencing + WS6 prompt collapse, the rule lives in next-action derivation OR is dropped on the floor. If dropped, dual-role agents may receive a 'review peer producer X' next-action before they've proposed, replicating the #2749 self-block on the new architecture.",
+      "affected_files": [
+        "orchestrator/routes/messages.py (BRC matrix authority)",
+        "WS3 next-action derivation (net-new)",
+        "shared/egg_agent_prompts/mission.md (banner text being collapsed)"
+      ],
+      "mitigation": {
+        "strategy": "(1) Pin a next-action unit test: 'dual-role agent in WORKING state with peer producer CONSENSUS_PROPOSE pending → next-action MUST be \"propose\", not \"review\".' (2) Symmetric test post-propose: 'dual-role agent in PROPOSED state with peer producer CONSENSUS_PROPOSE pending → next-action MAY be \"review\".' (3) The lifecycle text in the preamble explicitly mentions tester (`integration_tests/local_pipeline/conftest.py`-style fixture) and `risk_analyst` (this role) — both should be in the test matrix.",
+        "effort": "LOW",
+        "residual_risk": "LOW once the test exists."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R12",
+      "title": "Pre-confirm-wait CONSENSUS_CONFIRMED rejection (#2064, #2482) regression",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "scope": "WS1 (consensus_wrapper rewrite) + WS3 (next-action)",
+      "impact": "The orchestrator rejects pre-confirm waits on CONSENSUS_CONFIRMED with HTTP 400 (#2064, #2482) because the producer's own confirm is what generates the signal — waiting on it pre-confirm is a deadlock. The BRC preamble's Producer Lifecycle step 4 explicitly warns about this. If the wrapper's event-pump wait specifies CONSENSUS_CONFIRMED before the producer has confirmed, the orchestrator returns 400 — recoverable, but noisy and easy to miss in rollout testing.",
+      "description": "Current waits include `--for STATUS` precisely so the orchestrator's directed 'Ready to confirm' nudge wakes the producer (#2531). The wrapper-side wait would need to know whether this role has confirmed yet to decide whether to include CONSENSUS_CONFIRMED in its filter set. State is server-side, so next-action can supply it — but only if WS3 encodes this correctly.",
+      "affected_files": [
+        "orchestrator/routes/messages.py (the 400 rejection logic)",
+        "WS1 wrapper-side wait construction",
+        "Current Producer Lifecycle step 4 / step 6 distinction"
+      ],
+      "mitigation": {
+        "strategy": "(1) Wrapper-side wait construction: pre-confirm waits OMIT CONSENSUS_CONFIRMED; post-confirm waits INCLUDE it. Source of truth: next-action / consensus status. (2) Unit test: pre-confirm wait spec must not include CONSENSUS_CONFIRMED.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R13",
+      "title": "Memory-file growth without compaction primitive (Open Decision #1)",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "scope": "WS2 (memory shape — Open Decision #1)",
+      "impact": "Append-only memory shape (one option) is cache-friendly (memory prefix is byte-stable across events, doesn't bust the cache each event) but grows unbounded across long phases; without compaction the per-event context grows over time and offsets the WS7 cache savings. Distill-rewrite shape (the other option) is bounded but busts the memory portion of the prefix every event.",
+      "description": "Open Decision #1 in the issue body explicitly names this trade-off. The risk is choosing append-only AND not specifying a compaction trigger, OR choosing distill-rewrite AND under-measuring the per-event cache cost.",
+      "affected_files": [
+        ".egg-state/agent-outputs/<role>/brc-memory.md"
+      ],
+      "mitigation": {
+        "strategy": "(1) If append-only: specify a compaction trigger (e.g., 'when memory > N KB, distill the closed-out producer entries'). (2) If distill-rewrite: measure per-event cost in WS0 spike and confirm it's within the cost gate. (3) Action-scaffolded format (per issue WS2 — off `brc_ack`/`brc_nack`) reduces curation reliability risk and keeps growth bounded vs free-form journaling.",
+        "effort": "LOW",
+        "residual_risk": "LOW with either choice + measurement."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    },
+    {
+      "id": "R14",
+      "title": "Cross-role memory-file path collision",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "scope": "WS2 (memory artifact path convention)",
+      "impact": "If the memory file path convention is `.egg-state/agent-outputs/<role>/brc-memory.md` and two roles in the same pipeline have non-disjoint allowlists (every reviewer + risk_analyst + applier + architect + task_planner + refiner + doc-updater can write `.egg-state/agent-outputs/`), a misimplemented per-role path could in principle write to another role's memory. Per `shared/egg_restrictions/patterns.py:382-390` and `:416-419`, the directory IS shared at the role-restriction layer; per-role isolation is by file path convention, not gateway enforcement.",
+      "description": "The risk is low because no agent has an incentive to write to a peer's memory file, but a path-construction bug in the wrapper (e.g., `EGG_AGENT_ROLE` empty → path collapses to `.egg-state/agent-outputs/brc-memory.md`) could corrupt shared state.",
+      "affected_files": [
+        "shared/egg_restrictions/patterns.py:382-390, 416-419",
+        "WS2 memory-file path convention"
+      ],
+      "mitigation": {
+        "strategy": "(1) Path construction must fail-closed: if `EGG_AGENT_ROLE` is missing or empty, error before writing. (2) Test the empty-role case. (3) Document the convention so other roles don't accidentally write peer memory.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false,
+      "review_reason": ""
+    }
+  ],
+  "runtime_primitive_audit_per_2594": {
+    "rationale": "Per #2594 + the operator's instruction in the role briefing, flag runtime primitives + trust boundaries that the plan assumes exist in a specific form. The BRC event-pump rewrite touches several primitives that exist BUT only in a particular shape; spike or implement-phase NACKs will hit any mismatch.",
+    "primitives": [
+      {
+        "name": "EGG_SLICE_ID env var",
+        "status": "EXISTS",
+        "evidence": "Written: orchestrator/kubernetes_spawner.py:925 (canonical), :162 (protected key), :911 / :1341 / :1496 (restart re-propagation). Read: sandbox/egg_lib/orch_cli.py via resolve_slice_id(), sandbox/egg_agent_tools/handlers/brc.py, handlers/_gateway.py, orchestrator/routes/pipelines.py, routes/messages.py. Integration test: integration_tests/regression/test_slice_spawn_env_threading.py.",
+        "implication": "Migration of heartbeat + keepalive to wrapper-side is supported by env path; the wiring exists. Risk is procedural (R2)."
+      },
+      {
+        "name": "EGG_PIPELINE_ID env var (cursor-threading)",
+        "status": "EXISTS",
+        "evidence": "Used in /tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* per #2323. The CLI persists response cursor across wait-loop re-entries.",
+        "implication": "Wrapper-side wait inherits this; per-event cursor threading should work. But the per-event handler shouldn't ALSO maintain its own cursor or they'll race; pick one."
+      },
+      {
+        "name": "--append-system-prompt CLI flag (Claude Code)",
+        "status": "EXISTS but FOOTGUN",
+        "evidence": "Per cllm bug aside in #2908, Claude Code honors only the LAST `--append-system-prompt`. Today's egg usage: only sandbox/egg_lib/sdlc_hitl.py:430 (single use, no chain). Agent SDK path goes through options.system_prompt (shared/egg_agent/client.py:332-346), NOT the CLI flag.",
+        "implication": "If WS1 shifts to `claude -p` per-event, any code that chains `--append-system-prompt` silently drops earlier prompts. Pin in plan whether to stay on Agent SDK or shift (R1)."
+      },
+      {
+        "name": "CLI --reason / --summary / --files-reviewed prose handling",
+        "status": "MISSING (stdin/file path)",
+        "evidence": "sandbox/egg_lib/orch_cli.py:2574-2576, 2659, 2706, 3265, 3524, 3573, 3600, 3647, 3660 — all argv. No `--reason-from-stdin` or `--reason-file` exists in the file. `cmd_consensus_propose` has `--file` for the whole JSON payload but not for prose fields specifically.",
+        "implication": "WS8 hard constraint requires this primitive; it's net-new (R4)."
+      },
+      {
+        "name": "Atomic-write helper (agent-facing)",
+        "status": "MISSING (shared helper)",
+        "evidence": "shared/egg_contracts/usage_loader.py:95 (private _atomic_write, JSON-only); shared/egg_overseer/state.py:265-289 (NamedTemporaryFile + fsync + os.replace + flock — overseer-internal). No sandbox-facing helper.",
+        "implication": "WS2 memory writes need this primitive; duplicate or promote the overseer template (R5)."
+      },
+      {
+        "name": "consensus next-action endpoint",
+        "status": "MISSING",
+        "evidence": "grep next_action/next-action in sandbox/egg_lib/orch_cli.py returns nothing. Subparsers are propose / ack / nack / withdraw / confirmed / status.",
+        "implication": "WS3 is net-new endpoint or net-new shape on consensus status (R3, Open Decision #3)."
+      },
+      {
+        "name": "consensus status --json shape",
+        "status": "EXISTS",
+        "evidence": "sandbox/egg_lib/orch_cli.py:2783 delegates to handlers/brc.brc_get_state. With --json: returns consensus dict with is_complete, agents (per-role producer_phase / reviewer_phase / confirmed), blocking_agents list, pre_merge_conditions list with reviewer/producer/condition/resolved_in_diff, slice_id scope.",
+        "implication": "Reusable for WS3 sequencing reuse path. But missing: per-role last-reviewed-version, open-NACK aggregation per #2142 producer barrier state, conditional-ACK obligation outstanding-vs-resolved status. Extending consensus status is plausible; new endpoint is also plausible. Pin in plan."
+      },
+      {
+        "name": "Heartbeat slice-scoped emission",
+        "status": "EXISTS but agent-side",
+        "evidence": "handlers/message.py:234 (_start_wait_loop_heartbeat daemon thread), :321 (slice_id capture per request), :220-221 (slice_id forwarded in payload).",
+        "implication": "Migration target is the wrapper, not the agent (R2)."
+      },
+      {
+        "name": "Gateway session keepalive (#2451)",
+        "status": "EXISTS",
+        "evidence": "Same site as heartbeats (handlers/message.py:321) — slice_id forwarded so gateway can reconstruct `egg-agent-{pid}-{slice}-{role}` container identity.",
+        "implication": "Migration coupled with heartbeat (R2)."
+      },
+      {
+        "name": "Idle/no-progress safety detection",
+        "status": "EXISTS but state-shape based",
+        "evidence": "orchestrator/health_checks/tier1/consensus_stall.py (60s grace), incomplete_consensus_stall.py (blocking-agent set unchanged across N ticks), orchestrator/overseer/monitor.py:213 (_classify_stall), :1142.",
+        "implication": "State-shape detectors don't fire on silent agents that never change the blocking-agent set. Wall-clock budget needed (R7, Open Decision #4)."
+      },
+      {
+        "name": "MCP→Handler dispatch parity",
+        "status": "EXISTS",
+        "evidence": "tests/tools/test_mcp_cli_drift.py asserts every MCP tool with declared cli_command shares handler with its cmd_* shim. ~18/28 MCP tools already have CLI parity per #2908 WS8 prose; the remainder (brc get-state, list-blocking, phase get-context, resolve-obligation, read-peer-artifact) are net-new CLI.",
+        "implication": "WS3 sequencing CLI primitives (get-state, list-blocking) are net-new but small; build CLI-first under WS3 per the issue's stated sequencing."
+      },
+      {
+        "name": "Role write-scoping for memory file path",
+        "status": "EXISTS",
+        "evidence": "shared/egg_restrictions/patterns.py:382-390 (RISK_ANALYST_PATTERNS allows .egg-state/agent-outputs/), :416-419 (_REVIEWER_ALLOWED includes it), and per-role expansions for ARCHITECT/TASK_PLANNER/REFINER/APPLIER/doc-updater. tool_interceptor.check_file_write_permission + gateway phase_filter.validate_agent_push enforce.",
+        "implication": "All BRC consensus roles can write the memory artifact path. Cross-role collision is a path-construction discipline issue (R14), not a gateway-enforcement gap."
+      }
+    ]
+  },
+  "trust_boundary_audit": {
+    "agent_pod_to_orchestrator": {
+      "current": "Agent → orchestrator over MCP server (in-process) and via gateway HTTP (gateway sidecar). Authentication via Pod identity + EGG_AGENT_ROLE env. Role restrictions enforced at tool_interceptor.check_file_write_permission AND gateway phase_filter.validate_agent_push.",
+      "post_2908": "Per-event handler still in pod, still uses CLI (which goes through gateway), still authenticated by Pod identity. No new trust boundary crossed. Gateway-side validation is unchanged.",
+      "risk": "Low — boundary preserved."
+    },
+    "wrapper_to_orchestrator": {
+      "current": "Wrapper is a bash script in the agent pod; it shells `egg-orch message wait` and similar. Same gateway path.",
+      "post_2908": "Wrapper now also emits heartbeats + keepalive (R2) and calls consensus next-action. Same gateway path; same trust boundary; just more callers.",
+      "risk": "Low — boundary preserved; surface widened."
+    },
+    "memory_file_within_pod": {
+      "current": "N/A (no memory file today).",
+      "post_2908": ".egg-state/agent-outputs/<role>/brc-memory.md is per-role. Within-pod, same trust boundary as the rest of the agent's filesystem. Cross-pod the file ships via git (BRC artifact propose path) so peer roles in other pods could in principle read but not write — git push is gateway-validated.",
+      "risk": "Low. R5 (atomicity) and R14 (path collision) are within-pod operational, not trust-boundary."
+    },
+    "shared_event_message_types": {
+      "names": ["CONSENSUS_PROPOSE", "CONSENSUS_ACK", "CONSENSUS_NACK", "CONSENSUS_WITHDRAW", "CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW", "CONSENSUS_OBLIGATION_RESOLVED", "STATUS", "HANDOFF", "AGENT_FAILED", "NUDGE", "OVERSEER_ALERT", "HEARTBEAT"],
+      "shared_across": ["orchestrator/routes/messages.py", "sandbox/egg_agent_tools/handlers/message.py", "wrapper scripts", "next-action derivation (WS3 net-new)"],
+      "lockstep_required": "YES — WS3 next-action MUST handle every shape the wait-loop currently filters on, OR explicitly document which are wrapper-only. Drift between orchestrator-side derivation and wrapper-side filtering = silent missed events.",
+      "risk": "MEDIUM — well-shaped: add a parity test that asserts the wait-loop filter set ⊆ next-action handled-types."
+    },
+    "mcp_tool_schemas_in_cache_prefix": {
+      "current": "~28 tool schemas in cached prefix (per WS7 measurements).",
+      "post_2908": "Schemas dropped (WS8). One-time prefix change.",
+      "risk": "LOW — procedural (R8)."
+    }
+  },
+  "rollback_plan": {
+    "philosophy": "Flag-gated staged rollout per the issue; rollback at each WS boundary is cheap because the old path is retained until the new path is proven.",
+    "stages": [
+      "WS0 (spike) — rollback = revert the spike branch; no production impact (validation-only on issue-2270 / qwen3.7-max).",
+      "WS1 (event-pump wrapper) — rollback = flip the flag to use the legacy 3-restart capped wrapper. Keep the old path in `consensus_wrapper.py` until WS1 has shipped two consensus rounds without churn on Qwen.",
+      "WS2 (memory artifact) — rollback = pipeline runs without memory (agent re-analyzes from BRC matrix only). Memory file is purely additive; absence is a slower-cycle, not a broken-cycle.",
+      "WS3 (next-action) — rollback = revert to model-volunteered re-entry; old wait-loop filter set still works.",
+      "WS4 (liveness migration) — rollback = re-enable agent-side heartbeats (don't delete the code; flag-gate). High-risk if forgotten — pin this as a release-checklist item.",
+      "WS6 (prompt collapse) — rollback = restore the BRC preamble template. Prompt cache cold-reads on rollback (one-time, bounded).",
+      "WS7 (cache) — measurement-only; rollback = stop measuring.",
+      "WS8 (MCP→CLI collapse) — rollback = re-register MCP servers in client.py + restore SYSTEM_PROMPT_NUDGE. High-risk if the CLI shims have drifted post-retirement; pin a deprecation-period acceptance criterion ('keep MCP server registration code path behind flag for N weeks after WS8 confirm-clean')."
+    ]
+  },
+  "areas_requiring_human_review": [
+    "Open Decision #1 (memory shape — append-only vs distill-rewrite) — needs operator pin; bears on R6 (adversarial re-review) + R13 (growth).",
+    "Open Decision #2 (SDK --resume for NACK→re-review thread vs uniform fresh+memory) — bears on R1 (spawn primitive shift).",
+    "Open Decision #3 (next-action surface — reuse `consensus status` vs new endpoint) — bears on R3 (sequencing correctness).",
+    "Open Decision #4 (idle/no-progress safety budget shape replacing 3-restart cap) — bears on R7.",
+    "Spawn primitive choice (`python3 -m egg_agent` Agent SDK vs `claude -p` per-event one-shot) — issue prose suggests `claude -p` but the safest landing keeps the Agent SDK entrypoint. Operator/architect decision."
+  ],
+  "open_questions_for_plan_phase": [
+    "Q1 — Pin the spawn primitive (R1, Open Decision #2): Agent SDK programmatic options or `claude -p` CLI? Both are viable; both have plumbing implications that ripple into WS1/WS8.",
+    "Q2 — Pin the next-action surface (R3, Open Decision #3): extend `consensus status` shape (add per-role last-reviewed-version, NACK-barrier state, obligation outstanding-vs-resolved), or create `consensus next-action --role R`? Extension is cheaper and the status endpoint is already widely consumed; new endpoint cleanly separates concerns.",
+    "Q3 — Pin the memory shape (R6, R13, Open Decision #1): append-only with compaction trigger OR distill-rewrite with per-event cost measurement? Append-only is cache-friendly but needs a compaction primitive; distill-rewrite is bounded but invalidates the memory portion of the prefix each event.",
+    "Q4 — WS0 spike acceptance criteria (R9): the issue's stated bar is 'reaches consensus without churn + bounded per-event context + memory consulted'. Should also include slice-id-tagged heartbeats, MCP/tool registration round-trip, --append-system-prompt order, memory-file atomicity. Cheap additions on top of stated scope.",
+    "Q5 — WS8 prose-stdin/file primitive design (R4): `--reason-file <path>` only, or also `--reason -` for stdin, or a generic `--from-file <path>` that takes JSON? Recommend `--reason-file` + `--summary-file` + `--files-reviewed-file` as the explicit set; a generic catchall is harder to test and lint.",
+    "Q6 — Wall-clock idle budget shape (R7, Open Decision #4): per-role budget vs per-pipeline budget? Cap value? Recommend 2× p99-phase-duration per role, observable as a tier-1 health check."
+  ],
+  "complexity_assessment": {
+    "scope": "Large — touches consensus_wrapper.py rewrite, sandbox MCP tool retirement, BRC preamble collapse, new server-side sequencing surface, memory artifact schema. Net deletion-heavy inside the BRC subsystem but with several net-new primitives (memory writes, wall-clock budget, prose stdin/file plumbing, next-action derivation).",
+    "interfaces_changed": "Internal: BRC matrix consumer pattern, wrapper-vs-agent ownership of wait/heartbeat/keepalive, agent action surface (MCP→CLI). External: none (operator-facing orchestrator MCP unchanged per issue scope).",
+    "blast_radius": "BRC consensus subsystem only. Pod/worktree/role/SDK/permissions untouched. Pipeline correctness is the failure mode if any of R1–R3 land wrong; cost/cache regression if R7/R8 land wrong; isolated test gaps if R10 lands wrong.",
+    "compounding_risks": "R1 (spawn primitive shift) compounds with R4 (CLI prose plumbing) compounds with R8 (cache stability) — they share the per-event handler surface. Land in the order spike → primitive decision → CLI plumbing → schema drop, not the reverse."
+  ],
+  "external_research_sources": [
+    {
+      "type": "operator_comment",
+      "ref": "github.com/jwbron/egg/issues/2908#issuecomment-4586168021",
+      "summary": "Anthropic-route cache measurements: cross-session prefix caching works (~92% of input as cache_read), default TTL is 1 hour (ephemeral_1h_input_tokens), dynamic <env>/git status/cwd are in uncached suffix → keep-warm + pin/strip unnecessary on Anthropic route."
+    },
+    {
+      "type": "operator_comment",
+      "ref": "github.com/jwbron/egg/issues/2908#issuecomment-4588005050",
+      "summary": "Qwen-route cache measurements: cross-session caching works (~99.99%), survives 5.5-min idle, cost_callback state files are the instrumentation source (Claude Code usage.* is all-zero on Qwen)."
+    },
+    {
+      "type": "operator_comment",
+      "ref": "github.com/jwbron/egg/issues/2908#issuecomment-4588209902",
+      "summary": "Cache TTL ceiling sweep: both routes survive 60-min idle with zero re-creation. Observed BRC idles peak at 10–13 min → keep-warm unnecessary on both routes. cllm bug surfaced: `--append-system-prompt` silently clobbered earlier ones."
+    }
+  ]
+}
