@@ -290,11 +290,14 @@ class TestPopulateContractFromPlan:
         t.checkpoint_id = "ckpt-deadbeef"
         t.review_cycles = 3
         t.escalated = True
-        # Paired SYSTEM-owned impasse-delegation state. The plan
-        # default for task-1-1 is ``"coder"``; a successful delegation
-        # would flip it to ``"tester"`` and bump the counter — both
-        # must survive a re-populate together or the slice-loop
-        # dispatcher will re-spawn the original producer on restart.
+        # Paired SYSTEM-owned impasse-delegation state. ``SAMPLE_PLAN``
+        # doesn't specify a ``role:`` for task-1-1, so the plan parser
+        # emits ``role=None`` (the slice-loop dispatcher at
+        # ``pipelines.py:6045-6052`` consumes ``None`` as coder for
+        # filtering); a successful delegation would flip the durable
+        # value to ``"tester"`` and bump the counter — both must
+        # survive a re-populate together or the slice-loop dispatcher
+        # will re-spawn the original producer on restart.
         t.role = "tester"
         t.delegation_attempts = 1
         t.gaps = [
