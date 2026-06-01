@@ -71,6 +71,8 @@ Each agent is registered in the peer consensus tracker before spawning begins.
 
 ## Consensus Wrapper
 
+> **Two emission paths from slice-2 of [#2908](https://github.com/jwbron/egg/issues/2908):** the section below describes the **legacy template** path emitted when `EGG_BRC_EVENT_PUMP` is unset or `false` — the production default until slice-4 flips it. The opt-in event-pump path replaces the model-driven restart loop with a deterministic wrapper-driven loop, moves the heartbeat and gateway-session keep-alive from `message_wait_loop` to wrapper-side subshells, and swaps the 3-restart FAIL cap for an idle/no-progress overseer-alert budget. See [Orchestrator Architecture — BRC Event-Pump Wrapper](../architecture/orchestrator.md#brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) and the wait-side companion in [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) for the new path.
+
 All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with recovery instructions instead of silently marking it as ready.
 
 **How it works:**
