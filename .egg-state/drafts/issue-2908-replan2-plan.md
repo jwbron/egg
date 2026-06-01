@@ -1100,14 +1100,25 @@ slices:
           MUST land BEFORE slice-4's flag flip — the
           rebuild-verification is part of this task's acceptance.
 
-          Role assignment: ``coder`` (not documenter) — per #1537
-          the agent-config rule files are functional code, not
-          documentation (the ``coder`` allowlist explicitly exempts
-          ``sandbox/agent-config/rules/*.md`` from the docs block per
-          ``shared/egg_restrictions/patterns.py:243-247``). Both
-          mission.md paths sit under
-          ``sandbox/`` and ``sandbox/`` (claude-rules), reachable by
-          the coder role.
+          Role assignment: ``documenter`` (deviating from #1537's
+          coder-spirit for agent-config rule files). Reason: the
+          gateway-enforced patterns at
+          ``shared/egg_restrictions/patterns.py`` exempt
+          ``sandbox/agent-config/rules/*.md`` from the coder docs
+          block (lines 246-247, per #1537) but do NOT exempt
+          ``sandbox/claude-rules/*.md`` — and the Dockerfile-baked
+          runtime copy is the ``claude-rules`` path
+          (sandbox/Dockerfile:212-214). A coder-role task cannot
+          push ``sandbox/claude-rules/mission.md`` (verified via
+          ``check_file_restriction``: coder is blocked, documenter
+          can write). Documenter has write access to both paths via
+          the ``DEFAULT_DOCS_GLOBS`` ``**/*.md`` pattern at
+          ``patterns.py:177-181``. Splitting this into two tasks
+          (coder + documenter) doubles the BRC review surface for
+          one rewrite — keeping it as a single documenter task is
+          the lighter-weight resolution. (A follow-up issue should
+          either consolidate the two paths or add the ``claude-rules``
+          allowlist entry to coder.)
         acceptance: |-
           BOTH ``sandbox/agent-config/rules/mission.md`` AND
           ``sandbox/claude-rules/mission.md`` reflect event-handler
@@ -1124,7 +1135,7 @@ slices:
           exercised and produces a new image tag; the documented
           rebuild-trigger is recorded in the PR body so slice-4 can
           verify the new image deployed BEFORE the flag flip.
-        role: coder
+        role: documenter
         files:
           - sandbox/agent-config/rules/mission.md
           - sandbox/claude-rules/mission.md
