@@ -1309,9 +1309,8 @@ class TestBootstrapResumeAliveGuard:
 
     These tests close the integration gap that
     ``TestSliceAgentsAlive`` (unit) cannot — exercising the actual
-    call site at ``routes/pipelines.py:_bootstrap_check_one``'s
-    Layer-C ``resume`` branch end-to-end through
-    ``_run_implement_phase_slices``.
+    call site at the Layer-C ``resume`` branch in
+    ``routes/pipelines.py:_run_implement_phase_slices`` end-to-end.
     """
 
     def _make_spawner(self, *, live_pods: list[Any]) -> MagicMock:
