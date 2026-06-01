@@ -525,10 +525,20 @@ slices:
           orchestrator code, not wrapper bash.
         acceptance: |-
           POST endpoint returns 200 with the documented JSON for each
-          (role, BRC-state) combination: producer-PROPOSED, reviewer with
-          pending proposal, dual-role mid-review, open-NACK barrier
-          (#2142) blocking re-propose, stale-version (#2482) requiring
-          re-review, confirmation eligible, role complete.
+          (role, BRC-state) combination:
+          (1) producer-PROPOSED;
+          (2) reviewer with pending proposal;
+          (3) dual-role WORKING + peer CONSENSUS_PROPOSE pending →
+              next-action returns ``propose`` (NOT ``ack/nack``) per
+              #2749 ordering rule (risk_analyst R11 sub-case a);
+          (4) dual-role post-own-propose with pending peer review →
+              next-action returns ``ack`` / ``nack`` (risk_analyst R11
+              sub-case b);
+          (5) open-NACK barrier (#2142) blocking re-propose;
+          (6) conditional ACK still in effect;
+          (7) stale-version (#2482) requiring re-review;
+          (8) confirmation eligible;
+          (9) role complete.
         role: coder
         files:
           - orchestrator/routes/consensus.py
@@ -681,8 +691,12 @@ slices:
           (role, slice_id, phase); handler return values unchanged.
         acceptance: |-
           Tests pass under ``make test``; one test per
-          ``EGG_BRC_MEMORY`` mode plus the schema-completeness,
-          decision-log-cap, atomic-write, fail-closed, and
+          ``EGG_BRC_MEMORY`` mode (``off`` produces zero file
+          touches; ``write-only`` produces writes but ZERO reads —
+          the read code path is exercised through a mocked-fixture
+          spy that asserts no read calls happen; ``full`` enables
+          both); plus the schema-completeness, decision-log-cap,
+          atomic-write (fault injection), fail-closed, and
           subdirectory tests.
         role: tester
         files:
@@ -691,16 +705,20 @@ slices:
         description: |-
           Unit tests for TASK-1-2 orchestrator route at
           ``orchestrator/tests/test_consensus_next_action.py`` (new file).
-          Cover the seven derivation cases listed in TASK-1-2 acceptance
-          (producer-PROPOSED, reviewer-pending, dual-role-mid-review,
-          open-NACK barrier #2142, conditional ACK, stale-version
-          #2482, confirm eligible, role complete) using
+          Cover the nine derivation cases listed in TASK-1-2 acceptance
+          — producer-PROPOSED, reviewer-pending, dual-role WORKING+peer
+          PROPOSE-pending (returns ``propose`` per risk_analyst R11
+          sub-case a), dual-role post-own-propose (returns ``ack/nack``
+          per R11 sub-case b), open-NACK barrier #2142, conditional ACK,
+          stale-version #2482, confirm eligible, role complete — using
           ScriptedProvider-driven fixtures from
           ``orchestrator/tests/conftest.py``.
         acceptance: |-
           Tests pass under ``make test``; route handler logic exercised
-          for each documented (role, BRC-state) combo; 200 status with
-          expected JSON shape verified per case.
+          for each of the nine documented (role, BRC-state) combos; 200
+          status with expected JSON shape verified per case; the two
+          dual-role sub-cases are distinct named tests (NOT collapsed
+          into one).
         role: tester
         files:
           - orchestrator/tests/test_consensus_next_action.py
@@ -764,7 +782,13 @@ slices:
           ``role_complete=true`` by calling ``egg-orch consensus
           confirmed`` and exits 0; loop handles 409 stale_version by
           re-fetching state without backoff; the snapshot test asserts
-          the six-event wait-filter set present.
+          the six-event wait-filter set present; the wait-filter set
+          is **constructed conditionally from
+          ``consensus_status.is_role_confirmed``** — pre-confirm waits
+          OMIT ``CONSENSUS_CONFIRMED`` from the filter (per
+          risk_analyst R12 / orchestrator HTTP-400 rejection
+          documented in #2064/#2482), post-confirm STAY-ALIVE waits
+          INCLUDE it.
         role: coder
         files:
           - orchestrator/consensus_wrapper.py
@@ -878,18 +902,28 @@ slices:
           cadence; (v) idle budget alert at configured threshold;
           (vi) 409 stale_version handled as re-fetch (not
           retry-with-backoff); (vii) ``role_complete=true`` path
-          calls ``egg-orch consensus confirmed`` and exits 0. The
-          existing 3-cap tests must continue to pass with flag off.
-          End-to-end validation is OUT OF SCOPE for slice-2 (deferred
-          to slice-4 spike).
+          calls ``egg-orch consensus confirmed`` and exits 0;
+          (vii.b) the wrapper does NOT also call ``egg-orch progress
+          complete`` (defensive guard against the pseudocode-typo
+          the architect corrected); (viii) the wait-filter
+          construction OMITS ``CONSENSUS_CONFIRMED`` pre-confirm and
+          INCLUDES it post-confirm (risk_analyst R12); (ix)
+          unset-``EGG_SLICE_ID`` case (plan/refine phase) emits
+          either explicit-null or omitted slice_id on the heartbeat
+          payload (NOT empty-string). The existing 3-cap tests must
+          continue to pass with flag off. End-to-end validation is
+          OUT OF SCOPE for slice-2 (deferred to slice-4 spike).
         acceptance: |-
           All tests pass under ``make test``; flag-off snapshot
           matches existing template byte-for-byte; flag-on snapshot
-          shows expected new bash loop with the six-event wait filter;
-          heartbeat-slice_id test fails if the wiring regresses
-          (assertion directly on the request body); both heartbeat
-          and keep-alive cadence tests pass deterministically (no
-          flaky sleeps).
+          shows expected new bash loop with the six-event wait filter
+          AND the conditional ``CONSENSUS_CONFIRMED`` inclusion
+          (pre-/post-confirm); heartbeat-slice_id test fails if the
+          wiring regresses (assertion directly on the request body);
+          test (vii.b) asserts ``rg 'progress complete'`` against
+          the emitted bash returns zero matches; both heartbeat and
+          keep-alive cadence tests pass deterministically (no flaky
+          sleeps).
         role: tester
         files:
           - orchestrator/tests/test_consensus_wrapper.py
@@ -1006,7 +1040,11 @@ slices:
           foot-gun guidance (Producer Lifecycle step 4 wait-loop
           plumbing; Producer step 6 STAY-ALIVE loop; cursor /
           ``--since`` guidance). KEEP: agent roster, reviewer/producer
-          assignments, dual-role ordering banner (these are not
+          assignments, dual-role ordering banner; AND the
+          dual-mandate adversarial re-review banner at
+          ``orchestrator/routes/pipelines.py:12849-12872`` (the
+          "Your re-review has TWO equal-weight mandates…" block —
+          behavioural framing anchored on by risk_analyst R6, NOT
           seam-related). The three callers at
           ``orchestrator/routes/pipelines.py:13659, :13692, :13720``
           are unchanged — only the preamble text collapses. Slice-3
@@ -1017,7 +1055,10 @@ slices:
           Snapshot test for the collapsed preamble lands at
           ``orchestrator/tests/test_brc_preamble_collapsed.py``;
           STAY-ALIVE / wait-loop / cursor sections absent; roster +
-          assignments preserved; preamble byte size drops by ≥ 40%
+          assignments preserved; the phrase ``Both mandates have
+          equal weight`` (from the dual-mandate banner at
+          pipelines.py:12849-12872) appears in the post-collapse
+          preamble snapshot; preamble byte size drops by ≥ 40%
           (measured against pre-collapse snapshot).
         role: coder
         files:
@@ -1025,33 +1066,68 @@ slices:
       - id: TASK-3-4
         description: |-
           Rewrite the STAY-ALIVE / wait-loop section of
-          ``sandbox/agent-config/rules/mission.md`` (lines 151–154
-          plus surrounding "Concurrent Execution Mode" section
-          starting at line 137) to the event-handler contract: the
-          agent is invoked one-shot per event by the wrapper; act on
-          the single event, update memory, exit naturally. Remove
-          "never exit before the orchestrator stops you" — under the
-          new model the wrapper owns lifecycle. Keep the
-          Anti-Sycophancy / Structured-Progress-Reporting /
-          HITL-vs-OVERSEER_ALERT / Handling-Agent-Failures sections
-          unchanged. The mission.md rewrite reaches the agent pod
-          only after the sandbox image is rebuilt and pods are
-          restarted; this MUST land BEFORE slice-4's flag flip — the
+          ``mission.md`` (lines 151–154 plus surrounding "Concurrent
+          Execution Mode" section starting at line 137) to the
+          event-handler contract: the agent is invoked one-shot per
+          event by the wrapper; act on the single event, update
+          memory, exit naturally. Remove "never exit before the
+          orchestrator stops you" — under the new model the wrapper
+          owns lifecycle. Keep the Anti-Sycophancy /
+          Structured-Progress-Reporting / HITL-vs-OVERSEER_ALERT /
+          Handling-Agent-Failures sections unchanged.
+
+          **The mission.md rule exists at TWO paths on disk that are
+          maintained as byte-identical duplicates with NO automated
+          sync** (reviewer_plan blocker; independently verified via
+          ``sandbox/Dockerfile:212-214`` `COPY sandbox/claude-rules/*.md`
+          and ``sandbox/entrypoint.py:967``
+          ``_CLAUDE_RULES_DIR = Path("/opt/claude-rules")``). The
+          Dockerfile-baked path that reaches the running agent pod
+          is ``sandbox/claude-rules/mission.md`` — that one is the
+          canonical runtime source. ``sandbox/agent-config/rules/mission.md``
+          is the documentation-style duplicate. **Both files MUST be
+          rewritten** so that after the slice-3 commit
+          ``diff sandbox/agent-config/rules/mission.md sandbox/claude-rules/mission.md``
+          still returns empty AND the new content is present in
+          both. Treat ``sandbox/claude-rules/mission.md`` as the
+          runtime-load truth source; the other path is kept in lock
+          step for now. (A separate follow-up issue should
+          consolidate or symlink the two paths — out of scope for
+          this slice.)
+
+          The mission.md rewrite reaches the agent pod only after
+          the sandbox image is rebuilt and pods are restarted; this
+          MUST land BEFORE slice-4's flag flip — the
           rebuild-verification is part of this task's acceptance.
+
+          Role assignment: ``coder`` (not documenter) — per #1537
+          the agent-config rule files are functional code, not
+          documentation (the ``coder`` allowlist explicitly exempts
+          ``sandbox/agent-config/rules/*.md`` from the docs block per
+          ``shared/egg_restrictions/patterns.py:243-247``). Both
+          mission.md paths sit under
+          ``sandbox/`` and ``sandbox/`` (claude-rules), reachable by
+          the coder role.
         acceptance: |-
-          ``mission.md`` reflects event-handler semantics; the "stay
-          alive" / "wait-loop" / "never exit" lines are replaced
-          with the event-handler contract; the other four sections
-          unchanged; doc renders cleanly. Acceptance verification:
-          the sandbox-image build step (documented in
-          ``docs/guides/sandbox-image.md`` or equivalent — locate
-          via Grep at implement-time) is exercised and produces a
-          new image tag; the documented rebuild-trigger is recorded
-          in the PR body so slice-4 can verify the new image
-          deployed BEFORE the flag flip.
-        role: documenter
+          BOTH ``sandbox/agent-config/rules/mission.md`` AND
+          ``sandbox/claude-rules/mission.md`` reflect event-handler
+          semantics; the "stay alive" / "wait-loop" / "never exit"
+          lines are replaced with the event-handler contract; the
+          other four sections unchanged; ``diff
+          sandbox/agent-config/rules/mission.md
+          sandbox/claude-rules/mission.md`` returns empty after the
+          commit (the two duplicates remain byte-identical); ``rg
+          'STAY-ALIVE\b|wait-loop|never exit'`` against both files
+          returns zero matches. The sandbox-image build step
+          (documented in ``docs/guides/sandbox-image.md`` or
+          equivalent — locate via Grep at implement-time) is
+          exercised and produces a new image tag; the documented
+          rebuild-trigger is recorded in the PR body so slice-4 can
+          verify the new image deployed BEFORE the flag flip.
+        role: coder
         files:
           - sandbox/agent-config/rules/mission.md
+          - sandbox/claude-rules/mission.md
       - id: TASK-3-5
         description: |-
           Documenter: update ``docs/architecture/orchestrator.md``
@@ -1147,8 +1223,17 @@ slices:
           (under ``local_pipeline/``; the fixture ``gateway_url`` from
           ``integration_tests/local_pipeline/conftest.py:261`` is the
           only one usable here). Pre-flight: assert the sandbox image
-          built in slice-3 (TASK-3-4) is the deployed image tag — fail
-          fast if the rebuild did not land. Run the #2906 repro:
+          built in slice-3 (TASK-3-4) is the deployed image tag AND
+          assert the deployed
+          ``/opt/claude-rules/mission.md`` (the Dockerfile-baked path
+          per ``sandbox/Dockerfile:212-214`` +
+          ``sandbox/entrypoint.py:967``) NO LONGER contains the
+          STAY-ALIVE / wait-loop phrases — exec into the running pod
+          and ``grep -E 'STAY-ALIVE\b|wait-loop|never exit'
+          /opt/claude-rules/mission.md`` must return zero matches.
+          Fail fast on either pre-flight check so a stale image with
+          fresh tag (or fresh image with stale mission.md content) is
+          caught BEFORE the spike runs. Run the #2906 repro:
           issue-2270, qwen3.7-max provider configuration,
           ``EGG_BRC_EVENT_PUMP=true``, ``EGG_BRC_MEMORY=full``,
           default idle-budget. Assertions:
@@ -1171,9 +1256,12 @@ slices:
         acceptance: |-
           Test passes against k3s with the qwen3.7-max provider;
           assertions a–f all green; sandbox-image-deployed pre-flight
-          fails fast if the new image is not picked up; WS7 #2 file
-          written; test runs under ``make test-all`` on the
-          local_pipeline fixture stack (kubectl-gated).
+          fails fast if (i) the new image is not picked up OR (ii)
+          the deployed pod's ``/opt/claude-rules/mission.md`` still
+          contains the STAY-ALIVE / wait-loop / never-exit phrases
+          (content-grep pre-flight, not just image-tag freshness);
+          WS7 #2 file written; test runs under ``make test-all`` on
+          the local_pipeline fixture stack (kubectl-gated).
         role: tester
         files:
           - integration_tests/local_pipeline/test_event_pump_spike_2906.py
@@ -1218,9 +1306,12 @@ slices:
         acceptance: |-
           ``orchestrator/consensus_wrapper.py`` no longer contains
           ``MAX_CONSENSUS_RESTARTS``, ``_RECOVERY_SYSTEM_PROMPT``, or
-          SSE / consensus.reached strings; ``handlers/message.py``
-          no longer emits heartbeats or refreshes the gateway session;
-          the three crash classifiers remain; relevant tests in
+          SSE / consensus.reached strings; ``rg 'consensus\.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'
+          orchestrator/consensus_wrapper.py`` returns zero matches
+          (defensive grep assertion against partial deletion);
+          ``handlers/message.py`` no longer emits heartbeats or
+          refreshes the gateway session; the three crash classifiers
+          remain; relevant tests in
           ``orchestrator/tests/test_consensus_wrapper.py`` updated
           (or deleted, where old-path-specific tests no longer apply)
           — replacement coverage lands in TASK-4-4.
@@ -1412,6 +1503,31 @@ slices:
         role: tester
         files:
           - tests/sandbox/egg_lib/test_orch_cli_brc.py
+      - id: TASK-5-7
+        description: |-
+          Capture MCP-surface latency baseline for slice-6's
+          comparison test (TASK-6-6 revised acceptance). Add a
+          fixture at
+          ``integration_tests/local_pipeline/test_mcp_baseline_capture.py``
+          that drives a 5-role ScriptedProvider consensus to
+          CONFIRMED on the **still-live MCP surface** (slice-5 is
+          additive only — MCP tools are still registered) and
+          writes per-event wall-clock samples (event-type,
+          start_ts, end_ts, agent-process exit code) to
+          ``.egg-state/agent-outputs/latency-mcp-baseline.json``.
+          The committed JSON file is slice-6's baseline; capturing
+          it in slice-5 sidesteps the vendored-tarball maintenance
+          burden the original TASK-6-6 carried.
+        acceptance: |-
+          Test runs on the local_pipeline fixture stack; produces
+          ``latency-mcp-baseline.json`` with schema documented in
+          the test file (``samples: [{event_type, start_ts,
+          end_ts, exit_code}]`` plus aggregate p50/p95); JSON file
+          committed at the end of slice-5; slice-6 TASK-6-6 reads
+          this file to derive its baseline.
+        role: tester
+        files:
+          - integration_tests/local_pipeline/test_mcp_baseline_capture.py
   - id: 6
     name: |-
       MCP→CLI deletion: delete agent MCP server + migrate tests
@@ -1551,46 +1667,58 @@ slices:
           ``sandbox/egg_agent_tools/handlers/*.py`` backs both
           today (CLI only after this slice); the operator-facing
           ``orchestrator/mcp_server.py`` is unaffected and remains the
-          operator's MCP surface. ``CLAUDE.md`` is at the project
-          root — the documenter cannot push it but can stage edits
-          under ``.egg-state/agent-outputs/`` per the file-restriction
-          rules (the producer-role can pick them up). If a section
-          must change, stage the edit and call it out in the PR body.
+          operator's MCP surface. The documenter role has direct
+          write access to ``CLAUDE.md`` via the
+          ``DEFAULT_DOCS_GLOBS`` ``**/*.md`` pattern at
+          ``shared/egg_restrictions/patterns.py:177-181`` — no
+          staging workaround needed (reviewer_plan non-blocker).
         acceptance: |-
           All references to the agent-side MCP tools updated to the
           CLI surface; ``EGG_MCP_TOOLS`` references removed;
           ``orchestrator/mcp_server.py`` references preserved;
-          documenter staging path for CLAUDE.md (if needed) is
-          recorded in the PR body.
+          CLAUDE.md edited in place (if applicable) — no
+          ``.egg-state/agent-outputs/`` staging detour.
         role: documenter
         files:
           - docs/architecture/sandbox.md
           - docs/reference/agent-tools.md
+          - CLAUDE.md
       - id: TASK-6-6
         description: |-
           Per-event wall-clock latency verification at
           ``integration_tests/local_pipeline/test_mcp_to_cli_latency.py``
-          (new file under local_pipeline/). Drive a 5-role consensus
-          to CONFIRMED with the post-slice-6 CLI-only surface;
-          record per-event wall-clock from ``brc next-action``
-          dispatch to agent-process exit; compare against a
-          pre-slice-6 baseline captured by re-running with the
-          legacy MCP surface temporarily re-enabled (gated by a
-          one-shot ``EGG_MCP_TOOLS_LEGACY=true`` env, the test
-          fixture restores the deleted MCP code from a vendored
-          tarball — implementation detail for the test). Latency
-          regression budget: ≤ 5%. On regression > 5%, slice-6
-          surfaces a structured ``OVERSEER_ALERT`` priority
+          (new file under local_pipeline/).
+
+          **Baseline-capture strategy (revised per reviewer_plan
+          non-blocker):** instead of restoring deleted MCP code from
+          a vendored tarball, capture the MCP-surface latency
+          baseline DURING SLICE-5 (before slice-6's deletions land)
+          by adding a fixture under
+          ``integration_tests/local_pipeline/`` that drives a 5-role
+          ScriptedProvider consensus to CONFIRMED on the still-live
+          MCP surface and writes per-event wall-clock samples to
+          ``.egg-state/agent-outputs/latency-mcp-baseline.json``.
+          That file is committed in slice-5 (or as the last commit
+          before slice-6's deletions in the same PR — coder's
+          call). Slice-6's TASK-6-6 then drives the same consensus
+          on the post-deletion CLI-only surface, reads the
+          slice-5-captured baseline, and asserts the comparison.
+
+          Latency regression budget: ≤ 5%. On regression > 5%,
+          slice-6 surfaces a structured ``OVERSEER_ALERT`` priority
           ``medium`` with the measured delta for human review (the
           fallback decision is whether to ship the persistent
           ``egg-orch`` daemon per architect od-5).
         acceptance: |-
-          Latency-comparison test runs on the local_pipeline fixture
-          stack; results captured to
+          ``latency-mcp-baseline.json`` exists under
+          ``.egg-state/agent-outputs/`` at slice-6 entry (captured
+          during slice-5 or in the same PR pre-deletions); the
+          post-deletion measurement is captured to
           ``.egg-state/agent-outputs/latency-mcp-vs-cli.json``;
-          assertion fails only if regression exceeds the budget; on
-          failure the test surfaces a structured ``OVERSEER_ALERT``
-          priority ``medium`` with the measured delta.
+          assertion fails only if regression exceeds the 5% budget;
+          on failure the test surfaces a structured
+          ``OVERSEER_ALERT`` priority ``medium`` with the measured
+          delta. No vendored MCP source tarball in the test fixture.
         role: tester
         files:
           - integration_tests/local_pipeline/test_mcp_to_cli_latency.py
