@@ -30,7 +30,7 @@
     "post_consensus_max_total_seconds": 14400,
     "brc_consensus_progress_gate_seconds": 300,
     "agent_idle_timeout_minutes": 60,
-    "overseer_enabled": true,
+    "overseer_enabled": false,
     "orchestrator_heartbeat_timeout_seconds": 120,
     "orchestrator_implement_heartbeat_timeout_seconds": 600,
     "orchestrator_error_repeat_threshold": 3,
@@ -64,7 +64,16 @@
     "spawn_retry_initial_backoff_seconds": 2.0,
     "phase_spawn_max_retries": 2,
     "phase_spawn_retry_initial_backoff_seconds": 30.0,
-    "agent_models": {}
+    "agent_models": {
+      "coder": "qwen3.7-max",
+      "tester": "qwen3.7-max",
+      "documenter": "qwen3.7-max",
+      "reviewer_code": "qwen3.7-max",
+      "reviewer_code_holistic": "qwen3.7-max",
+      "reviewer_concurrency": "qwen3.7-max",
+      "reviewer_contract": "qwen3.7-max",
+      "reviewer_security": "qwen3.7-max"
+    }
   },
   "phases": {
     "implement": {
@@ -730,7 +739,7 @@
   },
   "decisions": [],
   "created_at": "2026-06-01T05:15:27.685794Z",
-  "updated_at": "2026-06-01T06:18:15.040337Z",
+  "updated_at": "2026-06-01T06:38:20.040026Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -743,7 +752,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
