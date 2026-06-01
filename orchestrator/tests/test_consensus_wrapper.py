@@ -2585,6 +2585,26 @@ class TestEventPumpHeartbeatSubshellLifecycle:
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
+
+        # Strip ``#``-prefixed comment content so a comment that *mentions*
+        # the buggy pattern (``# The earlier `trap '' TERM` form ...``)
+        # doesn't trip the detector. We use a per-line scan rather than
+        # full bash tokenisation — sufficient for the static invariant.
+        def _strip_comments(text: str) -> str:
+            out_lines = []
+            for ln in text.splitlines():
+                stripped = ln.lstrip()
+                if stripped.startswith("#"):
+                    continue
+                # Trim inline trailing comments (best-effort: ``#`` outside
+                # any quotes). False-positive risk is bounded because the
+                # pattern we look for has its own quote shape.
+                if " #" in ln:
+                    ln = ln.split(" #", 1)[0]
+                out_lines.append(ln)
+            return "\n".join(out_lines)
+
+        executable = _strip_comments(script)
         # Two failure modes the test guards against:
         #
         #  (A) Heartbeat subshell installs `trap '' TERM` AND the
@@ -2595,19 +2615,23 @@ class TestEventPumpHeartbeatSubshellLifecycle:
         #      ``stop`` path issues `kill -TERM`/`kill -15`. Same wedge,
         #      different shape.
         #
-        # If the subshell does NOT install an ignored-TERM trap, this
-        # test is automatically satisfied. The wrapper is free to use
-        # any kill primitive against a non-trapping subshell.
-        installs_term_trap = "trap '' TERM" in script or 'trap "" TERM' in script
-        if not installs_term_trap:
-            # The subshell does not trap TERM; the lifecycle invariant
-            # is automatically satisfied. (No-op path.)
+        # If the subshell does NOT install an ignored-TERM trap (either
+        # absent or replaced with ``trap 'exit 0' TERM`` / equivalent
+        # handler), this test is automatically satisfied — the wrapper is
+        # free to use any kill primitive against a non-trapping (or
+        # cleanly-exiting) subshell.
+        installs_ignoring_term_trap = "trap '' TERM" in executable or 'trap "" TERM' in executable
+        if not installs_ignoring_term_trap:
+            # The subshell either does not trap TERM at all, or installs a
+            # handler that exits cleanly on TERM (e.g. ``trap 'exit 0'
+            # TERM``). Either way the default-signal kill / wait pair
+            # works as expected.
             return
-        # The subshell traps TERM. The stop path MUST use a non-TERM
-        # signal. Allowed primitives: ``kill -INT``, ``kill -HUP``,
-        # ``kill -KILL``, ``kill -9``, or ``kill -SIGINT``/-SIGHUP/-SIGKILL.
-        # Scan the script for any of these adjacent to the
-        # ``HB_BG_PID`` symbol.
+        # The subshell installs an ignored-TERM trap. The stop path MUST
+        # use a non-TERM signal. Allowed primitives: ``kill -INT``,
+        # ``kill -HUP``, ``kill -KILL``, ``kill -9``, or
+        # ``kill -SIGINT``/-SIGHUP/-SIGKILL. Scan the script for any of
+        # these adjacent to the ``HB_BG_PID`` symbol.
         allowed_stop_primitives = (
             "kill -INT",
             "kill -HUP",
@@ -2617,8 +2641,7 @@ class TestEventPumpHeartbeatSubshellLifecycle:
             "kill -SIGHUP",
             "kill -SIGKILL",
         )
-        # Find every line that calls ``kill`` on the HB PID.
-        kill_lines = [ln for ln in script.splitlines() if "kill " in ln and "HB_BG_PID" in ln]
+        kill_lines = [ln for ln in executable.splitlines() if "kill " in ln and "HB_BG_PID" in ln]
         # Detect a default-signal kill (no explicit -SIG flag).
         default_kill_lines = [
             ln
@@ -2633,8 +2656,10 @@ class TestEventPumpHeartbeatSubshellLifecycle:
             "and the subsequent `wait` blocks indefinitely, wedging "
             "the event-pump loop after the first wait_for_event call.\n"
             "Fix options: (a) remove the `trap '' TERM` from the "
-            "subshell, or (b) change the stop path to `kill -INT`, "
-            "`kill -HUP`, or `kill -KILL` so the signal is not trapped.\n"
+            "subshell, (b) replace it with `trap 'exit 0' TERM` (or any "
+            "handler that exits the subshell), or (c) change the stop "
+            "path to `kill -INT`, `kill -HUP`, or `kill -KILL` so the "
+            "signal is not trapped.\n"
             f"Offending kill line(s): {default_kill_lines}"
         )
 
@@ -2656,4 +2681,135 @@ class TestEventPumpHeartbeatSubshellLifecycle:
         assert "trap " in script and "EXIT" in script, (
             "wrapper must install an EXIT trap to clean up the "
             "background heartbeat subshell on any exit path."
+        )
+
+
+class TestEventPumpIdleAlertBrcSnapshot:
+    """Adversarial regression for the v2 idle-alert BRC snapshot bug.
+
+    Plan TASK-2-3 acceptance line 866-867: "alert payload includes
+    anomaly type, priority, current BRC state". The v2 coder addressed
+    this by embedding a ``brc_snapshot`` line in the alert detail
+    sourced from ``${{STATE_JSON:-{}}}``. The bash parameter expansion
+    is broken: bash's ``${{VAR:-DEFAULT}}`` syntax ends at the FIRST
+    ``}}`` after ``${{``, so ``${{STATE_JSON:-{}}}`` is parsed as
+    ``${{STATE_JSON:-{}}`` (default ``{``) followed by a literal
+    trailing ``}``. When STATE_JSON IS unset the rendered text happens
+    to read as ``{}}}`` collapsed to a valid empty-object literal by
+    accident, but when STATE_JSON is populated (the common case during
+    the event-pump loop) the rendered text appends a STRAY ``}`` to
+    the JSON document, and ``json.load`` fails with
+    ``json.decoder.JSONDecodeError: Extra data`` — the snapshot falls
+    back to ``(unavailable)`` 100% of the time the alert actually has
+    state to show.
+
+    Verified end-to-end with the rendered bash (slice-2 v2):
+
+        $ STATE_JSON='{"consensus":{"agents":{...}}}'
+        $ echo "${STATE_JSON:-{}}" \
+            | python3 -c 'import sys, json; json.load(sys.stdin)'
+        json.decoder.JSONDecodeError: Extra data: line 1 column 110 (char 109)
+
+    This is an observability bug, not a correctness wedge: the alert
+    still fires, but the BRC-state field always reads "(unavailable)"
+    when state IS available. That defeats the entire point of the
+    snapshot (tester v1 non-blocker #2).
+
+    Fix: use a temp variable for the default so the bash parser sees
+    a balanced ``${{...}}``:
+
+        local state_default='{}'
+        echo "${{STATE_JSON:-$state_default}}" | python3 ...
+    """
+
+    def test_flag_on_state_json_default_does_not_corrupt_populated_json(self, monkeypatch):
+        """The idle-alert BRC snapshot extraction MUST work when
+        STATE_JSON is populated. Statically check that the rendered
+        bash does NOT use the broken ``${{STATE_JSON:-{}}}`` pattern.
+        """
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # The broken pattern. We pin against the exact literal because
+        # the bash parser fails the same way regardless of variable
+        # name; if any future code introduces a ``${VAR:-{}}`` it has
+        # the same bug.
+        assert "${STATE_JSON:-{}}" not in script, (
+            "rendered bash contains `${STATE_JSON:-{}}` which bash "
+            "parses as `${STATE_JSON:-{}` (default `{`) plus a "
+            "trailing `}` — populated STATE_JSON values get a stray "
+            "`}` appended, breaking the downstream `json.load`. The "
+            "idle-alert BRC-snapshot field will always read "
+            "`(unavailable)` in the common case. Fix: use a temp var "
+            "for the default, e.g.\n"
+            "    local state_default='{}'\n"
+            '    echo "${STATE_JSON:-$state_default}" | python3 ...'
+        )
+
+    def test_flag_on_state_json_snapshot_round_trips_populated_json(self, monkeypatch, tmp_path):
+        """Behavioral round-trip: render the bash, extract the
+        ``brc_snapshot=$(echo ... | python3 ...)`` block, drive it
+        with a populated STATE_JSON, and assert the output does NOT
+        say ``(unavailable)``.
+        """
+        import os
+        import re
+        import subprocess
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Locate the brc_snapshot assignment block (terminated by the
+        # ``(snapshot unavailable)`` literal, then ``)`` closing the
+        # command substitution).
+        match = re.search(
+            r"(brc_snapshot=\$\(echo .*?\(snapshot unavailable\)\"\))",
+            script,
+            flags=re.DOTALL,
+        )
+        if match is None:
+            import pytest as _pytest
+
+            _pytest.skip(
+                "brc_snapshot extraction block not present in rendered "
+                "bash; behavioral test does not apply."
+            )
+        snapshot_block = match.group(1)
+        # Build a minimal harness: define STATE_JSON, run the block,
+        # echo the result.
+        harness = (
+            'STATE_JSON=\'{"consensus":{"agents":'
+            '{"tester":{"confirmed":true,"producer_phase":"WORKING"}},'
+            '"blocking_agents":["coder"]}}\'\n'
+            + snapshot_block
+            + '\necho "RESULT=[$brc_snapshot]"\n'
+        )
+        env = os.environ.copy()
+        env["EGG_AGENT_ROLE"] = "tester"
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        # The snapshot MUST contain the role info from the populated
+        # STATE_JSON, NOT the "(unavailable)" fallback.
+        assert "RESULT=[" in result.stdout, (
+            f"harness did not produce a RESULT line; stdout={result.stdout!r} "
+            f"stderr={result.stderr!r}"
+        )
+        result_line = next(ln for ln in result.stdout.splitlines() if ln.startswith("RESULT="))
+        assert "(unavailable)" not in result_line, (
+            "idle-alert BRC snapshot reads `(unavailable)` even when "
+            "STATE_JSON IS populated — the `${STATE_JSON:-{}}` bash "
+            "parameter expansion corrupts the JSON with a stray `}` "
+            "before it reaches `json.load`. The snapshot enhancement "
+            "ships broken; operators will never see structured state "
+            "in the alert detail. See test docstring for the fix.\n"
+            f"Got: {result_line}"
+        )
+        # And the result should contain the role we set.
+        assert "tester" in result_line, (
+            f"snapshot does not contain the EGG_AGENT_ROLE; got {result_line!r}"
         )
