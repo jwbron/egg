@@ -114,7 +114,7 @@ which subsystems are in play>
 | `## Per-producer assessment` | `producer` | The role of the producer being assessed. |
 | | `last_reviewed_commit_sha` | SHA of `HEAD` at review time. **Slice-3 reads this** to run `git log {sha}..HEAD --not origin/{base_branch} -p` for an adversarial re-review delta on the next re-proposal. |
 | | `prior_verdict` | One of `ACK`, `NACK`, or `conditional-ACK` so a re-entered handler knows which path to take. |
-| | `prior_nack_reasons` | Carries forward NACK reasons so re-review can verify they were addressed. |
+| | `prior_nack_reasons` | Carries forward NACK reasons so re-review can verify they were addressed. Cleared on the next ACK from this reviewer: the producer's fixes have, by the ACK contract, resolved the NACKs that ACK is replacing, so a slice-3 reader inspecting this field after an ACK will see ``[]``. The decision-log entry for the NACK remains for the audit trail. |
 | | `prior_conditional_obligation` | Echoes any `pre_merge_condition` attached to a conditional ACK (#1998 / #2336). |
 | | `summary_of_assessment` | Distilled rationale — the bit that takes the most context to reconstruct from raw transcript. |
 | `## Decision log` | (entries) | Append-only narrative of significant moments in the review, **capped at the last 20** via distill-on-write. |

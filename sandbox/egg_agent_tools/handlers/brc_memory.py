@@ -44,12 +44,15 @@ exists to avoid.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
+
+_logger = logging.getLogger(__name__)
 
 # Cap on the per-producer ``prior_nack_reasons`` list. NACK reasons are
 # typically 1-3 bullets per reviewer; 10 is a generous ceiling that
@@ -87,25 +90,43 @@ MODE_FULL: Final[str] = "full"
 _VALID_MODES: Final[frozenset[str]] = frozenset({MODE_OFF, MODE_WRITE_ONLY, MODE_FULL})
 
 
+# Set of EGG_BRC_MEMORY values for which we've already emitted the
+# "unknown value" warning. The handler boundary is hot, so the warning
+# fires once per distinct typo per process — enough for the operator to
+# notice a misconfiguration (e.g. ``writeonly`` missing the hyphen) but
+# not enough to spam every ACK/NACK on a deployed pod.
+_warned_unknown_modes: set[str] = set()
+
+
 def get_memory_mode() -> str:
     """Return the configured memory mode, defaulting to ``off``.
 
     Reads ``EGG_BRC_MEMORY`` with the canonical tri-state values
     (``off`` / ``write-only`` / ``full``). Unknown values fall back to
     ``off`` (fail-safe — an undocumented value should not silently flip
-    a production pipeline into a write-bearing mode).
+    a production pipeline into a write-bearing mode) and log a one-shot
+    warning per distinct value so a typo like ``writeonly`` (missing
+    hyphen) doesn't sit silently inert in production.
     """
     raw = os.environ.get(ENV_MEMORY_MODE, "").strip().lower()
     if not raw:
         return MODE_OFF
     if raw in _VALID_MODES:
         return raw
-    # Unknown value → fail-safe to off. We do NOT log here because the
-    # handler boundary is hot and a startup-time misconfiguration would
-    # otherwise spam every ACK/NACK. The slice-1 plan and the
-    # ``docs/architecture/brc-memory.md`` doc canonicalise the three
-    # accepted values, so this branch is reachable only via typo or
-    # legacy/unsupported value.
+    # Unknown value → fail-safe to off. Log once per distinct value so
+    # the operator catches typos without per-call spam on the handler
+    # boundary. The slice-1 plan and ``docs/architecture/brc-memory.md``
+    # canonicalise the three accepted values, so this branch is reachable
+    # only via typo or legacy/unsupported value.
+    if raw not in _warned_unknown_modes:
+        _warned_unknown_modes.add(raw)
+        _logger.warning(
+            "Unknown %s value %r; falling back to %r. Accepted values: %s.",
+            ENV_MEMORY_MODE,
+            raw,
+            MODE_OFF,
+            ", ".join(sorted(_VALID_MODES)),
+        )
     return MODE_OFF
 
 
@@ -577,9 +598,16 @@ def record_review(
 
     # Append to the decision log; cap to last 20 (distill-on-write).
     files_label = f" [{', '.join(files_reviewed)}]" if files_reviewed else ""
+    # Splitlines guards against multi-line reasons; the explicit empty
+    # default guards against a whitespace-only reason whose ``splitlines``
+    # returns ``[]`` (``reason or ''`` is truthy, so a naive ``[0]`` lookup
+    # would IndexError — reachable via ``brc_ack`` which has no
+    # 50-char NACK-reason minimum).
+    reason_lines = (reason or "").strip().splitlines()
+    reason_first_line = reason_lines[0] if reason_lines else ""
     entry = (
         f"{_utc_now_iso()} {verdict_normalized.lower()} {producer_role}: "
-        f"{(reason or '').strip().splitlines()[0] if reason else ''}{files_label}"
+        f"{reason_first_line}{files_label}"
     )
     memory.decision_log.append(entry)
     memory.decision_log = memory.decision_log[-_DECISION_LOG_CAP:]

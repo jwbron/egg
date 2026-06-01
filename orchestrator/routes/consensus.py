@@ -63,6 +63,17 @@ consensus_bp = Blueprint("consensus", __name__, url_prefix="/api/v1/pipelines")
 # Valid action values surfaced to the wrapper. Kept as a frozenset so a
 # future contributor cannot accidentally widen the contract without
 # updating the schema docs and the CLI's `--help` text in lockstep.
+#
+# Note on ``"nack"``: reserved in the schema for symmetry with ``"ack"``,
+# but ``_derive_next_action`` never emits it directly — when a peer
+# proposal needs review the route returns ``"ack"`` and the agent's
+# ``brc_ack`` / ``brc_nack`` verb decides the actual verdict at the
+# call site (the route does not pre-judge ACK vs NACK). Listing ``nack``
+# here lets the slice-3 wrapper distinguish "schema is closed" from
+# "agent has discretion" without a separate enum, but it is unreachable
+# from the current derivation logic. A future refactor that wanted the
+# route itself to surface a "must NACK" hint (e.g. for an automatic-NACK
+# barrier) would emit ``"nack"`` and remain inside the schema.
 _VALID_ACTIONS = frozenset({"wait", "propose", "ack", "nack", "confirm", "complete"})
 
 
