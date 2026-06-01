@@ -4874,6 +4874,109 @@ def gh_execute() -> tuple[Response, int] | Response:
         )
 
 
+@app.route("/api/v1/gh/find_open_pr", methods=["POST"])
+@require_launcher_auth
+def gh_find_open_pr() -> tuple[Response, int] | Response:
+    """Control-plane idempotency lookup: return the open ``head → base`` PR number.
+
+    This is an **orchestrator-only** route, gated by ``@require_launcher_auth``
+    rather than ``@require_session_auth``: the caller is the control plane
+    (the orchestrator holds the launcher secret), not a sandboxed agent. It
+    exists so the orchestrator's slice-PR idempotency pre-flight (#2777 cq-8)
+    does not have to register a synthetic *agent* session and impersonate a
+    role on ``/api/v1/gh/execute`` — the conflation that #2893 papered over by
+    adding a bogus ``AgentRole.ORCHESTRATOR``. The orchestrator is not an
+    agent role; it is the server that manages pipelines, so it authenticates
+    as the control plane and uses a purpose-built read-only endpoint.
+
+    Unlike ``/api/v1/gh/execute`` (arbitrary allowlisted argv), this route
+    accepts only ``repo``/``head``/``base`` and constructs the fixed
+    read-only argv server-side, so there is no general gh-command surface on
+    the launcher-auth path.
+
+    Request body:
+        {"repo": "owner/name", "head": "<branch>", "base": "<branch>"}
+
+    Returns:
+        ``{"number": <int>}`` on hit, ``{"number": null}`` on miss. The GH
+        API documents at most one open PR per (head, base) tuple, so the
+        lookup is ``--limit 1``.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    repo = data.get("repo")
+    head = data.get("head")
+    base = data.get("base")
+
+    for name, value in (("repo", repo), ("head", head), ("base", base)):
+        if not isinstance(value, str) or not value:
+            return make_error(f"Missing or invalid {name}: must be a non-empty string")
+
+    repo_info = parse_owner_repo(repo)
+    if repo_info is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    args = [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--head",
+        head,
+        "--base",
+        base,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        audit_log(
+            "gh_find_open_pr_failed",
+            "gh_find_open_pr",
+            success=False,
+            details={"repo": repo, "head": head, "base": base, "stderr": result.stderr},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    number: int | None = None
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            items = json.loads(stdout)
+        except ValueError, TypeError:
+            items = None
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("number") is not None:
+                    try:
+                        number = int(item["number"])
+                    except TypeError, ValueError:
+                        number = None
+                    break
+
+    audit_log(
+        "gh_find_open_pr",
+        "gh_find_open_pr",
+        success=True,
+        details={"repo": repo, "head": head, "base": base, "number": number},
+    )
+    return make_success("Open PR lookup complete", {"number": number})
+
+
 # =============================================================================
 # Jira REST Endpoints
 # =============================================================================

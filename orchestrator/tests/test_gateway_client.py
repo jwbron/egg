@@ -1753,35 +1753,37 @@ class TestCreateSlicePR:
 
 class TestLookupOpenPr:
     """#2777 cq-8 / task-3-2: ``GatewayClient._lookup_open_pr`` is the
-    new server-side idempotency primitive used by ``create_slice_pr``
-    (and adoptable by the context-PR opener in a follow-up).
+    server-side idempotency primitive used by ``create_slice_pr``.
 
-    These tests exercise the helper's contract in isolation against a
-    mocked ``_make_request`` — the helper builds the ``gh pr list
-    --head <head> --base <base> --state open --json number`` call and
-    parses the stdout JSON. The wider call-site behaviour (no
-    ``gh pr create`` invoked when an existing PR matches) lives in the
-    ``TestCreateSlicePR`` block above; these tests pin the primitive's
-    own input/output contract.
+    The lookup runs on the **control-plane** route
+    ``/api/v1/gh/find_open_pr`` with launcher auth — the orchestrator is
+    the server that manages pipelines, not an agent, so it does not
+    register a synthetic agent session or impersonate a role on the
+    per-agent ``/api/v1/gh/execute`` surface (the #2893 conflation this
+    supersedes). These tests exercise the helper's contract in isolation
+    against a mocked ``_make_request``: it POSTs ``{repo, head, base}``
+    with ``use_launcher_auth=True`` and reads ``data.number`` from the
+    response. The wider call-site behaviour (no ``gh pr create`` invoked
+    when an existing PR matches) lives in the ``TestCreateSlicePR`` block
+    above; these tests pin the primitive's own input/output contract.
     """
 
-    def test_lookup_open_pr_returns_existing_pr_number_on_hit(self, gateway_client):
+    def test_lookup_open_pr_uses_control_plane_route_with_launcher_auth(self, gateway_client):
+        """The lookup must hit the launcher-authed control-plane route,
+        never register a synthetic agent session."""
         from unittest.mock import patch
 
-        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
-            return {
-                "success": True,
-                "data": {"stdout": '[{"number": 4242}]'},
-            }
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            captured["endpoint"] = endpoint
+            captured["data"] = data
+            captured["use_launcher_auth"] = kwargs.get("use_launcher_auth")
+            return {"success": True, "data": {"number": 4242}}
 
         with (
-            patch.object(
-                gateway_client,
-                "register_session",
-                return_value=type("S", (), {"session_token": "tok"})(),
-            ),
+            patch.object(gateway_client, "register_session") as mock_register,
             patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
-            patch.object(gateway_client, "delete_session"),
         ):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
@@ -1790,25 +1792,25 @@ class TestLookupOpenPr:
                 base="egg/issue-42/work",
             )
         assert result == 4242
+        assert captured["endpoint"] == "/api/v1/gh/find_open_pr"
+        assert captured["use_launcher_auth"] is True
+        assert captured["data"] == {
+            "repo": "owner/repo",
+            "head": "egg/issue-42/slice-1",
+            "base": "egg/issue-42/work",
+        }
+        mock_register.assert_not_called()
 
     def test_lookup_open_pr_returns_none_on_miss(self, gateway_client):
-        """An empty ``gh pr list`` result (no PR matches the head + base
-        filter) is the canonical miss — ``_lookup_open_pr`` returns None
-        so the caller falls through to ``gh pr create``."""
+        """A ``null`` number (no PR matches the head + base filter) is the
+        canonical miss — ``_lookup_open_pr`` returns None so the caller
+        falls through to ``gh pr create``."""
         from unittest.mock import patch
 
-        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
-            return {"success": True, "data": {"stdout": "[]"}}
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            return {"success": True, "data": {"number": None}}
 
-        with (
-            patch.object(
-                gateway_client,
-                "register_session",
-                return_value=type("S", (), {"session_token": "tok"})(),
-            ),
-            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
-            patch.object(gateway_client, "delete_session"),
-        ):
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
@@ -1818,17 +1820,14 @@ class TestLookupOpenPr:
         assert result is None
 
     def test_lookup_open_pr_returns_none_on_missing_head_or_base(self, gateway_client):
-        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke
-        ``gh pr list`` with an empty ``--head`` or ``--base`` filter
-        (would surface every open PR in the repo and the caller's
-        ``if existing is not None`` would match the first one,
-        spuriously treating an unrelated PR as the idempotent hit)."""
+        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke the lookup
+        with an empty ``head`` or ``base`` filter (would surface every open
+        PR in the repo and the caller's ``if existing is not None`` would
+        match the first one, spuriously treating an unrelated PR as the
+        idempotent hit)."""
         from unittest.mock import patch
 
-        with (
-            patch.object(gateway_client, "register_session") as mock_register,
-            patch.object(gateway_client, "_make_request") as mock_request,
-        ):
+        with patch.object(gateway_client, "_make_request") as mock_request:
             # Empty head.
             assert (
                 gateway_client._lookup_open_pr(
@@ -1849,27 +1848,18 @@ class TestLookupOpenPr:
                 )
                 is None
             )
-        mock_register.assert_not_called()
         mock_request.assert_not_called()
 
-    def test_lookup_open_pr_returns_none_on_malformed_json(self, gateway_client):
-        """Transport / parse failure: malformed JSON stdout returns
-        None and the caller falls through to ``gh pr create``. Never
-        raise — a transient lookup failure must not block PR creation."""
+    def test_lookup_open_pr_returns_none_on_transport_error(self, gateway_client):
+        """Transport failure returns None and the caller falls through to
+        ``gh pr create``. Never raise — a transient lookup failure must not
+        block PR creation."""
         from unittest.mock import patch
 
-        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
-            return {"success": True, "data": {"stdout": "not-json"}}
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            raise RuntimeError("gateway unreachable")
 
-        with (
-            patch.object(
-                gateway_client,
-                "register_session",
-                return_value=type("S", (), {"session_token": "tok"})(),
-            ),
-            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
-            patch.object(gateway_client, "delete_session"),
-        ):
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
