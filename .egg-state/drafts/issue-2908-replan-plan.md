@@ -231,27 +231,46 @@ slices:
     goal: |-
       Throwaway prototype proving the deterministic event-pump reaches BRC
       consensus without restart churn on the #2906 repro (issue-2270 on
-      qwen3.7-max). Instrument per-event token spend (Anthropic via
+      qwen3.7-max), plus per-event token-spend / wall-clock
+      instrumentation under the real harness on that repro path.
+      CACHE-TTL QUESTION IS EMPIRICALLY SETTLED — the operator hand-
+      measured that BOTH the Anthropic and Qwen routes' prefix cache
+      survives a >=60-min idle with ZERO re-creation, and observed BRC
+      idles peak at ~10-13 min, so the cache always outlasts the gap on
+      both routes. No keep-warm is needed on either route. Slice-1 MUST
+      NOT re-derive the TTL ceiling: NO dedicated TTL-bracketing spike,
+      NO multi-idle-duration injection (no 5.5 / 10 / 15 min variants,
+      no "at least N idle durations" acceptance criterion), NO
+      stop/go gate keyed on TTL survival, and NO report question of
+      the shape "what Qwen-route TTL ceiling did the measurements
+      show". Treat the >=60min figure as a settled INPUT to the
+      design.
+      Instrument per-event token spend (Anthropic via
       AgentResult.cost_usd, Qwen via config/litellm/cost_callback.py
-      stdout captured by `kubectl logs` against the litellm pod — NOT
+      stdout captured by `kubectl logs deployment/egg-litellm` — NOT
       `~/.local/state/clm/cost-*.json` which is host-developer-only)
-      and per-event wall-clock across a realistic worst-case BRC idle
-      (reviewer parked ~7-8 min while producer addresses a NACK).
-      HARD MEASUREMENT CONSTRAINT (risk_analyst BC-1): the
-      cache_read_input_tokens / cache_creation numbers MUST come from
-      actual `python3 -m egg_agent` invocations under the new
-      event-pump prototype with the production BRC preamble (assembled
-      via orchestrator/routes/pipelines.py::_build_brc_preamble) and
-      the 38 MCP tool schemas registered via
-      sandbox/egg_agent_tools/tools/*. Raw `claude --output-format
-      json` measurements from the WS7 issue-body comments are NOT
-      sufficient because the egg prefix layers are larger and
-      structurally different — they must be re-measured under the
-      real harness before any later slice (especially slice-7 prompt
-      collapse) is gated on the numbers. Deliverable: measurement
-      report under .egg-state/agent-outputs/ that gates the rest of
-      the work per operator feedback Q1 (instrument only, no
-      auto-fail). No production code change beyond a small hook in
+      and per-event wall-clock across a single representative #2906
+      repro run. If the per-event cost capture happens to record
+      cache_read_input_tokens vs cache_creation token counts as an
+      incidental side effect, that is fine — what is forbidden is
+      the dedicated idle-duration TTL-ceiling spike.
+      HARD MEASUREMENT CONSTRAINT (risk_analyst BC-1): the per-event
+      cost / wall-clock numbers MUST come from actual `python3 -m
+      egg_agent` invocations under the new event-pump prototype with
+      the production BRC preamble (assembled via
+      orchestrator/routes/pipelines.py::_build_brc_preamble) and all
+      agent-facing MCP tool schemas in the cached prefix (38 @tool
+      registrations across sandbox/egg_agent_tools/tools/*). Raw
+      `claude --output-format json` per-event cost numbers from the
+      WS7 issue-body comments are NOT sufficient because the egg
+      prefix layers are larger and structurally different — per-event
+      cost must be re-measured under the real harness before any
+      later slice (especially slice-8 prompt collapse) is gated on
+      the numbers.
+      Deliverable: measurement report under .egg-state/agent-outputs/
+      that gates the rest of the work per operator feedback Q1
+      (instrument only, no auto-fail; no TTL-ceiling stop/go gate).
+      No production code change beyond a small hook in
       cost_callback.py if/only if needed to surface per-event
       attribution.
     tasks:
