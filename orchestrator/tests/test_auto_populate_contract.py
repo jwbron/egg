@@ -39,7 +39,11 @@ def mock_pipeline_state():
     }
 
 
-def _make_gateway(push_ok: bool = True, category: str = "ok", detail: str = "") -> MagicMock:
+def _make_gateway(
+    push_ok: bool = True,
+    category: str | None = None,
+    detail: str | None = None,
+) -> MagicMock:
     gateway = MagicMock()
     gateway.push_worktree_branch.return_value = PushResult(
         ok=push_ok, category=category, detail=detail
