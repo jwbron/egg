@@ -2759,11 +2759,17 @@ class TestEventPumpIdleAlertBrcSnapshot:
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        # Locate the brc_snapshot assignment block (terminated by the
-        # ``(snapshot unavailable)`` literal, then ``)`` closing the
-        # command substitution).
+        # Locate the brc_snapshot extraction. The shape evolved across
+        # cycles: v2 used ``brc_snapshot=$(echo "${STATE_JSON:-{}}" |
+        # python3 ...)`` (the broken form this test originally pinned);
+        # v3 uses a separate ``snapshot_input`` variable + explicit
+        # empty-string check, then ``printf '%s' "$snapshot_input" |
+        # python3 ...``. We extract from the start of the
+        # ``raise_idle_alert`` function definition through the
+        # ``(snapshot unavailable)`` literal so either shape round-
+        # trips through the harness.
         match = re.search(
-            r"(brc_snapshot=\$\(echo .*?\(snapshot unavailable\)\"\))",
+            r"raise_idle_alert\(\) \{(.*?\(snapshot unavailable\)\"\))",
             script,
             flags=re.DOTALL,
         )
@@ -2771,10 +2777,24 @@ class TestEventPumpIdleAlertBrcSnapshot:
             import pytest as _pytest
 
             _pytest.skip(
-                "brc_snapshot extraction block not present in rendered "
-                "bash; behavioral test does not apply."
+                "raise_idle_alert / brc_snapshot extraction block not "
+                "present in rendered bash; behavioral test does not "
+                "apply."
             )
+        # The captured group is the function body up through the
+        # snapshot extraction; trim the leading ``local`` declarations
+        # so the harness can supply its own STATE_JSON without
+        # collision.
         snapshot_block = match.group(1)
+        # The captured block lives inside a function body; replace
+        # ``local`` declarations with plain assignments so the harness
+        # can run it at the top level of the wrapper script.
+        snapshot_block = re.sub(
+            r"^\s*local (\w+)(?: (\w+))?",
+            lambda m: " ".join(g for g in (m.group(1), m.group(2)) if g),
+            snapshot_block,
+            flags=re.MULTILINE,
+        )
         # Build a minimal harness: define STATE_JSON, run the block,
         # echo the result.
         harness = (
