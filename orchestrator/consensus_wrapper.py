@@ -850,9 +850,18 @@ emit_heartbeat() {{
 start_background_heartbeat() {{
     local body_text="$1"
     (
-        # Detach from job control so the parent set -e / set -o pipefail
-        # doesn't kill the heartbeat subshell on a transient CLI error.
-        trap '' TERM
+        # Install a TERM trap that exits the subshell cleanly so the
+        # outer ``stop_background_heartbeat``'s ``kill $HB_BG_PID``
+        # (default signal SIGTERM) reaps the child rather than
+        # deadlocking on ``wait``. The earlier ``trap '' TERM`` form
+        # MASKED the signal and caused a wait deadlock that hung the
+        # whole event-pump after the first wait-loop return
+        # (reviewer_concurrency v1 finding 1 / #2908 slice-2 NACK).
+        # ``set -uo pipefail`` (without ``-e``) does not propagate
+        # subshell failures to the parent; ``emit_heartbeat``'s
+        # ``|| true`` already swallows any CLI error -- so there is no
+        # signal-defense to install here.
+        trap 'exit 0' TERM
         while true; do
             sleep "$HB_INTERVAL_SECS"
             emit_heartbeat "WAITING_FOR_EVENT" "$body_text"
@@ -863,6 +872,10 @@ start_background_heartbeat() {{
 
 stop_background_heartbeat() {{
     if [ -n "$HB_BG_PID" ]; then
+        # Use SIGTERM (default ``kill`` signal) so the subshell's
+        # ``trap 'exit 0' TERM`` exits the heartbeat loop cleanly,
+        # then ``wait`` reaps it without blocking. SIGKILL would
+        # work too but loses the chance to log a final exit code.
         kill "$HB_BG_PID" 2>/dev/null || true
         wait "$HB_BG_PID" 2>/dev/null || true
         HB_BG_PID=""
@@ -926,13 +939,23 @@ print('True' if (d.get('consensus') or {{}}).get('is_complete') else 'False')
 # lets the next loop iteration call ``brc get-state`` again, which
 # observes the new state and emits the correct next action.
 fetch_next_action() {{
-    local out
-    if out=$(egg-orch brc next-action --role "${{EGG_AGENT_ROLE:-unknown}}" --json 2>/dev/null); then
-        if [ -n "$out" ]; then
-            echo "$out"
-            return 0
-        fi
+    local out rc
+    out=$(egg-orch brc next-action --role "${{EGG_AGENT_ROLE:-unknown}}" --json 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+        echo "$out"
+        return 0
     fi
+    # Fallback so the main loop keeps blocking on the bus and re-derives
+    # state on the next iteration. The CLI returns non-zero for any of:
+    # 409 stale_version, 409 aggregated-NACK barrier (both expected
+    # event-pump signals -- the next loop's ``brc get-state`` observes
+    # the changed state), 5xx, transport failure. Log it so operators
+    # reading wrapper logs can distinguish "orchestrator returned 409"
+    # (benign, expected) from "transport unreachable" (worth checking)
+    # without correlating against the orchestrator's audit log
+    # (tester v1 non-blocker #3).
+    cw_log "brc next-action returned rc=$rc / empty body; falling back to {{\"action\":\"wait\"}} and re-deriving state next loop."
     echo '{{"action":"wait"}}'
 }}
 
@@ -1026,12 +1049,30 @@ raise_idle_alert() {{
     local idle="$1"
     local priority="$2"
     local summary_extra="$3"
+    # Snapshot the current BRC state for the alert detail so operators
+    # see the consensus.agents.<role> matrix without having to query
+    # pipeline status separately. Plan TASK-2-3 acceptance line:
+    # "alert payload includes anomaly type, priority, current BRC
+    # state" (tester v1 non-blocker #2).
+    local brc_snapshot
+    brc_snapshot=$(echo "${{STATE_JSON:-{{}}}}" | python3 -c "
+import sys, json, os
+role = os.environ.get('EGG_AGENT_ROLE', '')
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('(unavailable)'); sys.exit(0)
+agents = (d.get('consensus') or {{}}).get('agents') or {{}}
+my = agents.get(role) or {{}}
+blocking = (d.get('consensus') or {{}}).get('blocking_agents') or []
+print(f\"role={{role}} producer_phase={{my.get('producer_phase','?')}} reviewer_phase={{my.get('reviewer_phase','?')}} confirmed={{my.get('confirmed','?')}} blocking_agents={{blocking}}\")
+" 2>/dev/null || echo "(snapshot unavailable)")
     timeout 5 egg-orch overseer alert "${{EGG_PIPELINE_ID:-unknown}}" \
         --role "${{EGG_AGENT_ROLE:-agent}}" \
         --anomaly stuck-phase-transition \
         --priority "$priority" \
         --summary "BRC event-pump idle for ${{idle}}s$summary_extra" \
-        --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has seen no actionable BRC event for ${{idle}}s (configured budget ${{IDLE_BUDGET_SECS}}s). The loop continues blocking; no FAILED transition is forced." \
+        --detail "Event-pump for role=${{EGG_AGENT_ROLE:-agent}} slice=${{EGG_SLICE_ID:-none}} has seen no actionable BRC event for ${{idle}}s (configured budget ${{IDLE_BUDGET_SECS}}s). The loop continues blocking; no FAILED transition is forced. BRC state: $brc_snapshot" \
         >/dev/null 2>&1 || true
 }}
 
@@ -1042,6 +1083,12 @@ check_idle_budget() {{
         cw_log "Idle 2x budget exceeded (${{idle}}s >= ${{double}}s); raising HIGH overseer alert."
         raise_idle_alert "$idle" "high" " (2x budget)"
         ALERTED_AT_DOUBLE=true
+        # When the loop jumps straight from idle=0 to >=2x budget (e.g.
+        # the wrapper paused for 60+ min between checks), set the 1x
+        # latch too -- the 2x alert subsumes the 1x notification, so
+        # the next ``check_idle_budget`` should not re-fire the 1x
+        # branch (tester v1 non-blocker #1).
+        ALERTED_AT_BUDGET=true
     elif [ "$idle" -ge "$IDLE_BUDGET_SECS" ] && [ "$ALERTED_AT_BUDGET" != "true" ]; then
         cw_log "Idle budget exceeded (${{idle}}s >= ${{IDLE_BUDGET_SECS}}s); raising overseer alert."
         raise_idle_alert "$idle" "high" ""
@@ -1086,10 +1133,20 @@ while true; do
             note_progress
             ;;
         wait)
-            wait_for_event "$ROLE_CONFIRMED" || true
-            # Wait-loop returning (matched, timeout, or transient) is
-            # progress in the event-pump sense: state may have changed.
-            note_progress
+            # Block on the bus. ``wait_for_event`` returns 0 only when
+            # a matching message was delivered (sandbox/egg_lib CLI
+            # contract: ``message wait-loop`` exits 0 on match, 1 on
+            # safety-cap / no-match). Reset the idle counter ONLY in
+            # the match case -- a timeout return is the DEFINITION of
+            # idle, not progress. (reviewer_concurrency v1 finding 2 /
+            # #2908 slice-2 NACK: unconditional ``note_progress`` here
+            # would defeat the entire idle-budget safety net because
+            # the inner wait-loop returns every ~60 s with no event.)
+            wait_for_event "$ROLE_CONFIRMED"
+            wait_rc=$?
+            if [ "$wait_rc" -eq 0 ]; then
+                note_progress
+            fi
             ;;
         propose|ack|nack)
             cw_log "Invoking agent (action=$ACTION)."
