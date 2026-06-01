@@ -1015,16 +1015,27 @@ def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> i
         return None
 
 
-def _slice_agents_alive(pipeline_id: str, slice_id: str) -> bool:
+def _slice_agents_alive(spawner: Any, pipeline_id: str, slice_id: str) -> bool:
     """Check if any live agents exist for a slice (#2914).
 
     Returns ``True`` if at least one pod labeled with the pipeline and
     slice IDs is in a live state (Pending/Creating/Running). Returns
     ``False`` if zero live pods or if the label query fails — the
     conservative default forces re-spawn rather than risking a wedge.
+
+    Caller contract: callers must have already torn down stale cohorts
+    with foreground propagation (e.g. ``restart_phase`` step 4 calls
+    ``remove_agent_container(force=True)``). A pod whose Job is being
+    deleted but is still in its termination grace period still reports
+    ``phase=Running`` (``kubernetes_client.py`` maps Running → RUNNING
+    without a Terminating-specific status), so without foreground
+    teardown the helper can false-positive against terminating pods
+    and wedge again. The ``spawner`` is taken as a parameter (rather
+    than fetched via ``_get_spawner``) so tests can inject a stub
+    directly, paralleling how ``_classify_non_complete_slice``
+    receives ``gateway``.
     """
     try:
-        spawner = _get_spawner()
         pods = spawner.backend.list_containers(
             labels={
                 LABEL_PIPELINE_ID: pipeline_id,
@@ -16152,7 +16163,7 @@ def _run_implement_phase_slices(
             # On restart_phase, agents were torn down but contract still shows
             # IN_PROGRESS with commits — we must not mark_spawned when cohort
             # is absent, or the pipeline wedges with no agents running.
-            if _slice_agents_alive(pipeline_id, s.id):
+            if _slice_agents_alive(spawner, pipeline_id, s.id):
                 scheduler.mark_spawned(s.id)
                 bootstrap_resumed.append(s.id)
             else:
@@ -16192,8 +16203,12 @@ def _run_implement_phase_slices(
         # entirely. Case-4 escalation still fires, but operators need
         # the structured "we saw a blocked slice" log to spot
         # pending-HITL backlogs without grepping for the side-effect.
-        # include ``bootstrap_reclassified_fresh`` (#2914) — resume-classified
-        # slices that were re-verified and found to have no live agents.
+        #
+        # Also include ``bootstrap_reclassified_fresh`` (#2914) — resume-
+        # classified slices that were re-verified against k8s and found
+        # to have no live agents. Surfacing the reclassification here
+        # gives operators a structured audit trail for the
+        # ``restart_phase``-recovery path.
         logger.info(
             "Slice bootstrap reconciliation classified non-COMPLETE slices (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,

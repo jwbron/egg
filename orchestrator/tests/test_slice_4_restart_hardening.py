@@ -90,7 +90,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # sys.path setup matches other orchestrator/tests files.
 _orchestrator_path = Path(__file__).parent.parent
@@ -1111,7 +1111,12 @@ class TestClassifyNonCompleteSlice:
 
 
 class TestSliceAgentsAlive:
-    """Exercise _slice_agents_alive() against a stubbed spawner backend."""
+    """Exercise _slice_agents_alive() against a stubbed spawner backend.
+
+    The helper takes ``spawner`` as a parameter (paralleling how
+    ``_classify_non_complete_slice`` takes ``gateway``) so tests inject
+    a stub directly without patching ``routes.pipelines._get_spawner``.
+    """
 
     @staticmethod
     def _make_container_info(container_id: str, status):
@@ -1123,14 +1128,14 @@ class TestSliceAgentsAlive:
             status=status,
         )
 
-    def _patched_spawner(self, returned_pods):
-        """Patch _get_spawner to return a backend whose list_containers
-        yields the given pods."""
+    def _make_spawner(self, returned_pods):
+        """Build a spawner stub whose backend.list_containers yields
+        the given pods."""
         backend = MagicMock()
         backend.list_containers.return_value = returned_pods
         spawner = MagicMock()
         spawner.backend = backend
-        return patch("routes.pipelines._get_spawner", return_value=spawner)
+        return spawner
 
     def test_true_when_running_pod_exists(self):
         """At least one RUNNING pod → slice is live, resume is safe."""
@@ -1141,8 +1146,8 @@ class TestSliceAgentsAlive:
             self._make_container_info("p1", ContainerStatus.RUNNING),
         ]
 
-        with self._patched_spawner(pods):
-            assert _slice_agents_alive("pipeline-x", "slice-1") is True
+        spawner = self._make_spawner(pods)
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
 
     def test_true_when_pending_pod_exists(self):
         """PENDING pod (still scheduling) → slice is live, don't re-spawn."""
@@ -1153,15 +1158,34 @@ class TestSliceAgentsAlive:
             self._make_container_info("p1", ContainerStatus.PENDING),
         ]
 
-        with self._patched_spawner(pods):
-            assert _slice_agents_alive("pipeline-x", "slice-1") is True
+        spawner = self._make_spawner(pods)
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
+
+    def test_true_when_creating_pod_exists(self):
+        """CREATING pod (Job→Pod transition) → slice is live, don't re-spawn.
+
+        ``_LIVE_POD_STATUSES`` (``models.LIVE_POD_STATUSES``) includes
+        CREATING because k8s Jobs pass through it on their way to
+        Running. Without this branch, a slice mid-spawn would be
+        misclassified as dead and double-spawned. (reviewer suggestion 2
+        on #2916: same shape as the RUNNING/PENDING tests.)
+        """
+        from models import ContainerStatus
+        from routes.pipelines import _slice_agents_alive
+
+        pods = [
+            self._make_container_info("p1", ContainerStatus.CREATING),
+        ]
+
+        spawner = self._make_spawner(pods)
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
 
     def test_false_when_no_pods(self):
         """Zero pods → slice is dead, force fresh re-spawn."""
         from routes.pipelines import _slice_agents_alive
 
-        with self._patched_spawner([]):
-            assert _slice_agents_alive("pipeline-x", "slice-1") is False
+        spawner = self._make_spawner([])
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
 
     def test_false_when_only_terminal_pods(self):
         """Only EXITED/FAILED pods (post-restart_phase cleanup) → slice is dead."""
@@ -1173,8 +1197,8 @@ class TestSliceAgentsAlive:
             self._make_container_info("p2", ContainerStatus.FAILED),
         ]
 
-        with self._patched_spawner(pods):
-            assert _slice_agents_alive("pipeline-x", "slice-1") is False
+        spawner = self._make_spawner(pods)
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
 
     def test_false_on_k8s_api_error(self):
         """Defensive: k8s API error → assume dead, force re-spawn."""
@@ -1185,8 +1209,7 @@ class TestSliceAgentsAlive:
         spawner = MagicMock()
         spawner.backend = backend
 
-        with patch("routes.pipelines._get_spawner", return_value=spawner):
-            assert _slice_agents_alive("pipeline-x", "slice-1") is False
+        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
 
     def test_filters_by_pipeline_and_slice_labels(self):
         """Helper must query with both labels to avoid false-positive on
@@ -1201,8 +1224,7 @@ class TestSliceAgentsAlive:
         spawner = MagicMock()
         spawner.backend = backend
 
-        with patch("routes.pipelines._get_spawner", return_value=spawner):
-            _slice_agents_alive("pipeline-x", "slice-2")
+        _slice_agents_alive(spawner, "pipeline-x", "slice-2")
 
         # Verify the label selector included both pipeline and slice
         call_kwargs = backend.list_containers.call_args.kwargs
