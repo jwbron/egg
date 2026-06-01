@@ -322,6 +322,15 @@ class LiteLLMCostLogger(CustomLogger):
                 "cache_write_tokens": int(totals["cache_write_tokens"]),
                 "reasoning_tokens": int(totals["reasoning_tokens"]),
             }
+            # The ``call`` sub-dict shape below is the source of truth
+            # for ``scripts/spike/2908_cost_log_adapter.py`` (issue #2908
+            # WS0 spike) -- the adapter translates ``cached_tokens`` ->
+            # ``cache_read_tokens`` and ``cache_write_tokens`` ->
+            # ``cache_creation_tokens`` to expose the canonical
+            # {prompt_tokens, cache_read_tokens, cache_creation_tokens}
+            # payload that TASK-1-2 / slice-9 TASK-9-1 consume. Adding
+            # or renaming a field here requires touching the
+            # ``_CALL_FIELD_MAP`` in that adapter.
             _emit(
                 {
                     "session_id": sid,

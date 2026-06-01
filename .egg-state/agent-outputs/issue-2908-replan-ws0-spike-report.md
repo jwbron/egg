@@ -51,10 +51,12 @@ that the legacy `consensus_wrapper.py` exhibits?
 Answer: **yes, in the control-flow shape verified by the mock-mode
 run captured in `scripts/spike/2908_run_log.txt` §1**. The prototype:
 
-- received `CONSENSUS_PROPOSE`, two `CONSENSUS_ACK`s, and
-  `CONSENSUS_CONFIRMED` in order;
-- invoked `python3 -m egg_agent` once per actionable event (NOT the
-  raw `claude` CLI print-mode entrypoint — EGG100 ban honoured);
+- received 4 events total — `CONSENSUS_PROPOSE`, two
+  `CONSENSUS_ACK`s, and `CONSENSUS_CONFIRMED` — in order;
+- invoked `python3 -m egg_agent` once per **actionable** event (3
+  spawns: PROPOSE + 2 ACKs); the trailing `CONSENSUS_CONFIRMED` is a
+  termination signal, not a spawn trigger. (NOT the raw `claude` CLI
+  print-mode entrypoint — EGG100 ban honoured.)
 - exited cleanly on `CONSENSUS_CONFIRMED` with exit code 0;
 - did **not** restart the agent at any point — there is no
   `MAX_CONSENSUS_RESTARTS` accounting in the prototype, by design.
@@ -71,9 +73,11 @@ numbers, which feed §3 below.
 **BC-1 hard constraint (risk-analyst register)**: the measurement must
 exercise `python3 -m egg_agent` with the **production BRC preamble**
 (assembled via `orchestrator/routes/pipelines.py::_build_brc_preamble`
-at line 12348) **and** the 38 MCP tool schemas registered via
-`sandbox/egg_agent_tools/tools/*`. Raw `claude --output-format json`
-measurements are not acceptable as BC-1 evidence.
+at line 12348) **and** the MCP tool schemas registered via
+`sandbox/egg_agent_tools/tools/__init__.py` (which imports every
+`sandbox/egg_agent_tools/tools/<namespace>.py` shard). Raw
+`claude --output-format json` measurements are not acceptable as BC-1
+evidence.
 
 The prototype script satisfies BC-1 by construction: its `spawn_agent`
 helper calls `python3 -m egg_agent` — the same `egg_agent.client`
@@ -85,14 +89,19 @@ path is taken.
 ### 3.1 Headline numbers (table)
 
 The token-count cells below are populated from the cost-adapter
-summary line produced by `2908_cost_log_adapter.py --tee
-<litellm-log>` (in cluster) or its `--kubectl` source variant. The
-adapter's canonical payload shape is `{prompt_tokens,
-cache_read_tokens, cache_creation_tokens}`. Cells marked `[operator]`
-require the operator's in-cluster run (see `2908_run_log.txt` §2) to
-populate; the spike's slice-1 deliverable is the **measurement
-harness** plus an annotated mock-mode trace, not a free-standing
-cluster execution.
+summary line produced by either of:
+
+    python3 scripts/spike/2908_cost_log_adapter.py --tee <litellm-log>
+    python3 scripts/spike/2908_cost_log_adapter.py --kubectl egg-litellm
+
+The first source reads a stdout-tee log file (CI / local); the second
+streams from `kubectl logs deployment/egg-litellm` (in cluster). Both
+return the same canonical payload shape `{prompt_tokens,
+cache_read_tokens, cache_creation_tokens}` (R-2 mitigation). Cells
+marked `[operator]` require the operator's in-cluster run (see
+`2908_run_log.txt` §2) to populate; the spike's slice-1 deliverable
+is the **measurement harness** plus an annotated mock-mode trace, not
+a free-standing cluster execution.
 
 | route     | events seen | avg prompt_tokens / event | avg cache_read_tokens / event | avg cache_creation_tokens / event |
 |-----------|-------------|---------------------------|--------------------------------|-----------------------------------|
@@ -120,8 +129,9 @@ The prefix the per-event run exercises is the union of:
 - the production `_build_brc_preamble` output for the role being
   spawned (callers at `orchestrator/routes/pipelines.py:13659,
   :13692, :13720`);
-- the 38 MCP tool schemas registered via
-  `sandbox/egg_agent_tools/tools/__init__.py`;
+- the MCP tool schemas registered via
+  `sandbox/egg_agent_tools/tools/__init__.py`, which transitively
+  imports every per-namespace shard under `sandbox/egg_agent_tools/tools/*.py`;
 - `sandbox/agent-config/rules/mission.md` (rendered as the system
   prompt baseline).
 
