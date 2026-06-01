@@ -1290,6 +1290,114 @@ class TestSliceMergedDetection:
 
 
 # ---------------------------------------------------------------------------
+# #2914 — restart_phase resume guard: bootstrap must verify pods are alive
+# before mark_spawned, or the pipeline wedges with no agents running.
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapResumeAliveGuard:
+    """#2914 — Layer-C resume classification must re-verify against k8s.
+
+    The bootstrap classifier returns ``"resume"`` for IN_PROGRESS slices
+    with commits on the integration branch. Without the alive-guard,
+    that flips the scheduler slice to RUNNING via ``mark_spawned`` —
+    correct under normal restart, but wedging after ``restart_phase``
+    tore the container cohort down (contract still shows IN_PROGRESS +
+    commits but no pods exist). The guard re-queries the spawner; if
+    no live pods are found the slice is treated as fresh so the run
+    loop re-yields READY and respawns a new cohort.
+
+    These tests close the integration gap that
+    ``TestSliceAgentsAlive`` (unit) cannot — exercising the actual
+    call site at the Layer-C ``resume`` branch in
+    ``routes/pipelines.py:_run_implement_phase_slices`` end-to-end.
+    """
+
+    def _make_spawner(self, *, live_pods: list[Any]) -> MagicMock:
+        """Build a spawner whose backend.list_containers returns the
+        given pods and whose gateway probe reports the integration
+        branch has commits on origin (classifier → ``"resume"``)."""
+        spawner = MagicMock()
+        spawner.gateway = MagicMock()
+        spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
+        # Non-None SHA → classifier sees commits on origin → "resume".
+        spawner.gateway.get_remote_branch_sha.return_value = "deadbeef" * 5
+        backend = MagicMock()
+        backend.list_containers.return_value = live_pods
+        spawner.backend = backend
+        return spawner
+
+    @staticmethod
+    def _make_container_info(container_id: str, status: Any) -> Any:
+        from models import ContainerInfo
+
+        return ContainerInfo(
+            container_id=container_id,
+            container_name=f"egg-{container_id}",
+            status=status,
+        )
+
+    def test_resume_with_no_live_pods_respawns_fresh(self) -> None:
+        """Classifier → ``"resume"`` but ``list_containers`` returns []
+        → slice must run through the regular path (i.e.
+        ``_run_concurrent_phase`` IS called). Without the guard,
+        ``mark_spawned`` would have flipped the slice to RUNNING and
+        ``iter_ready`` would never re-yield it, leaving the pipeline
+        wedged."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice1.status = SliceStatus.IN_PROGRESS
+        contract = _make_contract(slices=[slice1])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+            # No tracker → classifier's consensus_complete=False
+            # branch → "resume".
+            patch(
+                "routes.pipelines._lookup_peer_consensus_tracker_or_none",
+                return_value=None,
+            ),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner(live_pods=[])
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # The fix: with no live pods, the slice must still spawn fresh.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-1"}, (
+            "resume-classified slice with no live pods must be respawned — "
+            "without the #2914 guard, mark_spawned would wedge the pipeline"
+        )
+        # Liveness probe must have actually fired for the slice (label
+        # selector includes the slice id, not just the pipeline).
+        list_calls = spawner.backend.list_containers.call_args_list
+        slice_labelled_calls = [
+            c for c in list_calls if c.kwargs.get("labels", {}).get("egg.slice.id") == "slice-1"
+        ]
+        assert slice_labelled_calls, (
+            "_slice_agents_alive must call list_containers with the slice label"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Coder fixes for reviewer_code_holistic v1 NACK (now regression guards)
 # ---------------------------------------------------------------------------
 #
