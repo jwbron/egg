@@ -49,7 +49,7 @@ def test_auto_populate_empty_contract_success(mock_pipeline_state):
         with (
             patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
             patch("routes.pipelines._commit_statefiles_to_worktree"),
-            patch("gateway.client.GatewayClient"),
+            patch("routes.pipelines.get_gateway_client"),
         ):
             mock_populate.return_value = mock_populate_result
 
@@ -214,12 +214,12 @@ def test_auto_populate_empty_contract_push_fails(mock_pipeline_state):
         with (
             patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
             patch("routes.pipelines._commit_statefiles_to_worktree"),
-            patch("gateway.client.GatewayClient") as mock_gateway_class,
+            patch("routes.pipelines.get_gateway_client") as mock_get_gateway,
         ):
             mock_populate.return_value = mock_populate_result
             mock_gateway = MagicMock()
-            mock_gateway.push_worktrees_branch.side_effect = Exception("Push failed")
-            mock_gateway_class.return_value = mock_gateway
+            mock_gateway.push_worktree_branch.side_effect = Exception("Push failed")
+            mock_get_gateway.return_value = mock_gateway
 
             result = _auto_populate_contract_at_implement_start(
                 worktree_repo_path=worktree_repo_path,
@@ -250,7 +250,7 @@ def test_auto_populate_empty_contract_no_commit_needed(mock_pipeline_state):
         with (
             patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
-            patch("gateway.client.GatewayClient"),
+            patch("routes.pipelines.get_gateway_client"),
         ):
             mock_populate.return_value = mock_populate_result
             # _commit_statefiles_to_worktree returns True (success)

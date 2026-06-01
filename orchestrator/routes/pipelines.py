@@ -19565,10 +19565,12 @@ def _auto_populate_contract_at_implement_start(
 
     # Push the populated contract
     try:
-        from gateway.client import GatewayClient
-
-        _gw = GatewayClient()
-        _gw.push_worktrees_branch(pipeline_id, pipeline_branch)
+        _gw = get_gateway_client()
+        _gw.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_repo_path),
+            branch=pipeline_branch,
+        )
     except Exception as _push_err:  # noqa: BLE001
         logger.warning(
             "Auto-populate: push failed (non-fatal, contract is committed locally)",
