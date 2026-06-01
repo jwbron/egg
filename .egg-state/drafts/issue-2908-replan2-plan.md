@@ -148,19 +148,26 @@ relevant to this plan:
   trailing-slash directory patterns as recursive prefixes). The
   fail-closed path constructor (TASK-1-6) refuses to write if
   `EGG_AGENT_ROLE` is unset/empty.
-- **ScriptedProvider is unit-test-only** (in-process; cannot drive
-  a deployed agent pod end-to-end per
-  `integration_tests/regression/test_brc_concurrency.py:1-25` and
-  #2474). Slice-2 verification therefore uses wrapper-rendering +
-  heartbeat unit tests + the in-process PeerConsensusTracker
-  regression suite; true end-to-end validation is **deferred to
-  slice-4** (the spike on issue-2270 / qwen3.7-max). Slice-4 uses
-  `integration_tests/local_pipeline/` fixtures
-  (`integration_tests/local_pipeline/conftest.py:261` is the only
-  `gateway_url` pytest fixture; kubectl-gated via
-  `local_pipeline_stack`). No agent-side pytest fixture is
-  in-sandbox-agent-runnable today; slice-4 assertions run on the
-  cluster orchestrator, not inside the agent pod under test. See
+- **No `class ScriptedProvider` exists in this codebase** (the
+  pod-injection avenue was ruled out per #2474 — verified at
+  `integration_tests/regression/conftest.py:45` and via
+  `grep -rn 'class ScriptedProvider'` returning zero hits). Slice-2
+  verification therefore uses wrapper-rendering + heartbeat unit
+  tests + the existing in-process `PeerConsensusTracker` regression
+  suite at `integration_tests/regression/test_brc_*.py` (the same
+  suite the architect's `verification_strategy.slice_2` (iii)
+  invokes); true end-to-end validation is **deferred to slice-4**
+  (the spike on issue-2270 / qwen3.7-max). Slice-4 uses the session-
+  scoped `egg_stack: EggStack` fixture at
+  `integration_tests/conftest.py:340` (k3s-backed, started via
+  `_k8s_egg_stack()` at `:172`). The actual `gateway_url` /
+  `orchestrator_url` / `lifecycle_secret` accessors are attributes
+  on the `EggStack` dataclass at `integration_tests/conftest.py:78-90`
+  — there is no `local_pipeline/conftest.py:261` fixture and no
+  `local_pipeline_stack` fixture (verified — directory does not
+  exist). Agent-side pytest fixtures remain not in-sandbox-agent-
+  runnable; slice-4 assertions run on the cluster orchestrator,
+  not inside the agent pod under test. See
   `docs/architecture/integration-test-trust-boundary.md`.
 - **Qwen cache instrumentation** sources from
   `~/.local/state/clm/cost-*.json` files on the litellm pod (per
@@ -334,9 +341,11 @@ pr:
        heartbeat (#2036) and gateway-session keep-alive (#2451) from
        the agent-side handler into the wrapper's blocking wait.
        Heartbeat payload carries `slice_id` from `EGG_SLICE_ID`
-       (regression guard). Verification is unit-test-only —
-       ScriptedProvider can't drive a deployed pod end-to-end; true
-       E2E deferred to slice-4. Old path retained verbatim alongside.
+       (regression guard). Verification is unit-test-only — no
+       in-process test double can drive a deployed pod end-to-end
+       (the pod-injection avenue was ruled out per #2474); true
+       E2E deferred to slice-4 via the `egg_stack` real-pod
+       fixture. Old path retained verbatim alongside.
     3. **slice-3 — Delta + prompt collapse.** Wire per-event
        invocation to hand the agent the memory delta plus the full
        `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p`
@@ -403,9 +412,11 @@ pr:
     - slice-2: wrapper template snapshot for event-pump branch;
       wrapper-side heartbeat unit test asserting `slice_id`
       propagation from `EGG_SLICE_ID`; idle-budget overseer-alert
-      threshold test; in-process BRC regression with flag off
+      threshold test; in-process `PeerConsensusTracker` regression
+      (`integration_tests/regression/test_brc_*.py`) with flag off
       establishes zero orchestrator-side regression; E2E deferred
-      to slice-4 (ScriptedProvider cannot drive deployed pod).
+      to slice-4 via `egg_stack` (no in-process test double can
+      drive a deployed pod end-to-end per #2474).
     - slice-3: `compose_event_prompt` unit tests; collapsed
       preamble snapshot; full git-log delta in per-event prompt
       asserted; per-event prompt envelope (excluding delta) ≤ 10 KB;
@@ -501,11 +512,13 @@ slices:
           ``--role`` arg that defaults to ``$EGG_AGENT_ROLE`` (set on every
           agent pod per kubernetes_spawner.py:818-823).
         acceptance: |-
-          ``egg-orch brc next-action --role coder --json`` against a
-          ScriptedProvider-backed pipeline returns the documented JSON
-          shape; subcommand registered with ``--help`` output describing the
-          ``--role`` and ``--json`` flags; lifecycle-secret auth tested
-          (rejected without env var).
+          ``egg-orch brc next-action --role coder --json`` against an
+          in-process orchestrator fake (FlaskClient + lifecycle-secret
+          token, matching the existing ``test_orch_cli_*.py`` pattern)
+          returns the documented JSON shape; subcommand registered with
+          ``--help`` output describing the ``--role`` and ``--json``
+          flags; lifecycle-secret auth tested (rejected without env
+          var).
         role: coder
         files:
           - sandbox/egg_lib/orch_cli.py
@@ -704,21 +717,33 @@ slices:
       - id: TASK-1-10
         description: |-
           Unit tests for TASK-1-2 orchestrator route at
-          ``orchestrator/tests/test_consensus_next_action.py`` (new file).
-          Cover the nine derivation cases listed in TASK-1-2 acceptance
-          — producer-PROPOSED, reviewer-pending, dual-role WORKING+peer
-          PROPOSE-pending (returns ``propose`` per risk_analyst R11
-          sub-case a), dual-role post-own-propose (returns ``ack/nack``
-          per R11 sub-case b), open-NACK barrier #2142, conditional ACK,
-          stale-version #2482, confirm eligible, role complete — using
-          ScriptedProvider-driven fixtures from
-          ``orchestrator/tests/conftest.py``.
+          ``orchestrator/tests/test_consensus_next_action.py`` (new
+          file). Cover the nine derivation cases listed in TASK-1-2
+          acceptance — producer-PROPOSED, reviewer-pending, dual-role
+          WORKING+peer PROPOSE-pending (returns ``propose`` per
+          risk_analyst R11 sub-case a), dual-role post-own-propose
+          (returns ``ack/nack`` per R11 sub-case b), open-NACK
+          barrier #2142, conditional ACK, stale-version #2482,
+          confirm eligible, role complete — using a FlaskClient
+          driving the orchestrator Flask app in-process (the existing
+          pattern in ``orchestrator/tests/test_*.py``) plus the
+          in-process ``PeerConsensusTracker`` matrix from
+          ``orchestrator/peer_consensus.py``. NO ``ScriptedProvider``
+          reference — that class does not exist in this codebase
+          (verified by reviewer_plan: zero hits in
+          ``grep -rn 'class ScriptedProvider' .``); the orchestrator
+          route tests work entirely on the in-process Python BRC
+          state, not on a deployed agent pod.
         acceptance: |-
-          Tests pass under ``make test``; route handler logic exercised
-          for each of the nine documented (role, BRC-state) combos; 200
-          status with expected JSON shape verified per case; the two
-          dual-role sub-cases are distinct named tests (NOT collapsed
-          into one).
+          Tests pass under ``make test``; route handler logic
+          exercised for each of the nine documented (role, BRC-state)
+          combos; 200 status with expected JSON shape verified per
+          case; the two dual-role sub-cases are distinct named tests
+          (NOT collapsed into one). Suggested test names:
+          ``test_next_action_dual_role_pre_propose_returns_propose``
+          and
+          ``test_next_action_dual_role_post_propose_returns_review``
+          (per reviewer_plan v2 non-blocker).
         role: tester
         files:
           - orchestrator/tests/test_consensus_next_action.py
@@ -874,10 +899,11 @@ slices:
           versions; the ``slice_id`` propagation invariant on the
           heartbeat payload; how the idle budget replaces the restart
           cap; the 409 stale_version / aggregated-NACK handling; the
-          slice-2 verification stance (unit-test-only because
-          ScriptedProvider cannot drive a deployed pod end-to-end —
-          true E2E deferred to slice-4). Mark the flag-off path as
-          the temporary default until slice-4 flips it. Do NOT update
+          slice-2 verification stance (unit-test-only because no
+          in-process test double can drive a deployed pod
+          end-to-end per #2474 — true E2E deferred to slice-4 via
+          ``egg_stack``). Mark the flag-off path as the temporary
+          default until slice-4 flips it. Do NOT update
           ``mission.md`` yet (slice-3 owns that rewrite).
         acceptance: |-
           Both docs render with new sections; cross-linked from each
@@ -933,17 +959,22 @@ slices:
           ``integration_tests/regression/test_brc_*.py`` with
           ``EGG_BRC_EVENT_PUMP=false`` (default) and assert green —
           establishes zero orchestrator-side regression on the
-          existing path. Do NOT add a flag-on E2E test here:
-          ScriptedProvider is in-process and cannot drive a deployed
-          agent pod end-to-end (per
-          ``integration_tests/regression/test_brc_concurrency.py:1-25``
-          and #2474). True end-to-end validation is deferred to
-          slice-4's spike on issue-2270/qwen3.7-max.
+          existing in-process ``PeerConsensusTracker`` path. Do NOT
+          add a flag-on E2E test here: no in-process test double can
+          drive a deployed agent pod end-to-end — the pod-injection
+          ``ScriptedProvider`` avenue was ruled out per #2474 (see
+          ``integration_tests/regression/conftest.py:45`` and the
+          comment in ``integration_tests/regression/test_brc_concurrency.py``
+          at lines 1-25). True end-to-end validation is deferred to
+          slice-4's spike on issue-2270/qwen3.7-max using the
+          ``egg_stack`` real-pod fixture
+          (``integration_tests/conftest.py:340``).
         acceptance: |-
           ``integration_tests/regression/test_brc_*.py`` runs green
           with flag off; no flag-on E2E added in this slice; the
-          rationale ("scripted-provider is unit-test-only; E2E to
-          slice-4") is documented as a comment in the test file or in
+          rationale ("no in-process double can drive a deployed pod
+          per #2474; E2E deferred to slice-4 via egg_stack") is
+          documented as a comment in the test file or in
           ``docs/architecture/integration-test-trust-boundary.md``.
         role: tester
         files:
@@ -1055,11 +1086,18 @@ slices:
           Snapshot test for the collapsed preamble lands at
           ``orchestrator/tests/test_brc_preamble_collapsed.py``;
           STAY-ALIVE / wait-loop / cursor sections absent; roster +
-          assignments preserved; the phrase ``Both mandates have
-          equal weight`` (from the dual-mandate banner at
+          assignments preserved; the phrase ``Both must pass to ACK``
+          (verified at ``orchestrator/routes/pipelines.py:12856-12857``
+          inside the dual-mandate banner at
           pipelines.py:12849-12872) appears in the post-collapse
-          preamble snapshot; preamble byte size drops by ≥ 40%
-          (measured against pre-collapse snapshot).
+          preamble snapshot — phrase choice corrects reviewer_plan
+          v2's finding that "Both mandates have equal weight" lives
+          at line 13292 inside ``_build_adversarial_reprime`` rather
+          than inside ``_build_brc_preamble``; preamble byte size
+          drops by ≥ 25% (measured against pre-collapse snapshot;
+          the exact number is the snapshot baseline result, not a
+          pre-set target — softened from ≥ 40% per reviewer_plan v2
+          non-blocker).
         role: coder
         files:
           - orchestrator/routes/pipelines.py
@@ -1230,21 +1268,29 @@ slices:
       - id: TASK-4-1
         description: |-
           Add k3s integration test
-          ``integration_tests/local_pipeline/test_event_pump_spike_2906.py``
-          (under ``local_pipeline/``; the fixture ``gateway_url`` from
-          ``integration_tests/local_pipeline/conftest.py:261`` is the
-          only one usable here). Pre-flight: assert the sandbox image
-          built in slice-3 (TASK-3-4) is the deployed image tag AND
-          assert the deployed
+          ``integration_tests/test_event_pump_spike_2906.py``
+          (directly under ``integration_tests/`` — the
+          ``local_pipeline/`` directory the architect referenced does
+          not exist in this codebase per reviewer_plan v2). Uses the
+          session-scoped ``egg_stack`` fixture at
+          ``integration_tests/conftest.py:340`` (k3s-backed; reaches
+          gateway via ``egg_stack.gateway_url`` attribute on the
+          ``EggStack`` dataclass at
+          ``integration_tests/conftest.py:78``; orchestrator via
+          ``egg_stack.orchestrator_url`` at :79; lifecycle bearer via
+          ``egg_stack.lifecycle_secret`` at :90). Pre-flight: assert
+          the sandbox image built in slice-3 (TASK-3-4) is the
+          deployed image tag AND assert the deployed
           ``/opt/claude-rules/mission.md`` (the Dockerfile-baked path
           per ``sandbox/Dockerfile:212-214`` +
           ``sandbox/entrypoint.py:967``) NO LONGER contains the
-          STAY-ALIVE / wait-loop phrases — exec into the running pod
-          and ``grep -E 'STAY-ALIVE\b|wait-loop|never exit'
-          /opt/claude-rules/mission.md`` must return zero matches.
-          Fail fast on either pre-flight check so a stale image with
-          fresh tag (or fresh image with stale mission.md content) is
-          caught BEFORE the spike runs. Run the #2906 repro:
+          STAY-ALIVE / wait-loop phrases — kubectl-exec into the
+          running pod and ``grep -E 'STAY-ALIVE\b|wait-loop|never
+          exit' /opt/claude-rules/mission.md`` must return zero
+          matches. Fail fast on either pre-flight check so a stale
+          image with fresh tag (or fresh image with stale mission.md
+          content) is caught BEFORE the spike runs. Run the #2906
+          repro:
           issue-2270, qwen3.7-max provider configuration,
           ``EGG_BRC_EVENT_PUMP=true``, ``EGG_BRC_MEMORY=full``,
           default idle-budget. Assertions:
@@ -1271,11 +1317,13 @@ slices:
           the deployed pod's ``/opt/claude-rules/mission.md`` still
           contains the STAY-ALIVE / wait-loop / never-exit phrases
           (content-grep pre-flight, not just image-tag freshness);
-          WS7 #2 file written; test runs under ``make test-all`` on
-          the local_pipeline fixture stack (kubectl-gated).
+          WS7 #2 file written to ``.egg-state/agent-outputs/``;
+          test runs under ``make test-all`` against the
+          ``egg_stack`` fixture (kubectl-gated, k3s-backed; the test
+          skips if ``_kubectl_available()`` returns False).
         role: tester
         files:
-          - integration_tests/local_pipeline/test_event_pump_spike_2906.py
+          - integration_tests/test_event_pump_spike_2906.py
       - id: TASK-4-2
         description: |-
           Flip the ``EGG_BRC_EVENT_PUMP`` default in
@@ -1519,26 +1567,36 @@ slices:
           Capture MCP-surface latency baseline for slice-6's
           comparison test (TASK-6-6 revised acceptance). Add a
           fixture at
-          ``integration_tests/local_pipeline/test_mcp_baseline_capture.py``
-          that drives a 5-role ScriptedProvider consensus to
-          CONFIRMED on the **still-live MCP surface** (slice-5 is
-          additive only — MCP tools are still registered) and
-          writes per-event wall-clock samples (event-type,
-          start_ts, end_ts, agent-process exit code) to
+          ``integration_tests/test_mcp_baseline_capture.py``
+          (directly under ``integration_tests/``; ``local_pipeline/``
+          does not exist). Drive a real-LLM 5-role consensus on
+          the still-live MCP surface (slice-5 is additive only —
+          MCP tools are still registered) using the session-scoped
+          ``egg_stack`` fixture at
+          ``integration_tests/conftest.py:340`` (kubectl-gated;
+          k3s-backed; agents run real Claude / Qwen via the litellm
+          route configured for the test stack — no
+          ``ScriptedProvider`` reference; that class does not exist
+          per reviewer_plan v2). Record per-event wall-clock samples
+          (event_type, start_ts, end_ts, agent-process exit code as
+          captured from the orchestrator's pipeline-status events,
+          NOT from a non-existent in-process provider) and write to
           ``.egg-state/agent-outputs/latency-mcp-baseline.json``.
           The committed JSON file is slice-6's baseline; capturing
           it in slice-5 sidesteps the vendored-tarball maintenance
           burden the original TASK-6-6 carried.
         acceptance: |-
-          Test runs on the local_pipeline fixture stack; produces
+          Test runs against the ``egg_stack`` fixture (kubectl-gated;
+          skips if ``_kubectl_available()`` returns False); produces
           ``latency-mcp-baseline.json`` with schema documented in
           the test file (``samples: [{event_type, start_ts,
           end_ts, exit_code}]`` plus aggregate p50/p95); JSON file
           committed at the end of slice-5; slice-6 TASK-6-6 reads
-          this file to derive its baseline.
+          this file to derive its baseline. No ``ScriptedProvider``
+          import or reference.
         role: tester
         files:
-          - integration_tests/local_pipeline/test_mcp_baseline_capture.py
+          - integration_tests/test_mcp_baseline_capture.py
   - id: 6
     name: |-
       MCP→CLI deletion: delete agent MCP server + migrate tests
@@ -1697,23 +1755,22 @@ slices:
       - id: TASK-6-6
         description: |-
           Per-event wall-clock latency verification at
-          ``integration_tests/local_pipeline/test_mcp_to_cli_latency.py``
-          (new file under local_pipeline/).
+          ``integration_tests/test_mcp_to_cli_latency.py``
+          (directly under ``integration_tests/``; ``local_pipeline/``
+          does not exist).
 
-          **Baseline-capture strategy (revised per reviewer_plan
-          non-blocker):** instead of restoring deleted MCP code from
-          a vendored tarball, capture the MCP-surface latency
-          baseline DURING SLICE-5 (before slice-6's deletions land)
-          by adding a fixture under
-          ``integration_tests/local_pipeline/`` that drives a 5-role
-          ScriptedProvider consensus to CONFIRMED on the still-live
-          MCP surface and writes per-event wall-clock samples to
+          **Baseline-capture strategy:** TASK-5-7 captures the
+          baseline DURING slice-5 (before slice-6's deletions land)
+          on the still-live MCP surface using the ``egg_stack``
+          fixture and commits the result to
           ``.egg-state/agent-outputs/latency-mcp-baseline.json``.
-          That file is committed in slice-5 (or as the last commit
-          before slice-6's deletions in the same PR — coder's
-          call). Slice-6's TASK-6-6 then drives the same consensus
-          on the post-deletion CLI-only surface, reads the
+          TASK-6-6 (this task) drives the SAME consensus shape on
+          the post-deletion CLI-only surface — also via
+          ``egg_stack`` (session-scoped at
+          ``integration_tests/conftest.py:340``) — reads the
           slice-5-captured baseline, and asserts the comparison.
+          Both measurements use the same real-LLM tier — the only
+          delta is the tool surface.
 
           Latency regression budget: ≤ 5%. On regression > 5%,
           slice-6 surfaces a structured ``OVERSEER_ALERT`` priority
@@ -1723,16 +1780,18 @@ slices:
         acceptance: |-
           ``latency-mcp-baseline.json`` exists under
           ``.egg-state/agent-outputs/`` at slice-6 entry (captured
-          during slice-5 or in the same PR pre-deletions); the
-          post-deletion measurement is captured to
+          by TASK-5-7); the post-deletion measurement is captured to
           ``.egg-state/agent-outputs/latency-mcp-vs-cli.json``;
           assertion fails only if regression exceeds the 5% budget;
           on failure the test surfaces a structured
           ``OVERSEER_ALERT`` priority ``medium`` with the measured
-          delta. No vendored MCP source tarball in the test fixture.
+          delta. No vendored MCP source tarball. No
+          ``ScriptedProvider`` import or reference. Test gated
+          via ``egg_stack`` (skips if ``_kubectl_available()``
+          returns False).
         role: tester
         files:
-          - integration_tests/local_pipeline/test_mcp_to_cli_latency.py
+          - integration_tests/test_mcp_to_cli_latency.py
       - id: TASK-6-7
         description: |-
           Capture **WS7 cache measurement #3** (post-slice-6) to
@@ -1755,5 +1814,5 @@ slices:
           and TASK-6-2 (rollback path documented in the PR body).
         role: tester
         files:
-          - integration_tests/local_pipeline/test_ws7_cache_measurement.py
+          - integration_tests/test_ws7_cache_measurement.py
 ```
