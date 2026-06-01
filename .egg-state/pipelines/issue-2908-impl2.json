@@ -168,10 +168,10 @@
         {
           "container_id": "71fce46d-318e-4ebd-9cf9-db9407175c4f",
           "container_name": "egg-sandbox-egg-agent-issue-2908-impl2-slice-1-reviewe-b91b9f6b",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-06-01T17:58:05.801685Z",
-          "exited_at": "2026-06-01T18:07:51.064529Z",
-          "exit_code": null,
+          "exited_at": "2026-06-01T18:08:21Z",
+          "exit_code": 137,
           "agent_role": "reviewer_security",
           "session_token": null,
           "pod_name": null,
@@ -285,10 +285,10 @@
           "container_info": null,
           "slice_id": "slice-1",
           "started_at": "2026-06-01T17:58:05.801689Z",
-          "completed_at": "2026-06-01T18:07:51.064529Z",
+          "completed_at": "2026-06-01T18:08:22.801238Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": []
         }
@@ -854,13 +854,22 @@
           ],
           "terminated_at": "2026-06-01T18:08:22.237010Z",
           "container_id": "fafd151a-3ad8-4881-9c6b-ee90b2b66092"
+        },
+        {
+          "role": "reviewer_security",
+          "exit_code": 137,
+          "last_lines": [
+            "unable to retrieve container logs for containerd://7d90b28df9299787ff0b3bec8aecfc0a6653e2e69160d0e965cda0e7d98e9b7b"
+          ],
+          "terminated_at": "2026-06-01T18:08:22.801245Z",
+          "container_id": "71fce46d-318e-4ebd-9cf9-db9407175c4f"
         }
       ]
     }
   },
   "decisions": [],
   "created_at": "2026-06-01T05:15:27.685794Z",
-  "updated_at": "2026-06-01T18:08:22.237095Z",
+  "updated_at": "2026-06-01T18:08:22.801334Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -873,7 +882,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T17:57:26.884721Z",
-  "version": 47,
+  "version": 48,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
