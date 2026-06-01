@@ -101,6 +101,20 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 | `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) during which exit code 1 is classified as a transient startup failure and retried. Set to `0` to disable. |
 | `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
 
+### Event-Pump Mode (wrapper-owned waits)
+
+In addition to the persistent-session mode described above, the consensus wrapper supports an **event-pump mode** (gated by `EGG_BRC_EVENT_PUMP=true`, default `false`) that inverts wait-loop ownership: the wrapper owns the outer `wait-loop`, invokes the agent as a stateless per-event handler, and the agent exits naturally after each event. This eliminates the "model falls out of wait-loop" failure mode documented in issue #2908.
+
+**Key behavioral differences from persistent-session mode:**
+
+- The wrapper (not the agent) calls `egg-orch message wait-loop` with the appropriate `--for` filters
+- The agent receives each message as a discrete one-shot invocation and exits after handling it
+- Heartbeat emission and gateway session keep-alive move from the agent to the wrapper
+- Idle/no-progress budget (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes) replaces the `MAX_CONSENSUS_RESTARTS` cap
+- The wrapper constructs wait filters conditionally from consensus state (pre-confirm omits `CONSENSUS_CONFIRMED` to avoid HTTP 400, post-confirm includes it for terminal stay-alive)
+
+Event-pump mode is **off by default** and will become the standard after validation in slice-4. See the [architect documentation](../architecture/orchestrator.md#consensus-wrapper--event-pump-mode-slice-2-2908) for the detailed design, loop structure, and verification approach.
+
 ## Message Bus
 
 Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts. Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.

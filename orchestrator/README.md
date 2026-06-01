@@ -275,7 +275,7 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
-├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection and restart with backoff)
+├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection and restart with backoff; event-pump mode — see ../docs/architecture/orchestrator.md#consensus-wrapper--event-pump-mode-slice-2-2908)
 ├── concurrent_executor.py  # Concurrent phase execution with BRC consensus
 ├── action_guards.py        # Formal action guards (preconditions) for BRC protocol actions — canonical protocol specification
 ├── peer_consensus.py       # Peer consensus tracker for BRC protocol (delegates to action_guards.py)
