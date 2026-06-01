@@ -9970,7 +9970,9 @@ def _persist_context_pr_number(
         ) from save_err
 
 
-def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
+def _open_context_pr_at_implement_start(
+    pipeline_id: str, repo_path: Path | None = None
+) -> int | None:
     """Hard-required, idempotent up-front context PR opener (#2777, cq-4).
 
     Single up-front context-PR opener for the plan→implement boundary.
@@ -10043,7 +10045,7 @@ def _open_context_pr_at_implement_start(pipeline_id: str) -> int | None:
         ) from imp_err
 
     try:
-        store, pipeline = get_state_store_for_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id, repo_path=repo_path)
     except Exception as load_err:
         raise ContextPrCreationError(
             f"pipeline {pipeline_id!r} could not be loaded: {load_err}",
@@ -15879,7 +15881,12 @@ def _run_implement_phase_slices(
     # gateway errors here — the canonical site already enforces the
     # 422 contract.
     try:
-        _open_context_pr_at_implement_start(pipeline_id)
+        # Pass the main repo path (``store.repo_path``) — not
+        # ``worktree_repo_path`` — so all four opener call sites of
+        # ``_open_context_pr_at_implement_start`` read identically.
+        # The opener rederives its own per-pipeline worktree internally
+        # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
+        _open_context_pr_at_implement_start(pipeline_id, repo_path=Path(store.repo_path))
     except ContextPrCreationError as ctx_err:
         logger.warning(
             "Context PR opener: slice-loop entry safety net failed "
@@ -21736,7 +21743,7 @@ def _run_pipeline(
                 # Restored under the new idempotent opener.
                 if current_phase == PipelinePhase.IMPLEMENT:
                     try:
-                        _open_context_pr_at_implement_start(pipeline_id)
+                        _open_context_pr_at_implement_start(pipeline_id, repo_path=repo_path)
                     except ContextPrCreationError as ctx_err:
                         logger.warning(
                             "Context PR opener: implement-entry backstop "
@@ -23100,7 +23107,7 @@ def _run_pipeline(
             # ----------------------------------------------------------
             if current_phase.value == "plan":
                 try:
-                    _open_context_pr_at_implement_start(pipeline_id)
+                    _open_context_pr_at_implement_start(pipeline_id, repo_path=repo_path)
                 except ContextPrCreationError as ctx_err:
                     logger.warning(
                         "Context PR opener: _run_pipeline auto-advance "
@@ -24117,7 +24124,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # plan AC).
             if _hitl_open_context_pr_after_lock and _hitl_pr_worktree_path is not None:
                 try:
-                    _open_context_pr_at_implement_start(pipeline_id)
+                    _open_context_pr_at_implement_start(pipeline_id, repo_path=repo_path)
                 except ContextPrCreationError as ctx_err:
                     logger.warning(
                         "Context PR opener: HITL-resume failed "
