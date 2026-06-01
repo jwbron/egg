@@ -324,6 +324,9 @@ class TestFlagNormalization:
         assert git_client.normalize_flag("-a", "fetch") == "--all"
         assert git_client.normalize_flag("-t", "fetch") == "--tags"
         assert git_client.normalize_flag("-p", "fetch") == "--prune"
+        assert git_client.normalize_flag("-v", "fetch") == "--verbose"
+        assert git_client.normalize_flag("-q", "fetch") == "--quiet"
+        assert git_client.normalize_flag("-j", "fetch") == "--jobs"
 
     def test_short_p_to_patch_in_log(self):
         """git log -p normalizes to --patch so the allowlist accepts it.
@@ -332,9 +335,6 @@ class TestFlagNormalization:
         --not origin/<base> -p`). Issue #2905.
         """
         assert git_client.normalize_flag("-p", "log") == "--patch"
-        assert git_client.normalize_flag("-v", "fetch") == "--verbose"
-        assert git_client.normalize_flag("-q", "fetch") == "--quiet"
-        assert git_client.normalize_flag("-j", "fetch") == "--jobs"
 
     def test_short_to_long_push(self):
         """Short flags are normalized to long form for push."""

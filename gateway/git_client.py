@@ -338,6 +338,23 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "-s",
         ],
     },
+    # ``--patch`` (``-p``) and ``--not`` power the canonical BRC re-review
+    # delta command documented in REVIEWER-SYNC.md:110 and emitted by
+    # ``_build_review_prompt()`` in ``orchestrator/routes/pipelines.py``
+    # (``git log <sha>..HEAD --not origin/<base> -p``). Both are read-only.
+    # ``--not`` mirrors the ``^ref`` exclude syntax the revision-range parser
+    # already accepts (see ``agent_salvage.py`` ``_resolve_anchor`` /
+    # ``list_unpushed_commits``). Without these, reviewers on the LiteLLM
+    # route burn their turn budget retrying and exit without a v2+ verdict
+    # (#2905).
+    #
+    # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are accepted as
+    # aliases for ``--max-count=N`` via special cases in ``validate_git_args``
+    # (search for "issue #2480"). We don't put ``-n`` in the ``log`` entry of
+    # ``FLAG_NORMALIZATION`` because its value is a separate argument, which
+    # the per-flag normalizer can't see. Both special cases also apply to the
+    # ``reflog`` allowlist below — reflog is internally a log walker and
+    # shares the same ``--max-count`` semantics for both forms.
     "log": {
         "allowed_flags": [
             "--oneline",
@@ -355,24 +372,8 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # --patch (-p) and --not power the canonical BRC re-review delta
-            # command documented in REVIEWER-SYNC.md:110 and emitted by
-            # _build_review_prompt() in orchestrator/routes/pipelines.py
-            # (`git log <sha>..HEAD --not origin/<base> -p`). Both are read-only.
-            # --not mirrors the ^ref exclude syntax the revision-range parser
-            # already accepts (see agent_salvage.py _resolve_anchor / list_unpushed_commits).
-            # Without these, reviewers on the LiteLLM route burn their turn
-            # budget retrying and exit without a v2+ verdict (#2905).
             "--patch",
             "--not",
-            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
-            # accepted as aliases for ``--max-count=N`` via special cases in
-            # ``validate_git_args`` (search for "issue #2480"). We don't put
-            # ``-n`` in the log entry of FLAG_NORMALIZATION because its value
-            # is a separate argument, which the per-flag normalizer can't see.
-            # Both special cases also apply to the ``reflog`` allowlist below —
-            # reflog is internally a log walker and shares the same
-            # ``--max-count`` semantics for both forms.
             "--since",
             "--until",
             "--author",
