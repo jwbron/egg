@@ -15696,7 +15696,11 @@ def _start_stacked_pr_reconciler(
         if not pr_repo:
             return []
         try:
-            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="coder"))
+            # Stacked-PR reconciler is orchestrator-driven; the synthetic
+            # session uses ``agent_role="orchestrator"`` so the audit log
+            # attributes these `gh pr list` calls to the actual caller
+            # (the orchestrator) instead of impersonating a coder (#2893).
+            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="orchestrator"))
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "stacked_pr_reconciler: list_open_prs raised — treating as empty",

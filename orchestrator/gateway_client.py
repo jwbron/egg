@@ -1778,15 +1778,10 @@ class GatewayClient:
         # (PR created server-side, transport blip on the response) from
         # cascading the slice to FAILED on the next tick.
         if repo:
-            # Hardcode synthetic role to "coder" — `_lookup_open_pr`'s
-            # `/api/v1/gh/execute` round-trip is gated by
-            # `check_agent_gh_operation`, and "orchestrator" is not in
-            # `AGENT_GH_RESTRICTIONS` so it 403s as an unknown role
-            # (see reviewer_code_holistic v3 NACK). Propagating the
-            # caller's `agent_role` (which `pipelines.py` passes as
-            # "orchestrator" for slice-PR creation) defeats the cq-8
-            # idempotency pre-flight because the swallowed 403 looks
-            # like a benign miss and `gh pr create` runs anyway.
+            # Idempotency pre-flight (#2777 cq-8). The synthetic session uses
+            # ``agent_role="orchestrator"`` — the gateway's
+            # ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role for
+            # read-only ``gh pr list`` calls (#2893).
             existing_pr_number = self._lookup_open_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
@@ -2562,7 +2557,7 @@ class GatewayClient:
         pipeline_id: str,
         repo: str,
         *,
-        agent_role: str = "coder",
+        agent_role: str = "orchestrator",
         mode: Literal["public", "private"] = "public",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
@@ -2576,6 +2571,12 @@ class GatewayClient:
         ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
         (gateway/github_client.py) so no privileged endpoint is introduced
         (decision-15).
+
+        The synthetic session defaults to ``agent_role="orchestrator"`` so the
+        audit log attributes these calls to the orchestrator (the actual
+        caller) instead of impersonating a coder. The gateway's
+        ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role for read-only
+        ``gh pr list`` calls (#2893).
 
         On any error (gateway 4xx/5xx, JSON parse failure) the
         function logs and returns an empty list — the reconciler
@@ -2682,12 +2683,9 @@ class GatewayClient:
         broader ``list_open_prs`` shape because it needs to enumerate
         every open PR for the client-side filter.
 
-        The synthetic session is hardcoded to register with
-        ``agent_role="coder"`` because ``/api/v1/gh/execute`` is gated
-        by ``check_agent_gh_operation`` which only accepts roles in
-        ``AGENT_GH_RESTRICTIONS``; the orchestrator-side caller's
-        own role string (e.g. "orchestrator") would 403 as unknown
-        (see reviewer_code_holistic v3 NACK on #2777 slice-3).
+        The synthetic session registers with ``agent_role="orchestrator"``.
+        The gateway's ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role
+        for read-only ``gh pr list`` calls (#2893).
 
         Returns:
             The integer PR number on hit, ``None`` on miss OR on any
@@ -2707,18 +2705,12 @@ class GatewayClient:
         temp_container_id = f"{pipeline_id}-pr-lookup"
         session_token: str | None = None
         try:
-            # TODO(#2893): use ``agent_role="orchestrator"`` once the
-            # gateway's ``AGENT_GH_RESTRICTIONS`` allowlist accepts that
-            # role for read-only ``gh pr list`` calls. The orchestrator
-            # is the actual caller here; "coder" is a temporary stand-in
-            # because the gateway currently rejects "orchestrator" at
-            # /api/v1/gh/execute.
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
-                agent_role="coder",
+                agent_role="orchestrator",
                 synthetic=True,
             )
             session_token = session.session_token
