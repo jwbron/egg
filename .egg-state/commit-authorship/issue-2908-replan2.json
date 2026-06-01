@@ -21,6 +21,20 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "6342b2d7aff71c76e22a4369fef60fd0890fb41b": {
+      "branch": "egg/issue-2908-replan2/work",
+      "pipeline_id": "issue-2908-replan2",
+      "registered_at": "2026-06-01T03:49:09.785483+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
+    "ab9beabfb3e2b0c5dd72b5430a4b14aae65df49f": {
+      "branch": "egg/issue-2908-replan2/work",
+      "pipeline_id": "issue-2908-replan2",
+      "registered_at": "2026-06-01T03:49:03.572659+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
     "b6088e988fa71572ea56b7b61eaf8e112daa5fce": {
       "branch": "egg/issue-2908-replan2/work",
       "pipeline_id": "issue-2908-replan2",
