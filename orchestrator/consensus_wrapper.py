@@ -58,6 +58,323 @@ TRANSIENT_RESTART_BACKOFF_INITIAL = 5
 # still treated as permanent failures.
 STARTUP_FAILURE_WINDOW_SECONDS = 30
 
+# Default idle budget for event-pump mode (task-2-3, slice-2). If no actionable
+# events arrive for this many minutes, emit OVERSEER_ALERT (stuck-phase-transition,
+# high priority) and continue blocking. At 2× budget, raise alert priority.
+# Default 30 minutes is well above the WS7-observed 10-13 min idle ceiling per
+# architect od-4. Gated by ``EGG_BRC_IDLE_BUDGET_MIN`` env var. Only active when
+# ``EGG_BRC_EVENT_PUMP=true`` (task-2-1).
+IDLE_BUDGET_MIN_DEFAULT = 30
+
+# Wait-filter set for event-pump blocking waits. These are the event types the
+# wrapper waits for between ``egg-orch message wait-loop`` invocations. The set
+# is constructed CONDITIONALLY on the role's confirmed status:
+#   - Pre-confirm (role not yet confirmed): six events listed below.
+#   - Post-confirm (role confirmed, STAY-ALIVE): add CONSENSUS_CONFIRMED so the
+#     wrapper notices when global consensus completes.
+# See risk_analyst R12 and #2064/#2482 for the orchestrator HTTP-400 rejection
+# rationale for why post-confirm waits include it and pre-confirm must omit it.
+EVENT_PUMP_WAIT_FILTER_PRE_CONFIRM = (
+    "CONSENSUS_PROPOSE",
+    "CONSENSUS_ACK",
+    "CONSENSUS_NACK",
+    "STATUS",
+    "CONSENSUS_RE_REVIEW",
+    "OVERSEER_ALERT",
+)
+EVENT_PUMP_WAIT_FILTER_ADDITIONAL_POST_CONFIRM = ("CONSENSUS_CONFIRMED",)
+
+# Event-pump wrapper template (task-2-1, slice-2). This is the deterministic
+# event-pump alternative to the legacy capped-restart wrapper above. Gated by
+# ``EGG_BRC_EVENT_PUMP=true`` env var in build_consensus_wrapped_command.
+#
+# The event-pump wrapper replaces the legacy restart-cap model with a loop that:
+#   1. Blocks on actionable BRC events via ``egg-orch message wait-loop``
+#   2. Invokes the agent one-shot per event (slice-3 will add prompts)
+#   3. Terminates on ``role_complete=true`` by calling ``egg-orch consensus
+#      confirmed`` and exiting 0
+#   4. Handles 409 stale_version / aggregated-NACK as re-fetch signals (not
+#      retry-with-backoff)
+#
+# Wait-filter set is CONDITIONAL on confirmed status (risk_analyst R12):
+#   - Pre-confirm: 6 events (PROPOSE, ACK, NACK, STATUS, RE_REVIEW, ALERT)
+#   - Post-confirm: add CONSENSUS_CONFIRMED (so wrapper notices global
+#     consensus completion). Omitting post-confirm from pre-confirm avoids
+#     orchestrator HTTP-400 rejection per #2064/#2482.
+#
+# Idle budget (task-2-3): if no actionable events arrive for
+# ``EGG_BRC_IDLE_BUDGET_MIN`` minutes, emit OVERSEER_ALERT with
+# anomaly=stuck-phase-transition, priority=high, and continue blocking.
+# At 2× budget, escalate to critical priority. Never exit-on-idle — the
+# wrapper blocks until the orchestrator sends SIGTERM or consensus completes.
+#
+# Heartbeat (task-2-2): migrate heartbeat emission (issue #2036) and gateway
+# keep-alive (issue #2451) from agent-side wait_loop into the wrapper bash.
+# Wrapper-side heartbeat runs as a background subshell every 30s while in
+# wait-loop. Payload includes ``slice_id`` from ``EGG_SLICE_ID`` env var
+# (risk_analyst R9: slice_id propagation invariant).
+#
+# Template placeholders:
+#   - {agent_command_prefix}: python3 -m egg_agent --model X --max-turns Y
+#   - {initial_prompt}: shell-quoted initial prompt
+#   - {idle_budget_seconds}: IDLE_BUDGET_MIN_DEFAULT * 60
+#   - {wait_filter_pre_confirm}: comma-separated pre-confirm event types
+#   - {wait_filter_post_confirm}: CONSENSUS_CONFIRMED (added post-confirm)
+_EVENT_PUMP_WRAPPER_TEMPLATE = r"""
+#!/bin/bash
+set -uo pipefail
+
+IDLE_BUDGET_SECONDS={idle_budget_seconds}
+IDLE_BUDGET_CRITICAL_MULT=2
+HEARTBEAT_INTERVAL=30
+
+# Capture agent stdout+stderr for post-mortem analysis (buffer overflow
+# detection, transient crash classification). Same approach as legacy wrapper.
+if [ -z "${{AGENT_OUTPUT_LOG:-}}" ]; then
+    AGENT_OUTPUT_LOG="$(mktemp -t agent-output.XXXXXX 2>/dev/null || echo "/tmp/agent-output-$$.log")"
+fi
+
+cw_log() {{
+    echo "[event-pump-wrapper] $*" >&2
+}}
+
+# Heartbeat emission (task-2-2, issue #2036). Runs as background subshell
+# while wait-loop is blocking. Payload MUST include slice_id from
+# EGG_SLICE_ID env (risk_analyst R9: slice_id propagation invariant).
+#
+# Uses WAITING_FOR_EVENT state while blocked in wait-loop, transitions to
+# WORKING on exit. Overseer stall detector treats "no heartbeat for N seconds"
+# as liveness signal, so this is critical for avoiding false-positive alerts.
+start_heartbeat() {{
+    local role="${{EGG_AGENT_ROLE:-unknown}}"
+    local slice_id="${{EGG_SLICE_ID:-}}"
+    local pipeline_id="${{EGG_PIPELINE_ID:-}}"
+
+    if [ -z "$pipeline_id" ]; then
+        cw_log "WARNING: EGG_PIPELINE_ID not set; heartbeat emission disabled"
+        return 1
+    fi
+
+    (
+        while true; do
+            sleep "$HEARTBEAT_INTERVAL"
+            if [ -n "$slice_id" ]; then
+                egg-orch message heartbeat \
+                    --role "$role" \
+                    --state WAITING_FOR_EVENT \
+                    --slice "$slice_id" \
+                    --since "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            else
+                egg-orch message heartbeat \
+                    --role "$role" \
+                    --state WAITING_FOR_EVENT \
+                    --since "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            fi
+        done
+    ) &
+    HEARTBEAT_PID=$!
+    echo "$HEARTBEAT_PID"
+}}
+
+stop_heartbeat() {{
+    local pid="$1"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+}}
+
+# Idle budget tracking (task-2-3). Counts seconds since last actionable event
+# arrival. Emits OVERSEER_ALERT at budget threshold, escalates at 2× threshold.
+# Never exits on idle — continues blocking until SIGTERM or consensus.
+LAST_EVENT_TIME=$SECONDS
+check_idle_budget() {{
+    local now=$SECONDS
+    local idle_seconds=$((now - LAST_EVENT_TIME))
+    local idle_minutes=$((idle_seconds / 60))
+
+    if [ "$idle_minutes" -ge $((IDLE_BUDGET_SECONDS * IDLE_BUDGET_CRITICAL_MULT / 60)) ]; then
+        cw_log "Idle budget CRITICAL: ${{idle_minutes}}m since last event (2× budget)"
+        egg-orch progress overseer-alert \
+            --anomaly stuck-phase-transition \
+            --priority critical \
+            --summary "Agent idle for ${{idle_minutes}} minutes (2× budget)" \
+            --detail "No actionable BRC events received. Check orchestrator health and peer agent liveness." \
+            --role "${{EGG_AGENT_ROLE:-unknown}}"
+    elif [ "$idle_minutes" -ge $((IDLE_BUDGET_SECONDS / 60)) ]; then
+        cw_log "Idle budget WARNING: ${{idle_minutes}}m since last event (1× budget)"
+        egg-orch progress overseer-alert \
+            --anomaly stuck-phase-transition \
+            --priority high \
+            --summary "Agent idle for ${{idle_minutes}} minutes (1× budget)" \
+            --detail "No actionable BRC events received. Monitoring." \
+            --role "${{EGG_AGENT_ROLE:-unknown}}"
+    fi
+}}
+
+# Get BRC state from orchestrator
+get_brc_state() {{
+    egg-orch brc get-state --json 2>/dev/null || echo "{{}}"
+}}
+
+# Check if role is confirmed
+is_role_confirmed() {{
+    local state="$1"
+    echo "$state" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); role=d.get('agents',{{}}).get('role',{{}}); print('True' if role.get('confirmed', False) else 'False')" \
+        2>/dev/null || echo "False"
+}}
+
+# Check if role is complete (all work done, consensus reached)
+is_role_complete() {{
+    local state="$1"
+    echo "$state" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); role=d.get('agents',{{}}).get('role',{{}}); print('True' if role.get('producer_phase') == 'CONFIRMED' and role.get('confirmed', False) else 'False')" \
+        2>/dev/null || echo "False"
+}}
+
+# Invoke agent one-shot per event (slice-3 will add event-specific prompts).
+# For slice-2, we invoke with a minimal "process BRC event" prompt.
+invoke_agent_for_event() {{
+    local event_type="$1"
+    local from_role="${{2:-}}"
+
+    # Minimal event prompt for slice-2 (slice-3 will replace with
+    # compose_event_prompt helper). Just tell the agent to check state
+    # and take appropriate action.
+    local prompt="Continue BRC consensus protocol. Event: $event_type"
+    if [ -n "$from_role" ]; then
+        prompt="$prompt from $from_role"
+    fi
+    prompt="$prompt. Check your current state and take appropriate action."
+
+    {agent_command_prefix} "$prompt" 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
+    return ${{PIPESTATUS[0]}}
+}}
+
+# Detect the Claude Agent SDK JSON message-reader overflow signature
+is_buffer_overflow() {{
+    [ -f "$AGENT_OUTPUT_LOG" ] || return 1
+    grep -q "exceeded maximum buffer size" "$AGENT_OUTPUT_LOG" 2>/dev/null
+}}
+
+# Detect transient crashes (signal-based exits)
+is_transient_crash() {{
+    local code="$1"
+    case "$code" in
+        134|136|137|139|255) return 0 ;;
+        *) return 1 ;;
+    esac
+}}
+
+# Main event-pump loop
+cw_log "Starting event-pump wrapper"
+
+HEARTBEAT_PID=""
+trap 'stop_heartbeat "$HEARTBEAT_PID"; exit 0' TERM INT
+
+# Initial agent invocation
+cw_log "Invoking agent with initial prompt"
+{agent_command_prefix} {initial_prompt} 2>&1 | tee -a "$AGENT_OUTPUT_LOG"
+AGENT_EXIT=${{PIPESTATUS[0]}}
+
+# Check if role_complete immediately (agent self-terminated after confirming)
+STATE=$(get_brc_state)
+if [ "$(is_role_complete "$STATE")" = "True" ]; then
+    cw_log "Role complete (initial run). Exiting with success."
+    exit 0
+fi
+
+# Handle non-zero exit (transient crash, buffer overflow, etc.)
+if [ "$AGENT_EXIT" -ne 0 ]; then
+    if is_buffer_overflow; then
+        cw_log "Agent crashed on buffer overflow. Exiting without retry."
+        exit "$AGENT_EXIT"
+    fi
+    if is_transient_crash "$AGENT_EXIT"; then
+        cw_log "Transient crash (code $AGENT_EXIT). Will restart in event loop."
+    else
+        cw_log "Agent failed (code $AGENT_EXIT). Exiting."
+        exit "$AGENT_EXIT"
+    fi
+fi
+
+# Event-pump loop: block on actionable events, invoke agent per event
+while true; do
+    # Check role_complete
+    STATE=$(get_brc_state)
+    if [ "$(is_role_complete "$STATE")" = "True" ]; then
+        cw_log "Role complete. Calling consensus confirmed and exiting."
+        egg-orch consensus confirmed 2>/dev/null || true
+        exit 0
+    fi
+
+    # Build wait-filter based on confirmed status (risk_analyst R12)
+    CONFIRMED=$(is_role_confirmed "$STATE")
+    if [ "$CONFIRMED" = "True" ]; then
+        FILTER="{wait_filter_post_confirm}"
+    else
+        FILTER="{wait_filter_pre_confirm}"
+    fi
+
+    # Start heartbeat (task-2-2)
+    HEARTBEAT_PID=$(start_heartbeat)
+
+    # Block on actionable events (timeout: idle budget check interval)
+    cw_log "Waiting for events: $FILTER"
+    EVENT=$(egg-orch message wait-loop --filter "$FILTER" --timeout 30 2>/dev/null || echo "{{}}")
+
+    # Stop heartbeat
+    stop_heartbeat "$HEARTBEAT_PID"
+    HEARTBEAT_PID=""
+
+    # Parse event
+    EVENT_TYPE=$(echo "$EVENT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('type', 'timeout'))" 2>/dev/null || echo "timeout")
+    FROM_ROLE=$(echo "$EVENT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('from_role', ''))" 2>/dev/null || echo "")
+
+    # Handle 409 stale_version / aggregated-NACK as re-fetch (not retry-with-backoff)
+    if [ "$EVENT_TYPE" = "stale_version" ] || [ "$EVENT_TYPE" = "aggregated_nack" ]; then
+        cw_log "Received $EVENT_TYPE, re-fetching state and continuing"
+        LAST_EVENT_TIME=$SECONDS
+        continue
+    fi
+
+    # Timeout: check idle budget, loop
+    if [ "$EVENT_TYPE" = "timeout" ]; then
+        check_idle_budget
+        continue
+    fi
+
+    # Actionable event: reset idle timer, invoke agent
+    cw_log "Received event: $EVENT_TYPE from $FROM_ROLE"
+    LAST_EVENT_TIME=$SECONDS
+
+    invoke_agent_for_event "$EVENT_TYPE" "$FROM_ROLE"
+    AGENT_EXIT=$?
+
+    # Check role_complete after each event
+    STATE=$(get_brc_state)
+    if [ "$(is_role_complete "$STATE")" = "True" ]; then
+        cw_log "Role complete. Exiting with success."
+        exit 0
+    fi
+
+    # Handle agent exit (same logic as initial)
+    if [ "$AGENT_EXIT" -ne 0 ]; then
+        if is_buffer_overflow; then
+            cw_log "Agent crashed on buffer overflow. Exiting without retry."
+            exit "$AGENT_EXIT"
+        fi
+        if is_transient_crash "$AGENT_EXIT"; then
+            cw_log "Transient crash (code $AGENT_EXIT). Will restart in event loop."
+        else
+            cw_log "Agent failed (code $AGENT_EXIT). Exiting."
+            exit "$AGENT_EXIT"
+        fi
+    fi
+done
+"""
+
 # System prompt injected on restart so the agent treats recovery instructions as
 # trusted operator context (not user input that might be flagged as injection).
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
@@ -729,6 +1046,12 @@ def build_consensus_wrapped_command(
     agents explicitly participate in the Broadcast-Review-Converge consensus
     rather than having it faked.
 
+    When ``EGG_BRC_EVENT_PUMP=true`` is set in the environment, uses the
+    event-pump wrapper template instead of the legacy capped-restart template.
+    The event-pump wrapper invokes the agent one-shot per actionable BRC event,
+    replacing the long-lived participant/wait-loop model with a deterministic
+    event-driven loop (slice-2, task-2-1).
+
     Args:
         prompt_text: The prompt to pass to the agent.
         model: Agent model to use.
@@ -745,6 +1068,10 @@ def build_consensus_wrapped_command(
     Returns:
         Command list suitable for container spawning (bash -c "...").
     """
+    # Check if event-pump mode is enabled via environment variable
+    import os
+    use_event_pump = os.environ.get("EGG_BRC_EVENT_PUMP", "").lower() == "true"
+
     # Build the agent command prefix (everything except the prompt argument).
     # Uses the Agent SDK entry point instead of the claude CLI.
     agent_prefix_parts = [
@@ -759,17 +1086,37 @@ def build_consensus_wrapped_command(
     agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
     initial_prompt = shlex.quote(prompt_text)
 
-    recovery_user_prompt = shlex.quote(_RECOVERY_USER_PROMPT)
+    if use_event_pump:
+        # Event-pump wrapper template (task-2-1, slice-2)
+        idle_budget_minutes = int(os.environ.get("EGG_BRC_IDLE_BUDGET_MIN", str(IDLE_BUDGET_MIN_DEFAULT)))
+        idle_budget_seconds = idle_budget_minutes * 60
 
-    script = _CONSENSUS_WRAPPER_TEMPLATE.format(
-        agent_command_prefix=agent_command_prefix,
-        initial_prompt=initial_prompt,
-        max_restarts=max_restarts,
-        max_ready_polls=max_ready_polls,
-        recovery_system_prompt_template=_RECOVERY_SYSTEM_PROMPT,
-        recovery_user_prompt=recovery_user_prompt,
-        transient_backoff_initial=transient_backoff_initial,
-        startup_failure_window_seconds=startup_failure_window_seconds,
-    )
+        # Build wait-filter sets as comma-separated strings
+        wait_filter_pre_confirm = ",".join(EVENT_PUMP_WAIT_FILTER_PRE_CONFIRM)
+        wait_filter_post_confirm = ",".join(
+            EVENT_PUMP_WAIT_FILTER_PRE_CONFIRM + EVENT_PUMP_WAIT_FILTER_ADDITIONAL_POST_CONFIRM
+        )
+
+        script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
+            agent_command_prefix=agent_command_prefix,
+            initial_prompt=initial_prompt,
+            idle_budget_seconds=idle_budget_seconds,
+            wait_filter_pre_confirm=wait_filter_pre_confirm,
+            wait_filter_post_confirm=wait_filter_post_confirm,
+        )
+    else:
+        # Legacy capped-restart wrapper template
+        recovery_user_prompt = shlex.quote(_RECOVERY_USER_PROMPT)
+
+        script = _CONSENSUS_WRAPPER_TEMPLATE.format(
+            agent_command_prefix=agent_command_prefix,
+            initial_prompt=initial_prompt,
+            max_restarts=max_restarts,
+            max_ready_polls=max_ready_polls,
+            recovery_system_prompt_template=_RECOVERY_SYSTEM_PROMPT,
+            recovery_user_prompt=recovery_user_prompt,
+            transient_backoff_initial=transient_backoff_initial,
+            startup_failure_window_seconds=startup_failure_window_seconds,
+        )
 
     return ["bash", "-c", script]
