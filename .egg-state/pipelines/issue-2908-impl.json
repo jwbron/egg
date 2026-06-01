@@ -311,9 +311,28 @@
       "agent_exits": []
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "URGENT: implement phase launched with empty contract — coder at restart 2/3, pipeline will auto-FAIL on next exit. Action required: (A) Cancel and re-run from refine phase to populate contract tasks; (B) Cancel, manually populate contract slices/tasks/AC, then re-trigger implement; (C) Let pipeline fail naturally.",
+      "context": "Contract shows current_phase=refine with zero slices/tasks/acceptance_criteria. Pipeline is in implement phase. Coder filed plan_bug impasse but consensus wrapper continued restarts. Tester also at restart 1/3 citing empty contract. Documenter correctly filed no-op proposal. All 5 reviewers are WAITING_FOR_EVENT(CONSENSUS_PROPOSE). No prior plan-phase checkpoints exist. Only commit on branch is contract-init (84a861abd). Overseer alert sent at 05:05:26 UTC.",
+      "options": [
+        "Cancel and re-run from refine",
+        "Cancel and manually populate contract",
+        "Let pipeline fail"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-01T05:07:04.863415Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-06-01T05:00:59.759071Z",
-  "updated_at": "2026-06-01T05:01:35.036541Z",
+  "updated_at": "2026-06-01T05:07:04.872063Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -326,7 +345,7 @@
   "source_branch": "egg/issue-2908-replan2/work",
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7,
+  "version": 8,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
