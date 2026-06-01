@@ -510,6 +510,149 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 
 Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. Reviewer prompts include the full changeset diff command (`git diff origin/{base_branch}...HEAD`) using the pipeline's base branch, ensuring reviewers see the complete set of changes rather than an arbitrary truncated window. The `base_branch` and pipeline `branch` are threaded through the prompt-building call chain (`_run_concurrent_phase` → `_build_agent_prompt` → `_build_review_prompt` / `_build_brc_preamble`). On BRC `review_cycle > 1`, `_build_review_prompt()` switches to a delta command — `git fetch origin {base_branch}` + `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — so the reviewer sees only PR-side commits pushed since the last review and not commits pulled in via a base-branch merge ([#1758](https://github.com/jwbron/egg/issues/1758)). See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
+## Consensus Wrapper — Event-Pump Mode (slice-2, [#2908](https://github.com/jwbron/egg/issues/2908))
+
+The consensus wrapper (`orchestrator/consensus_wrapper.py`) supports a
+second template branch — **event-pump mode** — that replaces the
+agent-held persistent-session model with a **wrapper-driven event loop
++ idle/no-progress safety budget**. Gated by `EGG_BRC_EVENT_PUMP`
+(default `false`); the flag-off path is the temporary default until
+slice-4 flips it.
+
+### Why a wrapper-driven loop?
+
+The persistent-session template (the default today) starts the agent
+once and relies on the agent re-entering `egg-orch message wait-loop`
+between every BRC event. Every re-entry is a seam the model can fall
+out of by emitting a final assistant message instead of re-invoking the
+wait — Claude usually re-enters; qwen3.7-max does not
+([#2906](https://github.com/jwbron/egg/issues/2906)): the wrapper
+sees no `CONSENSUS_CONFIRMED`, hits the `MAX_CONSENSUS_RESTARTS = 3`
+cap, and the pipeline FAILs after ~$1 and ~20 min of churn. That
+restart-cap path is itself a lineage of BRC wait bugs
+([#2323](https://github.com/jwbron/egg/issues/2323),
+[#2064](https://github.com/jwbron/egg/issues/2064) /
+[#2482](https://github.com/jwbron/egg/issues/2482),
+[#2036](https://github.com/jwbron/egg/issues/2036),
+[#1995](https://github.com/jwbron/egg/issues/1995),
+[#2451](https://github.com/jwbron/egg/issues/2451)) — they share
+the same root assumption that the agent holds the wait.
+
+Event-pump mode inverts that assumption. The wrapper owns the outer
+loop and the agent becomes a **stateless per-event handler**: wait for
+an event → invoke the agent one-shot with the event → agent acts and
+exits naturally → wrapper re-enters the wait or exits cleanly.
+
+### Loop structure
+
+```bash
+while ! brc.get_state.role_complete; do
+  next_action=$(egg-orch brc next-action --json)
+  if [ "$next_action" = "wait" ]; then
+    # wait-filter constructed conditionally from is_role_confirmed:
+    #   pre-confirm  → PROPOSE, ACK, NACK, STATUS, RE_REVIEW, OVERSEER_ALERT
+    #                  (CONSENSUS_CONFIRMED OMITS — own confirm generates it,
+    #                   orchestrator rejects it HTTP 400, risk_analyst R12)
+    #   post-confirm  → same set PLUS CONSENSUS_CONFIRMED (terminal STAY ALIVE)
+    egg-orch message wait-loop --for ${filter[@]}
+  elif [ "$next_action" = "invoke_agent" ]; then
+    # Compose event prompt (minimal stub in slice-2; full composer in slice-3)
+    python3 -m egg_agent --event-prompt "$(compose_event_prompt)"
+    # Agent naturally exits. No restart classification.
+    handle_stale_version_and_aggregated_nack  # 409 → re-fetch state, re-invoke
+  fi
+done
+
+# Loop terminates by calling consensus confirmed
+egg-orch consensus confirmed
+exit 0
+```
+
+Key invariants:
+
+- **`role_complete=true` terminates via `egg-orch consensus confirmed`**,
+  *not* a `progress complete` — the architect corrected the
+  pseudocode typo and the wrapper guards it with a no-match snapshot
+  test (`rg 'progress complete'` against the emitted bash returns zero
+  matches).
+- **409 `stale_version` and aggregated-NACK are event-pump signals**,
+  not transient crashes to retry with backoff. The wrapper re-fetches
+  state and re-invokes.
+- **Wait-filter construction is conditional on
+  `consensus_status.is_role_confirmed`**: pre-confirm waits omit
+  `CONSENSUS_CONFIRMED` from the filter (the orchestrator rejects it
+  HTTP 400 — own confirm generates the signal; risk_analyst R12);
+  post-confirm STAY ALIVE includes it.
+
+### Wrapper-owned liveness
+
+Two liveness responsibilities migrate out of the agent's
+`message_wait_loop` handler into the wrapper bash template:
+
+| Mechanism | Who owns it (flag off) | Who owns it (flag on) |
+|-----------|------------------------|----------------------|
+| Heartbeat emission (#2036) | `sandbox/egg_agent_tools/handlers/message.py` (agent inside wait-loop) | Bash background subshell: `egg-orch message heartbeat` every 30 s while wait is blocking |
+| Gateway-session keep-alive (#2451) | Same handler (lifecycle-secret-gated refresh) | Same background subshell strategy, alongside heartbeat |
+| `slice_id` on heartbeat payload | Agent reads `os.environ['EGG_SLICE_ID']` | Wrapper substitutes `${EGG_SLICE_ID:-}` — unset (plan/refine phase) yields explicit-null or omitted, never empty-string |
+
+The wrapper starts the emitter subshell on each `wait-loop` call and
+stops it when the wait returns. A regression that drops `slice_id` from
+the heartbeat payload is caught directly by the payload-assertion test
+(`task-2-6`).
+
+### Idle / no-progress safety budget
+
+The `MAX_CONSENSUS_RESTARTS = 3` cap (still in effect on the flag-off
+path) is replaced on the flag-on path by a **time-based idle budget**:
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Minutes of inactionable wait before the first overseer alert. Set well above the WS7-observed 10–13 min idle ceiling so legitimate cross-role waits don't trip the alert. |
+
+When no actionable event has arrived for `EGG_BRC_IDLE_BUDGET_MIN`
+minutes, the wrapper emits a *high*-priority `OVERSEER_ALERT` (anomaly
+`stuck-phase-transition`, payload includes current BRC state) and
+**continues blocking** — the loop does not exit on alert. At 2× the
+budget, the wrapper raises the alert priority and continues. There is
+no FAIL transition in the new template: a stuck pipeline surfaces to
+the overseer indefinitely rather than hard-failing via the restart cap.
+
+The flag-off path keeps `MAX_CONSENSUS_RESTARTS` verbatim; the old
+path is deleted in slice-4 once the flag becomes the default.
+
+### Scope and verification stance
+
+Slice-2 lands the **behavioural skeleton only** — the bash template
+branch, the wrapper-owns-heartbeat subshell, the idle-budget alert,
+and the wait-filter construction. No prompt composer, no delta-scoped
+re-analysis, no durable memory — those arrive in slice-3, slice-5,
+and slice-6 respectively. The slice-2 prompt stub is a placeholder
+that invokes the agent one-shot with the raw event JSON; the agent
+prompt still assumes the persistent-session idiom until slice-3
+rewrites it.
+
+Verification is **unit-test-only** (`task-2-6`) in this slice: no
+in-process test double can drive a deployed agent pod end-to-end
+([#2474](https://github.com/jwbron/egg/issues/2474) —
+`integration_tests/regression/conftest.py:45` and the comment in
+`integration_tests/regression/test_brc_concurrency.py`). True
+end-to-end validation is deferred to slice-4's WS0 de-risking spike
+on issue-2270 / qwen3.7-max using the `egg_stack` real-pod fixture.
+The flag-off snapshot test asserts the existing template is emitted
+byte-for-byte (zero regression), and the flag-on snapshot test asserts
+the six-event pre-confirm wait filter with the conditional
+`CONSENSUS_CONFIRMED` inclusion post-confirm.
+
+### Cross-references
+
+- [Agent Wait Patterns](../reference/agent-wait-patterns.md) — the
+  canonical wait-loop idioms the agent still uses on the flag-off
+  path, and the wrapper constructs on the flag-on path.
+- [Concurrent Execution Guide — Consensus Wrapper](../guides/concurrent-execution.md#consensus-wrapper)
+  — the persistent-session behaviour the new template replaces.
+- [Environment Variables](#configuration) — `EGG_BRC_EVENT_PUMP` and
+  `EGG_BRC_IDLE_BUDGET_MIN` operator-facing env vars.
+
 ## Deployment Modes
 
 egg supports three deployment modes, each suited to different use cases:
@@ -788,6 +931,8 @@ if is_orchestrator_mode():
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
+| `EGG_BRC_EVENT_PUMP` | BRC consensus wrapper: enable event-pump mode (wrapper-driven event loop + idle/no-progress safety budget). When `true`, the wrapper owns the outer `wait-loop` and invokes the agent one-shot per event; the agent exits naturally after each action. When `false` (default), the wrapper uses the persistent-session model where the agent re-enters `wait-loop` between events. See [Consensus Wrapper — Event-Pump Mode](#consensus-wrapper--event-pump-mode-slice-2-2908). Slice-2 lands the behavioural skeleton; slice-4 flips the default. | `false` |
+| `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper (event-pump mode only): minutes of inactionable wait before the wrapper emits a *high*-priority `OVERSEER_ALERT` (anomaly `stuck-phase-transition`). At 2× the budget, the wrapper raises alert priority. The wrapper continues blocking after each alert — there is no FAIL transition in event-pump mode. Set well above the WS7-observed 10–13 min idle ceiling so legitimate cross-role waits don't trip the alert. Ignored when `EGG_BRC_EVENT_PUMP=false`. | `30` |
 
 ### Constants
 

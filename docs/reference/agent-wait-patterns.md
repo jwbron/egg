@@ -1171,16 +1171,102 @@ the configured thread count, raise it.
 > tracked as a follow-up issue. The current Waitress server is sufficient
 > once the thread pool is sized correctly.
 
-## 9. Related Documentation
+## 9. Wrapper-Owned Waits — Event-Pump Mode ([#2908](https://github.com/jwbron/egg/issues/2908))
+
+Sections 1–8 cover the **agent-held** wait pattern: the agent invokes
+`egg-orch message wait-loop` itself and is responsible for re-entering
+the wait after acting on each event. That model requires every agent
+model to reliably remember to re-issue the wait — a seam the
+Qwen/qwen3.7-max route fell out of
+([#2906](https://github.com/jwbron/egg/issues/2906)), causing the
+3-restart cap to FAIL the pipeline after ~20 min of restart churn.
+
+Event-pump mode (gated by `EGG_BRC_EVENT_PUMP`, default `false`)
+inverts the ownership. The **wrapper** owns the outer `wait-loop`, the
+agent becomes a stateless per-event handler, and the anti-patterns
+from §2 stop being reachable — the agent cannot fall out of a wait it
+never entered.
+
+### Who holds the wait (flag off → flag on)
+
+| Mechanism | `EGG_BRC_EVENT_PUMP=false` (default today) | `EGG_BRC_EVENT_PUMP=true` (slice-4 default) |
+|-----------|--------------------------------------------|---------------------------------------------|
+| `wait-loop` caller | Agent (`mission.md` prompt instructs the model) | Bash subshell in `_EVENT_PUMP_WRAPPER_TEMPLATE` (`orchestrator/consensus_wrapper.py`) |
+| Wait filter set | Agent picks from §1 / §2 table | Wrapper constructs conditionally from `consensus_status.is_role_confirmed` (pre-confirm OMITS `CONSENSUS_CONFIRMED`, post-confirm INCLUDES it — risk_analyst R12 / HTTP-400 guard) |
+| Event dispatch | Agent reads message, acts, re-enters wait | Wrapper reads `wait-loop` stdout, invokes `python3 -m egg_agent` one-shot with the event, agent exits naturally, wrapper decides whether to re-wait or exit |
+| Heartbeat emission (#2036) | Agent inside `message_wait_loop` handler | Wrapper background subshell (`egg-orch message heartbeat` every 30 s) with `slice_id == ${EGG_SLICE_ID:-}` |
+| Gateway-session keep-alive (#2451) | Same agent handler | Same wrapper subshell alongside heartbeat |
+| Idle/no-progress budget | `MAX_CONSENSUS_RESTARTS = 3` → agent FAIL | `EGG_BRC_IDLE_BUDGET_MIN` (default 30 min) → `OVERSEER_ALERT` at `high` priority, continue blocking; priority escalation at 2× budget |
+| 409 `stale_version` / aggregated-NACK | Agent retries inside its prompt flow | Wrapper re-fetches state (`brc get-state`) and re-invokes — not a crash to back off from |
+
+### What the agent still needs to know about waits
+
+Even in event-pump mode, the wait-loop idioms in §1 / §2 / §7 are the
+**wrapper's reference spec**, not the agent's. The wrapper constructs
+its `--for` flags from the producer / reviewer / dual-role tables in
+this doc, so if you read it for a wrapper change you're still reading
+the right section. Agents in event-pump mode do NOT invoke
+`wait-loop` — their per-event handler is invoked by the wrapper with
+the event text already available — so the copy-paste idioms are
+informational only on that path.
+
+The anti-patterns (§2) become structurally unreachable in event-pump
+mode because the agent never gets a chance to (a) self-confirm in a
+tight loop, (b) fall through to `sleep`, (c) improvise a poll loop,
+or (d) pre-confirm-wait on `CONSENSUS_CONFIRMED`. The §5
+heartbeat rate limit, §6 poll-cap coupling, and §8 thread-pool
+sizing still apply because the wrapper's inner `wait-loop` call is
+the same CLI.
+
+### What changes operationally
+
+- **`egg-orch message wait-loop --for CONSENSUS_CONFIRMED`** is now
+  sometimes issued by a bash subshell, not the agent process. The CLI
+  semantics (exit codes, cursor-threading, auto-scoping) are unchanged
+  — the wrapper calls the same binary.
+- **Cursor file** (`/tmp/egg-wait-cursor-…`) is keyed by
+  `EGG_AGENT_ROLE` (unchanged). The wrapper inherits the role env, so
+  the same per-role cursor file is reused and no manual `--since`
+  anchoring is required on the wrapper side.
+- **Heartbeat cadence visible in gateway access logs** — the wrapper
+  emits the same verb (`cmd_message_heartbeat`) with the same payload
+  shape; only the emitter moves out of the agent process into the
+  wrapper subshell. Operators monitoring `HEARTBEAT` volume see no
+  schema change; the `slice_id` propagation invariant tested in
+  `task-2-6` is the same one §4 already documents.
+
+### Verification stance (slice-2)
+
+Slice-2 lands the behavioural skeleton — the bash template branch,
+the wrapper-owned heartbeat subshell, the idle-budget alert, and the
+wait-filter construction — with unit-test-only verification
+(`task-2-6` in `orchestrator/tests/test_consensus_wrapper.py`). No
+in-process test double can drive a deployed agent pod end-to-end
+([#2474](https://github.com/jwbron/egg/issues/2474) — see
+`integration_tests/regression/conftest.py:45`), so true end-to-end
+validation is deferred to slice-4's spike on issue-2270 /
+qwen3.7-max using the `egg_stack` real-pod fixture. The flag-off
+snapshot test asserts the existing template is emitted byte-for-byte
+(zero regression on the path this document describes in §1–8).
+
+### Cross-references
+
+- [Orchestrator Architecture — Consensus Wrapper / Event-Pump Mode](../architecture/orchestrator.md#consensus-wrapper--event-pump-mode-slice-2-2908) — wrapper implementation, liveness-table, idle-budget semantics.
+- [Concurrent Execution Guide — Consensus Wrapper](../guides/concurrent-execution.md#consensus-wrapper) — the persistent-session behaviour the new template replaces.
+- `orchestrator/consensus_wrapper.py::build_consensus_wrapped_command` — where `EGG_BRC_EVENT_PUMP` selects between `_CONSENSUS_WRAPPER_TEMPLATE` and `_EVENT_PUMP_WRAPPER_TEMPLATE`.
+
+## 10. Related Documentation
 
 - [Concurrent Execution Guide — Message Bus](../guides/concurrent-execution.md#message-bus) — the message-bus HTTP surface
 - [Concurrent Execution Guide — Consensus Wrapper](../guides/concurrent-execution.md#consensus-wrapper) — how the wrapper uses SSE + `wait-loop`
 - [Orchestrator CLI Reference — `egg-orch message`](orchestrator-cli.md#common-workflows) — full command surface
 - [Pipeline Health Monitoring](../guides/pipeline-health-monitoring.md) — how `HEARTBEAT` feeds stall detection
 - [Orchestrator Architecture — MCP Server](../architecture/orchestrator.md#api-endpoints) — full MCP tool inventory
+- [Orchestrator Architecture — Consensus Wrapper / Event-Pump Mode](../architecture/orchestrator.md#consensus-wrapper--event-pump-mode-slice-2-2908) — wrapper-owned waits (§9 above)
 - [SDLC Skill](../../skills/sdlc/SKILL.md) — host-side consumer of `egg-orch pipeline wait-status` (see §Phase 3 and §Phase S5)
 - [Release note — `wait_for_status_change`](../releases/wait-for-status-change.md) — original rationale (superseded by #2211)
 - [Release note — `pipelines wait-status` CLI](../releases/pipelines-wait-status-cli.md) — rationale, rollback, and migration for #2211
 - [Issue #1897](https://github.com/jwbron/egg/issues/1897) — original bug report with the four observed anti-patterns
 - [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (the MCP variant superseded by #2211)
 - [Issue #2211](https://github.com/jwbron/egg/issues/2211) — wake-storm fix: replace MCP wait tools with Bash CLI
+- [Issue #2908](https://github.com/jwbron/egg/issues/2908) — event-pump wrapper + durable memory (consolidates the agent-held-wait lineage)
