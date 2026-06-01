@@ -36,6 +36,26 @@
 # memory of prior actions; the durable format lives in slice-7 and is
 # explicitly out of scope here.
 #
+# Slice-5/6 carry-forward notes for the production wrapper rewrite
+# (intentional simplifications in this throwaway prototype that the
+# production wrapper MUST NOT inherit):
+#
+#   * `is_consensus_complete` swallows `egg-orch consensus status`
+#     failures (stderr -> /dev/null) and treats them as "not complete",
+#     so an unreachable orchestrator silently spins.  The slice-5/6
+#     wrapper must classify exit codes and surface a distinct signal
+#     (OVERSEER_ALERT or controlled exit) on orchestrator-unreachable
+#     -- cq-3's durable safety-budget assumes BRC events arrive.
+#   * `wait_for_event` collapses (a) 60s timeout, (b) transient error,
+#     (c) permanent error into `rc != 0 -> continue`.  Production must
+#     distinguish: permanent -> exit non-zero (CLAUDE.md wait-pattern
+#     guidance).
+#   * No periodic heartbeat from the wrapper itself (#2036 / #2451).
+#     The mock-mode run finishes in milliseconds so it never trips the
+#     stall window; production runs that block on a long agent spawn
+#     would.  Slice-5/6 wrapper must emit `egg-orch message heartbeat`
+#     on each loop iteration (or a background timer).
+#
 # This script will be DELETED after the production wrapper rewrite
 # (slices 5-6) lands — do not depend on it from any test or doc.
 

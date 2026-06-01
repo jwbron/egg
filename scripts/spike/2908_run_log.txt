@@ -51,16 +51,15 @@ Reproducer:
         bash scripts/spike/2908_event_pump_prototype.sh \
             --mock /tmp/2908-mock-events.jsonl --max-events 10
 
-Mock event script (/tmp/2908-mock-events.jsonl):
+Mock event script (/tmp/2908-mock-events.jsonl).  This is JSONL
+(one event per line); each block below that looks wrapped is a
+SINGLE line in the actual file -- the wrapper at line 211 of the
+prototype reads one line per call via `IFS= read -r line`, so
+multi-line JSON would be parsed as multiple distinct events.
 
-    {"type":"CONSENSUS_PROPOSE","from":"coder","version":1,
-     "summary":"slice-1 spike artifacts ready",
-     "files_changed":["scripts/spike/2908_event_pump_prototype.sh",
-                      "scripts/spike/2908_cost_log_adapter.py"]}
-    {"type":"CONSENSUS_ACK","from":"reviewer_code","version":1,
-     "reason":"clean throwaway; ACK"}
-    {"type":"CONSENSUS_ACK","from":"reviewer_contract","version":1,
-     "reason":"tasks complete; ACK"}
+    {"type":"CONSENSUS_PROPOSE","from":"coder","version":1,"summary":"slice-1 spike artifacts ready","files_changed":["scripts/spike/2908_event_pump_prototype.sh","scripts/spike/2908_cost_log_adapter.py"]}
+    {"type":"CONSENSUS_ACK","from":"reviewer_code","version":1,"reason":"clean throwaway; ACK"}
+    {"type":"CONSENSUS_ACK","from":"reviewer_contract","version":1,"reason":"tasks complete; ACK"}
     CONSENSUS_CONFIRMED
 
 Captured stdout (verbatim):
