@@ -1049,7 +1049,31 @@
       "review_feedback": []
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "APPROVED to implement, but the following operator corrections are BINDING and must be honored during implementation (the issue #2908 body was updated 2026-06-01 with a SCOPE UPDATE block that supersedes conflicting plan text \u2014 follow it):\n\n1. NO live Qwen repro. slice-4's spike must NOT create or run test_event_pump_spike_2906.py (or any test) that drives a live qwen3.7-max route on k3s, and must NOT reproduce the #2906 fall-out in-pod. The egg agents run Opus and in-pod Qwen-trajectory repro is not runnable here. Replace slice-4's validation with: wrapper/unit coverage of the event-pump control flow + the durable safety-budget host-restart path + an Opus-route end-to-end that the deterministic loop reaches consensus without restart churn. The 'fixes Qwen' claim rests on the model-agnostic control-flow design, not an in-pod Qwen reproduction. Do NOT gate anything on a cache-TTL measurement (settled: both routes >=60min TTL, no keep-warm).\n\n2. cq-3 is BINDING AS WRITTEN and was NOT honored by the plan. The no-progress safety budget + parked-HITL state MUST be durable SERVER-SIDE: a Pipeline.no_progress_budget field on the orchestrator-side Pipeline model + a sync-flush save variant (returns only after git push) + a startup-reconciliation replay that re-primes the budget after an SDLC-host restart. The plan's in-wrapper EGG_BRC_IDLE_BUDGET_MIN env-var budget is INSUFFICIENT \u2014 it is not robust to host death, which is the entire point of cq-3. Implement the durable server-side mechanism. Terminal state stays OVERSEER_ALERT + HITL, no auto-FAIL.\n\n3. brc-memory.md is EPHEMERAL coordination state, NOT durable audit material (feedback-1 Q2). Recovery must NOT depend on the memory file surviving; the orchestrator message history + reconstruct_tracker_from_messages is the durable backstop. The plan repeatedly calls the memory artifact 'durable' \u2014 treat it as ephemeral; it can be cleaned up with the pod.\n\n4. cq-4: delete the old capped-restart wrapper with NO flagged fallback. A short-lived flag to stage the cutover within this issue is acceptable ONLY if it is removed before the issue closes (drain-then-cutover), but do NOT ship a permanent/one-release EGG_BRC_EVENT_PUMP escape-hatch as the end state \u2014 the old path must be gone.\n\n5. cq-1 reminder: build only the net-new CLI verbs the event-pump consumes; the MCP-tool deletion + prose-arg CLI migration (current slice-5/slice-6) is supposed to be a FOLLOW-UP issue, not this one. If the deletion slices remain, they must at minimum not delete the 28 MCP tools within this issue's scope. Prefer deferring slice-5/slice-6 (MCP collapse) to the follow-up and shipping the event-pump core.\n\nImplement-phase reviewers: enforce these against each slice's acceptance criteria. Where a slice's plan text conflicts with the above, the above wins.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-01T04:34:39.799753Z",
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
