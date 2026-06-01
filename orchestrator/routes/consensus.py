@@ -63,9 +63,7 @@ consensus_bp = Blueprint("consensus", __name__, url_prefix="/api/v1/pipelines")
 # Valid action values surfaced to the wrapper. Kept as a frozenset so a
 # future contributor cannot accidentally widen the contract without
 # updating the schema docs and the CLI's `--help` text in lockstep.
-_VALID_ACTIONS = frozenset(
-    {"wait", "propose", "ack", "nack", "confirm", "complete"}
-)
+_VALID_ACTIONS = frozenset({"wait", "propose", "ack", "nack", "confirm", "complete"})
 
 
 def _error(message: str, status_code: int = 400) -> tuple[Response, int]:
@@ -99,9 +97,7 @@ def _success(
     return jsonify(body), 200
 
 
-def _resolve_tracker(
-    pipeline_id: str, slice_id: str | None
-) -> PeerConsensusTracker | None:
+def _resolve_tracker(pipeline_id: str, slice_id: str | None) -> PeerConsensusTracker | None:
     """Return the in-memory tracker; reconstruct from messages if absent.
 
     Mirrors the pattern used by ``_get_concurrent_status`` in
@@ -169,9 +165,7 @@ def _has_pending_peer_proposals(
         # let a dual-role agent block on itself.
         if producer == reviewer:
             continue
-        producer_phase = tracker._producer_phases.get(
-            producer, ConsensusPhase.WORKING
-        )
+        producer_phase = tracker._producer_phases.get(producer, ConsensusPhase.WORKING)
         if producer_phase != ConsensusPhase.PROPOSED:
             continue
         current_version = tracker.matrix.get_proposal_version(producer)
@@ -309,9 +303,7 @@ def _derive_next_action(
         # through to the reviewer-side block when the producer cannot
         # confirm and has no NACKs of its own to address.
         if is_producer:
-            producer_phase = tracker._producer_phases.get(
-                role, ConsensusPhase.WORKING
-            )
+            producer_phase = tracker._producer_phases.get(role, ConsensusPhase.WORKING)
 
             if producer_phase == ConsensusPhase.WORKING:
                 # 2a. WORKING — produce and propose. R11a applies:
@@ -323,9 +315,7 @@ def _derive_next_action(
                         barrier,
                         "open-NACK barrier requires aggregating fixes before re-propose",
                     )
-                nacks = _producer_has_unresolved_nacks_on_current_version(
-                    tracker, role
-                )
+                nacks = _producer_has_unresolved_nacks_on_current_version(tracker, role)
                 payload: dict[str, Any] = {"producer": role}
                 if nacks:
                     payload["unresolved_nacks"] = nacks
@@ -338,9 +328,7 @@ def _derive_next_action(
                 barrier = _producer_has_open_barrier(tracker, role)
                 if barrier is not None:
                     return "propose", barrier, "open-NACK barrier requires re-propose"
-                nacks = _producer_has_unresolved_nacks_on_current_version(
-                    tracker, role
-                )
+                nacks = _producer_has_unresolved_nacks_on_current_version(tracker, role)
                 if nacks:
                     return (
                         "propose",
@@ -382,9 +370,7 @@ def _derive_next_action(
                     {"pending_reviews": pending},
                     "peer proposal(s) need review",
                 )
-            guard = check_confirm_guard(
-                role, tracker.graph, tracker.matrix, set(confirmed_roles)
-            )
+            guard = check_confirm_guard(role, tracker.graph, tracker.matrix, set(confirmed_roles))
             if guard.allowed:
                 return "confirm", None, "all reviews complete; eligible to confirm"
             return (

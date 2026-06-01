@@ -3824,10 +3824,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--slice-id",
         dest="slice_id",
         default=None,
-        help=(
-            "Slice to scope the derivation to (e.g. 'slice-7'). "
-            "Defaults to $EGG_SLICE_ID."
-        ),
+        help=("Slice to scope the derivation to (e.g. 'slice-7'). Defaults to $EGG_SLICE_ID."),
     )
     _add_json_flag(brc_next)
     brc_next.set_defaults(func=cmd_brc_next_action)
@@ -3835,10 +3832,7 @@ def create_parser() -> argparse.ArgumentParser:
     # brc get-state
     brc_state = brc_sub.add_parser(
         "get-state",
-        help=(
-            "Return the BRC consensus state (verb-level alias for "
-            "mcp__brc__get_state)"
-        ),
+        help=("Return the BRC consensus state (verb-level alias for mcp__brc__get_state)"),
     )
     brc_state.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     brc_state.add_argument(
@@ -3913,10 +3907,7 @@ def create_parser() -> argparse.ArgumentParser:
     # tasks, prior-phase artifact paths) before invoking the agent.
     ph_ctx = phase_sub.add_parser(
         "get-context",
-        help=(
-            "Bundle the caller's phase context (verb-level alias "
-            "for mcp__phase__get_context)"
-        ),
+        help=("Bundle the caller's phase context (verb-level alias for mcp__phase__get_context)"),
     )
     ph_ctx.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ph_ctx.add_argument(
