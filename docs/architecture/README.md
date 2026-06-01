@@ -192,6 +192,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - [Declarative Setup](declarative-setup.md) - Python-based setup
 - [Logging](logging.md) - Structured JSON logging
 - [Integration-Test Trust Boundary](integration-test-trust-boundary.md) - Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator), fixture tier table, and hard-NACK rules for plan-phase Primitive-Existence (§9) and Trust-Boundary (§10) audits
+- [BRC Memory Artifact](brc-memory.md) - Per-role-per-pipeline distilled memory file (`.egg-state/agent-outputs/<role>/brc-memory.md`) written by `brc_ack`/`brc_nack`; schema, three `EGG_BRC_MEMORY` modes, atomic-write contract, fail-closed path constructor, distill-on-write cap at 20, and the role-allowlist coverage that makes the path writable for every participant role ([#2908](https://github.com/jwbron/egg/issues/2908))
 
 ## Why Wrappers, Not MCP
 
