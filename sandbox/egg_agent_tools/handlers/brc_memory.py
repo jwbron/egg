@@ -84,9 +84,7 @@ ENV_REPO_PATH: Final[str] = "EGG_REPO_PATH"
 MODE_OFF: Final[str] = "off"
 MODE_WRITE_ONLY: Final[str] = "write-only"
 MODE_FULL: Final[str] = "full"
-_VALID_MODES: Final[frozenset[str]] = frozenset(
-    {MODE_OFF, MODE_WRITE_ONLY, MODE_FULL}
-)
+_VALID_MODES: Final[frozenset[str]] = frozenset({MODE_OFF, MODE_WRITE_ONLY, MODE_FULL})
 
 
 def get_memory_mode() -> str:
@@ -258,9 +256,7 @@ def _render_assessment(assessment: ProducerAssessment) -> list[str]:
     nacks = "; ".join(assessment.prior_nack_reasons[:_MAX_NACK_REASONS])
     nacks_line = nacks if nacks else "-"
     obligation = assessment.prior_conditional_obligation or "-"
-    summary = _normalize_single_line(
-        assessment.summary_of_assessment, _ASSESSMENT_PROSE_MAX_CHARS
-    )
+    summary = _normalize_single_line(assessment.summary_of_assessment, _ASSESSMENT_PROSE_MAX_CHARS)
     lines = [
         f"### {assessment.producer}",
         "",
@@ -280,9 +276,7 @@ def render_memory(memory: BRCMemory) -> str:
     Matches the schema documented in ``docs/architecture/brc-memory.md``
     so the slice-3 reader parses what the slice-1 writer produces.
     """
-    codebase = _normalize_single_line(
-        memory.codebase_change_model, _CODEBASE_PROSE_MAX_CHARS
-    )
+    codebase = _normalize_single_line(memory.codebase_change_model, _CODEBASE_PROSE_MAX_CHARS)
     lines: list[str] = [
         "## Codebase / change model",
         "",
@@ -419,9 +413,7 @@ def parse_memory(content: str) -> BRCMemory:
         else:
             current_lines.append(ln)
     if current_role is not None:
-        memory.per_producer[current_role] = _parse_assessment_block(
-            current_role, current_lines
-        )
+        memory.per_producer[current_role] = _parse_assessment_block(current_role, current_lines)
 
     # Decision log.
     decision_lines = _section_body("decisions", [])
@@ -584,11 +576,7 @@ def record_review(
             existing.summary_of_assessment = reason
 
     # Append to the decision log; cap to last 20 (distill-on-write).
-    files_label = (
-        f" [{', '.join(files_reviewed)}]"
-        if files_reviewed
-        else ""
-    )
+    files_label = f" [{', '.join(files_reviewed)}]" if files_reviewed else ""
     entry = (
         f"{_utc_now_iso()} {verdict_normalized.lower()} {producer_role}: "
         f"{(reason or '').strip().splitlines()[0] if reason else ''}{files_label}"
