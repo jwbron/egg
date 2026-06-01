@@ -750,6 +750,43 @@ REVIEWER_CONCURRENCY_ROLE = AgentRoleDefinition(
 )
 
 
+# Orchestrator role (#2893) — central coordinator that issues read-only
+# gh pre-flights (e.g., `gh pr list`, `gh pr view`) on its own behalf.
+# Exists so audit logs attribute these calls to "orchestrator" instead of
+# impersonating a coder. The orchestrator is not spawned as an agent
+# session and writes no files through the agent-restriction surface.
+ORCHESTRATOR_ROLE = AgentRoleDefinition(
+    role=AgentRole.ORCHESTRATOR,
+    description="Central coordinator; issues read-only gh pre-flights on its own behalf",
+    category=AgentCategory.INTERFACE,
+    responsibilities=[
+        "Issue read-only gh pre-flights (gh pr list, gh pr view) for "
+        "idempotency checks before spawning agents",
+    ],
+    dependencies=[],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[],
+        blocked_write=[
+            "src/",
+            "lib/",
+            "shared/",
+            "gateway/",
+            "sandbox/",
+            "action/",
+            "orchestrator/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/",
+            ".github/",
+        ],
+    ),
+    can_run_in_parallel=True,
+    produces_outputs=[],
+)
+
+
 # Overseer role — monitors pipeline health, classifies anomalies, escalates issues
 OVERSEER_ROLE = AgentRoleDefinition(
     role=AgentRole.OVERSEER,
@@ -938,6 +975,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_ROLE,
     # Interface roles
     AgentRole.OVERSEER: OVERSEER_ROLE,
+    AgentRole.ORCHESTRATOR: ORCHESTRATOR_ROLE,
 }
 
 
@@ -980,6 +1018,8 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.CONFLICT_RESOLVER: Role.IMPLEMENTER,
     # Interface: observers, not contract authors
     AgentRole.OVERSEER: Role.SYSTEM,
+    # Orchestrator: central coordinator, not a contract author
+    AgentRole.ORCHESTRATOR: Role.SYSTEM,
 }
 
 

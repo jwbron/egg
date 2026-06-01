@@ -91,10 +91,11 @@ class TestAgentRole:
         "overseer",
         "autofixer",
         "conflict_resolver",
+        "orchestrator",
     }
 
     def test_all_expected_roles_exist(self):
-        """All 19 expected roles should be present in the enum."""
+        """All 20 expected roles should be present in the enum."""
         actual = {r.value for r in AgentRole}
         assert self.EXPECTED_ROLES == actual, (
             f"Missing roles: {self.EXPECTED_ROLES - actual}, "
@@ -102,8 +103,8 @@ class TestAgentRole:
         )
 
     def test_role_count(self):
-        """Should have exactly 19 canonical roles."""
-        assert len(AgentRole) == 19
+        """Should have exactly 20 canonical roles."""
+        assert len(AgentRole) == 20
 
     def test_execution_roles(self):
         assert AgentRole.CODER == "coder"
