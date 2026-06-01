@@ -19620,6 +19620,62 @@ def _populate_contract_from_plan_safe(
         return PopulateResult(PopulateOutcome.UNEXPECTED_EXCEPTION)
 
 
+def _merge_preserved_slice_runtime(
+    new_slices: list[Any],
+    old_slices: list[Any],
+) -> None:
+    """Carry runtime slice/task state from ``old_slices`` onto ``new_slices`` in place.
+
+    ``_populate_contract_from_plan`` re-parses the plan markdown into a
+    fresh set of slices on every call — and its safety-net caller fires
+    on *every* ``start_phase=implement`` restart (deliberately outside
+    the ``contract_synced`` guard). The plan is the source of truth for
+    slice/task STRUCTURE (names, descriptions, dependencies, acceptance
+    criteria); it always parses back as ``PENDING`` with the runtime
+    bookkeeping fields unset. Blindly assigning ``contract.slices =
+    <freshly parsed>`` therefore wipes every slice the slice loop had
+    already advanced — resetting COMPLETE slices to PENDING and dropping
+    the ``parent_branch_at_creation`` / ``integration_base_sha`` a real
+    run stamped — so a restarted pipeline re-runs slice-1 forever and can
+    never reach slice-2 (#2908).
+
+    Mirroring the PR-metadata preservation a few lines down in the
+    caller, this merges by slice id (and by task id within a slice): the
+    plan supplies STRUCTURE while RUNTIME state survives a re-populate.
+    Unmatched ids (a re-plan that adds or removes slices/tasks) simply
+    keep the plan's fresh ``PENDING`` defaults.
+    """
+    old_by_id = {s.id: s for s in (old_slices or [])}
+    for new_slice in new_slices:
+        old_slice = old_by_id.get(new_slice.id)
+        if old_slice is None:
+            continue
+        # Slice-level runtime state stamped by ``_run_one_slice_inner``
+        # and the bootstrap reconciler — never re-derivable from the plan.
+        new_slice.status = old_slice.status
+        new_slice.parent_branch_at_creation = old_slice.parent_branch_at_creation
+        new_slice.integration_base_sha = old_slice.integration_base_sha
+        new_slice.commit = old_slice.commit
+        new_slice.review_cycles = old_slice.review_cycles
+        new_slice.review_feedback = old_slice.review_feedback
+        new_slice.escalated = old_slice.escalated
+        new_slice.escalation_reason = old_slice.escalation_reason
+        # Task-level runtime state: match by task id so a re-plan that
+        # adds/removes tasks still preserves completion of the survivors.
+        old_tasks_by_id = {t.id: t for t in old_slice.tasks}
+        for new_task in new_slice.tasks:
+            old_task = old_tasks_by_id.get(new_task.id)
+            if old_task is None:
+                continue
+            new_task.status = old_task.status
+            new_task.commit = old_task.commit
+            new_task.checkpoint_id = old_task.checkpoint_id
+            new_task.review_cycles = old_task.review_cycles
+            new_task.escalated = old_task.escalated
+            new_task.delegation_attempts = old_task.delegation_attempts
+            new_task.gaps = old_task.gaps
+
+
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
@@ -19780,6 +19836,11 @@ def _populate_contract_from_plan(
                 # ``plan_review_feedback`` stash above is the durable
                 # signal the reviewer prompt picks up either way.
                 raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
+            # Preserve runtime slice/task progress across re-populates so
+            # the safety-net populator (which fires on every
+            # ``start_phase=implement`` restart) cannot reset COMPLETE
+            # slices to PENDING and strand the pipeline on slice-1 (#2908).
+            _merge_preserved_slice_runtime(contract_slices, contract.slices)
             contract.slices = contract_slices
             changed = True
 

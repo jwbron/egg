@@ -228,6 +228,63 @@ class TestPopulateContractFromPlan:
         # And the planner-emitted fields are still refreshed from the plan.
         assert contract_after.pr.title == "Add retry logic to API client"
 
+    def test_populate_contract_from_plan_preserves_slice_and_task_runtime(self, tmp_path: Path):
+        """A re-populate must preserve runtime slice/task progress (#2908).
+
+        The safety-net populator fires on every ``start_phase=implement``
+        restart and rebuilds ``contract.slices`` wholesale from the plan
+        (every slice/task parses back as PENDING). A prior version blindly
+        assigned the freshly parsed slices, resetting COMPLETE slices to
+        PENDING and dropping the ``parent_branch_at_creation`` /
+        ``integration_base_sha`` a real slice run stamped — so a restarted
+        pipeline re-ran slice-1 forever and could never reach slice-2. The
+        populator now merges by slice id / task id: STRUCTURE comes from
+        the plan, RUNTIME state survives the re-build.
+        """
+        from egg_contracts.loader import create_contract, load_contract, save_contract
+        from egg_contracts.models import SliceStatus, TaskStatus
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-slice-runtime-preserve"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        # First populate — establishes slice-1 with task-1-1/task-1-2.
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # Simulate a completed slice run: the slice loop marked the slice
+        # COMPLETE, an agent marked task-1-1 COMPLETE, and the run stamped
+        # the integration-branch bookkeeping.
+        contract = load_contract(pipeline_id, tmp_path)
+        sl = contract.slices[0]
+        assert sl.id == "slice-1"
+        sl.status = SliceStatus.COMPLETE
+        sl.parent_branch_at_creation = "egg/issue-2908/work"
+        sl.integration_base_sha = "0" * 40
+        sl.tasks[0].status = TaskStatus.COMPLETE
+        sl.tasks[0].commit = "1" * 40
+        save_contract(contract, tmp_path)
+
+        # Re-run the populator (start_phase=implement restart re-entry).
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        after = load_contract(pipeline_id, tmp_path)
+        sl_after = after.slices[0]
+        # Runtime state survives the re-build.
+        assert sl_after.status == SliceStatus.COMPLETE
+        assert sl_after.parent_branch_at_creation == "egg/issue-2908/work"
+        assert sl_after.integration_base_sha == "0" * 40
+        assert sl_after.tasks[0].status == TaskStatus.COMPLETE
+        assert sl_after.tasks[0].commit == "1" * 40
+        # The untouched task keeps the plan's fresh PENDING default.
+        assert sl_after.tasks[1].status == TaskStatus.PENDING
+        # And STRUCTURE is still refreshed from the plan.
+        assert sl_after.tasks[0].id == "task-1-1"
+        assert "retry_with_backoff" in sl_after.tasks[0].description
+
 
 class TestEnsureStatefilesRestoresPRMetadata:
     """_ensure_statefiles_on_branch re-populates PR metadata from plan draft.
