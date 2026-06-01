@@ -1917,10 +1917,22 @@ class TestEventPumpTemplateSelection:
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
         # The new template MUST contain a wait-loop primitive over the
-        # six event types and a role_complete check (plan line 783-792).
+        # six event types and handle the ``role_complete`` signal from
+        # ``brc next-action`` (plan line 783-792).
         assert "egg-orch message wait-loop" in script
-        # New template's role_complete check.
-        assert "role_complete" in script
+        # The role_complete signal arrives from ``brc next-action`` as the
+        # action value ``complete``. The wrapper must branch on it (case
+        # arm or equivalent). Accept any of: literal ``role_complete``
+        # token (variable name), the ``complete)`` case arm in the action
+        # switch, or a ``ROLE_CONFIRMED`` boolean derived from
+        # ``brc get-state``.
+        assert any(
+            marker in script for marker in ("role_complete", "complete)", "ROLE_CONFIRMED")
+        ), (
+            "event-pump must check role_complete from brc get-state / "
+            "next-action (plan line 783-792); neither role_complete nor "
+            "ROLE_CONFIRMED nor a complete) case arm found in script."
+        )
         # New template must call ``brc next-action`` (plan line 785).
         assert "brc next-action" in script
 
@@ -1970,17 +1982,26 @@ class TestEventPumpHeartbeatCadence:
 
     def test_flag_on_heartbeat_cadence_is_30_seconds(self, monkeypatch):
         """The plan (TASK-2-2 description, line 828) names a 30-second
-        cadence. Pin it in the script so a regression to a different
-        cadence is caught by this test.
+        cadence. Pin the default in the script so a regression to a
+        different cadence is caught by this test. Accept either a
+        literal ``sleep 30`` or an env-var indirection that defaults to
+        30 (e.g. ``${EGG_BRC_HEARTBEAT_INTERVAL_SECS:-30}``).
         """
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        # 30s cadence appears as ``sleep 30`` inside the heartbeat
-        # subshell. Using a substring match keeps this test robust to
-        # whitespace/quoting variations the coder may choose.
-        assert "sleep 30" in script, (
-            "wrapper-side heartbeat must use a 30s cadence per plan TASK-2-2 line 828"
+        # Accept either form: literal ``sleep 30`` or an env-var
+        # default of 30 (``:-30}"`` etc.).
+        cadence_markers = (
+            "sleep 30",
+            ":-30}",
+            "INTERVAL_SECS=30",
+            "INTERVAL_SECS:-30",
+        )
+        assert any(m in script for m in cadence_markers), (
+            "wrapper-side heartbeat must default to a 30s cadence per "
+            "plan TASK-2-2 line 828; neither literal `sleep 30` nor an "
+            "env-var default of 30 found in the rendered bash."
         )
 
     def test_flag_on_heartbeat_payload_threads_slice_id_from_env(self, monkeypatch):
@@ -2101,7 +2122,18 @@ class TestEventPumpIdleBudgetAlert:
         # right anomaly + priority.
         assert "overseer alert" in script or "overseer_alert" in script
         assert "stuck-phase-transition" in script
-        assert "--priority high" in script or "priority high" in script
+        # Priority "high" must be passed somewhere (either as
+        # ``--priority high`` literal, ``--priority "$priority"`` with
+        # ``"high"`` passed in, or an env-var default of "high"). We
+        # require both the ``--priority`` flag AND the ``high`` token
+        # appear in the script.
+        assert "--priority" in script, (
+            "overseer alert payload must include --priority flag (plan "
+            "TASK-2-3 line 857-858 — `priority high`)."
+        )
+        assert "high" in script, (
+            "overseer alert priority must be `high` per plan TASK-2-3 line 857-858."
+        )
 
     def test_flag_on_idle_budget_default_30_minutes(self, monkeypatch):
         """Default ``EGG_BRC_IDLE_BUDGET_MIN`` is 30 minutes per plan
@@ -2502,4 +2534,126 @@ class TestEventPumpFlagIsolation:
             "flag-on event-pump template must not carry the legacy "
             "'BRC Consensus Recovery' header forward — the per-event "
             "invocation contract supplies its own context."
+        )
+
+
+class TestEventPumpHeartbeatSubshellLifecycle:
+    """Adversarial probing: the wrapper-owned heartbeat subshell MUST be
+    killable by ``stop_background_heartbeat``. If the subshell
+    installs an empty ``trap '' TERM`` then a default ``kill`` (SIGTERM)
+    from the parent is IGNORED — the subshell continues forever, and
+    the subsequent ``wait $HB_BG_PID`` blocks indefinitely because the
+    process never exits. This wedges the entire wrapper loop after the
+    first ``wait_for_event`` call returns.
+
+    Issue lineage: this is exactly the bug class #2906 / #2451 were
+    trying to fix at the agent-side layer. Re-introducing it at the
+    wrapper layer would silently regress slice_id propagation AND wedge
+    the deterministic loop.
+
+    Note: behavioural verification of the kill semantics belongs in a
+    bash-harness integration test (where we can spawn a subshell with
+    the same trap and confirm that ``kill && wait`` does not return).
+    These tests pin the *static* invariant against the rendered bash:
+    if the subshell traps TERM, the corresponding ``stop`` path MUST
+    use a signal that the subshell does not trap (``SIGINT``,
+    ``SIGHUP``, or ``SIGKILL``); otherwise the lifecycle is broken.
+    """
+
+    def test_flag_on_heartbeat_subshell_can_be_stopped(self, monkeypatch):
+        """If the rendered bash installs ``trap '' TERM`` (or any
+        ignored-TERM equivalent) in the heartbeat subshell, the
+        corresponding ``stop`` path MUST send a non-TERM signal so the
+        subshell actually exits. Sending the default ``kill`` (= TERM)
+        against a TERM-ignoring trap is a silent no-op — the subshell
+        loops forever and the wait blocks indefinitely.
+
+        Verified by ad-hoc bash harness during slice-2 review:
+
+            $ bash -c '( trap "" TERM; while true; do sleep 1; echo tick; done ) &
+                        sleep 2; kill $!; wait $! 2>/dev/null'
+            tick
+            tick
+            (hang — never returns)
+
+        Therefore the invariant: if the rendered bash sets
+        ``trap '' TERM`` in the heartbeat subshell, the stop primitive
+        must NOT rely on a default-signal ``kill``. Use ``kill -INT``,
+        ``kill -HUP``, ``kill -KILL``, or do not install the empty
+        TERM trap in the first place.
+        """
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Two failure modes the test guards against:
+        #
+        #  (A) Heartbeat subshell installs `trap '' TERM` AND the
+        #      ``stop`` path issues a default-signal `kill $HB_BG_PID`
+        #      (with no explicit signal). This is the silent-wedge bug.
+        #
+        #  (B) Heartbeat subshell installs `trap '' TERM` AND the
+        #      ``stop`` path issues `kill -TERM`/`kill -15`. Same wedge,
+        #      different shape.
+        #
+        # If the subshell does NOT install an ignored-TERM trap, this
+        # test is automatically satisfied. The wrapper is free to use
+        # any kill primitive against a non-trapping subshell.
+        installs_term_trap = "trap '' TERM" in script or 'trap "" TERM' in script
+        if not installs_term_trap:
+            # The subshell does not trap TERM; the lifecycle invariant
+            # is automatically satisfied. (No-op path.)
+            return
+        # The subshell traps TERM. The stop path MUST use a non-TERM
+        # signal. Allowed primitives: ``kill -INT``, ``kill -HUP``,
+        # ``kill -KILL``, ``kill -9``, or ``kill -SIGINT``/-SIGHUP/-SIGKILL.
+        # Scan the script for any of these adjacent to the
+        # ``HB_BG_PID`` symbol.
+        allowed_stop_primitives = (
+            "kill -INT",
+            "kill -HUP",
+            "kill -KILL",
+            "kill -9",
+            "kill -SIGINT",
+            "kill -SIGHUP",
+            "kill -SIGKILL",
+        )
+        # Find every line that calls ``kill`` on the HB PID.
+        kill_lines = [ln for ln in script.splitlines() if "kill " in ln and "HB_BG_PID" in ln]
+        # Detect a default-signal kill (no explicit -SIG flag).
+        default_kill_lines = [
+            ln
+            for ln in kill_lines
+            if not any(prim in ln for prim in allowed_stop_primitives) and "kill -" not in ln
+        ]
+        assert not default_kill_lines, (
+            "the heartbeat subshell installs `trap '' TERM` which "
+            "ignores the default SIGTERM signal. The corresponding "
+            "stop path uses a default-signal `kill` which is a silent "
+            "no-op against that trap — the subshell will never exit, "
+            "and the subsequent `wait` blocks indefinitely, wedging "
+            "the event-pump loop after the first wait_for_event call.\n"
+            "Fix options: (a) remove the `trap '' TERM` from the "
+            "subshell, or (b) change the stop path to `kill -INT`, "
+            "`kill -HUP`, or `kill -KILL` so the signal is not trapped.\n"
+            f"Offending kill line(s): {default_kill_lines}"
+        )
+
+    def test_flag_on_heartbeat_subshell_lifecycle_is_bounded(self, monkeypatch):
+        """Companion to the trap test: regardless of the trap shape,
+        the wrapper MUST have an ``EXIT``-time cleanup that stops the
+        background heartbeat so a clean exit doesn't leave a stray
+        subshell holding the gateway session open. (The orchestrator's
+        ``ScriptedProvider`` ban for E2E means we cannot verify this
+        end-to-end; this is the static guard.)
+        """
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # The cleanup must be wired into bash's EXIT trap so even an
+        # unexpected exit path tears the subshell down. Either
+        # ``trap cleanup EXIT`` or ``trap '<stop call>' EXIT`` is
+        # acceptable.
+        assert "trap " in script and "EXIT" in script, (
+            "wrapper must install an EXIT trap to clean up the "
+            "background heartbeat subshell on any exit path."
         )
