@@ -105,6 +105,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "aea5f1da363b488f650a24e84dc496bc4ee86d7d": {
+      "branch": "egg/issue-2908-impl2/slice-1",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T06:50:15.184454+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "b40c819901751983811afa2c53c0063b4323e512": {
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
