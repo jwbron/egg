@@ -1110,9 +1110,10 @@ class TestAgentRole:
         # attribution role for read-only gh pre-flights (gh pr list /
         # pr view) issued by the orchestrator itself.
         assert AgentRole.ORCHESTRATOR in roles
-        # Issue #1557: APPLIER asserted above next to the other execution
-        # roles (CODER / TESTER / DOCUMENTER); count assertion below
-        # pins the registry size including APPLIER and ORCHESTRATOR.
+        # Registry-size pin. Count grew from the original 18 → 19 with
+        # APPLIER (#1557) → 20 with ORCHESTRATOR (#2893). Bump this and
+        # add the matching `assert AgentRole.X in roles` above whenever a
+        # new role lands.
         assert len(roles) == 20
 
 

@@ -89,10 +89,9 @@ class AgentRole(StrEnum):
     # Utility roles (cross-cutting support)
     AUTOFIXER = "autofixer"
     CONFLICT_RESOLVER = "conflict_resolver"
-    # Infrastructure roles
-    ORCHESTRATOR = "orchestrator"
     # Interface roles (external system interaction)
     OVERSEER = "overseer"
+    ORCHESTRATOR = "orchestrator"
 
 
 class AgentStatus(StrEnum):
@@ -767,6 +766,9 @@ ORCHESTRATOR_ROLE = AgentRoleDefinition(
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[],
+        # Defense-in-depth list; `allowed_write=[]` already denies everything
+        # via `can_write`. These entries make the intent explicit for readers
+        # grepping the role for what it cannot touch.
         blocked_write=[
             "src/",
             "lib/",

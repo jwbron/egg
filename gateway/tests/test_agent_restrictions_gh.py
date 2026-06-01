@@ -189,8 +189,18 @@ class TestOrchestratorRole:
         allowed, reason = check_agent_gh_operation("orchestrator", "issue view 456")
         assert allowed is True, f"Orchestrator should allow issue view: {reason}"
 
-    def test_orchestrator_blocks_pr_create(self):
-        """Orchestrator cannot create PRs."""
+    def test_orchestrator_allows_pr_checks(self):
+        """Orchestrator can query check-run status (`pr checks` is read-only)."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr checks 123")
+        assert allowed is True, f"Orchestrator should allow pr checks: {reason}"
+
+    def test_orchestrator_blocks_pr_create_via_execute_route(self):
+        """Orchestrator cannot create PRs through `/api/v1/gh/execute`.
+
+        Note: the dedicated `/api/v1/gh/pr/create` route does not call
+        `check_agent_gh_operation`, so legitimate slice-PR creation by the
+        orchestrator continues to work through that route.
+        """
         allowed, reason = check_agent_gh_operation("orchestrator", "pr create --title test")
         assert allowed is False
 
@@ -226,7 +236,7 @@ class TestOrchestratorRole:
             assert allowed is False, f"Orchestrator should block {cmd}: {reason}"
 
     def test_orchestrator_blocks_workflow_operations(self):
-        """Orchestrator cannot trigger/cancel workflows."""
-        for cmd in ["workflow run build.yaml", "run create", "run cancel"]:
+        """Orchestrator cannot trigger workflows or cancel/delete/rerun runs."""
+        for cmd in ["workflow run build.yaml", "run cancel 1", "run delete 2", "run rerun 3"]:
             allowed, reason = check_agent_gh_operation("orchestrator", cmd)
             assert allowed is False, f"Orchestrator should block {cmd}: {reason}"

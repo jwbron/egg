@@ -182,6 +182,8 @@ _OVERSEER_BLOCKED_GH_OPS = [
 
 # Orchestrator role: read-only access for idempotency pre-flights and diagnostics.
 # Blocked from all write operations (create, edit, comment, merge, approve, etc.)
+# Read-only ops left allowed: `pr list`, `pr view`, `pr checks`, `issue list`,
+# `issue view`, `run list`, `run view`, `workflow list`, `workflow view`.
 _ORCHESTRATOR_BLOCKED_GH_OPS = [
     "issue create *",
     "issue edit *",
@@ -198,12 +200,13 @@ _ORCHESTRATOR_BLOCKED_GH_OPS = [
     "pr merge *",
     "pr review *",
     "pr ready *",
-    "pr checks *",
     "pr comment *",
-    "run create *",
     "run cancel *",
     "run delete *",
+    "run rerun *",
     "workflow run *",
+    "workflow enable *",
+    "workflow disable *",
 ]
 
 AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
@@ -241,11 +244,20 @@ AGENT_GH_RESTRICTIONS[AgentRole.OVERSEER] = AgentGHRestriction(
 
 # Add orchestrator with read-only restrictions for idempotency pre-flights.
 # The orchestrator issues `gh pr list` and `gh pr view` to check whether a slice
-# PR already exists before creating one (#2893).
+# PR already exists before creating one (#2893). The blocklist only applies to
+# the generic ``/api/v1/gh/execute`` path — the dedicated
+# ``/api/v1/gh/pr/create`` route does not call ``check_agent_gh_operation``,
+# so orchestrator-initiated slice-PR creation (the legitimate write path)
+# still works through that route.
 AGENT_GH_RESTRICTIONS[AgentRole.ORCHESTRATOR] = AgentGHRestriction(
     role=AgentRole.ORCHESTRATOR,
     blocked_operations=_ORCHESTRATOR_BLOCKED_GH_OPS,
-    description="Orchestrator role is read-only: cannot create/edit/merge PRs, issues, or workflows",
+    description=(
+        "Orchestrator role is read-only via /api/v1/gh/execute: blocks "
+        "create/edit/merge for PRs, issues, and workflows on that path. "
+        "Slice-PR creation still flows through the dedicated "
+        "/api/v1/gh/pr/create route, which is gated by the policy check."
+    ),
 )
 
 

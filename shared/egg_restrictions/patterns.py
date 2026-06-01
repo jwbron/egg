@@ -573,6 +573,9 @@ ORCHESTRATOR_PATTERNS = AgentFilePattern(
     role=AgentRole.ORCHESTRATOR,
     description="read-only role for gh pre-flights; no file writes allowed",
     allowed_patterns=[],
+    # Defense-in-depth list; `allowed_patterns=[]` already denies all writes.
+    # These entries make the intent explicit for readers grepping for what
+    # the role cannot touch.
     blocked_patterns=[
         "src/",
         "lib/",
