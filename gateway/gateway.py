@@ -198,7 +198,7 @@ try:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from .repo_parser import parse_owner_repo
+    from .repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
     from .repo_visibility import get_repo_visibility
     from .session_manager import (
         get_session_manager,
@@ -354,7 +354,10 @@ except ImportError:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-untyped]
+    from repo_parser import (  # type: ignore[no-redef, import-untyped]
+        OWNER_REPO_PATTERN,
+        parse_owner_repo,
+    )
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
     from session_manager import (  # type: ignore[no-redef, import-untyped]
         get_session_manager,
@@ -4911,11 +4914,18 @@ def gh_find_open_pr() -> tuple[Response, int] | Response:
     base = data.get("base")
 
     for name, value in (("repo", repo), ("head", head), ("base", base)):
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str) or not value.strip():
             return make_error(f"Missing or invalid {name}: must be a non-empty string")
 
-    repo_info = parse_owner_repo(repo)
-    if repo_info is None:
+    # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
+    # also accepts full GitHub URLs); the docstring and the validation
+    # error below both promise the literal ``owner/name`` shape, so we
+    # match against the pattern directly rather than the URL-permissive
+    # helper.
+    repo = repo.strip()
+    head = head.strip()
+    base = base.strip()
+    if OWNER_REPO_PATTERN.match(repo) is None:
         return make_error("Invalid repo: must be 'owner/name'")
 
     args = [
@@ -4940,11 +4950,15 @@ def gh_find_open_pr() -> tuple[Response, int] | Response:
     result = github.execute(args, timeout=60, mode=auth_mode)
 
     if not result.success:
+        # ``gh`` should not print credentials to stderr, but truncate
+        # defensively so we never page a giant stderr blob into the
+        # audit log.
+        stderr_excerpt = (result.stderr or "")[:500]
         audit_log(
             "gh_find_open_pr_failed",
             "gh_find_open_pr",
             success=False,
-            details={"repo": repo, "head": head, "base": base, "stderr": result.stderr},
+            details={"repo": repo, "head": head, "base": base, "stderr": stderr_excerpt},
         )
         return make_error(
             f"Command failed: {result.stderr}",

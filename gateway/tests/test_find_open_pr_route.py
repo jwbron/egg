@@ -112,7 +112,14 @@ class TestFindOpenPrLookup:
 
     def test_constructs_fixed_readonly_argv(self, client, launcher_auth_headers):
         """The route must NOT accept arbitrary argv — it builds the fixed
-        read-only ``gh pr list`` command server-side from repo/head/base."""
+        read-only ``gh pr list`` command server-side from repo/head/base.
+
+        Also pins the ``mode=auth_mode`` flow-through: the route resolves
+        ``auth_mode = get_auth_mode(repo)`` and forwards it as a kwarg to
+        ``github.execute`` so the gateway uses the right credentials for
+        the target repo. A regression that drops the ``mode`` keyword
+        would silently fall back to the default mode.
+        """
         github = _fake_github("[]")
         with (
             patch.object(gateway, "get_auth_mode", return_value="bot"),
@@ -141,6 +148,11 @@ class TestFindOpenPrLookup:
             "--json",
             "number",
         ]
+        # ``auth_mode`` from ``get_auth_mode(repo)`` must flow through to
+        # ``github.execute`` as the ``mode=`` kwarg (gateway uses it to
+        # select the right token for the target repo).
+        called_kwargs = github.execute.call_args[1]
+        assert called_kwargs.get("mode") == "bot"
 
 
 class TestFindOpenPrValidation:
@@ -152,6 +164,8 @@ class TestFindOpenPrValidation:
             {"repo": "owner/repo", "head": "h"},  # missing base
             {"repo": "owner/repo", "head": "", "base": "b"},  # empty head
             {"repo": "owner/repo", "head": "h", "base": ""},  # empty base
+            {"repo": "owner/repo", "head": "   ", "base": "b"},  # whitespace-only head
+            {"repo": "owner/repo", "head": "h", "base": "   "},  # whitespace-only base
             {"repo": 123, "head": "h", "base": "b"},  # non-string repo
         ],
     )
