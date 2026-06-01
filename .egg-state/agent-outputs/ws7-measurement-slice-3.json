@@ -1,0 +1,25 @@
+{
+  "slice_id": "slice-3",
+  "pipeline_id": "issue-2908-impl2",
+  "captured_at": null,
+  "_comment": "WS7 cache-measurement baseline for slice-3 (#2908). Slice-3 ships the schema with placeholder values; the actual cache_read_input_tokens / Qwen cost_callback numbers are populated at flag-flip time in slice-4 by running the event-pump end-to-end on a live pipeline. See task-3-7 acceptance criteria.",
+  "per_event": [
+    {
+      "event_idx": 0,
+      "message_type": "CONSENSUS_PROPOSE",
+      "role": "reviewer_code",
+      "cache_read_input_tokens": null,
+      "cache_creation_input_tokens": null,
+      "input_tokens": null,
+      "output_tokens": null
+    }
+  ],
+  "total_invocations": null,
+  "qwen_aggregate": {
+    "_comment": "Aggregate sourced from litellm cost_callback (~/.local/state/clm/cost-*.json) on the Qwen route; Anthropic SDK usage.* is all-zero on the Qwen route per #2908 WS7 follow-up.",
+    "cache_read_input_tokens_total": null,
+    "cache_creation_input_tokens_total": null,
+    "input_tokens_total": null,
+    "output_tokens_total": null
+  }
+}
