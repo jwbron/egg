@@ -6,7 +6,7 @@
     "url": "https://github.com/jwbron/egg/issues/2908"
   },
   "pipeline_id": "issue-2908-impl2",
-  "current_phase": "refine",
+  "current_phase": "implement",
   "acceptance_criteria": [],
   "slices": [
     {
@@ -1051,7 +1051,19 @@
   ],
   "decisions": [],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-01T05:15:33.054643Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "implement",
+      "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
