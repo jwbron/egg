@@ -89,6 +89,8 @@ class AgentRole(StrEnum):
     # Utility roles (cross-cutting support)
     AUTOFIXER = "autofixer"
     CONFLICT_RESOLVER = "conflict_resolver"
+    # Infrastructure roles
+    ORCHESTRATOR = "orchestrator"
     # Interface roles (external system interaction)
     OVERSEER = "overseer"
 

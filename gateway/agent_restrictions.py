@@ -180,6 +180,32 @@ _OVERSEER_BLOCKED_GH_OPS = [
     "pr create *",
 ]
 
+# Orchestrator role: read-only access for idempotency pre-flights and diagnostics.
+# Blocked from all write operations (create, edit, comment, merge, approve, etc.)
+_ORCHESTRATOR_BLOCKED_GH_OPS = [
+    "issue create *",
+    "issue edit *",
+    "issue close *",
+    "issue delete *",
+    "issue comment *",
+    "issue pin *",
+    "issue unpin *",
+    "issue transfer *",
+    "pr create *",
+    "pr edit *",
+    "pr close *",
+    "pr reopen *",
+    "pr merge *",
+    "pr review *",
+    "pr ready *",
+    "pr checks *",
+    "pr comment *",
+    "run create *",
+    "run cancel *",
+    "run delete *",
+    "workflow run *",
+]
+
 AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
     role: AgentGHRestriction(
         role=role,
@@ -211,6 +237,15 @@ AGENT_GH_RESTRICTIONS[AgentRole.OVERSEER] = AgentGHRestriction(
     role=AgentRole.OVERSEER,
     blocked_operations=_OVERSEER_BLOCKED_GH_OPS,
     description="Overseer agent cannot post issue comments, edit issues, merge PRs, or create PRs",
+)
+
+# Add orchestrator with read-only restrictions for idempotency pre-flights.
+# The orchestrator issues `gh pr list` and `gh pr view` to check whether a slice
+# PR already exists before creating one (#2893).
+AGENT_GH_RESTRICTIONS[AgentRole.ORCHESTRATOR] = AgentGHRestriction(
+    role=AgentRole.ORCHESTRATOR,
+    blocked_operations=_ORCHESTRATOR_BLOCKED_GH_OPS,
+    description="Orchestrator role is read-only: cannot create/edit/merge PRs, issues, or workflows",
 )
 
 

@@ -160,3 +160,73 @@ class TestCheckAgentGHOperation:
         for role in roles:
             allowed, _ = check_agent_gh_operation(role, "issue comment 123")
             assert allowed is False, f"Role '{role}' should be blocked from issue comment"
+
+
+class TestOrchestratorRole:
+    """Tests for orchestrator role GH restrictions (#2893)."""
+
+    def test_orchestrator_registered(self):
+        """Orchestrator role is registered in AGENT_GH_RESTRICTIONS."""
+        assert AgentRole.ORCHESTRATOR in AGENT_GH_RESTRICTIONS
+
+    def test_orchestrator_allows_pr_list(self):
+        """Orchestrator can execute pr list (idempotency pre-flight)."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr list")
+        assert allowed is True, f"Orchestrator should allow pr list: {reason}"
+
+    def test_orchestrator_allows_pr_view(self):
+        """Orchestrator can execute pr view."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr view 123")
+        assert allowed is True, f"Orchestrator should allow pr view: {reason}"
+
+    def test_orchestrator_allows_issue_list(self):
+        """Orchestrator can enumerate open issues."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "issue list")
+        assert allowed is True, f"Orchestrator should allow issue list: {reason}"
+
+    def test_orchestrator_allows_issue_view(self):
+        """Orchestrator can view issues."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "issue view 456")
+        assert allowed is True, f"Orchestrator should allow issue view: {reason}"
+
+    def test_orchestrator_blocks_pr_create(self):
+        """Orchestrator cannot create PRs."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr create --title test")
+        assert allowed is False
+
+    def test_orchestrator_blocks_pr_edit(self):
+        """Orchestrator cannot edit PRs."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr edit 123")
+        assert allowed is False
+
+    def test_orchestrator_blocks_pr_merge(self):
+        """Orchestrator cannot merge PRs."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr merge 123")
+        assert allowed is False
+
+    def test_orchestrator_blocks_pr_review(self):
+        """Orchestrator cannot review PRs."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "pr review 123")
+        assert allowed is False
+
+    def test_orchestrator_blocks_issue_edit(self):
+        """Orchestrator cannot edit issues."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "issue edit 456")
+        assert allowed is False
+
+    def test_orchestrator_blocks_issue_comment(self):
+        """Orchestrator cannot comment on issues."""
+        allowed, reason = check_agent_gh_operation("orchestrator", "issue comment 789")
+        assert allowed is False
+
+    def test_orchestrator_blocks_issue_create_close_pin(self):
+        """Orchestrator cannot create/close/pin issues."""
+        for cmd in ["issue create --title test", "issue close 123", "issue pin 456"]:
+            allowed, reason = check_agent_gh_operation("orchestrator", cmd)
+            assert allowed is False, f"Orchestrator should block {cmd}: {reason}"
+
+    def test_orchestrator_blocks_workflow_operations(self):
+        """Orchestrator cannot trigger/cancel workflows."""
+        for cmd in ["workflow run build.yaml", "run create", "run cancel"]:
+            allowed, reason = check_agent_gh_operation("orchestrator", cmd)
+            assert allowed is False, f"Orchestrator should block {cmd}: {reason}"
