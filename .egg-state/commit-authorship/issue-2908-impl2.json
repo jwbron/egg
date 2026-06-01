@@ -175,6 +175,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "4be07b373aef3890b6f41ff7ff4ac7973d598ca4": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T20:51:20.114053+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "4c134b83bad6244cdfd3acc9d822130daf97f3f0": {
       "branch": "egg/issue-2908-impl2/slice-2",
       "pipeline_id": "issue-2908-impl2",
@@ -399,6 +406,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
+    "8de2d9db33d9c53549fa4b9926bad7bf2157ae80": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T20:51:20.118135+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "914d8ffac65f09a3916155ef1433232879d54ee2": {
       "branch": "egg/issue-2908-impl2/slice-2",
       "pipeline_id": "issue-2908-impl2",
@@ -431,6 +445,13 @@
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
       "registered_at": "2026-06-01T18:00:49.984799+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
+    "a51e72cedcf1fd1079bb8f8dc1a6cf8fb8066113": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T20:51:20.127763+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
@@ -592,6 +613,13 @@
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
       "registered_at": "2026-06-01T18:03:34.720447+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
+    "ed13e1205d4f69167fe7dcc413c172a0b83544ac": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T20:51:20.122137+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
