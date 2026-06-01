@@ -73,24 +73,47 @@ slices:
     dependencies: slice-3
   - id: 5
     name: |-
-      MCP→CLI tool collapse (delete agent MCP server, migrate tests)
+      Additive CLI surface: stdin/file prose plumbing + new BRC subcommands
     goal: |-
-      Delete the 28 agent-facing MCP tools (``sandbox/egg_agent_tools/tools/*.py``,
-      ~1700 LOC across 11 files), the ``SYSTEM_PROMPT_NUDGE`` block at
-      ``sandbox/egg_agent_tools/server.py:61``, and the MCP registration block at
-      ``shared/egg_agent/client.py:299–353``. Build CLI parity for the ~10 tools
-      not yet covered (``egg-orch brc resolve-obligation``,
-      ``egg-orch brc read-peer-artifact``; ``get-state`` / ``list-blocking`` /
-      ``phase get-context`` already shipped in slice-1). Hard constraint:
-      prose-bearing CLI commands (``consensus propose/ack/nack``'s ``reason`` /
-      ``files_reviewed`` args) must accept text via stdin or ``--file PATH`` —
-      never argv — to avoid re-introducing the shell-metachar corruption
-      mitigated in #2741. Retire / repurpose
-      ``tests/tools/test_mcp_cli_drift.py``; migrate
-      ``integration_tests/test_sandbox_mcp_tools_e2e.py`` and
-      ``tests/sandbox/egg_agent_tools/test_server.py`` to direct-handler tests
-      against the shared handler layer (which keeps both surfaces honest).
-      Verify per-event wall-clock latency is unchanged (subprocess spawn vs
-      in-process MCP dispatch on a representative event sample). Operator-facing
-      ``orchestrator/mcp_server.py`` is out of scope.
+      Net-additive predecessor to the MCP deletion in slice-6. (a) Add stdin /
+      ``--reason-file`` / ``--summary-file`` / ``--files-reviewed-file`` plumbing
+      to the prose-bearing CLI commands ``egg-orch consensus propose --summary``,
+      ``consensus ack --reason``, ``consensus nack --reason`` (all argv-only
+      today per ``sandbox/egg_lib/orch_cli.py:3265,3485,3573,3600,3647,3660``);
+      keep argv accepted as a fallback during transition. (b) Add the two
+      net-new CLI subcommands the slice-6 deletion depends on:
+      ``egg-orch brc resolve-obligation`` and ``egg-orch brc read-peer-artifact``
+      (``brc get-state`` / ``list-blocking`` / ``phase get-context`` already
+      shipped in slice-1). (c) Ship the #2741 regression-guard test asserting
+      prose containing ``$VAR`` / backticks / ``;`` / ``&&`` / embedded newlines
+      round-trips byte-equal via stdin and via ``--reason-file``. No MCP changes;
+      no existing-flow behavior change. This is the additive-API-introduction
+      slice — separating it from the deletion in slice-6 follows the architect
+      rubric ("avoid bundling deletion-heavy work with new-API-introduction
+      work") and risk_analyst R4's "stdin/file prose plumbing lands BEFORE any
+      MCP tool deprecation in WS8".
     dependencies: slice-4
+  - id: 6
+    name: |-
+      MCP→CLI deletion: delete agent MCP server + migrate tests
+    goal: |-
+      Mechanical deletion now that slice-5 has shipped the non-argv prose path
+      the agent needs. Delete the 28 agent-facing MCP tools across the 11 files
+      under ``sandbox/egg_agent_tools/tools/*.py`` (~2,034 LOC total per the wc
+      count), ``SYSTEM_PROMPT_NUDGE`` at ``sandbox/egg_agent_tools/server.py:61``
+      and ``build_sandbox_mcp_server``, the MCP registration block at
+      ``shared/egg_agent/client.py:299–353`` INCLUDING the ``EGG_MCP_TOOLS``
+      env-flag check at line 311 (no orphan flag). Retire
+      ``tests/tools/test_mcp_cli_drift.py``. Migrate
+      ``integration_tests/test_sandbox_mcp_tools_e2e.py`` — re-purposed so the
+      agent's first action is ``egg-orch consensus ack/nack`` via stdin/file
+      (preserves the SDK-spawn exercise rather than collapsing to direct-handler)
+      — and ``tests/sandbox/egg_agent_tools/test_server.py`` (the MCP-registration
+      test goes away with the MCP server). The shared handler layer at
+      ``sandbox/egg_agent_tools/handlers/*.py`` is UNCHANGED — both surfaces
+      already use it; this slice removes the duplicate MCP surface only. Verify
+      per-event wall-clock latency is unchanged (subprocess spawn vs in-process
+      MCP dispatch on a representative event sample); fall back to a persistent
+      ``egg-orch`` daemon over a Unix socket only if measured regression > 5%.
+      Operator-facing ``orchestrator/mcp_server.py`` is out of scope.
+    dependencies: slice-5
