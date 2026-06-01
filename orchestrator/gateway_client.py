@@ -2557,7 +2557,7 @@ class GatewayClient:
         pipeline_id: str,
         repo: str,
         *,
-        agent_role: str = "coder",
+        agent_role: str = "orchestrator",
         mode: Literal["public", "private"] = "public",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
@@ -2571,6 +2571,12 @@ class GatewayClient:
         ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
         (gateway/github_client.py) so no privileged endpoint is introduced
         (decision-15).
+
+        The synthetic session defaults to ``agent_role="orchestrator"`` so the
+        audit log attributes these calls to the orchestrator (the actual
+        caller) instead of impersonating a coder. The gateway's
+        ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role for read-only
+        ``gh pr list`` calls (#2893).
 
         On any error (gateway 4xx/5xx, JSON parse failure) the
         function logs and returns an empty list — the reconciler
