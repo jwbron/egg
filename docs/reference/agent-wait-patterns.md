@@ -1171,6 +1171,142 @@ the configured thread count, raise it.
 > tracked as a follow-up issue. The current Waitress server is sufficient
 > once the thread pool is sized correctly.
 
+## 11. Per-Event Prompt Shape and Memory Consumption (slice-3, behind `EGG_BRC_MEMORY`)
+
+> **Slice-3 of [#2908](https://github.com/jwbron/egg/issues/2908).** This
+> section is the wait-side companion to
+> [Orchestrator Architecture — BRC Delta-Scoped Re-Analysis](../architecture/orchestrator.md#brc-delta-scoped-re-analysis-slice-3-2908);
+> the architecture doc covers the composer's shape and rationale, this
+> section covers what changes for an agent waking under the event-pump
+> wrapper from §10.
+>
+> **The slice-3 path is OFF by default** — `EGG_BRC_EVENT_PUMP` is still
+> unset by default in slice-3 (slice-4 flips it). With the flag off, every
+> contract in §1–§9 above stands unchanged: the agent still holds the BRC
+> wait, the canonical idiom from §1 still applies. With the flag on, the
+> wrapper owns the wait and the agent is invoked one-shot per actionable
+> event with the per-event prompt described below — sections §1–§3 still
+> describe the *wrapper's* server-side wait behaviour (the wrapper drives
+> `egg-orch message wait-loop` under the hood), but the agent is no longer
+> the caller. The §4 `HEARTBEAT` schema, §5
+> `EGG_HEARTBEAT_RATE_LIMIT`, §6 `EGG_MESSAGE_POLL_MAX_WAIT`, and §8
+> `EGG_ORCH_WAITRESS_THREADS` couplings remain authoritative — the wrapper
+> emits beats from the same allowlist on the same coupling.
+
+### What the per-event prompt contains
+
+Under the event-pump path, the wrapper calls
+`compose_event_prompt(role, event_payload, memory_excerpt, nacks,
+git_log_delta, base_branch) -> str` and hands the result to
+`python3 -m egg_agent` per invocation. Sections, in order:
+
+1. **Role banner** + dual-role ordering banner where applicable.
+2. **One-line event description** naming the single BRC event being
+   processed and the single consensus verb expected this turn.
+3. **Per-producer git-log delta** — the FULL
+   `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p`
+   for the producer(s) under review. The `last_reviewed_commit_sha` is
+   substituted per producer from the caller's `brc-memory.md`. The
+   composer emits this command's *output* verbatim — there is no
+   `changed_artifacts`-only shortcut (see "Why the full delta" below).
+4. **Memory excerpt** (tail position, ≤ 2 KB after truncation) read from
+   `.egg-state/agent-outputs/<role>/brc-memory.md` when
+   `EGG_BRC_MEMORY=full`; empty when the default `write-only` mode is in
+   force. The excerpt is concatenated onto the user-prompt body
+   (architect od-6 Option B) — the illustrative `--append-context` flag
+   in the analysis pseudocode is NOT a real flag on `build_agent_command`
+   (`shared/egg_agent/command.py:11-46`).
+5. **NACK payload** rendered per-reviewer with `reason` +
+   `artifact_refs` (drawn from
+   `orchestrator/peer_consensus.py:949-1024`
+   `_open_nacks_barrier_response`), so the producer sees every blocking
+   finding by hand — preserving the §3 *Multi-reviewer NACK aggregation
+   barrier* contract from the consumer side.
+
+The composer caps the surrounding prose at ≤ 10 KB per case. The
+git-log delta is *not* counted against the envelope — it scales with the
+change size. Memory excerpts above 2 KB are truncated by the composer,
+not by the writer.
+
+### Why the full delta (and not orchestrator-side `changed_artifacts`)
+
+The composer must emit the same delta command the
+[PR reviewer uses on re-review](../../shared/prompts/REVIEWER-SYNC.md):
+`git fetch origin {base_branch}` then
+`git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p`.
+The SDLC reviewer's `_build_review_prompt()` already follows this
+convention on `review_cycle > 1` (see
+[Orchestrator Architecture — Prompt Context Scoping](../architecture/orchestrator.md#prompt-context-scoping)).
+The slice-3 per-event prompt preserves it because **risk_analyst R6**
+flagged that a re-review which audits only the orchestrator-side
+`changed_artifacts` list sees what the producer *claimed* they touched,
+not what actually landed — a stateless pump would systematically weaken
+adversarial re-review if the composer collapsed to a shortcut. A
+slice-3 unit test
+(`orchestrator/tests/test_compose_event_prompt.py`) asserts the
+git-log delta command string is emitted verbatim per producer; the
+assertion fails on regression to a `changed_artifacts`-only shortcut.
+
+### Memory consumption — `EGG_BRC_MEMORY=write-only` vs `full`
+
+| `EGG_BRC_MEMORY` | Composer behaviour | Operator stance |
+|------------------|--------------------|----------------|
+| unset / `write-only` (slice-1 default) | Empty `memory_excerpt`; git-log delta still emitted (against orchestrator-side `changed_artifacts` as fallback baseline when no per-producer SHA is recorded yet). Slice-1's memory writer continues to flush to disk. | Safe default while slice-1 / slice-3 ride the legacy wrapper. |
+| `full` | Composer loads `.egg-state/agent-outputs/<role>/brc-memory.md`, distills the relevant per-producer block (architect od-2), truncates to ≤ 2 KB, and inlines at the user-prompt tail. | Slice-4 flips this default after the `egg_stack` spike validates `qwen3.7-max` cache-hit rate. |
+
+See
+[Orchestrator Architecture — BRC Delta-Scoped Re-Analysis](../architecture/orchestrator.md#brc-delta-scoped-re-analysis-slice-3-2908)
+for the writer schema (slice-1 od-1 / od-2), the composer's full per-role
+shape, and the open-decision resolutions table.
+
+### What changes for the agent on the event-pump path
+
+When `EGG_BRC_EVENT_PUMP=true` (currently opt-in via slice-2; default
+post-slice-4):
+
+- **You do not call `egg-orch message wait-loop`.** The wrapper holds
+  the wait server-side — see §10. Your per-event prompt names the
+  single event already delivered.
+- **You do not poll** for the next event. Exit cleanly the moment the
+  current event's judgment is recorded; the wrapper invokes you again
+  when `egg-orch brc next-action` reports the next actionable event.
+- **You write to `brc-memory.md` before exiting.** The slice-1 writer
+  is wired into the BRC ack/nack handlers, so emitting your verdict
+  through the standard `egg-orch consensus ack/nack` path is sufficient
+  in the common case; consult
+  [BRC memory artifact](../architecture/brc-memory.md) (slice-1 doc)
+  for the schema and the cases that require an extra writer call.
+- **Termination is the wrapper's `exit 0`**, not a stop condition you
+  predict. Clean exit after handling your one event is the correct end
+  state for the turn.
+
+The `mission.md` rule file baked into every sandbox image describes the
+same contract; see
+[Orchestrator Architecture — `mission.md` event-handler rewrite](../architecture/orchestrator.md#missionmd-event-handler-rewrite-slice-3-task-3-4)
+for the rebuild / restart procedure that gets the new content onto a
+running pod.
+
+### Preamble collapse — what's gone, what stayed
+
+Slice-3 collapses `_build_brc_preamble`
+(`orchestrator/routes/pipelines.py:12348`). Deleted text: the STAY-ALIVE
+/ `wait-loop` mechanics / cursor-threading / pre-confirm-wait foot-gun
+guidance (Producer step 4 plumbing, Producer step 6 loop, cursor /
+`--since` guidance). Kept: agent roster, reviewer / producer
+assignments, dual-role ordering banner, AND the dual-mandate
+adversarial re-review banner at `pipelines.py:12849-12872` (the
+*"Your re-review has TWO equal-weight mandates…"* block — behavioural
+framing anchored on by risk_analyst R6, not seam-related). The
+canonical proof-of-presence anchor preserved through the collapse is the
+phrase **"Both must pass to ACK"** at `pipelines.py:12856-12857`;
+`orchestrator/tests/test_brc_preamble_collapsed.py` asserts on it
+across the three call sites at `pipelines.py:13659, :13692, :13720`
+(callers unchanged — only the preamble text collapses), plus
+absence-asserts on STAY-ALIVE / `wait-loop` / cursor strings and a
+byte-size drop ≥ 25% vs the pre-collapse baseline. Slice-3 keeps the
+flag off by default, so the collapsed preamble runs against the
+*legacy* wrapper path today.
+
 ## 9. Related Documentation
 
 - [Concurrent Execution Guide — Message Bus](../guides/concurrent-execution.md#message-bus) — the message-bus HTTP surface
@@ -1178,9 +1314,12 @@ the configured thread count, raise it.
 - [Orchestrator CLI Reference — `egg-orch message`](orchestrator-cli.md#common-workflows) — full command surface
 - [Pipeline Health Monitoring](../guides/pipeline-health-monitoring.md) — how `HEARTBEAT` feeds stall detection
 - [Orchestrator Architecture — MCP Server](../architecture/orchestrator.md#api-endpoints) — full MCP tool inventory
+- [Orchestrator Architecture — BRC Delta-Scoped Re-Analysis](../architecture/orchestrator.md#brc-delta-scoped-re-analysis-slice-3-2908) — slice-3 per-event prompt composer + memory consumption
+- [BRC Memory Artifact](../architecture/brc-memory.md) — slice-1 durable memory writer schema (per-role `brc-memory.md`)
 - [SDLC Skill](../../skills/sdlc/SKILL.md) — host-side consumer of `egg-orch pipeline wait-status` (see §Phase 3 and §Phase S5)
 - [Release note — `wait_for_status_change`](../releases/wait-for-status-change.md) — original rationale (superseded by #2211)
 - [Release note — `pipelines wait-status` CLI](../releases/pipelines-wait-status-cli.md) — rationale, rollback, and migration for #2211
 - [Issue #1897](https://github.com/jwbron/egg/issues/1897) — original bug report with the four observed anti-patterns
 - [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (the MCP variant superseded by #2211)
 - [Issue #2211](https://github.com/jwbron/egg/issues/2211) — wake-storm fix: replace MCP wait tools with Bash CLI
+- [Issue #2908](https://github.com/jwbron/egg/issues/2908) — BRC event-pump wrapper + durable agent memory (slices 1–6)

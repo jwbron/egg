@@ -140,18 +140,39 @@ When `EGG_CONCURRENT_MODE=true` is set, you are running alongside other agents
 simultaneously. Agents coordinate through the **Broadcast-Review-Converge (BRC)**
 peer consensus protocol.
 
+You run as a **stateless per-event handler**: the orchestrator's BRC wrapper
+invokes you one-shot per actionable BRC event with a focused per-event prompt;
+you act on the single event named in the prompt, write your judgment back to
+your durable memory file
+(`.egg-state/agent-outputs/<role>/brc-memory.md`), then exit cleanly. The
+wrapper owns the deterministic loop, the heartbeats, the gateway-session
+keep-alive, and the consensus sequencing — it decides when to call you again by
+reading `egg-orch brc next-action`. You decide only the *judgment* the current
+event demands (write code, ACK / NACK with reasons, confirm, etc.). Termination
+is the wrapper's `exit 0` after global consensus, not a stop condition you have
+to predict — so exiting cleanly after handling your one event is the correct
+end state for the turn, not a failure mode.
+
 Your server-side prompt contains your **full BRC lifecycle instructions** —
 including your role type (producer/reviewer), active agent roster, assigned
-reviewers or producers, preparation steps, and the exact consensus commands
-to run. Follow those instructions exactly.
+reviewers or producers, preparation steps, the single event to act on this
+turn, and the exact consensus commands to run. Follow those instructions
+exactly.
 
 ### Key Principles
 
 - The orchestrator *observes* consensus, it doesn't *decide* it
-- **Producers**: orient → work → propose → respond to reviews → confirm → stay alive
-- **Reviewers**: prepare → poll for proposals → review → ACK/NACK → confirm → stay alive
-- **Never exit** before the orchestrator stops you — completing your task is necessary but NOT sufficient
-- Use `egg-orch message wait-loop --for <TYPE>` (blocks server-side, loops forever until a terminal match) for waiting on bus events. Do NOT wrap it in `for i in 1..N; do …; done`. Do NOT use `sleep N` to wait. See `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md`.
+- **Producers**: orient → work → propose → respond to reviews → confirm
+- **Reviewers**: prepare → review → ACK/NACK → confirm
+- **One event per invocation**: each turn handles the single event named in
+  your per-event prompt; exit cleanly the moment that judgment is recorded —
+  the wrapper invokes you again when the next actionable event arrives, with a
+  fresh prompt and the relevant slice of memory restored. Do NOT poll for the
+  next event yourself; do NOT block waiting for it.
+- **Update durable memory before exiting** so the next invocation can reason
+  about prior verdicts, NACK reasons, and the per-producer
+  `last_reviewed_commit_sha` without re-reading the whole repository
+  (see [BRC memory artifact](../../docs/architecture/brc-memory.md))
 
 ### Anti-Sycophancy Requirements
 
