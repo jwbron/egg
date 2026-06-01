@@ -12,7 +12,7 @@
     {
       "id": "slice-1",
       "name": "Server-side next-action CLI + BRC memory data plane (additive foundations)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -21,7 +21,7 @@
         {
           "id": "task-1-1",
           "description": "Add ``egg-orch brc next-action --role R [--json]`` CLI subcommand to\n``sandbox/egg_lib/orch_cli.py``. The subcommand calls the new\norchestrator route added in TASK-1-2 and returns JSON of shape\n``{action: \"wait\" | \"propose\" | \"ack\" | \"nack\" | \"confirm\" |\n\"complete\", event_payload?: {...}}``. Register as sibling of the\nexisting ``brc ack`` / ``brc nack`` subparsers under the ``brc``\nparent. Honour ``EGG_ORCHESTRATOR_URL`` (orch_cli.py:132) and\n``EGG_LIFECYCLE_SECRET`` (orch_cli.py:324) for auth. Includes a\n``--role`` arg that defaults to ``$EGG_AGENT_ROLE`` (set on every\nagent pod per kubernetes_spawner.py:818-823).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -42,7 +42,7 @@
         {
           "id": "task-1-2",
           "description": "Add ``POST /api/v1/pipelines/{pid}/consensus/next-action`` route\nhandler in ``orchestrator/routes/`` (likely a new\n``orchestrator/routes/consensus.py`` or extending the existing\nBRC routes \u2014 placement decision delegated to the implementing\ncoder per orchestrator conventions). Derives next action from\n``consensus_status`` aggregation + ``peer_consensus.py:949-1024``\n``_open_nacks_barrier_response`` ``nacks[]`` payload +\n``changed_artifacts`` delta. Returns the same JSON shape the CLI\nsurfaces in TASK-1-1. Decision od-3 from the architect output\nresolves: new dedicated endpoint, not a reuse of\n``consensus status`` \u2014 sequencing logic lives in testable\norchestrator code, not wrapper bash.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -64,7 +64,7 @@
         {
           "id": "task-1-3",
           "description": "Add ``egg-orch brc get-state [--verbose]`` CLI subcommand to\n``sandbox/egg_lib/orch_cli.py``. Verb-level alias for the\nexisting ``brc_get_state`` handler at\n``sandbox/egg_agent_tools/handlers/brc.py:679-723``. Returns the\nJSON shape ``{ok, slice_id, consensus: {agents, blocking_agents,\nis_complete}, raw?}`` \u2014 matches the MCP-tool surface so the\nwrapper bash can call it directly. ``--verbose`` includes the\nfull pipeline-status payload.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -85,7 +85,7 @@
         {
           "id": "task-1-4",
           "description": "Add ``egg-orch brc list-blocking`` CLI subcommand to\n``sandbox/egg_lib/orch_cli.py``. Derived view of\n``consensus.blocking_agents[]`` from ``brc_get_state``. Default\noutput: one role per line for shell-friendly consumption\n(``while read role; do \u2026; done``); ``--json`` returns the\n``{blocking_agents: [...]}`` array.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -106,7 +106,7 @@
         {
           "id": "task-1-5",
           "description": "Add ``egg-orch phase get-context [--phase P] [--role R]`` CLI\nsubcommand to ``sandbox/egg_lib/orch_cli.py``. Wraps the existing\n``mcp__phase__get_context`` handler logic; returns JSON of\npipeline_id, phase, role, assigned tasks, prior-phase artifact\npaths. Defaults pull from ``$EGG_PIPELINE_ID`` /\n``$EGG_AGENT_ROLE`` env vars.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -127,7 +127,7 @@
         {
           "id": "task-1-6",
           "description": "Add durable BRC memory writer to ``brc_ack`` and ``brc_nack``\nhandlers at ``sandbox/egg_agent_tools/handlers/brc.py:505,586``.\nOn a successful ACK or NACK, distill a structured memory entry\ninto ``.egg-state/agent-outputs/<role>/brc-memory.md``\n(subdirectory layout per architect od-1; path resolved against\n``EGG_REPO_PATH``). Memory schema must carry the six required\nfields from architect v2 ``design.memory_schema.required_fields``:\n(a) ``## Codebase / change model`` distilled prose;\n(b) ``## Per-producer assessment`` subsections including\n``producer``, ``last_reviewed_commit_sha`` (the SHA of HEAD at\nreview time \u2014 slice-3 uses this for\n``git log {sha}..HEAD --not origin/{base_branch} -p``),\n``prior_verdict``, ``prior_nack_reasons``,\n``prior_conditional_obligation``, ``summary_of_assessment``;\n(c) ``## Decision log`` capped at the last 20 entries via\ndistill-on-write (od-2). Writes use atomic tempfile + os.replace\nvia the promoted ``_persist_atomic_template`` helper from\n``shared/egg_overseer/state.py:266`` (or\n``shared/egg_contracts/usage_loader.py:95 _atomic_write`` \u2014\ncoder picks the lighter migration). Path constructor raises\nbefore write if ``EGG_AGENT_ROLE`` is unset/empty (fail-closed,\nper architect od-1 + risk_analyst R14). Gated by\n``EGG_BRC_MEMORY={off,write-only,full}``: ``off`` skips writes;\n``write-only`` writes but does not read (read path lands in\nslice-3); ``full`` enables reads. Default ``off`` so slice-1 is\ninert in production.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -149,7 +149,7 @@
         {
           "id": "task-1-7",
           "description": "Document the BRC memory schema and layout in\n``docs/architecture/brc-memory.md`` (new doc). Cover the v2\nschema verbatim: file path\n(``.egg-state/agent-outputs/<role>/brc-memory.md``), scope key,\nall six required fields incl. ``last_reviewed_commit_sha``,\nthe three ``EGG_BRC_MEMORY`` modes, atomic-write semantics\n(tempfile + os.replace) and rationale, the fail-closed path\nconstructor, distill-on-write decision-log cap at 20, the\nrationale for distill-on-write (architect od-2), and the\nrole-allowlist coverage that makes the path writable for every\nparticipant role (cite ``shared/egg_restrictions/patterns.py``\nline ranges).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -171,7 +171,7 @@
         {
           "id": "task-1-8",
           "description": "Unit tests for TASK-1-1..TASK-1-5 CLI subcommands at\n``tests/sandbox/egg_lib/test_orch_cli_brc.py`` and\n``tests/sandbox/egg_lib/test_orch_cli_phase.py`` (new files\nalongside the existing ``test_orch_cli_*.py`` suite). Cover\n``--json`` output shape, lifecycle-secret auth, exit codes,\nempty-list edge cases for ``list-blocking``. Round-trip against\nan in-memory orchestrator fake.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -193,7 +193,7 @@
         {
           "id": "task-1-9",
           "description": "Unit tests for TASK-1-6 memory writer extending\n``tests/sandbox/egg_agent_tools/test_handlers_brc.py``.\nCover: ``EGG_BRC_MEMORY={off,write-only,full}`` modes;\nwell-formed entry on ack and nack populating all six required\nfields (incl. ``last_reviewed_commit_sha`` per producer);\ndecision-log cap at 20 (distill-on-write); atomic-write\ncontract under fault injection (e.g. mocking os.replace to\nfail; assert file system never observes a half-written\nintermediate); fail-closed path constructor (raise on unset\n``EGG_AGENT_ROLE``); subdirectory creation; scope key per\n(role, slice_id, phase); handler return values unchanged.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -214,7 +214,7 @@
         {
           "id": "task-1-10",
           "description": "Unit tests for TASK-1-2 orchestrator route at\n``orchestrator/tests/test_consensus_next_action.py`` (new\nfile). Cover the nine derivation cases listed in TASK-1-2\nacceptance \u2014 producer-PROPOSED, reviewer-pending, dual-role\nWORKING+peer PROPOSE-pending (returns ``propose`` per\nrisk_analyst R11 sub-case a), dual-role post-own-propose\n(returns ``ack/nack`` per R11 sub-case b), open-NACK\nbarrier #2142, conditional ACK, stale-version #2482,\nconfirm eligible, role complete \u2014 using a FlaskClient\ndriving the orchestrator Flask app in-process (the existing\npattern in ``orchestrator/tests/test_*.py``) plus the\nin-process ``PeerConsensusTracker`` matrix from\n``orchestrator/peer_consensus.py``. NO ``ScriptedProvider``\nreference \u2014 that class does not exist in this codebase\n(verified by reviewer_plan: zero hits in\n``grep -rn 'class ScriptedProvider' .``); the orchestrator\nroute tests work entirely on the in-process Python BRC\nstate, not on a deployed agent pod.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
