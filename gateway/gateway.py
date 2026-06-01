@@ -4909,22 +4909,25 @@ def gh_find_open_pr() -> tuple[Response, int] | Response:
     if not data:
         return make_error("Missing request body")
 
-    repo = data.get("repo")
-    head = data.get("head")
-    base = data.get("base")
-
-    for name, value in (("repo", repo), ("head", head), ("base", base)):
+    # Validate and bind stripped values in one pass so mypy sees ``repo``
+    # / ``head`` / ``base`` as ``str`` (not the ``Any`` returned by
+    # ``data.get(...)``) below.
+    fields: dict[str, str] = {}
+    for name, value in (
+        ("repo", data.get("repo")),
+        ("head", data.get("head")),
+        ("base", data.get("base")),
+    ):
         if not isinstance(value, str) or not value.strip():
             return make_error(f"Missing or invalid {name}: must be a non-empty string")
+        fields[name] = value.strip()
+    repo, head, base = fields["repo"], fields["head"], fields["base"]
 
     # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
     # also accepts full GitHub URLs); the docstring and the validation
     # error below both promise the literal ``owner/name`` shape, so we
     # match against the pattern directly rather than the URL-permissive
     # helper.
-    repo = repo.strip()
-    head = head.strip()
-    base = base.strip()
     if OWNER_REPO_PATTERN.match(repo) is None:
         return make_error("Invalid repo: must be 'owner/name'")
 

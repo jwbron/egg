@@ -177,10 +177,23 @@ class TestFindOpenPrValidation:
         )
         assert response.status_code == 400
 
-    def test_malformed_repo_returns_400(self, client, launcher_auth_headers):
+    @pytest.mark.parametrize(
+        "malformed_repo",
+        [
+            "not-owner-slash-repo",  # no slash
+            # Full GitHub URL form: ``parse_owner_repo`` would have accepted
+            # this via its ``parse_github_url`` fallback, but the route
+            # promises the literal ``owner/name`` shape and uses
+            # ``OWNER_REPO_PATTERN.match`` directly. Pinned so a future
+            # switch back to the URL-permissive helper would fail.
+            "https://github.com/owner/repo",
+            "owner/repo/extra",  # too many segments
+        ],
+    )
+    def test_malformed_repo_returns_400(self, client, launcher_auth_headers, malformed_repo):
         response = client.post(
             "/api/v1/gh/find_open_pr",
-            json={"repo": "not-owner-slash-repo", "head": "h", "base": "b"},
+            json={"repo": malformed_repo, "head": "h", "base": "b"},
             headers=launcher_auth_headers,
         )
         assert response.status_code == 400
