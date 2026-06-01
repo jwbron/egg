@@ -850,9 +850,18 @@ emit_heartbeat() {{
 start_background_heartbeat() {{
     local body_text="$1"
     (
-        # Detach from job control so the parent set -e / set -o pipefail
-        # doesn't kill the heartbeat subshell on a transient CLI error.
-        trap '' TERM
+        # Install a TERM trap that exits the subshell cleanly so the
+        # outer ``stop_background_heartbeat``'s ``kill $HB_BG_PID``
+        # (default signal SIGTERM) reaps the child rather than
+        # deadlocking on ``wait``. The earlier ``trap '' TERM`` form
+        # MASKED the signal and caused a wait deadlock that hung the
+        # whole event-pump after the first wait-loop return
+        # (reviewer_concurrency v1 finding 1 / #2908 slice-2 NACK).
+        # ``set -uo pipefail`` (without ``-e``) does not propagate
+        # subshell failures to the parent; ``emit_heartbeat``'s
+        # ``|| true`` already swallows any CLI error -- so there is no
+        # signal-defense to install here.
+        trap 'exit 0' TERM
         while true; do
             sleep "$HB_INTERVAL_SECS"
             emit_heartbeat "WAITING_FOR_EVENT" "$body_text"
@@ -863,6 +872,10 @@ start_background_heartbeat() {{
 
 stop_background_heartbeat() {{
     if [ -n "$HB_BG_PID" ]; then
+        # Use SIGTERM (default ``kill`` signal) so the subshell's
+        # ``trap 'exit 0' TERM`` exits the heartbeat loop cleanly,
+        # then ``wait`` reaps it without blocking. SIGKILL would
+        # work too but loses the chance to log a final exit code.
         kill "$HB_BG_PID" 2>/dev/null || true
         wait "$HB_BG_PID" 2>/dev/null || true
         HB_BG_PID=""
@@ -1086,10 +1099,20 @@ while true; do
             note_progress
             ;;
         wait)
-            wait_for_event "$ROLE_CONFIRMED" || true
-            # Wait-loop returning (matched, timeout, or transient) is
-            # progress in the event-pump sense: state may have changed.
-            note_progress
+            # Block on the bus. ``wait_for_event`` returns 0 only when
+            # a matching message was delivered (sandbox/egg_lib CLI
+            # contract: ``message wait-loop`` exits 0 on match, 1 on
+            # safety-cap / no-match). Reset the idle counter ONLY in
+            # the match case -- a timeout return is the DEFINITION of
+            # idle, not progress. (reviewer_concurrency v1 finding 2 /
+            # #2908 slice-2 NACK: unconditional ``note_progress`` here
+            # would defeat the entire idle-budget safety net because
+            # the inner wait-loop returns every ~60 s with no event.)
+            wait_for_event "$ROLE_CONFIRMED"
+            wait_rc=$?
+            if [ "$wait_rc" -eq 0 ]; then
+                note_progress
+            fi
             ;;
         propose|ack|nack)
             cw_log "Invoking agent (action=$ACTION)."
