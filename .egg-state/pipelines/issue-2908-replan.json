@@ -5,7 +5,7 @@
   "branch": "egg/issue-2908-replan/work",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -69,124 +69,14 @@
   "phases": {
     "plan": {
       "phase": "plan",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-05-31T22:17:32.158860Z",
       "work_started_at": "2026-05-31T22:18:05.697112Z",
-      "completed_at": "2026-05-31T23:30:21.977727Z",
-      "containers": [
-        {
-          "container_id": "bdd7f443-6093-42d5-aab7-3ef8adc60fc3",
-          "container_name": "egg-sandbox-egg-agent-issue-2908-replan-task-planner",
-          "status": "exited",
-          "started_at": "2026-05-31T22:18:07.867681Z",
-          "exited_at": "2026-05-31T23:30:21.130904Z",
-          "exit_code": 0,
-          "agent_role": "task_planner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2908-replan-task-planner"
-        },
-        {
-          "container_id": "42a27eec-9f11-4689-a37d-3b7bb7c206e1",
-          "container_name": "egg-sandbox-egg-agent-issue-2908-replan-reviewer-plan",
-          "status": "exited",
-          "started_at": "2026-05-31T22:18:07.867713Z",
-          "exited_at": "2026-05-31T23:30:21.130906Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_plan",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2908-replan-reviewer-plan"
-        },
-        {
-          "container_id": "112017c7-10f1-43e2-ac70-ef0148de114d",
-          "container_name": "egg-sandbox-egg-agent-issue-2908-replan-risk-analyst",
-          "status": "exited",
-          "started_at": "2026-05-31T22:18:07.867720Z",
-          "exited_at": "2026-05-31T23:30:21.130908Z",
-          "exit_code": 0,
-          "agent_role": "risk_analyst",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2908-replan-risk-analyst"
-        },
-        {
-          "container_id": "51f9f3f3-70d3-458c-a480-267e476ab771",
-          "container_name": "egg-sandbox-egg-agent-issue-2908-replan-architect",
-          "status": "exited",
-          "started_at": "2026-05-31T22:18:07.867725Z",
-          "exited_at": "2026-05-31T23:30:21.130910Z",
-          "exit_code": 0,
-          "agent_role": "architect",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2908-replan-architect"
-        }
-      ],
-      "agents": [
-        {
-          "role": "task_planner",
-          "status": "complete",
-          "container_id": "bdd7f443-6093-42d5-aab7-3ef8adc60fc3",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-31T22:18:07.867700Z",
-          "completed_at": "2026-05-31T23:30:21.130887Z",
-          "commit": "53053dedbac4b9d1c5ccf40c2f2bd21631005e9c",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "complete",
-          "container_id": "42a27eec-9f11-4689-a37d-3b7bb7c206e1",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-31T22:18:07.867717Z",
-          "completed_at": "2026-05-31T23:30:21.130894Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "risk_analyst",
-          "status": "complete",
-          "container_id": "112017c7-10f1-43e2-ac70-ef0148de114d",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-31T22:18:07.867723Z",
-          "completed_at": "2026-05-31T23:30:21.130896Z",
-          "commit": "d274b95dc327c7480c1116c6c958f4ef16cfcfc9",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "architect",
-          "status": "complete",
-          "container_id": "51f9f3f3-70d3-458c-a480-267e476ab771",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-31T22:18:07.867727Z",
-          "completed_at": "2026-05-31T23:30:21.130898Z",
-          "commit": "056b61960bcf97e6410834c205f62de7e0aa225d",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -197,8 +87,33 @@
       ],
       "artifacts": {},
       "error": null,
-      "operator_directives": [],
-      "iteration_history": [],
+      "operator_directives": [
+        {
+          "iteration_n": 0,
+          "created_at": "2026-06-01T02:06:14.966456Z",
+          "feedback_text": "The plan is faithful to the replan directive on 8 of 9 points — keep everything as-is EXCEPT one surgical change to slice-1.\n\nPROBLEM: slice-1 still re-derives the Qwen cache-TTL question, which the operator's replan directive explicitly said is EMPIRICALLY CLOSED and must NOT be re-run. Specifically:\n- TASK-1-3 injects synthetic idles of 5.5 / 10 / 15 min to 'bracket the TTL ceiling' and the AC requires 'at least 3 idle durations'.\n- TASK-1-4's report must answer 'what Qwen-route TTL ceiling did the measurements show — survives >=15 min, lapses 5.5-15 min, or ambiguous?'\nThis is exactly the cache-TTL stop/go spike the directive collapsed. The operator hand-measured it: BOTH the Anthropic and Qwen routes' prefix cache survive a >=60-min idle with ZERO re-creation; observed BRC idles peak at ~10-13 min, so the cache always outlasts the gap on both routes. No keep-warm needed on either route. There is nothing left to measure here.\n\nREQUIRED CHANGE (surgical — do not re-architect the rest):\n1. Strip the cache-TTL-ceiling bracketing from slice-1: remove the multi-idle-duration injection (5.5/10/15 min) and the 'bracket the TTL ceiling' / 'TTL survival' acceptance criteria from TASK-1-3, and remove the 'what Qwen-route TTL ceiling did the measurements show' report question from TASK-1-4.\n2. KEEP slice-1's legitimate, directive-permitted work: (a) the per-event cost / wall-clock instrumentation measured through the real `python3 -m egg_agent` harness with the production BRC preamble + tool schemas (BC-1), and (b) the event-pump-reaches-consensus de-risk on the #2906 repro. Instrument-only, no fail thresholds (feedback-1 Q1).\n3. Treat the cache TTL as a settled INPUT, not a question to measure: slice-1 may state the measured result as a given (both routes survive >=60min idle, no keep-warm) but must not run idle-bracketing to re-derive it. If per-event cost instrumentation happens to record cache_read vs cache_creation token counts as a side effect of cost measurement, that is fine — what is forbidden is the dedicated idle-duration TTL-ceiling spike and any stop/go gate keyed on it.\n\nEverything else in the plan is correct and should be preserved unchanged: slice-8/keep-warm stays dropped (good), cq-1 MCP-split (good), cq-3 durable server-side budget on Pipeline.no_progress_budget + sync-flush + startup reconciliation + OVERSEER_ALERT/HITL no-auto-FAIL (good), cq-4 full deletion of the capped-restart wrapper with no flagged fallback (good), brc-memory.md ephemeral (good), python3 -m egg_agent primitive + real egg_stack integration fixture (good). Do NOT change those. Only fix slice-1."
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration_n": 0,
+          "completed_at": "2026-06-01T02:06:14.966467Z",
+          "final_proposal_commit": {
+            "architect": "056b61960bcf97e6410834c205f62de7e0aa225d",
+            "task_planner": "53053dedbac4b9d1c5ccf40c2f2bd21631005e9c",
+            "risk_analyst": "d274b95dc327c7480c1116c6c958f4ef16cfcfc9"
+          },
+          "verdict_matrix": {
+            "reviewer_plan->architect": "acked",
+            "reviewer_plan->task_planner": "acked",
+            "reviewer_plan->risk_analyst": "acked",
+            "risk_analyst->architect": "acked",
+            "risk_analyst->task_planner": "acked"
+          },
+          "nack_reasons": [],
+          "artifacts_snapshot": {}
+        }
+      ],
       "phase_start_sha": "01ce0df5eaca59758a5bb984cc5253a7ff05894d",
       "agent_exits": []
     }
@@ -223,7 +138,7 @@
     }
   ],
   "created_at": "2026-05-31T22:17:27.200190Z",
-  "updated_at": "2026-06-01T02:06:11.467264Z",
+  "updated_at": "2026-06-01T02:06:14.967398Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -236,7 +151,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
