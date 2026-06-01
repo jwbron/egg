@@ -185,6 +185,7 @@ try:
     )
     from ..kubernetes_client import (
         LABEL_PIPELINE_ID,
+        LABEL_SLICE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -239,6 +240,7 @@ except ImportError:
     )
     from kubernetes_client import (  # type: ignore
         LABEL_PIPELINE_ID,
+        LABEL_SLICE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -1011,6 +1013,34 @@ def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> i
                 error=str(e),
             )
         return None
+
+
+def _slice_agents_alive(pipeline_id: str, slice_id: str) -> bool:
+    """Check if any live agents exist for a slice (#2914).
+
+    Returns ``True`` if at least one pod labeled with the pipeline and
+    slice IDs is in a live state (Pending/Creating/Running). Returns
+    ``False`` if zero live pods or if the label query fails — the
+    conservative default forces re-spawn rather than risking a wedge.
+    """
+    try:
+        spawner = _get_spawner()
+        pods = spawner.backend.list_containers(
+            labels={
+                LABEL_PIPELINE_ID: pipeline_id,
+                LABEL_SLICE_ID: slice_id,
+            },
+        )
+        live_count = sum(1 for p in pods if p.status in _LIVE_POD_STATUSES)
+        return live_count > 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Slice liveness check failed; treating as not-alive to force re-spawn (#2914)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(e),
+        )
+        return False
 
 
 def _guard_live_pods_or_force(
@@ -16085,6 +16115,7 @@ def _run_implement_phase_slices(
     bootstrap_consensus_complete: list[str] = []
     bootstrap_blocked: list[str] = []
     bootstrap_corrupt: list[str] = []
+    bootstrap_reclassified_fresh: list[str] = []  # resume-but-dead → fresh (#2914)
     layer_b_marked_complete = set(bootstrap_merged)
     for s in layer_b_candidates:
         if s.id in layer_b_marked_complete:
@@ -16117,8 +16148,21 @@ def _run_implement_phase_slices(
             bootstrap_consensus_complete.append(s.id)
             continue
         if classification == "resume":
-            scheduler.mark_spawned(s.id)
-            bootstrap_resumed.append(s.id)
+            # Verify agents are actually live before marking as spawned (#2914).
+            # On restart_phase, agents were torn down but contract still shows
+            # IN_PROGRESS with commits — we must not mark_spawned when cohort
+            # is absent, or the pipeline wedges with no agents running.
+            if _slice_agents_alive(pipeline_id, s.id):
+                scheduler.mark_spawned(s.id)
+                bootstrap_resumed.append(s.id)
+            else:
+                logger.warning(
+                    "Layer-C resume classification but no live agents; "
+                    "treating as fresh to force re-spawn (#2914)",
+                    pipeline_id=pipeline_id,
+                    slice_id=s.id,
+                )
+                bootstrap_reclassified_fresh.append(s.id)
             continue
         if classification == "blocked":
             bootstrap_blocked.append(s.id)
@@ -16135,13 +16179,21 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
-    if bootstrap_resumed or bootstrap_consensus_complete or bootstrap_blocked or bootstrap_corrupt:
+    if (
+        bootstrap_resumed
+        or bootstrap_consensus_complete
+        or bootstrap_blocked
+        or bootstrap_corrupt
+        or bootstrap_reclassified_fresh
+    ):
         # NOTE: include ``bootstrap_blocked`` in the gate (reviewer_code
         # v3 NACK fix) — a bootstrap pass whose only Layer-C activity is
         # BLOCKED slices was previously suppressing the audit-trail line
         # entirely. Case-4 escalation still fires, but operators need
         # the structured "we saw a blocked slice" log to spot
         # pending-HITL backlogs without grepping for the side-effect.
+        # include ``bootstrap_reclassified_fresh`` (#2914) — resume-classified
+        # slices that were re-verified and found to have no live agents.
         logger.info(
             "Slice bootstrap reconciliation classified non-COMPLETE slices (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
@@ -16149,6 +16201,7 @@ def _run_implement_phase_slices(
             consensus_complete_unrecorded=bootstrap_consensus_complete,
             blocked=bootstrap_blocked,
             corrupt=bootstrap_corrupt,
+            reclassified_fresh=bootstrap_reclassified_fresh,
         )
     # Case 5 — escalate via HITL so the pipeline pauses until the
     # operator picks an option (reviewer_contract / reviewer_code v1
