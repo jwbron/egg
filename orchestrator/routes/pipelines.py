@@ -16010,8 +16010,8 @@ def _run_implement_phase_slices(
     # 422 contract.
     try:
         # Pass the main repo path (``store.repo_path``) — not
-        # ``worktree_repo_path`` — so all four driver-thread call sites
-        # of ``_open_context_pr_at_implement_start`` read identically.
+        # ``worktree_repo_path`` — so all four opener call sites of
+        # ``_open_context_pr_at_implement_start`` read identically.
         # The opener rederives its own per-pipeline worktree internally
         # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
         _open_context_pr_at_implement_start(pipeline_id, repo_path=Path(store.repo_path))
