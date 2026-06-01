@@ -12,7 +12,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
-| **INTERFACE** | Pipeline health and monitoring | `overseer` |
+| **INTERFACE** | Pipeline health and monitoring | `overseer`, `orchestrator` |
 
 Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by category.
 
@@ -39,6 +39,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
+| `orchestrator` | Interface | N/A (not spawned as agent session) | — | — (read-only gh pre-flights for idempotency) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
 
@@ -430,6 +431,26 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 **Prompt context**: Orchestrator health alerts, structured progress events, agent container logs, pipeline state.
 
 See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) for full details.
+
+### `orchestrator`
+
+**Purpose**: Exists for audit-log attribution of read-only `gh` pre-flights issued by the orchestrator service itself. Before creating a slice PR the orchestrator calls `gh pr list` to check whether one already exists (idempotency pre-flight, #2777 cq-8); the synthetic session registers with `agent_role="orchestrator"` so the gateway audit log attributes these calls to the actual caller instead of impersonating a coder.
+
+This role is **not spawned as an agent session** — it is only used by the orchestrator's own `GatewayClient` when registering a synthetic session for read-only `gh` operations.
+
+**File access**:
+- Allowed writes: none
+- Blocked: all paths (`src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `orchestrator/`, `docs/`, `tests/`, `test/`, `.egg-state/`, `.github/`)
+
+**GitHub access** (via `/api/v1/gh/execute`): read-only. The following operations are blocked:
+- `gh issue create/edit/close/delete/comment/pin/unpin/transfer`
+- `gh pr create/edit/close/reopen/merge/review/ready/comment`
+- `gh run cancel/delete/rerun`
+- `gh workflow run/enable/disable`
+
+Allowed read-only ops include `gh pr list`, `gh pr view`, `gh pr checks`, `gh issue list`, `gh issue view`, `gh run list`, `gh run view`, `gh workflow list`, `gh workflow view`.
+
+> **Note:** The dedicated `/api/v1/gh/pr/create` route (used for slice-PR creation) does not call `check_agent_gh_operation`, so orchestrator-initiated slice-PR creation still works through that route. The blocklist above only applies to the generic `/api/v1/gh/execute` path.
 
 ## Role-Aware Task Assignment
 
