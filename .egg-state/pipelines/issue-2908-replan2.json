@@ -206,13 +206,20 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-06-01T04:35:14.784420Z",
-      "work_started_at": null,
+      "work_started_at": "2026-06-01T04:35:15.542616Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-06-01T04:35:15.542616Z",
+          "completed_at": null,
+          "commit_sha": "cc725e5160490a70607a3271ec80042e9fa8342a"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "operator_directives": [],
@@ -241,7 +248,7 @@
     }
   ],
   "created_at": "2026-06-01T03:22:37.015350Z",
-  "updated_at": "2026-06-01T04:35:14.784584Z",
+  "updated_at": "2026-06-01T04:35:15.546054Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -254,7 +261,7 @@
   "source_branch": "egg/issue-2908-replan/work",
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T04:34:44.589174Z",
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
