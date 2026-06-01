@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "84a861abdb6a14c2b5f43f2c879fd51c5192027a": {
+      "branch": "egg/issue-2908-impl/work",
+      "pipeline_id": "issue-2908-impl",
+      "registered_at": "2026-06-01T05:01:50.265013+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    }
+  },
+  "version": 1
+}
