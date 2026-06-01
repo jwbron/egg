@@ -52,6 +52,18 @@ slice-1 of the implement phase keeps a separate memory entry from the same
 reviewer working on slice-2 or on a different phase. Scope keys keep
 parallel slice teams from clobbering each other's distilled state.
 
+The path itself only carries `<role>`; the `(slice_id, phase)` half of the
+scope key is supplied by the agent pod's surrounding context. Per-slice
+agents run in per-slice worktrees with slice-scoped `EGG_REPO_PATH` and
+`EGG_SLICE_ID` env vars (see [Slice-DAG Implement Phase](slice-dag.md)),
+so two reviewers working on different slices each resolve
+`.egg-state/agent-outputs/<role>/brc-memory.md` against a different repo
+root. The schema also embeds `producer` per-assessment subsection so a
+reviewer reading the file can locate the specific producer entry within
+the current pod's scope. The exact encoding of the `phase` dimension within
+the file is finalised by the slice-1 writer (task-1-6) and this doc will
+follow whatever the implementation lands.
+
 ### Fail-closed path constructor
 
 The path constructor **raises before any directory or file is created** if
@@ -155,8 +167,9 @@ partial-state file.
 
 The memory file lives in `.egg-state/agent-outputs/<role>/`, which is in
 **every participant role's** write-allowlist. The trailing-slash pattern
-matches as a recursive prefix in `shared/egg_restrictions/patterns.py`'s
-`match_pattern`, so the per-role subdirectory needs no separate carve-out.
+matches as a recursive prefix in `match_pattern`
+(`shared/egg_restrictions/matchers.py:33`), so the per-role subdirectory
+needs no separate carve-out.
 
 | Role | Pattern source | Line |
 |------|----------------|------|
@@ -167,15 +180,18 @@ matches as a recursive prefix in `shared/egg_restrictions/patterns.py`'s
 | `task_planner` | `TASK_PLANNER_PATTERNS.allowed_patterns` | `shared/egg_restrictions/patterns.py:377` |
 | `risk_analyst` | `RISK_ANALYST_PATTERNS.allowed_patterns` | `shared/egg_restrictions/patterns.py:387` |
 | `applier` | `APPLIER_PATTERNS.allowed_patterns` | `shared/egg_restrictions/patterns.py:401` |
-| Reviewers (`reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`, `reviewer_security`, `reviewer_concurrency`) | `_REVIEWER_ALLOWED` (shared list) | `shared/egg_restrictions/patterns.py:416-419`, referenced by `REVIEWER_CODE_PATTERNS` at `:436`, `REVIEWER_PLAN_PATTERNS` at `:516`, and the rest of the reviewer block at `:443-535` |
+| Reviewers (`reviewer_code`, `reviewer_code_holistic`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`, `reviewer_security`, `reviewer_concurrency`) | `_REVIEWER_ALLOWED` (shared list) | `shared/egg_restrictions/patterns.py:416-419`, referenced by `REVIEWER_CODE_PATTERNS` at `:436`, `REVIEWER_PLAN_PATTERNS` at `:516`, and the rest of the reviewer block at `:443-535` |
+| `reviewer_contract` | `_REVIEWER_CONTRACT_ALLOWED` (separate list because contract reviewer also writes `.egg-state/contracts/`) | `shared/egg_restrictions/patterns.py:452-456`, referenced by `REVIEWER_CONTRACT_PATTERNS` at `:472` |
 | `refiner` | `REFINER_PATTERNS.allowed_patterns` | `shared/egg_restrictions/patterns.py:493` |
 | `overseer` | `OVERSEER_PATTERNS.allowed_patterns` | `shared/egg_restrictions/patterns.py:546` |
 
 The path also passes the in-sandbox `tool_interceptor.check_file_write_permission`
-guard and — when the file is staged into a commit — the gateway-side
-`phase_filter.validate_agent_push` guard. Neither requires a separate
-allowlist entry for the `<role>/` subdirectory because the parent pattern
-already prefix-matches.
+guard and — when the file is staged into a commit — the
+`validate_agent_push` check (defined at
+`shared/egg_restrictions/checker.py:98`, invoked from
+`gateway/phase_filter.py`). Neither requires a separate allowlist entry
+for the `<role>/` subdirectory because the parent pattern already
+prefix-matches.
 
 ## Writer hook points
 
