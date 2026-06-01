@@ -25,9 +25,7 @@ from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 _logger = logging.getLogger(__name__)
 
 
-def _resolve_proposal_commit_sha(
-    orchestrator_result: dict[str, Any], req: dict[str, Any]
-) -> str:
+def _resolve_proposal_commit_sha(orchestrator_result: dict[str, Any], req: dict[str, Any]) -> str:
     """Extract the producer's current proposal commit SHA from the response.
 
     The orchestrator's ``handle_ack`` / ``handle_nack`` (`#2908 slice-1`
@@ -82,7 +80,8 @@ def _record_review_memory(
         # (a misconfigured pod is the only realistic cause) but do not
         # break the BRC review path.
         _logger.warning(
-            "BRC memory writer refused write: %s", exc,
+            "BRC memory writer refused write: %s",
+            exc,
         )
     except Exception:  # pragma: no cover - defensive
         # Any other failure (filesystem, parse error in a hand-edited
@@ -90,6 +89,7 @@ def _record_review_memory(
         # orchestrator has already accepted the verdict; falling out
         # because of a bookkeeping write would be a regression.
         _logger.exception("BRC memory writer raised; suppressing")
+
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
