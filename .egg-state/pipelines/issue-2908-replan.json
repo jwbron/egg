@@ -243,10 +243,10 @@
         {
           "container_id": "f2f4bd0d-8915-4afb-a376-110e7f329ce4",
           "container_name": "egg-sandbox-egg-agent-issue-2908-replan-slice-1-coder",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-06-01T02:36:41.141632Z",
-          "exited_at": "2026-06-01T03:17:50.258355Z",
-          "exit_code": null,
+          "exited_at": "2026-06-01T03:18:24.924112Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null,
           "pod_name": null,
@@ -353,10 +353,10 @@
           "container_info": null,
           "slice_id": "slice-1",
           "started_at": "2026-06-01T02:36:41.141649Z",
-          "completed_at": "2026-06-01T03:17:50.258355Z",
+          "completed_at": "2026-06-01T03:18:24.930822Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -474,7 +474,15 @@
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "58f3e6c4e8007c7deedd1551daa4b6067acf9238",
-      "agent_exits": []
+      "agent_exits": [
+        {
+          "role": "coder",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-06-01T03:18:24.930831Z",
+          "container_id": "f2f4bd0d-8915-4afb-a376-110e7f329ce4"
+        }
+      ]
     }
   },
   "decisions": [
@@ -514,7 +522,7 @@
     }
   ],
   "created_at": "2026-05-31T22:17:27.200190Z",
-  "updated_at": "2026-06-01T03:17:50.258639Z",
+  "updated_at": "2026-06-01T03:18:24.930945Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -527,7 +535,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T02:36:01.071690Z",
-  "version": 28,
+  "version": 29,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
