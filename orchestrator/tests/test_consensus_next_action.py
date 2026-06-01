@@ -370,7 +370,15 @@ def test_next_action_open_nack_barrier_surfaces_nacks(client, simple_tracker):
 
 def test_next_action_conditional_ack_in_effect(client, simple_tracker):
     """A conditional ACK (#1998) is still an ACK — the producer can
-    confirm but the pre-merge obligation persists on the matrix.
+    confirm. The pre-merge obligation lives on the approval matrix and
+    surfaces via ``brc_get_state`` / the PR body, NOT in next-action
+    (which is a sequencing primitive, not a state snapshot).
+
+    The 9-case acceptance criterion #6 is: "conditional ACK still in
+    effect" — the test verifies the action plumbing handles a
+    conditional ACK on the current version the same as an unconditional
+    ACK on the routing side, and that the obligation persists on the
+    matrix for downstream retrieval.
     """
     _propose(simple_tracker, "coder")
     # reviewer_code issues a conditional ACK.
@@ -389,8 +397,7 @@ def test_next_action_conditional_ack_in_effect(client, simple_tracker):
     )
     # reviewer_security issues a plain ACK.
     _ack(simple_tracker, "reviewer_security", "coder", version=1)
-    # Producer should now be told to confirm (or wait if not all critical
-    # reviewers have ACKed; here both have).
+    # Producer should now be told to confirm.
     resp = _post_next_action(client, "coder", tracker=simple_tracker)
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -400,19 +407,18 @@ def test_next_action_conditional_ack_in_effect(client, simple_tracker):
         f"All-ACKed producer with conditional ACK must be eligible to "
         f"confirm (or wait if other reviewers pending) — got {action!r}"
     )
-    # The conditional obligation must surface in the event payload.
-    event = payload.get("event_payload") or {}
-    surfaces_obligation = (
-        "pre_merge" in json.dumps(event).lower()
-        or "obligation" in json.dumps(event).lower()
-        or "git mv" in json.dumps(event)
+    # The conditional obligation persists on the matrix and is reachable
+    # via the consensus state (asserted via tracker.evaluate to keep this
+    # test independent of get-state's exact serialization).
+    consensus = simple_tracker.evaluate()
+    conditions = consensus.get("pre_merge_conditions") or []
+    assert any(
+        "git mv legacy/x" in (c.get("condition") or "") for c in conditions
+    ), (
+        f"Conditional ACK obligation must persist on the consensus state "
+        f"for downstream retrieval (PR body / brc_get_state) — "
+        f"got conditions={conditions!r}"
     )
-    if action == "confirm":
-        assert surfaces_obligation, (
-            "Conditional ACK obligation must surface in event_payload "
-            "so the producer can see the merger obligation before "
-            f"confirming — got {event!r}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -461,13 +467,21 @@ def test_next_action_stale_version_triggers_re_review(client, simple_tracker):
     assert action in ("ack", "nack", "review"), (
         f"Stale-version reviewer must re-review the new proposal — got action={action!r}"
     )
-    # The event_payload must carry the new version so the reviewer
-    # doesn't ACK against the stale one.
+    # The event_payload threads the producer's current version under
+    # ``pending_reviews[]`` so the reviewer's next ACK / NACK carries
+    # the right version-int (avoids the orchestrator 409 stale_version
+    # rejection on submit).
     event = payload.get("event_payload") or {}
-    version_threaded = event.get("version", 0) >= 2 or "stale" in json.dumps(event).lower()
-    assert version_threaded, (
+    pending = event.get("pending_reviews") or []
+    matching = [p for p in pending if p.get("producer") == "coder"]
+    assert matching, (
+        f"Stale-version re-review must list coder under pending_reviews "
+        f"with the current version — got {event!r}"
+    )
+    assert matching[0].get("current_version", 0) >= 2, (
         f"Stale-version re-review must carry the producer's current "
-        f"version in event_payload — got {event!r}"
+        f"version (>=2) in pending_reviews[0].current_version — "
+        f"got {matching[0]!r}"
     )
 
 
@@ -493,13 +507,31 @@ def test_next_action_confirm_eligible(client, simple_tracker):
 
 
 def test_next_action_role_complete(client, simple_tracker):
-    """After the producer's own ``handle_confirmed`` lands, next-action
-    returns 'complete' — the wrapper loop should exit cleanly.
+    """Once **every** role has confirmed (global ``is_complete=True``),
+    next-action returns ``complete`` so the wrapper loop exits cleanly.
+
+    A role that has confirmed but is still waiting on peers gets
+    ``wait`` with ``blocking_agents`` in event_payload — that's the
+    intermediate state and is distinct from the terminal ``complete``.
+    Both paths are covered.
     """
     _propose(simple_tracker, "coder")
     _ack(simple_tracker, "reviewer_code", "coder", version=1)
     _ack(simple_tracker, "reviewer_security", "coder", version=1)
     simple_tracker.handle_confirmed("coder")
+
+    # Intermediate: coder confirmed but reviewers haven't → wait, NOT complete.
+    resp_intermediate = _post_next_action(client, "coder", tracker=simple_tracker)
+    payload_intermediate = json.loads(resp_intermediate.data)
+    action_intermediate = payload_intermediate.get("data", payload_intermediate).get("action")
+    assert action_intermediate == "wait", (
+        f"Confirmed-but-not-globally-complete role must wait — "
+        f"got {action_intermediate!r}"
+    )
+
+    # Terminal: every role confirms → next-action returns complete.
+    simple_tracker.handle_confirmed("reviewer_code")
+    simple_tracker.handle_confirmed("reviewer_security")
     resp = _post_next_action(client, "coder", tracker=simple_tracker)
     _assert_action(resp, "complete")
 

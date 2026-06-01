@@ -98,16 +98,21 @@ class TestBrcNextAction:
         )
 
     def test_happy_path_json_shape(self, brc_env, capsys):
-        """``--json`` round-trips the documented {action, event_payload?}."""
+        """``--json`` round-trips the documented {action, event_payload?}.
+
+        The orchestrator route returns the action at the top level
+        (orchestrator/routes/consensus.py:75 ``_success``), with the
+        ``success`` envelope stripped client-side before emit.
+        """
         handler = self._resolve_handler()
         mock_response = {
             "success": True,
-            "data": {
-                "action": "propose",
-                "event_payload": {
-                    "version": 1,
-                    "summary": "ready to propose",
-                },
+            "action": "propose",
+            "role": "coder",
+            "slice_id": None,
+            "event_payload": {
+                "version": 1,
+                "summary": "ready to propose",
             },
         }
         args = _ns(role="coder", json=True)
@@ -125,11 +130,16 @@ class TestBrcNextAction:
             else req.call_args.kwargs.get("endpoint", "")
         )
         assert "/consensus/next-action" in call_endpoint
-        # JSON envelope (action key) emitted on stdout.
+        # JSON envelope (action key) emitted on stdout; ``success`` is
+        # stripped per the CLI shim (orch_cli.py:cmd_brc_next_action).
         out = capsys.readouterr().out
         decoded = json.loads(out)
         assert decoded["action"] == "propose"
         assert decoded["event_payload"]["version"] == 1
+        assert "success" not in decoded, (
+            "CLI must strip the ``success`` envelope so jq-driven wrapper "
+            "bash gets the action payload directly"
+        )
 
     def test_role_defaults_to_env(self, brc_env, capsys):
         """``--role`` defaults to $EGG_AGENT_ROLE when not given."""
@@ -137,7 +147,7 @@ class TestBrcNextAction:
         args = _ns(json=True)  # no explicit role
         with patch(
             "egg_lib.orch_cli.orch_request",
-            return_value={"success": True, "data": {"action": "wait"}},
+            return_value={"success": True, "action": "wait", "role": "coder"},
         ) as req:
             rc = handler(args)
         assert rc == 0
@@ -159,7 +169,7 @@ class TestBrcNextAction:
         handler = self._resolve_handler()
         with patch(
             "egg_lib.orch_cli.orch_request",
-            return_value={"success": True, "data": {"action": "wait"}},
+            return_value={"success": True, "action": "wait", "role": "coder"},
         ) as req:
             rc = handler(_ns(role="coder", json=True))
         assert rc == 0
@@ -178,14 +188,14 @@ class TestBrcNextAction:
         handler = self._resolve_handler()
         mock_response = {
             "success": True,
-            "data": {
-                "action": "ack",
-                "event_payload": {
-                    "producer": "coder",
-                    "version": 2,
-                    "reason": "prior verdict superseded",
-                    "status": "stale_version",
-                },
+            "action": "ack",
+            "role": "reviewer_code",
+            "slice_id": None,
+            "event_payload": {
+                "producer": "coder",
+                "version": 2,
+                "reason": "prior verdict superseded",
+                "status": "stale_version",
             },
         }
         with patch(
@@ -247,7 +257,7 @@ class TestBrcGetState:
             "data": {"concurrent": {"consensus": consensus}},
         }
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value=mock_response,
         ):
             rc = handler(_ns(json=True))
@@ -272,7 +282,7 @@ class TestBrcGetState:
         }
         mock_response = {"success": True, "data": raw_payload}
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value=mock_response,
         ):
             rc = handler(_ns(json=True, verbose=True))
@@ -290,7 +300,7 @@ class TestBrcGetState:
         monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
         handler = self._resolve_handler()
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={
                 "success": True,
                 "data": {"concurrent": {"consensus": {}}},
@@ -298,7 +308,8 @@ class TestBrcGetState:
         ) as req:
             rc = handler(_ns(json=True))
         assert rc == 0
-        # The endpoint must carry slice_id when EGG_SLICE_ID is set.
+        # The handler calls orchestrator_request once; the endpoint
+        # (first positional arg) must carry the slice_id query param.
         endpoint = req.call_args.args[0] if req.call_args.args else ""
         assert "slice_id=slice-1" in endpoint, (
             f"slice_id must be threaded into status endpoint — got {endpoint!r}"
@@ -334,7 +345,7 @@ class TestBrcListBlocking:
             "agents": {},
         }
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={"success": True, "data": {"concurrent": {"consensus": consensus}}},
         ):
             rc = handler(_ns(json=False))
@@ -355,7 +366,7 @@ class TestBrcListBlocking:
             "agents": {},
         }
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={"success": True, "data": {"concurrent": {"consensus": consensus}}},
         ):
             rc = handler(_ns(json=True))
@@ -371,7 +382,7 @@ class TestBrcListBlocking:
         handler = self._resolve_handler()
         consensus = {"is_complete": True, "blocking_agents": [], "agents": {}}
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={"success": True, "data": {"concurrent": {"consensus": consensus}}},
         ):
             rc = handler(_ns(json=False))
@@ -389,7 +400,7 @@ class TestBrcListBlocking:
         handler = self._resolve_handler()
         consensus = {"is_complete": True, "blocking_agents": [], "agents": {}}
         with patch(
-            "egg_lib.orch_cli.orch_request",
+            "egg_agent_tools.handlers.brc.orchestrator_request",
             return_value={"success": True, "data": {"concurrent": {"consensus": consensus}}},
         ):
             rc = handler(_ns(json=True))
