@@ -454,6 +454,57 @@ egg-orch consensus status --slice-id slice-7
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
+### BRC verb-level subcommands ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1)
+
+Slice-1 of [#2908](https://github.com/jwbron/egg/issues/2908) adds a verb-level `egg-orch brc` parent that collects read/derive operations the slice-2 event-pump wrapper will drive deterministically (one-shot per event) instead of an agent holding a blocking `wait_loop` between events. The write-side BRC verbs (`propose`, `ack`, `nack`, `withdraw`, `confirmed`) stay under `egg-orch consensus …` to preserve the existing CLI surface. Each `brc` verb is **additive** — slice-1 changes no existing behaviour.
+
+```bash
+# Derive the next BRC action for a role from the orchestrator.
+# Calls POST /api/v1/pipelines/<pid>/consensus/next-action (added in slice-1)
+# and inspects the in-memory consensus tracker (with replay fallback).
+# JSON shape: {action, event_payload?, role, slice_id, reason}
+# action ∈ {wait, propose, ack, nack, confirm, complete}.
+# --role defaults to $EGG_AGENT_ROLE; --slice-id defaults to $EGG_SLICE_ID.
+egg-orch brc next-action --role coder --json
+
+# Return the BRC consensus state as structured JSON (verb-level alias
+# for mcp__brc__get_state). Mirrors the MCP-tool JSON shape — the
+# wrapper bash can call the CLI form interchangeably with the MCP form.
+# Slice-aware (#2761): scopes to the per-slice tracker via $EGG_SLICE_ID.
+# --verbose includes the full orchestrator status payload under "raw".
+egg-orch brc get-state --verbose
+
+# List roles currently blocking consensus (verb-level alias for
+# mcp__brc__list_blocking). Newline-delimited by default for
+# shell-friendly consumption; --json returns {blocking_agents: [...]}.
+# Exit 0 even when the list is empty so the wrapper can call this
+# unconditionally inside the event-pump loop.
+egg-orch brc list-blocking
+egg-orch brc list-blocking --json
+
+# Bundle the caller's phase context — pipeline_id, phase, role,
+# assigned tasks, prior-phase artifact paths (verb-level alias for
+# mcp__phase__get_context). Defaults pull from $EGG_PIPELINE_ID /
+# $EGG_PHASE / $EGG_AGENT_ROLE. --no-artifacts skips the best-effort
+# prior-phase artifact scan.
+egg-orch phase get-context
+```
+
+The next-action route's response shape (200) is::
+
+```json
+{"success": true,
+ "action": "wait" | "propose" | "ack" | "nack" | "confirm" | "complete",
+ "event_payload": {"...optional, action-specific..."},
+ "role": "<role>",
+ "slice_id": "<slice_id-or-null>",
+ "reason": "<one-line human-readable explanation>"}
+```
+
+400 fires on a missing/invalid `role` or pipeline id; the route returns 200 with `action="wait"` when no tracker exists yet (the wrapper should fall back to blocking on the message bus). Phantom roles (not in the review graph) return 400 so a misconfigured wrapper surfaces an error instead of waiting forever.
+
+The derivation rules in `_derive_next_action` cover the formal BRC sub-cases — producer-PROPOSED, reviewer-pending, dual-role pre-/post-propose ([#2749](https://github.com/jwbron/egg/issues/2749) R11a/R11b), open-NACK barrier ([#2142](https://github.com/jwbron/egg/issues/2142)), conditional ACK, stale-version re-review ([#2482](https://github.com/jwbron/egg/issues/2482)), confirm eligibility, and role-complete. The route is read-only — it does NOT advance the open-NACK notified watermark; that watermark only advances when the producer actually calls `re_propose`.
+
 ## Context PR Surfaces ([#2777](https://github.com/jwbron/egg/issues/2777))
 
 Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open the **Context PR** — `egg/<pipeline_id>/work → main` — up-front at the plan→implement boundary, hard-required and idempotent (#2777). See [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2777) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:

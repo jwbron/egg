@@ -144,24 +144,25 @@ in production. Slice-4 is responsible for flipping the rollout dial.
 
 Writes go through an atomic tempfile + `os.replace` helper so that two
 back-to-back invocations from the same handler — or a crash mid-write —
-never expose a partial file. The shared helper guarantees no within-pod
+never expose a partial file. The on-disk contract guarantees no within-pod
 partial writes (v2 atomic-write contract).
 
-The writer reuses one of two existing helpers (coder picks the lighter
-migration as part of slice-1):
-
-- `shared/egg_overseer/state.py:266` — the `save_agent_timing` body (the
-  plan referenced this as `_persist_atomic_template`; in the current tree
-  the symbol is named `save_agent_timing`, with the canonical shape
-  `tempfile.NamedTemporaryFile(delete=False, dir=parent) → write → flush →
-  os.fsync → os.replace`, guarded by `_file_lock`).
-- `shared/egg_contracts/usage_loader.py:95` — `_atomic_write`, the lighter
-  alternative using `tempfile.mkstemp` + `os.fdopen` + `flush` + `os.fsync`
-  + `os.replace`.
+Slice-1 **inlines** the atomic-write body in
+`sandbox/egg_agent_tools/handlers/brc_memory.py::write_memory_atomic`
+rather than reusing a shared helper. The pattern mirrors
+`shared/egg_contracts/usage_loader.py:95` (`_atomic_write`):
+`tempfile.mkstemp(dir=parent)` → write → `flush` → `os.fsync` →
+`os.chmod(0o644)` → `os.replace` → best-effort `os.unlink` of the tempfile
+on any exception. The architect note (od-2 / slice-1 plan) accepted the
+inline form because the body is ~20 lines, lifting it through `shared/`
+would expand the slice's review surface for negligible reuse, and the
+neighbouring `shared/egg_overseer/state.py::save_agent_timing` shape
+(`NamedTemporaryFile`-based, flock-protected) is heavier than the writer
+actually needs.
 
 The acceptance criterion is testable independently of the helper chosen:
 back-to-back handler invocations under fault injection must never observe a
-partial-state file.
+partial-state file (slice-1 task-1-9).
 
 ## Role-allowlist coverage
 
@@ -197,14 +198,41 @@ prefix-matches.
 
 The writer is invoked from the two BRC review handlers:
 
-- `sandbox/egg_agent_tools/handlers/brc.py:505` — `brc_ack`
-- `sandbox/egg_agent_tools/handlers/brc.py:586` — `brc_nack`
+- `sandbox/egg_agent_tools/handlers/brc.py:576` — `brc_ack` (writer call
+  at `:661`)
+- `sandbox/egg_agent_tools/handlers/brc.py:673` — `brc_nack` (writer call
+  at `:728`)
 
 Both handlers already carry the `reason` and `files_reviewed` fields that
 seed the per-producer assessment and the decision log, so the memory
 write is **action-scaffolded** off the ACK/NACK signal payload rather than
 free-form journaling. Handler return values are unchanged in every mode —
 the writer is a side-effect, not part of the orchestrator-bound contract.
+Writer failures are caught at the handler boundary and logged (never
+re-raised), so a memory regression cannot break the BRC review path that
+already succeeded at the orchestrator boundary.
+
+### `last_reviewed_commit_sha` propagation
+
+The per-producer `last_reviewed_commit_sha` field threads through three
+layers — slice-3's adversarial-re-review delta depends on the SHA being
+the producer's actual proposal head, not a guess:
+
+1. **Orchestrator** (`orchestrator/peer_consensus.py`) — `handle_ack`
+   and `handle_nack` surface the producer's `proposal_commit_sha` in the
+   signal response payload. The capture lives next to the matrix mutation
+   so a regression in propagation is catchable at the orchestrator
+   boundary.
+2. **Handler** (`sandbox/egg_agent_tools/handlers/brc.py`) —
+   `_resolve_proposal_commit_sha` reads the SHA from the orchestrator
+   response (or an explicit `req["commit_sha"]` override for test /
+   replay paths). An absent SHA renders as `-` in the schema so the file
+   is still well-formed.
+3. **Writer** (`brc_memory.record_review`) — stamps the SHA into the
+   per-producer `last_reviewed_commit_sha` block. Slice-3's
+   `compose_event_prompt` reads this SHA to parameterise the
+   `git log {sha}..HEAD --not origin/{base_branch} -p` adversarial
+   re-review delta.
 
 ## How slice-3 reads it
 
@@ -226,6 +254,44 @@ or the stateless pump systematically weakens adversarial review
 When the mode is `write-only` (the slice-1 rollout posture), the read path
 passes an empty memory excerpt — writes happen but reads are no-ops,
 preserving the inert default.
+
+## Server-side next-action route (slice-1, supporting)
+
+Slice-1 also lands the orchestrator-side **next-action** route the
+slice-2 event-pump wrapper drives between events. The route inspects the
+in-memory `PeerConsensusTracker` (with a message-store replay fallback)
+and returns a single deterministic action a role should take next —
+`propose`, `ack`, `nack`, `confirm`, `complete`, or `wait` — together
+with an action-specific `event_payload` and a human-readable `reason`.
+
+| Surface | Path / verb |
+|---------|-------------|
+| REST | `POST /api/v1/pipelines/<pipeline_id>/consensus/next-action` |
+| CLI | `egg-orch brc next-action --role <role> [--slice-id <id>] [--json]` |
+| Source | `orchestrator/routes/consensus.py` |
+
+The derivation lives in the orchestrator (not in wrapper bash) so the
+sequencing logic is unit-testable and so producer / reviewer / dual-role
+sub-cases share one code path. Slice-1 ships the route and the CLI
+verb-level alias; slice-2 wires them into the wrapper. See
+[Orchestrator CLI Reference — BRC Verb-Level Subcommands](../reference/orchestrator-cli.md#brc-verb-level-subcommands-2908-slice-1)
+for the CLI surface.
+
+The matching read/derive verb-level aliases land alongside the route as
+shell-friendly wrappers around the existing handler layer:
+
+- `egg-orch brc get-state` — verb-level alias for `mcp__brc__get_state`
+  (returns the structured tracker snapshot the wrapper bash parses with
+  `jq`).
+- `egg-orch brc list-blocking` — verb-level alias for
+  `mcp__brc__list_blocking` (newline-delimited by default for
+  `while read role; do …; done`; `--json` returns the array).
+- `egg-orch phase get-context` — verb-level alias for
+  `mcp__phase__get_context`.
+
+The write-side BRC verbs (`propose`, `ack`, `nack`, `withdraw`,
+`confirmed`) keep their existing `egg-orch consensus …` parent so the
+established CLI surface is preserved.
 
 ## Acceptance contract for the writer (slice-1)
 
