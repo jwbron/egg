@@ -412,9 +412,7 @@ def test_next_action_conditional_ack_in_effect(client, simple_tracker):
     # test independent of get-state's exact serialization).
     consensus = simple_tracker.evaluate()
     conditions = consensus.get("pre_merge_conditions") or []
-    assert any(
-        "git mv legacy/x" in (c.get("condition") or "") for c in conditions
-    ), (
+    assert any("git mv legacy/x" in (c.get("condition") or "") for c in conditions), (
         f"Conditional ACK obligation must persist on the consensus state "
         f"for downstream retrieval (PR body / brc_get_state) — "
         f"got conditions={conditions!r}"
@@ -525,8 +523,7 @@ def test_next_action_role_complete(client, simple_tracker):
     payload_intermediate = json.loads(resp_intermediate.data)
     action_intermediate = payload_intermediate.get("data", payload_intermediate).get("action")
     assert action_intermediate == "wait", (
-        f"Confirmed-but-not-globally-complete role must wait — "
-        f"got {action_intermediate!r}"
+        f"Confirmed-but-not-globally-complete role must wait — got {action_intermediate!r}"
     )
 
     # Terminal: every role confirms → next-action returns complete.
