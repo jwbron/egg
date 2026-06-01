@@ -12260,6 +12260,316 @@ def _brc_stay_alive_wait_line(is_dual_role: bool) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Event-pump per-event prompt composer (#2908 slice-3 TASK-3-1)
+# ---------------------------------------------------------------------------
+#
+# ``compose_event_prompt`` returns the single-event prompt the
+# event-pump wrapper (orchestrator/consensus_wrapper.py,
+# ``_EVENT_PUMP_WRAPPER_TEMPLATE``) invokes the agent with via
+# ``python3 -m egg_agent``. Replaces the slice-2 stub in
+# ``invoke_agent_for_event``.
+#
+# Shape (architect v2 design.per_event_prompt + risk_analyst R6):
+#   1. Role banner.
+#   2. One-line event description (action + slice + role).
+#   3. Optional per-producer NACK delta (per-reviewer reason + artifact_refs).
+#   4. Action contract (one-shot: handle event, update memory, exit).
+#   5. ``git log {sha}..HEAD --not origin/{base} -p`` command lines per
+#      producer — verbatim shell commands the agent SHOULD invoke for
+#      the full delta. We do NOT shell out here; the agent runs the
+#      command in its sandbox. This honours REVIEWER-SYNC.md (the
+#      re-review must audit the full delta as a fresh review) without
+#      the orchestrator having to ship multi-MB diffs through the
+#      prompt envelope. The git-log commands themselves are short prose
+#      (a few hundred bytes), so they fit inside the ≤ 10 KB envelope.
+#   6. Memory excerpt at the tail (architect od-6 Option B). Tail
+#      position keeps the cacheable prefix stable across re-entries
+#      (the memory excerpt is the one section that changes between
+#      events; everything above it can be served from the SDK prompt
+#      cache when consecutive events land in the same TTL window).
+#
+# The ≤ 10 KB envelope bounds sections 1..5 (the orchestrator-composed
+# prose). The agent-side diff retrieved via ``git log`` scales with
+# the change and is NOT counted against the envelope.
+
+_COMPOSE_EVENT_PROMPT_ENVELOPE_MAX_BYTES = 10 * 1024  # 10 KB
+_COMPOSE_EVENT_PROMPT_MEMORY_MAX_BYTES = 2 * 1024  # 2 KB
+_COMPOSE_EVENT_PROMPT_REASON_TRUNCATE_CHARS = 800
+# Per-event prompt is bounded; per-producer git-log delta is delivered
+# as a shell command the agent invokes, not as inlined diff bytes.
+
+
+def _truncate_memory_excerpt(memory_excerpt: str | None) -> str:
+    """Return ``memory_excerpt`` trimmed to the per-event 2 KB cap.
+
+    Architect v2 ``design.per_event_prompt.memory_excerpt_max_bytes``.
+    When the rendered memory exceeds the cap we keep the tail (the
+    most recent entries) and prefix a ``…(truncated)…`` marker so the
+    agent can tell the excerpt is partial. UTF-8 bytes are measured
+    via ``.encode("utf-8")`` so multi-byte characters don't blow the
+    cap.
+    """
+    if not memory_excerpt:
+        return ""
+    encoded = memory_excerpt.encode("utf-8")
+    if len(encoded) <= _COMPOSE_EVENT_PROMPT_MEMORY_MAX_BYTES:
+        return memory_excerpt
+    marker = "…(truncated for per-event prompt; see brc-memory.md on disk for full)…\n\n"
+    marker_bytes = marker.encode("utf-8")
+    # Reserve marker_bytes worth of room at the head; keep the tail.
+    tail_budget = _COMPOSE_EVENT_PROMPT_MEMORY_MAX_BYTES - len(marker_bytes)
+    if tail_budget <= 0:
+        # Pathological — fall back to byte-truncated marker only.
+        return marker.rstrip()
+    tail_bytes = encoded[-tail_budget:]
+    # Decode carefully (strip leading partial multi-byte sequences).
+    return marker + tail_bytes.decode("utf-8", errors="ignore")
+
+
+def _render_nacks_block(nacks: list[dict[str, Any]] | None) -> str:
+    """Render the per-reviewer NACK delta for the per-event prompt.
+
+    Input shape mirrors ``peer_consensus.py:_open_nacks_barrier_response``
+    ``nacks_payload``: ``[{reviewer, version, reason, artifact_refs,
+    timestamp}, ...]``. Each reviewer's ``reason`` is truncated to
+    ``_COMPOSE_EVENT_PROMPT_REASON_TRUNCATE_CHARS`` so two long
+    reasons (~3-4 KB each) don't blow the per-event envelope; the
+    full reason remains on the orchestrator and in the BRC history
+    file.
+    """
+    if not nacks:
+        return ""
+    lines: list[str] = ["## Open NACKs you must address", ""]
+    for nack in nacks:
+        reviewer = str(nack.get("reviewer", "unknown"))
+        version = nack.get("version")
+        version_tag = f"v{version}" if version is not None else "v?"
+        artifact_refs = nack.get("artifact_refs") or []
+        if isinstance(artifact_refs, list):
+            refs_str = ", ".join(str(r) for r in artifact_refs)
+        else:
+            refs_str = str(artifact_refs)
+        reason_raw = str(nack.get("reason") or "")
+        if len(reason_raw) > _COMPOSE_EVENT_PROMPT_REASON_TRUNCATE_CHARS:
+            reason = (
+                reason_raw[:_COMPOSE_EVENT_PROMPT_REASON_TRUNCATE_CHARS]
+                + "…(truncated)"
+            )
+        else:
+            reason = reason_raw
+        lines.append(f"### {reviewer} ({version_tag})")
+        if refs_str:
+            lines.append(f"- artifact_refs: {refs_str}")
+        lines.append("")
+        lines.append(reason if reason else "_(no reason text)_")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_git_log_delta_commands(
+    per_producer_last_reviewed_sha: dict[str, str] | None,
+    base_branch: str | None,
+) -> str:
+    """Render per-producer ``git log {sha}..HEAD --not origin/{base} -p`` commands.
+
+    Input maps producer role -> ``last_reviewed_commit_sha`` (the SHA
+    recorded in the reviewer's BRC memory the last time they reviewed
+    this producer). The output is a list of shell command lines the
+    agent SHOULD run before forming a verdict — surfacing the FULL
+    delta per REVIEWER-SYNC.md, not just the orchestrator-side
+    ``changed_artifacts`` summary (risk_analyst R6).
+
+    If ``last_reviewed_commit_sha`` is empty (first review for this
+    producer in this slice), we emit the full
+    ``git log origin/{base}..HEAD -p`` command — i.e. "since the merge
+    base of this branch".
+
+    ``base_branch`` defaults to ``main`` when unset (the in-tree
+    convention; the wrapper passes the real base from
+    ``EGG_BASE_BRANCH`` when available).
+    """
+    if not per_producer_last_reviewed_sha:
+        return ""
+    base = base_branch or "main"
+    base_ref = f"origin/{base}"
+    lines: list[str] = [
+        "## Full delta per producer (REVIEWER-SYNC.md — required reading)",
+        "",
+        "Run these in your sandbox before forming a verdict — the "
+        "summary above is only the orchestrator's signal-level view of "
+        "what changed. The full diff is authoritative for adversarial "
+        "re-review:",
+        "",
+    ]
+    for producer in sorted(per_producer_last_reviewed_sha.keys()):
+        sha = (per_producer_last_reviewed_sha.get(producer) or "").strip()
+        if sha:
+            lines.append(f"# producer={producer} (since your last review)")
+            lines.append(f"git log {sha}..HEAD --not {base_ref} -p")
+        else:
+            lines.append(f"# producer={producer} (first review this slice)")
+            lines.append(f"git log {base_ref}..HEAD -p")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def compose_event_prompt(
+    role: str,
+    event_payload: dict[str, Any] | str | None,
+    *,
+    memory_excerpt: str | None = None,
+    nacks: list[dict[str, Any]] | None = None,
+    per_producer_last_reviewed_sha: dict[str, str] | None = None,
+    base_branch: str | None = None,
+    action: str = "review",
+    slice_id: str | None = None,
+) -> str:
+    """Compose the single-event prompt the event-pump invokes the agent with.
+
+    Replaces the slice-2 stub in ``invoke_agent_for_event``
+    (orchestrator/consensus_wrapper.py). Honours
+    ``docs/architecture/REVIEWER-SYNC.md`` — re-review must audit the
+    full delta per producer, surfaced here as shell command lines the
+    agent runs in its sandbox (NOT inlined diff bytes; the prompt
+    envelope is bounded to 10 KB, the diff is not).
+
+    Args:
+        role: Agent role (``coder`` / ``tester`` / ``reviewer_code`` etc).
+            Used in the role banner and as a fallback for actions that
+            don't carry their own role hint.
+        event_payload: The orchestrator's next-action ``event_payload``
+            (passed through verbatim as JSON inside the prompt body so
+            the agent sees exactly what the orchestrator decided).
+            Accepts ``None`` (no payload) or a string (already-encoded
+            JSON from the wrapper bash).
+        memory_excerpt: Distilled BRC memory excerpt (rendered
+            ``brc-memory.md``). Truncated to 2 KB at the tail position
+            (architect od-6 Option B). ``None`` / empty string when
+            ``EGG_BRC_MEMORY != full`` — slice-3 still emits the rest
+            of the prompt so the wrapper can run with memory writes-
+            only.
+        nacks: Open-NACK list (shape:
+            ``[{reviewer, version, reason, artifact_refs, ...}, ...]``)
+            from ``_open_nacks_barrier_response``. ``None`` / empty when
+            the agent is being invoked for an ACK / PROPOSE (no open
+            NACKs to address).
+        per_producer_last_reviewed_sha: Map of producer role ->
+            ``last_reviewed_commit_sha`` for the agent's BRC memory.
+            Each producer becomes one ``git log {sha}..HEAD --not
+            origin/{base} -p`` command line in the prompt body.
+        base_branch: Repo base branch (``main`` / ``develop``).
+            Substituted into the ``--not origin/{base}`` clause of the
+            git-log commands.
+        action: BRC event action (one of ``propose`` / ``ack`` /
+            ``nack`` / ``review``). Surfaced in the one-line event
+            description.
+        slice_id: Pipeline slice id (``slice-1`` / ``slice-2`` / ...).
+            Surfaced in the one-line event description for log
+            correlation.
+
+    Returns:
+        A single string prompt. Sections 1..5 are bounded to
+        ``_COMPOSE_EVENT_PROMPT_ENVELOPE_MAX_BYTES`` (10 KB); the git-
+        log delta commands themselves are short prose. The tail
+        memory excerpt is bounded to 2 KB. The git-log diff the agent
+        retrieves in its sandbox is NOT counted against either cap.
+    """
+    # Serialise the event payload for the prompt body. The wrapper bash
+    # passes already-JSON-encoded strings; the unit-test path passes
+    # dicts. Either way the agent needs the JSON form.
+    if event_payload is None:
+        payload_str = "{}"
+    elif isinstance(event_payload, str):
+        payload_str = event_payload or "{}"
+    else:
+        try:
+            payload_str = json.dumps(event_payload, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            payload_str = "{}"
+
+    slice_tag = slice_id or "none"
+
+    sections: list[str] = []
+
+    # 1. Role banner.
+    sections.append(f"# BRC event-pump handler — role={role}\n")
+
+    # 2. One-line event description.
+    sections.append(
+        f"Action requested: **{action}** (slice={slice_tag}). Handle this "
+        "single event, update durable BRC memory, then exit naturally. "
+        "The wrapper will invoke you again with the next event.\n"
+    )
+
+    # 3. Event payload — orchestrator's authoritative next-action body.
+    sections.append("## Event payload (orchestrator next-action body)\n")
+    sections.append("```json")
+    sections.append(payload_str)
+    sections.append("```")
+    sections.append("")
+
+    # 4. Open NACKs (per-reviewer reason + artifact_refs).
+    nacks_block = _render_nacks_block(nacks)
+    if nacks_block:
+        sections.append(nacks_block)
+
+    # 5. Per-producer git-log commands (REVIEWER-SYNC.md full delta).
+    git_log_block = _render_git_log_delta_commands(
+        per_producer_last_reviewed_sha, base_branch
+    )
+    if git_log_block:
+        sections.append(git_log_block)
+
+    # 6. Action contract (single event, exit naturally).
+    sections.append(
+        "## Action contract\n\n"
+        "- You are invoked one-shot per actionable BRC event by the "
+        "wrapper. **Do not** call `egg-orch message wait-loop` — the "
+        "wrapper owns the blocking wait between events. Just handle "
+        "the single event above and exit.\n"
+        "- Update your durable BRC memory at "
+        "`.egg-state/agent-outputs/<role>/brc-memory.md` via the same "
+        "`egg-orch consensus ack` / `consensus nack` / `consensus "
+        "propose` paths — the slice-1 writer records the per-producer "
+        "`last_reviewed_commit_sha` automatically.\n"
+        "- Exit when the action is done; the wrapper invokes you "
+        "again as soon as the next event lands.\n"
+    )
+
+    head = "\n".join(sections)
+    # Enforce the envelope cap on the head (sections 1..5). The cap is
+    # a hard truncation — exceeding it should not happen with the
+    # primitives above (typical prompt is ~2-4 KB), but defensive
+    # truncation prevents a runaway nacks payload from blowing the
+    # SDK call. The git-log commands themselves are part of `head`
+    # and counted against the envelope; the diff the agent later
+    # retrieves is not.
+    head_encoded = head.encode("utf-8")
+    if len(head_encoded) > _COMPOSE_EVENT_PROMPT_ENVELOPE_MAX_BYTES:
+        truncated = head_encoded[
+            : _COMPOSE_EVENT_PROMPT_ENVELOPE_MAX_BYTES
+        ].decode("utf-8", errors="ignore")
+        head = (
+            truncated
+            + "\n\n…(per-event prompt envelope truncated at "
+            f"{_COMPOSE_EVENT_PROMPT_ENVELOPE_MAX_BYTES} bytes)…\n"
+        )
+
+    # 7. Memory excerpt — TAIL position (architect od-6 Option B).
+    # The tail keeps the cacheable prefix above stable across re-
+    # entries.
+    memory_tail = _truncate_memory_excerpt(memory_excerpt)
+    if memory_tail:
+        return (
+            head
+            + "\n## Durable BRC memory (your distilled prior assessments)\n\n"
+            + memory_tail
+            + "\n"
+        )
+    return head
+
+
 def _build_brc_preamble(
     role_value: str,
     phase: str,

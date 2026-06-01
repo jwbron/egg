@@ -1020,19 +1020,85 @@ wait_for_event() {{
     return $rc
 }}
 
-# Invoke the agent one-shot with the per-event prompt. Slice-2 ships a
-# minimal stub -- slice-3 (TASK-3-1 / TASK-3-2) replaces the prompt
-# body with the full ``compose_event_prompt`` payload (memory excerpt
-# + per-producer ``git log {{sha}}..HEAD --not origin/{{base}} -p``
-# delta + NACK payload).
+# Invoke the agent one-shot with the per-event prompt. Slice-3
+# (#2908 TASK-3-2) wires the wrapper through
+# ``python3 -m egg_agent_tools.handlers.event_prompt`` (a sandbox-side
+# mirror of ``orchestrator/routes/pipelines.py::compose_event_prompt``).
+# The composer reads the durable BRC memory from
+# ``.egg-state/agent-outputs/<role>/brc-memory.md`` when
+# ``EGG_BRC_MEMORY=full`` (architect od-6 Option B: memory appended at
+# the user-prompt tail so the cacheable prefix above stays stable
+# across re-entries); under ``EGG_BRC_MEMORY=write-only`` (slice-1
+# default) the composer returns an empty memory section but still
+# emits the per-producer ``git log {{sha}}..HEAD --not origin/{{base}}
+# -p`` command lines and the NACK delta so the agent always sees the
+# orchestrator's signal-level view of what changed.
+#
+# Inputs are marshalled through a tempfile rather than bash argv to
+# sidestep the shell-metachar / quoting hazard documented in #2741:
+# the next-action payload and NACK reasons can both contain ``$VAR``,
+# backticks, ``;``, ``&&``, embedded newlines etc.
 invoke_agent_for_event() {{
     local action="$1"
     local event_payload="$2"
     local role="${{EGG_AGENT_ROLE:-unknown}}"
     local slice="${{EGG_SLICE_ID:-none}}"
-    local prompt
-    prompt=$(printf 'BRC event-pump handler\nRole: %s\nSlice: %s\nAction: %s\nEvent payload (JSON): %s\n\nHandle this single event according to the role contract, update durable BRC memory, then exit naturally. The wrapper will invoke you again with the next event.\n' \
-        "$role" "$slice" "$action" "$event_payload")
+    local base_branch="${{EGG_BASE_BRANCH:-main}}"
+    local input_dir input_file prompt prompt_rc
+    # Use $XDG_RUNTIME_DIR when present (per-pod tmpfs on k8s); fall
+    # back to /tmp otherwise. mktemp -d gives us a unique directory so
+    # two concurrent events on the same pod can't race on a fixed
+    # path.
+    input_dir=$(mktemp -d -t "egg-event-prompt-XXXXXX")
+    input_file="$input_dir/input.json"
+    # Compose the input document with python3 -- safer than building
+    # JSON in bash. ``event_payload`` is already a JSON-encoded string
+    # (next_action_field re-serialises nested objects via json.dumps),
+    # so we embed it verbatim under the ``event_payload`` key.
+    EVENT_PUMP_ACTION="$action" \
+    EVENT_PUMP_ROLE="$role" \
+    EVENT_PUMP_SLICE="$slice" \
+    EVENT_PUMP_BASE_BRANCH="$base_branch" \
+    EVENT_PUMP_EVENT_PAYLOAD="$event_payload" \
+    EVENT_PUMP_INPUT_FILE="$input_file" \
+        python3 -c "
+import json, os
+event_payload_raw = os.environ.get('EVENT_PUMP_EVENT_PAYLOAD', '') or ''
+try:
+    event_payload = json.loads(event_payload_raw) if event_payload_raw else {{}}
+except json.JSONDecodeError:
+    event_payload = {{'raw': event_payload_raw}}
+nacks = []
+if isinstance(event_payload, dict):
+    candidate = event_payload.get('nacks') or event_payload.get('unresolved_nacks')
+    if isinstance(candidate, list):
+        nacks = candidate
+doc = {{
+    'role': os.environ.get('EVENT_PUMP_ROLE', 'unknown'),
+    'action': os.environ.get('EVENT_PUMP_ACTION', 'review'),
+    'slice_id': os.environ.get('EVENT_PUMP_SLICE'),
+    'base_branch': os.environ.get('EVENT_PUMP_BASE_BRANCH', 'main'),
+    'event_payload': event_payload,
+    'nacks': nacks,
+}}
+with open(os.environ['EVENT_PUMP_INPUT_FILE'], 'w', encoding='utf-8') as fh:
+    json.dump(doc, fh)
+" || {{
+            cw_log "invoke_agent_for_event: failed to build event-prompt input file; falling back to minimal prompt"
+            prompt=$(printf 'BRC event-pump handler (fallback)\nRole: %s\nSlice: %s\nAction: %s\nEvent payload: %s\n\nHandle this event and exit naturally.\n' \
+                "$role" "$slice" "$action" "$event_payload")
+            {agent_command_prefix} "$prompt"
+            rm -rf "$input_dir"
+            return $?
+        }}
+    prompt=$(python3 -m egg_agent_tools.handlers.event_prompt --input-file "$input_file" 2>/dev/null)
+    prompt_rc=$?
+    rm -rf "$input_dir"
+    if [ "$prompt_rc" -ne 0 ] || [ -z "$prompt" ]; then
+        cw_log "invoke_agent_for_event: event_prompt CLI failed (rc=$prompt_rc); falling back to minimal prompt"
+        prompt=$(printf 'BRC event-pump handler (fallback)\nRole: %s\nSlice: %s\nAction: %s\nEvent payload (JSON): %s\n\nHandle this single event and exit naturally.\n' \
+            "$role" "$slice" "$action" "$event_payload")
+    fi
     {agent_command_prefix} "$prompt"
 }}
 
