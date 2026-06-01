@@ -916,6 +916,13 @@
       "registered_at": "2026-06-01T21:06:56.283848+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "feee95ad71419f79dbf0c47ed320a3d6e2ac9431": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-01T21:36:24.860249+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
     }
   },
   "version": 1
