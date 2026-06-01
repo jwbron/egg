@@ -285,6 +285,7 @@ from lifecycle_auth import require_lifecycle_secret
 if TYPE_CHECKING:
     from egg_container import MountSpec
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+    from egg_contracts.models import Slice as ContractSlice
 
     try:
         from ..container_spawner import ContainerSpawner
@@ -19621,8 +19622,8 @@ def _populate_contract_from_plan_safe(
 
 
 def _merge_preserved_slice_runtime(
-    new_slices: list[Any],
-    old_slices: list[Any],
+    new_slices: "list[ContractSlice]",  # noqa: UP037
+    old_slices: "list[ContractSlice]",  # noqa: UP037
 ) -> None:
     """Carry runtime slice/task state from ``old_slices`` onto ``new_slices`` in place.
 
@@ -19644,6 +19645,25 @@ def _merge_preserved_slice_runtime(
     plan supplies STRUCTURE while RUNTIME state survives a re-populate.
     Unmatched ids (a re-plan that adds or removes slices/tasks) simply
     keep the plan's fresh ``PENDING`` defaults.
+
+    Task-level runtime fields covered (each is durably written by a
+    runtime path that the plan parser cannot reconstruct):
+
+    - ``status``, ``commit``, ``checkpoint_id``, ``review_cycles``,
+      ``escalated``, ``delegation_attempts``, ``gaps`` — slice-loop /
+      reviewer / impasse-delegation / tester bookkeeping.
+    - ``notes`` — APPLIER writes Won't-Do drain failure reasons here
+      (``pipelines.py`` Won't-Do path) and agents write implementation
+      narrative via ``mcp__task__update_notes`` / ``egg-contract
+      update-notes``; the plan parser always emits ``""``.
+    - ``jira_action_status`` — APPLIER advances ``pending`` →
+      ``in_flight`` → ``applied``/``failed`` (#1557 risk_analyst R7);
+      idempotency depends on ``applied`` surviving re-populate so the
+      next apply skips it instead of re-creating the Jira issue.
+    - ``jira_key`` — APPLIER writes the freshly-allocated key back after
+      a ``create`` action so re-runs skip the create; plan parser emits
+      ``None`` on ``create`` actions, so re-populate would otherwise
+      strand the applier into creating duplicate tickets.
     """
     old_by_id = {s.id: s for s in (old_slices or [])}
     for new_slice in new_slices:
@@ -19657,7 +19677,9 @@ def _merge_preserved_slice_runtime(
         new_slice.integration_base_sha = old_slice.integration_base_sha
         new_slice.commit = old_slice.commit
         new_slice.review_cycles = old_slice.review_cycles
-        new_slice.review_feedback = old_slice.review_feedback
+        # Defensive copy so post-merge mutations of the discarded ``old``
+        # contract don't alias-leak into the live ``new`` contract.
+        new_slice.review_feedback = list(old_slice.review_feedback)
         new_slice.escalated = old_slice.escalated
         new_slice.escalation_reason = old_slice.escalation_reason
         # Task-level runtime state: match by task id so a re-plan that
@@ -19673,7 +19695,13 @@ def _merge_preserved_slice_runtime(
             new_task.review_cycles = old_task.review_cycles
             new_task.escalated = old_task.escalated
             new_task.delegation_attempts = old_task.delegation_attempts
-            new_task.gaps = old_task.gaps
+            new_task.gaps = list(old_task.gaps)
+            # Runtime narrative + applier idempotency anchors. The
+            # plan parser cannot reconstruct any of these — see the
+            # docstring for the per-field invariants.
+            new_task.notes = old_task.notes
+            new_task.jira_action_status = old_task.jira_action_status
+            new_task.jira_key = old_task.jira_key
 
 
 def _populate_contract_from_plan(
