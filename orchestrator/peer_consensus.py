@@ -502,6 +502,15 @@ class PeerConsensusTracker:
                 "status": "acked",
                 "fully_acked": fully_acked,
                 "version": ack_version,
+                # Surface the producer's commit SHA at review time so
+                # the agent-side BRC memory writer (#2908 slice-1) can
+                # store ``last_reviewed_commit_sha`` per producer.
+                # Slice-3 reads that field to scope an adversarial
+                # re-review git delta on the next re-proposal — the
+                # SHA is mechanically derivable from the signal
+                # payload here so a regression in propagation is
+                # catchable at the boundary.
+                "commit_sha": proposal_commit_sha,
                 "newly_ready": self._collect_newly_ready_producers(),
             }
             if normalized_condition:
@@ -545,6 +554,13 @@ class PeerConsensusTracker:
             )
 
             version = self.matrix.get_proposal_version(producer_role)
+            # Capture the producer's current commit_sha before any further
+            # state mutations so the agent-side BRC memory writer
+            # (#2908 slice-1) can record ``last_reviewed_commit_sha``
+            # per producer. Mirrors the symmetric capture in
+            # ``handle_ack`` so both verdict paths share the same
+            # signal payload contract.
+            proposal_commit_sha = self._proposal_commit_shas.get(producer_role, "")
             self.matrix.record_nack(
                 reviewer_role,
                 producer_role,
@@ -592,6 +608,11 @@ class PeerConsensusTracker:
                 "revision_count": rev_count,
                 "needs_escalation": needs_escalation,
                 "context_change": context_change,
+                # Surface the producer's commit SHA at review time so
+                # the agent-side BRC memory writer (#2908 slice-1) can
+                # store ``last_reviewed_commit_sha`` per producer.
+                # Symmetric with the same field in ``handle_ack``.
+                "commit_sha": proposal_commit_sha,
             }
 
     def handle_withdraw(
