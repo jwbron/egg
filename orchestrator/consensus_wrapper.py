@@ -1054,8 +1054,19 @@ raise_idle_alert() {{
     # pipeline status separately. Plan TASK-2-3 acceptance line:
     # "alert payload includes anomaly type, priority, current BRC
     # state" (tester v1 non-blocker #2).
-    local brc_snapshot
-    brc_snapshot=$(echo "${{STATE_JSON:-{{}}}}" | python3 -c "
+    local brc_snapshot snapshot_input
+    # The naive ``echo $VAR_OR_EMPTY_JSON | python3 ...`` form using a
+    # parameter-expansion default containing literal braces is unsafe:
+    # bash parses the brace inside the default greedily and leaves a
+    # trailing literal close-brace appended to the expanded value,
+    # corrupting JSON when STATE_JSON is set (tester v2 NACK finding).
+    # Use a separate variable and an explicit empty-string check so
+    # bash never sees unbalanced braces inside a parameter expansion.
+    snapshot_input="${{STATE_JSON-}}"
+    if [ -z "$snapshot_input" ]; then
+        snapshot_input='{{}}'
+    fi
+    brc_snapshot=$(printf '%s' "$snapshot_input" | python3 -c "
 import sys, json, os
 role = os.environ.get('EGG_AGENT_ROLE', '')
 try:
