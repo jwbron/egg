@@ -295,20 +295,49 @@ def _derive_next_action(
         is_producer = tracker.graph.is_producer(role)
         is_reviewer = tracker.graph.is_reviewer(role)
 
-        # ---- 2. producer logic (with dual-role priority for own-work) ----
+        # ---- 2. producer-side logic (dual-role priority for own-work) ----
+        #
+        # Dual-role agents (e.g. tester is both producer of test files
+        # and reviewer of coder's source files) follow the #2749 / R11
+        # ordering:
+        #   * sub-case a: WORKING with peer proposals pending → produce
+        #     and propose own work first.
+        #   * sub-case b: PROPOSED with peer proposals pending → review
+        #     the peer.
+        #
+        # Below: WORKING short-circuits to "propose"; PROPOSED falls
+        # through to the reviewer-side block when the producer cannot
+        # confirm and has no NACKs of its own to address.
         if is_producer:
             producer_phase = tracker._producer_phases.get(
                 role, ConsensusPhase.WORKING
             )
 
-            # 2a. PROPOSED state — has the producer been fully ACKed?
+            if producer_phase == ConsensusPhase.WORKING:
+                # 2a. WORKING — produce and propose. R11a applies:
+                # propose OWN work even if peer proposals are pending.
+                barrier = _producer_has_open_barrier(tracker, role)
+                if barrier is not None:
+                    return (
+                        "propose",
+                        barrier,
+                        "open-NACK barrier requires aggregating fixes before re-propose",
+                    )
+                nacks = _producer_has_unresolved_nacks_on_current_version(
+                    tracker, role
+                )
+                payload: dict[str, Any] = {"producer": role}
+                if nacks:
+                    payload["unresolved_nacks"] = nacks
+                return "propose", payload, "produce and propose"
+
             if producer_phase == ConsensusPhase.PROPOSED:
-                # Open-NACK barrier (#2142) — multiple reviewers NACKed.
+                # 2b. PROPOSED — own work submitted. First check
+                # producer-side action (re-propose / confirm), then
+                # fall through to reviewer-side for R11b.
                 barrier = _producer_has_open_barrier(tracker, role)
                 if barrier is not None:
                     return "propose", barrier, "open-NACK barrier requires re-propose"
-
-                # Single-reviewer NACKs against current version → re-propose.
                 nacks = _producer_has_unresolved_nacks_on_current_version(
                     tracker, role
                 )
@@ -318,50 +347,33 @@ def _derive_next_action(
                         {"unresolved_nacks": nacks, "producer": role},
                         "address NACK(s) and re-propose",
                     )
-
-                # Confirm eligible?
                 guard = check_confirm_guard(
                     role, tracker.graph, tracker.matrix, set(confirmed_roles)
                 )
                 if guard.allowed:
                     return "confirm", None, "all preconditions for confirm satisfied"
-                # Otherwise wait for reviewers to weigh in.
-                return (
-                    "wait",
-                    {"confirm_guard_reason": guard.reason},
-                    "waiting for reviewers to ACK or NACK",
-                )
-
-            # 2b. WORKING state (or other non-PROPOSED/CONFIRMED) — produce
-            # and propose. Dual-role priority R11a: even if peer
-            # proposals are pending, propose own work first.
-            if producer_phase == ConsensusPhase.WORKING:
-                # Surface any open-NACK barrier (the producer transitioned
-                # WORKING → PROPOSED → NACKed → WORKING is theoretical;
-                # the barrier still applies if structured NACKs exist).
-                barrier = _producer_has_open_barrier(tracker, role)
-                if barrier is not None:
+                # Fall through to the reviewer block below if the role
+                # has reviewer responsibilities (R11b) — otherwise wait.
+                if not is_reviewer:
                     return (
-                        "propose",
-                        barrier,
-                        "open-NACK barrier requires aggregating fixes before re-propose",
+                        "wait",
+                        {"confirm_guard_reason": guard.reason},
+                        "waiting for reviewers to ACK or NACK",
                     )
-                # Single-reviewer NACKs that need addressing on next propose.
-                nacks = _producer_has_unresolved_nacks_on_current_version(
-                    tracker, role
-                )
-                payload: dict[str, Any] = {"producer": role}
-                if nacks:
-                    payload["unresolved_nacks"] = nacks
-                return "propose", payload, "produce and propose"
+                # is_reviewer: continue to the reviewer block.
 
-            # 2c. CONFIRMED phase but not in confirmed_roles set: this
-            # would be an inconsistent intermediate state (the producer
-            # FSM reached CONFIRMED but the global confirmed set hasn't
-            # caught up). Treat as "wait" rather than asserting.
-            return "wait", None, "producer in CONFIRMED phase; awaiting global converge"
+            elif producer_phase == ConsensusPhase.CONFIRMED:
+                # 2c. Producer FSM CONFIRMED but role not in confirmed
+                # set — inconsistent intermediate; wait.
+                if not is_reviewer:
+                    return (
+                        "wait",
+                        None,
+                        "producer in CONFIRMED phase; awaiting global converge",
+                    )
+                # Continue to reviewer-side checks.
 
-        # ---- 3. pure-reviewer logic ----
+        # ---- 3. reviewer-side logic (pure-reviewer + dual-role fall-through) ----
         if is_reviewer:
             has_pending, pending = _has_pending_peer_proposals(tracker, role)
             if has_pending:
@@ -370,10 +382,6 @@ def _derive_next_action(
                     {"pending_reviews": pending},
                     "peer proposal(s) need review",
                 )
-
-            # No pending reviews → either everyone proposed and was
-            # already reviewed (eligible to confirm), or peer producers
-            # are still WORKING.
             guard = check_confirm_guard(
                 role, tracker.graph, tracker.matrix, set(confirmed_roles)
             )
@@ -385,8 +393,8 @@ def _derive_next_action(
                 "no pending reviews; waiting for peer proposals or convergence",
             )
 
-        # Should never reach here — _derive_next_action's contract requires
-        # the caller to have already validated graph membership.
+        # Should never reach here — _derive_next_action's contract
+        # requires the caller to have already validated graph membership.
         return "wait", None, "role not in review graph"
 
 
