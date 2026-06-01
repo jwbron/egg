@@ -5,7 +5,7 @@
   "branch": "egg/issue-2908-replan2/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -457,7 +457,7 @@
     }
   ],
   "created_at": "2026-06-01T03:22:37.015350Z",
-  "updated_at": "2026-06-01T04:55:29.682450Z",
+  "updated_at": "2026-06-01T04:59:54.585772Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -470,7 +470,7 @@
   "source_branch": "egg/issue-2908-replan/work",
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T04:55:26.776648Z",
-  "version": 32,
+  "version": 33,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
