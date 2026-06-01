@@ -19650,8 +19650,18 @@ def _merge_preserved_slice_runtime(
     runtime path that the plan parser cannot reconstruct):
 
     - ``status``, ``commit``, ``checkpoint_id``, ``review_cycles``,
-      ``escalated``, ``delegation_attempts``, ``gaps`` — slice-loop /
-      reviewer / impasse-delegation / tester bookkeeping.
+      ``escalated``, ``gaps`` — slice-loop / reviewer / tester
+      bookkeeping.
+    - ``role`` + ``delegation_attempts`` — paired SYSTEM-owned
+      impasse-delegation state. ``impasse_routing.py`` flips
+      ``task.role`` to the suggested alternative and bumps
+      ``delegation_attempts`` in the same ``apply_mutation`` cycle
+      under ``Role.SYSTEM`` (only SYSTEM owns these two fields); the
+      slice-loop dispatcher then routes the task to the new role.
+      Preserving the counter without the role would re-spawn the
+      original producer on restart and trip ``DELEGATION_LIMIT`` on
+      the next impasse, escalating to HITL even though no delegation
+      visibly happened — so both fields must survive together.
     - ``notes`` — APPLIER writes Won't-Do drain failure reasons here
       (``pipelines.py`` Won't-Do path) and agents write implementation
       narrative via ``mcp__task__update_notes`` / ``egg-contract
@@ -19694,6 +19704,10 @@ def _merge_preserved_slice_runtime(
             new_task.checkpoint_id = old_task.checkpoint_id
             new_task.review_cycles = old_task.review_cycles
             new_task.escalated = old_task.escalated
+            # Paired SYSTEM-owned impasse-delegation state — preserving
+            # the counter without the role would silently undo the
+            # delegation on restart (see docstring).
+            new_task.role = old_task.role
             new_task.delegation_attempts = old_task.delegation_attempts
             new_task.gaps = list(old_task.gaps)
             # Runtime narrative + applier idempotency anchors. The

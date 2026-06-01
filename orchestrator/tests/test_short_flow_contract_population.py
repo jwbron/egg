@@ -290,6 +290,12 @@ class TestPopulateContractFromPlan:
         t.checkpoint_id = "ckpt-deadbeef"
         t.review_cycles = 3
         t.escalated = True
+        # Paired SYSTEM-owned impasse-delegation state. The plan
+        # default for task-1-1 is ``"coder"``; a successful delegation
+        # would flip it to ``"tester"`` and bump the counter — both
+        # must survive a re-populate together or the slice-loop
+        # dispatcher will re-spawn the original producer on restart.
+        t.role = "tester"
         t.delegation_attempts = 1
         t.gaps = [
             TaskGap(
@@ -328,6 +334,8 @@ class TestPopulateContractFromPlan:
         assert t_after.checkpoint_id == "ckpt-deadbeef"
         assert t_after.review_cycles == 3
         assert t_after.escalated is True
+        # Paired SYSTEM-owned impasse-delegation state survives together.
+        assert t_after.role == "tester"
         assert t_after.delegation_attempts == 1
         assert len(t_after.gaps) == 1
         assert t_after.gaps[0].id == "gap-1"
