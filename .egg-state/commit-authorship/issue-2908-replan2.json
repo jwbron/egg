@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "54ace058368947a23cc944d5caa0335143d67d3a": {
+      "branch": "egg/issue-2908-replan2/work",
+      "pipeline_id": "issue-2908-replan2",
+      "registered_at": "2026-06-01T03:23:27.907971+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
+    }
+  },
+  "version": 1
+}
