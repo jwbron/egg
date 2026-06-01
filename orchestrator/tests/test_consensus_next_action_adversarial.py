@@ -84,12 +84,12 @@ class TestNextActionRequestValidationAdversarial:
     def test_missing_request_body_returns_400(self, client):
         """When the request body is missing entirely, the route returns
         400 (not 500 from ``request.get_json()`` crashing)."""
-        resp = client.post(
-            "/api/v1/pipelines/issue-2908-impl2/consensus/next-action"
-        )
+        resp = client.post("/api/v1/pipelines/issue-2908-impl2/consensus/next-action")
         assert resp.status_code == 400
         data = resp.get_json()
-        assert "body" in data.get("message", "").lower() or "json" in data.get("message", "").lower()
+        assert (
+            "body" in data.get("message", "").lower() or "json" in data.get("message", "").lower()
+        )
 
     def test_non_json_body_returns_400(self, client):
         """When the request body is not valid JSON, the route returns 400."""
@@ -186,12 +186,15 @@ class TestNextActionDerivationAdversarial:
         mock_tracker = MagicMock()
         mock_tracker.graph.is_producer.return_value = True
 
-        with patch(
-            "orchestrator.routes.consensus._resolve_tracker",
-            return_value=mock_tracker,
-        ), patch(
-            "orchestrator.routes.consensus._derive_next_action",
-            return_value=("invalid_action", None, "test"),
+        with (
+            patch(
+                "orchestrator.routes.consensus._resolve_tracker",
+                return_value=mock_tracker,
+            ),
+            patch(
+                "orchestrator.routes.consensus._derive_next_action",
+                return_value=("invalid_action", None, "test"),
+            ),
         ):
             resp = client.post(
                 "/api/v1/pipelines/issue-2908-impl2/consensus/next-action",
@@ -204,8 +207,9 @@ class TestNextActionDerivationAdversarial:
     def test_dual_role_reviewing_own_producer_skipped(self, client):
         """A dual-role agent (e.g. tester) must NOT review its own
         producer role — the pending-reviews check skips self-reviews."""
-        from orchestrator.routes.consensus import _has_pending_peer_proposals
         from egg_orchestrator.types import ConsensusPhase
+
+        from orchestrator.routes.consensus import _has_pending_peer_proposals
 
         mock_tracker = MagicMock()
         # Tester is both producer and reviewer.

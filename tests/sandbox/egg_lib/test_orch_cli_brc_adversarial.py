@@ -259,9 +259,7 @@ class TestBrcListBlockingAdversarial:
         handler = _handler("cmd_brc_list_blocking")
         with patch(
             "egg_agent_tools.handlers.brc.brc_list_blocking",
-            return_value={
-                "blocking_agents": ["reviewer_code_holistic", "reviewer-1"]
-            },
+            return_value={"blocking_agents": ["reviewer_code_holistic", "reviewer-1"]},
         ):
             rc = handler(_ns())
         assert rc == 0
