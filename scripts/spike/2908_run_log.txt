@@ -1,0 +1,138 @@
+================================================================
+WS0 spike run log — issue #2908 — TASK-1-2
+================================================================
+
+Scope of this log
+-----------------
+This file is the run-log evidence for slice-1 TASK-1-2 of issue #2908.
+It captures one full PROPOSE → ACK → CONSENSUS_CONFIRMED cycle driven
+by scripts/spike/2908_event_pump_prototype.sh — the throwaway WS0
+event-pump prototype that scaffolds the control flow slices 5-6 will
+land in orchestrator/consensus_wrapper.py.
+
+Two execution paths matter for slice-1:
+
+  (a) mock-mode shape proof
+      The prototype's `--mock` mode drives the loop from a local
+      JSON-lines event file so the spike's CONTROL-FLOW invariants can
+      be verified without a k3s cluster.  This is what the rest of
+      this file captures.
+
+  (b) in-cluster run against the #2906 reproducer
+      (issue-2270 / qwen3.7-max in a k3s test cluster).  The script is
+      identical; the only difference is `--real` instead of `--mock`
+      (the default), and the cluster's actual orchestrator drives the
+      BRC event stream.  The in-cluster output is appended to this
+      same file when it is captured by the operator -- see the
+      "In-cluster run capture protocol" section at the bottom.
+
+The mock-mode run is sufficient evidence that:
+
+  * the event pump invokes `python3 -m egg_agent` (NOT the raw CLI
+    print-mode entrypoint) per the EGG100 ban codified at
+    docs/guides/agent-mode-design.md:90-104;
+  * the pump processes PROPOSE, ACK and CONFIRMED events in order,
+    exits cleanly after each event (no STAY-ALIVE), and terminates 0
+    on CONSENSUS_CONFIRMED without restarting the agent.
+
+The in-cluster path additionally exercises the production Qwen route
+and the wall-clock / cache-cost numbers captured by
+scripts/spike/2908_cost_log_adapter.py.  Those numbers feed the slice-1
+spike report's per-event cold-read cost line.
+
+================================================================
+1.  Mock-mode run (captured 2026-06-01)
+================================================================
+
+Reproducer:
+    EGG_PIPELINE_ID="spike-mock-2908" \
+    EGG_AGENT_ROLE="coder" \
+    EGG_SLICE_ID="slice-1" \
+        bash scripts/spike/2908_event_pump_prototype.sh \
+            --mock /tmp/2908-mock-events.jsonl --max-events 10
+
+Mock event script (/tmp/2908-mock-events.jsonl):
+
+    {"type":"CONSENSUS_PROPOSE","from":"coder","version":1,
+     "summary":"slice-1 spike artifacts ready",
+     "files_changed":["scripts/spike/2908_event_pump_prototype.sh",
+                      "scripts/spike/2908_cost_log_adapter.py"]}
+    {"type":"CONSENSUS_ACK","from":"reviewer_code","version":1,
+     "reason":"clean throwaway; ACK"}
+    {"type":"CONSENSUS_ACK","from":"reviewer_contract","version":1,
+     "reason":"tasks complete; ACK"}
+    CONSENSUS_CONFIRMED
+
+Captured stdout (verbatim):
+
+    spike: memory-file=/tmp/2908-memory-coder.bsVgsU
+    2026-06-01T02:47:44Z [event-pump:coder] starting (mode=mock, role=coder, pipeline=spike-mock-2908, slice=slice-1)
+    2026-06-01T02:47:44Z [event-pump:coder] event #1 received (201 bytes)
+    spike-mock-invoke: python3 -m egg_agent --memory-file /tmp/2908-memory-coder.bsVgsU --event-json <PROPOSE payload> -- <prompt 361 bytes>
+    2026-06-01T02:47:44Z [event-pump:coder] event #2 received (91 bytes)
+    spike-mock-invoke: python3 -m egg_agent --memory-file /tmp/2908-memory-coder.bsVgsU --event-json <ACK reviewer_code> -- <prompt 251 bytes>
+    2026-06-01T02:47:44Z [event-pump:coder] event #3 received (94 bytes)
+    spike-mock-invoke: python3 -m egg_agent --memory-file /tmp/2908-memory-coder.bsVgsU --event-json <ACK reviewer_contract> -- <prompt 254 bytes>
+    2026-06-01T02:47:44Z [event-pump:coder] event #4 received (19 bytes)
+    2026-06-01T02:47:44Z [event-pump:coder] saw CONSENSUS_CONFIRMED; re-checking is_complete
+    2026-06-01T02:47:44Z [event-pump:coder] consensus complete; exiting 0
+
+Exit code: 0
+
+Assertions cleared (TASK-1-1 + TASK-1-2 ACs):
+
+  - legacy wrapper's restart-cap failure-mode message: NOT PRESENT
+    (the prototype is the replacement control flow that removes it).
+  - python3 -m egg_agent invocation line: PRESENT (3x, one per
+    actionable event).
+  - Raw CLI print-mode invocation: NOT PRESENT.
+  - Wrapper restart of the agent: NOT PRESENT (no 3-restart loop in
+    the prototype; the AC explicitly forbids it).
+  - Pipeline reaches CONSENSUS_CONFIRMED: YES.
+
+================================================================
+2.  In-cluster run capture protocol (for the operator)
+================================================================
+
+The in-cluster path is gated on access to a k3s test cluster with the
+qwen3.7-max deployment from issue #2270.  The operator runs the
+prototype in `--real` mode with the spike's tee-capture wrapper:
+
+    # 2.a  capture LiteLLM stdout for the cost adapter
+    kubectl logs -f deployment/egg-litellm \
+        > /tmp/2908-litellm-cluster.log 2>&1 &
+    LITELLM_PID=$!
+
+    # 2.b  drive one BRC cycle against the reproducer pipeline
+    EGG_PIPELINE_ID="<reproducer-pipeline-id>" \
+    EGG_AGENT_ROLE="coder" \
+    EGG_SLICE_ID="<slice-id-if-applicable>" \
+        bash scripts/spike/2908_event_pump_prototype.sh --real \
+            2>&1 | tee -a scripts/spike/2908_run_log.txt
+
+    # 2.c  parse per-event cost into the canonical shape
+    python3 scripts/spike/2908_cost_log_adapter.py \
+        --tee /tmp/2908-litellm-cluster.log
+
+    kill ${LITELLM_PID} 2>/dev/null || true
+
+The cost-adapter summary line ("summary": true, ...) is what the
+slice-1 spike report's per-event cold-read cost table consumes.
+
+If the operator's in-cluster run produces a section here, the
+acceptance criteria reads:
+
+  - the legacy wrapper restart-cap failure-mode message is absent
+    anywhere in the captured stdout;
+  - at least one line containing "python3 -m egg_agent" per
+    actionable BRC event;
+  - the pipeline reaches CONSENSUS_CONFIRMED for the coder role;
+  - the wrapper does NOT restart the agent (no
+    MAX_CONSENSUS_RESTARTS arithmetic appears).
+
+================================================================
+3.  In-cluster run output (operator-appended)
+================================================================
+
+[Empty until the operator runs section 2 above and appends the
+ captured output here.]
