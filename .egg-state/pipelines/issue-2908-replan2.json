@@ -201,6 +201,24 @@
       "iteration_history": [],
       "phase_start_sha": "54ace058368947a23cc944d5caa0335143d67d3a",
       "agent_exits": []
+    },
+    "implement": {
+      "phase": "implement",
+      "status": "running",
+      "started_at": "2026-06-01T04:35:14.784420Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "operator_directives": [],
+      "iteration_history": [],
+      "phase_start_sha": "cc725e5160490a70607a3271ec80042e9fa8342a",
+      "agent_exits": []
     }
   },
   "decisions": [
@@ -223,7 +241,7 @@
     }
   ],
   "created_at": "2026-06-01T03:22:37.015350Z",
-  "updated_at": "2026-06-01T04:34:44.589240Z",
+  "updated_at": "2026-06-01T04:35:14.784584Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -236,7 +254,7 @@
   "source_branch": "egg/issue-2908-replan/work",
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-01T04:34:44.589174Z",
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
