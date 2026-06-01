@@ -43,7 +43,6 @@ sys.modules.setdefault("docker.types", MagicMock())
 from peer_consensus import PeerConsensusTracker  # noqa: E402
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E402
 
-
 PIPELINE_ID = "issue-2908-impl2"
 
 
@@ -173,7 +172,7 @@ def _post_next_action(client, role, *, tracker=None, slice_id=None):
                 p = patch(target, return_value=tracker)
                 p.start()
                 patches.append(p)
-            except (AttributeError, ModuleNotFoundError):
+            except AttributeError, ModuleNotFoundError:
                 continue
     try:
         resp = client.post(
@@ -191,7 +190,8 @@ def _propose(tracker, role="coder", *, summary=None, version_label="v1"):
     tracker.handle_propose(
         role,
         {
-            "summary": summary or (
+            "summary": summary
+            or (
                 f"Proposal {version_label} with substantive content describing "
                 "the work, tests run, and tasks satisfied for review."
             ),
@@ -232,9 +232,7 @@ def _ack(tracker, reviewer, producer, *, version=1):
 
 def _assert_action(resp, expected_action):
     """Decode the response, assert 200, and return the action."""
-    assert resp.status_code == 200, (
-        f"next-action returned {resp.status_code}: {resp.data!r}"
-    )
+    assert resp.status_code == 200, f"next-action returned {resp.status_code}: {resp.data!r}"
     data = json.loads(resp.data)
     # The route may envelope under {success, data: {...}} or return the
     # action directly.  Accept either.
@@ -245,12 +243,9 @@ def _assert_action(resp, expected_action):
         action = data["action"]
         payload = data
     else:
-        pytest.fail(
-            f"next-action response missing 'action' field: {data!r}"
-        )
+        pytest.fail(f"next-action response missing 'action' field: {data!r}")
     assert action == expected_action, (
-        f"Expected action={expected_action!r}, got {action!r}; "
-        f"payload={payload!r}"
+        f"Expected action={expected_action!r}, got {action!r}; payload={payload!r}"
     )
     return payload
 
@@ -272,9 +267,7 @@ def test_next_action_producer_after_propose_returns_wait(client, simple_tracker)
 # ---------------------------------------------------------------------------
 
 
-def test_next_action_reviewer_with_pending_proposal_returns_review(
-    client, simple_tracker
-):
+def test_next_action_reviewer_with_pending_proposal_returns_review(client, simple_tracker):
     """A reviewer whose upstream producer has PROPOSED must review.
 
     The route returns 'ack' (the canonical 'review' verb) — the actual
@@ -288,8 +281,7 @@ def test_next_action_reviewer_with_pending_proposal_returns_review(
     data = json.loads(resp.data)
     action = data.get("data", data).get("action") if isinstance(data, dict) else None
     assert action in ("ack", "nack", "review"), (
-        f"Reviewer with pending proposal must be told to review — "
-        f"got action={action!r}"
+        f"Reviewer with pending proposal must be told to review — got action={action!r}"
     )
 
 
@@ -367,8 +359,7 @@ def test_next_action_open_nack_barrier_surfaces_nacks(client, simple_tracker):
         or event_payload.get("status") == "open_nacks_blocked"
     )
     assert nacks_seen, (
-        f"Open-NACK barrier must surface inlined NACKs in next-action "
-        f"response — got {payload!r}"
+        f"Open-NACK barrier must surface inlined NACKs in next-action response — got {payload!r}"
     )
 
 
@@ -442,8 +433,7 @@ def test_next_action_stale_version_triggers_re_review(client, simple_tracker):
         "coder",
         {
             "summary": (
-                "Re-propose v2: addressed reviewer_security NACK — "
-                "added auth check at a.py:60."
+                "Re-propose v2: addressed reviewer_security NACK — added auth check at a.py:60."
             ),
             "artifacts": ["a.py"],
             "commit_sha": "abc5678",
@@ -456,9 +446,7 @@ def test_next_action_stale_version_triggers_re_review(client, simple_tracker):
         simple_tracker.handle_re_propose(
             "coder",
             {
-                "summary": (
-                    "Re-propose v2 retry: addressed all reviewer NACKs."
-                ),
+                "summary": ("Re-propose v2 retry: addressed all reviewer NACKs."),
                 "artifacts": ["a.py"],
                 "commit_sha": "abc5678",
             },
@@ -471,15 +459,12 @@ def test_next_action_stale_version_triggers_re_review(client, simple_tracker):
     payload = data.get("data", data)
     action = payload.get("action")
     assert action in ("ack", "nack", "review"), (
-        "Stale-version reviewer must re-review the new proposal — "
-        f"got action={action!r}"
+        f"Stale-version reviewer must re-review the new proposal — got action={action!r}"
     )
     # The event_payload must carry the new version so the reviewer
     # doesn't ACK against the stale one.
     event = payload.get("event_payload") or {}
-    version_threaded = (
-        event.get("version", 0) >= 2 or "stale" in json.dumps(event).lower()
-    )
+    version_threaded = event.get("version", 0) >= 2 or "stale" in json.dumps(event).lower()
     assert version_threaded, (
         f"Stale-version re-review must carry the producer's current "
         f"version in event_payload — got {event!r}"
@@ -543,10 +528,7 @@ def test_next_action_unknown_role_returns_4xx(client, simple_tracker):
     mask wrapper bugs.
     """
     _propose(simple_tracker, "coder")
-    resp = _post_next_action(
-        client, "fictional_role_does_not_exist", tracker=simple_tracker
-    )
+    resp = _post_next_action(client, "fictional_role_does_not_exist", tracker=simple_tracker)
     assert resp.status_code in (400, 404, 422), (
-        f"Unknown role must surface as 4xx — got {resp.status_code}: "
-        f"{resp.data!r}"
+        f"Unknown role must surface as 4xx — got {resp.status_code}: {resp.data!r}"
     )

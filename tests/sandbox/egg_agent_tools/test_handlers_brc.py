@@ -1494,8 +1494,15 @@ class TestBrcHistoryTypesDriftGuard:
 #  * handler return values unchanged for callers in every mode
 
 
-def _memory_env(monkeypatch, tmp_path, *, role="reviewer_code", mode="write-only",
-                slice_id="slice-1", phase="implement"):
+def _memory_env(
+    monkeypatch,
+    tmp_path,
+    *,
+    role="reviewer_code",
+    mode="write-only",
+    slice_id="slice-1",
+    phase="implement",
+):
     """Configure the env vars the BRC-memory writer consumes.
 
     Returns the expected memory-file path under tmp_path so tests can
@@ -1525,7 +1532,7 @@ def _ack_request(**overrides):
         "role": "reviewer_code",
         "producer_role": "coder",
         "reason": "Reviewed slice-1 task-1-1; CLI subparser registered; "
-                  "lifecycle-secret threading verified.",
+        "lifecycle-secret threading verified.",
         "files_reviewed": ["sandbox/egg_lib/orch_cli.py"],
         "ack_version": 1,
     }
@@ -1539,7 +1546,7 @@ def _nack_request(**overrides):
         "role": "reviewer_code",
         "producer_role": "coder",
         "reason": "Blocking finding at orch_cli.py:312 — auth header is "
-                  "skipped on the next-action path; reviewer-only.",
+        "skipped on the next-action path; reviewer-only.",
         "files_reviewed": ["sandbox/egg_lib/orch_cli.py"],
         "nack_version": 1,
     }
@@ -1565,16 +1572,14 @@ class TestBrcMemoryGatingEnvFlag:
         assert resp["ok"] is True
         # No file produced anywhere under the agent-outputs tree.
         assert not memory_path.exists(), (
-            f"EGG_BRC_MEMORY=off must produce zero file touches; "
-            f"found {memory_path!r}"
+            f"EGG_BRC_MEMORY=off must produce zero file touches; found {memory_path!r}"
         )
         # And no stray sibling files either.
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         if outputs_dir.exists():
             stray = list(outputs_dir.rglob("*"))
             assert not stray, (
-                f"EGG_BRC_MEMORY=off must not create the agent-outputs "
-                f"tree; found {stray!r}"
+                f"EGG_BRC_MEMORY=off must not create the agent-outputs tree; found {stray!r}"
             )
 
     def test_write_only_mode_writes_but_does_not_read(self, monkeypatch, tmp_path):
@@ -1607,8 +1612,7 @@ class TestBrcMemoryGatingEnvFlag:
                 resp = brc.brc_ack(_ack_request())
         assert resp["ok"] is True
         assert memory_path.exists(), (
-            f"EGG_BRC_MEMORY=write-only must produce a memory file at "
-            f"{memory_path!r}"
+            f"EGG_BRC_MEMORY=write-only must produce a memory file at {memory_path!r}"
         )
 
     def test_full_mode_writes(self, monkeypatch, tmp_path):
@@ -1691,6 +1695,7 @@ class TestBrcMemorySchemaCompleteness:
         # specific SHA (HEAD at test time is variable), but a non-empty
         # SHA-shaped value must appear.
         import re
+
         match = re.search(
             r"last_reviewed_commit_sha[^\n]*?([0-9a-f]{7,40})",
             body,
@@ -1705,8 +1710,7 @@ class TestBrcMemorySchemaCompleteness:
         body = self._ack_then_read(monkeypatch, tmp_path)
         # field (c)
         assert "## Decision log" in body, (
-            "Memory schema field (c) — '## Decision log' section — "
-            "missing from memory artifact."
+            "Memory schema field (c) — '## Decision log' section — missing from memory artifact."
         )
 
     def test_nack_writes_carry_prior_nack_reasons(self, monkeypatch, tmp_path):
@@ -1756,6 +1760,7 @@ class TestBrcMemoryDecisionLogCap:
             # Distill-on-write should leave at most 20 entries.  Count
             # by the producer_NN tokens (each entry references one).
             import re
+
             seen = set(re.findall(r"coder_(\d+)", log_section))
             assert len(seen) <= 20, (
                 f"Decision log must be capped at 20 entries; found "
@@ -1788,9 +1793,6 @@ class TestBrcMemoryAtomicWriteContract:
         assert baseline is not None
 
         # Now fail os.replace during the second write.
-        import os as _os
-        real_replace = _os.replace
-
         def failing_replace(src, dst):
             raise OSError("simulated disk full")
 
@@ -1807,9 +1809,7 @@ class TestBrcMemoryAtomicWriteContract:
                     pass
         # After failure: file MUST still contain the original baseline,
         # never partial junk.
-        assert memory_path.exists(), (
-            "After os.replace failure the prior file must still exist."
-        )
+        assert memory_path.exists(), "After os.replace failure the prior file must still exist."
         after = memory_path.read_text(encoding="utf-8")
         assert after == baseline, (
             "Atomic-write contract violated: after os.replace failure "
@@ -1838,10 +1838,7 @@ class TestBrcMemoryAtomicWriteContract:
         # Any ``.brc-memory.md.*.tmp`` tempfiles should be cleaned up
         # (or never exist after the failing path).
         parent = memory_path.parent
-        leftovers = [
-            p for p in parent.glob(".brc-memory.md.*.tmp")
-            if p.exists()
-        ]
+        leftovers = [p for p in parent.glob(".brc-memory.md.*.tmp") if p.exists()]
         # Note: tempfile.NamedTemporaryFile with delete=False (per the
         # existing ``save_agent_timing`` pattern at
         # shared/egg_overseer/state.py:266) will leak unless the handler
@@ -1920,8 +1917,7 @@ class TestBrcMemorySubdirectoryCreation:
             brc.brc_ack(_ack_request(role="reviewer_security"))
         # Post-condition: directory and file exist.
         assert memory_path.parent.is_dir(), (
-            f"<role>/ subdirectory must be created on first write — "
-            f"missing {memory_path.parent!r}"
+            f"<role>/ subdirectory must be created on first write — missing {memory_path.parent!r}"
         )
         assert memory_path.exists()
 
@@ -1940,7 +1936,9 @@ class TestBrcMemoryScopeKey:
             return_value=_ok_response(),
         ):
             brc.brc_ack(_ack_request(reason="slice-1 verdict " + "x" * 60))
-        body_a = path_a.read_text(encoding="utf-8") if path_a.exists() else ""
+        # Read so we trip an early IOError on a missing file rather than
+        # later in the assertion.
+        _ = path_a.read_text(encoding="utf-8") if path_a.exists() else ""
 
         # Second scope: slice-2 — must not stomp the slice-1 entry.
         monkeypatch.setenv("EGG_SLICE_ID", "slice-2")
@@ -2019,9 +2017,7 @@ class TestBrcMemoryReturnValuesUnchanged:
         }
         with patch(
             "egg_agent_tools.handlers.brc.orchestrator_request",
-            side_effect=GatewayError(
-                "version mismatch", status_code=409, details=stale_details
-            ),
+            side_effect=GatewayError("version mismatch", status_code=409, details=stale_details),
         ):
             resp = brc.brc_ack(_ack_request(ack_version=1))
         assert resp["ok"] is False

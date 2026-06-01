@@ -64,9 +64,7 @@ def _resolve_handler():
         fn = getattr(orch_cli, name, None)
         if fn is not None:
             return fn
-    raise AttributeError(
-        "Expected egg_lib.orch_cli to expose cmd_phase_get_context"
-    )
+    raise AttributeError("Expected egg_lib.orch_cli to expose cmd_phase_get_context")
 
 
 # ---------------------------------------------------------------------------

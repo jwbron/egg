@@ -17,7 +17,6 @@ established pattern in ``tests/sandbox/test_orch_cli_slice_id.py`` and
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import sys
 from pathlib import Path
@@ -30,7 +29,6 @@ sys.path.insert(0, str(ROOT / "sandbox"))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from egg_lib import orch_cli  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -121,7 +119,11 @@ class TestBrcNextAction:
         assert rc == 0
         # POST to the next-action endpoint with the role in the body.
         assert req.called
-        call_endpoint = req.call_args.args[0] if req.call_args.args else req.call_args.kwargs.get("endpoint", "")
+        call_endpoint = (
+            req.call_args.args[0]
+            if req.call_args.args
+            else req.call_args.kwargs.get("endpoint", "")
+        )
         assert "/consensus/next-action" in call_endpoint
         # JSON envelope (action key) emitted on stdout.
         out = capsys.readouterr().out
@@ -230,9 +232,7 @@ class TestBrcGetState:
             fn = getattr(orch_cli, name, None)
             if fn is not None:
                 return fn
-        raise AttributeError(
-            "Expected egg_lib.orch_cli to expose cmd_brc_get_state"
-        )
+        raise AttributeError("Expected egg_lib.orch_cli to expose cmd_brc_get_state")
 
     def test_happy_path_matches_mcp_shape(self, brc_env, capsys):
         """Output mirrors ``mcp__brc__get_state`` for the same pipeline."""
@@ -323,9 +323,7 @@ class TestBrcListBlocking:
             fn = getattr(orch_cli, name, None)
             if fn is not None:
                 return fn
-        raise AttributeError(
-            "Expected egg_lib.orch_cli to expose cmd_brc_list_blocking"
-        )
+        raise AttributeError("Expected egg_lib.orch_cli to expose cmd_brc_list_blocking")
 
     def test_happy_path_newline_delimited(self, brc_env, capsys):
         """Default output is one role per line, no JSON envelope."""
@@ -363,9 +361,9 @@ class TestBrcListBlocking:
             rc = handler(_ns(json=True))
         assert rc == 0
         decoded = json.loads(capsys.readouterr().out)
-        assert decoded == {"blocking_agents": ["tester"]} or decoded.get(
-            "blocking_agents"
-        ) == ["tester"]
+        assert decoded == {"blocking_agents": ["tester"]} or decoded.get("blocking_agents") == [
+            "tester"
+        ]
 
     def test_empty_list_exit_zero(self, brc_env, capsys):
         """Exit code 0 even when no agents are blocking — wrapper bash
