@@ -226,6 +226,52 @@ class TestGitArgsValidation:
         assert valid is True
         assert error == ""
 
+    def test_log_not_flag_allowed(self):
+        """git log accepts --not for revision-range excludes.
+
+        --not powers the canonical BRC re-review delta command documented in
+        REVIEWER-SYNC.md:110 (`git log <sha>..HEAD --not origin/<base> -p`).
+        Mirrors the `^ref` exclude syntax the revision-range parser already
+        permits (see agent_salvage.py list_unpushed_commits).
+        Issue #2905.
+        """
+        valid, error, args = git_client.validate_git_args(
+            "log", ["abc123..HEAD", "--not", "origin/main"]
+        )
+        assert valid is True
+        assert error == ""
+        assert "--not" in args
+        assert "origin/main" in args
+
+    def test_log_patch_flag_allowed(self):
+        """git log accepts -p / --patch for commit diffs.
+
+        -p / --patch is required by the documented re-review delta command.
+        The short form -p normalizes to --patch before the allowlist check
+        (see FLAG_NORMALIZATION['log']).
+        Issue #2905.
+        """
+        for flag in ("-p", "--patch"):
+            valid, error, args = git_client.validate_git_args("log", [flag, "HEAD"])
+            assert valid is True, f"{flag} rejected: {error}"
+            assert error == ""
+            assert "--patch" in args
+
+    def test_log_delta_review_command(self):
+        """The full BRC re-review delta command from REVIEWER-SYNC.md:110 passes.
+
+        This is the exact command that burned reviewer cycles to
+        retry-and-exhaust on the #2270 Qwen pilot (reviewer exited
+        success=True at 30 turns without emitting a v2 verdict).
+        Issue #2905.
+        """
+        valid, error, args = git_client.validate_git_args(
+            "log", ["abc123..HEAD", "--not", "origin/main", "-p"]
+        )
+        assert valid is True
+        assert error == ""
+        assert args == ["abc123..HEAD", "--not", "origin/main", "--patch"]
+
     def test_format_patch_allowed_flags(self):
         """git format-patch accepts its allowed flags."""
         valid, error, args = git_client.validate_git_args("format-patch", ["--stdout", "HEAD~1"])
@@ -278,6 +324,14 @@ class TestFlagNormalization:
         assert git_client.normalize_flag("-a", "fetch") == "--all"
         assert git_client.normalize_flag("-t", "fetch") == "--tags"
         assert git_client.normalize_flag("-p", "fetch") == "--prune"
+
+    def test_short_p_to_patch_in_log(self):
+        """git log -p normalizes to --patch so the allowlist accepts it.
+
+        Required by the BRC re-review delta command (`git log <sha>..HEAD
+        --not origin/<base> -p`). Issue #2905.
+        """
+        assert git_client.normalize_flag("-p", "log") == "--patch"
         assert git_client.normalize_flag("-v", "fetch") == "--verbose"
         assert git_client.normalize_flag("-q", "fetch") == "--quiet"
         assert git_client.normalize_flag("-j", "fetch") == "--jobs"
