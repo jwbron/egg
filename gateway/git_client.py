@@ -1003,9 +1003,11 @@ FLAG_NORMALIZATION = {
     "worktree": {"-v": "--verbose"},
     "ls-remote": {"-q": "--quiet"},
     "update-index": {"-q": "--quiet"},
+    # log: -p normalizes to --patch so the BRC re-review delta command
+    # (`git log <sha>..HEAD --not origin/<base> -p`) matches the allowlist. #2905
+    "log": {"-p": "--patch"},
     # Subcommands with no short-flag normalization needed (included for completeness):
     "status": {},
-    "log": {"-p": "--patch"},
     "diff": {},
     "show": {},
     "rev-parse": {},
