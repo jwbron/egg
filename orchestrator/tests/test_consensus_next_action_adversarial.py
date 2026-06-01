@@ -206,7 +206,14 @@ class TestNextActionDerivationAdversarial:
 
     def test_dual_role_reviewing_own_producer_skipped(self, client):
         """A dual-role agent (e.g. tester) must NOT review its own
-        producer role — the pending-reviews check skips self-reviews."""
+        producer role — the pending-reviews check skips self-reviews.
+
+        Fixture: tester PROPOSED (own work submitted), coder WORKING (no
+        proposal yet). The only candidate producer at PROPOSED is tester
+        itself, which the self-review filter must drop — so
+        ``has_pending`` is False and ``pending`` is empty. A regression
+        that emitted ``has_pending=True`` with tester as its own peer
+        would fail this assertion outright."""
         from egg_orchestrator.types import ConsensusPhase
 
         from orchestrator.routes.consensus import _has_pending_peer_proposals
@@ -223,14 +230,42 @@ class TestNextActionDerivationAdversarial:
 
         has_pending, pending = _has_pending_peer_proposals(mock_tracker, "tester")
 
-        # The dual-role agent must NOT be asked to review its own producer
-        # role — only the other producer (coder) is pending.
-        if has_pending:
-            # If there are pending reviews, they must not include self.
-            for p in pending:
-                assert p["producer"] != "tester", (
-                    "Dual-role agent must not be asked to review its own producer role"
-                )
+        # No peer is at PROPOSED other than self — the filter must drop
+        # tester so the result is empty. Hard-asserting both halves so a
+        # regression returning ``has_pending=True, pending=[]`` (or any
+        # tester-self-review entry) trips immediately.
+        assert not has_pending
+        assert pending == []
+
+    def test_dual_role_reviews_other_producer_when_pending(self, client):
+        """Positive case: a dual-role agent IS asked to review a peer
+        producer that is at PROPOSED with a fresh version it has not yet
+        voted on. Pairs with ``test_dual_role_reviewing_own_producer_skipped``
+        which checks the negative (self) case; together they pin the
+        self-filter to exactly self, not "everyone"."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        from orchestrator.routes.consensus import _has_pending_peer_proposals
+
+        mock_tracker = MagicMock()
+        # Tester is reviewer; coder + documenter are peer producers.
+        mock_tracker.graph.producers_for.return_value = ["tester", "coder", "documenter"]
+        mock_tracker._producer_phases = {
+            "tester": ConsensusPhase.WORKING,
+            "coder": ConsensusPhase.PROPOSED,
+            "documenter": ConsensusPhase.WORKING,
+        }
+        mock_tracker.matrix.get_proposal_version.return_value = 1
+        mock_tracker.matrix.get_entry.return_value = None  # no prior vote
+
+        has_pending, pending = _has_pending_peer_proposals(mock_tracker, "tester")
+
+        assert has_pending
+        producers_in_pending = {p["producer"] for p in pending}
+        assert producers_in_pending == {"coder"}, (
+            "Only the peer at PROPOSED with a fresh version should be pending; "
+            "self (tester) and WORKING peers (documenter) must be filtered out"
+        )
 
 
 # ---------------------------------------------------------------------------

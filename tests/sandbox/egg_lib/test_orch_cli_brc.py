@@ -142,7 +142,14 @@ class TestBrcNextAction:
         )
 
     def test_role_defaults_to_env(self, brc_env, capsys):
-        """``--role`` defaults to $EGG_AGENT_ROLE when not given."""
+        """``--role`` defaults to $EGG_AGENT_ROLE when not given.
+
+        The CLI implementation (``cmd_brc_next_action`` in
+        ``orch_cli.py``) puts ``role`` in the JSON body, not the query
+        string. Asserting body-only — if a future refactor moves to a
+        query-string contract the schema doc + this test must move
+        together. (The earlier "body OR query-string" form let a
+        regression slip past with the wrong call shape.)"""
         handler = self._resolve_handler()
         args = _ns(json=True)  # no explicit role
         with patch(
@@ -151,12 +158,8 @@ class TestBrcNextAction:
         ) as req:
             rc = handler(args)
         assert rc == 0
-        # Either the body carries role=coder (from env) or the endpoint
-        # encodes it; both are acceptable contracts.
         body = req.call_args.kwargs.get("data") or {}
-        endpoint = req.call_args.args[0] if req.call_args.args else ""
-        role_seen = body.get("role") == "coder" or "role=coder" in endpoint
-        assert role_seen, f"role=coder not threaded through: body={body!r} endpoint={endpoint!r}"
+        assert body.get("role") == "coder", f"role=coder not threaded into body: body={body!r}"
 
     def test_lifecycle_secret_threaded_when_set(self, brc_env_authed):
         """When ``EGG_LIFECYCLE_SECRET`` is set, the auth header is sent.

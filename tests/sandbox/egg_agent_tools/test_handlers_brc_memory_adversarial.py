@@ -254,9 +254,12 @@ class TestBrcMemoryParseRenderAdversarial:
 
         assert "coder" in memory.per_producer
         assessment = memory.per_producer["coder"]
-        # The parser should treat "-" as "empty" for list fields.
-        assert assessment.prior_nack_reasons == [] or assessment.prior_nack_reasons == ["-"]
-        assert assessment.prior_conditional_obligation in ("", "-")
+        # The parser filters "-" out via ``if item.strip()`` at
+        # brc_memory.py:340-344, so the ``[\"-\"]`` alternative is dead.
+        # Tighten so a regression that started carrying ``-`` forward
+        # would fail the assertion.
+        assert assessment.prior_nack_reasons == []
+        assert assessment.prior_conditional_obligation == ""
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +276,30 @@ class TestBrcMemoryModeGatingAdversarial:
         assert mode == "off"
         assert not brc_memory.is_writes_enabled()
         assert not brc_memory.is_reads_enabled()
+
+    def test_unknown_mode_logs_once_per_value(self, memory_env, monkeypatch, caplog):
+        """An undocumented value (e.g. ``writeonly`` missing the hyphen)
+        emits a one-shot warning per distinct value so the operator
+        catches typos. Subsequent calls with the same value do not
+        re-log (handler boundary is hot — no per-ACK spam)."""
+        import logging as _logging
+
+        # Reset the per-process sentinel so this test is order-independent.
+        brc_memory._warned_unknown_modes.clear()
+        monkeypatch.setenv("EGG_BRC_MEMORY", "writeonly")
+        with caplog.at_level(_logging.WARNING, logger="egg_agent_tools.handlers.brc_memory"):
+            brc_memory.get_memory_mode()
+            brc_memory.get_memory_mode()
+            brc_memory.get_memory_mode()
+        unknown_warnings = [r for r in caplog.records if "writeonly" in r.getMessage()]
+        # Three calls, exactly one warning — subsequent calls noop.
+        assert len(unknown_warnings) == 1
+
+        # A different unknown value still warns (per-value sentinel).
+        monkeypatch.setenv("EGG_BRC_MEMORY", "yolo")
+        with caplog.at_level(_logging.WARNING, logger="egg_agent_tools.handlers.brc_memory"):
+            brc_memory.get_memory_mode()
+        assert any("yolo" in r.getMessage() for r in caplog.records)
 
     def test_write_only_does_not_enable_reads(self, memory_env, monkeypatch):
         """``write-only`` mode enables writes but NOT reads (the slice-3
@@ -334,6 +361,24 @@ class TestBrcMemoryRecordReviewAdversarial:
         memory = brc_memory.load_memory(path)
         assert memory.per_producer["coder"].prior_verdict == "conditional-ACK"
         assert "git mv" in memory.per_producer["coder"].prior_conditional_obligation
+
+    def test_whitespace_only_reason_does_not_index_error(self, memory_env, tmp_path):
+        """A whitespace-only reason (``"   "`` / ``"\\n  \\n"``) must not
+        IndexError when the decision-log entry is built. ``brc_ack`` has
+        no NACK-reason minimum so this is reachable from a real caller."""
+        path = brc_memory.memory_path_for_role()
+        # Pure whitespace — ``.strip().splitlines()`` returns ``[]`` so a
+        # naive ``[0]`` lookup would raise IndexError before the fix.
+        brc_memory.record_review(
+            verdict="ACK",
+            producer_role="coder",
+            reason="   \n  \n",
+            commit_sha="abc123",
+        )
+        memory = brc_memory.load_memory(path)
+        # Decision log got an entry; first line of the reason is empty.
+        assert len(memory.decision_log) == 1
+        assert "ack coder:" in memory.decision_log[0]
 
     def test_reason_with_unicode_preserved(self, memory_env, tmp_path):
         """Reason text containing emoji or non-ASCII is preserved
