@@ -16009,7 +16009,12 @@ def _run_implement_phase_slices(
     # gateway errors here — the canonical site already enforces the
     # 422 contract.
     try:
-        _open_context_pr_at_implement_start(pipeline_id, repo_path=worktree_repo_path)
+        # Pass the main repo path (``store.repo_path``) — not
+        # ``worktree_repo_path`` — so all four driver-thread call sites
+        # of ``_open_context_pr_at_implement_start`` read identically.
+        # The opener rederives its own per-pipeline worktree internally
+        # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
+        _open_context_pr_at_implement_start(pipeline_id, repo_path=Path(store.repo_path))
     except ContextPrCreationError as ctx_err:
         logger.warning(
             "Context PR opener: slice-loop entry safety net failed "

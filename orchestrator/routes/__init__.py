@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from flask import abort, request
+from flask import abort, has_request_context, request
 
 if TYPE_CHECKING:
     from models import Pipeline
@@ -48,27 +48,24 @@ def get_repo_path() -> Path:
     Returns:
         Path to the repository
     """
-    # Detect whether we're inside a Flask request context.  Accessing
-    # ``request`` outside a request raises RuntimeError; we gate every
-    # request-dependent line on this flag so the function stays usable
-    # from driver threads (#2903).
-    try:
-        has_request_context = bool(request)
-    except RuntimeError:
-        has_request_context = False
+    # Gate every ``request`` access on ``has_request_context()`` so the
+    # function stays usable from driver threads (#2903).  Flask's public
+    # API documents the intent more clearly than ``bool(request)`` +
+    # ``except RuntimeError``.
+    in_request = has_request_context()
+    data: dict = {}
 
     # Check request args first (only when in HTTP request context)
-    if has_request_context:
+    if in_request:
         repo_path = request.args.get("repo_path")
         if repo_path:
             return Path(repo_path)
 
-        # Check JSON body
+        # Check JSON body — assigned here so the multi-repo branch below
+        # can read ``data`` without a second guard.
         data = request.get_json(silent=True) or {}
         if data.get("repo_path"):
             return Path(data["repo_path"])
-    else:
-        data = {}
 
     # Check environment
     env_path = os.environ.get("EGG_REPO_PATH")
@@ -77,7 +74,7 @@ def get_repo_path() -> Path:
         # EGG_REPO_PATH may be a parent dir containing repo subdirectories.
         # If it's not itself a git repo, resolve using the repo name from
         # the request body (e.g. "owner/name" -> base / "name").
-        if not (base / ".git").exists() and has_request_context:
+        if not (base / ".git").exists() and in_request:
             repo = data.get("repo", "") or request.args.get("repo", "")
             if repo:
                 repo_name = repo.split("/")[-1]

@@ -113,3 +113,27 @@ class TestGetRepoPathInsideRequestContext:
         with app.test_request_context("/"):
             result = get_repo_path()
             assert result == tmp_path
+
+    def test_multi_repo_resolves_via_request_repo_field(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Inside a request, when EGG_REPO_PATH points at a parent dir
+        (not itself a git repo), the ``repo`` field from the JSON body
+        selects the correct subdirectory.  Guards the
+        ``has_request_context``-gated multi-repo branch at
+        ``routes/__init__.py:80``."""
+        # tmp_path is the multi-repo parent — NOT a git repo itself.
+        repo_dir = tmp_path / "egg"
+        _make_git_repo(repo_dir)
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+
+        from flask import Flask
+
+        app = Flask(__name__)
+
+        with app.test_request_context(
+            "/",
+            json={"repo": "owner/egg"},
+        ):
+            result = get_repo_path()
+            assert result == repo_dir
