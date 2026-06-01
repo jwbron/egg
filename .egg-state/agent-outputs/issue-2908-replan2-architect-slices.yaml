@@ -1,0 +1,96 @@
+slices:
+  - id: 1
+    name: |-
+      Server-side next-action CLI + BRC memory data plane (additive foundations)
+    goal: |-
+      Land the read-side primitives the stateless event-pump depends on, without
+      changing any existing flow. Build CLI equivalents for the three
+      orchestrator-state queries the wrapper will need each event (``egg-orch brc
+      get-state``, ``egg-orch brc list-blocking``, ``egg-orch phase get-context``)
+      and introduce the durable BRC memory artifact at
+      ``.egg-state/agent-outputs/<role>/brc-memory.md`` (path adapted to the flat
+      per-role-per-issue layout already in use; see analysis §3.17). Wire
+      action-scaffolded memory writes into the existing ``brc_ack`` / ``brc_nack``
+      handlers (``sandbox/egg_agent_tools/handlers/brc.py:505,586``) gated by
+      ``EGG_BRC_MEMORY=write-only`` so writes accumulate but nothing reads them
+      yet. Default behavior unchanged; this slice is purely additive and reversible
+      by env flag.
+    # root slice — no dependencies
+  - id: 2
+    name: |-
+      Event-pump wrapper + liveness migration (behind feature flag)
+    goal: |-
+      Rewrite ``orchestrator/consensus_wrapper.py`` as a deterministic event pump
+      gated by ``EGG_BRC_EVENT_PUMP=true``: drop the 3-restart FAIL cap
+      (``MAX_CONSENSUS_RESTARTS`` at consensus_wrapper.py:38), drop the SSE
+      ``consensus.reached`` machinery (consensus_wrapper.py:419–449) and the
+      ``_RECOVERY_SYSTEM_PROMPT`` restart prompt (consensus_wrapper.py:64–99),
+      replace with a wrapper-driven ``egg-orch message wait-loop`` (the existing
+      CLI at ``sandbox/egg_lib/orch_cli.py:1695``) that invokes the agent
+      one-shot via the existing ``python3 -m egg_agent`` entry point per
+      actionable event. Migrate the heartbeat (#2036) and gateway-session
+      keep-alive (#2451) emitters from
+      ``sandbox/egg_agent_tools/handlers/message.py:267–429`` into the wrapper's
+      blocking wait so liveness no longer depends on the agent being inside
+      ``wait_loop``. Replace the restart cap with an idle/no-progress safety
+      budget that escalates to overseer. Default behavior unchanged (flag off);
+      old wrapper code path retained verbatim alongside.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Delta-scoped re-analysis + prompt collapse
+    goal: |-
+      Wire the per-event invocation to hand the agent (a) the durable memory
+      file from slice-1 and (b) the proposal version / ``changed_artifacts``
+      delta from the orchestrator's existing version-tracking (#2142, surfaced
+      in ``orchestrator/peer_consensus.py``), so on a re-proposal the agent
+      evaluates only the delta rather than re-reading the codebase. Collapse
+      ``_build_brc_preamble`` (``orchestrator/routes/pipelines.py:12348``) and
+      strip the STAY-ALIVE / wait-loop mechanics / cursor-threading /
+      pre-confirm-wait foot-gun text — replace with a lean event-handler
+      contract that names the single event being processed this turn and the
+      single action expected. Update ``sandbox/agent-config/rules/mission.md``
+      and any orchestrator/sandbox rules-injection to match. Flag still off by
+      default; this slice prepares the per-event prompt shape but does not flip
+      the production switch.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Spike validation + flag flip + delete old capped-restart wrapper path
+    goal: |-
+      Run the #2906 repro (issue-2270, qwen3.7-max) end-to-end with
+      ``EGG_BRC_EVENT_PUMP=true`` and ``EGG_BRC_MEMORY=full``; confirm consensus
+      reaches CONFIRMED without restart churn, the memory file is populated and
+      consulted, per-event context is bounded, and ``cache_read`` is observed
+      across consecutive per-event invocations on both routes (Anthropic via
+      ``usage.cache_read_input_tokens``, Qwen via
+      ``~/.local/state/clm/cost-*.json`` per the WS7 closure comment). With
+      spike green, flip the flag default to on and delete the old
+      capped-restart / SSE / recovery-prompt path code from
+      ``consensus_wrapper.py``, plus the now-orphaned wait_loop heartbeat code
+      from ``handlers/message.py``. Old code lives behind ``EGG_BRC_EVENT_PUMP``
+      one release for emergency rollback; this slice deletes it.
+    dependencies: slice-3
+  - id: 5
+    name: |-
+      MCP→CLI tool collapse (delete agent MCP server, migrate tests)
+    goal: |-
+      Delete the 28 agent-facing MCP tools (``sandbox/egg_agent_tools/tools/*.py``,
+      ~1700 LOC across 11 files), the ``SYSTEM_PROMPT_NUDGE`` block at
+      ``sandbox/egg_agent_tools/server.py:61``, and the MCP registration block at
+      ``shared/egg_agent/client.py:299–353``. Build CLI parity for the ~10 tools
+      not yet covered (``egg-orch brc resolve-obligation``,
+      ``egg-orch brc read-peer-artifact``; ``get-state`` / ``list-blocking`` /
+      ``phase get-context`` already shipped in slice-1). Hard constraint:
+      prose-bearing CLI commands (``consensus propose/ack/nack``'s ``reason`` /
+      ``files_reviewed`` args) must accept text via stdin or ``--file PATH`` —
+      never argv — to avoid re-introducing the shell-metachar corruption
+      mitigated in #2741. Retire / repurpose
+      ``tests/tools/test_mcp_cli_drift.py``; migrate
+      ``integration_tests/test_sandbox_mcp_tools_e2e.py`` and
+      ``tests/sandbox/egg_agent_tools/test_server.py`` to direct-handler tests
+      against the shared handler layer (which keeps both surfaces honest).
+      Verify per-event wall-clock latency is unchanged (subprocess spawn vs
+      in-process MCP dispatch on a representative event sample). Operator-facing
+      ``orchestrator/mcp_server.py`` is out of scope.
+    dependencies: slice-4
