@@ -447,12 +447,28 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "50bf7066712071fcf003f2796f092d87210f5240": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "b8219794dc82aa49d717c0913332324c1305f0f9",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.581661+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "5201db6ccf989d1b20e537a3c9e645fc5014dc61": {
       "branch": "egg/issue-2908-impl2/slice-3",
       "pipeline_id": "issue-2908-impl2",
       "registered_at": "2026-06-01T21:38:32.655655+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "534815407b15d0423ab6d1c2ffc97c8dcd46f672": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "7f5aad35efed5da30f2107b848efb77350a26ff1",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.576880+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "543cfaa120a6b46f8d01e503457c243aa47618bd": {
       "branch": "egg/issue-2908-impl2/slice-3",
@@ -474,6 +490,14 @@
       "registered_at": "2026-06-01T07:37:34.464076+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
+    },
+    "57c0894e523e210b5a21baa9bfa7041a5f967f2e": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "a92cca45a984ece8414277c6886cf48a0e66d1ed",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.589354+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "5977a54712f7cf7c7bf0d4a262ac623965f65116": {
       "branch": "egg/issue-2908-impl2/slice-2",
@@ -620,6 +644,14 @@
       "branch": "egg/issue-2908-impl2/slice-2",
       "pipeline_id": "issue-2908-impl2",
       "registered_at": "2026-06-01T20:47:36.467046+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
+    "6d61a38fe96cebf0b0edf8ec83c5c13c968911c8": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "328e220bf0d34935e89d9684157939ae3dbee9ba",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.585493+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
@@ -1083,6 +1115,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "bc4f3bd009d51ebb61478b50318e637132ef939b": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "5e2c57fd94e20d05dc745413343d6cfb040fcb05",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.573261+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "bc89dac5e0618ce23ebfb9b6e26315985da018b4": {
       "branch": "egg/issue-2908-impl2/slice-3",
       "pipeline_id": "issue-2908-impl2",
@@ -1270,6 +1310,14 @@
       "registered_at": "2026-06-02T18:10:24.611232+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "dd3142f0cd3ddf6f13a816e31343b5a5ede4ffae": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "474c92d471b23224ea8616ec1c40687237135d71",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.568006+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "dd90add325490cf4f566f77819c033928d3d32a7": {
       "branch": "egg/issue-2908-impl2/slice-2",
