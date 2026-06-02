@@ -46,7 +46,13 @@ Design choices encoded here:
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 # Cap on the inline memory excerpt — keep the per-event prompt within
@@ -349,3 +355,318 @@ def compose_event_prompt(
         parts.append(memory_section)
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Wrapper-bash CLI: ``python3 event_prompt.py <action>`` (slice-3 TASK-3-2)
+# ---------------------------------------------------------------------------
+
+# Sentinel value for the memory excerpt when ``EGG_BRC_MEMORY!=full``.
+# The wrapper still writes through ``write-only`` (slice-1 default in
+# slice-2), so the file may exist on disk; the reader path is gated
+# separately so slice-4's default-on flip flips reads in one step.
+_MEMORY_MODE_FULL = "full"
+
+# Cap on a single ``git log`` subprocess in seconds. Long enough that a
+# multi-megabyte delta against a slow filesystem still completes, short
+# enough that a hung gateway doesn't deadlock the wrapper loop.
+_GIT_LOG_TIMEOUT_SECS = 60
+
+# Cap on the rendered ``git log`` output per producer (bytes). A
+# pathologically large refactor could push a single delta past
+# Claude's context budget regardless of the cacheable-prefix bound;
+# we truncate with an explicit sentinel so the agent can detect the
+# truncation rather than silently reviewing half a diff.
+_GIT_LOG_DELTA_MAX_BYTES = 256 * 1024  # 256 KiB per producer
+
+# Regex matching a slice-1 ``last_reviewed_commit_sha`` bullet. The
+# slice-1 writer renders the value as either a 7-40 char SHA or the
+# ``-`` sentinel for "no prior review" (see
+# ``sandbox/egg_agent_tools/handlers/brc_memory.py::_render_assessment``).
+_LAST_REVIEWED_SHA_RE = re.compile(
+    r"^\s*-\s*last_reviewed_commit_sha\s*:\s*(\S+)\s*$"
+)
+_PRODUCER_HEADING_RE = re.compile(r"^\s*###\s+(.+?)\s*$")
+
+
+def _parse_per_producer_sha(memory_text: str) -> dict[str, str]:
+    """Extract ``{producer: last_reviewed_commit_sha}`` from memory text.
+
+    Crude but stable parse against the slice-1 writer's rendered
+    format. The writer guarantees a ``### <role>`` heading followed by
+    a ``- last_reviewed_commit_sha: <value>`` bullet inside the
+    ``## Per-producer assessment`` section; this scan walks the file
+    once and pairs each heading with the first matching bullet that
+    follows it.
+    """
+    out: dict[str, str] = {}
+    current_producer: str | None = None
+    for raw_line in memory_text.splitlines():
+        heading = _PRODUCER_HEADING_RE.match(raw_line)
+        if heading:
+            current_producer = heading.group(1).strip().strip("`") or None
+            continue
+        sha_match = _LAST_REVIEWED_SHA_RE.match(raw_line)
+        if sha_match and current_producer:
+            value = sha_match.group(1).strip()
+            # ``-`` sentinel = "no prior review"; skip so the wrapper
+            # doesn't render ``git log -..HEAD``.
+            if value and value != "-":
+                out[current_producer] = value
+            # First match wins per producer — same shape the slice-1
+            # writer produces (one bullet per heading).
+            current_producer = None
+    return out
+
+
+def _read_memory_excerpt(memory_path: Path, mode: str) -> str:
+    """Read ``memory_path`` iff ``EGG_BRC_MEMORY`` is ``full``.
+
+    Slice-1 ships with the writer in ``write-only`` mode by default;
+    the reader path is gated separately so slice-4 can flip the default
+    in one place without touching slice-3's wiring. ``mode`` is the
+    normalised env value (lowercased, stripped).
+    """
+    if mode != _MEMORY_MODE_FULL:
+        return ""
+    try:
+        return memory_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return ""
+
+
+def _run_git_log(
+    sha: str,
+    base_branch: str,
+    repo_path: Path,
+) -> str:
+    """Render ``git log {sha}..HEAD --not origin/{base_branch} -p``.
+
+    Runs the subprocess in ``repo_path``. The gateway allows
+    ``git log`` with ``-p`` / ``--patch`` and ``--not`` flags (see
+    ``gateway`` allow-list; #2905). On non-zero rc or timeout we
+    return a sentinel string so the agent can audit the failure
+    explicitly rather than silently reviewing an empty diff.
+    """
+    cmd = [
+        "git",
+        "log",
+        f"{sha}..HEAD",
+        "--not",
+        f"origin/{base_branch}",
+        "-p",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            timeout=_GIT_LOG_TIMEOUT_SECS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"(git log timed out after {_GIT_LOG_TIMEOUT_SECS}s for {sha}..HEAD)"
+    except OSError as exc:  # pragma: no cover — defensive
+        return f"(git log failed: {exc})"
+
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        return f"(git log returned rc={result.returncode}: {stderr or 'no stderr'})"
+
+    payload = result.stdout or ""
+    encoded = payload.encode("utf-8")
+    if len(encoded) > _GIT_LOG_DELTA_MAX_BYTES:
+        # Truncate at the byte cap and re-decode with replacement so a
+        # UTF-8 multibyte sequence split at the boundary doesn't crash
+        # the rendering. The truncation sentinel is on its own line so
+        # the agent sees the cut explicitly.
+        truncated = encoded[:_GIT_LOG_DELTA_MAX_BYTES].decode("utf-8", errors="replace")
+        return (
+            truncated
+            + "\n…(truncated — delta exceeded "
+            + f"{_GIT_LOG_DELTA_MAX_BYTES} bytes; the agent should pull "
+            + "the full delta with the command above if a thorough audit is required)\n"
+        )
+    return payload
+
+
+def _build_delta_entries(
+    *,
+    action: str,
+    role: str,
+    base_branch: str,
+    repo_path: Path,
+    memory_text: str,
+) -> list[dict[str, Any]]:
+    """Render per-producer deltas for the current action.
+
+    For review actions (``ack`` / ``nack``) we render one delta per
+    producer with a stored ``last_reviewed_commit_sha`` in the memory
+    file. For producer actions (``propose`` / ``confirm``) there is
+    no per-producer delta — the producer just looks at HEAD.
+
+    ``role`` is currently unused inside the function body; the
+    parameter is retained for the call-site symmetry (architect
+    plan: the composer signature passes role through alongside
+    action so a future revision can scope the producer set by the
+    reviewer/producer relationship).
+    """
+    del role  # see docstring
+    if action not in ("ack", "nack"):
+        return []
+    per_producer = _parse_per_producer_sha(memory_text)
+    if not per_producer:
+        return []
+    out: list[dict[str, Any]] = []
+    for producer in sorted(per_producer.keys()):
+        sha = per_producer[producer]
+        delta = _run_git_log(sha, base_branch, repo_path)
+        out.append(
+            {
+                "producer": producer,
+                "last_reviewed_commit_sha": sha,
+                "delta": delta,
+            }
+        )
+    return out
+
+
+def _extract_nacks(event_payload: Any) -> list[dict[str, Any]]:
+    """Pull a structured open-NACK list out of the event payload.
+
+    The orchestrator's ``next-action`` route surfaces the open-NACK
+    barrier (``orchestrator/peer_consensus.py:_open_nacks_barrier_response``)
+    inside the event_payload when the action verb is ``propose`` on a
+    re-propose. Two keys are accepted so the surface naming can evolve
+    without breaking the wrapper:
+
+    * ``nacks`` — the canonical key from ``_open_nacks_barrier_response``.
+    * ``aggregated_nacks`` — accepted for forward-compat in case the
+      next-action route synthesises its own barrier-equivalent payload.
+
+    Non-list values are coerced to an empty list rather than raised so
+    a schema drift surfaces as "no NACKs rendered" rather than a hard
+    crash in the wrapper.
+    """
+    if not isinstance(event_payload, dict):
+        return []
+    raw = event_payload.get("nacks")
+    if not isinstance(raw, list):
+        raw = event_payload.get("aggregated_nacks")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            out.append(entry)
+    return out
+
+
+def _cli(argv: list[str] | None = None) -> int:
+    """Render the per-event prompt for the wrapper bash (TASK-3-2).
+
+    Reads the action from argv, the event payload from stdin, and the
+    role / base branch / repo path / memory mode from env. Prints the
+    rendered prompt to stdout. The wrapper bash invokes this as::
+
+        prompt=$(printf '%s' "$event_payload" \\
+            | python3 /opt/egg-runtime/orchestrator/routes/event_prompt.py \\
+                "$action")
+
+    Env vars consumed:
+
+    * ``EGG_AGENT_ROLE`` (required) — agent role token; surfaces in
+      role banner and gates the memory-file path.
+    * ``EGG_BASE_BRANCH`` (default ``main``) — substituted into the
+      ``--not origin/<base>`` term of the git-log delta.
+    * ``EGG_REPO_PATH`` (default cwd) — working directory for the
+      git-log subprocess + base for the memory-file path resolution.
+    * ``EGG_BRC_MEMORY`` (default ``off``) — slice-1 reader gate;
+      ``full`` enables the read path, anything else skips it.
+    """
+    parser = argparse.ArgumentParser(
+        description="Render the per-event BRC event-pump prompt (slice-3).",
+    )
+    parser.add_argument(
+        "action",
+        help="next-action verb: 'propose' | 'ack' | 'nack' | 'confirm' | 'complete'",
+    )
+    parser.add_argument(
+        "--event-payload-file",
+        default="",
+        help="Path to a file containing the event_payload JSON (alternative to stdin).",
+    )
+    args = parser.parse_args(argv)
+
+    role = (os.environ.get("EGG_AGENT_ROLE") or "").strip() or "unknown"
+    base_branch = (os.environ.get("EGG_BASE_BRANCH") or "").strip() or "main"
+    repo_path = Path(os.environ.get("EGG_REPO_PATH") or os.getcwd())
+    memory_mode = (os.environ.get("EGG_BRC_MEMORY") or "off").strip().lower()
+
+    # Event payload — JSON on stdin (preferred) or from --event-payload-file.
+    if args.event_payload_file:
+        try:
+            event_raw = Path(args.event_payload_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"event_prompt: cannot read --event-payload-file: {exc}", file=sys.stderr)
+            return 2
+    else:
+        event_raw = sys.stdin.read()
+    event_raw = (event_raw or "").strip()
+    if event_raw:
+        try:
+            event_payload = json.loads(event_raw)
+        except json.JSONDecodeError:
+            # Surface the raw payload so the agent can still see the
+            # source string — better than silently treating it as
+            # empty when the wrapper passed something we couldn't parse.
+            event_payload = {"action": args.action, "raw": event_raw}
+    else:
+        event_payload = {"action": args.action}
+
+    memory_path = (
+        repo_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
+    )
+    memory_text = _read_memory_excerpt(memory_path, memory_mode)
+    # Even in ``write-only`` mode we still parse per-producer SHAs from
+    # the on-disk file so the slice-3 wrapper renders the delta — the
+    # mode gates only whether the markdown excerpt itself flows into
+    # the prompt, not whether the per-producer SHAs flow into the
+    # delta command. This matches the slice-3 plan TASK-3-2 wording:
+    # "with ``EGG_BRC_MEMORY=write-only`` (slice-1 default), the prompt
+    # omits memory but still emits the git-log delta against … a
+    # fallback baseline".
+    sha_lookup_text = memory_text
+    if not sha_lookup_text and memory_path.exists():
+        try:
+            sha_lookup_text = memory_path.read_text(encoding="utf-8")
+        except OSError:
+            sha_lookup_text = ""
+
+    delta_entries = _build_delta_entries(
+        action=args.action,
+        role=role,
+        base_branch=base_branch,
+        repo_path=repo_path,
+        memory_text=sha_lookup_text,
+    )
+
+    nacks = _extract_nacks(event_payload)
+
+    prompt = compose_event_prompt(
+        role,
+        event_payload if isinstance(event_payload, dict) else {"raw": event_payload},
+        memory_text,
+        nacks,
+        delta_entries,
+        base_branch,
+    )
+    sys.stdout.write(prompt)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover — wrapper-bash entry-point
+    sys.exit(_cli())
