@@ -187,9 +187,7 @@ def test_event_handler_contract_present(role: str) -> None:
     ("role", "baseline_bytes"),
     sorted(PRE_COLLAPSE_BASELINE_BYTES.items()),
 )
-def test_preamble_byte_size_drops_by_at_least_25_percent(
-    role: str, baseline_bytes: int
-) -> None:
+def test_preamble_byte_size_drops_by_at_least_25_percent(role: str, baseline_bytes: int) -> None:
     """The collapsed preamble must shed ≥ 25% of the pre-collapse bytes."""
     text = _render(role)
     current_bytes = len(text.encode("utf-8"))

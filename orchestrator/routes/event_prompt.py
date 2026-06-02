@@ -85,9 +85,7 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 1] + "…"
 
 
-def _render_event_section(
-    role: str, event_payload: dict[str, Any] | None
-) -> str:
+def _render_event_section(role: str, event_payload: dict[str, Any] | None) -> str:
     """Render the role banner + event description.
 
     The event payload is serialised as JSON (sorted keys, 2-space
@@ -323,9 +321,7 @@ def compose_event_prompt(
     base_branch = (base_branch or "main").strip() or "main"
 
     event_section = _render_event_section(role, event_payload)
-    delta_section, _delta_bytes = _render_producer_delta_section(
-        git_log_delta, base_branch
-    )
+    delta_section, _delta_bytes = _render_producer_delta_section(git_log_delta, base_branch)
     nacks_section = _render_nacks_section(nacks)
     memory_section = _render_memory_section(memory_excerpt)
 
@@ -383,9 +379,7 @@ _GIT_LOG_DELTA_MAX_BYTES = 256 * 1024  # 256 KiB per producer
 # slice-1 writer renders the value as either a 7-40 char SHA or the
 # ``-`` sentinel for "no prior review" (see
 # ``sandbox/egg_agent_tools/handlers/brc_memory.py::_render_assessment``).
-_LAST_REVIEWED_SHA_RE = re.compile(
-    r"^\s*-\s*last_reviewed_commit_sha\s*:\s*(\S+)\s*$"
-)
+_LAST_REVIEWED_SHA_RE = re.compile(r"^\s*-\s*last_reviewed_commit_sha\s*:\s*(\S+)\s*$")
 _PRODUCER_HEADING_RE = re.compile(r"^\s*###\s+(.+?)\s*$")
 
 
@@ -627,9 +621,7 @@ def _cli(argv: list[str] | None = None) -> int:
     else:
         event_payload = {"action": args.action}
 
-    memory_path = (
-        repo_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
-    )
+    memory_path = repo_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
     memory_text = _read_memory_excerpt(memory_path, memory_mode)
     # Even in ``write-only`` mode we still parse per-producer SHAs from
     # the on-disk file so the slice-3 wrapper renders the delta — the

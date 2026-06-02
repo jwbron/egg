@@ -106,9 +106,7 @@ def test_reviewer_ack_prompt_includes_delta_and_memory() -> None:
 
     contract_idx = prompt.index("## What to do")
     memory_idx = prompt.index("## Durable BRC memory")
-    assert memory_idx > contract_idx, (
-        "Memory must sit at the prompt tail (architect od-6 Option B)"
-    )
+    assert memory_idx > contract_idx, "Memory must sit at the prompt tail (architect od-6 Option B)"
 
 
 def test_dual_role_tester_prompt_handles_dual_perspective() -> None:
@@ -127,9 +125,7 @@ def test_dual_role_tester_prompt_handles_dual_perspective() -> None:
             "delta": "diff --git a/y.py b/y.py\n",
         }
     ]
-    memory_excerpt = (
-        "## Codebase / change model\n\nTester reviews coder's tests.\n"
-    )
+    memory_excerpt = "## Codebase / change model\n\nTester reviews coder's tests.\n"
 
     prompt = compose_event_prompt(
         "tester",
@@ -170,8 +166,7 @@ def test_memory_excerpt_truncates_at_two_kb() -> None:
     assert a_runs, "memory excerpt block missing the truncated payload"
     longest = max(len(r) for r in a_runs)
     assert longest <= MEMORY_EXCERPT_MAX_CHARS, (
-        f"truncation cap breached: longest A-run is {longest} > "
-        f"{MEMORY_EXCERPT_MAX_CHARS}"
+        f"truncation cap breached: longest A-run is {longest} > {MEMORY_EXCERPT_MAX_CHARS}"
     )
     # Truncation sentinel present.
     assert "…" in section
