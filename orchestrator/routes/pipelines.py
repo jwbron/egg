@@ -12369,39 +12369,55 @@ def _build_brc_preamble(
         if roster:
             lines.append(roster)
 
-    # Dual-role ordering banner (#2749). A dual-role agent (today: only
-    # TESTER in the implement graph) receives both the Producer and
-    # Reviewer Lifecycle blocks below. Without an explicit ordering
-    # constraint, agents observed in pipelines f4c7d780 / 8b81ed32
-    # entered the reviewer-style ``wait-loop --for CONSENSUS_PROPOSE``
-    # BEFORE issuing their own producer PROPOSE — self-blocking the BRC
-    # round for 8–20 minutes per slice until they eventually proposed.
-    # The fix is two-pronged: (1) state the execution order up-front so
-    # the agent does not improvise it, and (2) augment the producer
-    # pre-confirm + STAY ALIVE waits (steps 4 and 6 below) to also wake
-    # on ``CONSENSUS_PROPOSE`` so the dual-role agent does not need a
-    # second wait-loop for its reviewer POLL after it has proposed.
+    # Dual-role ordering banner (#2749, updated for coder-owns-tests). A
+    # dual-role agent (today: only TESTER in the implement graph) receives
+    # both the Producer and Reviewer Lifecycle blocks below. The coder now
+    # authors its own tests; the tester's job is to review-and-harden them
+    # after the coder proposes. So the tester's producer WORK legitimately
+    # depends on the coder's ``CONSENSUS_PROPOSE`` — it orients up-front,
+    # waits for the coder's propose, then hardens + proposes + ACK/NACKs in
+    # one pass. This does not reintroduce the f4c7d780 / 8b81ed32 self-block
+    # (where the tester idled on a reviewer wait-loop before proposing its
+    # own scaffolded work): the coder proposes independently and does not
+    # wait on the tester, so the coder's propose is the trigger, and the
+    # tester proposes right after. The tester therefore has TWO reviewer
+    # rendezvous points: (a) the pre-PROPOSE wait-loop in step 1 of the
+    # banner below catches the coder's first ``CONSENSUS_PROPOSE`` (so the
+    # tester has something to harden); (b) re-proposes and peer-producer
+    # proposals after the tester has proposed fold into Producer Lifecycle
+    # step 4 / step 6, whose augmented filter already wakes on
+    # ``CONSENSUS_PROPOSE``.
     if is_dual_role:
         lines.append(
-            "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"
-            "You are both PRODUCER and REVIEWER. **The BRC round cannot "
-            "close until every producer (including you) has issued "
-            "`mcp__brc__propose` / `egg-orch consensus propose`.** If you "
-            "enter a reviewer-style `wait-loop --for CONSENSUS_PROPOSE` "
-            "before you have proposed your own work, you self-block the "
-            "round: peer producers waiting for your version sit idle, "
-            "your own reviewers have no version to ACK, and the slice "
-            "burns wall-clock until the overseer escalates.\n\n"
+            "### Dual-Role Execution Order (READ FIRST — #2749, updated for "
+            "coder-owns-tests)\n\n"
+            "You are both PRODUCER and REVIEWER (TESTER). **The BRC round "
+            "cannot close until every producer (including you) has issued "
+            "`mcp__brc__propose` / `egg-orch consensus propose`** — so you "
+            "MUST eventually propose, and if you wait but never propose your "
+            "own hardening you self-block the round. But your producer WORK "
+            "(reviewing and **hardening the coder's tests**) genuinely "
+            "depends on the coder's proposed tests existing, so unlike a "
+            "normal producer you start that work at the coder's PROPOSE, not "
+            "before. This does not deadlock: the coder proposes independently "
+            "and does **not** wait on you, so its `CONSENSUS_PROPOSE` is the "
+            "trigger that unblocks your work; you then propose right after.\n\n"
             "**Execute the lifecycles in this strict order:**\n\n"
-            "1. **Producer steps 1–3 (ORIENT → WORK → PROPOSE) come "
-            "FIRST.** While you are doing them, you may *opportunistically* "
-            "do the Reviewer Lifecycle's `1. PREPARE` work — read the "
-            "contract, scan the upstream producer's commits as they "
-            "land on the branch, draft scaffolding — but **do NOT call "
-            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` as your "
-            "scheduling primitive.** Your propose-ready iteration starts "
-            "at the upstream producer's first commit, not their first "
-            "propose.\n"
+            "1. **ORIENT first, then WAIT for the coder's PROPOSE.** Do the "
+            "Reviewer Lifecycle's `1. PREPARE` work up front — read the "
+            "contract, scan the existing test suite, form your view of "
+            "where coverage and adversarial cases belong. But **do NOT "
+            "write test files yet**: the coder authors its own tests, so "
+            "there is nothing to harden until it proposes, and racing its "
+            "in-flight commits churns against a moving target. Block on "
+            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` for the "
+            "coder. When the coder proposes, SYNC the worktree, then do "
+            "your Producer WORK (read the coder's tests; add the missing "
+            "regression + adversarial cases yourself — you share the test "
+            "scope with the coder; run the tests) and **PROPOSE** your "
+            "hardening. In the same pass, issue your reviewer verdict on "
+            "the coder: ACK if coverage is sound, or NACK naming the "
+            "specific failing test / coverage gap.\n"
             "2. **After your PROPOSE**, your producer pre-confirm wait "
             "(step 4) and STAY ALIVE wait (step 6) are **augmented to "
             "also wake on `CONSENSUS_PROPOSE`** (see the filters in "
@@ -12583,8 +12599,8 @@ def _build_brc_preamble(
                 "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
                 "land a commit that satisfies a *different* producer's "
                 "conditional-ACK obligation in-cycle — typical pattern: "
-                "the coder is gateway-blocked from a path under `tests/`, "
-                "you (as tester) cherry-pick the satisfying commit onto "
+                "the coder is gateway-blocked from a path under `docs/`, "
+                "you (as documenter) cherry-pick the satisfying commit onto "
                 "the branch — call `mcp__brc__resolve_obligation "
                 'reviewer_role="<reviewer>" producer_role="<other_producer>" '
                 "commit_sha=$(git rev-parse HEAD)` after pushing. The "
@@ -12619,20 +12635,33 @@ def _build_brc_preamble(
                 ),
                 "2. **POLL**: "
                 + (
-                    "**For dual-role agents (you), this step folds into "
-                    "Producer Lifecycle step 4 / step 6 — those waits "
-                    "already include `--for CONSENSUS_PROPOSE` per #2749. "
-                    "Do NOT issue a separate `wait-loop --for "
-                    "CONSENSUS_PROPOSE` before your own PROPOSE; that "
-                    "would self-block the BRC round (see the "
-                    "*Dual-Role Execution Order* banner above).** When "
-                    "your producer wait returns with a `CONSENSUS_PROPOSE` "
-                    "event, fall through to step 3 (SYNC) → step 4 "
-                    "(REVIEW) → step 5 (ACK/NACK) here, then re-enter "
-                    "the producer wait. Do NOT skip step 4 (REVIEW) — "
-                    "you must read the referenced files and form "
-                    "independent judgment, not ACK from the proposal "
-                    "summary alone."
+                    "**For dual-role agents (you), polling happens at TWO "
+                    "points, per the *Dual-Role Execution Order* banner "
+                    "above (updated for coder-owns-tests).** "
+                    "**(a) Pre-PROPOSE rendezvous** with the coder's "
+                    "first `CONSENSUS_PROPOSE`: this is the explicit "
+                    "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` "
+                    "in step 1 of the banner. You MUST issue it — your "
+                    "producer WORK is hardening the coder's tests, so "
+                    "there is nothing to propose until the coder has "
+                    "proposed. When that wait returns, SYNC the worktree, "
+                    "do your Producer WORK (review + harden), then "
+                    "PROPOSE and ACK/NACK the coder in the same pass "
+                    "(fall through to step 3 (SYNC) → step 4 (REVIEW) → "
+                    "step 5 (ACK/NACK) here). "
+                    "**(b) Post-PROPOSE rendezvous** with re-proposes "
+                    "(`CONSENSUS_PROPOSE` version > 1) and peer-producer "
+                    "proposals: these fold into Producer Lifecycle step 4 "
+                    "/ step 6, whose augmented filter already wakes on "
+                    "`CONSENSUS_PROPOSE` per #2749. Do NOT issue a second "
+                    "`wait-loop --for CONSENSUS_PROPOSE` after your own "
+                    "PROPOSE — the augmented producer waits already cover "
+                    "it. When a post-PROPOSE wakeup arrives, fall through "
+                    "to step 3 (SYNC) → step 4 (REVIEW) → step 5 "
+                    "(ACK/NACK) here, then re-enter the producer wait. "
+                    "Do NOT skip step 4 (REVIEW) — you must read the "
+                    "referenced files and form independent judgment, not "
+                    "ACK from the proposal summary alone."
                     if is_dual_role
                     else "Block on `CONSENSUS_PROPOSE` from assigned producers "
                     "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
@@ -12822,10 +12851,11 @@ def _build_brc_preamble(
                 "broadcast progress:",
                 "- **HANDOFF**: When your work is ready for a specific peer to act on, "
                 "send a HANDOFF message so they know to begin. For example, a coder "
-                "notifying the tester that implementation is complete.",
+                "notifying the tester that the implementation and its tests are in, so "
+                "the tester can review-and-harden them.",
                 "  ```",
                 '  egg-orch message send --to tester --type HANDOFF --subject "Auth module ready" '
-                '--body "auth.py is complete, tests can begin"',
+                '--body "auth.py + tests/test_auth.py are in; review and harden the tests"',
                 "  ```",
                 "- **STATUS**: Broadcast progress updates to all agents when you reach "
                 "significant milestones (e.g., halfway through implementation, blocked "
@@ -12869,15 +12899,15 @@ def _build_brc_preamble(
 # what artifacts they produce).
 _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "coder": (
-        "Implements code changes",
-        "commits with source files, tests may be included",
+        "Implements code changes AND authors their tests",
+        "commits with source files and their tests",
     ),
     "tester": (
-        "Writes comprehensive regression tests AND adversarially probes the "
-        "coder's implementation for bugs and edge cases (dual role: also "
-        "reviews coder)",
-        "test files (including failing tests that demonstrate bugs), check "
-        "results, gap reports back to the coder",
+        "Reviews-and-hardens the coder's tests after the coder proposes: adds "
+        "missing regression coverage AND adversarially probes the coder's "
+        "implementation for bugs and edge cases (dual role: also reviews coder)",
+        "hardened test files (including failing tests that demonstrate bugs), "
+        "check results, gap reports back to the coder",
     ),
     "documenter": (
         "Updates documentation for changes",
@@ -13043,8 +13073,10 @@ def _build_reviewer_preparation(
                 "requirements, "
                 "(c) checking the existing test infrastructure (test frameworks, "
                 "fixtures, test utilities). "
-                "Start writing test scaffolding for known requirements while "
-                "waiting — you can finalize once you see the actual implementation."
+                "Do NOT write test files while waiting — the coder authors the "
+                "tests, so there is nothing to harden until it proposes. Your "
+                "production work (reviewing + hardening the coder's tests, "
+                "running them) starts at the coder's CONSENSUS_PROPOSE."
             )
     elif phase == "plan":
         if role_value == "reviewer_plan":
@@ -13336,21 +13368,29 @@ def _build_producer_orientation(
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
-                "Identify edge cases from the requirements before writing tests. "
+                "Identify edge cases from the requirements so you know what good "
+                "coverage looks like. "
                 "**Your mandate is two-fold**: comprehensive regression "
                 "coverage AND adversarial probing for bugs the coder missed "
                 "— see the *Your Task* → mandate block for the full "
-                "instruction (including the failing-test → NACK → HANDOFF "
-                "workflow when you catch a coder-side bug). "
-                "**Scaffold-first while the coder is producing**: draft test "
-                "scaffolding from the plan alone — test file paths from "
-                "`tasks[].files`, function signatures from each task's acceptance "
-                "criteria, fixture imports, and mock-input scenarios from the YAML. "
-                "Leave assertion bodies as TODOs. Do NOT call `wait-loop` for the "
-                "coder's CONSENSUS_PROPOSE before drafting these scaffolds — the "
-                "scaffold work does not depend on coder output and recovers "
-                "downstream-producer time. Your propose-ready iteration should "
-                "start at the coder's first commit, not their first propose. "
+                "instruction (including the failing-test → NACK workflow when "
+                "you catch a coder-side bug). "
+                "**The coder now authors its own tests.** Your job is to "
+                "**review-and-harden the coder's tests**, not to write them "
+                "from scratch in parallel. **Orient only until the coder "
+                "proposes** — read the contract, scan the existing test suite, "
+                "and form your view of where coverage and adversarial cases "
+                "should land, but do NOT write test files before the coder's "
+                "CONSENSUS_PROPOSE (there is nothing to harden yet, and racing "
+                "the coder's in-flight commits churns against a moving target). "
+                "Once the coder proposes, sync the worktree, **read the coder's "
+                "tests**, decide what's missing or weak, **add the regression + "
+                "adversarial cases yourself** (you share the test scope with the "
+                "coder — your edits to coder-authored test files push cleanly), "
+                "**run the tests**, and report back to the coder with your "
+                "verdict: ACK if coverage is sound, or NACK naming the specific "
+                "failing test / coverage gap so the coder's re-propose is "
+                "actionable. "
                 "**You MUST propose** even when the slice warrants no new tests "
                 "(pure refactor / doc-only / symbol moves with no behavior "
                 "change): the BRC consensus blocks until every producer has "
@@ -13707,17 +13747,23 @@ def _build_agent_prompt(
             [
                 "**ROLE BOUNDARY: You are the TESTER, not the CODER.** "
                 "Do NOT implement application logic, create source files, write configuration, "
-                "or set up project infrastructure. Your job is to write tests for the CODER's "
-                "implementation, run checks, and report gaps. If the coder hasn't committed yet, "
-                "wait — do not implement the solution yourself.",
+                "or set up project infrastructure. **The coder authors its own tests; your job "
+                "is to review-and-harden them**, run checks, and report gaps — not to write the "
+                "test suite from scratch in parallel. **Wait for the coder's "
+                "`CONSENSUS_PROPOSE` before doing any test work**: there is nothing to harden "
+                "until the coder's tests exist, and racing its in-flight commits churns against "
+                "a moving target. Do not implement the solution yourself.",
                 "",
                 "**Your mandate is two-fold**:",
                 "",
-                "1. **Comprehensive coverage** — write tests that prevent "
-                "regressions, covering the happy path and realistic alternative "
-                "paths through every changed area. New behavior gets new tests; "
-                "modified behavior gets updated tests; nothing the coder changed "
-                "should silently lose coverage.",
+                "1. **Comprehensive coverage** — once the coder proposes, read the "
+                "coder's tests and **add the coverage they are missing** so the "
+                "suite prevents regressions across the happy path and realistic "
+                "alternative paths through every changed area. New behavior gets "
+                "new tests; modified behavior gets updated tests; nothing the "
+                "coder changed should silently lose coverage. You share the test "
+                "scope with the coder, so your edits to coder-authored test files "
+                "push cleanly.",
                 "2. **Adversarial probing** — actively probe the coder's "
                 "implementation for bugs and edge cases they missed. Treat the "
                 "implementation as suspect until you have tried to break it. "
@@ -13760,13 +13806,15 @@ def _build_agent_prompt(
                 "",
                 "If the slice **does** have new test work (real behavior "
                 "changes, new edge cases, modified contracts), do NOT use the "
-                "no-op path — author tests as usual.",
+                "no-op path — review and harden the coder's tests, adding the "
+                "missing coverage and adversarial cases as usual.",
                 "",
                 "### Testing",
                 "",
-                "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Build coverage tests for the happy path and realistic "
-                "alternative paths in every changed area",
+                "1. Review the changed files AND the coder's tests (available in "
+                "handoff data or via git diff)",
+                "2. Add coverage for the happy path and realistic alternative "
+                "paths in every changed area that the coder's tests miss",
                 "3. **Adversarially probe** the implementation: identify "
                 "suspected bugs and untested edge cases, then write tests that "
                 "target them",
