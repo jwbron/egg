@@ -5432,12 +5432,23 @@ class TestDualRoleExecutionOrdering:
                 "not review, so peer proposals are not relevant."
             )
 
-    def test_dual_role_reviewer_poll_redirects_to_producer_wait(self):
+    def test_dual_role_reviewer_poll_names_both_rendezvous_points(self):
         """Reviewer Lifecycle step 2 POLL for a dual-role agent must
-        tell the agent that the reviewer POLL collapses into the
-        producer pre-confirm / STAY ALIVE wait — and explicitly
-        forbid issuing a separate ``wait-loop --for CONSENSUS_PROPOSE``
-        before the producer has proposed (the #2749 failure mode)."""
+        name BOTH rendezvous points introduced by coder-owns-tests:
+
+        (a) the pre-PROPOSE wait-loop in banner step 1 that catches
+            the coder's first ``CONSENSUS_PROPOSE`` (required — the
+            tester's producer WORK is hardening the coder's tests, so
+            there is nothing to propose until the coder has proposed),
+            and
+        (b) the post-PROPOSE waits in Producer Lifecycle step 4 /
+            step 6 that catch re-proposes and peer-producer proposals
+            after the tester has proposed.
+
+        The pre-#2936 wording "Do NOT issue a separate ``wait-loop
+        --for CONSENSUS_PROPOSE`` before your own PROPOSE; that would
+        self-block the BRC round" must NOT appear — under the new
+        flow the pre-PROPOSE wait is required, not forbidden."""
         preamble = _build_brc_preamble("tester", "implement")
         # POLL spans from the reviewer-lifecycle ``**POLL**`` header
         # to ``**SYNC**``. The producer lifecycle has no POLL step,
@@ -5446,8 +5457,31 @@ class TestDualRoleExecutionOrdering:
         poll_start = preamble.index("**POLL**")
         poll_end = preamble.index("**SYNC**", poll_start)
         poll_block = preamble[poll_start:poll_end]
+        # Pre-PROPOSE rendezvous — must reference the banner's
+        # step 1 wait-loop and frame it as required.
+        assert "Pre-PROPOSE rendezvous" in poll_block, (
+            "Dual-role POLL must name the pre-PROPOSE rendezvous "
+            "(banner step 1 wait-loop) so the tester knows to wait "
+            "for the coder before producing."
+        )
+        assert "wait-loop --for CONSENSUS_PROPOSE" in poll_block, (
+            "Dual-role POLL must reference the explicit "
+            "`wait-loop --for CONSENSUS_PROPOSE` from banner step 1."
+        )
+        # Post-PROPOSE rendezvous — must still reference Producer
+        # Lifecycle step 4 / step 6 augmentation.
+        assert "Post-PROPOSE rendezvous" in poll_block, (
+            "Dual-role POLL must name the post-PROPOSE rendezvous "
+            "(producer step 4 / step 6 augmented filter)."
+        )
         assert "Producer Lifecycle step 4" in poll_block
-        assert "Do NOT issue a separate" in poll_block
+        # The pre-#2936 contradictory forbid must NOT appear — under
+        # coder-owns-tests the pre-PROPOSE wait is required.
+        assert "self-block the BRC round" not in poll_block, (
+            "The pre-#2936 'would self-block the BRC round' warning "
+            "must not appear — the new flow requires the pre-PROPOSE "
+            "wait, not forbids it."
+        )
 
     def test_pure_reviewer_poll_unchanged(self):
         """Pure-reviewer (e.g. ``reviewer_code``) still issues the

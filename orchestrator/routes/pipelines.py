@@ -12380,10 +12380,13 @@ def _build_brc_preamble(
     # (where the tester idled on a reviewer wait-loop before proposing its
     # own scaffolded work): the coder proposes independently and does not
     # wait on the tester, so the coder's propose is the trigger, and the
-    # tester proposes right after. The augmentation in (2) below — the
-    # producer pre-confirm + STAY ALIVE waits (steps 4 and 6) also wake on
-    # ``CONSENSUS_PROPOSE`` — still holds so the tester does not need a
-    # second wait-loop for its reviewer POLL after it has proposed.
+    # tester proposes right after. The tester therefore has TWO reviewer
+    # rendezvous points: (a) the pre-PROPOSE wait-loop in step 1 of the
+    # banner below catches the coder's first ``CONSENSUS_PROPOSE`` (so the
+    # tester has something to harden); (b) re-proposes and peer-producer
+    # proposals after the tester has proposed fold into Producer Lifecycle
+    # step 4 / step 6, whose augmented filter already wakes on
+    # ``CONSENSUS_PROPOSE``.
     if is_dual_role:
         lines.append(
             "### Dual-Role Execution Order (READ FIRST — #2749, updated for "
@@ -12632,20 +12635,33 @@ def _build_brc_preamble(
                 ),
                 "2. **POLL**: "
                 + (
-                    "**For dual-role agents (you), this step folds into "
-                    "Producer Lifecycle step 4 / step 6 — those waits "
-                    "already include `--for CONSENSUS_PROPOSE` per #2749. "
-                    "Do NOT issue a separate `wait-loop --for "
-                    "CONSENSUS_PROPOSE` before your own PROPOSE; that "
-                    "would self-block the BRC round (see the "
-                    "*Dual-Role Execution Order* banner above).** When "
-                    "your producer wait returns with a `CONSENSUS_PROPOSE` "
-                    "event, fall through to step 3 (SYNC) → step 4 "
-                    "(REVIEW) → step 5 (ACK/NACK) here, then re-enter "
-                    "the producer wait. Do NOT skip step 4 (REVIEW) — "
-                    "you must read the referenced files and form "
-                    "independent judgment, not ACK from the proposal "
-                    "summary alone."
+                    "**For dual-role agents (you), polling happens at TWO "
+                    "points, per the *Dual-Role Execution Order* banner "
+                    "above (updated for coder-owns-tests).** "
+                    "**(a) Pre-PROPOSE rendezvous** with the coder's "
+                    "first `CONSENSUS_PROPOSE`: this is the explicit "
+                    "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` "
+                    "in step 1 of the banner. You MUST issue it — your "
+                    "producer WORK is hardening the coder's tests, so "
+                    "there is nothing to propose until the coder has "
+                    "proposed. When that wait returns, SYNC the worktree, "
+                    "do your Producer WORK (review + harden), then "
+                    "PROPOSE and ACK/NACK the coder in the same pass "
+                    "(fall through to step 3 SYNC → step 4 REVIEW → "
+                    "step 5 ACK/NACK here). "
+                    "**(b) Post-PROPOSE rendezvous** with re-proposes "
+                    "(`CONSENSUS_PROPOSE` version > 1) and peer-producer "
+                    "proposals: these fold into Producer Lifecycle step 4 "
+                    "/ step 6, whose augmented filter already wakes on "
+                    "`CONSENSUS_PROPOSE` per #2749. Do NOT issue a second "
+                    "`wait-loop --for CONSENSUS_PROPOSE` after your own "
+                    "PROPOSE — the augmented producer waits already cover "
+                    "it. When a post-PROPOSE wakeup arrives, fall through "
+                    "to step 3 (SYNC) → step 4 (REVIEW) → step 5 "
+                    "(ACK/NACK) here, then re-enter the producer wait. "
+                    "Do NOT skip step 4 (REVIEW) — you must read the "
+                    "referenced files and form independent judgment, not "
+                    "ACK from the proposal summary alone."
                     if is_dual_role
                     else "Block on `CONSENSUS_PROPOSE` from assigned producers "
                     "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
