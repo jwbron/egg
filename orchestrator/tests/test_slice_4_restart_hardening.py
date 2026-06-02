@@ -18,17 +18,19 @@ Covers the five sub-tasks of slice-4 (#2777):
   Idempotent on re-entry: only PENDING is flipped; COMPLETE / BLOCKED
   / IN_PROGRESS are left untouched.
 
-* **TASK-4-3** — Merge-base fallback in
+* **TASK-4-3 / #2928** — Parent-existence gate in
   ``_resolve_slice_base_branch``: an optional
-  ``merge_base_lookup(integration_ref, derived_parent_ref) -> str | None``
-  callback validates the legacy ancestor of orphaned non-root slices.
-  A non-None SHA confirms a real fork point → fall through to the
-  dependency-derived parent. A ``None`` return → no fork point → fall
-  back to ``pipeline_branch`` (safe root-stack target for a slice
-  that was never created OR whose parent has been deleted). Probe
-  failure raises inside the callback and is caught by the resolver,
-  defaulting to the derived-parent path (conservative: never silently
-  swap on a flaky gateway).
+  ``parent_branch_exists(parent_branch) -> bool`` callback decides
+  the base for a non-root slice with no recorded parent. ``True`` →
+  the dependency-derived parent (correct for fresh AND legacy
+  slices). ``False`` → ``pipeline_branch`` (the parent PR merged into
+  ``work`` and its branch was cascade-deleted, so ``work`` already
+  contains its commits). A raised probe is caught and treated
+  conservatively as ``True`` (never silently swap a real slice onto
+  ``work`` on a flaky gateway). #2928 replaced the original
+  merge-base probe, which probed the slice's OWN not-yet-created
+  integration branch and so mis-based every fresh non-root slice onto
+  ``work`` whenever ``work`` had advanced ahead of the parent.
 
 * **TASK-4-4** — Bootstrap reconciliation 5-way classification.
   Module-level ``_classify_non_complete_slice`` returns one of five
@@ -73,10 +75,10 @@ the coder have missed?" list):
   restart.
 * TASK-4-2 PENDING → IN_PROGRESS flip is idempotent: COMPLETE /
   BLOCKED / IN_PROGRESS slices keep their status across a re-entry.
-* TASK-4-3 fallback only fires when ``merge_base_lookup`` explicitly
-  returns ``None``; a probe exception falls through to the
-  derived-parent path (never silently swaps to ``pipeline_branch``
-  on a flaky gateway).
+* TASK-4-3 / #2928 fallback to ``pipeline_branch`` only fires when
+  ``parent_branch_exists`` returns ``False``; a probe exception is
+  treated as ``True`` and falls through to the derived-parent path
+  (never silently swaps to ``pipeline_branch`` on a flaky gateway).
 * TASK-4-4 case 5: PENDING + commits-on-origin is impossible (TASK-4-2
   flips before commits could land) — the classifier must return
   ``"corrupt"`` so the operator is woken instead of the scheduler
@@ -712,13 +714,13 @@ class TestResolveSliceBaseBranchPreservesExistingBehaviour:
                 )
             ]
         )
-        probe = MagicMock(name="merge_base_lookup")
+        probe = MagicMock(name="parent_branch_exists")
         result = _resolve_slice_base_branch(
             contract,
             "slice-1",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            merge_base_lookup=probe,
+            parent_branch_exists=probe,
         )
         assert result == "egg/issue-2777-slice-4/recorded-parent"
         # Probe NOT consulted (short-circuit).
@@ -772,25 +774,29 @@ class TestResolveSliceBaseBranchPreservesExistingBehaviour:
         assert result == "egg/issue-2777-slice-4/slice-1"
 
 
-class TestResolveSliceBaseBranchMergeBaseLookupFallback:
-    """The new ``merge_base_lookup`` arm: a non-root slice with no
-    recorded parent invokes ``merge_base(integration_ref,
-    derived_parent_ref)`` to validate the legacy ancestor.
+class TestResolveSliceBaseBranchParentExistenceGate:
+    """The ``parent_branch_exists`` arm (#2928): a non-root slice with
+    no recorded parent invokes ``parent_branch_exists(parent_branch)``
+    to decide between the dependency-derived parent and
+    ``pipeline_branch``.
 
-    * Non-None SHA → real fork point → fall through to the
-      dependency-derived parent (legacy-correct stack target).
-    * ``None`` return → no fork point → fall back to
-      ``pipeline_branch`` (slice was never created OR its parent has
-      been deleted).
-    * Probe raises → conservative default ("has fork point") → fall
-      through to the derived parent so a flaky gateway never silently
-      swaps the parent.
+    * ``True`` → dependency-derived parent (correct for fresh AND
+      legacy slices).
+    * ``False`` → ``pipeline_branch`` (the parent PR merged into
+      ``work`` and its branch was cascade-deleted).
+    * Probe raises → conservative default (treated as ``True``) → the
+      derived parent, so a flaky gateway never silently swaps the
+      parent.
     """
 
-    def test_no_merge_base_falls_back_to_pipeline_branch(self) -> None:
-        """Headline TASK-4-3 case: probe returns ``None`` (no fork
-        point) ⇒ resolver returns ``pipeline_branch`` instead of the
-        dependency-derived parent."""
+    def test_fresh_slice_with_existing_parent_uses_derived_parent(self) -> None:
+        """#2928 headline regression: a FRESH non-root slice (its own
+        integration branch does not exist yet) whose dependency parent
+        branch IS on origin must stack on the derived parent — NOT on
+        ``pipeline_branch``. This is the case the old merge-base probe
+        mis-routed onto ``work`` (the slice's own branch had no fork
+        point because it had not been created yet).
+        """
         from routes.pipelines import _resolve_slice_base_branch
 
         contract = _make_contract(
@@ -804,57 +810,56 @@ class TestResolveSliceBaseBranchMergeBaseLookupFallback:
                 ),
             ]
         )
-        probe = MagicMock(name="merge_base_lookup", return_value=None)
+        probe = MagicMock(name="parent_branch_exists", return_value=True)
         result = _resolve_slice_base_branch(
             contract,
             "slice-2",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            merge_base_lookup=probe,
+            parent_branch_exists=probe,
         )
-        # The probe is called with the slice's integration ref AND the
-        # derived parent ref, both as ``refs/remotes/origin/<name>``.
-        probe.assert_called_with(
-            "refs/remotes/origin/egg/issue-2777-slice-4/slice-2",
-            "refs/remotes/origin/egg/issue-2777-slice-4/slice-1",
-        )
-        assert result == "egg/issue-2777-slice-4/work", (
-            "non-root slice with no merge-base against derived parent "
-            "must fall back to pipeline_branch (slice-4 TASK-4-3)"
-        )
-
-    def test_merge_base_resolved_keeps_derived_parent(self) -> None:
-        """Probe returns a SHA ⇒ derived parent is preserved. The
-        slice has a real fork point; the dependency-derived parent
-        is the legacy-correct stack target."""
-        from routes.pipelines import _resolve_slice_base_branch
-
-        contract = _make_contract(
-            slices=[
-                _make_slice("slice-1", parent_branch_at_creation=None),
-                _make_slice(
-                    "slice-2",
-                    deps=["slice-1"],
-                    parent_branch_at_creation=None,
-                    task_idx=2,
-                ),
-            ]
-        )
-        probe = MagicMock(return_value="deadbeefdeadbeef")
-        result = _resolve_slice_base_branch(
-            contract,
-            "slice-2",
-            pipeline_id="issue-2777-slice-4",
-            pipeline_branch="egg/issue-2777-slice-4/work",
-            merge_base_lookup=probe,
-        )
+        # Probe is asked about the DEPENDENCY PARENT branch (bare
+        # name), never the slice's own integration branch.
+        probe.assert_called_once_with("egg/issue-2777-slice-4/slice-1")
         assert result == "egg/issue-2777-slice-4/slice-1"
+
+    def test_absent_parent_falls_back_to_pipeline_branch(self) -> None:
+        """Parent branch gone from origin (merged into ``work`` and
+        cascade-deleted) ⇒ resolver returns ``pipeline_branch``, which
+        already contains the parent's commits."""
+        from routes.pipelines import _resolve_slice_base_branch
+
+        contract = _make_contract(
+            slices=[
+                _make_slice("slice-1", parent_branch_at_creation=None),
+                _make_slice(
+                    "slice-2",
+                    deps=["slice-1"],
+                    parent_branch_at_creation=None,
+                    task_idx=2,
+                ),
+            ]
+        )
+        probe = MagicMock(name="parent_branch_exists", return_value=False)
+        result = _resolve_slice_base_branch(
+            contract,
+            "slice-2",
+            pipeline_id="issue-2777-slice-4",
+            pipeline_branch="egg/issue-2777-slice-4/work",
+            parent_branch_exists=probe,
+        )
+        probe.assert_called_once_with("egg/issue-2777-slice-4/slice-1")
+        assert result == "egg/issue-2777-slice-4/work", (
+            "non-root slice whose dependency parent branch is absent "
+            "must fall back to pipeline_branch (#2928)"
+        )
 
     def test_probe_failure_falls_through_to_derived_parent(self) -> None:
         """Adversarial probe: a flaky gateway raises mid-probe. The
-        resolver MUST fall through to the derived-parent path rather
-        than silently swap to ``pipeline_branch`` (which would re-stack
-        a real slice onto the wrong base).
+        resolver MUST treat the parent as existing and return the
+        derived-parent path rather than silently swap to
+        ``pipeline_branch`` (which would re-stack a real slice onto the
+        wrong base).
         """
         from routes.pipelines import _resolve_slice_base_branch
 
@@ -870,7 +875,7 @@ class TestResolveSliceBaseBranchMergeBaseLookupFallback:
             ]
         )
 
-        def _flaky(_ref_a: str, _ref_b: str) -> str | None:
+        def _flaky(_parent_branch: str) -> bool:
             raise RuntimeError("gateway down")
 
         result = _resolve_slice_base_branch(
@@ -878,9 +883,9 @@ class TestResolveSliceBaseBranchMergeBaseLookupFallback:
             "slice-2",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            merge_base_lookup=_flaky,
+            parent_branch_exists=_flaky,
         )
-        # Conservative default ("has fork point") preserves the derived
+        # Conservative default ("parent exists") preserves the derived
         # parent — never silently swap on a flaky probe.
         assert result == "egg/issue-2777-slice-4/slice-1"
 
