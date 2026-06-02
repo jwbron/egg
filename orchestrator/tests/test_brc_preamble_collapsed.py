@@ -84,11 +84,23 @@ def test_no_positive_wait_loop_instructions(role: str) -> None:
     qualifier on every line that mentions ``wait-loop``.
     """
     text = _render(role)
+    # Accept multiple shapes of negative qualifier: ``do NOT call``,
+    # ``do NOT block on``, ``do NOT issue``, and a literal ``Do NOT``
+    # immediately preceding ``wait-loop``. These cover the producer
+    # orientation copy ("Do NOT call `wait-loop`..."), the closing
+    # event-handler contract ("you do NOT block on `wait-loop`..."),
+    # and the dual-role banner preface ("Do NOT block on a reviewer
+    # wait...").
     for line in text.splitlines():
         if "wait-loop" in line:
-            assert "do NOT block on" in line or "do NOT issue" in line, (
-                f"unexpected positive wait-loop instruction in {role}: {line!r}"
-            )
+            assert (
+                "do NOT call" in line
+                or "Do NOT call" in line
+                or "do NOT block on" in line
+                or "Do NOT block on" in line
+                or "do NOT issue" in line
+                or "Do NOT issue" in line
+            ), f"unexpected positive wait-loop instruction in {role}: {line!r}"
 
 
 @pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
