@@ -72,21 +72,22 @@ class TestDefaultRegistryParity:
         do.
         """
         built = build_agent_patterns(None)
-        # Python — coder owns source AND its tests (overlap with the tester);
-        # tester also owns tests; documenter owns markdown. The coder/tester
-        # test overlap is intentional (the coder authors its own tests).
+        # Python — coder owns source; tester owns tests; documenter
+        # owns markdown; everyone else is blocked from each other's
+        # scope.
         assert built["coder"].can_write("orchestrator/routes/pipelines.py")
-        assert built["coder"].can_write("tests/test_foo.py")
+        assert not built["coder"].can_write("tests/test_foo.py")
         assert not built["coder"].can_write("docs/index.md")
         assert built["tester"].can_write("tests/test_foo.py")
         assert not built["tester"].can_write("orchestrator/routes/pipelines.py")
         assert built["documenter"].can_write("docs/index.md")
         assert not built["documenter"].can_write("orchestrator/routes/pipelines.py")
-        # Go — same-dir tests are writable by both coder and tester.
-        assert built["coder"].can_write("internal/foo/bar_test.go")
+        # Go — same-dir tests route to tester (default ``*_test.go``
+        # in tests_globs, even without a per-repo override).
+        assert not built["coder"].can_write("internal/foo/bar_test.go")
         assert built["tester"].can_write("internal/foo/bar_test.go")
-        # JS / TS — test files are writable by both coder and tester.
-        assert built["coder"].can_write("src/foo.spec.ts")
+        # JS / TS — test files route to tester.
+        assert not built["coder"].can_write("src/foo.spec.ts")
         assert built["tester"].can_write("src/foo.spec.ts")
         # Security — agents cannot bypass blocklists from any role.
         for role in ("coder", "tester", "documenter"):
@@ -95,9 +96,8 @@ class TestDefaultRegistryParity:
 
 
 class TestJsConventionRepo:
-    """A repo that declares JS conventions: JS test paths are writable by the
-    tester AND the coder (the coder authors its own tests), and blocked for the
-    documenter."""
+    """A repo that declares JS conventions should have JS test paths route
+    to tester, not coder."""
 
     def setup_method(self):
         self.patterns = build_agent_patterns(
@@ -113,11 +113,9 @@ class TestJsConventionRepo:
             docs_globs=["docs/", "**/*.md"],
         )
 
-    def test_coder_can_write_js_test_files(self):
-        # Coder authors its own tests (overlap with the tester), even under a
-        # per-repo JS tests_globs override.
-        assert self.patterns["coder"].can_write("src/foo/__tests__/foo.test.ts")
-        assert self.patterns["coder"].can_write("src/bar.spec.ts")
+    def test_coder_blocked_from_js_test_files(self):
+        assert not self.patterns["coder"].can_write("src/foo/__tests__/foo.test.ts")
+        assert not self.patterns["coder"].can_write("src/bar.spec.ts")
 
     def test_coder_can_write_production_code(self):
         assert self.patterns["coder"].can_write("src/foo.ts")
@@ -144,10 +142,10 @@ class TestGoConventionRepo:
             docs_globs=["docs/", "**/*.md"],
         )
 
-    def test_coder_can_write_go_tests_in_source_dirs(self):
-        # Go puts tests next to source — `internal/foo/bar_test.go` is a test
-        # file, and the coder authors its own tests (overlap with the tester).
-        assert self.patterns["coder"].can_write("internal/foo/bar_test.go")
+    def test_coder_blocked_from_go_tests_in_source_dirs(self):
+        # Go puts tests next to source — `internal/foo/bar_test.go` is
+        # a test file.
+        assert not self.patterns["coder"].can_write("internal/foo/bar_test.go")
 
     def test_coder_can_write_go_source(self):
         assert self.patterns["coder"].can_write("internal/foo/bar.go")
@@ -268,18 +266,14 @@ class TestPerRepoCacheInvalidation:
     def test_repo_overrides_picked_up_after_cache_reset(self):
         from config import repo_config
 
-        # Probe via the TESTER: its allowlist tracks tests_globs, so a
-        # per-repo override changes its can_write outcome. (The coder can no
-        # longer be used as the probe — it authors its own tests, so its
-        # pattern is independent of tests_globs.)
-        # First call with mocked config returns A (JS __tests__ convention).
+        # First call with mocked config returns A.
         with patch.object(
             repo_config,
             "get_repo_role_patterns",
             return_value={"tests_globs": ["**/__tests__/"]},
         ):
-            first = get_agent_pattern_for_repo("tester", repo="owner/js-repo")
-        assert first.can_write("src/__tests__/foo.test.ts")
+            first = get_agent_pattern_for_repo("coder", repo="owner/js-repo")
+        assert not first.can_write("src/__tests__/foo.test.ts")
 
         # Without resetting, a second mock with different config still
         # returns the cached pattern.
@@ -288,7 +282,7 @@ class TestPerRepoCacheInvalidation:
             "get_repo_role_patterns",
             return_value={"tests_globs": ["**/*_test.go"]},
         ):
-            cached = get_agent_pattern_for_repo("tester", repo="owner/js-repo")
+            cached = get_agent_pattern_for_repo("coder", repo="owner/js-repo")
         assert cached is first
 
         # After reset, the next call re-reads the config.
@@ -298,11 +292,11 @@ class TestPerRepoCacheInvalidation:
             "get_repo_role_patterns",
             return_value={"tests_globs": ["**/*_test.go"]},
         ):
-            refreshed = get_agent_pattern_for_repo("tester", repo="owner/js-repo")
+            refreshed = get_agent_pattern_for_repo("coder", repo="owner/js-repo")
         assert refreshed is not first
-        # Now the tester can no longer write the JS test path because
-        # tests_globs changed to Go conventions (no JS __tests__).
-        assert not refreshed.can_write("src/__tests__/foo.test.ts")
+        # Now the JS pattern is no longer blocked because tests_globs
+        # changed to Go conventions (no JS __tests__).
+        assert refreshed.can_write("src/__tests__/foo.test.ts")
 
 
 class TestDefaultGlobConstants:
@@ -495,20 +489,18 @@ class TestSandboxEnvVarInjection:
     def test_pattern_lookup_uses_env_var_override(self, monkeypatch):
         # End-to-end: a sandbox-style env injection alters the registry
         # that ``get_agent_pattern_for_repo`` returns, without any
-        # filesystem access. Probe via the TESTER, whose allowlist tracks
-        # tests_globs (the coder is independent of tests_globs — it authors
-        # its own tests regardless).
+        # filesystem access.
         monkeypatch.setenv(
             "EGG_PIPELINE_REPO_PATTERNS_JSON",
             json.dumps({"owner/go-repo": {"tests_globs": ["**/*_test.go"]}}),
         )
-        tester = get_agent_pattern_for_repo("tester", repo="owner/go-repo")
-        assert tester is not None
-        # Go same-dir tests are now in the tester's allowlist.
-        assert tester.can_write("internal/foo/bar_test.go")
-        # Python tests are no longer special — the override replaced the
-        # global tests_globs, so test_bar.py is outside the tester's scope.
-        assert not tester.can_write("internal/foo/test_bar.py")
+        coder = get_agent_pattern_for_repo("coder", repo="owner/go-repo")
+        assert coder is not None
+        # Go same-dir tests are now blocked for coder.
+        assert not coder.can_write("internal/foo/bar_test.go")
+        # Python tests are no longer special — coder can write them
+        # because the override replaced the global tests_globs.
+        assert coder.can_write("internal/foo/test_bar.py")
 
 
 class TestCaseInsensitiveCacheKey:

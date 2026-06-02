@@ -183,32 +183,22 @@ DEFAULT_DOCS_GLOBS: list[str] = [
 
 def _build_coder_pattern(
     *,
-    tests_globs: list[str],  # noqa: ARG001 — tests are now coder-writable (see docstring); kept for signature parity
+    tests_globs: list[str],
     docs_globs: list[str],
 ) -> AgentFilePattern:
     """Build the coder role's file pattern.
 
     Coder owns every file that is NOT carved out by the blocklist (the
-    catch-all ``**`` allow). The per-repo knobs widen the docs block so
-    non-Python repos route documentation to the documenter.
-
-    Tests are intentionally **coder-writable** and overlap the tester
-    scope: the coder authors and pushes its own tests alongside the
-    source, and the tester reviews-and-hardens them after the coder
-    proposes (see ``_build_tester_pattern`` and the implement-phase
-    notes in ``docs/reference/agent-roles.md``). This retires the #1901
-    "coder == strict complement of tester" invariant for the test scope
-    only — docs/markdown and ``.egg-state/`` stay carved out. The driver
-    was that the coder naturally writes tests, the gateway 403'd the push
-    (``restricted_path_modified``), and that work was either thrown away
-    or smuggled to the tester as a patch.
+    catch-all ``**`` allow). The per-repo knobs widen the test/docs
+    blocks so non-Python repos route those files to the appropriate
+    role.
     """
     return AgentFilePattern(
         role=AgentRole.CODER,
         description=(
-            "everything except documenter's docs/markdown scope and the "
-            "pipeline-state .egg-state/ directory (agent-outputs/ carved "
-            "back); tests are coder-writable and overlap the tester"
+            "everything except tester's test scope, documenter's "
+            "docs/markdown scope, and the pipeline-state .egg-state/ "
+            "directory (agent-outputs/ carved back)"
         ),
         # Catch-all allow list — coder owns every file that is NOT carved out
         # by the blocklist below. This replaces the legacy extension-based
@@ -222,9 +212,8 @@ def _build_coder_pattern(
             ".egg-state/",
             # Documenter scope
             *docs_globs,
-            # NOTE: tester's test scope is intentionally NOT blocked — the
-            # coder authors its own tests (overlap with the tester). See the
-            # docstring above.
+            # Tester scope
+            *tests_globs,
             # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
             # branch-protection invariant. Agents that need to propose
             # `.github/` changes (CI workflow edits, CODEOWNERS rotation)
@@ -273,14 +262,6 @@ def _build_tester_pattern(
     Tester writes test files only — source-code edits are the coder's
     or autofixer's job. Per-repo knobs change the test-file allowlist
     + the docs blocklist.
-
-    The test scope now **overlaps the coder** (the coder authors its own
-    tests; see ``_build_coder_pattern``). The tester's role on tests is
-    review-and-harden: after the coder proposes, it reviews the coder's
-    tests, adds coverage / adversarial cases, runs them, and ACK/NACKs.
-    Both roles being authorized on test paths means the gateway accepts
-    either one editing a test the other authored — no attribution
-    special-casing needed.
     """
     return AgentFilePattern(
         role=AgentRole.TESTER,
@@ -583,35 +564,6 @@ OVERSEER_PATTERNS = AgentFilePattern(
 )
 
 
-# Orchestrator role pattern (#2893)
-# The orchestrator role exists for audit-log attribution of read-only
-# gh pre-flights (e.g., `gh pr list`, `gh pr view`) issued by the
-# orchestrator itself. The orchestrator never pushes through the gateway's
-# agent restriction surface, so no file writes are allowed.
-ORCHESTRATOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.ORCHESTRATOR,
-    description="read-only role for gh pre-flights; no file writes allowed",
-    allowed_patterns=[],
-    # Defense-in-depth list; `allowed_patterns=[]` already denies all writes.
-    # These entries make the intent explicit for readers grepping for what
-    # the role cannot touch.
-    blocked_patterns=[
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "orchestrator/",
-        "docs/",
-        "tests/",
-        "test/",
-        ".egg-state/",
-        ".github/",
-    ],
-)
-
-
 # Autofixer agent pattern
 # The autofixer applies automated lint/type-check/formatting fixes to source
 # and config files.  It cannot modify docs or contracts.
@@ -764,7 +716,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
-    AgentRole.ORCHESTRATOR: ORCHESTRATOR_PATTERNS,
 }
 
 
@@ -867,7 +818,6 @@ def build_agent_patterns(
         AgentRole.OVERSEER: OVERSEER_PATTERNS,
         AgentRole.AUTOFIXER: autofixer,
         AgentRole.CONFLICT_RESOLVER: conflict_resolver,
-        AgentRole.ORCHESTRATOR: ORCHESTRATOR_PATTERNS,
     }
 
 

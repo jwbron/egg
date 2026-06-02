@@ -426,19 +426,10 @@ class TestCheckAgentRestrictions:
         fr = FileRestrictionResult.allow(result.message)
         assert isinstance(fr, FileRestrictionResult)
 
-    def test_coder_allowed_for_tests(self):
-        # Coder authors its own tests (intentional overlap with the tester).
+    def test_coder_blocked_for_tests(self):
         from agent_restrictions import validate_agent_push
 
         result = validate_agent_push("coder", ["tests/test_foo.py"])
-        assert result.allowed is True
-        assert result.role == "coder"
-
-    def test_coder_blocked_for_docs(self):
-        # docs/ is the documenter's scope — still blocked for the coder.
-        from agent_restrictions import validate_agent_push
-
-        result = validate_agent_push("coder", ["docs/guide.md"])
         assert result.allowed is False
         assert result.role == "coder"
 

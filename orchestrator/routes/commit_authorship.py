@@ -156,10 +156,6 @@ def register_commit() -> tuple[Response, int] | Response:
     if branch is not None and not isinstance(branch, str):
         return _json_error("'branch' must be a string", 400)
 
-    patch_id = data.get("patch_id")
-    if patch_id is not None and not isinstance(patch_id, str):
-        return _json_error("'patch_id' must be a string", 400)
-
     try:
         store = get_store()
     except Exception as exc:
@@ -173,7 +169,6 @@ def register_commit() -> tuple[Response, int] | Response:
             pipeline_id=pipeline_id,
             repo=repo,
             branch=branch,
-            patch_id=patch_id,
         )
     except AuthorshipCollisionError as exc:
         logger.warning(
@@ -248,22 +243,6 @@ def register_bulk() -> tuple[Response, int] | Response:
         if not isinstance(item, dict):
             results.append({"success": False, "message": "Item must be an object"})
             continue
-        item_patch_id = item.get("patch_id")
-        # Match the per-item-route behaviour: a non-string ``patch_id`` is
-        # a misbehaving client, not a value the store should silently drop.
-        # The store also drops non-strings as defence-in-depth, but the
-        # route surface should be the consistent signal across both
-        # endpoints (a 400 / per-item failure rather than success-with-no-
-        # patch-id).
-        if item_patch_id is not None and not isinstance(item_patch_id, str):
-            results.append(
-                {
-                    "success": False,
-                    "status": 400,
-                    "message": "'patch_id' must be a string",
-                }
-            )
-            continue
         try:
             normalized_sha, inserted, _existing = store.register(
                 sha=item.get("sha", ""),
@@ -271,7 +250,6 @@ def register_bulk() -> tuple[Response, int] | Response:
                 pipeline_id=item.get("pipeline_id"),
                 repo=item.get("repo"),
                 branch=item.get("branch"),
-                patch_id=item_patch_id,
             )
         except AuthorshipCollisionError as exc:
             results.append(
@@ -325,50 +303,31 @@ def register_bulk() -> tuple[Response, int] | Response:
 @commit_authorship_bp.route("/lookup", methods=["POST"])
 @require_lifecycle_secret
 def lookup_commits() -> tuple[Response, int] | Response:
-    """Bulk attribution lookup, by SHA and/or patch-id.
+    """Bulk attribution lookup.
 
-    Request body (at least one of ``shas`` / ``patch_ids``)::
+    Request body::
 
-        { "shas": ["abc...", "def..."], "patch_ids": ["111...", "222..."] }
+        { "shas": ["abc...", "def..."] }
 
     Response::
 
         {
           "success": true,
-          "attribution": { "abc...": "coder", "def...": null },
-          "patch_attribution": { "111...": "reviewer", "222...": null }
+          "attribution": { "abc...": "coder", "def...": null }
         }
-
-    ``patch_attribution`` (#2932) is the content-based fallback the gateway
-    uses for commits whose SHA a rebase rewrote: the patch-id survives the
-    rewrite, so the original author can still be recovered.  An ambiguous
-    patch-id (two roles, identical patch) resolves to ``null``.
     """
     data = _json_body()
     if data is None:
         return _json_error("Missing or malformed JSON body", 400)
 
     shas = data.get("shas")
-    patch_ids = data.get("patch_ids")
-    if shas is None and patch_ids is None:
-        return _json_error("Provide 'shas' and/or 'patch_ids'", 400)
-
-    if shas is not None:
-        if not isinstance(shas, list):
-            return _json_error("'shas' must be a list", 400)
-        if len(shas) > _MAX_LOOKUP_BATCH:
-            return _json_error(
-                f"'shas' exceeds max batch size ({_MAX_LOOKUP_BATCH})",
-                400,
-            )
-    if patch_ids is not None:
-        if not isinstance(patch_ids, list):
-            return _json_error("'patch_ids' must be a list", 400)
-        if len(patch_ids) > _MAX_LOOKUP_BATCH:
-            return _json_error(
-                f"'patch_ids' exceeds max batch size ({_MAX_LOOKUP_BATCH})",
-                400,
-            )
+    if not isinstance(shas, list):
+        return _json_error("'shas' must be a list", 400)
+    if len(shas) > _MAX_LOOKUP_BATCH:
+        return _json_error(
+            f"'shas' exceeds max batch size ({_MAX_LOOKUP_BATCH})",
+            400,
+        )
 
     try:
         store = get_store()
@@ -376,10 +335,7 @@ def lookup_commits() -> tuple[Response, int] | Response:
         return _json_error("Commit-authorship store unavailable", 500)
 
     try:
-        attribution = store.lookup_bulk(shas) if shas is not None else {}
-        patch_attribution = (
-            store.lookup_bulk_by_patch_id(patch_ids) if patch_ids is not None else {}
-        )
+        attribution = store.lookup_bulk(shas)
     except Exception as exc:
         logger.error(
             "commit_authorship_lookup_failed",
@@ -388,13 +344,4 @@ def lookup_commits() -> tuple[Response, int] | Response:
         )
         return _json_error("Failed to look up commit authorship", 500)
 
-    return (
-        jsonify(
-            {
-                "success": True,
-                "attribution": attribution,
-                "patch_attribution": patch_attribution,
-            }
-        ),
-        200,
-    )
+    return jsonify({"success": True, "attribution": attribution}), 200

@@ -18,19 +18,17 @@ Covers the five sub-tasks of slice-4 (#2777):
   Idempotent on re-entry: only PENDING is flipped; COMPLETE / BLOCKED
   / IN_PROGRESS are left untouched.
 
-* **TASK-4-3 / #2928** — Parent-existence gate in
+* **TASK-4-3** — Merge-base fallback in
   ``_resolve_slice_base_branch``: an optional
-  ``parent_branch_exists(parent_branch) -> bool`` callback decides
-  the base for a non-root slice with no recorded parent. ``True`` →
-  the dependency-derived parent (correct for fresh AND legacy
-  slices). ``False`` → ``pipeline_branch`` (the parent PR merged into
-  ``work`` and its branch was cascade-deleted, so ``work`` already
-  contains its commits). A raised probe is caught and treated
-  conservatively as ``True`` (never silently swap a real slice onto
-  ``work`` on a flaky gateway). #2928 replaced the original
-  merge-base probe, which probed the slice's OWN not-yet-created
-  integration branch and so mis-based every fresh non-root slice onto
-  ``work`` whenever ``work`` had advanced ahead of the parent.
+  ``merge_base_lookup(integration_ref, derived_parent_ref) -> str | None``
+  callback validates the legacy ancestor of orphaned non-root slices.
+  A non-None SHA confirms a real fork point → fall through to the
+  dependency-derived parent. A ``None`` return → no fork point → fall
+  back to ``pipeline_branch`` (safe root-stack target for a slice
+  that was never created OR whose parent has been deleted). Probe
+  failure raises inside the callback and is caught by the resolver,
+  defaulting to the derived-parent path (conservative: never silently
+  swap on a flaky gateway).
 
 * **TASK-4-4** — Bootstrap reconciliation 5-way classification.
   Module-level ``_classify_non_complete_slice`` returns one of five
@@ -75,10 +73,10 @@ the coder have missed?" list):
   restart.
 * TASK-4-2 PENDING → IN_PROGRESS flip is idempotent: COMPLETE /
   BLOCKED / IN_PROGRESS slices keep their status across a re-entry.
-* TASK-4-3 / #2928 fallback to ``pipeline_branch`` only fires when
-  ``parent_branch_exists`` returns ``False``; a probe exception is
-  treated as ``True`` and falls through to the derived-parent path
-  (never silently swaps to ``pipeline_branch`` on a flaky gateway).
+* TASK-4-3 fallback only fires when ``merge_base_lookup`` explicitly
+  returns ``None``; a probe exception falls through to the
+  derived-parent path (never silently swaps to ``pipeline_branch``
+  on a flaky gateway).
 * TASK-4-4 case 5: PENDING + commits-on-origin is impossible (TASK-4-2
   flips before commits could land) — the classifier must return
   ``"corrupt"`` so the operator is woken instead of the scheduler
@@ -714,13 +712,13 @@ class TestResolveSliceBaseBranchPreservesExistingBehaviour:
                 )
             ]
         )
-        probe = MagicMock(name="parent_branch_exists")
+        probe = MagicMock(name="merge_base_lookup")
         result = _resolve_slice_base_branch(
             contract,
             "slice-1",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            parent_branch_exists=probe,
+            merge_base_lookup=probe,
         )
         assert result == "egg/issue-2777-slice-4/recorded-parent"
         # Probe NOT consulted (short-circuit).
@@ -774,29 +772,25 @@ class TestResolveSliceBaseBranchPreservesExistingBehaviour:
         assert result == "egg/issue-2777-slice-4/slice-1"
 
 
-class TestResolveSliceBaseBranchParentExistenceGate:
-    """The ``parent_branch_exists`` arm (#2928): a non-root slice with
-    no recorded parent invokes ``parent_branch_exists(parent_branch)``
-    to decide between the dependency-derived parent and
-    ``pipeline_branch``.
+class TestResolveSliceBaseBranchMergeBaseLookupFallback:
+    """The new ``merge_base_lookup`` arm: a non-root slice with no
+    recorded parent invokes ``merge_base(integration_ref,
+    derived_parent_ref)`` to validate the legacy ancestor.
 
-    * ``True`` → dependency-derived parent (correct for fresh AND
-      legacy slices).
-    * ``False`` → ``pipeline_branch`` (the parent PR merged into
-      ``work`` and its branch was cascade-deleted).
-    * Probe raises → conservative default (treated as ``True``) → the
-      derived parent, so a flaky gateway never silently swaps the
-      parent.
+    * Non-None SHA → real fork point → fall through to the
+      dependency-derived parent (legacy-correct stack target).
+    * ``None`` return → no fork point → fall back to
+      ``pipeline_branch`` (slice was never created OR its parent has
+      been deleted).
+    * Probe raises → conservative default ("has fork point") → fall
+      through to the derived parent so a flaky gateway never silently
+      swaps the parent.
     """
 
-    def test_fresh_slice_with_existing_parent_uses_derived_parent(self) -> None:
-        """#2928 headline regression: a FRESH non-root slice (its own
-        integration branch does not exist yet) whose dependency parent
-        branch IS on origin must stack on the derived parent — NOT on
-        ``pipeline_branch``. This is the case the old merge-base probe
-        mis-routed onto ``work`` (the slice's own branch had no fork
-        point because it had not been created yet).
-        """
+    def test_no_merge_base_falls_back_to_pipeline_branch(self) -> None:
+        """Headline TASK-4-3 case: probe returns ``None`` (no fork
+        point) ⇒ resolver returns ``pipeline_branch`` instead of the
+        dependency-derived parent."""
         from routes.pipelines import _resolve_slice_base_branch
 
         contract = _make_contract(
@@ -810,56 +804,57 @@ class TestResolveSliceBaseBranchParentExistenceGate:
                 ),
             ]
         )
-        probe = MagicMock(name="parent_branch_exists", return_value=True)
+        probe = MagicMock(name="merge_base_lookup", return_value=None)
         result = _resolve_slice_base_branch(
             contract,
             "slice-2",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            parent_branch_exists=probe,
+            merge_base_lookup=probe,
         )
-        # Probe is asked about the DEPENDENCY PARENT branch (bare
-        # name), never the slice's own integration branch.
-        probe.assert_called_once_with("egg/issue-2777-slice-4/slice-1")
-        assert result == "egg/issue-2777-slice-4/slice-1"
-
-    def test_absent_parent_falls_back_to_pipeline_branch(self) -> None:
-        """Parent branch gone from origin (merged into ``work`` and
-        cascade-deleted) ⇒ resolver returns ``pipeline_branch``, which
-        already contains the parent's commits."""
-        from routes.pipelines import _resolve_slice_base_branch
-
-        contract = _make_contract(
-            slices=[
-                _make_slice("slice-1", parent_branch_at_creation=None),
-                _make_slice(
-                    "slice-2",
-                    deps=["slice-1"],
-                    parent_branch_at_creation=None,
-                    task_idx=2,
-                ),
-            ]
+        # The probe is called with the slice's integration ref AND the
+        # derived parent ref, both as ``refs/remotes/origin/<name>``.
+        probe.assert_called_with(
+            "refs/remotes/origin/egg/issue-2777-slice-4/slice-2",
+            "refs/remotes/origin/egg/issue-2777-slice-4/slice-1",
         )
-        probe = MagicMock(name="parent_branch_exists", return_value=False)
-        result = _resolve_slice_base_branch(
-            contract,
-            "slice-2",
-            pipeline_id="issue-2777-slice-4",
-            pipeline_branch="egg/issue-2777-slice-4/work",
-            parent_branch_exists=probe,
-        )
-        probe.assert_called_once_with("egg/issue-2777-slice-4/slice-1")
         assert result == "egg/issue-2777-slice-4/work", (
-            "non-root slice whose dependency parent branch is absent "
-            "must fall back to pipeline_branch (#2928)"
+            "non-root slice with no merge-base against derived parent "
+            "must fall back to pipeline_branch (slice-4 TASK-4-3)"
         )
+
+    def test_merge_base_resolved_keeps_derived_parent(self) -> None:
+        """Probe returns a SHA ⇒ derived parent is preserved. The
+        slice has a real fork point; the dependency-derived parent
+        is the legacy-correct stack target."""
+        from routes.pipelines import _resolve_slice_base_branch
+
+        contract = _make_contract(
+            slices=[
+                _make_slice("slice-1", parent_branch_at_creation=None),
+                _make_slice(
+                    "slice-2",
+                    deps=["slice-1"],
+                    parent_branch_at_creation=None,
+                    task_idx=2,
+                ),
+            ]
+        )
+        probe = MagicMock(return_value="deadbeefdeadbeef")
+        result = _resolve_slice_base_branch(
+            contract,
+            "slice-2",
+            pipeline_id="issue-2777-slice-4",
+            pipeline_branch="egg/issue-2777-slice-4/work",
+            merge_base_lookup=probe,
+        )
+        assert result == "egg/issue-2777-slice-4/slice-1"
 
     def test_probe_failure_falls_through_to_derived_parent(self) -> None:
         """Adversarial probe: a flaky gateway raises mid-probe. The
-        resolver MUST treat the parent as existing and return the
-        derived-parent path rather than silently swap to
-        ``pipeline_branch`` (which would re-stack a real slice onto the
-        wrong base).
+        resolver MUST fall through to the derived-parent path rather
+        than silently swap to ``pipeline_branch`` (which would re-stack
+        a real slice onto the wrong base).
         """
         from routes.pipelines import _resolve_slice_base_branch
 
@@ -875,7 +870,7 @@ class TestResolveSliceBaseBranchParentExistenceGate:
             ]
         )
 
-        def _flaky(_parent_branch: str) -> bool:
+        def _flaky(_ref_a: str, _ref_b: str) -> str | None:
             raise RuntimeError("gateway down")
 
         result = _resolve_slice_base_branch(
@@ -883,9 +878,9 @@ class TestResolveSliceBaseBranchParentExistenceGate:
             "slice-2",
             pipeline_id="issue-2777-slice-4",
             pipeline_branch="egg/issue-2777-slice-4/work",
-            parent_branch_exists=_flaky,
+            merge_base_lookup=_flaky,
         )
-        # Conservative default ("parent exists") preserves the derived
+        # Conservative default ("has fork point") preserves the derived
         # parent — never silently swap on a flaky probe.
         assert result == "egg/issue-2777-slice-4/slice-1"
 
@@ -1096,147 +1091,6 @@ class TestClassifyNonCompleteSlice:
             consensus_tracker_lookup=MagicMock(),
         )
         assert result == "fresh"
-
-
-# ---------------------------------------------------------------------------
-# #2914: _slice_agents_alive() — k8s probe for restart-phase resume guard
-#
-# The fix for #2914 adds a runtime check that prevents the bootstrap
-# reconciler from calling scheduler.mark_spawned() when no live agents
-# exist. Without this, restart_phase on a sliced implement wedges the
-# pipeline: the scheduler thinks the slice is RUNNING but no containers
-# are present, so no signals can arrive and the slice never completes.
-#
-# This helper must be defensive:
-# - Returns False (force fresh re-spawn) on any k8s API error
-# - Returns False when zero pods match the slice labels
-# - Returns True only when at least one pod is in a live state
-# - Filters by both pipeline_id AND slice_id labels (not just pipeline)
-# ---------------------------------------------------------------------------
-
-
-class TestSliceAgentsAlive:
-    """Exercise _slice_agents_alive() against a stubbed spawner backend.
-
-    The helper takes ``spawner`` as a parameter (paralleling how
-    ``_classify_non_complete_slice`` takes ``gateway``) so tests inject
-    a stub directly without patching ``routes.pipelines._get_spawner``.
-    """
-
-    @staticmethod
-    def _make_container_info(container_id: str, status):
-        from models import ContainerInfo
-
-        return ContainerInfo(
-            container_id=container_id,
-            container_name=f"egg-{container_id}",
-            status=status,
-        )
-
-    def _make_spawner(self, returned_pods):
-        """Build a spawner stub whose backend.list_containers yields
-        the given pods."""
-        backend = MagicMock()
-        backend.list_containers.return_value = returned_pods
-        spawner = MagicMock()
-        spawner.backend = backend
-        return spawner
-
-    def test_true_when_running_pod_exists(self):
-        """At least one RUNNING pod → slice is live, resume is safe."""
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
-
-        pods = [
-            self._make_container_info("p1", ContainerStatus.RUNNING),
-        ]
-
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
-
-    def test_true_when_pending_pod_exists(self):
-        """PENDING pod (still scheduling) → slice is live, don't re-spawn."""
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
-
-        pods = [
-            self._make_container_info("p1", ContainerStatus.PENDING),
-        ]
-
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
-
-    def test_true_when_creating_pod_exists(self):
-        """CREATING pod (Job→Pod transition) → slice is live, don't re-spawn.
-
-        ``_LIVE_POD_STATUSES`` (``models.LIVE_POD_STATUSES``) includes
-        CREATING because k8s Jobs pass through it on their way to
-        Running. Without this branch, a slice mid-spawn would be
-        misclassified as dead and double-spawned. (reviewer suggestion 2
-        on #2916: same shape as the RUNNING/PENDING tests.)
-        """
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
-
-        pods = [
-            self._make_container_info("p1", ContainerStatus.CREATING),
-        ]
-
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
-
-    def test_false_when_no_pods(self):
-        """Zero pods → slice is dead, force fresh re-spawn."""
-        from routes.pipelines import _slice_agents_alive
-
-        spawner = self._make_spawner([])
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
-
-    def test_false_when_only_terminal_pods(self):
-        """Only EXITED/FAILED pods (post-restart_phase cleanup) → slice is dead."""
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
-
-        pods = [
-            self._make_container_info("p1", ContainerStatus.EXITED),
-            self._make_container_info("p2", ContainerStatus.FAILED),
-        ]
-
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
-
-    def test_false_on_k8s_api_error(self):
-        """Defensive: k8s API error → assume dead, force re-spawn."""
-        from routes.pipelines import _slice_agents_alive
-
-        backend = MagicMock()
-        backend.list_containers.side_effect = RuntimeError("k8s unreachable")
-        spawner = MagicMock()
-        spawner.backend = backend
-
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
-
-    def test_filters_by_pipeline_and_slice_labels(self):
-        """Helper must query with both labels to avoid false-positive on
-        a different slice in the same pipeline."""
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
-
-        backend = MagicMock()
-        backend.list_containers.return_value = [
-            self._make_container_info("p1", ContainerStatus.RUNNING),
-        ]
-        spawner = MagicMock()
-        spawner.backend = backend
-
-        _slice_agents_alive(spawner, "pipeline-x", "slice-2")
-
-        # Verify the label selector included both pipeline and slice
-        call_kwargs = backend.list_containers.call_args.kwargs
-        assert "labels" in call_kwargs
-        labels = call_kwargs["labels"]
-        assert labels["egg.pipeline.id"] == "pipeline-x"
-        assert labels["egg.slice.id"] == "slice-2"
 
 
 class TestSliceHasPendingDecision:

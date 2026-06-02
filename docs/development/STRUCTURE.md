@@ -37,7 +37,7 @@ egg/
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement); `prepare-sandbox-build-context.py` populates `repo-deps/` from `repositories.yaml` for `make build` | CI / local |
+| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`); `prepare-sandbox-build-context.py` populates `repo-deps/` from `repositories.yaml` for `make build` | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
@@ -59,7 +59,7 @@ gateway/
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
 ├── agent_restrictions.py   # Agent role-based file access enforcement
 ├── commit_observer.py      # Gateway-inline commit observer: registers new SHAs with the authorship registry after each git-execute call
-├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk + lookup_patch_ids for SHA-rewrite recovery)
+├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk)
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints

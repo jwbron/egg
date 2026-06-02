@@ -1106,15 +1106,10 @@ class TestAgentRole:
         assert AgentRole.OVERSEER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
-        # Issue #2893 — ORCHESTRATOR joined the registry as an audit-log
-        # attribution role for read-only gh pre-flights (gh pr list /
-        # pr view) issued by the orchestrator itself.
-        assert AgentRole.ORCHESTRATOR in roles
-        # Registry-size pin. Count grew from the original 18 → 19 with
-        # APPLIER (#1557) → 20 with ORCHESTRATOR (#2893). Bump this and
-        # add the matching `assert AgentRole.X in roles` above whenever a
-        # new role lands.
-        assert len(roles) == 20
+        # Issue #1557: APPLIER asserted above next to the other execution
+        # roles (CODER / TESTER / DOCUMENTER); count assertion below
+        # pins the registry size including APPLIER.
+        assert len(roles) == 19
 
 
 class TestBackwardCompatibility:

@@ -1650,12 +1650,13 @@ def _check_role_files(task: Task, slice_id: str, repo: str | None = None) -> str
     ``None`` if the task's ``role`` can push every file in
     ``files_affected``.
 
-    Per-task hook kept separate from the outer slice walk so the
-    role-vs-files check can grow (per-repo overrides, role-specific
-    exceptions) without restructuring ``validate_task_role_alignment``.
-    The check delegates to ``_is_file_blocked_for_role``, which is the
-    same predicate the gateway enforces at push time — so plan-time
-    rejections match push-time rejections.
+    Per-task hook so the #2530 follow-up can thread a future
+    ``includes_tests: true`` opt-in through here without restructuring
+    the outer walk: a coder task that legitimately couples tests to
+    its own production code is the most common false-positive case
+    (24 of 25 misassignments in the #2530 audit), and that flag is the
+    proposed exception. Until the flag exists this function reports
+    every coder-with-test-files mismatch.
 
     Tasks without a ``role`` or with empty ``files_affected`` return
     ``None`` — the parser already treats ``role`` as optional, and an
@@ -1705,9 +1706,8 @@ def validate_task_role_alignment(slices: list[Slice], repo: str | None = None) -
     at plan time lets the plan reviewer NACK the planner before any
     producer cycle is wasted.
 
-    Per-task logic lives in ``_check_role_files`` so future
-    role-vs-files exceptions can be added without restructuring this
-    outer walk.
+    Per-task logic lives in ``_check_role_files`` so the #2530
+    ``includes_tests`` follow-up has a clear hook point.
 
     Args:
         slices: The slice list extracted from the contract / plan.

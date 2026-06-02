@@ -1753,37 +1753,35 @@ class TestCreateSlicePR:
 
 class TestLookupOpenPr:
     """#2777 cq-8 / task-3-2: ``GatewayClient._lookup_open_pr`` is the
-    server-side idempotency primitive used by ``create_slice_pr``.
+    new server-side idempotency primitive used by ``create_slice_pr``
+    (and adoptable by the context-PR opener in a follow-up).
 
-    The lookup runs on the **control-plane** route
-    ``/api/v1/gh/find_open_pr`` with launcher auth — the orchestrator is
-    the server that manages pipelines, not an agent, so it does not
-    register a synthetic agent session or impersonate a role on the
-    per-agent ``/api/v1/gh/execute`` surface (the #2893 conflation this
-    supersedes). These tests exercise the helper's contract in isolation
-    against a mocked ``_make_request``: it POSTs ``{repo, head, base}``
-    with ``use_launcher_auth=True`` and reads ``data.number`` from the
-    response. The wider call-site behaviour (no ``gh pr create`` invoked
-    when an existing PR matches) lives in the ``TestCreateSlicePR`` block
-    above; these tests pin the primitive's own input/output contract.
+    These tests exercise the helper's contract in isolation against a
+    mocked ``_make_request`` — the helper builds the ``gh pr list
+    --head <head> --base <base> --state open --json number`` call and
+    parses the stdout JSON. The wider call-site behaviour (no
+    ``gh pr create`` invoked when an existing PR matches) lives in the
+    ``TestCreateSlicePR`` block above; these tests pin the primitive's
+    own input/output contract.
     """
 
-    def test_lookup_open_pr_uses_control_plane_route_with_launcher_auth(self, gateway_client):
-        """The lookup must hit the launcher-authed control-plane route,
-        never register a synthetic agent session."""
+    def test_lookup_open_pr_returns_existing_pr_number_on_hit(self, gateway_client):
         from unittest.mock import patch
 
-        captured: dict = {}
-
-        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
-            captured["endpoint"] = endpoint
-            captured["data"] = data
-            captured["use_launcher_auth"] = kwargs.get("use_launcher_auth")
-            return {"success": True, "data": {"number": 4242}}
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {
+                "success": True,
+                "data": {"stdout": '[{"number": 4242}]'},
+            }
 
         with (
-            patch.object(gateway_client, "register_session") as mock_register,
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
             patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
         ):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
@@ -1792,25 +1790,25 @@ class TestLookupOpenPr:
                 base="egg/issue-42/work",
             )
         assert result == 4242
-        assert captured["endpoint"] == "/api/v1/gh/find_open_pr"
-        assert captured["use_launcher_auth"] is True
-        assert captured["data"] == {
-            "repo": "owner/repo",
-            "head": "egg/issue-42/slice-1",
-            "base": "egg/issue-42/work",
-        }
-        mock_register.assert_not_called()
 
     def test_lookup_open_pr_returns_none_on_miss(self, gateway_client):
-        """A ``null`` number (no PR matches the head + base filter) is the
-        canonical miss — ``_lookup_open_pr`` returns None so the caller
-        falls through to ``gh pr create``."""
+        """An empty ``gh pr list`` result (no PR matches the head + base
+        filter) is the canonical miss — ``_lookup_open_pr`` returns None
+        so the caller falls through to ``gh pr create``."""
         from unittest.mock import patch
 
-        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
-            return {"success": True, "data": {"number": None}}
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {"success": True, "data": {"stdout": "[]"}}
 
-        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
+        ):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
@@ -1820,14 +1818,17 @@ class TestLookupOpenPr:
         assert result is None
 
     def test_lookup_open_pr_returns_none_on_missing_head_or_base(self, gateway_client):
-        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke the lookup
-        with an empty ``head`` or ``base`` filter (would surface every open
-        PR in the repo and the caller's ``if existing is not None`` would
-        match the first one, spuriously treating an unrelated PR as the
-        idempotent hit)."""
+        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke
+        ``gh pr list`` with an empty ``--head`` or ``--base`` filter
+        (would surface every open PR in the repo and the caller's
+        ``if existing is not None`` would match the first one,
+        spuriously treating an unrelated PR as the idempotent hit)."""
         from unittest.mock import patch
 
-        with patch.object(gateway_client, "_make_request") as mock_request:
+        with (
+            patch.object(gateway_client, "register_session") as mock_register,
+            patch.object(gateway_client, "_make_request") as mock_request,
+        ):
             # Empty head.
             assert (
                 gateway_client._lookup_open_pr(
@@ -1848,18 +1849,27 @@ class TestLookupOpenPr:
                 )
                 is None
             )
+        mock_register.assert_not_called()
         mock_request.assert_not_called()
 
-    def test_lookup_open_pr_returns_none_on_transport_error(self, gateway_client):
-        """Transport failure returns None and the caller falls through to
-        ``gh pr create``. Never raise — a transient lookup failure must not
-        block PR creation."""
+    def test_lookup_open_pr_returns_none_on_malformed_json(self, gateway_client):
+        """Transport / parse failure: malformed JSON stdout returns
+        None and the caller falls through to ``gh pr create``. Never
+        raise — a transient lookup failure must not block PR creation."""
         from unittest.mock import patch
 
-        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
-            raise RuntimeError("gateway unreachable")
+        def fake_make_request(endpoint, method, data, bearer_token):  # noqa: ARG001
+            return {"success": True, "data": {"stdout": "not-json"}}
 
-        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                return_value=type("S", (), {"session_token": "tok"})(),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+            patch.object(gateway_client, "delete_session"),
+        ):
             result = gateway_client._lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
@@ -2051,173 +2061,6 @@ class TestListRemoteBranchesWithShasOperationTag:
             "container_id"
         )
         assert registered_id == "pipeline-1-stacked-pr-ls-remote"
-
-
-class TestLsRemoteBranchStrict:
-    """Tests for ``ls_remote_branch_strict`` — the strict tri-state
-    ls-remote helper (#2928).
-
-    The lenient ``ls_remote_branch`` swallows gateway/network/policy
-    failures and returns ``False`` — collapsing "branch absent on
-    origin" with "probe could not be performed". That is unsafe for
-    the ``_resolve_slice_base_branch`` parent-existence gate, which
-    treats ``False`` as "parent merged + cascade-deleted → route the
-    slice onto ``pipeline_branch``" but a raised probe as "conservative
-    default: assume the parent exists". The strict variant exists to
-    preserve that distinction.
-    """
-
-    def test_present_branch_returns_true(self, gateway_client):
-        """Success path: present branch returns True AND the synthetic
-        session is torn down. Pinning the teardown on the success path
-        — not just the error path (``test_session_deleted_on_error``) —
-        guards against a future refactor that drops the ``finally``
-        block and silently leaks gateway sessions on every successful
-        probe.
-        """
-        session = MagicMock()
-        session.session_token = "synthetic-token-xyz"
-        with (
-            patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session") as mock_del,
-            patch.object(
-                gateway_client,
-                "_make_request",
-                return_value={"data": {"stdout": "abc123\trefs/heads/egg/issue-X/slice-1\n"}},
-            ),
-        ):
-            result = gateway_client.ls_remote_branch_strict(
-                pipeline_id="issue-X",
-                repo_path="/tmp/x",
-                ref="refs/heads/egg/issue-X/slice-1",
-            )
-        assert result is True
-        mock_del.assert_called_once_with("synthetic-token-xyz")
-
-    def test_absent_branch_returns_false(self, gateway_client):
-        """An empty ls-remote stdout means the ref is absent on origin —
-        this is the canonical FALSE return the resolver uses to route
-        onto ``pipeline_branch``."""
-        session = MagicMock()
-        session.session_token = "synthetic-token-xyz"
-        with (
-            patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session"),
-            patch.object(
-                gateway_client,
-                "_make_request",
-                return_value={"data": {"stdout": ""}},
-            ),
-        ):
-            result = gateway_client.ls_remote_branch_strict(
-                pipeline_id="issue-X",
-                repo_path="/tmp/x",
-                ref="refs/heads/egg/issue-X/slice-1",
-            )
-        assert result is False
-
-    def test_gateway_error_raises(self, gateway_client):
-        """The strict contract: a GatewayError from the underlying
-        ``/git/fetch`` call MUST propagate to the caller — NOT be
-        swallowed and returned as ``False``. This is what makes the
-        method usable as the parent-existence probe in
-        ``_resolve_slice_base_branch``: the resolver's ``try/except``
-        catches the raised error and applies the conservative
-        "assume parent exists" default, instead of mis-routing a
-        real slice onto ``pipeline_branch`` on a flaky gateway (#2928).
-        """
-        session = MagicMock()
-        session.session_token = "synthetic-token-xyz"
-        with (
-            patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session"),
-            patch.object(
-                gateway_client,
-                "_make_request",
-                side_effect=GatewayError("gateway is down", status_code=502),
-            ),
-            pytest.raises(GatewayError, match="gateway is down"),
-        ):
-            gateway_client.ls_remote_branch_strict(
-                pipeline_id="issue-X",
-                repo_path="/tmp/x",
-                ref="refs/heads/egg/issue-X/slice-1",
-            )
-
-    def test_register_session_error_raises(self, gateway_client):
-        """A failure during session bootstrap (auth / network) MUST
-        propagate. Lenient ``ls_remote_branch`` would log + return
-        ``False``; the strict variant must NOT."""
-        with (
-            patch.object(
-                gateway_client,
-                "register_session",
-                side_effect=GatewayError("register failed", status_code=500),
-            ),
-            patch.object(gateway_client, "delete_session"),
-            pytest.raises(GatewayError, match="register failed"),
-        ):
-            gateway_client.ls_remote_branch_strict(
-                pipeline_id="issue-X",
-                repo_path="/tmp/x",
-                ref="refs/heads/egg/issue-X/slice-1",
-            )
-
-    def test_session_deleted_on_error(self, gateway_client):
-        """Even when ``_make_request`` raises, the synthetic session
-        MUST be torn down in the ``finally`` block — otherwise we leak
-        gateway state every time the probe encounters a flaky network.
-        """
-        session = MagicMock()
-        session.session_token = "synthetic-token-xyz"
-        with (
-            patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session") as mock_del,
-            patch.object(
-                gateway_client,
-                "_make_request",
-                side_effect=GatewayError("boom", status_code=502),
-            ),
-        ):
-            with pytest.raises(GatewayError):
-                gateway_client.ls_remote_branch_strict(
-                    pipeline_id="issue-X",
-                    repo_path="/tmp/x",
-                    ref="refs/heads/egg/issue-X/slice-1",
-                )
-        mock_del.assert_called_once_with("synthetic-token-xyz")
-
-    def test_envelope_success_false_raises(self, gateway_client):
-        """A ``{"success": false, ...}`` envelope returned at HTTP 200 is
-        a gateway-side failure surfaced via the response body rather
-        than the status code. Without the envelope-success guard, the
-        strict variant would silently collapse such a response to
-        "branch absent" (empty ``stdout`` → ``False``) — directly
-        contradicting its propagate-any-failure contract. Pin the
-        invariant that envelope-level failures raise like HTTPError
-        failures do.
-        """
-        session = MagicMock()
-        session.session_token = "synthetic-token-xyz"
-        with (
-            patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session"),
-            patch.object(
-                gateway_client,
-                "_make_request",
-                return_value={
-                    "success": False,
-                    "message": "git fetch failed: policy denied",
-                    "data": {"stdout": ""},
-                },
-            ),
-            pytest.raises(GatewayError, match="policy denied"),
-        ):
-            gateway_client.ls_remote_branch_strict(
-                pipeline_id="issue-X",
-                repo_path="/tmp/x",
-                ref="refs/heads/egg/issue-X/slice-1",
-            )
 
 
 class TestSingletonClient:

@@ -221,10 +221,9 @@ class TestPipelineRepoOverride:
 
         reset_pattern_cache()
 
-    def test_go_repo_override_routes_testdata_to_tester(self, monkeypatch):
-        """Go conventions: with a ``tests_globs`` override that adds
-        ``**/testdata/**``, the tester can write testdata fixtures
-        (which the default pattern would not allow)."""
+    def test_go_repo_override_blocks_coder_from_test_files(self, monkeypatch):
+        """Go conventions: coder cannot write ``*_test.go`` next to
+        source under a repo that declares Go ``tests_globs``."""
         import json
 
         monkeypatch.setenv("EGG_PIPELINE_REPO", "owner/go-repo")
@@ -240,16 +239,17 @@ class TestPipelineRepoOverride:
             ),
         )
 
-        # With the override, ``testdata/`` is part of tests_globs, so the
-        # tester is allowed to write fixtures there. This exercises the
-        # env-var propagation: without the override, the default
-        # tests_globs would not match this path.
+        # The default pattern would let coder write ``*_test.go`` (the
+        # legacy Python-only blocklist had no Go entries pre-PR).
+        # With the override, this file routes to tester.
         result = check_file_write_permission(
             "Write",
-            {"file_path": "internal/foo/testdata/sample.json", "content": "..."},
-            agent_role="tester",
+            {"file_path": "internal/foo/bar_test.go", "content": "..."},
+            agent_role="coder",
         )
-        assert result is None, f"Tester should be allowed under override: {result}"
+        assert result is not None
+        assert "BLOCKED" in result
+        assert "tester" in result  # owner-role hint plumbed through override
 
     def test_no_pipeline_repo_uses_default_patterns(self, monkeypatch):
         """Outside a pipeline (no ``EGG_PIPELINE_REPO``), the
@@ -257,13 +257,11 @@ class TestPipelineRepoOverride:
         monkeypatch.delenv("EGG_PIPELINE_REPO", raising=False)
         monkeypatch.delenv("EGG_PIPELINE_REPO_PATTERNS_JSON", raising=False)
 
-        # Default patterns block coder from ``docs/`` (documenter scope);
-        # verifies the no-override branch still works. Tests are no longer
-        # in the coder's blocklist (tests are now coder-writable, see
-        # ``_build_coder_pattern``).
+        # Default patterns block ``test_*.py`` from coder; verifies
+        # the no-override branch still works.
         result = check_file_write_permission(
             "Write",
-            {"file_path": "docs/index.md", "content": "..."},
+            {"file_path": "tests/test_foo.py", "content": "..."},
             agent_role="coder",
         )
         assert result is not None

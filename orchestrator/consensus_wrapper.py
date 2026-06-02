@@ -1024,19 +1024,59 @@ wait_for_event() {{
     return $rc
 }}
 
-# Invoke the agent one-shot with the per-event prompt. Slice-2 ships a
-# minimal stub -- slice-3 (TASK-3-1 / TASK-3-2) replaces the prompt
-# body with the full ``compose_event_prompt`` payload (memory excerpt
-# + per-producer ``git log {{sha}}..HEAD --not origin/{{base}} -p``
-# delta + NACK payload).
+# Invoke the agent one-shot with the per-event prompt. Slice-3
+# (TASK-3-1 / TASK-3-2) replaces the slice-2 stub with the full
+# ``compose_event_prompt`` payload: memory excerpt (when
+# ``EGG_BRC_MEMORY=full``) + per-producer
+# ``git log {{sha}}..HEAD --not origin/{{base}} -p`` delta + NACK
+# payload. The composer lives at
+# ``/opt/egg-runtime/orchestrator/routes/event_prompt.py`` -- the
+# wrapper invokes its ``if __name__ == '__main__'`` CLI directly so the
+# heavy ``orchestrator.routes`` package ``__init__.py`` (Flask import)
+# is bypassed. ``EGG_EVENT_PROMPT_SCRIPT`` overrides the path for tests.
+#
+# When the composer fails (script missing, malformed memory file, git
+# log subprocess crash) we fall back to the slice-2 minimal stub so the
+# event-pump keeps running rather than failing the agent invocation.
+# This is symmetric with the rest of the wrapper's "block, alert,
+# continue" stance under the idle-budget safety net.
 invoke_agent_for_event() {{
     local action="$1"
     local event_payload="$2"
     local role="${{EGG_AGENT_ROLE:-unknown}}"
     local slice="${{EGG_SLICE_ID:-none}}"
-    local prompt
-    prompt=$(printf 'BRC event-pump handler\nRole: %s\nSlice: %s\nAction: %s\nEvent payload (JSON): %s\n\nHandle this single event according to the role contract, update durable BRC memory, then exit naturally. The wrapper will invoke you again with the next event.\n' \
-        "$role" "$slice" "$action" "$event_payload")
+    local base_branch="${{EGG_BASE_BRANCH:-main}}"
+    local script_path="${{EGG_EVENT_PROMPT_SCRIPT:-/opt/egg-runtime/orchestrator/routes/event_prompt.py}}"
+    local prompt prompt_rc=1
+
+    if [ -r "$script_path" ]; then
+        # Pass the event_payload JSON via stdin so shell metacharacters
+        # ($VAR, backticks, ;, &&) don't fall through to argv (the
+        # #2741 / slice-5 motivating concern; even though this argv is
+        # composed entirely by the wrapper here, the stdin path keeps
+        # the surface honest and matches the slice-5 prose-arg rule).
+        # ``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` / ``EGG_REPO_PATH`` /
+        # ``EGG_BRC_MEMORY`` are read by the script from env directly --
+        # we re-export here so a parent shell that hasn't propagated
+        # them still feeds the CLI correctly.
+        prompt=$(EGG_AGENT_ROLE="$role" \
+            EGG_BASE_BRANCH="$base_branch" \
+            EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-off}}" \
+            printf '%s' "$event_payload" \
+            | python3 "$script_path" "$action" 2>/dev/null)
+        prompt_rc=$?
+    fi
+
+    if [ "$prompt_rc" -ne 0 ] || [ -z "$prompt" ]; then
+        # Fallback prompt -- keep the event-pump moving rather than
+        # failing the agent invocation when the composer is unavailable
+        # (script missing, schema drift, transient git log failure).
+        # The idle-budget safety net catches a wedged event-pump even
+        # under a degraded composer; failing here would defeat that.
+        cw_log "compose_event_prompt unavailable (rc=$prompt_rc); using slice-2 stub prompt."
+        prompt=$(printf 'BRC event-pump handler\nRole: %s\nSlice: %s\nAction: %s\nEvent payload (JSON): %s\n\nHandle this single event according to the role contract, update durable BRC memory, then exit naturally. The wrapper will invoke you again with the next event.\n' \
+            "$role" "$slice" "$action" "$event_payload")
+    fi
     {agent_command_prefix} "$prompt"
 }}
 

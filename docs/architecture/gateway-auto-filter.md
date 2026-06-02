@@ -52,8 +52,8 @@ The registry is a sub-store on the existing `egg/pipeline-state` orphan branch (
 
 ### HTTP surface
 
-- `POST /api/v1/commit-authorship/register` — accepts `{sha, role, pipeline_id, repo, branch, patch_id}`. Role is authoritative from the session's inter-pod shared-secret; body-supplied values are logged but not trusted. `patch_id` (optional, `git patch-id --stable`) is recorded at registration time so attribution can survive a later SHA rewrite (rebase) via content-based lookup (#2932).
-- `POST /api/v1/commit-authorship/lookup` — bulk lookup by SHA and/or patch-id: `{shas: [...], patch_ids: [...]} → {attribution: {sha: role | null}, patch_attribution: {patch_id: role | null}}`. At least one of `shas`/`patch_ids` is required. The push handler uses `shas` for normal attribution and `patch_ids` as a content-based fallback for commits whose SHA a rebase rewrote (#2932). An ambiguous patch-id (identical patch from two distinct roles) resolves to `null`.
+- `POST /api/v1/commit-authorship/register` — accepts `{sha, role, pipeline_id, repo, branch}`. Role is authoritative from the session's inter-pod shared-secret; body-supplied values are logged but not trusted.
+- `POST /api/v1/commit-authorship/lookup` — bulk `{shas: [...]} → {sha: role | null}`, used by the push handler to partition files.
 
 Both endpoints require the existing gateway↔orchestrator shared-secret header.
 

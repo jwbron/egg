@@ -222,28 +222,27 @@ class TestCoderRole:
     def test_cannot_write_readme(self, pattern):
         assert pattern.can_write("README.md") is False
 
-    def test_can_write_test_dir(self, pattern):
-        """Coder authors its own tests (intentional overlap with the tester)."""
-        assert pattern.can_write("tests/test_foo.py") is True
+    def test_cannot_write_test_dir(self, pattern):
+        assert pattern.can_write("tests/test_foo.py") is False
 
-    def test_can_write_nested_test_dir(self, pattern):
-        assert pattern.can_write("gateway/tests/test_gw.py") is True
+    def test_cannot_write_nested_test_dir(self, pattern):
+        assert pattern.can_write("gateway/tests/test_gw.py") is False
 
-    def test_can_write_go_test_file(self, pattern):
-        """Coder authors its own Go test files (overlap with the tester)."""
-        assert pattern.can_write("pkg/merge_test.go") is True
+    def test_cannot_write_go_test_file(self, pattern):
+        """Coder cannot write Go test files (Tester handles)."""
+        assert pattern.can_write("pkg/merge_test.go") is False
 
-    def test_can_write_go_test_prefix(self, pattern):
-        """Coder authors its own Go test files with test_ prefix."""
-        assert pattern.can_write("pkg/test_merge.go") is True
+    def test_cannot_write_go_test_prefix(self, pattern):
+        """Coder cannot write Go test files with test_ prefix."""
+        assert pattern.can_write("pkg/test_merge.go") is False
 
-    def test_can_write_conftest(self, pattern):
-        """Coder authors pytest infrastructure too (overlap with the tester)."""
-        assert pattern.can_write("conftest.py") is True
+    def test_cannot_write_conftest(self, pattern):
+        """Coder cannot write conftest.py (Tester handles pytest infrastructure)."""
+        assert pattern.can_write("conftest.py") is False
 
-    def test_can_write_nested_conftest(self, pattern):
-        """Coder can write nested conftest.py files."""
-        assert pattern.can_write("gateway/conftest.py") is True
+    def test_cannot_write_nested_conftest(self, pattern):
+        """Coder cannot write nested conftest.py files."""
+        assert pattern.can_write("gateway/conftest.py") is False
 
     def test_cannot_write_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/123.json") is False
@@ -300,9 +299,9 @@ class TestCoderRole:
         """Coder can write poetry.lock."""
         assert pattern.can_write("poetry.lock") is True
 
-    def test_can_write_test_dir_overlap(self, pattern):
-        """Coder authors its own tests (intentional overlap with the tester)."""
-        assert pattern.can_write("tests/test_foo.py") is True
+    def test_cannot_write_test_dir_still_blocked(self, pattern):
+        """Regression: Coder still cannot write test directory files."""
+        assert pattern.can_write("tests/test_foo.py") is False
 
     def test_can_write_agent_config_rules_md(self, pattern):
         """Coder can write .md files in rules/ (functional code, not docs)."""
@@ -444,20 +443,19 @@ class TestCoderBlocklistComplement1901:
     def test_blocks_root_readme(self, pattern):
         assert pattern.can_write("README.md") is False
 
-    def test_allows_tests_dir(self, pattern):
-        """Coder authors its own tests (intentional overlap with the tester)."""
-        assert pattern.can_write("tests/test_x.py") is True
+    def test_blocks_tests_dir(self, pattern):
+        assert pattern.can_write("tests/test_x.py") is False
 
-    def test_allows_singular_test_dir(self, pattern):
-        assert pattern.can_write("test/test_y.py") is True
+    def test_blocks_singular_test_dir(self, pattern):
+        assert pattern.can_write("test/test_y.py") is False
 
-    def test_allows_nested_tests_init(self, pattern):
-        """gateway/tests/__init__.py — coder-writable now that tests overlap."""
-        assert pattern.can_write("gateway/tests/__init__.py") is True
+    def test_blocks_nested_tests_init(self, pattern):
+        """gateway/tests/__init__.py — covered by the matcher fix in TASK-2-1."""
+        assert pattern.can_write("gateway/tests/__init__.py") is False
 
-    def test_allows_root_conftest(self, pattern):
-        # Root-level conftest is coder-writable now that the coder authors tests.
-        assert pattern.can_write("conftest.py") is True
+    def test_blocks_root_conftest(self, pattern):
+        # Root-level conftest matches **/conftest.py under the fixed matcher.
+        assert pattern.can_write("conftest.py") is False
 
     def test_blocks_egg_state_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/spec.json") is False
@@ -1014,11 +1012,9 @@ class TestCheckAgentFileAccess:
         assert blocked == []
 
     def test_blocked_files_reported(self):
-        # docs/ is the documenter's scope — still blocked for the coder. (Tests
-        # are no longer a coder-blocked example: the coder authors its own.)
-        allowed, blocked, reason = check_agent_file_access("coder", ["docs/guide.md"])
+        allowed, blocked, reason = check_agent_file_access("coder", ["tests/test_foo.py"])
         assert allowed is False
-        assert "docs/guide.md" in blocked
+        assert "tests/test_foo.py" in blocked
 
     def test_unknown_role_denies_all(self):
         """Unknown roles are denied by default (RISK-7 mitigation, #1481)."""
@@ -1028,17 +1024,17 @@ class TestCheckAgentFileAccess:
 
     def test_multiple_blocked_files_truncated(self):
         """Reason message shows at most 5 blocked files then count."""
-        files = [f"docs/guide_{i}.md" for i in range(8)]
+        files = [f"tests/test_{i}.py" for i in range(8)]
         allowed, blocked, reason = check_agent_file_access("coder", files)
         assert allowed is False
         assert len(blocked) == 8
         assert "and 3 more" in reason
 
     def test_mixed_allowed_and_blocked(self):
-        files = ["gateway/app.py", "docs/guide.md"]
+        files = ["gateway/app.py", "tests/test_foo.py"]
         allowed, blocked, reason = check_agent_file_access("coder", files)
         assert allowed is False
-        assert "docs/guide.md" in blocked
+        assert "tests/test_foo.py" in blocked
         assert "gateway/app.py" not in blocked
 
 
@@ -1059,11 +1055,10 @@ class TestValidateAgentPush:
         assert result.role == "coder"
 
     def test_blocked_push(self):
-        # docs/ is the documenter's scope — still blocked for the coder.
-        result = validate_agent_push("coder", ["docs/guide.md"])
+        result = validate_agent_push("coder", ["tests/test_foo.py"])
         assert result.allowed is False
         assert result.role == "coder"
-        assert "docs/guide.md" in result.blocked_files
+        assert "tests/test_foo.py" in result.blocked_files
 
     def test_result_types(self):
         result = validate_agent_push("coder", ["gateway/app.py"])

@@ -159,23 +159,15 @@ The apply phase is **conditional** — it is only inserted between Plan and Impl
 
 ## Implement Phase
 
-This phase has three producer roles — `coder`, `tester`, and `documenter`.
-The coder's scope is the repository **minus** the documenter's docs/markdown
-scope and the pipeline's own `.egg-state/`. The documenter scope is defined
-positively (the files it owns).
-
-The **test scope is shared between the coder and the tester** — an
-intentional overlap (this retires the #1901 strict-complement invariant for
-the test scope only). The coder authors and pushes its own tests alongside
-the source; the tester's job is to **review-and-harden** those tests after
-the coder proposes. The driver: the coder naturally writes tests, the gateway
-used to 403 the push (`restricted_path_modified`), and that work was either
-thrown away or smuggled to the tester as a patch. Both roles being authorized
-on test paths means the gateway accepts either editing a test the other
-authored — no attribution special-casing. The documenter's docs/markdown
-scope stays mutually exclusive from the coder; if it grows, the coder's
-blocklist in `shared/egg_restrictions/patterns.py` **must be updated in
-parallel**. `shared/egg_restrictions/patterns.py` is
+The three producer roles in this phase — `coder`, `tester`, and `documenter` —
+are **mutually exclusive by construction** (see [#1901][issue-1901]). The
+coder's scope is defined as the **complement** of the other two: coder can
+write any file in the repository *except* paths owned by the tester, the
+documenter, or the pipeline itself (`.egg-state/`). Tester and documenter
+scopes are defined positively (the files each role owns). If tester's or
+documenter's owned scope grows in a later change, the coder's blocklist in
+`shared/egg_restrictions/patterns.py` **must be updated in parallel** to
+preserve the complement invariant. `shared/egg_restrictions/patterns.py` is
 the single source of truth for per-role file boundaries ([#1903][issue-1903]):
 the gateway's `PhaseFilter` derives `FileRestriction` objects directly from
 `AGENT_PATTERNS`, and the `phase-permissions.json` `file_restrictions` key is
@@ -189,18 +181,20 @@ separate surface (phase mounts, not role restrictions) and is kept in sync with
 
 ### `coder`
 
-**Purpose**: Write code **and its tests**, create commits, push to the
-worktree branch.
+**Purpose**: Write code, create commits, push to the worktree branch.
 
 **File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`, see [Per-Repository Role Patterns](../guides/sdlc-pipeline.md#per-repository-role-patterns)):
-- Allowed writes: **any file in the repository EXCEPT** the `documenter`'s
-  docs/markdown scope and the pipeline (`.egg-state/`). Source code,
-  configuration, shell scripts, build files, top-level dotfiles,
-  extensionless scripts (e.g. `bin/egg`, `sandbox/egg`), **and test files**
-  are all coder-writable by default — the coder authors its own tests
-  (intentional overlap with the tester; see the phase preamble above).
+- Allowed writes: **any file in the repository EXCEPT** paths owned by the
+  `tester`, the `documenter`, or the pipeline (`.egg-state/`). The coder's
+  scope is the complement of the other two producer roles in this phase,
+  so source code, configuration, shell scripts, build files, top-level
+  dotfiles, and extensionless scripts (e.g. `bin/egg`, `sandbox/egg`)
+  are all coder-writable by default.
 - Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
-  `.egg-state/` (pipeline state);
+  `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns
+  (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
+  `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`),
+  `**/conftest.py` (tester's scope); `.egg-state/` (pipeline state);
   plus a block on `.github/` (CI workflows, CODEOWNERS, dependabot
   config — branch-protection invariant). To propose `.github/` changes,
   write the end-state to `.github-staging/` mirroring the `.github/`
@@ -225,34 +219,17 @@ worktree branch.
 - Commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-coder-output.json` — Handoff data
 
-**Directed coordination**: The coder pushes its own tests directly (no
-HANDOFF needed for them). When role boundaries still prevent the coder from
-pushing a file type (e.g., documentation, or `.github/` CI changes), use
-`egg-orch message send --to <role> --type HANDOFF` to notify the responsible
-agent with file paths, commit SHAs, and guidance. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for details.
+**Directed coordination**: When role boundaries prevent the coder from pushing certain file types (e.g., test files, documentation), use `egg-orch message send --to <role> --type HANDOFF` to notify the responsible agent with file paths, commit SHAs, and guidance. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for details and a worked coder→tester example.
 
 **Prompt context**: Plan document, summarized background.
 
 ### `tester`
 
-**Purpose**: Review-and-harden the coder's tests. The coder now authors its
-own tests; the tester does **not** scaffold tests ahead of time. It orients
-from the plan (reading the contract, scanning the existing test suite,
-forming a view of where coverage and adversarial cases belong) but writes no
-test files until the coder proposes.
+**Purpose**: Scaffold tests early, then finalize them once coder output lands. While the coder is producing, draft test scaffolding from the plan alone — test file paths from `tasks[].files`, function signatures from each task's acceptance criteria, fixture imports, and mock-input scenarios — leaving assertion bodies as TODOs.
 
-Do **not** write test files before the coder's `CONSENSUS_PROPOSE` — there is
-nothing to harden until the coder's tests exist, and racing the coder's
-in-flight commits churns against a moving target. This is specified in the
-producer-orientation prompt and the dual-role execution-order banner at
-`orchestrator/routes/pipelines.py::_build_producer_orientation` /
-`_build_brc_preamble` (#2749, updated for coder-owns-tests) and is a
-directive, not a programmatic gate. (This inverts the earlier #2249
-scaffold-first directive, which existed when the tester — not the coder —
-authored the first tests.)
+Do **not** call `wait-loop` on the coder's `CONSENSUS_PROPOSE` before drafting these scaffolds; propose-ready iteration should start at the coder's first commit, not their first propose. This is specified in the producer-orientation prompt at `orchestrator/routes/pipelines.py::_build_producer_orientation` (#2249) and is a directive, not a programmatic gate — `scripts/scaffold_first_telemetry.py` reports compliance as a proxy signal but does not enforce it.
 
-Once the coder proposes, the tester syncs the worktree, reads the coder's
-tests, and its mandate is two-fold: **(1) comprehensive regression coverage** — tests for the happy path and realistic alternative paths through every changed area; and **(2) adversarial probing** — actively trying to break the coder's implementation by targeting suspected weaknesses (boundary conditions, off-by-one, empty/null/oversized inputs, error paths, concurrency issues, and contract violations). The tester **adds the missing regression and adversarial cases itself** (it shares the test scope with the coder, so its edits to coder-authored test files push cleanly), **runs the tests**, and reports back to the coder with a verdict. When a test fails because of a coder-side bug, the tester commits the failing test and issues a NACK on the coder's proposal that explicitly names the failing test in its rationale — the committed test is evidence; the NACK is the bug report. The tester also runs linters and type checkers and reports all gaps via `gaps_found`.
+Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive regression coverage** — tests for the happy path and realistic alternative paths through every changed area; and **(2) adversarial probing** — actively trying to break the coder's implementation by targeting suspected weaknesses (boundary conditions, off-by-one, empty/null/oversized inputs, error paths, concurrency issues, and contract violations). When a test fails because of a coder-side bug, the tester commits the failing test and issues a NACK on the coder's proposal that explicitly names the failing test in its rationale — the committed test is evidence; the NACK is the bug report. The tester also runs linters and type checkers and reports all gaps via `gaps_found`.
 
 **File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`):
 - Owned scope (allowed writes): **test files and test infrastructure only.**
@@ -269,7 +246,8 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
   not cover `.yml` / `.yaml` / `.json`, so the tester also has no write
   access under `.github-staging/`. A CI fix or test-fixture change
   uncovered during testing must be handed off to the coder via
-  `HANDOFF` rather than staged directly). Source code and config
+  `HANDOFF` rather than staged directly — the same pattern the coder
+  uses to hand off test files to the tester). Source code and config
   files outside tests are out of scope by definition — the coder owns
   them (everything not listed in this section or the documenter's).
 
@@ -277,7 +255,7 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 - Test file commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and gaps found)
 
-**Directed coordination**: The coder authors and pushes its own tests, so the tester no longer receives a test-file HANDOFF from the coder — it reads the coder's tests off the branch after the coder proposes (`git fetch origin && git merge origin/<branch> --no-edit`) and hardens them in place. The tester still *sends* `HANDOFF` messages to the coder for things outside the tester's write scope — when a CI fix or `.github/` change is uncovered during testing (e.g. a workflow needs a new step to run a regression), the tester describes the required end-state in the HANDOFF body and the coder stages it under `.github-staging/`. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
+**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. The tester also *sends* `HANDOFF` messages to the coder in the reverse direction — when a CI fix or `.github/` change is uncovered during testing (e.g. a workflow needs a new step to run a regression), the tester describes the required end-state in the HANDOFF body and the coder stages it under `.github-staging/`. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
 
 **Prompt context**: Summarized background, coder handoff data, task list.
 

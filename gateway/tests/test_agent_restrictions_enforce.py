@@ -120,13 +120,11 @@ def _push_context(mock_session, agent_blocked=True):
         return result
 
     # Choose a file that drives the desired partition outcome.  The
-    # ``coder`` role cannot write ``docs/`` (documenter's scope, per
-    # CODER_PATTERNS), but can write ``src/`` — use those to get
-    # blocked/allowed respectively regardless of which role the mock
-    # session advertises. (Tests are no longer a coder-blocked example:
-    # the coder authors its own; see CODER_PATTERNS.)
+    # ``coder`` role cannot write ``tests/`` (per CODER_PATTERNS), but
+    # can write ``src/`` — use those to get blocked/allowed respectively
+    # regardless of which role the mock session advertises.
     if agent_blocked:
-        changed_files = ["docs/foo.md"]
+        changed_files = ["tests/test_foo.py"]
     else:
         changed_files = ["src/foo.py"]
 
@@ -270,7 +268,7 @@ class TestAgentRestrictionsWarnOnly:
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("EGG_AGENT_RESTRICTIONS_ENFORCE", None)
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(response, "coder", "docs/foo.md")
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
 
 class TestAgentRestrictionsEnforceMode:
@@ -292,7 +290,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(response, "coder", "docs/foo.md")
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
     def test_enforce_mode_allows_clean_push(self, client):
         """Enforce mode allows push when agent restrictions pass."""
@@ -328,7 +326,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "yes"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(response, "coder", "docs/foo.md")
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
     def test_enforce_accepts_1_value(self, client):
         """EGG_AGENT_RESTRICTIONS_ENFORCE=1 works as enforce."""
@@ -346,7 +344,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "1"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(response, "coder", "docs/foo.md")
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
 
 class TestAgentRestrictionsUnknownRole:
@@ -542,11 +540,8 @@ class TestCoderEndToEndPushRejection1901:
                 response = _do_push(client)
                 _assert_auto_filtered_all_blocked(response, "coder", "docs/x.md")
 
-    def test_coder_can_push_tests(self, client):
-        """tests/*.py in a coder push is ALLOWED — the coder authors its own
-        tests (intentional overlap with the tester). This is the core of the
-        coder-owns-tests change: the gateway no longer 403s a coder test push,
-        so the work is neither thrown away nor smuggled to the tester."""
+    def test_coder_tests_get_auto_filtered(self, client):
+        """tests/*.py in a coder push → 403 restricted_path_modified."""
         session = self._coder_session()
         patches = _push_context_real_check(session, ["tests/test_x.py"])
         with (
@@ -560,7 +555,7 @@ class TestCoderEndToEndPushRejection1901:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 200, response.data
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_x.py")
 
     def test_coder_contracts_get_auto_filtered(self, client):
         """.egg-state/contracts/*.json in a coder push → 403 restricted_path_modified."""

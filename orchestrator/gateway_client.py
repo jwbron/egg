@@ -1778,15 +1778,21 @@ class GatewayClient:
         # (PR created server-side, transport blip on the response) from
         # cascading the slice to FAILED on the next tick.
         if repo:
-            # Idempotency lookup runs on the control-plane route
-            # (``/api/v1/gh/find_open_pr``, launcher auth) — the
-            # orchestrator is the control plane, not an agent, so the
-            # caller's ``agent_role`` is irrelevant here (#2893 follow-up).
+            # Hardcode synthetic role to "coder" — `_lookup_open_pr`'s
+            # `/api/v1/gh/execute` round-trip is gated by
+            # `check_agent_gh_operation`, and "orchestrator" is not in
+            # `AGENT_GH_RESTRICTIONS` so it 403s as an unknown role
+            # (see reviewer_code_holistic v3 NACK). Propagating the
+            # caller's `agent_role` (which `pipelines.py` passes as
+            # "orchestrator" for slice-PR creation) defeats the cq-8
+            # idempotency pre-flight because the swallowed 403 looks
+            # like a benign miss and `gh pr create` runs anyway.
             existing_pr_number = self._lookup_open_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
                 head=head,
                 base=base,
+                mode=mode,
             )
             if existing_pr_number is not None:
                 existing_url = f"https://github.com/{repo}/pull/{existing_pr_number}"
@@ -2093,12 +2099,15 @@ class GatewayClient:
         ambient slice/pipeline pass their token through ``bearer_token``
         to avoid a redundant register/delete round-trip.
 
-        General ancestry/fork-point primitive. (Slice-4 TASK-4-3
-        once wired this into ``_resolve_slice_base_branch`` to
-        validate a slice's fork point, but #2928 replaced that with a
-        parent-branch-existence probe — probing the slice's own
-        not-yet-created integration branch mis-based fresh slices. The
-        method is retained as a general gateway utility.)
+        Used by slice-4 TASK-4-3's ``_resolve_slice_base_branch``
+        merge-base fallback: legacy slices whose
+        ``parent_branch_at_creation`` is empty AND whose integration
+        branch still exists on origin compute their fork SHA against
+        ``origin/main`` to confirm the slice has a valid divergence
+        point before the resolver returns the dependency-derived
+        parent branch. A ``None`` result signals "no fork point" and
+        the resolver routes onto ``pipeline_branch`` (the safe
+        root-stack fallback).
         """
         if not ref_a or not ref_b:
             return None
@@ -2553,7 +2562,7 @@ class GatewayClient:
         pipeline_id: str,
         repo: str,
         *,
-        agent_role: str = "orchestrator",
+        agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
@@ -2567,12 +2576,6 @@ class GatewayClient:
         ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
         (gateway/github_client.py) so no privileged endpoint is introduced
         (decision-15).
-
-        The synthetic session defaults to ``agent_role="orchestrator"`` so the
-        audit log attributes these calls to the orchestrator (the actual
-        caller) instead of impersonating a coder. The gateway's
-        ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role for read-only
-        ``gh pr list`` calls (#2893).
 
         On any error (gateway 4xx/5xx, JSON parse failure) the
         function logs and returns an empty list — the reconciler
@@ -2661,24 +2664,30 @@ class GatewayClient:
         *,
         head: str,
         base: str,
+        mode: Literal["public", "private"] = "public",
     ) -> int | None:
         """Server-side idempotency check: return the open ``head → base`` PR number, or None.
 
-        Calls the orchestrator-only control-plane route
-        ``/api/v1/gh/find_open_pr`` with launcher auth. The gateway runs
-        ``gh pr list --head <head> --base <base> --state open --json
-        number`` server-side and returns the single matching PR number.
+        Runs ``gh pr list --head <head> --base <base> --state open
+        --json number`` via the existing per-agent ``gh pr list``
+        allowlist (transport ``/api/v1/gh/execute``). The gateway
+        filters server-side so this is cheaper than the broader
+        :meth:`list_open_prs` + client-side filter that
+        :func:`_open_context_pr_at_implement_start` uses today.
 
         Used by :meth:`create_slice_pr` to skip ``gh pr create`` when a
         slice PR with the same head + base is already open (#2777 cq-8
-        / task-3-2 idempotency pre-flight).
+        / task-3-2 idempotency pre-flight). May also be adopted by the
+        context-PR opener in a follow-up; today the opener uses the
+        broader ``list_open_prs`` shape because it needs to enumerate
+        every open PR for the client-side filter.
 
-        The orchestrator authenticates here as the **control plane** (the
-        launcher secret), not as an agent. This is the seam #2893 should
-        have used: the orchestrator is the server that manages pipelines,
-        not an ``AgentRole``, so it does not register a synthetic agent
-        session or impersonate a role on the per-agent ``/api/v1/gh/execute``
-        surface.
+        The synthetic session is hardcoded to register with
+        ``agent_role="coder"`` because ``/api/v1/gh/execute`` is gated
+        by ``check_agent_gh_operation`` which only accepts roles in
+        ``AGENT_GH_RESTRICTIONS``; the orchestrator-side caller's
+        own role string (e.g. "orchestrator") would 403 as unknown
+        (see reviewer_code_holistic v3 NACK on #2777 slice-3).
 
         Returns:
             The integer PR number on hit, ``None`` on miss OR on any
@@ -2695,20 +2704,76 @@ class GatewayClient:
             # first one, spuriously treating an unrelated PR as the
             # slice PR's idempotent hit).
             return None
+        temp_container_id = f"{pipeline_id}-pr-lookup"
+        session_token: str | None = None
         try:
-            result = self._make_request(
-                "/api/v1/gh/find_open_pr",
-                method="POST",
-                data={"repo": repo, "head": head, "base": base},
-                use_launcher_auth=True,
+            # TODO(#2893): use ``agent_role="orchestrator"`` once the
+            # gateway's ``AGENT_GH_RESTRICTIONS`` allowlist accepts that
+            # role for read-only ``gh pr list`` calls. The orchestrator
+            # is the actual caller here; "coder" is a temporary stand-in
+            # because the gateway currently rejects "orchestrator" at
+            # /api/v1/gh/execute.
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role="coder",
+                synthetic=True,
             )
-            number = (result.get("data", {}) or {}).get("number")
-            if number is None:
-                return None
+            session_token = session.session_token
+
+            args = [
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--head",
+                head,
+                "--base",
+                base,
+                "--state",
+                "open",
+                # The idempotency contract only needs to know whether
+                # ANY open PR matches head + base; the GH API
+                # documents at most one open PR per (head, base) tuple.
+                # --limit 1 keeps the response payload minimal.
+                "--limit",
+                "1",
+                "--json",
+                "number",
+            ]
+            result = self._make_request(
+                "/api/v1/gh/execute",
+                method="POST",
+                data={"args": args, "repo": repo},
+                bearer_token=session_token,
+            )
+            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
             try:
-                return int(number)
-            except TypeError, ValueError:
+                items = json.loads(stdout) if stdout.strip() else []
+            except ValueError, TypeError:
+                logger.debug(
+                    "_lookup_open_pr: gh stdout not JSON",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                    head=head,
+                    base=base,
+                )
                 return None
+            if not isinstance(items, list):
+                return None
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                number = item.get("number")
+                if number is None:
+                    continue
+                try:
+                    return int(number)
+                except TypeError, ValueError:
+                    continue
+            return None
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "_lookup_open_pr: gateway request failed (treating as miss)",
@@ -2719,6 +2784,12 @@ class GatewayClient:
                 error=str(exc),
             )
             return None
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
     def list_remote_branches(
         self,
@@ -3001,23 +3072,24 @@ class GatewayClient:
                 except Exception:
                     pass
 
-    def _ls_remote_branch_impl(
+    def ls_remote_branch(
         self,
         pipeline_id: str,
         repo_path: str,
         ref: str,
-        mode: Literal["public", "private"],
-        container_id_suffix: str,
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
-        """Shared implementation of the ls-remote branch-existence probe.
+        """Check if a remote branch exists using ls-remote.
 
-        Raises on any gateway / network / policy failure — including a
-        ``{"success": false, ...}`` envelope returned at HTTP 200. Public
-        wrappers apply their respective error policies at the outer
-        layer: :meth:`ls_remote_branch` swallows and returns ``False``;
-        :meth:`ls_remote_branch_strict` propagates.
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the repo directory
+            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
+
+        Returns:
+            True if the remote branch exists, False otherwise
         """
-        temp_container_id = f"{pipeline_id}-{container_id_suffix}"
+        temp_container_id = f"{pipeline_id}-state-ls-remote"
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -3044,57 +3116,9 @@ class GatewayClient:
                 bearer_token=session_token,
             )
 
-            # A {"success": false, ...} envelope returned at HTTP 200 is
-            # a gateway-side failure surfaced via the envelope rather
-            # than the status code. Without this guard the strict
-            # variant would silently collapse such a response to "branch
-            # absent", contradicting its propagate-any-failure contract.
-            if not result.get("success", True):
-                raise GatewayError(
-                    result.get("message", "ls-remote envelope reported success=false")
-                )
-
             # ls-remote returns output in data.stdout; non-empty means branch exists
             stdout = result.get("data", {}).get("stdout", "")
             return bool(stdout.strip())
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
-
-    def ls_remote_branch(
-        self,
-        pipeline_id: str,
-        repo_path: str,
-        ref: str,
-        mode: Literal["public", "private"] = "public",
-    ) -> bool:
-        """Check if a remote branch exists using ls-remote.
-
-        Lenient variant: collapses gateway / network / policy failures
-        to ``False``. Callers that need to distinguish "branch absent
-        on origin" from "probe could not be performed" — notably the
-        ``_resolve_slice_base_branch`` parent-existence gate (#2928) —
-        must use :meth:`ls_remote_branch_strict` instead.
-
-        Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
-            repo_path: Path to the repo directory
-            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
-
-        Returns:
-            True if the remote branch exists, False otherwise (or on error).
-        """
-        try:
-            return self._ls_remote_branch_impl(
-                pipeline_id=pipeline_id,
-                repo_path=repo_path,
-                ref=ref,
-                mode=mode,
-                container_id_suffix="state-ls-remote",
-            )
         except Exception as e:
             logger.warning(
                 "ls-remote check failed",
@@ -3103,34 +3127,12 @@ class GatewayClient:
                 error=str(e),
             )
             return False
-
-    def ls_remote_branch_strict(
-        self,
-        pipeline_id: str,
-        repo_path: str,
-        ref: str,
-        mode: Literal["public", "private"] = "public",
-    ) -> bool:
-        """Check if a remote branch exists using ls-remote.
-
-        Strict variant of :meth:`ls_remote_branch`: a gateway / network
-        / policy failure RAISES rather than collapsing to ``False``.
-        Use this when the caller needs to distinguish "branch absent
-        on origin" from "probe could not be performed" — for example,
-        ``_resolve_slice_base_branch`` (#2928) routes a confirmed
-        absent parent onto ``pipeline_branch`` but treats a raised
-        probe as "assume parent exists" so a flaky gateway never
-        silently swaps a real slice onto ``work``. The lenient
-        :meth:`ls_remote_branch` collapses those two outcomes and is
-        unsafe for that gate.
-        """
-        return self._ls_remote_branch_impl(
-            pipeline_id=pipeline_id,
-            repo_path=repo_path,
-            ref=ref,
-            mode=mode,
-            container_id_suffix="state-ls-remote-strict",
-        )
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
     def get_remote_branch_sha(
         self,

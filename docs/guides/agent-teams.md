@@ -69,7 +69,7 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 | reviewer_contract | coder |
 | reviewer_security | coder, tester |
 | reviewer_concurrency | coder, tester |
-| tester | coder (implicitly — reviews-and-hardens the coder's tests, adds missing regression coverage AND adversarially probes the implementation for bugs; NACKs with a failing test as the bug report when a coder-side bug is found) |
+| tester | coder (implicitly — writes regression tests AND adversarially probes the implementation for bugs; NACKs with a failing test as the bug report when a coder-side bug is found) |
 
 The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests, adversarially probing for bugs and edge cases, and running lint/type-checks).
 

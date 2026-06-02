@@ -148,31 +148,6 @@ def _wait_for_route_subscriber(event_bus: EventBus, timeout: float = 2.0) -> Non
     raise RuntimeError(f"/status/wait route did not subscribe a wildcard handler within {timeout}s")
 
 
-def _wait_for_message_store_waiter(
-    store: MessageStore, pipeline_id: str, timeout: float = 2.0
-) -> None:
-    """Block until the route's daemon thread is waiting on the message store.
-
-    The route's ``_on_message_store_wake`` daemon calls
-    ``store.get_messages(wait=5, from_tip=True, ...)`` which snapshots
-    ``start_idx = len(initial_msgs)`` under the lock BEFORE registering
-    a per-pipeline ``Condition`` in ``store._cond[pipeline_id]``. A
-    naive ``time.sleep(0.1)`` in the fire thread races that snapshot:
-    if the message lands first, the daemon's ``start_idx`` skips it and
-    the subsequent ``cv.wait()`` blocks until timeout. This handshake
-    polls ``store._cond`` and returns once the cv exists, guaranteeing
-    the daemon has already taken the empty-store snapshot.
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if store._cond.get(pipeline_id) is not None:  # noqa: SLF001 — test-side handshake
-            return
-        time.sleep(0.005)
-    raise RuntimeError(
-        f"/status/wait message-store daemon did not register a waiter within {timeout}s"
-    )
-
-
 class TestStatusWaitRoute:
     """End-to-end-ish integration tests against the /status/wait route."""
 
@@ -188,7 +163,7 @@ class TestStatusWaitRoute:
         store = MessageStore()
 
         def _fire() -> None:
-            _wait_for_message_store_waiter(store, "issue-1932-e2e")
+            time.sleep(0.1)
             store.add_message(
                 Message(
                     pipeline_id="issue-1932-e2e",
