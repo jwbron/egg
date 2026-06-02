@@ -33,14 +33,28 @@ set -euo pipefail
 : "${1:?usage: $0 <egg-image-tag-to-keep>}"
 KEEP_TAG="$1"
 
+# Keep in sync with check-egg-images-present.sh and the k3s-import image list.
+IMAGES=(egg-gateway egg-orchestrator egg-sandbox egg-litellm)
+
 # `k3s ctr images list` columns: REF TYPE DIGEST SIZE PLATFORMS LABELS.
 listing="$(sudo k3s ctr images list 2>/dev/null || true)"
 
-# Safety: if we cannot even see the just-deployed orchestrator image, the
-# listing is unreliable (a swallowed sudo password prompt, a containerd
-# hiccup). Skip the reap rather than delete against a partial view.
-if ! grep -qE "^docker\.io/library/egg-orchestrator:${KEEP_TAG}([[:space:]]|\$)" <<<"$listing"; then
-  echo "==> containerd reap: tag '${KEEP_TAG}' not visible in containerd; skipping (nothing reaped)."
+# Safety: require ALL four just-deployed egg-*:KEEP_TAG refs to be visible
+# before we reap anything. If even one is missing -- a swallowed sudo prompt,
+# a containerd hiccup, an out-of-band crictl rmi between pre-flight and reap,
+# kubelet GC eating an unreferenced image -- the awk loop would not record
+# that image's KEEP_TAG digest, so every prior egg-<that-image>:* tag would
+# look stale and get reaped. That is the worst-case outcome of this whole
+# script: the next agent-pod spawn (sandbox especially) cannot find an image
+# to run. Skip the reap entirely instead.
+missing_keep=()
+for img in "${IMAGES[@]}"; do
+  if ! grep -qE "^docker\.io/library/${img}:${KEEP_TAG}([[:space:]]|\$)" <<<"$listing"; then
+    missing_keep+=("${img}:${KEEP_TAG}")
+  fi
+done
+if [ "${#missing_keep[@]}" -gt 0 ]; then
+  echo "==> containerd reap: not all egg-*:${KEEP_TAG} refs visible (${missing_keep[*]}); skipping (nothing reaped)."
   exit 0
 fi
 
@@ -70,17 +84,26 @@ if [ "${#candidates[@]}" -eq 0 ]; then
 fi
 
 removed=0
-kept=0
+rmi_failed=0
 for ref in "${candidates[@]}"; do
-  # crictl rmi is CRI-aware: it refuses an image still held by a live container
-  # (e.g. a sandbox agent pod from a prior deploy), so an in-use old tag is left
-  # alone instead of being yanked out from under the pod.
-  if sudo k3s crictl rmi "$ref" >/dev/null 2>&1; then
+  # crictl rmi is best-effort here. The CRI RemoveImage RPC's behavior on an
+  # in-use image is implementation-defined -- containerd's CRI plugin generally
+  # allows the removal (the snapshot stays mounted under the running container
+  # until exit), and there have been "rmi removed image out from under running
+  # container" reports historically. We do not rely on a refusal: a non-zero
+  # exit here just means "this ref still exists; we did not remove it," and
+  # since the digest guard above already excluded any ref that shares an image
+  # ID with a kept ref, leaving it alone is safe either way. Do NOT relax the
+  # digest guard or the `|| true` on the Makefile call on the assumption that
+  # crictl will refuse in-use removals -- it may not.
+  err="$(sudo k3s crictl rmi "$ref" 2>&1 >/dev/null)" && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
     echo "   reaped $ref"
     removed=$((removed + 1))
   else
-    kept=$((kept + 1))
+    echo "   rmi failed for $ref: ${err:-(no stderr)}" >&2
+    rmi_failed=$((rmi_failed + 1))
   fi
 done
 
-echo "==> containerd reap: removed ${removed} stale egg image(s); kept ${kept} in-use/undeletable."
+echo "==> containerd reap: removed ${removed} stale egg image(s); ${rmi_failed} rmi call(s) failed."

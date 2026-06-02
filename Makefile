@@ -570,14 +570,22 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 check-egg-images-present:
 	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
 
-# check-egg-images-present is the lone prerequisite and k3s-secrets is
-# invoked from the recipe body so the ordering survives `make -j`: two
-# prerequisites of the same target may run in parallel under -j, but recipe
-# lines never do. The check MUST run before k3s-secrets — k3s-secrets
-# reconciles namespaces + the gateway-secrets Secret and would otherwise
-# mutate the cluster before the image check could fail, defeating the
-# zero-mutation abort this guard exists to provide.
-deploy: check-egg-images-present  ## Deploy egg to k3s
+# Cluster-mutating steps (k3s-secrets, kubectl apply) are invoked from the
+# recipe body so the ordering survives `make -j`: two prerequisites of the
+# same target may run in parallel under -j, but recipe lines never do. The
+# check MUST run before k3s-secrets — k3s-secrets reconciles namespaces + the
+# gateway-secrets Secret and would otherwise mutate the cluster before the
+# image check could fail, defeating the zero-mutation abort this guard exists
+# to provide. sudo-keepalive is a sibling prerequisite (not a recipe line) so
+# `make deploy` standalone can leave the sudo credential cache fresh through
+# the tail of the deploy: check-egg-images-present uses sudo at the very
+# start, but the post-rollout reap (reap-stale-egg-images.sh) needs sudo
+# minutes later after the long kubectl apply / await-egg-deploy steps, and
+# the default sudo timestamp would otherwise have aged out, prompting on an
+# attended deploy and silently skipping the reap (via `|| true`) on an
+# unattended one. Neither sudo-keepalive nor check-egg-images-present
+# mutates the cluster, so running them in parallel under -j is safe.
+deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 	@$(MAKE) --no-print-directory k3s-secrets
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	@command -v envsubst >/dev/null 2>&1 || { \
