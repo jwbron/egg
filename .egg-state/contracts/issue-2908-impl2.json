@@ -243,7 +243,7 @@
     {
       "id": "slice-2",
       "name": "Event-pump wrapper + liveness migration (behind feature flag)",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -252,7 +252,7 @@
         {
           "id": "task-2-1",
           "description": "Add the new event-pump bash template branch to\n``orchestrator/consensus_wrapper.py``. Gate via\n``EGG_BRC_EVENT_PUMP`` env var read by\n``build_consensus_wrapped_command`` (consensus_wrapper.py:716)\nat template-composition time. When unset or ``false``: emit\nthe existing ``_CONSENSUS_WRAPPER_TEMPLATE`` (consensus_wrapper.py:116)\nverbatim. When ``true``: emit a new\n``_EVENT_PUMP_WRAPPER_TEMPLATE`` that runs the deterministic\nloop described in the architect design\n(``execution_loop_pseudocode``). The loop calls\n``egg-orch brc get-state --json`` (TASK-1-3), checks\n``role_complete``, calls ``egg-orch brc next-action --json``\n(TASK-1-1) for the next action, and either blocks on\n``egg-orch message wait-loop`` (existing CLI at\norch_cli.py:1695) or invokes ``python3 -m egg_agent`` one-shot\nwith the composed event prompt (composer lands in slice-3;\nslice-2 ships a minimal prompt stub). On ``role_complete=true``,\nthe wrapper calls ``egg-orch consensus confirmed`` (existing\nCLI at orch_cli.py:2753) \u2014 NOT a new ``progress complete``\ncommand \u2014 to mark the role's consensus and exit 0. Wrapper\nhandles 409 ``stale_version`` and 409 aggregated-NACK from\n``brc next-action`` as event-pump signals (re-fetch state,\nre-invoke), NOT as transient crashes to retry with backoff.\nThe wait filter set must include ``CONSENSUS_PROPOSE``,\n``CONSENSUS_ACK``, ``CONSENSUS_NACK``, ``STATUS``,\n``CONSENSUS_RE_REVIEW``, ``OVERSEER_ALERT``.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -273,7 +273,7 @@
         {
           "id": "task-2-2",
           "description": "Migrate the heartbeat (#2036) emission out of\n``sandbox/egg_agent_tools/handlers/message.py:267-429``\n(``message_wait_loop`` handler) into the event-pump wrapper\nbash template added in TASK-2-1. The wrapper emits\n``egg-orch message heartbeat`` (existing CLI subcommand \u2014\nverify name via grep at implement-time, currently\n``cmd_message_heartbeat``) every 30 s as a background\nsubshell while ``egg-orch message wait-loop`` is blocking.\nThe heartbeat payload MUST include\n``slice_id == os.environ['EGG_SLICE_ID']`` (or the\nequivalent shell substitution ``${EGG_SLICE_ID:-}`` passed\nthrough the CLI) so a regression in slice_id propagation is\ncaught directly (risk_analyst R9). Keep the agent-side\nheartbeat path in the *old* template path\n(``EGG_BRC_EVENT_PUMP`` unset) verbatim; only the new\ntemplate owns wrapper-side heartbeating. Slice-4 deletes the\nagent-side path once the flag flips to default.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -294,7 +294,7 @@
         {
           "id": "task-2-3",
           "description": "Replace the ``MAX_CONSENSUS_RESTARTS = 3`` cap\n(consensus_wrapper.py:38) with an idle / no-progress safety\nbudget driven by env ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30\nminutes per architect od-4; well above the WS7-observed\n10\u201313 min idle ceiling). When the new template path is\nactive and no actionable event has arrived for the budget\nduration, emit ``mcp__progress__overseer_alert`` (anomaly\n``stuck-phase-transition``, priority ``high``) and continue\nblocking; if no progress for 2\u00d7 budget, raise the alert\npriority and continue. The old template path keeps\n``MAX_CONSENSUS_RESTARTS`` verbatim (slice-4 deletes the old\npath).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -315,7 +315,7 @@
         {
           "id": "task-2-4",
           "description": "Migrate the gateway-session keep-alive (#2451) out of the\n``message_wait_loop`` handler into the event-pump wrapper\nbash. Existing keep-alive logic in\n``sandbox/egg_agent_tools/handlers/message.py`` (around\n:267-429) refreshes the lifecycle-secret-gated session while\nthe agent is blocking. The new wrapper performs the same\nrefresh as a background subshell alongside the heartbeat\nemitter from TASK-2-2. Old path unchanged.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -336,7 +336,7 @@
         {
           "id": "task-2-5",
           "description": "Documenter task: update\n``docs/architecture/orchestrator.md`` and\n``docs/reference/agent-wait-patterns.md`` to describe the\nevent-pump wrapper behaviour gated by ``EGG_BRC_EVENT_PUMP``.\nCover: how the wrapper loop drives lifecycle; how\nwrapper-side heartbeat + keep-alive replace the agent-held\nversions; the ``slice_id`` propagation invariant on the\nheartbeat payload; how the idle budget replaces the restart\ncap; the 409 stale_version / aggregated-NACK handling; the\nslice-2 verification stance (unit-test-only because no\nin-process test double can drive a deployed pod\nend-to-end per #2474 \u2014 true E2E deferred to slice-4 via\n``egg_stack``). Mark the flag-off path as the temporary\ndefault until slice-4 flips it. Do NOT update\n``mission.md`` yet (slice-3 owns that rewrite).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -358,7 +358,7 @@
         {
           "id": "task-2-6",
           "description": "Unit tests extending\n``orchestrator/tests/test_consensus_wrapper.py``. Cover:\n(i) template selection branches for both flag values\n(snapshot test asserting the six-event wait-filter set on\nthe flag-on path); (ii) wrapper-side heartbeat cadence\n(mock subprocess + fast-forward); (iii) heartbeat payload\nincludes ``slice_id`` sourced from ``EGG_SLICE_ID`` (one\ntest pins this directly); (iv) wrapper-side keep-alive\ncadence; (v) idle budget alert at configured threshold;\n(vi) 409 stale_version handled as re-fetch (not\nretry-with-backoff); (vii) ``role_complete=true`` path\ncalls ``egg-orch consensus confirmed`` and exits 0;\n(vii.b) the wrapper does NOT also call ``egg-orch progress\ncomplete`` (defensive guard against the pseudocode-typo\nthe architect corrected); (viii) the wait-filter\nconstruction OMITS ``CONSENSUS_CONFIRMED`` pre-confirm and\nINCLUDES it post-confirm (risk_analyst R12); (ix)\nunset-``EGG_SLICE_ID`` case (plan/refine phase) emits\neither explicit-null or omitted slice_id on the heartbeat\npayload (NOT empty-string). The existing 3-cap tests must\ncontinue to pass with flag off. End-to-end validation is\nOUT OF SCOPE for slice-2 (deferred to slice-4 spike).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -379,7 +379,7 @@
         {
           "id": "task-2-7",
           "description": "In-process BRC regression test pass: run\n``integration_tests/regression/test_brc_*.py`` with\n``EGG_BRC_EVENT_PUMP=false`` (default) and assert green \u2014\nestablishes zero orchestrator-side regression on the\nexisting in-process ``PeerConsensusTracker`` path. Do NOT\nadd a flag-on E2E test here: no in-process test double can\ndrive a deployed agent pod end-to-end \u2014 the pod-injection\n``ScriptedProvider`` avenue was ruled out per #2474 (see\n``integration_tests/regression/conftest.py:45`` and the\ncomment in ``integration_tests/regression/test_brc_concurrency.py``\nat lines 1-25). True end-to-end validation is deferred to\nslice-4's spike on issue-2270/qwen3.7-max using the\n``egg_stack`` real-pod fixture\n(``integration_tests/conftest.py:340``).",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
