@@ -980,24 +980,29 @@ must run before redeploying.
 
 The revert order matters: each slice builds on the previous one, so
 reverting them out of dependency order would leave the working tree in
-an incoherent intermediate state (slice-2's wrapper template would
-invoke a composer that no longer exists, slice-3's composer would
-read a memory file no writer has produced, etc.). Reverting in
+an incoherent intermediate state (the slice-2 wrapper template
+references a composer that slice-3 added, slice-3's composer reads a
+memory file slice-1's writer produces, etc.). Reverting in
 reverse-merge order — `git revert <slice-4>`, `git revert <slice-3>`,
 `git revert <slice-2>`, `git revert <slice-1>` — keeps each
 intermediate state coherent. Reverting only slice-4 restores the
-slice-1/-2/-3 dual-emission state with the legacy template selectable
-again via `EGG_BRC_EVENT_PUMP=false`; reverting further unwinds the
+slice-1/-2/-3 dual-emission state: the legacy
+`_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the
+SSE machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the
+`EGG_BRC_EVENT_PUMP` env var come back, and the env var defaults
+flip back to off so the legacy template ships by default again
+(operators that want the event-pump path back set
+`EGG_BRC_EVENT_PUMP=true`). Reverting further unwinds the
 event-pump infrastructure entirely.
 
 ### Operator-facing env vars (cross-link)
 
 `EGG_BRC_IDLE_BUDGET_MIN` is listed in the
 [Environment Variables](#environment-variables) table below with its
-default. The slice-2/-3 `EGG_BRC_EVENT_PUMP` selector is no longer
-consulted — setting it has no effect because the legacy template it
-selected to is gone. The
-[agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model)
+default. The slice-2/-3 `EGG_BRC_EVENT_PUMP` selector was **removed**
+in slice-4 task-4-2 — the env var is no longer read by the
+orchestrator, so setting it has no effect on a post-slice-4 codebase.
+The [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model)
 section is the wait-side companion to this architecture description.
 
 ## BRC Per-Event Prompt Composer + Preamble Collapse
@@ -1330,7 +1335,7 @@ if is_orchestrator_mode():
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
-| `EGG_BRC_EVENT_PUMP` | **Deprecated no-op after [#2908](https://github.com/jwbron/egg/issues/2908) slice-4.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template and the surrounding selector logic; setting this variable has no effect. The supported regression path is `git revert` of slices 1–3 (see [Rollback plan](#rollback-plan)). | unset (no-op) |
+| `EGG_BRC_EVENT_PUMP` | **Removed in [#2908](https://github.com/jwbron/egg/issues/2908) slice-4 task-4-2.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template, the surrounding selector logic, and the env var read itself — the orchestrator no longer consults this variable. Operators that referenced it in helm values / pod-spec env can drop the row. The supported regression path is `git revert` of slices 1–3 / slice-4 in reverse-merge order (see [Rollback plan](#rollback-plan)); reverting slice-4 restores the env var alongside the legacy template. | n/a (removed) |
 | `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908)). Replaced the legacy 3-restart FAIL cap with an overseer-alert escalation that does not transition the pipeline to FAILED. At budget threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and keeps blocking; at `2 ×` budget the priority escalates and the wrapper still keeps blocking. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. See [Idle / no-progress safety budget](#idle--no-progress-safety-budget). | `30` |
 
 ### Constants

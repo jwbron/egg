@@ -1395,14 +1395,14 @@ for the trust-boundary rationale.
 
 ### 10.8 Rollout completed in slice-4
 
-The event-pump default flipped on in slice-4 of #2908 (task-4-1) and
-the legacy `_CONSENSUS_WRAPPER_TEMPLATE` emission was deleted in
-slice-4 task-4-2 alongside the agent-side
-`message_wait_loop` heartbeat / keep-alive code. Setting
-`EGG_BRC_EVENT_PUMP=false` no longer has any effect because the
-legacy template it selected to is gone. The supported regression
-path is `git revert` of slices 1–3 (and slice-4, in reverse-merge
-order); see
+The event-pump default flipped on in slice-4 of #2908 (task-4-1)
+and the legacy `_CONSENSUS_WRAPPER_TEMPLATE` emission was deleted
+in slice-4 task-4-2 alongside the agent-side `message_wait_loop`
+heartbeat / keep-alive code and the `EGG_BRC_EVENT_PUMP` env var
+itself — the orchestrator no longer reads it, so setting it has no
+effect on a post-slice-4 codebase. The supported regression path is
+`git revert` of slice-4 / slice-3 / slice-2 / slice-1 in
+reverse-merge order; see
 [Rollback plan](../architecture/orchestrator.md#rollback-plan).
 
 ### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse
