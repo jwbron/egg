@@ -5323,6 +5323,14 @@ class TestDualRoleExecutionOrdering:
     # The pure-producer / pure-reviewer leakage guards die with the
     # underlying filter assertions — the dual-role banner-presence /
     # banner-absence tests above remain the structural pins.
+    #
+    # The coder-owns-tests refinement (#2936) merged in via slice-4
+    # rephrases the banner: the tester's first invocation does
+    # ORIENT/PREPARE only; the wrapper re-invokes it on the coder's
+    # ``CONSENSUS_PROPOSE`` with the proposal in event_payload, and
+    # the tester does its producer WORK + PROPOSE + ACK/NACK in that
+    # single invocation. The structural banner-presence pin still
+    # captures this — see test_dual_role_banner_fall_through_mentions_step_4_review.
 
     def test_dual_role_banner_fall_through_mentions_step_4_review(self):
         """The dual-role banner's strict-order body must still name the

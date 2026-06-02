@@ -15,17 +15,13 @@ structured dict directly and classify ``matched``/``ok`` themselves.
 
 from __future__ import annotations
 
-import datetime as _datetime
-import threading
 import time as _time
-from collections.abc import Callable
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
     orchestrator_request,
-    resolve_slice_id,
 )
 from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -38,13 +34,26 @@ _HEARTBEAT_STATES = {
     "IDLE",
 }
 
-
-# Interval between ``WAITING_FOR_EVENT`` keep-alive heartbeats emitted by
-# ``message_wait_loop`` while blocked. Needs to be well under the
-# overseer's ``heartbeat_threshold`` (120 s default, 600 s during
-# implement phase) so a single missed beat doesn't flip the stall
-# detector. See issue #2036.
-_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS = 60.0
+# Slice-4 task-4-2 deleted the agent-side ``message_wait_loop`` heartbeat /
+# gateway-session keep-alive path (``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS``,
+# ``_default_emit_wait_loop_heartbeat``, ``_start_wait_loop_heartbeat``,
+# and the per-iteration emit_hb invocations inside ``message_wait_loop``).
+# The event-pump wrapper now owns both responsibilities:
+#
+#   * heartbeat liveness (#2036): the wrapper's
+#     ``start_background_heartbeat`` subshell in
+#     ``orchestrator/consensus_wrapper.py:_EVENT_PUMP_WRAPPER_TEMPLATE``
+#     emits ``egg-orch message heartbeat`` every 30 s while blocking on
+#     ``egg-orch message wait-loop``.
+#   * gateway-session keep-alive (#2451): the same heartbeat carries
+#     ``slice_id`` (sourced from ``$EGG_SLICE_ID``), so the orchestrator's
+#     ``_maybe_attach_slice_id`` fan-out refreshes the slice-scoped
+#     container session as a side effect of every wrapper heartbeat.
+#
+# ``message_heartbeat`` (the explicit handler below) is unchanged — it
+# is still the path the wrapper bash invokes via
+# ``egg-orch message heartbeat`` and that callers like the overseer
+# self-test still exercise directly.
 
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:
@@ -172,98 +181,6 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _default_emit_wait_loop_heartbeat(
-    pipeline_id: str | None,
-    role: str | None,
-    state: str,
-    body: str,
-    since: str | None = None,
-    slice_id: str | None = None,
-) -> None:
-    """Emit a single liveness heartbeat from ``message_wait_loop``.
-
-    Best-effort: failures are swallowed. ``wait_loop`` heartbeats are a
-    liveness signal for the overseer (issue #2036) and must never kill
-    the wait itself — in particular, 429 rate-limit responses mean the
-    overseer already has plenty of beats for this role and the next tick
-    will succeed.
-
-    Short-circuits when ``pipeline_id`` or ``role`` is unset: without
-    them the server cannot associate the beat with an agent, and the
-    heartbeat endpoint would reject the request anyway.
-
-    ``since`` (optional ISO-8601 timestamp) is included in the payload
-    only when truthy. ``message_wait_loop`` captures it once at wait
-    entry so every periodic ``WAITING_FOR_EVENT`` beat carries the same
-    value, letting the overseer read it as a monotonically aging
-    "waiting since" rather than a clock that resets each tick.
-
-    ``slice_id`` (optional) is forwarded so the orchestrator's gateway
-    -session fan-out can reconstruct the slice-scoped container_id
-    (``egg-agent-{pid}-{slice}-{role}``) that
-    ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE`` registered. Without it,
-    every ``wait_loop`` tick from a slice-scoped reviewer/tester would
-    log "Session not found for container" and leave the gateway
-    session's idle timer unrefreshed (#2451). Pipeline-level agents
-    (no slice) leave it ``None`` and fall through to the
-    ``egg-agent-{pid}-{role}`` shape.
-    """
-    if not pipeline_id or not role:
-        return
-    payload: dict[str, Any] = {
-        "from_role": role,
-        "state": state,
-        "body": body,
-    }
-    if since:
-        payload["since"] = since
-    if slice_id:
-        payload["slice_id"] = slice_id
-    try:
-        orchestrator_request(
-            f"/api/v1/pipelines/{pipeline_id}/heartbeat",
-            method="POST",
-            data=payload,
-        )
-    except GatewayError:
-        pass
-    except Exception:
-        pass
-
-
-def _start_wait_loop_heartbeat(
-    tick: Callable[[], None],
-    interval: float,
-) -> Callable[[], None]:
-    """Emit ``tick()`` immediately, then every ``interval`` seconds.
-
-    Returns a stop callable. Uses a daemon thread so the emitter dies
-    with the interpreter if anything pathological happens; the stop
-    callable is called from the outer ``finally`` to halt the thread
-    promptly after the wait resolves.
-
-    ``interval <= 0`` disables the periodic tick (entry call only) —
-    tests use this to avoid real time.sleep.
-    """
-    tick()
-    if interval <= 0:
-        return lambda: None
-    stop = threading.Event()
-
-    def _run() -> None:
-        while not stop.wait(interval):
-            try:
-                tick()
-            except Exception:
-                # Never let a heartbeat failure tear down the thread —
-                # the next iteration will try again.
-                pass
-
-    t = threading.Thread(target=_run, daemon=True, name="wait_loop_heartbeat")
-    t.start()
-    return stop.set
-
-
 def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     """Loop ``message_wait`` until a match arrives.
 
@@ -303,50 +220,13 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     # Sleep hook is overridable so tests can skip real sleeps.
     sleep = req.get("_sleep", _time.sleep)
 
-    # Heartbeat emission (issue #2036). The overseer's stall detector
-    # treats "no heartbeat for N seconds" as a liveness signal, but
-    # agents blocked in ``wait_loop`` were sending none — so reviewers
-    # and downstream producers routinely tripped false-positive stall
-    # alerts. Emit ``WAITING_FOR_EVENT`` on entry, every
-    # ``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS`` thereafter, and a final
-    # ``WORKING`` on exit so liveness tracks protocol reality.
-    pipeline_id_hb = req.get("pipeline_id") or get_pipeline_id()
-    role_hb = _role_or_env(req)
-    for_types_hb = _coerce_for_types(req)
-    from_role_hb = req.get("from_role") or req.get("from")
-    # Capture (and validate) once at wait entry so every periodic tick
-    # forwards the same value. Slice-scoped reviewers/testers spend the
-    # bulk of their lifetimes blocked here, so this is the dominant
-    # heartbeat path #2451 was trying to fix.
-    slice_id_hb = resolve_slice_id(req)
-    emit_hb: Callable[..., None] = req.get("_emit_heartbeat", _default_emit_wait_loop_heartbeat)
-    hb_interval = float(req.get("_heartbeat_interval", _WAIT_LOOP_HEARTBEAT_INTERVAL_SECS))
-    start_hb: Callable[[Callable[[], None], float], Callable[[], None]] = req.get(
-        "_start_heartbeat", _start_wait_loop_heartbeat
-    )
-
-    waiting_body = "wait_loop blocked on " + ",".join(for_types_hb)
-    if from_role_hb:
-        waiting_body += f" from={from_role_hb}"
-    # Captured once so every WAITING_FOR_EVENT beat carries the same
-    # ``since``: the overseer (and humans tailing the bus) can read it
-    # as a monotonically aging "waiting since" rather than a clock that
-    # resets every interval. Reviewer suggestion on PR #2041.
-    wait_since = _datetime.datetime.now(_datetime.UTC).isoformat()
-
-    def _tick() -> None:
-        emit_hb(
-            pipeline_id_hb,
-            role_hb,
-            "WAITING_FOR_EVENT",
-            waiting_body,
-            wait_since,
-            slice_id=slice_id_hb,
-        )
-
-    stop_hb = start_hb(_tick, hb_interval)
-
     backoff = 1.0
+    # The legacy ``_emit_heartbeat`` / ``_heartbeat_interval`` /
+    # ``_start_heartbeat`` request overrides were the test hooks for the
+    # agent-side heartbeat that slice-4 task-4-2 deleted. Strip them
+    # from the inner ``message_wait`` payload so older tests that still
+    # pass them don't end up with the hooks leaking through to the
+    # wait endpoint (which would 400 on unknown query params).
     inner = {
         k: v
         for k, v in req.items()
@@ -373,63 +253,50 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     # the CLI's unlink branch fires regardless of which iteration tripped
     # it.
     loop_saw_stale = False
-    try:
-        for i in range(1, max_iter + 1):
-            try:
-                resp = message_wait(inner)
-            except GatewayError as err:
-                status = err.status_code
-                # 4xx (non-408) is permanent: callers must not retry.
-                if status is not None and 400 <= status < 500 and status != 408:
-                    raise
-                # Transient: sleep and retry.
-                sleep(min(backoff, 5.0))
-                backoff = min(backoff * 2, 5.0)
-                continue
-            last_resp = resp
-            # Issue #2464: if the server flagged the previous ``since``
-            # as unresolvable (post-phase-clear cursor) drop it before
-            # threading the new cursor — otherwise a server-side tip of
-            # ``None`` would let the dead cursor live another iteration.
-            if resp.get("since_id_stale"):
-                loop_saw_stale = True
-                inner.pop("since", None)
-            # Thread the server cursor into the next wait's ``since`` so
-            # events that arrive between this response and the next call
-            # can't slip through the gap (issue #1995). A cursor of ``None``
-            # (empty stream) leaves ``inner["since"]`` unchanged so we keep
-            # whatever cursor the caller originally passed in, if any.
-            next_cursor = resp.get("cursor")
-            if next_cursor is not None:
-                inner["since"] = next_cursor
-            if resp.get("matched"):
-                resp_out = dict(resp)
-                resp_out["iterations"] = i
-                if loop_saw_stale:
-                    resp_out["since_id_stale"] = True
-                return resp_out
-            # Timeout with no match — reset backoff and loop.
-            backoff = 1.0
+    for i in range(1, max_iter + 1):
+        try:
+            resp = message_wait(inner)
+        except GatewayError as err:
+            status = err.status_code
+            # 4xx (non-408) is permanent: callers must not retry.
+            if status is not None and 400 <= status < 500 and status != 408:
+                raise
+            # Transient: sleep and retry.
+            sleep(min(backoff, 5.0))
+            backoff = min(backoff * 2, 5.0)
+            continue
+        last_resp = resp
+        # Issue #2464: if the server flagged the previous ``since``
+        # as unresolvable (post-phase-clear cursor) drop it before
+        # threading the new cursor — otherwise a server-side tip of
+        # ``None`` would let the dead cursor live another iteration.
+        if resp.get("since_id_stale"):
+            loop_saw_stale = True
+            inner.pop("since", None)
+        # Thread the server cursor into the next wait's ``since`` so
+        # events that arrive between this response and the next call
+        # can't slip through the gap (issue #1995). A cursor of ``None``
+        # (empty stream) leaves ``inner["since"]`` unchanged so we keep
+        # whatever cursor the caller originally passed in, if any.
+        next_cursor = resp.get("cursor")
+        if next_cursor is not None:
+            inner["since"] = next_cursor
+        if resp.get("matched"):
+            resp_out = dict(resp)
+            resp_out["iterations"] = i
+            if loop_saw_stale:
+                resp_out["since_id_stale"] = True
+            return resp_out
+        # Timeout with no match — reset backoff and loop.
+        backoff = 1.0
 
-        capped = dict(last_resp)
-        capped.setdefault("ok", True)
-        capped["matched"] = False
-        capped["iterations"] = max_iter
-        if loop_saw_stale:
-            capped["since_id_stale"] = True
-        return capped
-    finally:
-        stop_hb()
-        # Final transition back to WORKING so the overseer sees the
-        # agent leave the wait cleanly. Best-effort; dedup will still
-        # collapse a follow-on manual WORKING beat from the caller.
-        emit_hb(
-            pipeline_id_hb,
-            role_hb,
-            "WORKING",
-            "wait_loop exited",
-            slice_id=slice_id_hb,
-        )
+    capped = dict(last_resp)
+    capped.setdefault("ok", True)
+    capped["matched"] = False
+    capped["iterations"] = max_iter
+    if loop_saw_stale:
+        capped["since_id_stale"] = True
+    return capped
 
 
 def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:

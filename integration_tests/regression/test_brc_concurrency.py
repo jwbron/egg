@@ -25,25 +25,32 @@ The tests still use a ``threading.Barrier`` to give the threads
 roughly-simultaneous entry — that maximises the chance of catching
 a non-serialised mutation if one is ever introduced.
 
-slice-2 of issue #2908 verification stance (TASK-2-7)
------------------------------------------------------
+issue #2908 verification stance (slices 2-4)
+--------------------------------------------
 
-The new event-pump wrapper template is gated behind
-``EGG_BRC_EVENT_PUMP`` (default: false in slice-2). The plan's
-verification stance for slice-2 is **unit-tests-only against the
-generated bash script**; this BRC regression suite is exercised with
-the flag OFF (default) to establish zero orchestrator-side regression
-on the existing in-process ``PeerConsensusTracker`` path.
+The event-pump wrapper template was introduced in slice-2 behind
+``EGG_BRC_EVENT_PUMP``; slice-4 task-4-1 flipped the unset-env default
+to ON, and slice-4 task-4-2 deleted the legacy capped-restart template
+and the env flag along with it. The wrapper template is now the only
+production path.
 
-No flag-on end-to-end test is added in this slice. The rationale:
-no in-process test double can drive a deployed agent pod end-to-end —
-the pod-injection ``ScriptedProvider`` avenue was ruled out per
-#2474 (see ``integration_tests/regression/conftest.py:45`` and lines
-1-25 above of this very file). True end-to-end validation is deferred
-to slice-4's spike on issue-2270/qwen3.7-max using the ``egg_stack``
-real-pod fixture (``integration_tests/conftest.py:340``). Until then,
-the flag-on event-pump path is exercised exclusively by the unit-tier
-in ``orchestrator/tests/test_consensus_wrapper.py`` (see the new
+This BRC concurrency regression suite drives the in-process
+``PeerConsensusTracker`` directly — it is orchestrator-side coverage
+and is unaffected by the wrapper changes. It is kept green as the
+slice-2 / slice-3 / slice-4 baseline "the orchestrator-side BRC
+state-machine still serialises concurrent proposers / reviewers
+correctly under the new event-pump model".
+
+No flag-on end-to-end test was added at the integration tier under
+slices 2-4. The rationale (preserved for slice-5 / slice-6
+follow-up): no in-process test double can drive a deployed agent pod
+end-to-end — the pod-injection ``ScriptedProvider`` avenue was ruled
+out per #2474 (see ``integration_tests/regression/conftest.py:45``).
+True end-to-end validation is deferred to issue #2585 (Claude-route
+E2E via the ``egg_stack`` real-pod fixture at
+``integration_tests/conftest.py:340``). Until then, the event-pump
+path is exercised exclusively by the unit-tier in
+``orchestrator/tests/test_consensus_wrapper.py`` (see
 ``TestEventPumpTemplateSelection`` + sibling classes for the
 TASK-2-6 (i)..(ix) acceptance coverage).
 """
