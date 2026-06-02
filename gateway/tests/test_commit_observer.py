@@ -29,6 +29,7 @@ from commit_observer import (  # type: ignore[import-not-found]
     capture_head,
     observe,
     observe_after_git_execute,
+    patch_id_for_commit,
 )
 
 
@@ -41,7 +42,7 @@ class _FakeClient:
         self.register_ok = register_ok
         self.bulk_ok = bulk_ok
 
-    def register(self, *, sha, role, pipeline_id, repo, branch):
+    def register(self, *, sha, role, pipeline_id, repo, branch, patch_id=None):
         self.register_calls.append(
             {
                 "sha": sha,
@@ -49,6 +50,7 @@ class _FakeClient:
                 "pipeline_id": pipeline_id,
                 "repo": repo,
                 "branch": branch,
+                "patch_id": patch_id,
             }
         )
         return self.register_ok
@@ -476,3 +478,88 @@ class TestObserveAfterGitExecute:
         )
         assert result == []
         assert client.register_calls == []
+
+
+# ---------------------------------------------------------------------------
+# patch-id capture (#2932)
+# ---------------------------------------------------------------------------
+
+
+class TestPatchIdRegistration:
+    """The observer records ``git patch-id`` so attribution survives a rebase."""
+
+    def _fake_run(self, *, commits, patch_id_out):
+        def run(cmd, **kwargs):
+            if "rev-list" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=commits, stderr="")
+            if "show" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="diff --git a/x b/x\n+y\n", stderr=""
+                )
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=patch_id_out, stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        return run
+
+    def test_single_commit_registers_patch_id(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="newsha\n", patch_id_out="abcd1234 newsha\n"),
+        )
+        client = _FakeClient()
+        observe(
+            "/repo",
+            before_head="oldsha",
+            after_head="newsha",
+            branch="egg/b",
+            session_role="coder",
+            pipeline_id="issue-1",
+            repo="o/r",
+            registry_client=client,
+        )
+        assert client.register_calls[0]["patch_id"] == "abcd1234"
+
+    def test_bulk_commits_register_patch_id(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="sha1\nsha2\n", patch_id_out="ffff0000 x\n"),
+        )
+        client = _FakeClient()
+        observe(
+            "/repo",
+            before_head="old",
+            after_head="sha2",
+            branch="b",
+            session_role="coder",
+            pipeline_id="issue-1",
+            repo="o/r",
+            registry_client=client,
+        )
+        items = client.bulk_calls[0]
+        assert len(items) == 2
+        assert all(it["patch_id"] == "ffff0000" for it in items)
+
+    def test_patch_id_for_commit_parses_first_token(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="", patch_id_out="deadbeef0001 abc\n"),
+        )
+        assert patch_id_for_commit("/repo", "abc") == "deadbeef0001"
+
+    def test_patch_id_for_commit_empty_output_is_none(self, monkeypatch):
+        # Merge / empty / rename-only commit -> no diff -> no patch-id.
+        monkeypatch.setattr(subprocess, "run", self._fake_run(commits="", patch_id_out=""))
+        assert patch_id_for_commit("/repo", "abc") is None
+
+    def test_patch_id_for_commit_show_failure_is_none(self, monkeypatch):
+        def run(cmd, **kwargs):
+            if "show" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="bad object")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        assert patch_id_for_commit("/repo", "abc") is None

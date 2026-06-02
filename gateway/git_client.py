@@ -1728,6 +1728,46 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
+def _patch_id_for_commit(repo_path: str, sha: str) -> str | None:
+    """Return ``git patch-id --stable`` for ``sha`` or ``None``.
+
+    The content-based key (#2932) the push handler uses to recover
+    attribution for a commit whose SHA a rebase rewrote — the SHA changed
+    but the patch-id did not.  Mirrors ``commit_observer.patch_id_for_commit``
+    (registration side) so a commit registered with a given patch-id is
+    found here under the same one.  Merge / empty / rename-only commits and
+    any git failure yield ``None``; the commit then stays fail-closed.
+    """
+    import subprocess
+
+    try:
+        show = subprocess.run(
+            git_cmd("show", "--no-color", sha),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if show.returncode != 0:
+            return None
+        patch = subprocess.run(
+            git_cmd("patch-id", "--stable"),
+            cwd=repo_path,
+            input=show.stdout,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return None
+    if patch.returncode != 0:
+        return None
+    parts = (patch.stdout or "").split()
+    return parts[0] if parts else None
+
+
 def get_attributed_changed_files_in_push(
     repo_path: str,
     remote: str,
@@ -1851,6 +1891,50 @@ def get_attributed_changed_files_in_push(
                 received=len(received_shas),
                 missing=len(requested_shas - received_shas),
             )
+
+    # #2932: rescue commits whose SHA the registry never saw because a
+    # rebase rewrote them.  The patch-id is stable across the SHA rewrite,
+    # so for any commit still unattributed we compute its patch-id and ask
+    # the registry which role authored a commit with that patch-id.  Only a
+    # byte-identical diff matches, and an ambiguous patch-id resolves to
+    # ``None`` (registry-side), so this preserves #2039's fail-closed
+    # intent: it can only recover an attribution, never fabricate a bypass.
+    if commits and registry_client is not None:
+        lookup_patch_ids = getattr(registry_client, "lookup_patch_ids", None)
+        if callable(lookup_patch_ids):
+            sha_to_patch: dict[str, str] = {}
+            for sha in commits:
+                if attribution.get(sha) is not None:
+                    continue
+                pid = _patch_id_for_commit(repo_path, sha)
+                if pid:
+                    sha_to_patch[sha] = pid
+            if sha_to_patch:
+                try:
+                    patch_attr = dict(lookup_patch_ids(sorted(set(sha_to_patch.values()))))
+                except Exception:
+                    logger.warning(
+                        "commit_authorship_patch_lookup_exception",
+                        repo_path=repo_path,
+                        branch=branch,
+                        exc_info=True,
+                    )
+                    patch_attr = {}
+                recovered: list[str] = []
+                for sha, pid in sha_to_patch.items():
+                    role = patch_attr.get(pid)
+                    if role:
+                        attribution[sha] = role
+                        recovered.append(sha)
+                if recovered:
+                    logger.info(
+                        "commit_authorship_patch_id_recovery",
+                        repo_path=repo_path,
+                        branch=branch,
+                        session_role=session_role,
+                        recovered=len(recovered),
+                        shas=recovered,
+                    )
 
     for f in files:
         f.authored_by = attribution.get(f.commit_sha)

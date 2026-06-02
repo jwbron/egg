@@ -112,6 +112,7 @@ class CommitRegistryClient:
         *,
         repo: str | None = None,
         branch: str | None = None,
+        patch_id: str | None = None,
     ) -> bool:
         """Register one commit.  Returns True on 200/409 (both benign).
 
@@ -119,6 +120,10 @@ class CommitRegistryClient:
         observer doesn't get to override that (first-wins at the store
         level).  Either way, the caller doesn't care: the registration
         is "durably decided" from the gateway's perspective.
+
+        ``patch_id`` (#2932) is the commit's ``git patch-id --stable`` when
+        the observer could compute one; it lets attribution survive a
+        later SHA rewrite (rebase).
         """
         payload = {
             "sha": sha,
@@ -126,6 +131,7 @@ class CommitRegistryClient:
             "pipeline_id": pipeline_id,
             "repo": repo,
             "branch": branch,
+            "patch_id": patch_id,
         }
         status, _body, err = _post(
             "/api/v1/commit-authorship/register",
@@ -203,6 +209,40 @@ class CommitRegistryClient:
             value = attribution.get(sha)
             if value is None or isinstance(value, str):
                 out[sha] = value
+        return out
+
+    def lookup_patch_ids(self, patch_ids: list[str]) -> dict[str, str | None]:
+        """Content-based attribution fallback (#2932).
+
+        Maps each patch-id to the role that authored a commit with that
+        patch-id, or ``None`` when unregistered or ambiguous.  Used by the
+        push handler to recover attribution for commits whose SHA a rebase
+        rewrote — the SHA changed but the patch-id did not.  Returns an
+        empty dict on network/server failure (fail-closed).
+        """
+        if not patch_ids:
+            return {}
+        status, body, err = _post(
+            "/api/v1/commit-authorship/lookup",
+            {"patch_ids": list(patch_ids)},
+            timeout=self._lookup_timeout,
+        )
+        if status != 200 or not isinstance(body, dict):
+            logger.warning(
+                "commit_authorship_patch_lookup_failed",
+                count=len(patch_ids),
+                status=status,
+                error=err,
+            )
+            return {}
+        attribution = body.get("patch_attribution", {})
+        if not isinstance(attribution, dict):
+            return {}
+        out: dict[str, str | None] = {}
+        for pid in patch_ids:
+            value = attribution.get(pid)
+            if value is None or isinstance(value, str):
+                out[pid] = value
         return out
 
 

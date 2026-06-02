@@ -75,6 +75,12 @@ ORPHAN_SHARD_ID = "_orphan"
 # 40-char SHA-1 and the emerging 64-char SHA-256 format without rejecting
 # test data that uses shorter values (our own unit tests do).
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+# A git patch-id (``git patch-id --stable``) is a full-length object hash —
+# 40 hex for SHA-1, 64 for SHA-256.  We accept the same 7–64 lowercase-hex
+# shape as a commit SHA so unit tests can use short fixtures, and because the
+# value is content-addressed rather than security-sensitive on its own (an
+# ambiguous patch-id resolves to ``None`` in ``lookup_bulk_by_patch_id``).
+_PATCH_ID_RE = re.compile(r"^[0-9a-f]{7,64}$")
 # Role identifier: lowercase alphanumeric + underscore/hyphen.  Matches
 # the AgentRole values used elsewhere in the codebase.
 _ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
@@ -93,7 +99,10 @@ _PIPELINE_ID_RE = re.compile(
     r")$"
 )
 
-_SCHEMA_VERSION = 1
+# v2 (#2932): entries gained an optional ``patch_id`` so attribution can
+# survive a SHA rewrite (rebase).  v1 shards load unchanged — entries
+# without a ``patch_id`` simply don't participate in patch-id lookup.
+_SCHEMA_VERSION = 2
 
 
 class CommitAuthorshipStoreError(Exception):
@@ -127,6 +136,7 @@ class AuthorshipEntry:
     repo: str | None
     branch: str | None
     registered_at: str
+    patch_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -135,6 +145,7 @@ class AuthorshipEntry:
             "repo": self.repo,
             "branch": self.branch,
             "registered_at": self.registered_at,
+            "patch_id": self.patch_id,
         }
 
 
@@ -154,6 +165,25 @@ def _validate_role(role: str) -> str:
     if not _ROLE_RE.match(role_s):
         raise CommitAuthorshipStoreError(f"Invalid role: {role!r}")
     return role_s
+
+
+def _validate_patch_id(patch_id: Any) -> str | None:
+    """Normalize an optional patch-id, or ``None`` when absent.
+
+    Accepts any input so HTTP callers can't crash the store with a
+    non-string ``patch_id``: non-strings and empty values become ``None``
+    (the commit just doesn't participate in patch-id lookup).  A present
+    but malformed hex value raises so the caller learns the payload is
+    wrong rather than silently dropping it.
+    """
+    if not isinstance(patch_id, str):
+        return None
+    pid = patch_id.strip().lower()
+    if not pid:
+        return None
+    if not _PATCH_ID_RE.match(pid):
+        raise CommitAuthorshipStoreError(f"Invalid patch_id: {patch_id!r}")
+    return pid
 
 
 def _validate_pipeline_id(pipeline_id: str) -> str:
@@ -563,6 +593,7 @@ class CommitAuthorshipStore:
         *,
         repo: str | None = None,
         branch: str | None = None,
+        patch_id: str | None = None,
         commit: bool = True,
     ) -> tuple[str, bool, str | None]:
         """Register a commit's authorship with first-wins semantics.
@@ -574,6 +605,10 @@ class CommitAuthorshipStore:
                 or empty string routes the entry to the orphan shard.
             repo: Optional owner/repo string for forensic logging.
             branch: Optional branch name for forensic logging.
+            patch_id: Optional ``git patch-id --stable`` of the commit.
+                Recorded so attribution can survive a SHA rewrite (rebase)
+                via ``lookup_bulk_by_patch_id``.  ``None`` when the caller
+                couldn't compute one (merge / empty / rename-only commit).
             commit: When True and a state store is attached, commit the
                 shard change to the state branch.
 
@@ -592,6 +627,7 @@ class CommitAuthorshipStore:
         sha_s = _validate_sha(sha)
         role_s = _validate_role(role)
         pid = _validate_pipeline_id(pipeline_id or ORPHAN_SHARD_ID)
+        patch_id_s = _validate_patch_id(patch_id)
 
         with self._lock:
             shard = self._load_shard(pid)
@@ -627,6 +663,7 @@ class CommitAuthorshipStore:
                 repo=repo,
                 branch=branch,
                 registered_at=datetime.now(UTC).isoformat(),
+                patch_id=patch_id_s,
             )
             entries[sha_s] = entry.to_dict()
             shard.setdefault("version", _SCHEMA_VERSION)
@@ -689,6 +726,57 @@ class CommitAuthorshipStore:
                 entry = entries.get(sha_s)
                 if entry is not None:
                     result[sha_s] = entry.get("role")
+        return result
+
+    def lookup_bulk_by_patch_id(self, patch_ids: list[str]) -> dict[str, str | None]:
+        """Content-based attribution fallback for SHA-rewritten commits.
+
+        Returns a dict mapping every *valid* input patch-id to the role
+        that authored a commit with that patch-id, or ``None`` when no
+        registered commit carries it **or** more than one *distinct* role
+        does (ambiguous → fail closed, never guess).  This is the seam
+        that makes attribution survive a ``git rebase`` that mints new
+        SHAs: the rewritten commit keeps its patch-id, so the gateway can
+        recover the original author even though the SHA is unregistered.
+
+        Only entries that actually recorded a ``patch_id`` (schema v2+)
+        participate; legacy v1 entries are invisible here.
+        """
+        seen: dict[str, None] = {}
+        normalized: list[str] = []
+        for raw in patch_ids or []:
+            try:
+                pid = _validate_patch_id(raw)
+            except CommitAuthorshipStoreError:
+                continue
+            if pid is None or pid in seen:
+                continue
+            seen[pid] = None
+            normalized.append(pid)
+
+        if not normalized:
+            return {}
+
+        wanted = set(normalized)
+        roles_by_patch: dict[str, set[str]] = {pid: set() for pid in normalized}
+        for shard in self._iter_all_shards():
+            entries = shard.get("entries", {})
+            for entry in entries.values():
+                if not isinstance(entry, dict):
+                    continue
+                pid = entry.get("patch_id")
+                if isinstance(pid, str) and pid in wanted:
+                    role = entry.get("role")
+                    if isinstance(role, str) and role:
+                        roles_by_patch[pid].add(role)
+
+        result: dict[str, str | None] = {}
+        for pid in normalized:
+            roles = roles_by_patch[pid]
+            # Exactly one distinct role → unambiguous attribution.  Zero
+            # (unregistered) or many (two roles produced an identical
+            # patch) → None, which the gateway treats as fail-closed.
+            result[pid] = next(iter(roles)) if len(roles) == 1 else None
         return result
 
     # -- helpers ----------------------------------------------------------

@@ -105,6 +105,53 @@ def _rev_list_between(exec_path: str, before: str | None, after: str) -> list[st
     return shas
 
 
+def patch_id_for_commit(exec_path: str, sha: str) -> str | None:
+    """Return ``git patch-id --stable`` for ``sha`` or ``None``.
+
+    Recorded at registration time so attribution survives a later SHA
+    rewrite (rebase): the rewritten commit keeps the same patch-id even
+    though its SHA changes (#2932).  We feed ``git show`` through
+    ``git patch-id --stable`` — the latter reads only the diff hunks, so
+    the commit header is ignored and root commits work.  Merge commits
+    (``git show`` emits no diff by default), empty commits, and
+    rename/mode-only commits yield no patch-id; we return ``None`` and the
+    commit simply doesn't get content-based recovery.  Any failure returns
+    ``None`` so registration proceeds with SHA-only attribution.
+    """
+    sha_s = (sha or "").strip()
+    if not sha_s:
+        return None
+    try:
+        show = subprocess.run(
+            ["git", "show", "--no-color", sha_s],
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if show.returncode != 0:
+            return None
+        patch = subprocess.run(
+            ["git", "patch-id", "--stable"],
+            cwd=exec_path,
+            input=show.stdout,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception as exc:
+        logger.debug("commit_observer_patch_id_failed", sha=sha_s, error=str(exc))
+        return None
+    if patch.returncode != 0:
+        return None
+    # ``git patch-id`` prints ``<patch-id> <commit-id>``; take the first
+    # token.  Empty output (no diff) means no usable patch-id.
+    parts = (patch.stdout or "").split()
+    return parts[0] if parts else None
+
+
 def capture_head(exec_path: str) -> str | None:
     """Return ``git rev-parse HEAD`` in ``exec_path`` or ``None``.
 
@@ -205,6 +252,7 @@ def observe(
                 pipeline_id=pipeline_id,
                 repo=repo,
                 branch=branch,
+                patch_id=patch_id_for_commit(exec_path, shas[0]),
             )
         except Exception as exc:  # pragma: no cover - client already swallows
             logger.warning(
@@ -222,6 +270,7 @@ def observe(
             "pipeline_id": pipeline_id,
             "repo": repo,
             "branch": branch,
+            "patch_id": patch_id_for_commit(exec_path, sha),
         }
         for sha in shas
     ]

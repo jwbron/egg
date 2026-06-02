@@ -461,3 +461,97 @@ class TestStoreUnavailable:
             content_type="application/json",
         )
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# patch-id attribution (#2932)
+# ---------------------------------------------------------------------------
+
+_PATCH_A = "1" * 40
+_PATCH_B = "2" * 40
+
+
+class TestPatchIdRoutes:
+    def test_register_persists_patch_id(self, client, store):
+        response = client.post(
+            "/api/v1/commit-authorship/register",
+            data=json.dumps(
+                {
+                    "sha": _VALID_SHA,
+                    "role": "coder",
+                    "pipeline_id": "issue-1",
+                    "patch_id": _PATCH_A,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "coder"}
+
+    def test_register_rejects_non_string_patch_id(self, client):
+        response = client.post(
+            "/api/v1/commit-authorship/register",
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "patch_id": 123}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_register_bulk_persists_patch_id(self, client, store):
+        response = client.post(
+            "/api/v1/commit-authorship/register-bulk",
+            data=json.dumps(
+                {
+                    "items": [
+                        {
+                            "sha": _VALID_SHA,
+                            "role": "coder",
+                            "pipeline_id": "issue-1",
+                            "patch_id": _PATCH_A,
+                        }
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "coder"}
+
+    def test_lookup_by_patch_ids_returns_patch_attribution(self, client, store):
+        store.register(_VALID_SHA, "reviewer", "issue-1", patch_id=_PATCH_A)
+        response = client.post(
+            "/api/v1/commit-authorship/lookup",
+            data=json.dumps({"patch_ids": [_PATCH_A, _PATCH_B]}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body["patch_attribution"][_PATCH_A] == "reviewer"
+        assert body["patch_attribution"][_PATCH_B] is None
+
+    def test_lookup_combined_shas_and_patch_ids(self, client, store):
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        response = client.post(
+            "/api/v1/commit-authorship/lookup",
+            data=json.dumps({"shas": [_VALID_SHA], "patch_ids": [_PATCH_A]}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+        assert body["attribution"][_VALID_SHA] == "coder"
+        assert body["patch_attribution"][_PATCH_A] == "coder"
+
+    def test_lookup_wrong_patch_ids_type_returns_400(self, client):
+        response = client.post(
+            "/api/v1/commit-authorship/lookup",
+            data=json.dumps({"patch_ids": "abc"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_lookup_patch_ids_exceeds_cap_returns_400(self, client):
+        response = client.post(
+            "/api/v1/commit-authorship/lookup",
+            data=json.dumps({"patch_ids": ["1" * 40] * 501}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
