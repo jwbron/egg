@@ -956,7 +956,7 @@ the [Environment Variables](#environment-variables) table below with
 their defaults; the [agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump)
 section is the wait-side companion to this architecture description.
 
-## BRC Per-Event Prompt Composer + Preamble Collapse (slice-3, behind `EGG_BRC_MEMORY=full`)
+## BRC Per-Event Prompt Composer + Preamble Collapse (slice-3)
 
 > **Slice-3 of [#2908](https://github.com/jwbron/egg/issues/2908).** Slice-2
 > wired the wrapper-side deterministic loop and moved heartbeating /
@@ -967,6 +967,16 @@ section is the wait-side companion to this architecture description.
 > needs to teach the agent any of the wait / cursor / stay-alive
 > plumbing the wrapper now owns. Reader side of the slice-1
 > [BRC Memory Artifact](brc-memory.md) lands here.
+>
+> **Flag mapping (read this first):** the composer runs whenever the
+> event-pump wrapper runs — gated by `EGG_BRC_EVENT_PUMP`. Only the
+> *content* of the memory excerpt (and whether `last_reviewed_commit_sha`
+> is read from the memory file vs. fallen back from
+> `changed_artifacts`) is gated by `EGG_BRC_MEMORY`. The
+> `_build_brc_preamble` collapse runs **unconditionally** — both wrapper
+> paths see the collapsed preamble. See [Composer interplay with
+> `EGG_BRC_MEMORY`](#composer-interplay-with-egg_brc_memory) for the
+> full matrix.
 
 ### Per-event prompt composer (`compose_event_prompt`)
 
@@ -1119,13 +1129,22 @@ subsystem can locate the implementation:
 
 ### `_build_brc_preamble` collapse
 
-`_build_brc_preamble` at `orchestrator/routes/pipelines.py:12348` is
-**collapsed** by slice-3: the STAY-ALIVE / wait-loop mechanics /
+`_build_brc_preamble` (defined in `orchestrator/routes/pipelines.py`)
+is **collapsed** by slice-3: the STAY-ALIVE / wait-loop mechanics /
 cursor-threading / pre-confirm-wait foot-gun guidance that previously
 taught the agent the lifecycle has been deleted. The wrapper now
 owns sequencing (see [Deterministic loop structure](#deterministic-loop-structure))
 so the agent no longer needs to be re-taught the lifecycle on every
 spawn.
+
+> The specific line-number references below come from the slice-3
+> contract spec and reflect the **post-collapse** positions inside
+> `pipelines.py` once task-3-3's coder commit lands; they may not
+> match the pre-collapse positions. Prefer the **function /
+> banner-name references** (`_build_brc_preamble`, the dual-mandate
+> banner) over the line numbers when reading the live file, and treat
+> the numbers as anchor cues for the snapshot regression test rather
+> than load-bearing citations.
 
 | Removed from preamble | Why |
 |-----------------------|-----|
@@ -1138,25 +1157,28 @@ spawn.
 |------------------|-----|
 | Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
 | Dual-role ordering banner | Dual-role agents (e.g. `tester`) still need the ordering invariant — wrapper dispatches both sides, but the agent must know to address them in the documented sequence. |
-| Dual-mandate adversarial re-review banner at `orchestrator/routes/pipelines.py:12849-12872` | Behavioural framing for re-review correctness (the "Your re-review has TWO equal-weight mandates …" block); anchored on by risk_analyst R6 and not a wait-mechanics concern. |
+| Dual-mandate adversarial re-review banner (`_build_brc_preamble`'s "Your re-review has TWO equal-weight mandates …" block at `orchestrator/routes/pipelines.py:12849-12872` post-collapse) | Behavioural framing for re-review correctness; anchored on by risk_analyst R6 and not a wait-mechanics concern. |
 
 The three caller sites at `orchestrator/routes/pipelines.py:13659`,
-`:13692`, and `:13720` are **unchanged** — only the preamble text
-collapses, the calling pattern is identical. Slice-3 keeps the
-`EGG_BRC_EVENT_PUMP` flag off by default, so the collapsed preamble
-runs against the *legacy* wrapper path through slice-3; slice-4 flips
-the default and the collapsed preamble becomes the production path.
+`:13692`, `:13720` (post-collapse positions per the slice-3 contract
+spec) are **unchanged** by slice-3 — only the preamble text
+collapses, the calling pattern is identical. The collapse happens
+**unconditionally**: both the legacy capped-restart wrapper and the
+event-pump wrapper see the collapsed preamble. `EGG_BRC_EVENT_PUMP`
+selects the **wrapper**, not the preamble; slice-4 flips the wrapper
+default to event-pump and retires the legacy template.
 
 The snapshot regression test at
 `orchestrator/tests/test_brc_preamble_collapsed.py` (slice-3 task-3-7)
 pins (a) absence of STAY-ALIVE / wait-loop / cursor strings;
 (b) presence of the agent roster; (c) presence of the phrase "Both
-must pass to ACK" (verified at
-`orchestrator/routes/pipelines.py:12856-12857` inside the dual-mandate
-banner); (d) a ≥ 25% byte-size drop against the pre-collapse
-baseline (a softening from the originally-proposed 40% per the
-reviewer_plan v2 non-blocker — the precise number is set by the
-snapshot baseline rather than a pre-fixed target).
+must pass to ACK" (located inside the dual-mandate banner —
+`pipelines.py:12856-12857` is the post-collapse target the contract
+spec uses for the snapshot anchor); (d) a ≥ 25% byte-size drop
+against the pre-collapse baseline (a softening from the
+originally-proposed 40% per the reviewer_plan v2 non-blocker — the
+precise number is set by the snapshot baseline rather than a
+pre-fixed target).
 
 ### `mission.md` rewrite reaches the agent pod only after a sandbox rebuild
 
@@ -1213,7 +1235,7 @@ the [BRC Memory Artifact — Modes](brc-memory.md#modes--egg_brc_memory)
 table together with the slice-1 writer and the slice-3 reader
 behaviour. The wait-side companion to this architecture section is
 [agent-wait-patterns §10.9 BRC Per-Event Prompt Composer +
-Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3-behind-egg_brc_memoryfull).
+Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
 
 ## Shared Package
 
