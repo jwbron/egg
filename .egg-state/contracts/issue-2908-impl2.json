@@ -546,12 +546,12 @@
         },
         {
           "id": "task-3-7",
-          "description": "Snapshot test for the collapsed preamble at\n``orchestrator/tests/test_brc_preamble_collapsed.py`` (new\nfile). Loads the rendered preamble for each of the three\ncaller sites (pipelines.py:13659, :13692, :13720) and\nasserts (a) the new snapshot matches; (b) STAY-ALIVE /\nwait-loop / cursor strings absent; (c) agent roster present;\n(d) byte size drop \u2265 40% vs the prior snapshot baseline.\nAlso capture **WS7 cache measurement #1** (post-slice-3\nbaseline): run a representative event sequence through the\nnew prompt path on a local test pipeline and record\n``cache_read_input_tokens`` / Qwen cost_callback aggregate\nto ``.egg-state/agent-outputs/ws7-measurement-slice-3.json``\nfor slice-4 / slice-6 comparison.",
+          "description": "Snapshot test for the collapsed preamble at\n``orchestrator/tests/test_brc_preamble_collapsed.py`` (new\nfile). Loads the rendered preamble for each of the three\ncaller sites (pipelines.py:13659, :13692, :13720) and\nasserts (a) the new snapshot matches; (b) STAY-ALIVE /\nwait-loop / cursor strings absent; (c) agent roster present;\n(d) byte size drop \u2265 40% vs the prior snapshot baseline.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "Snapshot tests pass under ``make test``; snapshots\ncommitted; absent-strings assertions trigger on regression;\nbyte-size assertion stable (with a 5% tolerance band); WS7\nmeasurement file captured under\n``.egg-state/agent-outputs/`` with the documented schema\n(per-event ``cache_read_input_tokens``, total invocation\ncount, Qwen aggregate).",
+          "acceptance_criteria": "Snapshot tests pass under ``make test``; snapshots\ncommitted; absent-strings assertions trigger on regression;\nbyte-size assertion stable (with a 5% tolerance band).",
           "files_affected": [
             "orchestrator/tests/test_brc_preamble_collapsed.py"
           ],
@@ -985,27 +985,6 @@
           "acceptance_criteria": "``latency-mcp-baseline.json`` exists under\n``.egg-state/agent-outputs/`` at slice-6 entry (captured\nby TASK-5-7); the post-deletion measurement is captured to\n``.egg-state/agent-outputs/latency-mcp-vs-cli.json``;\nassertion fails only if regression exceeds the 5% budget;\non failure the test surfaces a structured\n``OVERSEER_ALERT`` priority ``medium`` with the measured\ndelta. No vendored MCP source tarball. No\n``ScriptedProvider`` import or reference. Test gated\nvia ``egg_stack`` (skips if ``_kubectl_available()``\nreturns False).",
           "files_affected": [
             "integration_tests/test_mcp_to_cli_latency.py"
-          ],
-          "role": "tester",
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "delegation_attempts": 0,
-          "gaps": [],
-          "jira_key": null,
-          "jira_action": null,
-          "jira_action_status": null
-        },
-        {
-          "id": "task-6-7",
-          "description": "Capture **WS7 cache measurement #3** (post-slice-6) to\n``.egg-state/agent-outputs/ws7-measurement-slice-6.json``.\nRun a representative event sequence through the\npost-slice-6 CLI-only surface on a local test pipeline and\nrecord ``cache_read_input_tokens`` / Qwen cost_callback\naggregate. Compare against the WS7 #1 (slice-3) and WS7\n#2 (slice-4) baselines from\n``.egg-state/agent-outputs/ws7-measurement-slice-{3,4}.json``;\nregression > 20% at this boundary triggers an\n``OVERSEER_ALERT`` priority ``high`` asking the operator\nwhether to roll back the MCP deletion (per risk_analyst R8\ncache-prefix invalidation concern).",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "WS7 #3 file written with the documented schema; comparison\nagainst the two prior measurement files surfaced in the\ntest output; alert fires only if regression > 20%; on\nalert, the deletion is reversible by reverting TASK-6-1\nand TASK-6-2 (rollback path documented in the PR body).",
-          "files_affected": [
-            "integration_tests/test_ws7_cache_measurement.py"
           ],
           "role": "tester",
           "review_cycles": 0,

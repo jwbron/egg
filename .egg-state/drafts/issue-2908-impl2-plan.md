@@ -124,7 +124,6 @@ plan-reviewer §9 exception.
 | Wrapper-side gateway-session keep-alive | TASK-2-4 | Wrapper bash refreshes the lifecycle-secret-gated session while blocking. Migrated from same handler region (#2451). |
 | Per-event prompt composer (`compose_event_prompt`) | TASK-3-1 | New helper that builds the single-event prompt: role banner + event_payload + memory excerpt + full `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delta per producer + NACK payload. Tail-position memory delivery (architect od-6 Option B). |
 | Memory-delivery mechanism (Option B — inline at user-prompt tail) | TASK-3-2 | Wrapper bash invokes `python3 -m egg_agent "<event prompt> + <memory excerpt at tail>"`. The illustrative `--append-context` flag in the analysis pseudocode does NOT exist on `build_agent_command` (`shared/egg_agent/command.py:11-46`) — Option B sidesteps it. Option C (net-new `--memory-file` flag) is the explicit fallback. |
-| Two-point cache_read measurement schedule | TASK-3-7 (post-slice-3 baseline) + TASK-6-7 (post-slice-6) | Capture `cache_read_input_tokens` per pipeline (Anthropic route) at each point. Regression > 20% at the boundary triggers HITL pause (risk_analyst R8). The slice-4 midpoint (#2) was removed with the qwen spike; the Qwen-route cost_callback aggregate is deferred with the qwen work. |
 | `egg-orch brc resolve-obligation` CLI | TASK-5-2 | Wraps existing `mcp__brc__resolve_obligation` handler. Prose `--note` via stdin or `--note-file PATH`. |
 | `egg-orch brc read-peer-artifact` CLI | TASK-5-3 | Wraps existing `mcp__brc__read_peer_artifact` handler. Stdout JSON; supports `--limit`, `--cursor`, `--phase`, `--peer-role`. |
 | `--summary-file PATH` / `--reason-file PATH` / `--files-reviewed-file PATH` + stdin sentinel on `consensus propose / ack / nack / withdraw` | TASK-5-1 | Hard constraint from #2741: prose args must NOT flow through `bash -c` argv. Reuses the `propose --file` pattern at `orch_cli.py:2552`. Existing argv `--reason` accepted as fallback during transition (deprecation in a separate cycle). |
@@ -210,9 +209,8 @@ Every slice carries its own unit + integration tests. Per slice
   `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p`
   delta is in the per-event prompt (NOT just `changed_artifacts`);
   sandbox-image-rebuild verification (the new `mission.md` is in the
-  agent pod before the slice-3 sandbox rebuild ships); WS7 cache
-  measurement #1 (post-slice-3 baseline); per-event prompt envelope
-  (excluding git-log delta) bounded ≤ 10 KB.
+  agent pod before the slice-3 sandbox rebuild ships); per-event
+  prompt envelope (excluding git-log delta) bounded ≤ 10 KB.
 - **slice-4**: flag flip + delete old path — flip the
   `EGG_BRC_EVENT_PUMP` / `EGG_BRC_MEMORY` defaults to on (gated on the
   slice-2 / slice-3 unit + BRC in-process regression suites passing on
@@ -221,7 +219,7 @@ Every slice carries its own unit + integration tests. Per slice
   qwen3.7-max #2906 k3s spike that previously validated this
   end-to-end was removed — the qwen route is unavailable in the k3s
   test env and a Claude-route E2E is blocked on ScriptedProvider pod
-  injection (deferred to #2585); no WS7 midpoint #2 is captured.
+  injection (deferred to #2585).
 - **slice-5**: stdin / `--reason-file` / `--summary-file` /
   `--files-reviewed-file` round-trip tests for prose containing
   `$VAR` / backticks / `;` / `&&` / embedded newlines (the
@@ -235,17 +233,13 @@ Every slice carries its own unit + integration tests. Per slice
   `test_sandbox_mcp_tools_e2e.py` runs the agent's first action as
   `consensus ack/nack` via stdin/file (preserves SDK-spawn exercise,
   NOT collapsed to direct-handler); per-event wall-clock latency
-  unchanged within 5% margin; full regression pass; WS7 cache
-  measurement #3 (post-slice-6) — regression > 20% triggers HITL
-  pause per risk_analyst R8.
+  unchanged within 5% margin; full regression pass.
 
-**Manual verification on slice-4 and slice-6** (recorded in
+**Manual verification on slice-4** (recorded in
 `manual_steps`): for slice-4, human confirms the slice-2 / slice-3
 unit + BRC in-process regression suites pass on the new default and
 consents to the flag flip (the qwen #2906 spike that previously
-produced reviewable output was removed — see the slice-4 goal); human
-inspects slice-6 WS7 #3 measurement and consents to deletion if
-cache_read regression is within tolerance.
+produced reviewable output was removed — see the slice-4 goal).
 
 ## Manual pre/post-merge steps
 
@@ -266,13 +260,23 @@ cache_read regression is within tolerance.
   any "Agent exited without BRC consensus" entries; if seen, flip
   `EGG_BRC_EVENT_PUMP=false` via deployment env and re-open the slice.
 - **slice-5 → slice-6 pre-merge**: no manual steps for slice-5.
-  Slice-6 pre-merge requires the WS7 cache measurement #3 sample —
-  human inspects and consents.
 - **slice-6 post-merge**: confirm no in-flight pipelines are running
   against an agent built before slice-6 (MCP tools are deleted, so
   an old wrapper that still injects them will start with no MCP
   server registered). Gate the deployment on in-flight-pipeline drain
   or cancel.
+
+## Post-validation (operator, post-merge — not a pipeline gate)
+
+WS7 cache-read measurement is **not** a pipeline task or HITL gate — it
+cannot run inside an egg agent (it needs the litellm `cost_callback` route
+instrumentation, unavailable to a sandboxed agent). After the event-pump
+ships, the operator runs a representative event sequence and records
+`cache_read_input_tokens` (+ the Qwen `cost_callback` aggregate) as an
+informational before/after check. The cache question is already settled
+empirically — both the Anthropic and Qwen prefix caches survive a ≥60-min
+idle with no keep-warm — so this is confirmation, not a gate; no slice
+blocks on it.
 
 ## Slice-DAG ASCII
 
@@ -358,7 +362,7 @@ pr:
        STAY-ALIVE / wait-loop / cursor-threading guidance from
        `_build_brc_preamble` and `mission.md`; replace with a lean
        event-handler contract. Sandbox image rebuilt + agent pod
-       restarted BEFORE slice-4 flag flip. WS7 cache measurement #1.
+       restarted BEFORE slice-4 flag flip.
     4. **slice-4 — Flag flip + delete old path.** Flip the
        `EGG_BRC_EVENT_PUMP` / `EGG_BRC_MEMORY` defaults to on, gated on
        the slice-2 / slice-3 unit + BRC in-process regression suites
@@ -386,8 +390,7 @@ pr:
        flag). Retire `tests/tools/test_mcp_cli_drift.py`. Migrate the
        MCP E2E test so the agent's first action is `consensus
        ack/nack` via stdin/file (preserves SDK-spawn exercise).
-       Verify per-event wall-clock latency within 5%. WS7 cache
-       measurement #3.
+       Verify per-event wall-clock latency within 5%.
 
     ## Impact
 
@@ -425,7 +428,7 @@ pr:
       preamble snapshot; full git-log delta in per-event prompt
       asserted; per-event prompt envelope (excluding delta) ≤ 10 KB;
       sandbox-image rebuild verification (new mission.md reachable
-      in pod) BEFORE slice-4 flag flip; WS7 cache measurement #1.
+      in pod) BEFORE slice-4 flag flip.
     - slice-4: no new end-to-end test — the qwen3.7-max #2906 k3s
       spike was removed (qwen route unavailable in k3s; Claude-route
       E2E blocked on ScriptedProvider pod injection, deferred to
@@ -443,8 +446,7 @@ pr:
       server registered; migrated E2E runs first action as
       `consensus ack/nack` via stdin/file (preserves SDK-spawn
       exercise); per-event wall-clock latency within 5% of
-      pre-slice-6 baseline; WS7 measurement #3 vs baseline within
-      20% (else HITL pause).
+      pre-slice-6 baseline.
 
     Manual verification:
     - slice-3 pre-merge: sandbox image rebuilt + agent pod restarted
@@ -453,10 +455,8 @@ pr:
     - slice-4 pre-flag-flip: human inspects spike output
       (brc-memory content for reasoning fidelity;
       `last_reviewed_commit_sha` updated per producer; cost-per-phase
-      delta vs restart-churn baseline; WS7 measurement #2) and
+      delta vs restart-churn baseline) and
       consents to default-on flip via PR review.
-    - slice-6 pre-deletion: human inspects WS7 measurement #3 and
-      consents if cache_read regression is within tolerance.
     - slice-6 pre-merge: human verifies no in-flight pipelines are
       mid-run against pre-slice agents; gate deploy on drain or
       cancel.
@@ -468,10 +468,9 @@ pr:
       flag flips, the event-pump path will reference STAY-ALIVE
       semantics that have been deleted from the preamble).
     - slice-4: human review of spike output (memory content,
-      `last_reviewed_commit_sha` correctness, cost delta, WS7 #2)
+      `last_reviewed_commit_sha` correctness, cost delta)
       before the `EGG_BRC_EVENT_PUMP` default flips to true.
-    - slice-6: human inspection of WS7 cache measurement #3 (HITL
-      pause if cache_read regression > 20%); confirmation that no
+    - slice-6: confirmation that no
       in-flight pipelines exist before deploy (MCP tools are deleted
       so an old wrapper that still injects them starts with no MCP
       server registered).
@@ -1233,20 +1232,10 @@ slices:
           asserts (a) the new snapshot matches; (b) STAY-ALIVE /
           wait-loop / cursor strings absent; (c) agent roster present;
           (d) byte size drop ≥ 40% vs the prior snapshot baseline.
-          Also capture **WS7 cache measurement #1** (post-slice-3
-          baseline): run a representative event sequence through the
-          new prompt path on a local test pipeline and record
-          ``cache_read_input_tokens`` / Qwen cost_callback aggregate
-          to ``.egg-state/agent-outputs/ws7-measurement-slice-3.json``
-          for slice-6 comparison.
         acceptance: |-
           Snapshot tests pass under ``make test``; snapshots
           committed; absent-strings assertions trigger on regression;
-          byte-size assertion stable (with a 5% tolerance band); WS7
-          measurement file captured under
-          ``.egg-state/agent-outputs/`` with the documented schema
-          (per-event ``cache_read_input_tokens``, total invocation
-          count, Qwen aggregate).
+          byte-size assertion stable (with a 5% tolerance band).
         role: tester
         files:
           - orchestrator/tests/test_brc_preamble_collapsed.py
@@ -1741,29 +1730,6 @@ slices:
         role: tester
         files:
           - integration_tests/test_mcp_to_cli_latency.py
-      - id: TASK-6-7
-        description: |-
-          Capture **WS7 cache measurement #3** (post-slice-6) to
-          ``.egg-state/agent-outputs/ws7-measurement-slice-6.json``.
-          Run a representative event sequence through the
-          post-slice-6 CLI-only surface on a local test pipeline and
-          record ``cache_read_input_tokens`` / Qwen cost_callback
-          aggregate. Compare against the WS7 #1 (slice-3) and WS7
-          #2 (slice-4) baselines from
-          ``.egg-state/agent-outputs/ws7-measurement-slice-{3,4}.json``;
-          regression > 20% at this boundary triggers an
-          ``OVERSEER_ALERT`` priority ``high`` asking the operator
-          whether to roll back the MCP deletion (per risk_analyst R8
-          cache-prefix invalidation concern).
-        acceptance: |-
-          WS7 #3 file written with the documented schema; comparison
-          against the two prior measurement files surfaced in the
-          test output; alert fires only if regression > 20%; on
-          alert, the deletion is reversible by reverting TASK-6-1
-          and TASK-6-2 (rollback path documented in the PR body).
-        role: tester
-        files:
-          - integration_tests/test_ws7_cache_measurement.py
 ```
 
 
