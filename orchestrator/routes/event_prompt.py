@@ -97,10 +97,9 @@ def _render_event_section(role: str, event_payload: dict[str, Any] | None) -> st
         event_payload = {}
     action = ""
     if isinstance(event_payload, dict):
-        # ``next-action`` puts the chosen verb under ``action``; we also
-        # accept ``type`` so an alternate orchestrator schema doesn't
-        # silently surface as "(unspecified)".
-        action = str(event_payload.get("action") or event_payload.get("type") or "")
+        # ``next-action`` puts the chosen verb under ``action`` (see
+        # ``orchestrator/routes/consensus.py``'s ``_VALID_ACTIONS``).
+        action = str(event_payload.get("action") or "")
     payload_json = json.dumps(event_payload, indent=2, sort_keys=True)
 
     lines = [
@@ -494,6 +493,7 @@ def _build_delta_entries(
     base_branch: str,
     repo_path: Path,
     memory_text: str,
+    event_payload: Any = None,
 ) -> list[dict[str, Any]]:
     """Render per-producer deltas for the current action.
 
@@ -501,6 +501,19 @@ def _build_delta_entries(
     producer with a stored ``last_reviewed_commit_sha`` in the memory
     file. For producer actions (``propose`` / ``confirm``) there is
     no per-producer delta — the producer just looks at HEAD.
+
+    **``changed_artifacts`` fallback (plan TASK-3-2 acceptance).**
+    When no per-producer SHA is available (off mode, first-ever ACK
+    before any memory write, parse failure, file missing) and the
+    event payload carries a ``changed_artifacts`` list, render a
+    single fallback entry naming the producer and the artifact list
+    — explicitly labelled as a degraded baseline so the agent does
+    not mistake it for an adversarial-re-review-grade diff. The
+    documenter's docs at
+    ``docs/architecture/orchestrator.md`` and
+    ``docs/reference/agent-wait-patterns.md`` describe the same
+    fallback: "strictly a degraded baseline, not the adversarial
+    re-review path".
 
     ``role`` is currently unused inside the function body; the
     parameter is retained for the call-site symmetry (architect
@@ -511,21 +524,79 @@ def _build_delta_entries(
     del role  # see docstring
     if action not in ("ack", "nack"):
         return []
+
     per_producer = _parse_per_producer_sha(memory_text)
-    if not per_producer:
+    if per_producer:
+        out: list[dict[str, Any]] = []
+        for producer in sorted(per_producer.keys()):
+            sha = per_producer[producer]
+            delta = _run_git_log(sha, base_branch, repo_path)
+            out.append(
+                {
+                    "producer": producer,
+                    "last_reviewed_commit_sha": sha,
+                    "delta": delta,
+                }
+            )
+        return out
+
+    # ``changed_artifacts`` fallback — when there is no stored SHA we
+    # still surface the orchestrator's signal-level artifact list so
+    # the agent has SOMETHING to anchor the re-review on. This is
+    # explicitly a degraded baseline (the agent must hand-resolve any
+    # diff from it); the adversarial-re-review path is only honoured
+    # when a real ``last_reviewed_commit_sha`` is available.
+    changed_artifacts = _extract_changed_artifacts(event_payload)
+    if not changed_artifacts:
         return []
-    out: list[dict[str, Any]] = []
-    for producer in sorted(per_producer.keys()):
-        sha = per_producer[producer]
-        delta = _run_git_log(sha, base_branch, repo_path)
-        out.append(
-            {
-                "producer": producer,
-                "last_reviewed_commit_sha": sha,
-                "delta": delta,
-            }
-        )
-    return out
+
+    producer = _extract_producer_role(event_payload)
+    refs_text = "\n".join(f"- `{a}`" for a in changed_artifacts)
+    fallback_delta = (
+        "(No `last_reviewed_commit_sha` recorded yet for this "
+        "producer — falling back to the orchestrator's signal-level "
+        "`changed_artifacts` list as a degraded baseline. This is "
+        "NOT the adversarial-re-review path; if your role demands a "
+        "full audit, fetch and read the actual file diffs yourself "
+        "before issuing a verdict.)\n\n"
+        f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
+    )
+    return [
+        {
+            "producer": producer,
+            "last_reviewed_commit_sha": "",
+            "delta": fallback_delta,
+        }
+    ]
+
+
+def _extract_changed_artifacts(event_payload: Any) -> list[str]:
+    """Pull a ``changed_artifacts`` list out of the event payload.
+
+    Defensive against schema drift — non-list shapes coerce to empty
+    rather than raising. Entries are stringified so a future schema
+    surfaces structured artifact refs (e.g. dicts with role / path)
+    without crashing the renderer.
+    """
+    if not isinstance(event_payload, dict):
+        return []
+    raw = event_payload.get("changed_artifacts")
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if item is not None and str(item).strip()]
+
+
+def _extract_producer_role(event_payload: Any) -> str:
+    """Pull the producer role from the event payload, defaulting to
+    ``(unknown producer)`` so the fallback entry still renders a
+    label rather than a blank string.
+    """
+    if not isinstance(event_payload, dict):
+        return "(unknown producer)"
+    raw = event_payload.get("producer") or event_payload.get("producer_role")
+    if not isinstance(raw, str) or not raw.strip():
+        return "(unknown producer)"
+    return raw.strip()
 
 
 def _extract_nacks(event_payload: Any) -> list[dict[str, Any]]:
@@ -644,6 +715,7 @@ def _cli(argv: list[str] | None = None) -> int:
         base_branch=base_branch,
         repo_path=repo_path,
         memory_text=sha_lookup_text,
+        event_payload=event_payload,
     )
 
     nacks = _extract_nacks(event_payload)
