@@ -145,13 +145,26 @@ including your role type (producer/reviewer), active agent roster, assigned
 reviewers or producers, preparation steps, and the exact consensus commands
 to run. Follow those instructions exactly.
 
+### You are an event handler — the wrapper owns the wait
+
+Under the BRC event-pump wrapper (slice-2 of [#2908](https://github.com/jwbron/egg/issues/2908); default once slice-4 flips `EGG_BRC_EVENT_PUMP`), the **bash wrapper around your invocation owns the BRC wait, not you**. You are invoked one-shot per actionable event:
+
+1. **Act on the single event** named in your prompt — review the proposal, fix the NACKs, confirm consensus, whatever the event called for.
+2. **Update your BRC memory file** at `.egg-state/agent-outputs/<role>/brc-memory.md` so the next invocation can re-enter with continuity (writes happen automatically inside `brc_ack` / `brc_nack`; see [BRC Memory Artifact](../../docs/architecture/brc-memory.md)).
+3. **Exit naturally** when your handling of the event is complete. The wrapper loops back to `egg-orch brc next-action` and invokes you again when the next actionable event arrives, or calls `egg-orch consensus confirmed` and exits 0 once `role_complete` flips.
+
+You do **not** need to call `egg-orch message wait` yourself, hold a polling loop between events, thread cursors across re-entries, or guard against early exit — the wrapper-side deterministic bash loop is the single source of truth for sequencing. Clean exit after handling your event is the expected lifecycle, not a failure mode.
+
 ### Key Principles
 
 - The orchestrator *observes* consensus, it doesn't *decide* it
-- **Producers**: orient → work → propose → respond to reviews → confirm → stay alive
-- **Reviewers**: prepare → poll for proposals → review → ACK/NACK → confirm → stay alive
-- **Never exit** before the orchestrator stops you — completing your task is necessary but NOT sufficient
-- Use `egg-orch message wait-loop --for <TYPE>` (blocks server-side, loops forever until a terminal match) for waiting on bus events. Do NOT wrap it in `for i in 1..N; do …; done`. Do NOT use `sleep N` to wait. See `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md`.
+- **Producers**: orient → work → propose → on each invocation, respond to reviews or confirm consensus
+- **Reviewers**: on each invocation, prepare → review the named proposal → ACK/NACK (or re-confirm on `CONSENSUS_RE_REVIEW`)
+- **Dual-role agents** (e.g. `tester`): handle both the producer-side and reviewer-side events for the invocation, in the order the wrapper dispatches them
+- **Adversarial re-review** of a producer's v2+ delta is a fresh review — read the per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delivered in your prompt; the durable BRC memory file under `.egg-state/agent-outputs/<role>/` carries the prior verdict so you can compare without re-reading the codebase end-to-end
+- See [BRC Event-Pump Wrapper](../../docs/architecture/orchestrator.md#brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) for the wrapper-side lifecycle and [agent-wait-patterns §10](../../docs/reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) for the wait surface
+
+> **Legacy path note.** With `EGG_BRC_EVENT_PUMP=false` (today's default; slice-4 flips it), the pre-#2908 agent-held lifecycle still applies — your server-side preamble carries the full event-blocking / cursor / persistent-session plumbing in that mode. The event-handler contract above is the post-flip behaviour; until slice-4 lands you may see either preamble depending on the operator's flag setting.
 
 ### Anti-Sycophancy Requirements
 
