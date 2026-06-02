@@ -516,6 +516,45 @@ class TestPatchIdRoutes:
         assert response.status_code == 200
         assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "coder"}
 
+    def test_register_bulk_rejects_non_string_patch_id_per_item(self, client, store):
+        # Parity with /register: a non-string ``patch_id`` is a misbehaving
+        # client, surfaced as a per-item 400 rather than silently dropped by
+        # the store.  Other valid items in the same batch still succeed.
+        response = client.post(
+            "/api/v1/commit-authorship/register-bulk",
+            data=json.dumps(
+                {
+                    "items": [
+                        {
+                            "sha": _VALID_SHA,
+                            "role": "coder",
+                            "pipeline_id": "issue-1",
+                            "patch_id": 123,
+                        },
+                        {
+                            "sha": _OTHER_SHA,
+                            "role": "coder",
+                            "pipeline_id": "issue-1",
+                            "patch_id": _PATCH_A,
+                        },
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        results = response.get_json()["results"]
+        assert len(results) == 2
+        assert results[0] == {
+            "success": False,
+            "status": 400,
+            "message": "'patch_id' must be a string",
+        }
+        assert results[1]["success"] is True
+        # The bad-patch_id item must NOT have been registered (neither the
+        # SHA nor the bogus patch_id should appear in the store).
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "coder"}
+
     def test_lookup_by_patch_ids_returns_patch_attribution(self, client, store):
         store.register(_VALID_SHA, "reviewer", "issue-1", patch_id=_PATCH_A)
         response = client.post(
