@@ -39,9 +39,20 @@ done
 
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "ERROR: egg-system images for tag '${TAG}' are not in k3s: ${missing[*]}" >&2
-  echo "       A commit, pull, rebase, or branch checkout since your last build" >&2
-  echo "       moved EGG_IMAGE_TAG. 'make deploy' alone only deploys; run" >&2
-  echo "       'make redeploy' to rebuild + re-import + deploy on the current tag." >&2
+  echo "       Two known causes:" >&2
+  echo "       1. HEAD moved (commit/pull/rebase/checkout) since your last build, so" >&2
+  echo "          'make deploy' alone references a tag that was never built+imported." >&2
+  echo "          Fix: 'make redeploy' rebuilds + re-imports + deploys on the current tag." >&2
+  echo "       2. 'make redeploy' DID import these, but kubelet image GC evicted them" >&2
+  echo "          before 'deploy' repointed the pods at the new tag -- they sit" >&2
+  echo "          unreferenced until then, so under disk pressure (root fs over" >&2
+  echo "          imageGCHighThresholdPercent, ~85%) they get collected mid-run." >&2
+  echo "          Fix: reclaim space in k3s's containerd -- NOT docker, a separate" >&2
+  echo "          store 'docker system prune' does not touch -- then redeploy, which" >&2
+  echo "          re-imports everything:" >&2
+  echo "              sudo k3s crictl rmi --prune   # safe immediately before redeploy" >&2
+  echo "          'df -h /' should sit well under 80% before the import. A green deploy" >&2
+  echo "          now reaps older egg tags automatically (reap-stale-egg-images.sh)." >&2
   exit 1
 fi
 
