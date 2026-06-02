@@ -10,6 +10,10 @@ helpers were preserved (relocated into ``_EVENT_PUMP_WRAPPER_TEMPLATE``);
 their coverage is folded into the event-pump test classes below.
 """
 
+import os
+import shlex
+import subprocess
+
 import pytest
 
 from consensus_wrapper import (
@@ -213,27 +217,16 @@ class TestEventPumpHeartbeatCadence:
             "without this wiring (risk_analyst R9)."
         )
 
-    def test_flag_off_heartbeat_path_unchanged(self, monkeypatch):
-        """With the flag off, the wrapper does NOT take on the heartbeat
-        responsibility — the legacy agent-side path keeps emitting them.
-
-        Plan TASK-2-2 line 835-838: "Keep the agent-side heartbeat path
-        in the *old* template path (``EGG_BRC_EVENT_PUMP`` unset)
-        verbatim; only the new template owns wrapper-side heartbeating.
-        Slice-4 deletes the agent-side path once the flag flips to
-        default."
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # The legacy template must NOT call ``message heartbeat`` itself —
-        # the agent-side handler does. If the legacy template ever starts
-        # emitting heartbeats, double-heartbeating will spam the bus.
-        assert "egg-orch message heartbeat" not in script, (
-            "legacy template must NOT take on wrapper-side heartbeating; "
-            "slice-4 will delete the agent-side path. Double-emitting "
-            "now would spam the bus."
-        )
+    # Note: slice-2's ``test_flag_off_heartbeat_path_unchanged`` was
+    # deleted by slice-4 task-4-2. The legacy template (and its
+    # "no wrapper-side heartbeat under flag-off" invariant) no longer
+    # exists; the agent-side ``handlers/message.py:_default_emit_wait_loop_heartbeat``
+    # was deleted alongside the legacy template, so the double-heartbeat
+    # bus-spam scenario that test guarded against is also gone. The
+    # wrapper now unconditionally emits the wrapper-owned heartbeat
+    # subshell (see ``test_flag_on_emits_heartbeat_subshell`` /
+    # ``test_flag_on_emits_heartbeat_subshell_template_marker`` for
+    # the post-deletion invariant).
 
 
 class TestEventPumpKeepAliveCadence:
@@ -262,19 +255,11 @@ class TestEventPumpKeepAliveCadence:
             "401."
         )
 
-    def test_flag_off_keep_alive_remains_agent_side(self, monkeypatch):
-        """With the flag off, the wrapper does NOT take on keep-alive —
-        the legacy agent-side handler in ``message.py`` keeps refreshing.
-
-        Plan TASK-2-4 line 880-881: "Old path unchanged."
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Legacy template must not start performing keep-alive itself.
-        # The existing snapshot tests would already fail if it did, but
-        # we pin the invariant explicitly here.
-        assert "EVENT_PUMP" not in script
+    # Note: slice-2's ``test_flag_off_keep_alive_remains_agent_side`` was
+    # deleted by slice-4 task-4-2. The legacy template is gone and the
+    # agent-side keep-alive (which lived inside ``message_wait_loop``'s
+    # heartbeat path) was deleted along with the legacy template, so
+    # the "old path unchanged" invariant no longer applies.
 
 
 class TestEventPumpIdleBudgetAlert:
@@ -365,20 +350,13 @@ class TestEventPumpIdleBudgetAlert:
             "MUST continue blocking (plan line 867-868)."
         )
 
-    def test_flag_off_idle_budget_not_used(self, monkeypatch):
-        """With the flag off, the legacy capped-restart path is used —
-        ``EGG_BRC_IDLE_BUDGET_MIN`` is irrelevant and must not be read
-        by the legacy template. Plan line 860-862: "The old template
-        path keeps ``MAX_CONSENSUS_RESTARTS`` verbatim (slice-4 deletes
-        the old path)."
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        assert "EGG_BRC_IDLE_BUDGET_MIN" not in script, (
-            "legacy template must NOT reference EGG_BRC_IDLE_BUDGET_MIN; "
-            "it is only active behind the flag-on event-pump template."
-        )
+    # Note: slice-2's ``test_flag_off_idle_budget_not_used`` was deleted
+    # by slice-4 task-4-2. The legacy template is gone; the unset-env
+    # path now emits the event-pump template, which DOES reference
+    # ``EGG_BRC_IDLE_BUDGET_MIN``. The "legacy template keeps the
+    # 3-restart cap verbatim" invariant no longer applies — see
+    # ``test_idle_budget_default_30_min_in_script`` for the post-deletion
+    # invariant.
 
 
 class TestEventPumpStaleVersionRefetch:
@@ -479,38 +457,16 @@ class TestEventPumpRoleCompleteConfirm:
             "catches the pseudocode-typo the architect corrected."
         )
 
-    def test_flag_off_legacy_path_does_not_auto_call_consensus_confirmed(self, monkeypatch):
-        """Symmetry guard: the legacy path also must not auto-confirm
-        on behalf of the agent. The agent calls ``consensus confirmed``
-        itself; the wrapper only calls it on the flag-on path when
-        ``brc next-action`` returns ``role_complete``.
-
-        The legacy template DOES reference ``egg-orch consensus
-        confirmed`` inside the *recovery system prompt* (it instructs
-        the agent on what to do), but it must not invoke the command
-        itself. We assert by ensuring no top-level execution lines
-        actually run that command.
-
-        Behavioral coverage: ``test_no_auto_ready_on_clean_exit`` runs
-        the wrapper against mocks and confirms the egg-orch log shows
-        no ``consensus confirmed`` invocation.
-        """
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Look for ACTUAL invocations: lines that start with optional
-        # whitespace + literal ``egg-orch consensus confirmed`` (not a
-        # backtick-wrapped reference inside a system-prompt string).
-        invocation_lines = [
-            ln
-            for ln in script.splitlines()
-            if ln.lstrip().startswith("egg-orch consensus confirmed")
-        ]
-        assert not invocation_lines, (
-            "legacy template must not auto-invoke consensus confirmed; "
-            "the agent owns the confirmed call on the flag-off path. "
-            f"Found invocation line(s): {invocation_lines}"
-        )
+    # Note: slice-2's ``test_flag_off_legacy_path_does_not_auto_call_consensus_confirmed``
+    # was deleted by slice-4 task-4-2. The legacy template is gone; the
+    # event-pump template DOES invoke ``egg-orch consensus confirmed``
+    # under the ``confirm`` / ``complete`` arms of the action loop (driven
+    # by ``brc next-action``, not auto-invoked on agent exit). The
+    # symmetry-guard concern (the wrapper auto-confirming on behalf of
+    # the agent) is now structurally impossible — the only invocations
+    # happen inside the ``case "$ACTION"`` arms which require an
+    # orchestrator-side derivation, not a wrapper-side timer or exit
+    # condition.
 
 
 class TestEventPumpWaitFilterConditional:
@@ -681,23 +637,24 @@ class TestEventPumpFlagIsolation:
     change with no surprise interactions.
     """
 
-    def test_flag_on_does_not_inherit_legacy_max_restarts(self, monkeypatch):
-        """The new event-pump path replaces ``MAX_CONSENSUS_RESTARTS``
-        with the idle budget. It must NOT also retain the old cap, or
-        operators tuning ``--max-restarts`` will get surprising
-        interactions.
+    def test_event_pump_relies_on_idle_budget_not_legacy_restart_cap(self, monkeypatch):
+        """The event-pump path uses ``EGG_BRC_IDLE_BUDGET_MIN`` as the
+        liveness ceiling — the legacy restart cap was deleted by
+        slice-4 task-4-2 along with the ``max_restarts`` kwarg on
+        ``build_consensus_wrapped_command``.
+
+        Renamed and simplified from the original
+        ``test_flag_on_does_not_inherit_legacy_max_restarts``: the
+        kwarg is gone and the env flag is silently inert, so the test
+        no longer needs to drive either.
         """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt", max_restarts=7)
+        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
+        cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        # MAX_RESTARTS=7 must not be the operational cap on the new
-        # path. Either the variable is absent or it is only referenced
-        # for back-compat shape.
-        # Allow the symbol to exist (the template may keep a stub)
-        # but require the idle budget is the primary gate.
         assert "EGG_BRC_IDLE_BUDGET_MIN" in script, (
-            "flag-on path must rely on EGG_BRC_IDLE_BUDGET_MIN, not "
-            "MAX_RESTARTS (plan TASK-2-3 acceptance)."
+            "event-pump path must rely on EGG_BRC_IDLE_BUDGET_MIN as the "
+            "liveness ceiling (slice-4 task-4-2 deleted the legacy "
+            "restart cap)."
         )
 
     def test_flag_on_does_not_re_invoke_recovery_system_prompt(self, monkeypatch):
@@ -1319,15 +1276,9 @@ class TestEventPumpInvokesComposer:
             "action argv would silently break the CLI contract."
         )
 
-    def test_flag_off_legacy_template_does_not_reference_event_prompt(self, monkeypatch) -> None:
-        """The legacy capped-restart template (slice-2 default until
-        slice-4 flips the flag) must NOT reference event_prompt.py;
-        the composer is event-pump-only.
-        """
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd = build_consensus_wrapped_command("hello")
-        script = cmd[2]
-        assert "event_prompt.py" not in script
-        assert "invoke_agent_for_event" not in script
+    # Note: slice-2's ``test_flag_off_legacy_template_does_not_reference_event_prompt``
+    # was deleted by slice-4 task-4-2. The legacy template is gone; the
+    # event-pump template now unconditionally references ``event_prompt.py``
+    # and ``invoke_agent_for_event``. See
+    # ``test_invokes_event_prompt_composer_script`` (above) for the
+    # post-deletion positive invariant.

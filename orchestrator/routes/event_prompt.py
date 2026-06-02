@@ -784,8 +784,11 @@ def _cli(argv: list[str] | None = None) -> int:
       ``--not origin/<base>`` term of the git-log delta.
     * ``EGG_REPO_PATH`` (default cwd) — working directory for the
       git-log subprocess + base for the memory-file path resolution.
-    * ``EGG_BRC_MEMORY`` (default ``off``) — slice-1 reader gate;
-      ``full`` enables the read path, anything else skips it.
+    * ``EGG_BRC_MEMORY`` (default ``full`` since slice-4 task-4-1) —
+      slice-1 reader gate; ``full`` enables the read path. Set
+      ``write-only`` to keep the writer warm without reading the
+      excerpt, or ``off`` for the one-release rollback escape hatch
+      (no writes, no reads).
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
