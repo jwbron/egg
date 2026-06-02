@@ -577,7 +577,7 @@
     },
     {
       "id": "slice-4",
-      "name": "Spike validation + flag flip + delete old capped-restart wrapper path",
+      "name": "Flag flip + delete old capped-restart wrapper path",
       "status": "pending",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -585,29 +585,8 @@
       "escalation_reason": null,
       "tasks": [
         {
-          "id": "task-4-1",
-          "description": "Add k3s integration test\n``integration_tests/test_event_pump_spike_2906.py``\n(directly under ``integration_tests/`` \u2014 the\n``local_pipeline/`` directory the architect referenced does\nnot exist in this codebase per reviewer_plan v2). Uses the\nsession-scoped ``egg_stack`` fixture at\n``integration_tests/conftest.py:340`` (k3s-backed; reaches\ngateway via ``egg_stack.gateway_url`` attribute on the\n``EggStack`` dataclass at\n``integration_tests/conftest.py:78``; orchestrator via\n``egg_stack.orchestrator_url`` at :79; lifecycle bearer via\n``egg_stack.lifecycle_secret`` at :90). Pre-flight: assert\nthe sandbox image built in slice-3 (TASK-3-4) is the\ndeployed image tag AND assert the deployed\n``/opt/claude-rules/mission.md`` (the Dockerfile-baked path\nper ``sandbox/Dockerfile:212-214`` +\n``sandbox/entrypoint.py:967``) NO LONGER contains the\nSTAY-ALIVE / wait-loop phrases \u2014 kubectl-exec into the\nrunning pod and ``grep -E 'STAY-ALIVE\\b|wait-loop|never\nexit' /opt/claude-rules/mission.md`` must return zero\nmatches. Fail fast on either pre-flight check so a stale\nimage with fresh tag (or fresh image with stale mission.md\ncontent) is caught BEFORE the spike runs. Run the #2906\nrepro:\nissue-2270, qwen3.7-max provider configuration,\n``EGG_BRC_EVENT_PUMP=true``, ``EGG_BRC_MEMORY=full``,\ndefault idle-budget. Assertions:\n(a) consensus reaches CONFIRMED for every role in the\npipeline;\n(b) no ``Agent exited without BRC consensus`` log entry;\n(c) brc-memory.md populated per reviewer with all six\nrequired fields and ``last_reviewed_commit_sha`` updated\nper producer (mechanically derivable from the orchestrator\nsignal payload, so a static-value regression is catchable);\n(d) per-event prompt envelope \u2264 10 KB on captured agent\ninvocations;\n(e) ``cache_read_input_tokens`` > 0 on Anthropic route via\nSDK usage capture;\n(f) Qwen-route cache read > 0 via\n``~/.local/state/clm/cost-*.json`` aggregation.\nCapture **WS7 measurement #2** to\n``.egg-state/agent-outputs/ws7-measurement-slice-4.json``\nfor slice-6 comparison.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "Test passes against k3s with the qwen3.7-max provider;\nassertions a\u2013f all green; sandbox-image-deployed pre-flight\nfails fast if (i) the new image is not picked up OR (ii)\nthe deployed pod's ``/opt/claude-rules/mission.md`` still\ncontains the STAY-ALIVE / wait-loop / never-exit phrases\n(content-grep pre-flight, not just image-tag freshness);\nWS7 #2 file written to ``.egg-state/agent-outputs/``;\ntest runs under ``make test-all`` against the\n``egg_stack`` fixture (kubectl-gated, k3s-backed; the test\nskips if ``_kubectl_available()`` returns False).",
-          "files_affected": [
-            "integration_tests/test_event_pump_spike_2906.py"
-          ],
-          "role": "tester",
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "delegation_attempts": 0,
-          "gaps": [],
-          "jira_key": null,
-          "jira_action": null,
-          "jira_action_status": null
-        },
-        {
           "id": "task-4-2",
-          "description": "Flip the ``EGG_BRC_EVENT_PUMP`` default in\n``orchestrator/consensus_wrapper.py``'s\n``build_consensus_wrapped_command`` from false to true. With\nthe default flipped, the new template path is the production\npath; the old template path is only emitted when an operator\nsets ``EGG_BRC_EVENT_PUMP=false`` explicitly. Same flip for\n``EGG_BRC_MEMORY`` from ``off`` to ``full`` so the\ndelta-scoped re-analysis from slice-3 reads the memory file\nin production. Pre-flight: TASK-4-1's spike test green.",
+          "description": "Flip the ``EGG_BRC_EVENT_PUMP`` default in\n``orchestrator/consensus_wrapper.py``'s\n``build_consensus_wrapped_command`` from false to true. With\nthe default flipped, the new template path is the production\npath; the old template path is only emitted when an operator\nsets ``EGG_BRC_EVENT_PUMP=false`` explicitly. Same flip for\n``EGG_BRC_MEMORY`` from ``off`` to ``full`` so the\ndelta-scoped re-analysis from slice-3 reads the memory file\nin production. Pre-flight: the slice-2 / slice-3 unit + BRC\nin-process regression suites pass on the new default (the\nqwen3.7-max #2906 k3s spike that previously gated this flip\nwas removed \u2014 the qwen route is unavailable in the k3s test\nenvironment and a Claude-route end-to-end consensus test is\nblocked on ScriptedProvider pod injection, deferred to #2585).",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
