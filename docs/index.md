@@ -31,6 +31,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality |
 | [Why egg Works](architecture/collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety and collaboration |
 | [Integration-Test Trust Boundary](architecture/integration-test-trust-boundary.md) | Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator) and fixture tiers; authoritative reference for plan-phase Trust-Boundary Audit (#2594) |
+| [BRC Memory Artifact](architecture/brc-memory.md) | Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack`; schema, three `EGG_BRC_MEMORY` modes, atomic-write contract, fail-closed path constructor, distill-on-write cap at 20, and role-allowlist coverage ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1) |
 
 ### Development
 
