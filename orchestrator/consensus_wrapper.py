@@ -1057,13 +1057,22 @@ invoke_agent_for_event() {{
         # the surface honest and matches the slice-5 prose-arg rule).
         # ``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` / ``EGG_REPO_PATH`` /
         # ``EGG_BRC_MEMORY`` are read by the script from env directly --
-        # we re-export here so a parent shell that hasn't propagated
-        # them still feeds the CLI correctly.
-        prompt=$(EGG_AGENT_ROLE="$role" \
-            EGG_BASE_BRANCH="$base_branch" \
-            EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-off}}" \
-            printf '%s' "$event_payload" \
-            | python3 "$script_path" "$action" 2>/dev/null)
+        # the env-var prefix MUST attach to ``python3`` (RHS of the
+        # pipe), not ``printf`` (LHS); the earlier form attached only
+        # to ``printf`` and ``python3`` inherited from the parent
+        # shell, which works in production today but is misleading
+        # and breaks if a parent shell hasn't exported them. Capture
+        # stderr to a temp file so the cw_log fallback message can
+        # surface the first line of the failure (script-not-found vs
+        # schema-drift vs subprocess crash are otherwise
+        # indistinguishable in the log).
+        local err_tmp
+        err_tmp=$(mktemp -t event-prompt-stderr.XXXXXX 2>/dev/null || echo "/tmp/event-prompt-stderr-$$.log")
+        prompt=$(printf '%s' "$event_payload" \
+            | EGG_AGENT_ROLE="$role" \
+                EGG_BASE_BRANCH="$base_branch" \
+                EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-off}}" \
+                python3 "$script_path" "$action" 2>"$err_tmp")
         prompt_rc=$?
     fi
 
@@ -1073,9 +1082,23 @@ invoke_agent_for_event() {{
         # (script missing, schema drift, transient git log failure).
         # The idle-budget safety net catches a wedged event-pump even
         # under a degraded composer; failing here would defeat that.
-        cw_log "compose_event_prompt unavailable (rc=$prompt_rc); using slice-2 stub prompt."
+        local err_head=""
+        if [ -n "${{err_tmp:-}}" ] && [ -r "$err_tmp" ]; then
+            err_head=$(head -1 "$err_tmp" 2>/dev/null)
+        fi
+        if [ -n "$err_head" ]; then
+            cw_log "compose_event_prompt unavailable (rc=$prompt_rc, stderr: $err_head); using slice-2 stub prompt."
+        else
+            cw_log "compose_event_prompt unavailable (rc=$prompt_rc); using slice-2 stub prompt."
+        fi
         prompt=$(printf 'BRC event-pump handler\nRole: %s\nSlice: %s\nAction: %s\nEvent payload (JSON): %s\n\nHandle this single event according to the role contract, update durable BRC memory, then exit naturally. The wrapper will invoke you again with the next event.\n' \
             "$role" "$slice" "$action" "$event_payload")
+    fi
+    # Best-effort cleanup of the stderr capture file. The trap on the
+    # outer wrapper handles SIGTERM cleanup; this cleanup keeps a busy
+    # event-pump from accumulating stale per-invocation temp files.
+    if [ -n "${{err_tmp:-}}" ] && [ -e "$err_tmp" ]; then
+        rm -f "$err_tmp" 2>/dev/null || true
     fi
     {agent_command_prefix} "$prompt"
 }}

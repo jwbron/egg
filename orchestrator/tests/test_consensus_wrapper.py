@@ -3030,3 +3030,119 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
             "later in the loop's life cannot re-arm the page). "
             f"Alert text:\n{alert_text}"
         )
+
+
+class TestEventPumpInvokesComposer:
+    """Pin the wrapper template's ``invoke_agent_for_event`` invocation
+    shape (reviewer_contract NACK v1, plan TASK-3-2 acceptance "Wrapper
+    template emits expected ``compose_event_prompt`` invocation").
+
+    The wrapper composes the per-event prompt by invoking
+    ``orchestrator/routes/event_prompt.py`` via the script CLI, with
+    env-var contract: ``EGG_AGENT_ROLE``, ``EGG_BASE_BRANCH``,
+    ``EGG_BRC_MEMORY`` (and ``EGG_REPO_PATH`` from the parent shell).
+    These tests fail if a future refactor drops the function, changes
+    the script path, breaks the env-var pass-through, or removes the
+    ``python3 "$script_path"`` call shape.
+    """
+
+    def test_flag_on_template_defines_invoke_agent_for_event(self, monkeypatch) -> None:
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        assert "invoke_agent_for_event()" in script, (
+            "Wrapper template must define `invoke_agent_for_event` so the "
+            "per-event prompt composition is in place for slice-3 / "
+            "slice-4 wiring."
+        )
+
+    def test_flag_on_template_references_event_prompt_script(self, monkeypatch) -> None:
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        # Either the hard-coded production path OR the override env var
+        # must be present so tests can swap the script for fakes.
+        assert (
+            "/opt/egg-runtime/orchestrator/routes/event_prompt.py" in script
+            or "EGG_EVENT_PROMPT_SCRIPT" in script
+        ), (
+            "Wrapper template must reference the event_prompt CLI script "
+            "by path or by env-var indirection."
+        )
+        # The actual script-path env var name is the documented seam.
+        assert "EGG_EVENT_PROMPT_SCRIPT" in script
+
+    def test_flag_on_template_re_exports_memory_env_var(self, monkeypatch) -> None:
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        # The re-export line must be present so the env-var contract
+        # to ``event_prompt.py::_cli`` is locked in.
+        assert "EGG_BRC_MEMORY=" in script
+        assert "EGG_AGENT_ROLE=" in script
+        assert "EGG_BASE_BRANCH=" in script
+
+    def test_flag_on_template_env_prefix_attaches_to_python3_not_printf(self, monkeypatch) -> None:
+        """The env-var prefix must attach to ``python3`` (RHS of the
+        pipe), not ``printf`` (LHS). The earlier form attached only to
+        ``printf`` and ``python3`` inherited from the parent shell — a
+        latent bug that worked in production today only because the
+        agent-pod shell already exports the vars, and would silently
+        break if the parent shell didn't (reviewer_contract NACK v1
+        finding #1 + reviewer_code NACK v1 finding #1).
+        """
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        # The pipe must run printf first (LHS) without env-var prefix,
+        # then env-vars decorate the python3 invocation (RHS).
+        # Pin by checking the textual order of the key tokens.
+        printf_idx = script.find("printf '%s' \"$event_payload\"")
+        env_role_idx = script.find('EGG_AGENT_ROLE="$role"')
+        python3_idx = script.find('python3 "$script_path"')
+        assert printf_idx > 0
+        assert env_role_idx > 0
+        assert python3_idx > 0
+        assert printf_idx < env_role_idx < python3_idx, (
+            f"Expected order: printf '%s' "
+            f"(idx={printf_idx}) | EGG_AGENT_ROLE=...="
+            f"(idx={env_role_idx}) python3 (idx={python3_idx}); "
+            "this confirms the env-var prefix attaches to python3 "
+            "(RHS of the pipe) per the v1 NACK fix."
+        )
+
+    def test_flag_on_template_invokes_python3_with_script_path_and_action(
+        self, monkeypatch
+    ) -> None:
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        # The call shape: ``python3 "$script_path" "$action"``.
+        assert 'python3 "$script_path" "$action"' in script, (
+            "Wrapper template must invoke python3 with the script path "
+            "and action argument. A future refactor that drops the "
+            "action argv would silently break the CLI contract."
+        )
+
+    def test_flag_off_legacy_template_does_not_reference_event_prompt(self, monkeypatch) -> None:
+        """The legacy capped-restart template (slice-2 default until
+        slice-4 flips the flag) must NOT reference event_prompt.py;
+        the composer is event-pump-only.
+        """
+        from consensus_wrapper import build_consensus_wrapped_command
+
+        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
+        cmd = build_consensus_wrapped_command("hello")
+        script = cmd[2]
+        assert "event_prompt.py" not in script
+        assert "invoke_agent_for_event" not in script
