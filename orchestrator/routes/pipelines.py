@@ -12596,7 +12596,7 @@ def _build_brc_preamble(
                 "work has landed in-cycle (the rename is in the diff, the "
                 "obligation is moot), drop the obligation: re-ACK without "
                 "`--pre-merge-condition`. Do NOT re-attach it with a "
-                "self-contradicting \"satisfied\" hedge — the PR body "
+                'self-contradicting "satisfied" hedge — the PR body '
                 "renders obligations verbatim under a `do not merge` "
                 "banner. To preserve the audit trail instead of dropping, "
                 "re-ACK with `--pre-merge-condition-resolved-in-diff <sha>` "
