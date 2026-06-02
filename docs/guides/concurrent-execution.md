@@ -71,7 +71,7 @@ Each agent is registered in the peer consensus tracker before spawning begins.
 
 ## Consensus Wrapper
 
-> **[#2908](https://github.com/jwbron/egg/issues/2908) replaced the model-driven restart loop with a deterministic event-pump wrapper across slices 1–4.** The wrapper is now the sole loop driver — the agent is one-shot per actionable BRC event, the wrapper holds the wait between events, and heartbeats + gateway-session keep-alive ride on wrapper-side subshells rather than the in-pod `message_wait_loop`. The 3-restart `MAX_CONSENSUS_RESTARTS` FAIL cap was replaced by an idle/no-progress overseer-alert budget that never transitions the pipeline to FAILED. The legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE `consensus.reached` machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the `EGG_BRC_EVENT_PUMP=false` escape hatch were deleted in slice-4 — the supported regression path is `git revert` of the slice-4 / slice-3 / slice-2 / slice-1 merge commits in reverse-merge order (see [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan)). See [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) for the deterministic-loop semantics, the wait-filter construction, the wrapper-side heartbeat + keep-alive subshells, the idle-budget escalation table, and the rollback plan. The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump).
+> **[#2908](https://github.com/jwbron/egg/issues/2908) replaced the model-driven restart loop with a deterministic event-pump wrapper across slices 1–4.** The wrapper is now the sole loop driver — the agent is one-shot per actionable BRC event, the wrapper holds the wait between events, and heartbeats + gateway-session keep-alive ride on wrapper-side subshells rather than the in-pod `message_wait_loop`. The 3-restart `MAX_CONSENSUS_RESTARTS` FAIL cap was replaced by an idle/no-progress overseer-alert budget that never transitions the pipeline to FAILED. The legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE `consensus.reached` machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the `EGG_BRC_EVENT_PUMP=false` escape hatch were deleted in slice-4 — the supported regression path is `git revert` of the slice-4 / slice-3 / slice-2 / slice-1 merge commits in reverse-merge order (see [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan)). See [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) for the deterministic-loop semantics, the wait-filter construction, the wrapper-side heartbeat + keep-alive subshells, the idle-budget escalation table, and the rollback plan. The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
 
 All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper is the deterministic BRC loop driver: it polls `egg-orch brc get-state` / `egg-orch brc next-action` for sequencing, blocks in `egg-orch message wait-loop` between actionable events, and invokes the agent one-shot per `INVOKE` event with a prompt composed by `compose_event_prompt` (slice-3).
 
@@ -248,7 +248,7 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 
 | Type | Use when | Example |
 |------|----------|---------|
-| `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Coder can't push test files → HANDOFF to tester with file paths |
+| `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Tester can't push a `.github/` CI fix → HANDOFF to coder with the required end-state |
 | `STATUS` | Your current state affects a peer's decisions or timing | Documenter tells reviewer: "Docs not ready yet, reviewing coder output first" |
 | `PROGRESS` | You've completed a milestone that peers may be waiting on | Coder tells tester: "API endpoints committed and pushed" |
 | `HEARTBEAT` | You have a machine-actionable state transition to advertise (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — use `egg-orch message heartbeat --state ...` rather than `message send --type HEARTBEAT` so the dedicated endpoint's schema validation, dedup, and rate limiting apply. (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop` — don't emit it manually.) | Tester enters `WAITING_ON_ROLE` → `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder`. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type). |
@@ -259,37 +259,40 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 > - If you are a **producer** blocked on another producer (e.g. tester blocked on coder), use `HANDOFF` with a concrete request rather than a free-form question.
 > - If you need to advertise that you are waiting on a peer (so the overseer doesn't classify you as stalled), emit `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on <role>`.
 
-### Worked Example: Role-Boundary Handoff (Coder → Tester)
+### Worked Example: Role-Boundary Handoff (Tester → Coder)
 
-This example is based on a real coordination gap observed in the issue-1707 pipeline. The coder implemented both source code and tests, but couldn't push the test files because role boundaries restrict the coder to source files only. Without directed messaging, the coder embedded "tester agent should push those" in its proposal text — the tester eventually wrote the tests independently after ~10 minutes of unnecessary delay.
+The coder→tester test handoff that used to live here is gone: the coder now
+authors and **pushes its own tests** (the test scope is shared with the
+tester — see [Agent Roles: Implement Phase](../reference/agent-roles.md#implement-phase)).
+The earlier coordination gap (issue-1707: coder wrote tests it couldn't push,
+so the tester re-wrote them after ~10 minutes of delay) is eliminated
+structurally rather than papered over with a message.
 
-**With directed messaging**, the flow looks like this:
+The HANDOFF pattern still applies in the **reverse** direction, for a file
+type the tester genuinely can't push. While hardening the coder's tests, the
+tester finds a CI workflow needs a new step to run a regression — but the
+tester has no write access to `.github/`. It hands the required end-state to
+the coder, who stages it under `.github-staging/`:
 
 ```bash
-# 1. Coder finishes implementation and writes test scaffolding locally,
-#    but can't push test files (role boundary: coder → source files only).
-#    Coder sends a HANDOFF to tester with the test content:
-egg-orch message send --to tester --type HANDOFF \
-  --subject "Test files for new auth module" \
-  --body "I've written test scaffolding in tests/test_auth.py but can't push
-due to role boundaries. The tests cover: login flow, token refresh, and
-session expiry. Key test patterns:
-- test_login_success: POST /auth/login with valid creds → 200 + token
-- test_login_invalid: POST /auth/login with bad creds → 401
-- test_token_refresh: POST /auth/refresh with valid token → new token
-Please pull my latest commit (abc1234) and create the test file."
+# 1. Tester (hardening the coder's tests after the coder's propose) finds the
+#    CI workflow doesn't run the new regression suite. It can't push .github/,
+#    so it sends a HANDOFF to the coder with the required end-state:
+egg-orch message send --to coder --type HANDOFF \
+  --subject "CI needs a step for the new regression suite" \
+  --body "tests/test_auth_regression.py won't run in CI. The workflow needs a
+step invoking it. Please stage the end-state under .github-staging/workflows/
+ci.yml (add a 'pytest tests/test_auth_regression.py' step); the PR builder
+emits a manual move-into-.github step for the human reviewer."
 
-# 2. Tester receives the HANDOFF on its next poll cycle:
+# 2. Coder receives the HANDOFF on its next poll cycle:
 egg-orch message poll --wait 30
 
-# 3. Tester syncs the worktree to get the coder's latest source code:
-git fetch origin && git merge origin/egg/issue-1707 --no-edit
-
-# 4. Tester writes the tests based on the HANDOFF guidance,
-#    commits, and pushes (tester has write access to test files).
+# 3. Coder stages the workflow change under .github-staging/ and pushes it
+#    (coder owns everything except docs and .egg-state/).
 ```
 
-This eliminates the ~10 minute coordination delay — the tester receives an explicit, structured notification and knows exactly what to do.
+This keeps the role-boundary case the agents actually still hit unblocked, while the common coder/tester test exchange needs no coordination at all.
 
 ### Receiving and Acting on Directed Messages
 
@@ -1078,9 +1081,9 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 1. Agent finishes work, commits in its own worktree
 2. Agent pushes to the team's branch (pipeline branch for refine/plan, slice integration branch for implement) via the gateway
 3. If push is rejected (another agent pushed first) → `git pull --rebase` → retry push
-4. Rebase **cannot conflict** because agents have mutually exclusive file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
+4. Rebase rarely conflicts because agents have largely non-overlapping file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
 
-This works because role restrictions guarantee non-overlapping file sets (coder writes source code, tester writes tests, documenter writes docs). No overlapping writes means no merge conflicts.
+The documenter's docs/markdown scope is mutually exclusive from the others, so it never conflicts. The **coder and tester share the test scope** (the coder authors its tests; the tester reviews-and-hardens them), but the writes are serialized in time rather than concurrent: the tester does no test work until the coder's `CONSENSUS_PROPOSE`, so by the time it hardens a test the coder's version is already on the branch and `git pull --rebase` brings it in first. A genuine same-line conflict is possible but rare, and — by design (see the section intro) — surfaces explicitly at push time rather than silently.
 
 **What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all agents to share one working directory. Now each agent pod gets its own worktree, using the Job name as the key.
 

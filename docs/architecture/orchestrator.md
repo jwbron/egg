@@ -755,7 +755,7 @@ POST /api/v1/pipelines/{pipeline_id}/signal
 > legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`,
 > the SSE `consensus.reached` machinery, and the
 > `MAX_CONSENSUS_RESTARTS = 3` cap are gone. The wait-side companion
-> is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump).
+> is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
 
 ### Why the wrapper drives the loop
 
@@ -997,7 +997,7 @@ event-pump infrastructure entirely.
 default. The slice-2/-3 `EGG_BRC_EVENT_PUMP` selector is no longer
 consulted — setting it has no effect because the legacy template it
 selected to is gone. The
-[agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump)
+[agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model)
 section is the wait-side companion to this architecture description.
 
 ## BRC Per-Event Prompt Composer + Preamble Collapse
@@ -1280,7 +1280,7 @@ is documented in the
 table together with the slice-1 writer and the composer's reader
 behaviour. The wait-side companion to this architecture section is
 [agent-wait-patterns §10.9 BRC Per-Event Prompt Composer +
-Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
+Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse).
 
 ## Shared Package
 
