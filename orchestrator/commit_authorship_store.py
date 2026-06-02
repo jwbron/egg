@@ -76,11 +76,13 @@ ORPHAN_SHARD_ID = "_orphan"
 # test data that uses shorter values (our own unit tests do).
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 # A git patch-id (``git patch-id --stable``) is a full-length object hash —
-# 40 hex for SHA-1, 64 for SHA-256.  We accept the same 7–64 lowercase-hex
-# shape as a commit SHA so unit tests can use short fixtures, and because the
-# value is content-addressed rather than security-sensitive on its own (an
-# ambiguous patch-id resolves to ``None`` in ``lookup_bulk_by_patch_id``).
-_PATCH_ID_RE = re.compile(r"^[0-9a-f]{7,64}$")
+# 40 hex for SHA-1 (current git default), 64 for SHA-256 (emerging format).
+# Tightening to those two exact widths catches truncated inputs at the
+# validation seam rather than letting them through to ambiguous-lookup
+# territory.  An ambiguous patch-id resolves to ``None`` in
+# ``lookup_bulk_by_patch_id`` anyway, but rejecting malformed values up
+# front gives callers a clearer signal than silently dropping them.
+_PATCH_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 # Role identifier: lowercase alphanumeric + underscore/hyphen.  Matches
 # the AgentRole values used elsewhere in the codebase.
 _ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
@@ -666,7 +668,12 @@ class CommitAuthorshipStore:
                 patch_id=patch_id_s,
             )
             entries[sha_s] = entry.to_dict()
-            shard.setdefault("version", _SCHEMA_VERSION)
+            # Bump the shard version to match the writer.  Each register
+            # writes v2-shaped entries (with ``patch_id``), so a v1 shard
+            # that just absorbed one is now mixed; labeling it ``v: 1`` on
+            # disk would mislead a future migration that gates on the
+            # version field.  Direct assignment, not setdefault.
+            shard["version"] = _SCHEMA_VERSION
 
             path = self._shard_path(pid)
             self._write_shard_atomic(path, shard)
@@ -801,7 +808,7 @@ class CommitAuthorshipStore:
                 data = json.loads(raw)
                 if isinstance(data, dict):
                     shards.append(data)
-            except json.JSONDecodeError, OSError:
+            except (OSError, json.JSONDecodeError):  # fmt: skip
                 logger.warning(
                     "Ignoring corrupt authorship shard: %s",
                     path,

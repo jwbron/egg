@@ -1728,44 +1728,27 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
-def _patch_id_for_commit(repo_path: str, sha: str) -> str | None:
-    """Return ``git patch-id --stable`` for ``sha`` or ``None``.
+def _patch_ids_for_commits(repo_path: str, shas: list[str]) -> dict[str, str | None]:
+    """Bulk ``git patch-id --stable`` for ``shas`` via the gateway's hardened argv.
 
-    The content-based key (#2932) the push handler uses to recover
-    attribution for a commit whose SHA a rebase rewrote — the SHA changed
-    but the patch-id did not.  Mirrors ``commit_observer.patch_id_for_commit``
-    (registration side) so a commit registered with a given patch-id is
-    found here under the same one.  Merge / empty / rename-only commits and
-    any git failure yield ``None``; the commit then stays fail-closed.
+    Push-time recovery helper for #2932: a rebase rewrites SHAs but the
+    patch-id is content-stable, so the original author is recoverable.
+    Delegates to ``commit_observer.patch_ids_for_commits`` (registration
+    side) so the two sides share one implementation; we just inject the
+    gateway's ``git_cmd`` argv builder so the safe-directory / hooks-path
+    / gc settings still apply.
+
+    Returns a dict keyed by every input SHA — string when git emitted a
+    patch-id, ``None`` for merge / empty / rename-only commits or any git
+    failure (the commit then stays fail-closed in the caller).
     """
-    import subprocess
-
     try:
-        show = subprocess.run(
-            git_cmd("show", "--no-color", sha),
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        from .commit_observer import patch_ids_for_commits
+    except ImportError:
+        from commit_observer import (  # type: ignore[no-redef,import-untyped]
+            patch_ids_for_commits,
         )
-        if show.returncode != 0:
-            return None
-        patch = subprocess.run(
-            git_cmd("patch-id", "--stable"),
-            cwd=repo_path,
-            input=show.stdout,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except Exception:
-        return None
-    if patch.returncode != 0:
-        return None
-    parts = (patch.stdout or "").split()
-    return parts[0] if parts else None
+    return patch_ids_for_commits(repo_path, shas, git_cmd=git_cmd)
 
 
 def get_attributed_changed_files_in_push(
@@ -1902,13 +1885,16 @@ def get_attributed_changed_files_in_push(
     if commits and registry_client is not None:
         lookup_patch_ids = getattr(registry_client, "lookup_patch_ids", None)
         if callable(lookup_patch_ids):
+            unattributed = [sha for sha in commits if attribution.get(sha) is None]
             sha_to_patch: dict[str, str] = {}
-            for sha in commits:
-                if attribution.get(sha) is not None:
-                    continue
-                pid = _patch_id_for_commit(repo_path, sha)
-                if pid:
-                    sha_to_patch[sha] = pid
+            if unattributed:
+                # One batched ``git log --no-walk -p | git patch-id`` rather
+                # than N pairs of subprocess spawns — a recovery rebase that
+                # touches dozens of commits stays linear in git, not in
+                # Python process overhead.
+                for sha, pid in _patch_ids_for_commits(repo_path, unattributed).items():
+                    if pid:
+                        sha_to_patch[sha] = pid
             if sha_to_patch:
                 try:
                     patch_attr = dict(lookup_patch_ids(sorted(set(sha_to_patch.values()))))

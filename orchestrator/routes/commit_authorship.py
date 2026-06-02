@@ -248,6 +248,22 @@ def register_bulk() -> tuple[Response, int] | Response:
         if not isinstance(item, dict):
             results.append({"success": False, "message": "Item must be an object"})
             continue
+        item_patch_id = item.get("patch_id")
+        # Match the per-item-route behaviour: a non-string ``patch_id`` is
+        # a misbehaving client, not a value the store should silently drop.
+        # The store also drops non-strings as defence-in-depth, but the
+        # route surface should be the consistent signal across both
+        # endpoints (a 400 / per-item failure rather than success-with-no-
+        # patch-id).
+        if item_patch_id is not None and not isinstance(item_patch_id, str):
+            results.append(
+                {
+                    "success": False,
+                    "status": 400,
+                    "message": "'patch_id' must be a string",
+                }
+            )
+            continue
         try:
             normalized_sha, inserted, _existing = store.register(
                 sha=item.get("sha", ""),
@@ -255,7 +271,7 @@ def register_bulk() -> tuple[Response, int] | Response:
                 pipeline_id=item.get("pipeline_id"),
                 repo=item.get("repo"),
                 branch=item.get("branch"),
-                patch_id=item.get("patch_id"),
+                patch_id=item_patch_id,
             )
         except AuthorshipCollisionError as exc:
             results.append(

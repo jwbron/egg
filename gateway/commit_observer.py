@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 try:
@@ -105,7 +105,23 @@ def _rev_list_between(exec_path: str, before: str | None, after: str) -> list[st
     return shas
 
 
-def patch_id_for_commit(exec_path: str, sha: str) -> str | None:
+def _build_argv(git_cmd: Callable[..., list[str]] | None, *args: str) -> list[str]:
+    """Build a ``git`` argv, honouring an optional gateway-style prefix builder.
+
+    ``git_cmd`` lets callers (notably ``gateway.git_client``) inject the
+    ``-c safe.directory=* -c core.hooksPath=/dev/null -c gc.auto=0`` prefix
+    they use everywhere else; the observer's own callers pass ``None`` and
+    invoke plain ``git``.
+    """
+    return git_cmd(*args) if git_cmd else ["git", *args]
+
+
+def patch_id_for_commit(
+    exec_path: str,
+    sha: str,
+    *,
+    git_cmd: Callable[..., list[str]] | None = None,
+) -> str | None:
     """Return ``git patch-id --stable`` for ``sha`` or ``None``.
 
     Recorded at registration time so attribution survives a later SHA
@@ -117,13 +133,17 @@ def patch_id_for_commit(exec_path: str, sha: str) -> str | None:
     rename/mode-only commits yield no patch-id; we return ``None`` and the
     commit simply doesn't get content-based recovery.  Any failure returns
     ``None`` so registration proceeds with SHA-only attribution.
+
+    ``git_cmd`` is an optional argv builder so the gateway's push-time
+    recovery path can pass its hardened ``safe.directory`` / hooks-path /
+    gc settings.  The observer's own callers pass ``None``.
     """
     sha_s = (sha or "").strip()
     if not sha_s:
         return None
     try:
         show = subprocess.run(
-            ["git", "show", "--no-color", sha_s],
+            _build_argv(git_cmd, "show", "--no-color", sha_s),
             cwd=exec_path,
             capture_output=True,
             text=True,
@@ -133,7 +153,7 @@ def patch_id_for_commit(exec_path: str, sha: str) -> str | None:
         if show.returncode != 0:
             return None
         patch = subprocess.run(
-            ["git", "patch-id", "--stable"],
+            _build_argv(git_cmd, "patch-id", "--stable"),
             cwd=exec_path,
             input=show.stdout,
             capture_output=True,
@@ -150,6 +170,81 @@ def patch_id_for_commit(exec_path: str, sha: str) -> str | None:
     # token.  Empty output (no diff) means no usable patch-id.
     parts = (patch.stdout or "").split()
     return parts[0] if parts else None
+
+
+def patch_ids_for_commits(
+    exec_path: str,
+    shas: Iterable[str],
+    *,
+    git_cmd: Callable[..., list[str]] | None = None,
+) -> dict[str, str | None]:
+    """Bulk version of :func:`patch_id_for_commit` keyed by SHA.
+
+    Replaces N pairs of ``git show | git patch-id`` subprocesses with one
+    ``git log --no-walk -p ... | git patch-id --stable``, so a rebase
+    recovery that touches dozens of commits doesn't pay N × 2 spawn
+    overhead serially.
+
+    The return dict carries an entry for every input SHA: a string when
+    git emitted a patch-id for it, or ``None`` for SHAs ``git log`` did
+    not output (merge / empty / rename-only commits, or shas the git
+    invocation could not resolve).  Any subprocess failure returns a dict
+    with every input SHA mapped to ``None`` — the caller (push handler)
+    treats that as "no content-based recovery available" and leaves the
+    commits fail-closed.
+    """
+    sha_list: list[str] = []
+    seen: set[str] = set()
+    for raw in shas:
+        s = (raw or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            sha_list.append(s)
+    result: dict[str, str | None] = dict.fromkeys(sha_list)
+    if not sha_list:
+        return result
+
+    try:
+        show = subprocess.run(
+            _build_argv(git_cmd, "log", "--no-walk", "-p", "--no-color", *sha_list),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if show.returncode != 0 or not show.stdout:
+            return result
+        patch = subprocess.run(
+            _build_argv(git_cmd, "patch-id", "--stable"),
+            cwd=exec_path,
+            input=show.stdout,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception as exc:
+        logger.debug(
+            "commit_observer_patch_ids_failed",
+            count=len(sha_list),
+            error=str(exc),
+        )
+        return result
+    if patch.returncode != 0:
+        return result
+
+    # ``git patch-id --stable`` prints one ``<patch-id> <commit-id>`` pair
+    # per input patch.  Map back to the SHA list so callers can correlate.
+    valid = set(sha_list)
+    for line in (patch.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        pid, commit_sha = parts[0], parts[1]
+        if commit_sha in valid:
+            result[commit_sha] = pid
+    return result
 
 
 def capture_head(exec_path: str) -> str | None:

@@ -584,8 +584,11 @@ class TestPatchIdRecovery:
                 _cp(returncode=0, stdout=commits_stdout),
             ),
             (lambda cmd: "diff-tree" in cmd, _cp(returncode=0, stdout=diff_stdout)),
+            # The push-time patch-id helper batches via
+            # ``git log --no-walk -p`` (#2932 follow-up); the previous
+            # per-sha ``git show`` pipeline is gone.
             (
-                lambda cmd: "show" in cmd,
+                lambda cmd: "log" in cmd and "--no-walk" in cmd,
                 _cp(returncode=0, stdout="diff --git a/x b/x\n+content\n"),
             ),
             (
