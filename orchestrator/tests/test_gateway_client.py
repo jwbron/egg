@@ -2078,11 +2078,18 @@ class TestLsRemoteBranchStrict:
     """
 
     def test_present_branch_returns_true(self, gateway_client):
+        """Success path: present branch returns True AND the synthetic
+        session is torn down. Pinning the teardown on the success path
+        — not just the error path (``test_session_deleted_on_error``) —
+        guards against a future refactor that drops the ``finally``
+        block and silently leaks gateway sessions on every successful
+        probe.
+        """
         session = MagicMock()
         session.session_token = "synthetic-token-xyz"
         with (
             patch.object(gateway_client, "register_session", return_value=session),
-            patch.object(gateway_client, "delete_session"),
+            patch.object(gateway_client, "delete_session") as mock_del,
             patch.object(
                 gateway_client,
                 "_make_request",
@@ -2095,6 +2102,7 @@ class TestLsRemoteBranchStrict:
                 ref="refs/heads/egg/issue-X/slice-1",
             )
         assert result is True
+        mock_del.assert_called_once_with("synthetic-token-xyz")
 
     def test_absent_branch_returns_false(self, gateway_client):
         """An empty ls-remote stdout means the ref is absent on origin —
@@ -2188,6 +2196,38 @@ class TestLsRemoteBranchStrict:
                     ref="refs/heads/egg/issue-X/slice-1",
                 )
         mock_del.assert_called_once_with("synthetic-token-xyz")
+
+    def test_envelope_success_false_raises(self, gateway_client):
+        """A ``{"success": false, ...}`` envelope returned at HTTP 200 is
+        a gateway-side failure surfaced via the response body rather
+        than the status code. Without the envelope-success guard, the
+        strict variant would silently collapse such a response to
+        "branch absent" (empty ``stdout`` → ``False``) — directly
+        contradicting its propagate-any-failure contract. Pin the
+        invariant that envelope-level failures raise like HTTPError
+        failures do.
+        """
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(gateway_client, "register_session", return_value=session),
+            patch.object(gateway_client, "delete_session"),
+            patch.object(
+                gateway_client,
+                "_make_request",
+                return_value={
+                    "success": False,
+                    "message": "git fetch failed: policy denied",
+                    "data": {"stdout": ""},
+                },
+            ),
+            pytest.raises(GatewayError, match="policy denied"),
+        ):
+            gateway_client.ls_remote_branch_strict(
+                pipeline_id="issue-X",
+                repo_path="/tmp/x",
+                ref="refs/heads/egg/issue-X/slice-1",
+            )
 
 
 class TestSingletonClient:

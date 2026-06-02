@@ -3061,24 +3061,23 @@ class GatewayClient:
                 except Exception:
                     pass
 
-    def ls_remote_branch(
+    def _ls_remote_branch_impl(
         self,
         pipeline_id: str,
         repo_path: str,
         ref: str,
-        mode: Literal["public", "private"] = "public",
+        mode: Literal["public", "private"],
+        container_id_suffix: str,
     ) -> bool:
-        """Check if a remote branch exists using ls-remote.
+        """Shared implementation of the ls-remote branch-existence probe.
 
-        Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
-            repo_path: Path to the repo directory
-            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
-
-        Returns:
-            True if the remote branch exists, False otherwise
+        Raises on any gateway / network / policy failure — including a
+        ``{"success": false, ...}`` envelope returned at HTTP 200. Public
+        wrappers apply their respective error policies at the outer
+        layer: :meth:`ls_remote_branch` swallows and returns ``False``;
+        :meth:`ls_remote_branch_strict` propagates.
         """
-        temp_container_id = f"{pipeline_id}-state-ls-remote"
+        temp_container_id = f"{pipeline_id}-{container_id_suffix}"
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -3105,9 +3104,57 @@ class GatewayClient:
                 bearer_token=session_token,
             )
 
+            # A {"success": false, ...} envelope returned at HTTP 200 is
+            # a gateway-side failure surfaced via the envelope rather
+            # than the status code. Without this guard the strict
+            # variant would silently collapse such a response to "branch
+            # absent", contradicting its propagate-any-failure contract.
+            if not result.get("success", True):
+                raise GatewayError(
+                    result.get("message", "ls-remote envelope reported success=false")
+                )
+
             # ls-remote returns output in data.stdout; non-empty means branch exists
             stdout = result.get("data", {}).get("stdout", "")
             return bool(stdout.strip())
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def ls_remote_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Check if a remote branch exists using ls-remote.
+
+        Lenient variant: collapses gateway / network / policy failures
+        to ``False``. Callers that need to distinguish "branch absent
+        on origin" from "probe could not be performed" — notably the
+        ``_resolve_slice_base_branch`` parent-existence gate (#2928) —
+        must use :meth:`ls_remote_branch_strict` instead.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the repo directory
+            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
+
+        Returns:
+            True if the remote branch exists, False otherwise (or on error).
+        """
+        try:
+            return self._ls_remote_branch_impl(
+                pipeline_id=pipeline_id,
+                repo_path=repo_path,
+                ref=ref,
+                mode=mode,
+                container_id_suffix="state-ls-remote",
+            )
         except Exception as e:
             logger.warning(
                 "ls-remote check failed",
@@ -3116,12 +3163,6 @@ class GatewayClient:
                 error=str(e),
             )
             return False
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
 
     def ls_remote_branch_strict(
         self,
@@ -3143,38 +3184,13 @@ class GatewayClient:
         :meth:`ls_remote_branch` collapses those two outcomes and is
         unsafe for that gate.
         """
-        temp_container_id = f"{pipeline_id}-state-ls-remote-strict"
-        session_token: str | None = None
-        try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                synthetic=True,
-            )
-            session_token = session.session_token
-
-            result = self._make_request(
-                "/api/v1/git/fetch",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "operation": "ls-remote",
-                    "args": ["--heads", ref],
-                },
-                bearer_token=session_token,
-            )
-
-            stdout = (result or {}).get("data", {}).get("stdout", "")
-            return bool(stdout.strip())
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
+        return self._ls_remote_branch_impl(
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            ref=ref,
+            mode=mode,
+            container_id_suffix="state-ls-remote-strict",
+        )
 
     def get_remote_branch_sha(
         self,
