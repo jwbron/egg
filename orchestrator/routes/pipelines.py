@@ -12327,24 +12327,24 @@ def _build_brc_preamble(
         if roster:
             lines.append(roster)
 
-    # Dual-role ordering banner (#2749, updated for coder-owns-tests). A
-    # dual-role agent (today: only TESTER in the implement graph) receives
-    # both the Producer and Reviewer Lifecycle blocks below. The coder now
-    # authors its own tests; the tester's job is to review-and-harden them
-    # after the coder proposes. So the tester's producer WORK legitimately
-    # depends on the coder's ``CONSENSUS_PROPOSE`` — it orients up-front,
-    # waits for the coder's propose, then hardens + proposes + ACK/NACKs in
-    # one pass. This does not reintroduce the f4c7d780 / 8b81ed32 self-block
-    # (where the tester idled on a reviewer wait-loop before proposing its
-    # own scaffolded work): the coder proposes independently and does not
-    # wait on the tester, so the coder's propose is the trigger, and the
-    # tester proposes right after. The tester therefore has TWO reviewer
-    # rendezvous points: (a) the pre-PROPOSE wait-loop in step 1 of the
-    # banner below catches the coder's first ``CONSENSUS_PROPOSE`` (so the
-    # tester has something to harden); (b) re-proposes and peer-producer
-    # proposals after the tester has proposed fold into Producer Lifecycle
-    # step 4 / step 6, whose augmented filter already wakes on
-    # ``CONSENSUS_PROPOSE``.
+    # Dual-role ordering banner (#2749, #2908). A dual-role agent (today:
+    # only TESTER in the implement graph) receives both the Producer and
+    # Reviewer Lifecycle blocks below. Under the slice-2 event-pump
+    # wrapper, the agent is invoked one-shot per actionable event by the
+    # orchestrator wrapper; there is no in-agent blocking wait-loop or
+    # reviewer POLL to schedule against. The banner makes the ordering
+    # invariant explicit so the dual-role agent does not improvise: the
+    # BRC round cannot close until every producer (including this role)
+    # has proposed, so producer steps 1–3 come FIRST on the first
+    # invocation. Subsequent invocations on upstream-producer PROPOSE
+    # events land the agent directly at Reviewer Lifecycle step 3 (SYNC)
+    # → step 4 (REVIEW) → step 5 (ACK/NACK) for that proposal; each one
+    # is a fresh review against the per-event git-log delta. This
+    # resolves the f4c7d780 / 8b81ed32 self-block (where dual-role agents
+    # idled on a reviewer wait-loop before proposing their own work) at
+    # the wrapper level: the wrapper schedules invocations, and the
+    # agent no longer needs to (and MUST NOT) block on
+    # ``egg-orch message wait-loop`` as a scheduling primitive.
     if is_dual_role:
         lines.append(
             "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"
