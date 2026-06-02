@@ -219,13 +219,22 @@ git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p
 
 This is intentionally the **full** delta since the prior review, not just
 the orchestrator's `changed_artifacts` set — the re-review must audit
-every change as a fresh review (the BRC adversarial re-review contract),
+every change as a fresh review (the BRC adversarial re-review contract
+shared with the PR-side reviewer — see
+[`shared/prompts/REVIEWER-SYNC.md` Diff command (re-review / delta)](../../shared/prompts/REVIEWER-SYNC.md)),
 or the stateless pump systematically weakens adversarial review
 (risk_analyst R6).
 
 When the mode is `write-only` (the slice-1 rollout posture), the read path
 passes an empty memory excerpt — writes happen but reads are no-ops,
 preserving the inert default.
+
+For the full architecture of the slice-3 reader (composer shape, 10 KB
+envelope, tail-position memory delivery per architect od-6 Option B,
+preamble collapse, slice-2 wrapper interplay), see
+[Orchestrator — BRC Per-Event Prompt Composer + Preamble Collapse](orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3)
+and its wait-side companion
+[agent-wait-patterns §10.9](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
 
 ## Acceptance contract for the writer (slice-1)
 
