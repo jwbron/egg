@@ -59,7 +59,7 @@ gateway/
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
 ├── agent_restrictions.py   # Agent role-based file access enforcement
 ├── commit_observer.py      # Gateway-inline commit observer: registers new SHAs with the authorship registry after each git-execute call
-├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk)
+├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk + lookup_patch_ids for SHA-rewrite recovery)
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
