@@ -599,6 +599,12 @@ deploy: check-egg-images-present  ## Deploy egg to k3s
 		kubectl apply -f - && \
 	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
+	@# Rollout confirmed on $(EGG_IMAGE_TAG): drop older egg image tags from
+	@# containerd so it does not accumulate a ~12 GB sandbox image per deployed
+	@# commit and push the root fs over kubelet's image-GC threshold (which would
+	@# evict the next redeploy's freshly-imported, not-yet-referenced images
+	@# mid-run). Best-effort -- a reap hiccup must not fail an otherwise-green deploy.
+	@scripts/reap-stale-egg-images.sh "$(EGG_IMAGE_TAG)" || true
 	@$(MAKE) --no-print-directory litellm-config
 	@echo "Deployment complete"
 

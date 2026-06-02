@@ -409,6 +409,40 @@ If the state-store worktree is wedged (for example, after a state-volume reset t
 > guarantee. The manual steps below remain useful as a fallback when the
 > skills are unavailable.
 
+### `make redeploy` aborts: "images for tag 'X' are not in k3s"
+
+`check-egg-images-present.sh` failed the deploy because `egg-gateway:X` and/or
+`egg-orchestrator:X` are missing from k3s's containerd. There are two causes:
+
+1. **HEAD moved since your last build.** A bare `make deploy` after a
+   commit/pull/rebase/checkout references a tag that was never built+imported.
+   Fix: `make redeploy` (rebuild + re-import + deploy on the current tag).
+
+2. **kubelet image GC ate the freshly-imported images.** You *did* run
+   `make redeploy`, the import succeeded, but the images vanished before
+   `deploy` repointed the pods at the new tag. Until that repoint the new tag
+   is unreferenced, so under disk pressure — root filesystem over kubelet's
+   `imageGCHighThresholdPercent` (~85%) — kubelet image GC collects it. The
+   gateway/orchestrator images go first: they import before the ~12 GB sandbox
+   image, so by the time the long sandbox/litellm imports finish they're older
+   than `imageMinimumGCAge` (~2 min) and thus GC-eligible, while sandbox/litellm
+   are still inside the immunity window.
+
+   The disk hog lives in **k3s's containerd** (`/var/lib/rancher/k3s/agent/containerd`),
+   a *different* store from docker's — so `docker system prune` frees the wrong
+   space and the next redeploy's import spike re-crosses the threshold. Reclaim
+   containerd space, then redeploy (which re-imports everything):
+
+   ```bash
+   sudo k3s crictl rmi --prune   # safe immediately before a redeploy
+   df -h /                       # confirm well under 80%
+   make redeploy
+   ```
+
+   A successful deploy now reaps older egg tags from containerd automatically
+   (`scripts/reap-stale-egg-images.sh`), keeping it bounded to the current tag
+   so the threshold isn't crossed on subsequent redeploys.
+
 ### Claude binary not found
 
 If the sandbox exits with `Claude Code CLI not found in PATH`, the Claude binary is missing from the container (failed build or changed install path).
