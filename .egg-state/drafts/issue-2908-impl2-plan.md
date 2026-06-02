@@ -118,7 +118,7 @@ plan-reviewer §9 exception.
 | Promoted `atomic_write` helper (shared) | TASK-1-6 | Either promote `_persist_atomic_template` from `shared/egg_overseer/state.py:266` to a shared module, or call it from the memory writer if a cross-module import is clean. The shared helper guarantees no within-pod partial writes (v2 atomic-write contract). |
 | `EGG_BRC_MEMORY={off,write-only,full}` env-flag gate | TASK-1-6 | Read in `brc_ack` / `brc_nack` handlers; default `off` until slice-4 flips on. |
 | Fail-closed memory-path constructor | TASK-1-6 | Raises if `EGG_AGENT_ROLE` is unset/empty (architect od-1 + risk_analyst R14 + reviewer_plan non-blocker). Never falls through to a degenerate `.egg-state/agent-outputs//brc-memory.md` path. |
-| `EGG_BRC_EVENT_PUMP={true,false}` env-flag gate | TASK-2-1 (template branch) and TASK-4-2 (flip default) | Read in `build_consensus_wrapped_command` at template-composition time; selects new event-pump bash branch vs old capped-restart branch. Default false in slice-2, flipped true in slice-4. |
+| `EGG_BRC_EVENT_PUMP={true,false}` env-flag gate | TASK-2-1 (template branch) and TASK-4-1 (flip default) | Read in `build_consensus_wrapped_command` at template-composition time; selects new event-pump bash branch vs old capped-restart branch. Default false in slice-2, flipped true in slice-4. |
 | Idle/no-progress safety budget (env `EGG_BRC_IDLE_BUDGET_MIN`, default 30) | TASK-2-3 | Replacement for `MAX_CONSENSUS_RESTARTS` cap; trips overseer alert. |
 | Wrapper-side heartbeat emitter (with `slice_id == os.environ['EGG_SLICE_ID']` payload assertion) | TASK-2-2 + TASK-2-6 (test) | Wrapper bash emits `egg-orch message heartbeat` (existing endpoint) every 30 s while `message wait-loop` is blocking. Migrated from `handlers/message.py:267-429`. Heartbeat payload carries the env-derived slice_id so a regression in slice_id propagation is caught directly. |
 | Wrapper-side gateway-session keep-alive | TASK-2-4 | Wrapper bash refreshes the lifecycle-secret-gated session while blocking. Migrated from same handler region (#2451). |
@@ -431,8 +431,8 @@ pr:
       E2E blocked on ScriptedProvider pod injection, deferred to
       #2585). The flag flip is gated on the slice-2 / slice-3 unit +
       BRC in-process regression suites passing on the new default;
-      the deletions in TASK-4-3 are covered by the updated unit tests
-      in TASK-4-4.
+      the deletions in TASK-4-2 are covered by the updated unit tests
+      in TASK-4-3.
     - slice-5: stdin / `--reason-file` / `--summary-file` /
       `--files-reviewed-file` round-trip tests for prose containing
       `$VAR` / backticks / `;` / `&&` / embedded newlines (#2741
@@ -1269,7 +1269,7 @@ slices:
     dependencies:
       - slice-3
     tasks:
-      - id: TASK-4-2
+      - id: TASK-4-1
         description: |-
           Flip the ``EGG_BRC_EVENT_PUMP`` default in
           ``orchestrator/consensus_wrapper.py``'s
@@ -1296,7 +1296,7 @@ slices:
         role: coder
         files:
           - orchestrator/consensus_wrapper.py
-      - id: TASK-4-3
+      - id: TASK-4-2
         description: |-
           Delete the old capped-restart bash template, the
           ``_RECOVERY_SYSTEM_PROMPT`` (consensus_wrapper.py:64-99),
@@ -1322,17 +1322,17 @@ slices:
           remain; relevant tests in
           ``orchestrator/tests/test_consensus_wrapper.py`` updated
           (or deleted, where old-path-specific tests no longer apply)
-          — replacement coverage lands in TASK-4-4.
+          — replacement coverage lands in TASK-4-3.
         role: coder
         files:
           - orchestrator/consensus_wrapper.py
           - sandbox/egg_agent_tools/handlers/message.py
-      - id: TASK-4-4
+      - id: TASK-4-3
         description: |-
           Update tests in
           ``orchestrator/tests/test_consensus_wrapper.py`` and
           ``tests/sandbox/egg_agent_tools/test_handlers_message.py``
-          to reflect the deletions in TASK-4-3. Delete tests of the
+          to reflect the deletions in TASK-4-2. Delete tests of the
           retired capped-restart cap, recovery prompt, SSE path,
           and agent-side heartbeat / keep-alive. Add coverage for
           the new wrapper behaviour where it replaces the old (the
@@ -1347,7 +1347,7 @@ slices:
         files:
           - orchestrator/tests/test_consensus_wrapper.py
           - tests/sandbox/egg_agent_tools/test_handlers_message.py
-      - id: TASK-4-5
+      - id: TASK-4-4
         description: |-
           Documenter: rewrite ``docs/architecture/orchestrator.md``
           consensus-wrapper section to describe the post-deletion
