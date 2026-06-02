@@ -166,7 +166,7 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 
 ```
 ┌─────────────────────────── egg-system (trusted) ───────────────────────────┐
-│                                                                             │
+│                                                                            │
 │  ┌──────────────────────┐   ┌───────────────────────────┐   ┌───────────┐  │
 │  │    Orchestrator      │   │     Gateway Sidecar       │   │  LiteLLM  │  │
 │  │                      │   │                           │   │  (proxy)  │  │
@@ -178,17 +178,17 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 │  │  • MCP server :9850  │   │  • Network isolation      │   │   :4000   │  │
 │  │  • REST API   :9849  │   │  • Jira/Confluence wrap   │   │           │  │
 │  └──────────────────────┘   │   :9848 (+ proxy :3129)   │   └───────────┘  │
-│                             └─────────────▲─────────────┘                  │
-└───────────────────────────────────────────┼───────────────────────────────┘
+│                             └──────────────▲────────────┘                  │
+└────────────────────────────────────────────┼───────────────────────────────┘
                                              │ all privileged ops + LLM calls
 ┌─────────────────────────── egg-agents ─────┼──────────── (untrusted) ──────┐
 │   ┌────────────────────────────────────────┴─────────────────────────────┐ │
-│   │  Sandbox agent Jobs (one per role per phase/slice)                    │ │
-│   │  • Claude Code via the Agent SDK (egg_agent)                          │ │
-│   │  • Standard git/gh wrappers → gateway   • No credentials              │ │
-│   │  • Per-agent git worktree               • No merge endpoint           │ │
+│   │  Sandbox agent Jobs (one per role per phase/slice)                   │ │
+│   │  • Claude Code via the Agent SDK (egg_agent)                         │ │
+│   │  • Standard git/gh wrappers → gateway   • No credentials             │ │
+│   │  • Per-agent git worktree               • No merge endpoint          │ │
 │   └──────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle:** the agent cannot bypass controls because the capabilities don't exist in its environment. This is infrastructure enforcement, not behavioral control. See the [Architecture Overview](docs/architecture/README.md) and [Kubernetes Migration](docs/architecture/kubernetes-migration.md).
