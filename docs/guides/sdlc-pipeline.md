@@ -1353,7 +1353,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 |------|---------|---------|
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
-| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
+| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Implementation + tests are in — tester should review and harden the tests" |
 | `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop`) | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
@@ -1366,7 +1366,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
 
 # Send a role-boundary handoff
-egg-orch message send --to tester --type HANDOFF --subject "Test files ready" --body "See commit abc1234"
+egg-orch message send --to tester --type HANDOFF --subject "Implementation + tests in" --body "See commit abc1234 — review and harden the tests"
 
 # Poll for new messages
 egg-orch message poll [--since msg-abc123] [--limit 50]
@@ -1423,11 +1423,13 @@ commit messages (and, where the reviewer pass surfaces an ambiguity, by addressi
 the `NACK` rationale on re-propose). Signals `READY` after all implementation tasks
 are committed.
 
-**Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
-code is ready. Raises ambiguities through the review cycle — either via `NACK`
-rationale when reviewing the coder, or by emitting a `HEARTBEAT` with
-`state=WAITING_ON_ROLE --waiting-on coder` so the overseer can see the block.
-Signals `READY` after tests pass.
+**Tester**: Orients from the plan but does not write tests early — the coder
+authors its own tests. Waits for the coder's `CONSENSUS_PROPOSE`, then reviews
+and **hardens** the coder's tests (adds regression + adversarial cases), runs
+them, and reports back with an ACK/NACK. Raises ambiguities through the review
+cycle — either via `NACK` rationale when reviewing the coder, or by emitting a
+`HEARTBEAT` with `state=WAITING_ON_ROLE --waiting-on coder` so the overseer can
+see the block. Signals `READY` after tests pass.
 
 **Documenter**: Starts documentation based on the plan. Refines as implementation
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
