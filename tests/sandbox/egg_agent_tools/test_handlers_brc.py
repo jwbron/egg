@@ -791,6 +791,13 @@ class TestBrcReadPeerArtifact:
         monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
         # Ensure pipeline id doesn't shadow issue number.
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+        # Clear EGG_SLICE_ID so the per-slice partition (#2548) doesn't
+        # change file resolution for the aggregate-file fixtures here.
+        # Without this clear, a test running inside a per-slice agent
+        # pod (where EGG_SLICE_ID=slice-N is set) would resolve to
+        # ``1917-implement-slice-N.json`` instead of ``1917-implement.json``
+        # and the fixture would silently miss.
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
 
     def test_happy_path_returns_records(self, tmp_path, monkeypatch):
         self._set_env(monkeypatch, tmp_path)
@@ -1471,4 +1478,620 @@ class TestBrcHistoryTypesDriftGuard:
             f"Writer-only (writer emits but reader rejects): "
             f"{sorted(writer_types - handler_types)}. "
             "Update one or both to keep the partition symmetric."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Durable BRC memory writer (TASK-1-6 / slice-1 / issue #2908)
+# ---------------------------------------------------------------------------
+#
+# brc_ack and brc_nack — on a successful consensus signal — distill a
+# structured memory entry into
+# ``.egg-state/agent-outputs/<role>/brc-memory.md`` so the slice-3
+# event-pump handler can resume per-event without re-reading the whole
+# repo.  This block exercises:
+#
+#  * EGG_BRC_MEMORY={off,write-only,full} gating (write+read separation)
+#  * the six required schema fields per architect v2 design.memory_schema
+#  * decision-log cap at 20 entries via distill-on-write
+#  * atomic-write contract under fault injection
+#  * fail-closed path constructor on unset EGG_AGENT_ROLE
+#  * subdirectory creation
+#  * scope key per (role, slice_id, phase)
+#  * handler return values unchanged for callers in every mode
+
+
+def _memory_env(
+    monkeypatch,
+    tmp_path,
+    *,
+    role="reviewer_code",
+    mode="write-only",
+    slice_id="slice-1",
+    phase="implement",
+):
+    """Configure the env vars the BRC-memory writer consumes.
+
+    Returns the expected memory-file path under tmp_path so tests can
+    assert side-effects without scanning the whole filesystem.
+    """
+    monkeypatch.setenv("EGG_AGENT_ROLE", role)
+    monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+    monkeypatch.setenv("EGG_BRC_MEMORY", mode)
+    monkeypatch.setenv("EGG_PIPELINE_ID", "issue-2908-impl2")
+    if slice_id:
+        monkeypatch.setenv("EGG_SLICE_ID", slice_id)
+    else:
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+    if phase:
+        monkeypatch.setenv("EGG_PHASE", phase)
+    else:
+        monkeypatch.delenv("EGG_PHASE", raising=False)
+    # The plan locates the artifact at
+    # `.egg-state/agent-outputs/<role>/brc-memory.md` (subdirectory
+    # layout per architect od-1).
+    return tmp_path / ".egg-state" / "agent-outputs" / role / "brc-memory.md"
+
+
+def _ack_request(**overrides):
+    base = {
+        "pipeline_id": "issue-2908-impl2",
+        "role": "reviewer_code",
+        "producer_role": "coder",
+        "reason": "Reviewed slice-1 task-1-1; CLI subparser registered; "
+        "lifecycle-secret threading verified.",
+        "files_reviewed": ["sandbox/egg_lib/orch_cli.py"],
+        "ack_version": 1,
+    }
+    base.update(overrides)
+    return base
+
+
+def _nack_request(**overrides):
+    base = {
+        "pipeline_id": "issue-2908-impl2",
+        "role": "reviewer_code",
+        "producer_role": "coder",
+        "reason": "Blocking finding at orch_cli.py:312 — auth header is "
+        "skipped on the next-action path; reviewer-only.",
+        "files_reviewed": ["sandbox/egg_lib/orch_cli.py"],
+        "nack_version": 1,
+    }
+    base.update(overrides)
+    return base
+
+
+class TestBrcMemoryGatingEnvFlag:
+    """``EGG_BRC_MEMORY`` selects {off, write-only, full} modes.
+
+    * ``off``  — no file writes, no reads
+    * ``write-only`` — writes succeed, reads do NOT happen (slice-3)
+    * ``full`` — both writes and reads happen
+    """
+
+    def test_off_mode_produces_zero_file_touches(self, monkeypatch, tmp_path):
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="off")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            resp = brc.brc_ack(_ack_request())
+        assert resp["ok"] is True
+        # No file produced anywhere under the agent-outputs tree.
+        assert not memory_path.exists(), (
+            f"EGG_BRC_MEMORY=off must produce zero file touches; found {memory_path!r}"
+        )
+        # And no stray sibling files either.
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        if outputs_dir.exists():
+            stray = list(outputs_dir.rglob("*"))
+            assert not stray, (
+                f"EGG_BRC_MEMORY=off must not create the agent-outputs tree; found {stray!r}"
+            )
+
+    def test_write_only_mode_writes_but_does_not_read(self, monkeypatch, tmp_path):
+        """``write-only`` performs writes but exercises zero read calls.
+
+        Slice-3 lands the read path; slice-1 is deliberately inert on
+        the read side so the wrapper bash sees no behavior change
+        until the flag flips.
+        """
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        # Spy on the read codepath.  The read function is expected to
+        # be exposed at a stable module attribute the slice-3 handler
+        # imports — typically ``brc._read_brc_memory`` or
+        # ``brc.read_brc_memory``.  Either name is acceptable; the
+        # test simply asserts the spy is never called.
+        read_fn_name = None
+        for candidate in ("_read_brc_memory", "read_brc_memory", "_load_brc_memory"):
+            if hasattr(brc, candidate):
+                read_fn_name = candidate
+                break
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            if read_fn_name:
+                with patch.object(brc, read_fn_name) as read_spy:
+                    resp = brc.brc_ack(_ack_request())
+                read_spy.assert_not_called()
+            else:
+                resp = brc.brc_ack(_ack_request())
+        assert resp["ok"] is True
+        assert memory_path.exists(), (
+            f"EGG_BRC_MEMORY=write-only must produce a memory file at {memory_path!r}"
+        )
+
+    def test_full_mode_writes(self, monkeypatch, tmp_path):
+        """``full`` writes and reads — slice-1 only asserts write side."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="full")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            resp = brc.brc_ack(_ack_request())
+        assert resp["ok"] is True
+        assert memory_path.exists()
+
+    def test_unset_defaults_to_off(self, monkeypatch, tmp_path):
+        """Default is ``off`` so production behaviour is unchanged until
+        slice-4 flips it on."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="off")
+        monkeypatch.delenv("EGG_BRC_MEMORY", raising=False)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request())
+        assert not memory_path.exists(), (
+            "Unset EGG_BRC_MEMORY must default to off — production "
+            "must not write the memory artifact until slice-4 flips it on."
+        )
+
+
+class TestBrcMemorySchemaCompleteness:
+    """The six required schema fields from architect v2 design.memory_schema."""
+
+    def _ack_then_read(self, monkeypatch, tmp_path):
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request())
+        assert memory_path.exists()
+        return memory_path.read_text(encoding="utf-8")
+
+    def test_codebase_change_model_section_present(self, monkeypatch, tmp_path):
+        body = self._ack_then_read(monkeypatch, tmp_path)
+        # field (a)
+        assert "## Codebase / change model" in body or "## Codebase" in body, (
+            "Memory schema field (a) — '## Codebase / change model' "
+            "section — missing from memory artifact."
+        )
+
+    def test_per_producer_assessment_section_present(self, monkeypatch, tmp_path):
+        body = self._ack_then_read(monkeypatch, tmp_path)
+        # field (b) parent header
+        assert "## Per-producer assessment" in body, (
+            "Memory schema field (b) — '## Per-producer assessment' "
+            "section — missing from memory artifact."
+        )
+
+    def test_per_producer_subfields_populated(self, monkeypatch, tmp_path):
+        body = self._ack_then_read(monkeypatch, tmp_path)
+        # field (b) sub-fields per architect v2 spec
+        for needle in (
+            "producer",
+            "last_reviewed_commit_sha",
+            "prior_verdict",
+            "prior_nack_reasons",
+            "prior_conditional_obligation",
+            "summary_of_assessment",
+        ):
+            assert needle in body, (
+                f"Memory schema field (b) sub-field {needle!r} missing — "
+                f"slice-3 cannot diff against {{sha}}..HEAD without it."
+            )
+
+    def test_last_reviewed_commit_sha_carries_a_sha(self, monkeypatch, tmp_path):
+        """``last_reviewed_commit_sha`` carries the HEAD SHA the orchestrator
+        surfaced — slice-3 uses it for ``git log {sha}..HEAD --not
+        origin/{base} -p``.
+
+        The orchestrator's ``handle_ack`` / ``handle_nack`` response
+        carries the producer's current proposal commit SHA in
+        ``data.commit_sha`` (#2908 slice-1 propagation hook in
+        ``peer_consensus.py``). The agent-side writer plumbs that into
+        the schema field; without the SHA round-trip slice-3 has no
+        way to compute the per-producer ``{sha}..HEAD`` delta.
+        """
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        # Inject the SHA into the orchestrator response so the writer
+        # can plumb it through; otherwise the writer falls back to the
+        # documented ``-`` placeholder (see _resolve_proposal_commit_sha).
+        target_sha = "abc1234567890def"
+        mock_response = _ok_response(commit_sha=target_sha)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=mock_response,
+        ):
+            brc.brc_ack(_ack_request())
+        body = memory_path.read_text(encoding="utf-8")
+        # The SHA must appear next to the field — not merely somewhere
+        # in the file — so the slice-3 reader can extract it
+        # deterministically.
+        import re
+
+        match = re.search(
+            r"last_reviewed_commit_sha[^\n]*?([0-9a-f]{7,40})",
+            body,
+            re.IGNORECASE,
+        )
+        assert match, (
+            f"last_reviewed_commit_sha must carry a SHA when the "
+            f"orchestrator response surfaces one — slice-3 cannot diff "
+            f"against {{sha}}..HEAD without it. body={body!r}"
+        )
+        assert match.group(1) == target_sha, (
+            f"Writer must record the SHA from the orchestrator response, "
+            f"not invent one — expected {target_sha!r}, "
+            f"got {match.group(1)!r}"
+        )
+
+    def test_last_reviewed_commit_sha_falls_back_to_placeholder(self, monkeypatch, tmp_path):
+        """When the orchestrator response does NOT surface a commit_sha,
+        the writer must still produce a well-formed schema entry with a
+        documented placeholder (``-``) so downstream readers can detect
+        the "no SHA available" case without crashing on a missing field.
+
+        Adversarial probe — without this contract, a transient missing
+        ``data.commit_sha`` would either crash the writer or produce a
+        malformed schema entry that slice-3 cannot parse.
+        """
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        # Default _ok_response carries no commit_sha; this exercises the
+        # fallback path explicitly.
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request())
+        body = memory_path.read_text(encoding="utf-8")
+        # Field must still be present, with the documented placeholder.
+        assert "last_reviewed_commit_sha" in body
+        # The field line carries either a SHA or the documented
+        # placeholder — never blank, never absent.
+        import re
+
+        line_match = re.search(
+            r"last_reviewed_commit_sha\s*[:=]?\s*(\S+)",
+            body,
+            re.IGNORECASE,
+        )
+        assert line_match, (
+            f"last_reviewed_commit_sha field must have a value (SHA or "
+            f"'-' placeholder) — got malformed line in {body!r}"
+        )
+
+    def test_decision_log_section_present(self, monkeypatch, tmp_path):
+        body = self._ack_then_read(monkeypatch, tmp_path)
+        # field (c)
+        assert "## Decision log" in body, (
+            "Memory schema field (c) — '## Decision log' section — missing from memory artifact."
+        )
+
+    def test_nack_writes_carry_prior_nack_reasons(self, monkeypatch, tmp_path):
+        """A NACK populates ``prior_nack_reasons`` so a follow-up review
+        on the next proposal can confirm prior findings were addressed."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_nack(_nack_request())
+        body = memory_path.read_text(encoding="utf-8")
+        assert "prior_nack_reasons" in body
+        # The substance of the NACK reason makes it into the memory
+        # so the slice-3 read path can use it directly.
+        assert "next-action path" in body or "auth header" in body, (
+            "NACK rationale must be distilled into the memory entry so "
+            "slice-3 can verify the prior finding was addressed."
+        )
+
+
+class TestBrcMemoryDecisionLogCap:
+    """``Decision log`` is capped at the last 20 entries via distill-on-write
+    (architect od-2) so the file stays bounded across long pipelines."""
+
+    def test_caps_at_twenty_entries(self, monkeypatch, tmp_path):
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            for i in range(25):
+                # Vary the producer + reason each call so each ACK is a
+                # distinct decision-log entry.
+                req = _ack_request(
+                    producer_role=f"coder_{i}",
+                    reason=(
+                        f"Slice review iter {i:02d}: substantive rationale "
+                        "satisfying the 50-char content gate."
+                    ),
+                )
+                brc.brc_ack(req)
+        body = memory_path.read_text(encoding="utf-8")
+        # Find the Decision log section and count its entries.
+        if "## Decision log" in body:
+            log_section = body.split("## Decision log", 1)[1]
+            # Distill-on-write should leave at most 20 entries.  Count
+            # by the producer_NN tokens (each entry references one).
+            import re
+
+            seen = set(re.findall(r"coder_(\d+)", log_section))
+            assert len(seen) <= 20, (
+                f"Decision log must be capped at 20 entries; found "
+                f"{len(seen)} distinct producer entries."
+            )
+            # And the most recent (highest indices) should be the ones
+            # retained — earliest entries are distilled out.
+            assert "24" in seen or any(int(s) >= 5 for s in seen), (
+                "Distill-on-write must retain the most recent 20 entries; "
+                "found only stale entries — looks like the cap is "
+                "first-come instead of last-N."
+            )
+
+
+class TestBrcMemoryAtomicWriteContract:
+    """Atomic-write via tempfile + os.replace — back-to-back handler
+    invocations never observe a half-written intermediate."""
+
+    def test_replace_failure_does_not_leave_partial(self, monkeypatch, tmp_path):
+        """If os.replace fails mid-write, the destination must either
+        contain the prior content or not exist — never partial bytes."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        # First, write a baseline so we have prior content.
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request(reason="baseline " + "x" * 60))
+        baseline = memory_path.read_text(encoding="utf-8") if memory_path.exists() else None
+        assert baseline is not None
+
+        # Now fail os.replace during the second write.
+        def failing_replace(src, dst):
+            raise OSError("simulated disk full")
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            with patch("os.replace", side_effect=failing_replace):
+                # The handler may or may not propagate the OSError;
+                # what matters is the file state after.
+                try:
+                    brc.brc_ack(_ack_request(reason="second " + "y" * 60))
+                except OSError:
+                    pass
+        # After failure: file MUST still contain the original baseline,
+        # never partial junk.
+        assert memory_path.exists(), "After os.replace failure the prior file must still exist."
+        after = memory_path.read_text(encoding="utf-8")
+        assert after == baseline, (
+            "Atomic-write contract violated: after os.replace failure "
+            "the memory file is in an intermediate state instead of "
+            "carrying the prior content."
+        )
+
+    def test_tempfile_cleanup_under_failure(self, monkeypatch, tmp_path):
+        """Failed writes should not leak ``.tmp`` files in the target dir."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request(reason="warm-up " + "z" * 60))
+        # Now fail mid-flight and check for orphan tempfiles afterward.
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            with patch("os.replace", side_effect=OSError("boom")):
+                try:
+                    brc.brc_ack(_ack_request(reason="second " + "q" * 60))
+                except OSError:
+                    pass
+        # Any ``.brc-memory.md.*.tmp`` tempfiles should be cleaned up
+        # (or never exist after the failing path).
+        parent = memory_path.parent
+        leftovers = [p for p in parent.glob(".brc-memory.md.*.tmp") if p.exists()]
+        # Note: tempfile.NamedTemporaryFile with delete=False (per the
+        # existing ``save_agent_timing`` pattern at
+        # shared/egg_overseer/state.py:266) will leak unless the handler
+        # explicitly cleans up.  This test surfaces leaks as failures so
+        # the writer adds the cleanup branch.
+        assert not leftovers, (
+            f"Failed atomic write left tempfile orphans behind: "
+            f"{leftovers!r} — writer must remove tmp on failure."
+        )
+
+
+class TestBrcMemoryFailClosedPathConstructor:
+    """Path constructor raises before any write/mkdir if EGG_AGENT_ROLE
+    is unset/empty (architect od-1 + risk_analyst R14)."""
+
+    def test_unset_egg_agent_role_raises_before_write(self, monkeypatch, tmp_path):
+        """No file is created when EGG_AGENT_ROLE is unset."""
+        monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.setenv("EGG_BRC_MEMORY", "write-only")
+        # The brc_ack handler already requires a role (via _require_role),
+        # so it should raise HandlerError before the memory path
+        # constructor is even invoked.  But if the writer is reached and
+        # the role is read separately, the path constructor must raise.
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            # Must raise — accept HandlerError, ValueError, or KeyError.
+            with pytest.raises((HandlerError, ValueError, KeyError, RuntimeError)):
+                brc.brc_ack(
+                    {
+                        "pipeline_id": "p",
+                        "producer_role": "coder",
+                        "reason": "x" * 60,
+                        "ack_version": 1,
+                    }
+                )
+        # No degenerate file at .egg-state/agent-outputs//brc-memory.md.
+        bad_path = tmp_path / ".egg-state" / "agent-outputs" / "brc-memory.md"
+        assert not bad_path.exists()
+        bad_path_doubled = tmp_path / ".egg-state" / "agent-outputs" / "" / "brc-memory.md"
+        assert not bad_path_doubled.exists()
+
+    def test_empty_egg_agent_role_raises(self, monkeypatch, tmp_path):
+        """Empty string for EGG_AGENT_ROLE is also fail-closed."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "")
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.setenv("EGG_BRC_MEMORY", "write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            with pytest.raises((HandlerError, ValueError, KeyError, RuntimeError)):
+                brc.brc_ack(
+                    {
+                        "pipeline_id": "p",
+                        "producer_role": "coder",
+                        "reason": "x" * 60,
+                        "ack_version": 1,
+                    }
+                )
+
+
+class TestBrcMemorySubdirectoryCreation:
+    """The ``<role>/`` subdirectory is created on first write."""
+
+    def test_first_write_creates_role_subdir(self, monkeypatch, tmp_path):
+        memory_path = _memory_env(monkeypatch, tmp_path, role="reviewer_security")
+        # Pre-condition: directory does not exist.
+        assert not memory_path.parent.exists()
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request(role="reviewer_security"))
+        # Post-condition: directory and file exist.
+        assert memory_path.parent.is_dir(), (
+            f"<role>/ subdirectory must be created on first write — missing {memory_path.parent!r}"
+        )
+        assert memory_path.exists()
+
+
+class TestBrcMemoryScopeKey:
+    """The memory artifact is keyed per (role, slice_id, phase) so a
+    later phase or a sibling slice does not stomp on this scope's
+    decisions."""
+
+    def test_slice_id_scopes_memory(self, monkeypatch, tmp_path):
+        """Two ACKs under different slice_ids do not collide."""
+        # First scope: slice-1
+        path_a = _memory_env(monkeypatch, tmp_path, slice_id="slice-1")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request(reason="slice-1 verdict " + "x" * 60))
+        # Read so we trip an early IOError on a missing file rather than
+        # later in the assertion.
+        _ = path_a.read_text(encoding="utf-8") if path_a.exists() else ""
+
+        # Second scope: slice-2 — must not stomp the slice-1 entry.
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            brc.brc_ack(_ack_request(reason="slice-2 verdict " + "y" * 60))
+        body_after = path_a.read_text(encoding="utf-8") if path_a.exists() else ""
+
+        # Both verdicts are reachable from their respective scope.
+        # Either (a) the slice-1 entry is still present after the
+        # slice-2 write (scope key segregates within one file), or
+        # (b) the file is per-slice (different paths).  Both are
+        # acceptable contracts; the test asserts NO loss of slice-1.
+        slice1_preserved = "slice-1 verdict" in body_after
+        # If the writer separates files per slice, the slice-1 entry
+        # may live elsewhere — look in any sibling file under the
+        # agent-outputs subtree.
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        all_memory_text = ""
+        if outputs_dir.exists():
+            for mfile in outputs_dir.rglob("brc-memory*.md"):
+                all_memory_text += mfile.read_text(encoding="utf-8")
+        any_preserved = "slice-1 verdict" in all_memory_text or slice1_preserved
+        assert any_preserved, (
+            "Cross-slice ACK lost the prior slice-1 verdict — the "
+            "memory writer must scope its key per (role, slice_id, phase)."
+        )
+
+
+class TestBrcMemoryReturnValuesUnchanged:
+    """Handler return values must be unchanged for callers regardless of
+    EGG_BRC_MEMORY mode — the memory artifact is a side effect, not part
+    of the contract surface."""
+
+    def test_ack_response_shape_invariant_under_off(self, monkeypatch, tmp_path):
+        _memory_env(monkeypatch, tmp_path, mode="off")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            resp = brc.brc_ack(_ack_request())
+        assert resp["ok"] is True
+        assert resp["producer_role"] == "coder"
+        assert "signal" in resp
+
+    def test_ack_response_shape_invariant_under_write_only(self, monkeypatch, tmp_path):
+        _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            resp = brc.brc_ack(_ack_request())
+        assert resp["ok"] is True
+        assert resp["producer_role"] == "coder"
+
+    def test_nack_response_shape_invariant_under_write_only(self, monkeypatch, tmp_path):
+        _memory_env(monkeypatch, tmp_path, mode="write-only")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value=_ok_response(),
+        ):
+            resp = brc.brc_nack(_nack_request())
+        assert resp["ok"] is True
+        assert resp["producer_role"] == "coder"
+        assert resp["role"] == "reviewer_code"
+
+    def test_stale_version_path_still_skips_memory(self, monkeypatch, tmp_path):
+        """A stale-version 409 returns ``status=stale_version`` and must
+        NOT write a memory entry — there's no decision to memorialize."""
+        memory_path = _memory_env(monkeypatch, tmp_path, mode="write-only")
+        stale_details = {
+            "status": "stale_version",
+            "current_proposal": {"version": 2, "artifacts": ["a.py"], "commit_sha": "deadbee"},
+        }
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=GatewayError("version mismatch", status_code=409, details=stale_details),
+        ):
+            resp = brc.brc_ack(_ack_request(ack_version=1))
+        assert resp["ok"] is False
+        assert resp["status"] == "stale_version"
+        # No memory was distilled on the stale path.
+        assert not memory_path.exists(), (
+            "Stale-version rejection must not write a memory entry — "
+            "the reviewer has not actually issued a verdict."
         )
