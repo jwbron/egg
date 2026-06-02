@@ -29,6 +29,8 @@ from commit_observer import (  # type: ignore[import-not-found]
     capture_head,
     observe,
     observe_after_git_execute,
+    patch_id_for_commit,
+    patch_ids_for_commits,
 )
 
 
@@ -41,7 +43,7 @@ class _FakeClient:
         self.register_ok = register_ok
         self.bulk_ok = bulk_ok
 
-    def register(self, *, sha, role, pipeline_id, repo, branch):
+    def register(self, *, sha, role, pipeline_id, repo, branch, patch_id=None):
         self.register_calls.append(
             {
                 "sha": sha,
@@ -49,6 +51,7 @@ class _FakeClient:
                 "pipeline_id": pipeline_id,
                 "repo": repo,
                 "branch": branch,
+                "patch_id": patch_id,
             }
         )
         return self.register_ok
@@ -476,3 +479,299 @@ class TestObserveAfterGitExecute:
         )
         assert result == []
         assert client.register_calls == []
+
+
+# ---------------------------------------------------------------------------
+# patch-id capture (#2932)
+# ---------------------------------------------------------------------------
+
+
+class TestPatchIdRegistration:
+    """The observer records ``git patch-id`` so attribution survives a rebase."""
+
+    def _fake_run(self, *, commits, patch_id_out):
+        def run(cmd, **kwargs):
+            if "rev-list" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=commits, stderr="")
+            if "show" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="diff --git a/x b/x\n+y\n", stderr=""
+                )
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=patch_id_out, stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        return run
+
+    def test_single_commit_registers_patch_id(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="newsha\n", patch_id_out="abcd1234 newsha\n"),
+        )
+        client = _FakeClient()
+        observe(
+            "/repo",
+            before_head="oldsha",
+            after_head="newsha",
+            branch="egg/b",
+            session_role="coder",
+            pipeline_id="issue-1",
+            repo="o/r",
+            registry_client=client,
+        )
+        assert client.register_calls[0]["patch_id"] == "abcd1234"
+
+    def test_bulk_commits_register_patch_id(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="sha1\nsha2\n", patch_id_out="ffff0000 x\n"),
+        )
+        client = _FakeClient()
+        observe(
+            "/repo",
+            before_head="old",
+            after_head="sha2",
+            branch="b",
+            session_role="coder",
+            pipeline_id="issue-1",
+            repo="o/r",
+            registry_client=client,
+        )
+        items = client.bulk_calls[0]
+        assert len(items) == 2
+        assert all(it["patch_id"] == "ffff0000" for it in items)
+
+    def test_patch_id_for_commit_parses_first_token(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            self._fake_run(commits="", patch_id_out="deadbeef0001 abc\n"),
+        )
+        assert patch_id_for_commit("/repo", "abc") == "deadbeef0001"
+
+    def test_patch_id_for_commit_empty_output_is_none(self, monkeypatch):
+        # Merge / empty / rename-only commit -> no diff -> no patch-id.
+        monkeypatch.setattr(subprocess, "run", self._fake_run(commits="", patch_id_out=""))
+        assert patch_id_for_commit("/repo", "abc") is None
+
+    def test_patch_id_for_commit_show_failure_is_none(self, monkeypatch):
+        def run(cmd, **kwargs):
+            if "show" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="bad object")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        assert patch_id_for_commit("/repo", "abc") is None
+
+
+class TestPatchIdsForCommitsBulk:
+    """Direct coverage for ``patch_ids_for_commits`` — the bulk helper shared
+    between observer (registration) and gateway/git_client (push-time recovery).
+
+    Fixture-width note: the placeholders here (``"aaaaaaaa"`` for patch-ids,
+    ``"sha1"`` / ``"sha2"`` for commit SHAs) are short for readability — the
+    helper does not validate widths internally. In production, ``git patch-id
+    --stable`` emits a 40-hex (SHA-1) or 64-hex (SHA-256) digest, and commit
+    SHAs are 40-hex / 64-hex; the route-level ``_PATCH_ID_RE`` enforces those
+    widths at the registration seam (see ``test_commit_authorship_routes``)."""
+
+    def test_parses_pairs_and_correlates_by_sha(self, monkeypatch):
+        # git log -p emits diffs for the requested SHAs; git patch-id --stable
+        # emits one "<patch-id> <commit-sha>" pair per input patch.  Caller must
+        # correlate by SHA to fill the result dict.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diffstub\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="aaaaaaaa sha1\nbbbbbbbb sha2\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha2"])
+        assert result == {"sha1": "aaaaaaaa", "sha2": "bbbbbbbb"}
+
+    def test_unknown_sha_in_patch_id_output_is_dropped(self, monkeypatch):
+        # git output that references a SHA we did not ask about (or a stray
+        # token line) must not poison the result dict — the input SHAs are
+        # the only valid keys.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diffstub\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="aaaaaaaa sha1\ncccccccc shaUNKNOWN\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha2"])
+        # sha1 matched; sha2 absent from output -> None; shaUNKNOWN ignored.
+        assert result == {"sha1": "aaaaaaaa", "sha2": None}
+
+    def test_malformed_patch_id_line_is_skipped(self, monkeypatch):
+        # Lines with fewer than two tokens (e.g. a stray header) must be
+        # skipped rather than crashing the parse.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diffstub\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="lonely\naaaaaaaa sha1\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1"])
+        assert result == {"sha1": "aaaaaaaa"}
+
+    def test_deduplicates_input_shas(self, monkeypatch):
+        # Caller may pass duplicates; the result dict has one entry per
+        # distinct SHA and we don't double-list it on the git log argv.
+        captured: list[list[str]] = []
+
+        def run(cmd, **kwargs):
+            captured.append(list(cmd))
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diffstub\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="aaaaaaaa sha1\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha1", " sha1 ", ""])
+        assert result == {"sha1": "aaaaaaaa"}
+        log_cmd = next(c for c in captured if "log" in c)
+        assert log_cmd.count("sha1") == 1
+
+    def test_empty_input_short_circuits(self, monkeypatch):
+        calls: list[list[str]] = []
+
+        def run(cmd, **kwargs):
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        assert patch_ids_for_commits("/repo", []) == {}
+        # No git invocation should happen on an empty/whitespace-only input.
+        assert calls == []
+        assert patch_ids_for_commits("/repo", ["", "   "]) == {}
+        assert calls == []
+
+    def test_log_failure_returns_all_none(self, monkeypatch):
+        # git log nonzero -> every input SHA maps to None so the caller
+        # (push handler) leaves the commits fail-closed.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="bad rev")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha2"])
+        assert result == {"sha1": None, "sha2": None}
+
+    def test_log_empty_stdout_returns_all_none(self, monkeypatch):
+        # Empty diff stream -> nothing to feed patch-id -> keep all None.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha2"])
+        assert result == {"sha1": None, "sha2": None}
+
+    def test_patch_id_nonzero_returns_all_none(self, monkeypatch):
+        # git log succeeded but patch-id rejected -> still all None.
+        def run(cmd, **kwargs):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diff\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1"])
+        assert result == {"sha1": None}
+
+    def test_subprocess_exception_returns_all_none(self, monkeypatch):
+        # Any subprocess raise (TimeoutExpired, OSError, …) -> all None,
+        # never propagated; the caller stays fail-closed.
+        def run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=1)
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1", "sha2"])
+        assert result == {"sha1": None, "sha2": None}
+
+    def test_git_cmd_injection_applies_hardened_argv(self, monkeypatch):
+        # The gateway's push-time recovery path passes its hardened argv
+        # builder (safe.directory / hooks-path / gc) — verify the prefix
+        # actually lands on the git invocations.
+        captured: list[list[str]] = []
+
+        def fake_git_cmd(*args: str) -> list[str]:
+            return [
+                "git",
+                "-c",
+                "safe.directory=*",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "gc.auto=0",
+                *args,
+            ]
+
+        def run(cmd, **kwargs):
+            captured.append(list(cmd))
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diff\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="aaaaaaaa sha1\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        result = patch_ids_for_commits("/repo", ["sha1"], git_cmd=fake_git_cmd)
+        assert result == {"sha1": "aaaaaaaa"}
+        # Both subprocess.run calls used the hardened prefix.
+        assert len(captured) == 2
+        for cmd in captured:
+            assert cmd[:7] == [
+                "git",
+                "-c",
+                "safe.directory=*",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "gc.auto=0",
+            ]
+
+    def test_default_git_cmd_uses_plain_git(self, monkeypatch):
+        # No git_cmd -> plain "git ..." (the observer's own registration path).
+        captured: list[list[str]] = []
+
+        def run(cmd, **kwargs):
+            captured.append(list(cmd))
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="diff\n", stderr="")
+            if "patch-id" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout="aaaaaaaa sha1\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", run)
+        patch_ids_for_commits("/repo", ["sha1"])
+        assert all(cmd[0] == "git" for cmd in captured)
+        for cmd in captured:
+            assert "safe.directory=*" not in cmd
