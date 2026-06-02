@@ -316,6 +316,22 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "3d69ac7639a6fac15c52b279c6e151a29e72542e": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "86b4e7f62d7e21559eed0610146721f211ad1c19",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.532541+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
+    "3d8638a8536d8ca17c2aeaf042e658fc27587df9": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "668798923657951b3775eab6c11e57fc87cc3e5a",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.558999+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "3d93140a931843bb475a58f2f2fb99b1bba890e2": {
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
@@ -336,6 +352,14 @@
       "registered_at": "2026-06-01T21:45:57.948943+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
+    },
+    "40163fb7b74eebad0d2f7e0e502fa079d0f87d84": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "ad808a2122da6ae43eaae4b4a461c4d5031575fc",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.554294+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "434cc9ecc61c62e90e750f3812872afda427467c": {
       "branch": "egg/issue-2908-impl2/slice-1",
@@ -817,6 +841,14 @@
       "branch": "egg/issue-2908-impl2/slice-3",
       "pipeline_id": "issue-2908-impl2",
       "registered_at": "2026-06-01T21:36:31.775899+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
+    "904c660ea66f31333bada130866f14a29c22348b": {
+      "branch": "egg/issue-2908-impl2/slice-3",
+      "patch_id": "90bacfad732626af6faa44a9466d5ab1f52e3e3e",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:25:31.561601+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
