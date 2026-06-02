@@ -740,6 +740,548 @@ POST /api/v1/pipelines/{pipeline_id}/signal
 }
 ```
 
+## BRC Consensus Wrapper
+
+> **[#2908](https://github.com/jwbron/egg/issues/2908) lands the
+> event-pump consensus wrapper across four slices: slice-1 added the
+> [BRC memory writer](brc-memory.md) and the `egg-orch brc *` CLI
+> inputs; slice-2 added the deterministic wrapper-driven event-pump
+> template and migrated heartbeat + gateway-session keep-alive into
+> the wrapper bash; slice-3 added the per-event prompt composer and
+> collapsed the server-side BRC preamble; slice-4 flipped the
+> defaults, deleted the legacy capped-restart template, and removed
+> the agent-side heartbeat / keep-alive path.** After slice-4 the
+> event-pump path is the **only** consensus-wrapper path — the
+> legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`,
+> the SSE `consensus.reached` machinery, and the
+> `MAX_CONSENSUS_RESTARTS = 3` cap are gone. The wait-side companion
+> is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump).
+
+### Why the wrapper drives the loop
+
+The pre-#2908 lifecycle assumed the **agent** held the BRC wait
+(`message_wait_loop` in `sandbox/egg_agent_tools/handlers/message.py`).
+That wait returns on the first matching event, so the consensus
+lifecycle was a *sequence* of blocking waits with a model-driven
+re-entry between each (wait → review producer A → re-enter wait →
+review producer B → … → confirm). Every re-entry was a seam the model
+could fall out of by emitting a final assistant message instead of
+re-entering the wait. Claude usually re-enters; qwen3.7-max did not
+(observed in [#2906](https://github.com/jwbron/egg/issues/2906)) — and
+prompt-only mitigations only narrowed the seam for one model.
+
+Issue #2908 removed the seam model-agnostically by reframing a
+consensus agent from a *persistent participant that holds a wait* into
+a *stateless per-event handler the wrapper invokes*. The wrapper is
+the deterministic loop driver; the agent is one-shot per actionable
+event. The pieces landed across slices:
+
+| Slice | Lands |
+|-------|-------|
+| 1 | CLI/route inputs (`egg-orch brc get-state`, `brc next-action`, `brc list-blocking`, `phase get-context`) and the durable BRC memory writer (see [BRC Memory Artifact](brc-memory.md)). |
+| 2 | Event-pump bash template, wrapper-side heartbeat + gateway-session keep-alive subshells, idle/no-progress safety budget. Initially gated behind `EGG_BRC_EVENT_PUMP`; the legacy template still emitted by default. |
+| 3 | One-shot event-prompt composer (consumes the slice-1 memory artifact); `mission.md` collapse; unconditional `_build_brc_preamble` collapse. |
+| **4** | **Default flip + deletion of the legacy agent-held wait machinery.** `_CONSENSUS_WRAPPER_TEMPLATE` / `_RECOVERY_SYSTEM_PROMPT` / SSE `consensus.reached` / `MAX_CONSENSUS_RESTARTS` removed from `orchestrator/consensus_wrapper.py`; agent-side heartbeat + gateway-session keep-alive removed from `sandbox/egg_agent_tools/handlers/message.py`; `EGG_BRC_EVENT_PUMP` and `EGG_BRC_MEMORY` defaults flipped (event-pump on, memory `full`). |
+
+The slice-2 / slice-3 flag gating is now historical: with the legacy
+template deleted, `build_consensus_wrapped_command` emits the
+event-pump bash unconditionally, and the slice-1/-2 crash classifiers
+(`is_buffer_overflow`, `is_transient_crash`, `is_startup_failure`) are
+the only restart-decision logic that remains. They survive the
+deletion because they classify infrastructure-level pod failures —
+SIGABRT, OOM kills, segfaults, Bun's exit-255 — that the wrapper still
+needs to distinguish from a clean event-pump exit.
+
+### Deterministic loop structure
+
+The `_EVENT_PUMP_WRAPPER_TEMPLATE` bash loop (composed at
+`build_consensus_wrapped_command` time in
+`orchestrator/consensus_wrapper.py`) is the entire consensus-agent
+driver:
+
+```text
+while true:
+    state    = $(egg-orch brc get-state --json)          # slice-1 CLI
+    if state.role_complete:
+        egg-orch consensus confirmed   ──► exit 0        # legacy CLI at orch_cli.py:2753
+    action   = $(egg-orch brc next-action --json)        # slice-1 CLI
+    case action.kind:
+      WAIT:                                              # nothing actionable now
+        egg-orch message wait-loop ${WAIT_FILTERS[@]}    # see filter table below
+      INVOKE:                                            # actionable event
+        python3 -m egg_agent <one-shot event prompt>     # composer = slice-3
+```
+
+The deterministic shell loop is what removes the seam: termination is
+the wrapper's `exit 0` after `role_complete` flips, **not** the
+model's decision to stop emitting messages. No model can fall out of
+this loop by hallucinating a stop condition.
+
+The next-action endpoint is the *sequencing oracle* — it owns "should
+I wait?" vs "should I act?" vs "should I confirm?". The model keeps
+*judgment* (review verdicts, fix decisions); it does not own
+*sequencing* any more.
+
+### Wait-filter construction (pre-confirm vs post-confirm)
+
+The wrapper constructs the `--for` filter set conditionally from
+`consensus_status.is_role_confirmed` so the producer's
+self-deadlock at `/messages/wait` (HTTP 400 — see
+[#2064](https://github.com/jwbron/egg/issues/2064),
+[#2482](https://github.com/jwbron/egg/issues/2482) and
+[Anti-pattern 5 in agent-wait-patterns](../reference/agent-wait-patterns.md#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064))
+cannot regress:
+
+| Phase | `is_role_confirmed` | `CONSENSUS_CONFIRMED` in filter? | Other filters |
+|-------|--------------------|----------------------------------|----------------|
+| Pre-confirm | `false` | **OMITTED** — own confirm is part of what generates the global signal; including it deadlocks. | `CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `STATUS`, `CONSENSUS_RE_REVIEW`, `OVERSEER_ALERT` |
+| Post-confirm STAY ALIVE | `true` | **INCLUDED** | `CONSENSUS_RE_REVIEW`, `OVERSEER_ALERT` (and `CONSENSUS_CONFIRMED`) |
+
+The conditional inclusion is pinned by a snapshot test in
+`orchestrator/tests/test_consensus_wrapper.py` so the regression that
+spawned this whole lineage cannot land again silently.
+
+### Wrapper-side heartbeat (#2036 migration completed in slice-4)
+
+Heartbeats are emitted from a **background subshell inside the
+wrapper bash** that fires `egg-orch message heartbeat` every 30 s
+while `egg-orch message wait-loop` is blocking. The wrapper owns
+this because the agent is one-shot per event: there is no in-pod
+loop left to emit heartbeats between events, so the wrapper is the
+only process alive across the full BRC cycle. The pre-#2908 agent-side
+heartbeat path in
+`sandbox/egg_agent_tools/handlers/message.py::message_wait_loop` was
+**deleted in slice-4 task-4-2** — agents no longer self-emit
+`WAITING_FOR_EVENT` while blocked, and the overseer's stall detector
+consumes the wrapper-side stream instead.
+
+**`slice_id` propagation invariant.** The wrapper-side heartbeat
+payload **must** include `slice_id` sourced from the
+`EGG_SLICE_ID` environment variable. Per-slice spawns set
+`EGG_SLICE_ID=<slice>`; pipeline-level (refine / plan / non-sliced)
+spawns leave it unset, in which case the payload emits either an
+explicit-null or omitted slice_id — **never an empty string**, since
+empty-string would falsely collide with the per-slice `slice_id=""`
+rate-limit bucket and back-pressure unrelated slices' heartbeats.
+
+Snapshot/unit coverage in `orchestrator/tests/test_consensus_wrapper.py`
+pins both the cadence (mock subprocess + fast-forward) and the
+slice_id wiring (direct assertion on the heartbeat request body) so a
+silent regression in slice_id propagation fails the suite at the
+regression edge, not minutes later via the per-slice rate-limit key
+surfacing wrong bucketing on the wire.
+
+See [agent-wait-patterns §4 HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type)
+for the body schema, dedup rules, and the
+[`EGG_HEARTBEAT_RATE_LIMIT`](../reference/agent-wait-patterns.md#5-egg_heartbeat_rate_limit--per-slicerole-heartbeat-cap)
+coupling. The schema is unchanged across the #2036 migration; only the
+*emitter* moved.
+
+### Wrapper-side gateway-session keep-alive (#2451 migration completed in slice-4)
+
+The wrapper-side heartbeat POST *is* the gateway-session keep-alive
+vehicle: one subshell, two effects.
+`orchestrator/routes/messages.py::post_heartbeat` intentionally fans
+every accepted-or-deduped heartbeat through `_refresh_gateway_session`
+(see `messages.py::_refresh_gateway_session` and the call sites in
+`post_heartbeat`). The wrapper therefore does not need a second
+background subshell — the keep-alive effect rides for free on the
+heartbeat emitted by `start_background_heartbeat`. The pre-#2908
+agent-side keep-alive in `message_wait_loop` was **deleted in slice-4
+task-4-2** alongside the agent-side heartbeat.
+
+### Idle / no-progress safety budget
+
+Clean exit after an actionable event is *expected* in the event-pump
+model, and the wrapper just loops to the next event — there is no
+"agent failed; restart it" path to bound. Instead the wrapper applies
+an **idle / no-progress safety budget** driven by
+`EGG_BRC_IDLE_BUDGET_MIN` (default 30 minutes — well above the
+WS7-observed 10–13 min idle ceiling on real BRC phases).
+
+| `EGG_BRC_IDLE_BUDGET_MIN` | Behaviour |
+|---------------------------|-----------|
+| default `30` (minutes) | At budget threshold, wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) **and keeps blocking**. At `2 ×` budget, the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
+
+The slice-2/-3 era also exposed an `EGG_BRC_EVENT_PUMP=false` escape
+to the legacy capped-restart wrapper; that escape is gone after
+slice-4 because the legacy template is deleted (task-4-2). The
+supported regression path is `git revert` of slices 1–3 — see
+[Rollback plan](#rollback-plan) below.
+
+The trade is deliberate: a long-but-legitimate quiet phase could
+exhaust restarts and FAIL the pipeline under the pre-#2908 cap even
+though nothing was wrong; under the idle budget, the operator gets
+escalated visibility through the overseer surface without the pipeline
+self-destructing. The operator decides whether the idleness is
+pathological; the wrapper no longer pre-decides for them.
+
+### 409 `stale_version` / aggregated-NACK as event-pump signals
+
+The `egg-orch brc next-action` and `consensus propose` paths can
+return `HTTP 409` for two legitimate BRC conditions:
+
+- `stale_version` — a reviewer ACK/NACK landed against a now-superseded
+  proposal version ([#2142](https://github.com/jwbron/egg/issues/2142)).
+- aggregated-NACK barrier — the producer's re-propose is rejected
+  because two or more reviewers have NACKed the current version
+  ([#2142](https://github.com/jwbron/egg/issues/2142)).
+
+The wrapper treats both as **event-pump signals**: re-fetch state via
+`brc get-state` and re-invoke `brc next-action`. The wrapper does
+**not** apply transient-retry backoff here — that would silently mask
+the producer's real obligation (read the inlined NACKs from the 409
+envelope, aggregate the fixes, re-propose).
+
+### Verification stance — unit-test-only
+
+The wrapper ships with **unit-test-only** verification of the
+event-pump template path. This is a deliberate choice anchored in
+[#2474](https://github.com/jwbron/egg/issues/2474): no in-process test
+double can drive a deployed pod end-to-end, so an integration test
+that pretends to is a misleading liability rather than evidence of
+real behaviour. The current test surface:
+
+- `orchestrator/tests/test_consensus_wrapper.py` covers the snapshot of
+  the event-pump six-event wait-filter, conditional `CONSENSUS_CONFIRMED`
+  inclusion pre- vs post-confirm, wrapper-side heartbeat cadence +
+  `slice_id` wiring, wrapper-side keep-alive cadence, idle-budget
+  overseer alert at threshold, 409 stale_version re-fetch path, and
+  the defensive guard that the wrapper does not also call
+  `egg-orch progress complete` (the architect-corrected pseudocode
+  typo). Slice-2/-3 snapshot tests that pinned the byte-for-byte
+  `_CONSENSUS_WRAPPER_TEMPLATE` (flag-off) emission were retired in
+  slice-4 task-4-3 alongside the legacy template deletion; the
+  idle-budget test now serves as the canonical liveness coverage.
+- `integration_tests/regression/test_brc_*.py` runs against the
+  event-pump wrapper (the only emission path) and must stay green —
+  it pins zero orchestrator-side regression on the existing in-process
+  `PeerConsensusTracker` path.
+- End-to-end validation against the #2906 qwen3.7-max repro is owned
+  by `egg_stack`'s real-pod fixture
+  (`integration_tests/conftest.py::egg_stack`). See
+  [docs/architecture/integration-test-trust-boundary.md](integration-test-trust-boundary.md)
+  for the trust-boundary rationale that pinned the unit-test-only
+  stance through slices 2/3 and now defines the steady-state contract.
+
+### Rollback plan
+
+The supported regression path if production traffic shows
+event-pump regression is **`git revert` of the slice-4, slice-3,
+slice-2, and slice-1 merge commits** (in reverse-merge order). The
+`EGG_BRC_EVENT_PUMP=false` escape hatch from the slice-2/-3 rollout
+window is **gone** — slice-4 task-4-2 deleted the legacy
+`_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE
+`consensus.reached` machinery, and the `MAX_CONSENSUS_RESTARTS`
+constant, so the flag has no path to select even if it is set. The
+slice-4 PR body documents the revert sequence and the integration
+check (BRC regression suite green on the reverted state) operators
+must run before redeploying.
+
+The revert order matters: each slice builds on the previous one, so
+reverting them out of dependency order would leave the working tree in
+an incoherent intermediate state (slice-2's wrapper template would
+invoke a composer that no longer exists, slice-3's composer would
+read a memory file no writer has produced, etc.). Reverting in
+reverse-merge order — `git revert <slice-4>`, `git revert <slice-3>`,
+`git revert <slice-2>`, `git revert <slice-1>` — keeps each
+intermediate state coherent. Reverting only slice-4 restores the
+slice-1/-2/-3 dual-emission state with the legacy template selectable
+again via `EGG_BRC_EVENT_PUMP=false`; reverting further unwinds the
+event-pump infrastructure entirely.
+
+### Operator-facing env vars (cross-link)
+
+`EGG_BRC_IDLE_BUDGET_MIN` is listed in the
+[Environment Variables](#environment-variables) table below with its
+default. The slice-2/-3 `EGG_BRC_EVENT_PUMP` selector is no longer
+consulted — setting it has no effect because the legacy template it
+selected to is gone. The
+[agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump)
+section is the wait-side companion to this architecture description.
+
+## BRC Per-Event Prompt Composer + Preamble Collapse
+
+> **Landed across slices 1/3/4 of [#2908](https://github.com/jwbron/egg/issues/2908).**
+> Slice-2 wired the wrapper-side deterministic loop and moved
+> heartbeating / keep-alive into the wrapper bash; slice-3 added the
+> per-event prompt the wrapper hands the agent on each `INVOKE`, the
+> delta-scoped adversarial re-review the prompt carries, and the
+> matching collapse of the server-side BRC preamble that no longer
+> needs to teach the agent any of the wait / cursor / stay-alive
+> plumbing the wrapper now owns. Reader side of the slice-1
+> [BRC Memory Artifact](brc-memory.md) lands here. Slice-4 flipped
+> `EGG_BRC_MEMORY` from `write-only` to `full` so the composer reads
+> the memory file in production.
+>
+> **What's gated by what:** the composer always runs (the event-pump
+> wrapper is the only path; see [BRC Consensus Wrapper](#brc-consensus-wrapper)).
+> Only the *content* of the memory excerpt (and whether
+> `last_reviewed_commit_sha` is read from the memory file vs. fallen
+> back from `changed_artifacts`) is gated by `EGG_BRC_MEMORY`. The
+> `_build_brc_preamble` collapse runs **unconditionally** for every
+> agent spawn. See [Composer interplay with
+> `EGG_BRC_MEMORY`](#composer-interplay-with-egg_brc_memory) for the
+> full matrix.
+
+### Per-event prompt composer (`compose_event_prompt`)
+
+`compose_event_prompt(role, event_payload, memory_excerpt, nacks,
+git_log_delta, base_branch) -> str` builds the one-shot user prompt the
+wrapper invokes the agent with at each `case action.kind == INVOKE`
+branch of the deterministic loop (see [Deterministic loop structure](#deterministic-loop-structure)
+above). It assembles, in order:
+
+| Position | Section | Source | Bound |
+|----------|---------|--------|-------|
+| Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
+| Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |
+| Middle | Single expected action | `event_payload.kind` | A few hundred bytes; states whether the agent should review, fix, confirm, etc. |
+| Tail | Per-producer git-log delta | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` ← `last_reviewed_commit_sha` from the [BRC memory file](brc-memory.md) | Scaled by actual change size; **NOT** counted against the 10 KB envelope. |
+| Tail | Memory excerpt | `.egg-state/agent-outputs/<role>/brc-memory.md` (slice-1 writer); truncated when the excerpt exceeds 2 KB | ≤ 2 KB after truncation. |
+
+The composer is invoked per role: producer prompts carry an `INVOKE` ↦
+`address NACKs and re-propose`; reviewer prompts carry an `INVOKE` ↦
+`review the current proposal`; dual-role agents (e.g. `tester`) get
+one prompt per side per invocation in the order the wrapper
+dispatches them.
+
+The **prompt envelope is bounded at ≤ 10 KB** for the prose
+(role banner + event description + NACK payload + memory excerpt
+section header + the single action). The git-log delta is
+intentionally **excluded** from the envelope cap because its size
+scales with the actual change set — capping it would defeat the
+adversarial re-review contract (see next subsection). The 2 KB
+memory-excerpt cap is enforced inside the prompt envelope and is the
+inner-loop bound; the unbounded git-log delta is appended after the
+envelope is composed.
+
+### The git-log delta is the **full** per-producer diff, by design
+
+The git-log delta is delivered verbatim with the per-producer
+`last_reviewed_commit_sha` substituted:
+
+```
+git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p
+```
+
+This is intentionally the **full delta since the prior review**, not
+a shortcut to the orchestrator's signal-level `changed_artifacts`
+set. The rationale traces to
+[`shared/prompts/REVIEWER-SYNC.md` Diff command (re-review / delta)](../../shared/prompts/REVIEWER-SYNC.md):
+the BRC re-review must audit the producer's v2+ delta **as a fresh
+review** — comparing the new change set against the prior reviewed
+SHA — or the stateless event-pump systematically weakens adversarial
+re-review (risk_analyst R6 of the slice-3 plan). The
+`changed_artifacts` set is the orchestrator's notion of "what
+changed", which is necessarily a subset (or sometimes a misclassified
+subset) of the producer's actual `git log` delta; a reviewer that
+audits only `changed_artifacts` will miss latent changes the
+producer's commit graph carried without surfacing on the signal
+envelope. The same diff command appears as the PR-reviewer's
+re-review delta (`action/build-review-prompt.sh`) — both surfaces
+align on full-delta semantics per the REVIEWER-SYNC contract.
+
+The unit-test contract in
+`orchestrator/tests/test_compose_event_prompt.py` (slice-3 task-3-6)
+includes a regression assertion that the emitted git-log command
+string contains `{last_reviewed_commit_sha}..HEAD --not
+origin/{base_branch}` verbatim and does **not** degrade to a
+`changed_artifacts`-only shortcut.
+
+### Memory delivery — inline at user-prompt tail (architect od-6 Option B)
+
+The memory excerpt rides at the **tail** of the user prompt, not as a
+system-prompt prefix and not as a separate flag. This is architect
+**open-decision od-6 Option B**: the per-event composer concatenates
+the excerpt onto the prompt string and the wrapper invokes
+`python3 -m egg_agent "<event prompt>"` exactly as it would
+without memory.
+
+The plan analysis pseudocode illustratively mentioned a
+`--append-context` flag on `build_agent_command`; **that flag does
+not exist** on the real `build_agent_command` surface (verified at
+`shared/egg_agent/command.py:11-46`). Option B sidesteps the missing
+flag without requiring a net-new CLI surface in slice-3. Option C —
+a net-new `--memory-file` flag — is documented as the explicit
+fallback in the slice-3 plan but is **not** the chosen path; reviewers
+inspecting the implementation should expect tail-position inline
+concatenation, not a CLI flag.
+
+### Composer interplay with `EGG_BRC_MEMORY`
+
+The composer is the **reader** complement to the slice-1 [BRC Memory
+Artifact](brc-memory.md) **writer**. The slice-1 default
+(`EGG_BRC_MEMORY=write-only`) keeps the writer hot and the reader
+inert; the slice-3 / slice-4 default (`EGG_BRC_MEMORY=full`) turns the
+reader on so the composer reads the memory file's per-producer
+`last_reviewed_commit_sha` and substitutes it into the git-log delta:
+
+| `EGG_BRC_MEMORY` | Composer behaviour |
+|------------------|--------------------|
+| `off` | Reader inert; `memory_excerpt = ""`. The composer falls back to the orchestrator's signal-level `changed_artifacts` as a baseline for the git-log delta when no per-producer SHA is available — strictly a degraded baseline, not the adversarial re-review path. |
+| `write-only` (slice-1 rollout default; opt-in regression path after slice-4) | Writes happen; reads are no-ops. `memory_excerpt = ""` even though the file exists, preserving the inert read behaviour from the slice-1 rollout window. |
+| `full` (**default after slice-4**) | Composer reads `.egg-state/agent-outputs/<role>/brc-memory.md`, extracts the per-producer `last_reviewed_commit_sha`, substitutes it into the git-log delta, and includes the truncated memory excerpt at the prompt tail. |
+
+The default stayed `write-only` through slice-3 — operators opted into
+`full` per pipeline / per pod during the slice-2/-3 rollout window.
+Slice-4 flipped the default to `full` so production pipelines run the
+adversarial re-review path; operators that need to fall back to the
+slice-1 inert-reader behaviour can still set `EGG_BRC_MEMORY=write-only`
+explicitly.
+
+### Open-decision resolutions
+
+The slice-1, slice-2, and slice-3 implementation collectively resolves
+the architect's open decisions for the #2908 redesign. The
+resolutions are cited so a future reviewer touching the surrounding
+subsystem can locate the implementation:
+
+- **od-1 — subdirectory layout (`.egg-state/agent-outputs/<role>/brc-memory.md`)
+  + fail-closed path constructor.** Resolved by slice-1's writer
+  (`sandbox/egg_agent_tools/handlers/brc_memory.py`); the path
+  constructor raises on empty `EGG_AGENT_ROLE` per risk_analyst R14.
+  See [BRC Memory Artifact — File path / Fail-closed path constructor](brc-memory.md#file-path).
+- **od-2 — distill-on-write decision-log cap at 20 entries.** Resolved
+  by slice-1's writer (decision log truncated to last 20 on every
+  write). The alternative (append-only with prompt-side truncation)
+  was ruled out because `claude -p` does not currently expose the
+  prompt-construction control that would let the reader-side
+  enforce the cap. See [BRC Memory Artifact — Decision-log cap
+  (distill-on-write)](brc-memory.md#decision-log-cap-distill-on-write).
+- **od-3 — `egg-orch brc next-action` is a new dedicated endpoint, not
+  a derived view of `consensus status`.** Resolved by slice-1's
+  `orchestrator/routes/consensus.py` route handler. The sequencing
+  logic (WAIT / INVOKE / CONFIRM dispatch derived from
+  `consensus_status` + `_open_nacks_barrier_response.nacks[]` +
+  `changed_artifacts`) lives in testable orchestrator-side Python,
+  not in the wrapper bash. The route is HTTP-callable from the
+  wrapper without requiring the MCP server (the slice-6 motivator).
+- **od-4 — 30-minute idle / no-progress safety budget replacing the
+  3-restart FAIL cap.** Resolved by slice-2's
+  `EGG_BRC_IDLE_BUDGET_MIN` (default `30`). 30 minutes sits well
+  above the WS7-observed 10–13 min idle ceiling on real BRC phases.
+  See [Idle / no-progress safety budget](#idle--no-progress-safety-budget).
+- **od-5 — persistent `egg-orch` daemon vs. per-invocation CLI.**
+  Deferred past slice-3 (slice-6's MCP→CLI deletion captures the
+  latency baseline; the daemon decision is gated on the post-deletion
+  latency regression measurement). Documented here as deferred so a
+  reviewer hitting this in the surrounding subsystem knows it's still
+  open.
+- **od-6 — memory delivered inline at user-prompt tail (Option B), not
+  via a `--memory-file` flag.** Resolved by slice-3's
+  `compose_event_prompt`. See [Memory delivery — inline at
+  user-prompt tail (architect od-6 Option B)](#memory-delivery--inline-at-user-prompt-tail-architect-od-6-option-b)
+  above.
+
+### `_build_brc_preamble` collapse
+
+`_build_brc_preamble` (defined in `orchestrator/routes/pipelines.py`)
+is **collapsed** by slice-3: the STAY-ALIVE / wait-loop mechanics /
+cursor-threading / pre-confirm-wait foot-gun guidance that previously
+taught the agent the lifecycle has been deleted. The wrapper now
+owns sequencing (see [Deterministic loop structure](#deterministic-loop-structure))
+so the agent no longer needs to be re-taught the lifecycle on every
+spawn.
+
+> The specific line-number references below come from the slice-3
+> contract spec and reflect the **post-collapse** positions inside
+> `pipelines.py` once task-3-3's coder commit lands; they may not
+> match the pre-collapse positions. Prefer the **function /
+> banner-name references** (`_build_brc_preamble`, the dual-mandate
+> banner) over the line numbers when reading the live file, and treat
+> the numbers as anchor cues for the snapshot regression test rather
+> than load-bearing citations.
+
+| Removed from preamble | Why |
+|-----------------------|-----|
+| Producer Lifecycle step 4 wait-loop plumbing | Wrapper holds the wait. |
+| Producer Lifecycle step 6 STAY-ALIVE loop | Wrapper loops back to `brc next-action` instead. |
+| Cursor / `--since` threading guidance | Cursor threading is automatic and wrapper-internal under the event-pump path. |
+| Pre-confirm-wait foot-gun guidance (anti-pattern 5) | The wrapper's conditional filter (see [Wait-filter construction (pre-confirm vs post-confirm)](#wait-filter-construction-pre-confirm-vs-post-confirm)) prevents the regression at the source. |
+
+| Kept in preamble | Why |
+|------------------|-----|
+| Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
+| Dual-role ordering banner | Dual-role agents (e.g. `tester`) still need the ordering invariant — wrapper dispatches both sides, but the agent must know to address them in the documented sequence. |
+| Dual-mandate adversarial re-review banner (`_build_brc_preamble`'s "Your re-review has TWO equal-weight mandates …" block at `orchestrator/routes/pipelines.py:12849-12872` post-collapse) | Behavioural framing for re-review correctness; anchored on by risk_analyst R6 and not a wait-mechanics concern. |
+
+The three caller sites at `orchestrator/routes/pipelines.py:13659`,
+`:13692`, `:13720` (post-collapse positions per the slice-3 contract
+spec) are **unchanged** by the collapse — only the preamble text
+shrinks, the calling pattern is identical. The collapse runs
+**unconditionally** at every agent spawn: the event-pump wrapper is
+now the only consensus-wrapper path (see
+[BRC Consensus Wrapper](#brc-consensus-wrapper)), and the collapsed
+preamble is the only preamble the wrapper-driven agent sees.
+
+The snapshot regression test at
+`orchestrator/tests/test_brc_preamble_collapsed.py` (slice-3 task-3-7)
+pins (a) absence of STAY-ALIVE / wait-loop / cursor strings;
+(b) presence of the agent roster; (c) presence of the phrase "Both
+must pass to ACK" (located inside the dual-mandate banner —
+`pipelines.py:12856-12857` is the post-collapse target the contract
+spec uses for the snapshot anchor); (d) a ≥ 25% byte-size drop
+against the pre-collapse baseline (a softening from the
+originally-proposed 40% per the reviewer_plan v2 non-blocker — the
+precise number is set by the snapshot baseline rather than a
+pre-fixed target).
+
+### `mission.md` rewrite reaches the agent pod only after a sandbox rebuild
+
+The sandbox runtime loads its agent rules from the Dockerfile-baked
+copy at `/opt/claude-rules/` (see `sandbox/entrypoint.py:967`
+`_CLAUDE_RULES_DIR`), populated at image build time by
+`sandbox/Dockerfile:212-214` `COPY sandbox/claude-rules/*.md`. In the
+working tree, `sandbox/claude-rules` is a **symlink** to
+`sandbox/agent-config/rules`, so editing one path edits both — the
+`diff sandbox/agent-config/rules/mission.md sandbox/claude-rules/mission.md`
+acceptance assertion holds trivially because the two paths resolve
+to the same file in git. The slice-3 mission.md rewrite to the
+event-handler contract (task-3-4) only reaches the agent pod after:
+
+```bash
+make build        # rebuild egg-sandbox / egg-orchestrator / egg-gateway / egg-litellm
+make k3s-import   # import rebuilt images into k3s
+make deploy       # roll out deployments in egg-system
+```
+
+(see [Deployment guide — Claude binary not found](../guides/deployment.md#claude-binary-not-found)
+for the canonical rebuild sequence; the same triplet drives any
+`sandbox/claude-rules/*.md` content change). The slice-4 default flip
+was gated on this rebuild having shipped — operators verified the new
+image tag was deployed before slice-4 landed so pods would not run the
+post-deletion wrapper against a pre-rewrite preamble.
+
+### Composer / preamble verification stance
+
+The composer and preamble collapse ship with **unit / snapshot tests
+only**, matching the [wrapper's verification stance](#verification-stance--unit-test-only)
+and anchored in the same [#2474](https://github.com/jwbron/egg/issues/2474)
+trust-boundary boundary:
+
+- `orchestrator/tests/test_compose_event_prompt.py` covers each
+  role's prompt shape, the 2 KB memory-excerpt truncation, the NACK
+  delta with 0 / 1 / 2+ reviewers, the verbatim git-log delta command
+  emission (regression-trap against the `changed_artifacts`-only
+  shortcut), and the ≤ 10 KB envelope assertion per case.
+- `orchestrator/tests/test_brc_preamble_collapsed.py` pins the
+  collapsed preamble (snapshot equality + absent-strings + byte-size
+  drop) at all three caller sites.
+- End-to-end validation against the #2906 qwen3.7-max repro is owned
+  by `egg_stack`, per the same trust-boundary reasoning that pinned
+  the slice-2 stance and now defines the steady-state contract.
+
+### Operator-facing env vars (memory cross-link)
+
+`EGG_BRC_MEMORY` is the operator flag for the memory writer/reader; it
+is documented in the
+[BRC Memory Artifact — Modes](brc-memory.md#modes--egg_brc_memory)
+table together with the slice-1 writer and the composer's reader
+behaviour. The wait-side companion to this architecture section is
+[agent-wait-patterns §10.9 BRC Per-Event Prompt Composer +
+Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
+
 ## Shared Package
 
 The `egg_orchestrator` shared package (`shared/egg_orchestrator/`) provides:
@@ -788,6 +1330,8 @@ if is_orchestrator_mode():
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
+| `EGG_BRC_EVENT_PUMP` | **Deprecated no-op after [#2908](https://github.com/jwbron/egg/issues/2908) slice-4.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template and the surrounding selector logic; setting this variable has no effect. The supported regression path is `git revert` of slices 1–3 (see [Rollback plan](#rollback-plan)). | unset (no-op) |
+| `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908)). Replaced the legacy 3-restart FAIL cap with an overseer-alert escalation that does not transition the pipeline to FAILED. At budget threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and keeps blocking; at `2 ×` budget the priority escalates and the wrapper still keeps blocking. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. See [Idle / no-progress safety budget](#idle--no-progress-safety-budget). | `30` |
 
 ### Constants
 
