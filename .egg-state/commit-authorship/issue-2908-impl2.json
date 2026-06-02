@@ -1776,6 +1776,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_concurrency"
     },
+    "bf8ddb362b18962851e31f262c8e3e31df3428ce": {
+      "branch": "egg/issue-2908-impl2/slice-4",
+      "patch_id": "8bbdb4a36c35f6c8dc29a361aa202c4720b47ab4",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T23:07:44.847359+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "bfc5e5d4ef648cb6878e1aa610f99ecae1aeeb46": {
       "branch": "egg/issue-2908-impl2/slice-2",
       "patch_id": "474c92d471b23224ea8616ec1c40687237135d71",
