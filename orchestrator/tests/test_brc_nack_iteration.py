@@ -832,4 +832,3 @@ class TestDuplicatePhaseGatePrevention:
 # the equivalent tests live in
 # ``orchestrator/tests/test_compose_event_prompt.py``
 # (look for ``test_*_nack*``).
-        assert "unresolved_nacks" in _CONSENSUS_WRAPPER_TEMPLATE

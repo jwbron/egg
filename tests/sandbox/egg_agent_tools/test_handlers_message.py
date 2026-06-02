@@ -320,6 +320,16 @@ class TestMessageWaitLoop:
 
 
 class TestMessageHeartbeat:
+    @pytest.fixture(autouse=True)
+    def _isolate_slice_id_env(self, monkeypatch):
+        """``message_heartbeat`` auto-attaches ``slice_id`` from
+        ``EGG_SLICE_ID`` via ``_maybe_attach_slice_id``. Clear it so
+        the request-body shape assertions in this class are
+        deterministic across developer machines that may have
+        ``EGG_SLICE_ID`` exported (e.g. the egg sandbox).
+        """
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+
     def test_happy_path(self):
         with patch(
             "egg_agent_tools.handlers.message.orchestrator_request",
