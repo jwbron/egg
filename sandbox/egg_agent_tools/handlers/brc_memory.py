@@ -80,14 +80,22 @@ ENV_MEMORY_MODE: Final[str] = "EGG_BRC_MEMORY"
 ENV_AGENT_ROLE: Final[str] = "EGG_AGENT_ROLE"
 ENV_REPO_PATH: Final[str] = "EGG_REPO_PATH"
 
-# Valid mode values. ``off`` is the default so slice-1 is inert in
-# production. The string set is small so the parser is plain
-# ``raw in MODE_*`` rather than an enum — keeps the public surface to
-# raw strings the tests and the slice-3 reader can compare directly.
+# Valid mode values. The default (``full``) is the production setting
+# post-slice-4 task-4-1: the event-pump wrapper reads the memory file,
+# and the writer keeps the per-producer state current. ``off`` is the
+# one-release rollback escape hatch. The string set is small so the
+# parser is plain ``raw in MODE_*`` rather than an enum — keeps the
+# public surface to raw strings the tests and the slice-3 reader can
+# compare directly.
 MODE_OFF: Final[str] = "off"
 MODE_WRITE_ONLY: Final[str] = "write-only"
 MODE_FULL: Final[str] = "full"
 _VALID_MODES: Final[frozenset[str]] = frozenset({MODE_OFF, MODE_WRITE_ONLY, MODE_FULL})
+# Default mode when ``EGG_BRC_MEMORY`` is unset / empty.
+# Slice-4 task-4-1 flipped this from ``off`` to ``full`` so the
+# event-pump wrapper (now the production path) reads the memory
+# excerpt by default.
+MODE_DEFAULT: Final[str] = MODE_FULL
 
 
 # Set of EGG_BRC_MEMORY values for which we've already emitted the
@@ -99,25 +107,33 @@ _warned_unknown_modes: set[str] = set()
 
 
 def get_memory_mode() -> str:
-    """Return the configured memory mode, defaulting to ``off``.
+    """Return the configured memory mode, defaulting to ``full``.
 
     Reads ``EGG_BRC_MEMORY`` with the canonical tri-state values
-    (``off`` / ``write-only`` / ``full``). Unknown values fall back to
-    ``off`` (fail-safe — an undocumented value should not silently flip
-    a production pipeline into a write-bearing mode) and log a one-shot
-    warning per distinct value so a typo like ``writeonly`` (missing
-    hyphen) doesn't sit silently inert in production.
+    (``off`` / ``write-only`` / ``full``). Slice-4 task-4-1 flipped
+    the unset-env default from ``off`` to ``full`` so the production
+    event-pump wrapper reads the memory file by default; setting
+    ``EGG_BRC_MEMORY=off`` is the one-release rollback escape hatch.
+
+    Unknown values fall back to ``off`` (fail-safe — an undocumented
+    value should not silently flip a production pipeline into a
+    write-bearing mode) and log a one-shot warning per distinct value
+    so a typo like ``writeonly`` (missing hyphen) doesn't sit silently
+    inert in production.
     """
     raw = os.environ.get(ENV_MEMORY_MODE, "").strip().lower()
     if not raw:
-        return MODE_OFF
+        return MODE_DEFAULT
     if raw in _VALID_MODES:
         return raw
     # Unknown value → fail-safe to off. Log once per distinct value so
     # the operator catches typos without per-call spam on the handler
     # boundary. The slice-1 plan and ``docs/architecture/brc-memory.md``
     # canonicalise the three accepted values, so this branch is reachable
-    # only via typo or legacy/unsupported value.
+    # only via typo or legacy/unsupported value. Note: the fail-safe
+    # target is ``off`` (NOT the new ``full`` default) — an explicit
+    # but unrecognised value is a misconfiguration signal, and a
+    # write-bearing default would mask it.
     if raw not in _warned_unknown_modes:
         _warned_unknown_modes.add(raw)
         _logger.warning(

@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 
+import pytest
+
 from consensus_wrapper import (
     _RECOVERY_SYSTEM_PROMPT,
     _RECOVERY_USER_PROMPT,
@@ -17,8 +19,30 @@ from consensus_wrapper import (
 )
 
 
+@pytest.fixture
+def _force_legacy_template(monkeypatch):
+    """Force ``build_consensus_wrapped_command`` to emit the legacy
+    template, regardless of process-level ``EGG_BRC_EVENT_PUMP`` state.
+
+    Slice-4 task-4-1 flipped the default from legacy to event-pump.
+    The legacy-template tests below (``TestBuildConsensusWrappedCommand``,
+    ``TestConsensusWrapperBehavior``, ``TestBufferOverflowDetection``,
+    ``TestEventDrivenWait``) target the legacy capped-restart template
+    that survives the flip behind the one-release rollback escape
+    hatch. Slice-4 task-4-2 deletes the legacy template entirely and
+    these test classes go with it.
+    """
+    monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "false")
+    yield
+
+
 class TestBuildConsensusWrappedCommand:
     """Tests for build_consensus_wrapped_command()."""
+
+    @pytest.fixture(autouse=True)
+    def _force_legacy(self, _force_legacy_template):
+        """Legacy-template tests run with the rollback escape hatch
+        engaged. Deleted alongside the legacy template by task-4-2."""
 
     def test_returns_bash_command(self):
         """Command should be a bash -c invocation."""
@@ -318,6 +342,11 @@ class TestConsensusWrapperBehavior:
     These exercise the actual bash logic rather than just checking for
     string patterns in the generated script.
     """
+
+    @pytest.fixture(autouse=True)
+    def _force_legacy(self, _force_legacy_template):
+        """Pin the legacy template via the rollback escape hatch — this
+        suite drives the capped-restart behaviour. Deleted by task-4-2."""
 
     @staticmethod
     def _make_mock_tools(tmpdir: str, log_file: str, claude_log_file: str | None = None) -> None:
@@ -1367,6 +1396,15 @@ class TestBufferOverflowDetection:
     sees the overflow signature in the agent's output.
     """
 
+    @pytest.fixture(autouse=True)
+    def _force_legacy(self, _force_legacy_template):
+        """Buffer-overflow detection lives in the legacy capped-restart
+        template. The classifiers themselves (``is_buffer_overflow`` /
+        ``is_transient_crash`` / ``is_startup_failure``) are still
+        useful under the event-pump per the slice-4 plan, but the
+        retry-budget interlock these tests target is legacy-only.
+        Deleted alongside the legacy template by task-4-2."""
+
     def test_script_defines_is_buffer_overflow(self):
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
@@ -1609,10 +1647,20 @@ class TestEventDrivenWait:
     (RISK-7 zero-CLI local-dev), the wrapper degrades to plain
     ``sleep`` so it still makes progress.
 
+    Slice-4 task-4-1 force-legacy fixture: the SSE machinery lives in
+    the legacy template — the event-pump branch obsoletes it entirely
+    in favour of ``egg-orch message wait-loop`` + ``brc next-action``.
+    Deleted alongside the legacy template by task-4-2.
+
     These tests inspect the generated shell script — running a real
     ``bash`` harness against a mocked ``egg-orch`` is covered by the
     ``TestRecoveryRestart`` suite above.
     """
+
+    @pytest.fixture(autouse=True)
+    def _force_legacy(self, _force_legacy_template):
+        """SSE machinery is legacy-template only; deleted with the
+        template by task-4-2."""
 
     # --- SSE primary path -------------------------------------------------
 
@@ -1752,6 +1800,11 @@ class TestSSESigtermGrace:
 
     GRACE_SECONDS = 10  # k8s default terminationGracePeriodSeconds is 30
 
+    @pytest.fixture(autouse=True)
+    def _force_legacy(self, _force_legacy_template):
+        """SSE SIGTERM grace is legacy-template only; deleted with the
+        template by task-4-2."""
+
     def test_sigterm_during_sse_exits_within_grace_period(self):
         """The bash wrapper's SSE curl should be interruptible by
         SIGTERM so the orchestrator's stop signal is honored quickly.
@@ -1854,59 +1907,76 @@ _EXPECTED_EVENT_PUMP_WAIT_FILTERS = (
 class TestEventPumpTemplateSelection:
     """(i) Template selection branches for both ``EGG_BRC_EVENT_PUMP`` values.
 
-    With the flag unset / "false": ``build_consensus_wrapped_command``
-    emits the legacy ``_CONSENSUS_WRAPPER_TEMPLATE`` byte-for-byte. With
-    the flag "true": the new ``_EVENT_PUMP_WRAPPER_TEMPLATE`` is emitted
-    instead. Both branches must select on the env var at
-    template-composition time so ``build_consensus_wrapped_command``
-    callers in the orchestrator pod (`concurrent_executor.py:489`,
-    `kubernetes_spawner.py`) read the same flag and either get the new
-    deterministic loop or the legacy capped-restart loop.
+    Slice-4 task-4-1 flipped the default: unset env emits the new
+    ``_EVENT_PUMP_WRAPPER_TEMPLATE``; setting
+    ``EGG_BRC_EVENT_PUMP=false`` (or ``0`` / ``no`` / ``off``) keeps the
+    legacy ``_CONSENSUS_WRAPPER_TEMPLATE`` available for a one-release
+    rollback window. Slice-4 task-4-2 then deletes the legacy template
+    entirely and this rollback path disappears.
+
+    Both branches select on the env var at template-composition time so
+    ``build_consensus_wrapped_command`` callers in the orchestrator pod
+    (`concurrent_executor.py:489`, `kubernetes_spawner.py`) read the
+    same flag and either get the new deterministic loop or the legacy
+    capped-restart loop.
     """
 
-    def test_flag_off_emits_legacy_template_byte_for_byte(self, monkeypatch):
-        """With ``EGG_BRC_EVENT_PUMP`` unset, the legacy template is emitted
-        unchanged. This pins the regression contract from TASK-2-1
-        acceptance: "emits the existing template byte-for-byte".
+    def test_flag_unset_emits_event_pump_template_by_default(self, monkeypatch):
+        """Slice-4 task-4-1: with ``EGG_BRC_EVENT_PUMP`` unset, the
+        event-pump template is emitted by default. The legacy template
+        is only reachable via an explicit opt-out value.
         """
         monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        # Legacy template markers that the new template MUST NOT carry.
-        assert "MAX_RESTARTS=" in script
-        assert "BRC Consensus Recovery" in script
-        # New template marker must NOT appear in the legacy branch.
-        assert "EVENT_PUMP_LOOP_BEGIN" not in script
+        # Event-pump template markers.
+        assert "Event-pump wrapper (#2908 slice-2)" in script
+        # Legacy markers MUST NOT appear in the new default.
+        assert "MAX_RESTARTS=" not in script
+        assert "BRC Consensus Recovery" not in script
 
     def test_flag_false_emits_legacy_template_byte_for_byte(self, monkeypatch):
-        """An explicit ``EGG_BRC_EVENT_PUMP=false`` is treated as the
-        default (legacy template). Catches a regression where a falsy
-        comparison only checked unset rather than the literal "false".
+        """Explicit ``EGG_BRC_EVENT_PUMP=false`` selects the legacy
+        template — the one-release rollback escape hatch preserved
+        until task-4-2 deletes the legacy path entirely.
         """
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "false")
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
         assert "MAX_RESTARTS=" in script
-        assert "EVENT_PUMP_LOOP_BEGIN" not in script
+        assert "Event-pump wrapper (#2908 slice-2)" not in script
 
-    def test_flag_off_existing_template_snapshot_unchanged(self, monkeypatch):
-        """Byte-for-byte snapshot: with the flag off, the emitted bash
-        matches what the pre-TASK-2-1 implementation would have emitted.
-
-        We compare the emitted command against the same command emitted
-        with an alternate flag value and confirm the *flag-off* output is
-        the legacy template by checking for legacy-only markers. The
-        existing ``TestBuildConsensusWrappedCommand`` suite covers the
-        substantive content; this test only pins the regression contract.
+    def test_flag_unset_and_flag_true_emit_identical_scripts(self, monkeypatch):
+        """Post-task-4-1 the unset and explicit-true cases are
+        semantically identical (both select the event-pump template).
+        Pin this so a future regression that splits them apart trips
+        the test rather than silently bifurcating the production path.
         """
         monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
-        cmd_off = build_consensus_wrapped_command("Prompt")
+        cmd_unset = build_consensus_wrapped_command("Prompt")
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd_on = build_consensus_wrapped_command("Prompt")
-        # The two scripts MUST differ — otherwise the flag is dead code.
-        assert cmd_off[2] != cmd_on[2], (
-            "EGG_BRC_EVENT_PUMP=true must select a different template "
-            "branch; flag appears to be dead code."
+        cmd_true = build_consensus_wrapped_command("Prompt")
+        assert cmd_unset[2] == cmd_true[2], (
+            "Unset env and explicit EGG_BRC_EVENT_PUMP=true must emit "
+            "the same script after slice-4 task-4-1 default flip — "
+            "otherwise the production path is bifurcated."
+        )
+
+    def test_flag_unset_and_flag_false_emit_different_scripts(self, monkeypatch):
+        """Inverse of the legacy ``test_flag_off_existing_template_snapshot_unchanged``
+        invariant. Until task-4-2 lands the rollback path is real:
+        unset (event-pump) and ``EGG_BRC_EVENT_PUMP=false`` (legacy)
+        must produce different scripts.
+        """
+        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
+        cmd_unset = build_consensus_wrapped_command("Prompt")
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "false")
+        cmd_false = build_consensus_wrapped_command("Prompt")
+        assert cmd_unset[2] != cmd_false[2], (
+            "Unset env (event-pump default) and explicit "
+            "EGG_BRC_EVENT_PUMP=false (legacy rollback) must produce "
+            "different scripts; the rollback escape hatch is dead "
+            "code otherwise."
         )
 
     def test_flag_on_emits_event_pump_template(self, monkeypatch):

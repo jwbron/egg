@@ -62,10 +62,15 @@ capped-restart template. The pump:
   blocking (NOT exit 1 -> FAILED, replacing the
   ``MAX_CONSENSUS_RESTARTS`` cap per #2908 task-2-3).
 
-With the default off (slice-2 ships flag=false), this branch is
-inert in production -- existing snapshot tests assert the legacy
-template renders byte-for-byte unchanged. Slice-4 flips the default
-to true and slice-4 task-4-3 deletes the legacy template.
+Slice-4 task-4-1 flipped the default to ``true``: the event-pump
+template is now the production path, and the legacy capped-restart
+template above remains available for a one-release rollback window
+via ``EGG_BRC_EVENT_PUMP=false``. Slice-4 task-4-2 deletes the
+legacy template (and the ``EGG_BRC_EVENT_PUMP`` env flag along with
+it) once the new path has been validated in production traffic.
+``EGG_BRC_MEMORY`` follows suit: slice-4 task-4-1 flipped its
+default from ``off`` to ``full`` so the event-pump composer reads
+the durable memory file by default.
 """
 
 import os
@@ -1071,7 +1076,7 @@ invoke_agent_for_event() {{
         prompt=$(printf '%s' "$event_payload" \
             | EGG_AGENT_ROLE="$role" \
                 EGG_BASE_BRANCH="$base_branch" \
-                EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-off}}" \
+                EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-full}}" \
                 python3 "$script_path" "$action" 2>"$err_tmp")
         prompt_rc=$?
     fi
@@ -1365,15 +1370,21 @@ def _event_pump_enabled() -> bool:
     """Should ``build_consensus_wrapped_command`` emit the event-pump branch?
 
     Read at template-composition time on the orchestrator pod (#2908
-    task-2-1). Default is OFF in slice-2 so the legacy template ships
-    byte-for-byte; slice-4 task-4-2 flips the default to ON and
-    slice-4 task-4-3 deletes the legacy template entirely.
+    task-2-1). Slice-4 task-4-1 flips the default to ON (the event-pump
+    template is the production path post-slice-4); slice-4 task-4-2
+    deletes the legacy template entirely. Until task-4-2 lands an
+    operator can opt back into the legacy template for a one-release
+    rollback window by setting ``EGG_BRC_EVENT_PUMP=false`` (or
+    ``0`` / ``no`` / ``off``).
 
-    Truthy values: ``true``, ``1``, ``yes``, ``on`` (case-insensitive).
-    Anything else (including unset) returns False.
+    Default (unset env): True.
+    Falsy values: ``false``, ``0``, ``no``, ``off`` (case-insensitive).
+    Anything else (including unrecognised tokens) returns True so a
+    typo cannot silently downgrade the production path back to the
+    legacy template.
     """
     raw = os.environ.get("EGG_BRC_EVENT_PUMP", "")
-    return raw.strip().lower() in {"true", "1", "yes", "on"}
+    return raw.strip().lower() not in {"false", "0", "no", "off"}
 
 
 def build_event_pump_wrapped_command(
@@ -1454,12 +1465,12 @@ def build_consensus_wrapped_command(
     Returns:
         Command list suitable for container spawning (bash -c "...").
     """
-    # #2908 task-2-1: when ``EGG_BRC_EVENT_PUMP`` is true on the
-    # orchestrator pod, emit the event-pump bash template instead. The
-    # default is OFF in slice-2 so the legacy template ships byte-for-byte;
-    # the existing ``test_consensus_wrapper.py`` snapshot tests therefore
-    # remain green on this code path. Slice-4 task-4-2 flips the default
-    # to ON and slice-4 task-4-3 deletes the legacy template.
+    # #2908 task-2-1: when ``EGG_BRC_EVENT_PUMP`` is truthy (slice-4
+    # task-4-1 flipped the unset-env default from OFF to ON) on the
+    # orchestrator pod, emit the event-pump bash template instead.
+    # Setting ``EGG_BRC_EVENT_PUMP=false`` keeps the legacy template
+    # available for a one-release rollback window. Slice-4 task-4-2
+    # deletes the legacy template (and the env flag along with it).
     if _event_pump_enabled():
         return build_event_pump_wrapped_command(
             prompt_text,
