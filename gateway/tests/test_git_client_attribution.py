@@ -665,6 +665,36 @@ class TestInfraIdentityExemption:
 
         assert result.files[0].authored_by is None
 
+    @pytest.mark.parametrize("show_stdout", ["", "\n", "   \n"])
+    def test_empty_show_stdout_stays_none(self, monkeypatch, show_stdout):
+        # A successful ``git show`` with empty/whitespace stdout — a corrupted
+        # or otherwise blank committer email — must fail closed, not silently
+        # exempt the commit.  Covers the ``return email or None`` branch in
+        # ``_committer_email_for_commit``.
+        registry = FakeRegistryClient(result={})
+        fake_run, _ = make_run(
+            [
+                (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
+                (
+                    lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
+                    _cp(returncode=0, stdout="abc1111\n"),
+                ),
+                (lambda cmd: "diff-tree" in cmd, _cp(returncode=0, stdout="docs/guide.md\n")),
+                (
+                    lambda cmd: "show" in cmd and "--format=%ce" in cmd,
+                    _cp(returncode=0, stdout=show_stdout),
+                ),
+            ]
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.attribution == {}
+        assert result.files[0].authored_by is None
+
     def test_mixed_agent_and_infra(self, monkeypatch):
         import git_client
 

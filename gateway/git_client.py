@@ -1729,21 +1729,31 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
 
 
 # Reserved attribution role for commits created by egg infrastructure
-# (the orchestrator state-file committer, the auto-formatter, the salvage
-# helper) rather than by an agent session.  It is deliberately a string no
-# agent role can ever equal, so the push handler classifies these commits
-# as pulled-from-other-role (never own-authored) and never blocks a producer
-# for files an infra commit touched.  See #2927.
+# (the orchestrator state-file committer, the salvage helper, and the
+# auto-formatter — which rides on the orchestrator's identity rather than
+# a distinct git config) rather than by an agent session.  It is deliberately
+# a string no agent role can ever equal, so the push handler classifies these
+# commits as pulled-from-other-role (never own-authored) and never blocks a
+# producer for files an infra commit touched.  See #2927.
 INFRA_ATTRIBUTION_ROLE = "infra"
 
-# Committer emails used exclusively by egg infrastructure.  Every *agent*
-# commit carries ``{role}@egg.local`` (sandbox/entrypoint.py sets this
-# whenever EGG_AGENT_ROLE is present, which the orchestrator always injects),
-# so none of these collide with an agent identity.  An operator who overrides
-# the gateway's ``EGG_USER_GIT_EMAIL`` only loses the exemption (the push
-# fails closed as before) — never gains a bypass, so the allowlist is the
-# safe failure direction.  Sources:
-#   - egg@localhost          orchestrator/entrypoint.sh, role-less default
+# Committer emails used exclusively by egg infrastructure.  An *agent* commit
+# carries ``{role}@egg.local`` only when ``EGG_AGENT_ROLE`` is set in the
+# sandbox (see sandbox/entrypoint.py); a role-less sandbox would fall back to
+# ``egg@localhost`` and collide with this allowlist.  The invariant that keeps
+# the exemption safe is the **orchestrator-gateway pairing**: the orchestrator
+# always injects ``EGG_AGENT_ROLE`` *and* opens the gateway session with
+# matching ``agent_role`` metadata.  The push handler's restriction check at
+# gateway.py only fires when the session's ``agent_role`` is set, so any path
+# that wired up an agent session without ``EGG_AGENT_ROLE`` would also skip
+# the restriction logic entirely.  An operator who overrides the gateway's
+# ``EGG_USER_GIT_EMAIL`` only loses the exemption (the push fails closed as
+# before) — never gains a bypass, so the allowlist is the safe failure
+# direction.  Sources:
+#   - egg@localhost          orchestrator/entrypoint.sh (also used by the
+#                            auto-formatter, which runs in the orchestrator's
+#                            pre-commit chain rather than under a distinct
+#                            identity)
 #   - egg@example.com        gateway/entrypoint.sh default
 #   - egg-salvage@localhost  orchestrator/agent_salvage.py
 INFRA_COMMITTER_EMAILS: frozenset[str] = frozenset(
