@@ -2884,9 +2884,20 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
             iteration; subsequent iterations see the sticky latch
             and do not re-fire.
 
-        The ``count == 1`` assertion locks in the combined fix:
-        either regression alone yields ``count != 1`` (zero if
-        ``LAST_PROGRESS`` reset wins; >1 if both regress together).
+        The ``count == 1`` assertion locks in the worst-case
+        regression where BOTH §1 and §6.2 regress together: the
+        action arm calls ``note_progress`` on every iteration AND
+        ``note_progress`` resets ``ALERTED_AT_DOUBLE``, so the
+        2x-budget alert re-fires every loop iteration, yielding
+        ``count >> 1``. The fix yields exactly 1.
+
+        Note: with ``EGG_BRC_IDLE_BUDGET_MIN=0`` either regression
+        in isolation still yields ``count == 1`` (a §1-only
+        regression rearms ``LAST_PROGRESS`` but ``ALERTED_AT_DOUBLE``
+        stays sticky after iter-1; a §6.2-only regression never
+        reaches the reset path because rc-gated ``note_progress``
+        is never called on persistent failure). The combined
+        regression is the alert-flood scenario worth catching here.
         """
         # ``_event_pump_enabled`` is read at template-composition time
         # (in this Python process), NOT inside the subprocess shell.
