@@ -555,7 +555,14 @@ class TestConcurrentPromptLifecycle:
     """Tests for consensus lifecycle preamble in agent prompts."""
 
     def test_concurrent_prompt_includes_lifecycle_preamble(self):
-        """When concurrent=True, prompt includes consensus protocol section."""
+        """When concurrent=True, prompt includes consensus protocol section.
+
+        Slice-3 (#2908 TASK-3-3) collapsed the lifecycle preamble: the
+        legacy ``STAY ALIVE`` / ``FAILED your role`` framing was deleted
+        in favour of the event-pump event-handler contract. The
+        replacement assertions pin the new shape so a future regression
+        that re-introduces the wait-loop guidance trips this test.
+        """
         from routes.pipelines import _build_agent_prompt
 
         prompt = _build_agent_prompt(
@@ -566,8 +573,12 @@ class TestConcurrentPromptLifecycle:
             concurrent=True,
         )
         assert "BRC Consensus Protocol" in prompt
-        assert "STAY ALIVE" in prompt
-        assert "FAILED your role" in prompt
+        # Event-handler contract (slice-3 replacement for STAY ALIVE):
+        assert "Event-handler contract (#2908)" in prompt
+        assert "event-pump wrapper drives your lifecycle" in prompt
+        # Legacy framing is gone:
+        assert "STAY ALIVE" not in prompt
+        assert "FAILED your role" not in prompt
 
     def test_non_concurrent_prompt_omits_lifecycle_preamble(self):
         """When concurrent=False (default), prompt has no consensus section."""
@@ -622,31 +633,15 @@ class TestConcurrentPromptLifecycle:
         assert "for i in" in low, "Producer stay-alive must call out the for-loop anti-pattern"
         assert "sleep" in low, "Producer stay-alive must call out the sleep anti-pattern"
 
-    def test_reviewer_stay_alive_uses_canonical_for_list(self):
-        """Reviewer stay-alive prompt pins the reviewer-specific
-        canonical --for list documented in agent-wait-patterns.md §1:
-        CONSENSUS_PROPOSE + CONSENSUS_RE_REVIEW + CONSENSUS_CONFIRMED +
-        OVERSEER_ALERT.
-
-        Reviewers need CONSENSUS_PROPOSE (producers re-proposing after
-        a NACK) in addition to the producer-triple — without it they
-        miss the most important event for their role.
-        """
-        from routes.pipelines import _build_agent_prompt
-
-        prompt = _build_agent_prompt(
-            role_value="reviewer_code",
-            phase="implement",
-            pipeline_id="issue-123",
-            pipeline_mode="issue",
-            concurrent=True,
-        )
-        assert "egg-orch message wait-loop" in prompt
-        # Reviewer-specific canonical --for list.
-        assert "--for CONSENSUS_PROPOSE" in prompt
-        assert "--for CONSENSUS_RE_REVIEW" in prompt
-        assert "--for CONSENSUS_CONFIRMED" in prompt
-        assert "--for OVERSEER_ALERT" in prompt
+    # NOTE: ``test_reviewer_stay_alive_uses_canonical_for_list`` (the
+    # reviewer-specific ``--for`` allowlist pinned to
+    # agent-wait-patterns.md §1) was deleted by slice-3 task-3-3 of
+    # #2908 — the reviewer STAY ALIVE step itself is gone. The
+    # event-pump wrapper now owns the wait/heartbeat and re-invokes the
+    # reviewer per actionable BRC event, so the in-prompt wait-loop
+    # incantation (and its allowlist) is no longer surfaced. The
+    # equivalent failure mode (a reviewer missing CONSENSUS_PROPOSE
+    # wakes) is now an event-pump regression, not a preamble one.
 
     def test_non_concurrent_phase_completion_says_exit(self):
         """Non-concurrent prompts should tell agents to exit normally."""
