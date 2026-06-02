@@ -1728,6 +1728,61 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
+# Reserved attribution role for commits created by egg infrastructure
+# (the orchestrator state-file committer, the auto-formatter, the salvage
+# helper) rather than by an agent session.  It is deliberately a string no
+# agent role can ever equal, so the push handler classifies these commits
+# as pulled-from-other-role (never own-authored) and never blocks a producer
+# for files an infra commit touched.  See #2927.
+INFRA_ATTRIBUTION_ROLE = "infra"
+
+# Committer emails used exclusively by egg infrastructure.  Every *agent*
+# commit carries ``{role}@egg.local`` (sandbox/entrypoint.py sets this
+# whenever EGG_AGENT_ROLE is present, which the orchestrator always injects),
+# so none of these collide with an agent identity.  An operator who overrides
+# the gateway's ``EGG_USER_GIT_EMAIL`` only loses the exemption (the push
+# fails closed as before) — never gains a bypass, so the allowlist is the
+# safe failure direction.  Sources:
+#   - egg@localhost          orchestrator/entrypoint.sh, role-less default
+#   - egg@example.com        gateway/entrypoint.sh default
+#   - egg-salvage@localhost  orchestrator/agent_salvage.py
+INFRA_COMMITTER_EMAILS: frozenset[str] = frozenset(
+    {
+        "egg@localhost",
+        "egg@example.com",
+        "egg-salvage@localhost",
+    }
+)
+
+
+def _committer_email_for_commit(repo_path: str, sha: str) -> str | None:
+    """Return the committer email for ``sha`` (lower-cased) or ``None``.
+
+    Used to recognise infra-authored commits the authorship registry never
+    saw.  Reads the *committer* (not author) identity because rebases and
+    cherry-picks preserve the original author while the committer reflects
+    who actually produced the SHA on this branch.  Any failure returns
+    ``None`` so the caller falls back to fail-closed (own-authored).
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            git_cmd("show", "-s", "--format=%ce", sha),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    email = (result.stdout or "").strip().lower()
+    return email or None
+
+
 def get_attributed_changed_files_in_push(
     repo_path: str,
     remote: str,
@@ -1851,6 +1906,31 @@ def get_attributed_changed_files_in_push(
                 received=len(received_shas),
                 missing=len(requested_shas - received_shas),
             )
+
+    # #2927: rescue commits the registry never saw because they were created
+    # by egg infrastructure (orchestrator state-file commits, auto-formatter,
+    # salvage) outside any agent session.  Without this, such commits stay
+    # ``None`` and the push handler treats them as own-authored (fail-closed),
+    # wedging a producer whose branch merely inherited them.  We only relax
+    # for committers in the trusted infra allowlist; unknown unregistered
+    # authors remain ``None`` and continue to fail closed.
+    infra_exempted: list[str] = []
+    for sha in commits:
+        if attribution.get(sha) is not None:
+            continue
+        email = _committer_email_for_commit(repo_path, sha)
+        if email is not None and email in INFRA_COMMITTER_EMAILS:
+            attribution[sha] = INFRA_ATTRIBUTION_ROLE
+            infra_exempted.append(sha)
+    if infra_exempted:
+        logger.info(
+            "commit_authorship_infra_exemption",
+            repo_path=repo_path,
+            branch=branch,
+            session_role=session_role,
+            exempted=len(infra_exempted),
+            shas=infra_exempted,
+        )
 
     for f in files:
         f.authored_by = attribution.get(f.commit_sha)
