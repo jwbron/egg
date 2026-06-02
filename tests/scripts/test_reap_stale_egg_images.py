@@ -33,17 +33,37 @@ def _extract_awk_program() -> str:
     run instead of letting a stale hardcoded copy mask a regression.
     """
     src = SCRIPT.read_text()
-    m = re.search(r"awk -v keep=\"\$KEEP_TAG\" '(.+?)'\s*<<<", src, re.DOTALL)
+    # The script invokes awk with two -v flags: `keep="$KEEP_TAG"` and
+    # `image_re="$IMAGE_RE"` (the latter is built from IMAGES via IFS join).
+    m = re.search(
+        r"awk -v keep=\"\$KEEP_TAG\" -v image_re=\"\$IMAGE_RE\" '(.+?)'\s*<<<",
+        src,
+        re.DOTALL,
+    )
     assert m, "could not find awk block in reap-stale-egg-images.sh"
     return m.group(1)
+
+
+def _extract_images() -> list[str]:
+    """Pull the IMAGES bash array out of the script.
+
+    Same rationale as _extract_awk_program: a future edit to IMAGES (adding
+    a fifth image, renaming one) flows into the test rather than letting a
+    stale hardcoded list mask a regression.
+    """
+    src = SCRIPT.read_text()
+    m = re.search(r"^IMAGES=\(([^)]+)\)", src, re.MULTILINE)
+    assert m, "could not find IMAGES=(...) in reap-stale-egg-images.sh"
+    return m.group(1).split()
 
 
 def _run_awk(listing: str, keep: str) -> list[str]:
     """Run the script's awk block against a synthetic listing."""
     awk = shutil.which("awk")
     assert awk, "awk binary not on PATH"
+    image_re = "|".join(_extract_images())
     result = subprocess.run(
-        [awk, "-v", f"keep={keep}", _extract_awk_program()],
+        [awk, "-v", f"keep={keep}", "-v", f"image_re={image_re}", _extract_awk_program()],
         input=listing,
         capture_output=True,
         text=True,

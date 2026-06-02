@@ -33,15 +33,29 @@ set -euo pipefail
 : "${1:?usage: $0 <egg-image-tag-to-keep>}"
 KEEP_TAG="$1"
 
-# Keep in sync with check-egg-images-present.sh and the k3s-import image list.
+# The egg image set. This list is the single source of truth WITHIN this script
+# (both the safety-gate grep loop below and the awk match-pattern threaded via
+# -v image_re are driven from it). Keep in sync ACROSS scripts with
+# check-egg-images-present.sh and the k3s-import image list.
 IMAGES=(egg-gateway egg-orchestrator egg-sandbox egg-litellm)
+
+# Build the awk match alternation from IMAGES so the awk regex below tracks
+# additions/removals automatically (e.g. "egg-gateway|egg-orchestrator|...").
+IMAGE_RE="$(IFS='|'; echo "${IMAGES[*]}")"
+
+# Escape regex metacharacters in KEEP_TAG before interpolating into grep -E.
+# Real `git describe` outputs ("v1.2.3-4-gabc123") only contain `.` as a regex
+# metacharacter, and the literal-vs-regex false-positive scenario is fictional
+# in practice -- but escaping costs nothing and keeps a future tag scheme
+# (release candidates, "+" build metadata, etc.) from quietly breaking the gate.
+KEEP_TAG_RE="$(printf '%s' "$KEEP_TAG" | sed -e 's/[][\\.*^$+?(){}|/]/\\&/g')"
 
 # `k3s ctr images list` columns: REF TYPE DIGEST SIZE PLATFORMS LABELS.
 listing="$(sudo k3s ctr images list 2>/dev/null || true)"
 
-# Safety: require ALL four just-deployed egg-*:KEEP_TAG refs to be visible
-# before we reap anything. If even one is missing -- a swallowed sudo prompt,
-# a containerd hiccup, an out-of-band crictl rmi between pre-flight and reap,
+# Safety: require ALL just-deployed egg-*:KEEP_TAG refs to be visible before we
+# reap anything. If even one is missing -- a swallowed sudo prompt, a
+# containerd hiccup, an out-of-band crictl rmi between pre-flight and reap,
 # kubelet GC eating an unreferenced image -- the awk loop would not record
 # that image's KEEP_TAG digest, so every prior egg-<that-image>:* tag would
 # look stale and get reaped. That is the worst-case outcome of this whole
@@ -49,7 +63,7 @@ listing="$(sudo k3s ctr images list 2>/dev/null || true)"
 # to run. Skip the reap entirely instead.
 missing_keep=()
 for img in "${IMAGES[@]}"; do
-  if ! grep -qE "^docker\.io/library/${img}:${KEEP_TAG}([[:space:]]|\$)" <<<"$listing"; then
+  if ! grep -qE "^docker\.io/library/${img}:${KEEP_TAG_RE}([[:space:]]|\$)" <<<"$listing"; then
     missing_keep+=("${img}:${KEEP_TAG}")
   fi
 done
@@ -66,8 +80,12 @@ fi
 # such a stale tag by name would take the current image with it -- and the
 # sandbox image has no running pod to make crictl refuse the removal. Skipping
 # by digest leaves those harmless duplicate tags in place; they cost no disk.
-mapfile -t candidates < <(awk -v keep="$KEEP_TAG" '
-  $1 ~ /^docker\.io\/library\/egg-(gateway|orchestrator|sandbox|litellm):/ {
+#
+# The awk match pattern is built from IMAGE_RE (derived from IMAGES above) and
+# threaded in via -v so a fifth image added to IMAGES flows in automatically.
+mapfile -t candidates < <(awk -v keep="$KEEP_TAG" -v image_re="$IMAGE_RE" '
+  BEGIN { match_re = "^docker\\.io/library/(" image_re "):" }
+  $1 ~ match_re {
     ref = $1; dig = $3
     tag = ref; sub(/.*:/, "", tag)
     if (tag == keep || tag == "latest") { keepdig[dig] = 1; next }
