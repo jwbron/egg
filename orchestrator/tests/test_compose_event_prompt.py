@@ -1159,3 +1159,625 @@ def test_extract_artifacts_for_producer_respects_top_level_producer_match() -> N
     assert _extract_artifacts_for_producer(payload, "coder") == ["src/foo.py"]
     # Mismatch → empty (no leak).
     assert _extract_artifacts_for_producer(payload, "tester") == []
+
+
+# ===========================================================================
+# Tester hardening (#2908 slice-3 task-3-6)
+#
+# Adversarial coverage on top of the coder-authored scaffold above.
+# The coder's tests cover the happy-path shapes for each composer
+# input; the hardening below probes the SUSPECT BOUNDARIES — exact
+# off-by-one positions, UTF-8 multibyte byte/codepoint mismatches,
+# defensive defaults on missing keys, subprocess error paths, and
+# the CLI's stdin/--event-payload-file branches.
+# ===========================================================================
+
+
+def test_truncate_exact_boundary_returns_input_unchanged() -> None:
+    """At ``len(text) == max_chars`` the truncator MUST be a no-op.
+
+    The off-by-one check matters: ``text[: max_chars - 1]`` would silently
+    drop one code point at the cap. Coverage gap in the original suite —
+    only over-cap and under-cap cases were tested.
+    """
+    from orchestrator.routes.event_prompt import MEMORY_EXCERPT_MAX_CHARS, _truncate
+
+    exact = "x" * MEMORY_EXCERPT_MAX_CHARS
+    assert _truncate(exact, MEMORY_EXCERPT_MAX_CHARS) == exact
+    assert "…" not in _truncate(exact, MEMORY_EXCERPT_MAX_CHARS)
+
+
+def test_truncate_just_over_boundary_inserts_ellipsis_at_cap_minus_one() -> None:
+    """At ``len(text) == max_chars + 1`` the result is ``max_chars`` chars + ``…``."""
+    from orchestrator.routes.event_prompt import _truncate
+
+    out = _truncate("x" * 11, 10)
+    assert len(out) == 10
+    assert out.endswith("…")
+    assert out.count("x") == 9  # max_chars - 1 = 9 surviving x's
+
+
+def test_memory_excerpt_utf8_multibyte_truncates_at_codepoint_cap() -> None:
+    """UTF-8 multibyte chars truncate at the *code-point* cap, not byte cap.
+
+    A 3000-codepoint CJK excerpt (~9000 bytes) is truncated to 2000
+    code points (~6000 bytes) — well under the 10 KB envelope. The cap
+    is documented as a code-point cap in ``_truncate`` so this is the
+    intentional behaviour; the test pins it so a future "switch to
+    bytes" refactor can't slip in unnoticed.
+    """
+    from orchestrator.routes.event_prompt import MEMORY_EXCERPT_MAX_CHARS
+
+    excerpt = "中" * (MEMORY_EXCERPT_MAX_CHARS + 1000)
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        excerpt,
+        [],
+        [],
+        "main",
+    )
+    section = prompt.split("## Durable BRC memory")[1]
+    # 2000 codepoint cap → 1999 中 + 1 ellipsis (= 2000 code points total)
+    assert section.count("中") == MEMORY_EXCERPT_MAX_CHARS - 1
+    assert "…" in section
+    # Envelope (with no NACKs, no delta) MUST still respect the 10 KB cap.
+    envelope_bytes = len(_strip_git_log_blocks(prompt).encode("utf-8"))
+    assert envelope_bytes <= PROMPT_ENVELOPE_MAX_BYTES, (
+        f"envelope is {envelope_bytes} > {PROMPT_ENVELOPE_MAX_BYTES} bytes"
+    )
+
+
+def test_memory_excerpt_whitespace_only_omits_section() -> None:
+    """Whitespace-only memory excerpt → section omitted (truncated.strip() empty).
+
+    The composer's ``_render_memory_section`` guards on ``truncated.strip()``;
+    a memory file that contains only whitespace (e.g. a freshly-created
+    empty scaffold) must NOT render an empty memory block — that would
+    waste bytes and confuse the agent's "memory present" heuristic.
+    """
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "   \n\n\t\n",
+        [],
+        [],
+        "main",
+    )
+    assert "## Durable BRC memory" not in prompt
+
+
+def test_producer_delta_order_preserves_input_order() -> None:
+    """The renderer iterates ``git_log_delta`` verbatim — it does NOT sort.
+
+    Sorting belongs to the CLI's ``_build_delta_entries`` (which
+    canonicalises producer order via ``sorted(per_producer.keys())``
+    on the memory-enum fallback path). The composer accepts the
+    caller's order so the production payload's preferred order
+    (e.g. ``pending_reviews``-driven priority) flows through. This
+    pins that contract.
+    """
+    deltas = [
+        {"producer": "zeta", "last_reviewed_commit_sha": "z1", "delta": "z"},
+        {"producer": "alpha", "last_reviewed_commit_sha": "a1", "delta": "a"},
+    ]
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        deltas,
+        "main",
+    )
+    zeta_idx = prompt.index("Producer: ``zeta``")
+    alpha_idx = prompt.index("Producer: ``alpha``")
+    assert zeta_idx < alpha_idx, "Producer delta order MUST follow input list, not sort"
+
+
+def test_producer_delta_empty_string_renders_no_commits_sentinel() -> None:
+    """Empty ``delta`` string renders the ``(no commits in range)`` sentinel.
+
+    This is the real production state when a producer ACKs a confirmed
+    proposal and re-confirms without any new commits between the
+    ``last_reviewed_commit_sha`` and HEAD. The agent must see the
+    sentinel so they know the re-review is a no-op rather than
+    silently reading a blank diff block.
+    """
+    deltas = [
+        {"producer": "coder", "last_reviewed_commit_sha": "abc1234", "delta": "   \n\n"},
+    ]
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        deltas,
+        "main",
+    )
+    assert "(no commits in range — re-review is a no-op)" in prompt
+
+
+def test_producer_delta_missing_keys_renders_defensive_defaults() -> None:
+    """Missing ``producer`` / ``sha`` / ``delta`` keys do not crash.
+
+    Surfaces the ``(unknown)`` producer label and the ``<no prior
+    review>`` SHA sentinel so the agent can audit the degenerate
+    shape rather than silently re-reviewing a zero-length diff.
+    """
+    deltas = [{}]  # everything missing
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        deltas,
+        "main",
+    )
+    assert "Producer: ``(unknown)``" in prompt
+    assert "<no prior review — full branch history>" in prompt
+
+
+def test_producer_delta_non_string_delta_is_coerced() -> None:
+    """A non-string ``delta`` value is coerced via ``str()`` rather than crashing.
+
+    Defensive against an upstream renderer that passes a list or dict
+    accidentally — the assertion pins ``str()`` coercion so a future
+    type tightening (e.g. ``isinstance(delta, str)``) doesn't silently
+    drop the entry.
+    """
+    deltas = [
+        {"producer": "coder", "last_reviewed_commit_sha": "abc1234", "delta": 42},
+    ]
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        deltas,
+        "main",
+    )
+    # 42 stringified appears in the diff body.
+    assert "42" in prompt
+    # Section still renders the verbatim command.
+    assert "git log abc1234..HEAD --not origin/main -p" in prompt
+
+
+def test_nack_missing_reviewer_renders_question_mark_sentinel() -> None:
+    """A NACK with missing/empty ``reviewer`` renders ``?`` rather than crashing.
+
+    Defensive shape against a malformed barrier payload.
+    """
+    nacks = [{"version": 2, "reason": "blocker", "artifact_refs": ["a"]}]
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+    )
+    assert "Reviewer: ``?``" in prompt
+
+
+def test_nack_missing_reason_renders_none_recorded_sentinel() -> None:
+    """A NACK with no ``reason`` falls back to the ``(none recorded)`` sentinel.
+
+    The barrier surface must not crash on a partial NACK render; the
+    sentinel tells the agent the field is missing rather than silently
+    leaving a blank line.
+    """
+    nacks = [{"reviewer": "reviewer_code", "version": 1, "artifact_refs": []}]
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+    )
+    assert "(none recorded)" in prompt
+
+
+def test_nack_non_list_artifact_refs_is_normalised_to_singleton() -> None:
+    """A scalar ``artifact_refs`` (string instead of list) is wrapped to ``[ref]``.
+
+    Forward-compat against a producer that serialises a single ref as
+    a bare string. The renderer must surface the ref rather than
+    dropping it.
+    """
+    nacks = [
+        {
+            "reviewer": "reviewer_code",
+            "version": 1,
+            "reason": "blocker",
+            "artifact_refs": "src/single.py",  # not a list
+        }
+    ]
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+    )
+    assert "src/single.py" in prompt
+
+
+def test_parse_per_producer_sha_skips_dash_sentinel() -> None:
+    """The slice-1 writer's ``-`` sentinel ("no prior review") MUST be skipped.
+
+    Rendering ``git log -..HEAD`` would either hang or crash the
+    subprocess. This is the on-disk shape for a first-time ACK
+    before any review has happened.
+    """
+    from orchestrator.routes.event_prompt import _parse_per_producer_sha
+
+    text = (
+        "### coder\n\n"
+        "- last_reviewed_commit_sha: -\n\n"
+        "### documenter\n\n"
+        "- last_reviewed_commit_sha: abc123\n"
+    )
+    parsed = _parse_per_producer_sha(text)
+    assert "coder" not in parsed  # dash sentinel skipped
+    assert parsed.get("documenter") == "abc123"
+
+
+def test_parse_per_producer_sha_first_match_wins_per_heading() -> None:
+    """Two bullets under one heading: the first wins (matches slice-1 writer's shape)."""
+    from orchestrator.routes.event_prompt import _parse_per_producer_sha
+
+    text = (
+        "### coder\n\n"
+        "- last_reviewed_commit_sha: aaa111\n"
+        "- last_reviewed_commit_sha: bbb222\n"  # ignored
+    )
+    assert _parse_per_producer_sha(text) == {"coder": "aaa111"}
+
+
+def test_parse_per_producer_sha_ignores_orphan_bullet() -> None:
+    """A SHA bullet without a preceding heading is dropped (no anchor).
+
+    Without this guard, a stray ``- last_reviewed_commit_sha: …`` from a
+    docstring or comment block could be parsed under the previous
+    heading and pollute the lookup.
+    """
+    from orchestrator.routes.event_prompt import _parse_per_producer_sha
+
+    text = "- last_reviewed_commit_sha: ghost123\n"
+    assert _parse_per_producer_sha(text) == {}
+
+
+def test_parse_per_producer_sha_strips_backticks_from_heading() -> None:
+    """A backtick-wrapped heading (``### `coder` ``) strips to ``coder``.
+
+    The slice-1 writer's rendered shape allows the producer name to be
+    wrapped in backticks for markdown emphasis; the parser must canonicalise.
+    """
+    from orchestrator.routes.event_prompt import _parse_per_producer_sha
+
+    text = "### `coder`\n\n- last_reviewed_commit_sha: abc123\n"
+    assert _parse_per_producer_sha(text) == {"coder": "abc123"}
+
+
+def test_extract_nacks_falls_back_to_aggregated_nacks_key() -> None:
+    """``_extract_nacks`` accepts ``aggregated_nacks`` as the third priority key.
+
+    Priority order is documented in the implementation:
+    ``nacks`` > ``unresolved_nacks`` > ``aggregated_nacks``. The
+    coder's tests cover priority between the first two; this pins
+    the third tier for forward-compat with a future next-action
+    barrier-equivalent payload.
+    """
+    from orchestrator.routes.event_prompt import _extract_nacks
+
+    payload = {"aggregated_nacks": [{"reviewer": "r1", "version": 2, "reason": "x"}]}
+    out = _extract_nacks(payload)
+    assert len(out) == 1
+    assert out[0]["reviewer"] == "r1"
+
+
+def test_extract_nacks_drops_non_dict_entries() -> None:
+    """Non-dict entries inside the NACK list are dropped, not raised on."""
+    from orchestrator.routes.event_prompt import _extract_nacks
+
+    payload = {"nacks": [{"reviewer": "r1"}, "stringy", None, 42]}
+    out = _extract_nacks(payload)
+    assert out == [{"reviewer": "r1"}]
+
+
+def test_extract_changed_artifacts_filters_none_and_whitespace() -> None:
+    """``None`` and empty/whitespace entries are dropped; the rest stringified."""
+    from orchestrator.routes.event_prompt import _extract_changed_artifacts
+
+    payload = {"changed_artifacts": [None, "", "   ", "real.py", "  trim.py  "]}
+    out = _extract_changed_artifacts(payload)
+    # ``None`` and pure-whitespace entries are dropped. ``"  trim.py  "``
+    # stringifies to itself (the strip() check is a truthiness gate, not
+    # a normalisation step) — the strip-on-output is the caller's job.
+    assert out == ["real.py", "  trim.py  "]
+
+
+def test_extract_changed_artifacts_returns_empty_on_non_dict_payload() -> None:
+    """A non-dict event payload yields an empty artifact list (defensive)."""
+    from orchestrator.routes.event_prompt import _extract_changed_artifacts
+
+    assert _extract_changed_artifacts("not a dict") == []
+    assert _extract_changed_artifacts(None) == []
+    assert _extract_changed_artifacts([1, 2]) == []
+
+
+def test_extract_current_producers_skips_non_dict_pending_entries() -> None:
+    """``pending_reviews`` walker is robust against mixed-shape entries.
+
+    The next-action route's payload is canonical, but a future schema
+    drift (e.g. a string entry for legacy compatibility) must not
+    crash the wrapper. Non-dict entries are silently skipped.
+    """
+    from orchestrator.routes.event_prompt import _extract_current_producers
+
+    payload = {
+        "pending_reviews": [
+            {"producer": "coder"},
+            "stringy",  # non-dict — skipped
+            None,
+            {"producer_role": "documenter"},  # alternate key honoured
+            {"producer": ""},  # empty string — skipped
+            {"producer": 42},  # non-string — skipped
+        ]
+    }
+    out = _extract_current_producers(payload)
+    assert out == ["coder", "documenter"]
+
+
+def test_extract_current_producers_returns_empty_on_non_dict_payload() -> None:
+    """A non-dict event payload yields an empty list (defensive)."""
+    from orchestrator.routes.event_prompt import _extract_current_producers
+
+    assert _extract_current_producers("not a dict") == []
+    assert _extract_current_producers(None) == []
+    assert _extract_current_producers([1, 2]) == []
+
+
+def test_extract_artifacts_for_producer_prefers_pending_reviews_over_top_level() -> None:
+    """When both shapes are present, ``pending_reviews`` wins.
+
+    The architect documented this priority order
+    (reviewer_code_holistic v2 finding #1). The next-action route's
+    enriched per-producer ``artifact_refs`` is the canonical source;
+    the top-level ``changed_artifacts`` is a legacy / test-payload
+    fallback only. This pins the priority direction.
+    """
+    from orchestrator.routes.event_prompt import _extract_artifacts_for_producer
+
+    payload = {
+        "producer": "coder",
+        "changed_artifacts": ["legacy.py"],
+        "pending_reviews": [
+            {"producer": "coder", "artifact_refs": ["canonical.py"]},
+        ],
+    }
+    assert _extract_artifacts_for_producer(payload, "coder") == ["canonical.py"]
+
+
+def test_extract_artifacts_for_producer_empty_string_producer_returns_empty() -> None:
+    """An empty / whitespace producer argument returns an empty list (defensive)."""
+    from orchestrator.routes.event_prompt import _extract_artifacts_for_producer
+
+    payload = {
+        "pending_reviews": [
+            {"producer": "coder", "artifact_refs": ["a.py"]},
+        ],
+    }
+    assert _extract_artifacts_for_producer(payload, "") == []
+    assert _extract_artifacts_for_producer(payload, "   ") == []
+
+
+def test_run_git_log_timeout_returns_labelled_sentinel() -> None:
+    """``subprocess.TimeoutExpired`` returns a sentinel string the agent can see."""
+    import subprocess
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _run_git_log
+
+    with patch(
+        "subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd=["git"], timeout=60),
+    ):
+        out = _run_git_log("abc1234", "main", Path("/tmp"))
+    assert "git log timed out" in out
+    assert "abc1234..HEAD" in out
+
+
+def test_run_git_log_nonzero_rc_returns_labelled_sentinel() -> None:
+    """Non-zero rc from ``git log`` surfaces the stderr verbatim."""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from orchestrator.routes.event_prompt import _run_git_log
+
+    mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: bad revision")
+    with patch("subprocess.run", return_value=mock_result):
+        out = _run_git_log("abc1234", "main", Path("/tmp"))
+    assert "rc=128" in out
+    assert "fatal: bad revision" in out
+
+
+def test_run_git_log_truncates_oversized_output_with_explicit_marker() -> None:
+    """A multi-megabyte ``git log`` output truncates at 256 KiB with a marker.
+
+    Without this guard, a pathological refactor could push a single
+    delta past Claude's context budget regardless of the cacheable-prefix
+    bound. The marker tells the agent the cut happened so they can fetch
+    the full delta if a thorough audit is required.
+    """
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from orchestrator.routes.event_prompt import _GIT_LOG_DELTA_MAX_BYTES, _run_git_log
+
+    big = "+" * (3 * _GIT_LOG_DELTA_MAX_BYTES)  # ~768 KiB
+    mock_result = MagicMock(returncode=0, stdout=big, stderr="")
+    with patch("subprocess.run", return_value=mock_result):
+        out = _run_git_log("abc1234", "main", Path("/tmp"))
+    assert "truncated — delta exceeded" in out
+    # Output is bounded: 256 KiB + the truncation marker (~150 bytes).
+    assert len(out.encode("utf-8")) < _GIT_LOG_DELTA_MAX_BYTES + 1024
+
+
+def test_cli_event_payload_file_branch_reads_from_disk(tmp_path) -> None:
+    """``--event-payload-file`` is the file-based alternative to stdin.
+
+    The wrapper bash uses stdin in slice-2's wiring, but tests/operators
+    can pass a file for repeatability. The branch isn't covered by the
+    coder-authored CLI tests above (which all use stdin).
+    """
+    import io
+    import json as _json
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    payload_file = tmp_path / "payload.json"
+    payload_file.write_text(
+        _json.dumps({"action": "propose", "tasks": ["task-3-1", "task-3-2"]}),
+        encoding="utf-8",
+    )
+
+    saved_env = {
+        k: os.environ.get(k) for k in ("EGG_AGENT_ROLE", "EGG_REPO_PATH", "EGG_BRC_MEMORY")
+    }
+    saved_stdin = _sys.stdin
+    saved_stdout = _sys.stdout
+    out_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        os.environ["EGG_REPO_PATH"] = str(tmp_path)
+        os.environ["EGG_BRC_MEMORY"] = "off"
+        _sys.stdin = io.StringIO("")  # stdin ignored when --event-payload-file is set
+        _sys.stdout = out_buf
+        rc = event_prompt._cli(["propose", "--event-payload-file", str(payload_file)])
+    finally:
+        _sys.stdin = saved_stdin
+        _sys.stdout = saved_stdout
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 0
+    out = out_buf.getvalue()
+    # Payload content surfaces in the rendered prompt's Payload (JSON) block.
+    assert "task-3-1" in out
+    assert "task-3-2" in out
+
+
+def test_cli_event_payload_file_missing_returns_rc_two(tmp_path) -> None:
+    """A missing ``--event-payload-file`` path returns rc=2 with an error message.
+
+    The wrapper bash can detect rc=2 distinctly from rc=0 to surface a
+    plumbing bug rather than silently rendering an empty prompt.
+    """
+    import io
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    saved_env = {k: os.environ.get(k) for k in ("EGG_AGENT_ROLE",)}
+    saved_stderr = _sys.stderr
+    saved_stdin = _sys.stdin
+    err_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        _sys.stdin = io.StringIO("")
+        _sys.stderr = err_buf
+        rc = event_prompt._cli(
+            ["propose", "--event-payload-file", str(tmp_path / "does-not-exist.json")]
+        )
+    finally:
+        _sys.stderr = saved_stderr
+        _sys.stdin = saved_stdin
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 2
+    assert "cannot read" in err_buf.getvalue()
+
+
+def test_cli_malformed_json_stdin_falls_back_to_raw_payload(tmp_path) -> None:
+    """Malformed-JSON stdin surfaces the raw payload under ``raw`` rather than crashing.
+
+    The wrapper should never silently render an empty event; surfacing
+    the raw bytes lets the agent (and the operator reading logs) see
+    what was passed.
+    """
+    import io
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    saved_env = {k: os.environ.get(k) for k in ("EGG_AGENT_ROLE", "EGG_REPO_PATH")}
+    saved_stdin = _sys.stdin
+    saved_stdout = _sys.stdout
+    out_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        os.environ["EGG_REPO_PATH"] = str(tmp_path)
+        _sys.stdin = io.StringIO("not valid {{ json")
+        _sys.stdout = out_buf
+        rc = event_prompt._cli(["propose"])
+    finally:
+        _sys.stdin = saved_stdin
+        _sys.stdout = saved_stdout
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 0
+    out = out_buf.getvalue()
+    # The raw bytes survive under the "raw" key in the rendered payload.
+    assert "not valid" in out
+
+
+def test_cli_empty_stdin_falls_back_to_action_only_payload(tmp_path) -> None:
+    """Empty stdin → ``{"action": <argv-action>}`` payload (no JSON parse).
+
+    This is the bare-minimum invocation the wrapper falls back to when
+    the orchestrator's next-action returns a verb but no rendered
+    payload. The Action banner must still surface the verb.
+    """
+    import io
+    import os
+    import sys as _sys
+
+    from orchestrator.routes import event_prompt
+
+    saved_env = {k: os.environ.get(k) for k in ("EGG_AGENT_ROLE", "EGG_REPO_PATH")}
+    saved_stdin = _sys.stdin
+    saved_stdout = _sys.stdout
+    out_buf = io.StringIO()
+    try:
+        os.environ["EGG_AGENT_ROLE"] = "coder"
+        os.environ["EGG_REPO_PATH"] = str(tmp_path)
+        _sys.stdin = io.StringIO("")  # empty stdin
+        _sys.stdout = out_buf
+        rc = event_prompt._cli(["confirm"])
+    finally:
+        _sys.stdin = saved_stdin
+        _sys.stdout = saved_stdout
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert rc == 0
+    out = out_buf.getvalue()
+    assert "Action: **confirm**" in out

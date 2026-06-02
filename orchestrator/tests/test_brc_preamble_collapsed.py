@@ -208,3 +208,221 @@ def test_preamble_byte_size_drops_by_at_least_25_percent(role: str, baseline_byt
         f"{role}: drop ratio {drop_ratio:.3f} < {MIN_DROP_RATIO} "
         f"(baseline {baseline_bytes} → current {current_bytes})"
     )
+
+
+# ===========================================================================
+# Tester hardening (#2908 slice-3 task-3-7)
+#
+# Adversarial coverage on top of the coder-authored scaffold:
+#
+#   * full-text scans for the literal command-line shape (``egg-orch
+#     message wait-loop``) and the ``--for CONSENSUS_*`` flag patterns —
+#     the original line-by-line assertions can miss a multi-line code
+#     block where the command and its flags are on different lines;
+#   * full-text scan for ``never exit`` — the legacy STAY-ALIVE warning's
+#     other anchor that the coder's assertion already drops, pinned here
+#     in case a future preamble revision re-introduces the phrasing;
+#   * full-text scan for the cursor-threading file path
+#     (``/tmp/egg-wait-cursor-…``) — the cursor block in the original
+#     preamble spanned multiple lines and is structurally distinct from
+#     the ``egg-wait-cursor`` substring the coder's test already covers;
+#   * agent-roster content check — the coder's test only verifies the
+#     heading is present; this pins that the actual roster names the
+#     producer / reviewer roles so the agent's role-aware framing
+#     survives a future content-only edit;
+#   * relative-drop *both directions*: the coder pins the ≥ 25% drop
+#     against a hardcoded baseline; the hardening also pins that the
+#     current preamble fits inside a generous byte ceiling so a runaway
+#     re-expansion (e.g. someone copy-pastes the lifecycle prose back)
+#     fails loudly rather than just regressing the ratio;
+#   * defensive shape — ``_build_brc_preamble`` accepts an empty role
+#     (returns *something*, even if the role banner falls back) so a
+#     mis-typed role from the orchestrator doesn't crash the render.
+# ===========================================================================
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_no_positive_egg_orch_wait_loop_invocation(role: str) -> None:
+    """Every ``egg-orch message wait-loop`` mention is a NEGATIVE instruction.
+
+    The collapsed preamble still references the command in the
+    event-handler contract's negation ("You do NOT block on
+    ``egg-orch message wait-loop`` yourself; the wrapper owns the
+    wait"). That's intentional — it tells the agent what NOT to do.
+
+    But a POSITIVE invocation in a fenced code block (which the
+    coder's line-by-line ``do NOT`` check would miss if the command
+    and its flags are on different lines) would be a regression.
+    This scan splits the preamble into chunks around each occurrence
+    and asserts each chunk's surrounding context carries a negation
+    anchor — ``do NOT`` / ``Do NOT`` / ``not block on`` / ``not call``.
+    """
+    text = _render(role)
+    needle = "egg-orch message wait-loop"
+    if needle not in text:
+        return  # zero occurrences is fine
+    # For each occurrence, look at the ±200-char window for a negation anchor.
+    idx = 0
+    while True:
+        loc = text.find(needle, idx)
+        if loc == -1:
+            break
+        window = text[max(0, loc - 200) : loc + len(needle) + 100]
+        has_negation = any(
+            anchor in window
+            for anchor in ("do NOT", "Do NOT", "not block on", "not call", "not issue")
+        )
+        assert has_negation, (
+            f"positive ``{needle}`` invocation at offset {loc} in {role} preamble "
+            f"(window: {window!r})"
+        )
+        idx = loc + len(needle)
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_no_consensus_event_filter_flags(role: str) -> None:
+    """``--for CONSENSUS_*`` filter flags (legacy wait-loop plumbing) are gone."""
+    text = _render(role)
+    for flag in (
+        "--for CONSENSUS_PROPOSE",
+        "--for CONSENSUS_ACK",
+        "--for CONSENSUS_NACK",
+        "--for CONSENSUS_RE_REVIEW",
+        "--for CONSENSUS_CONFIRMED",
+        "--for OVERSEER_ALERT",
+        "--for STATUS",
+    ):
+        assert flag not in text, f"legacy filter flag {flag!r} still present in {role} preamble"
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_no_never_exit_warning(role: str) -> None:
+    """The legacy "never exit before the orchestrator stops you" warning is gone.
+
+    Under the event-pump model the wrapper owns lifecycle; "never exit"
+    was the legacy STAY-ALIVE companion phrase and an explicit collapse
+    target (TASK-3-3 description: "Remove 'never exit before the
+    orchestrator stops you' — under the new model the wrapper owns
+    lifecycle"). The coder's tests check ``"you have FAILED your role"``
+    in ``test_event_handler_contract_present``; this pins the other
+    anchor phrase.
+    """
+    text = _render(role)
+    assert "never exit" not in text.lower()
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_no_cursor_file_path_anywhere(role: str) -> None:
+    """The ``/tmp/egg-wait-cursor-…`` plumbing path is gone (full-text scan).
+
+    The coder's test scans for the substring ``egg-wait-cursor``; this
+    pins the full path-shape ``/tmp/egg-wait-cursor-`` which is the
+    operationally distinctive anchor the legacy preamble used to
+    document cursor-threading.
+    """
+    text = _render(role)
+    assert "/tmp/egg-wait-cursor-" not in text
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_agent_roster_lists_known_roles(role: str) -> None:
+    """The agent-roster section names the producer + reviewer roles.
+
+    The coder's test pins only the heading. This pins the content —
+    the roster must actually name the roles in use this slice, not
+    just emit an empty section.
+    """
+    text = _render(role)
+    # The roster lives below the heading; do a structural slice.
+    after_heading = text.split("### Active Agents in This Phase", 1)[1]
+    # Producer + reviewer roles the implement phase routinely spawns.
+    for expected_role in ("coder", "reviewer_code", "tester"):
+        assert expected_role in after_heading, (
+            f"roster missing {expected_role!r} below the heading for {role} preamble"
+        )
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_no_directed_status_nudge_anchors(role: str) -> None:
+    """No instruction to interpret a directed ``STATUS`` nudge (#2531 plumbing).
+
+    Under the event-pump model the wrapper's ``next-action`` call decides
+    when the role is ready to confirm; the agent no longer needs to
+    interpret a directed STATUS nudge. The coder's test pins
+    ``ready_to_confirm: true``; this pins the natural-language anchors
+    that historically appeared alongside it.
+    """
+    text = _render(role)
+    # The legacy "Ready to confirm" lifecycle anchor must be gone.
+    assert "Ready to confirm — all confirm preconditions satisfied" not in text
+
+
+def test_preamble_byte_size_under_ceiling_tester() -> None:
+    """The tester preamble fits inside a generous byte ceiling (≤ 20 KB).
+
+    A complement to the ≥ 25% relative-drop assertion: if someone
+    silently re-expands the preamble back toward the pre-collapse size,
+    the relative-drop assertion fails *only* against the hardcoded
+    baseline; this ceiling assertion fails against an absolute bound,
+    so the regression surfaces with two anchors. Tester has the largest
+    preamble; bounding tester implicitly bounds the others.
+    """
+    text = _render("tester")
+    bytes_used = len(text.encode("utf-8"))
+    ceiling = 20 * 1024  # 20 KB — generous over the ~16.4 KB current size
+    assert bytes_used <= ceiling, (
+        f"tester preamble is {bytes_used} bytes — exceeds the {ceiling} byte ceiling. "
+        "If this is intentional, raise the ceiling deliberately."
+    )
+
+
+def test_preamble_handles_unknown_role_without_crashing() -> None:
+    """An unknown role name still renders *something* rather than raising.
+
+    Defensive shape — if the orchestrator passes a typoed role (e.g.
+    ``"reviewer_codee"``), the preamble should fall back gracefully so
+    the wrapper can surface the error in the rendered output instead
+    of crashing the per-event handler invocation. The fallback shape
+    (whether the unknown role is echoed back, or the renderer maps it
+    to a PARTICIPANT default) is intentionally not pinned — only the
+    no-crash + non-empty-output contract is.
+    """
+    text = _build_brc_preamble(
+        "reviewer_typoed",
+        "implement",
+        repo="egg",
+        branch="egg/issue-2908-impl2/work",
+        base_branch="main",
+    )
+    assert isinstance(text, str)
+    assert len(text) > 0
+    # The agent roster MUST still render so the agent has a frame of
+    # reference even with an unrecognised role.
+    assert "### Active Agents in This Phase" in text
+
+
+@pytest.mark.parametrize("role", ["coder", "reviewer_code", "tester"])
+def test_event_handler_contract_mentions_wrapper_owned_wait(role: str) -> None:
+    """The new event-handler contract names *who* owns the wait now.
+
+    The coder's test pins the existence of the contract; this pins that
+    the contract actually conveys the central point — the *wrapper* owns
+    the wait, not the agent — which is the whole reason the collapse
+    happened.
+    """
+    text = _render(role)
+    # The contract must surface the wrapper-owned-wait framing in some
+    # form: either the literal "wrapper owns" / "drives your lifecycle"
+    # phrasing or the negation of the legacy agent-held wait.
+    contract_section = text.split("Event-handler contract", 1)[1]
+    has_wrapper_framing = any(
+        anchor in contract_section
+        for anchor in (
+            "wrapper",
+            "drives your lifecycle",
+            "one-shot",
+        )
+    )
+    assert has_wrapper_framing, (
+        f"event-handler contract for {role} does not surface the wrapper-owned-wait framing"
+    )
