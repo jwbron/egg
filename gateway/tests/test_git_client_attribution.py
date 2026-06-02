@@ -545,6 +545,165 @@ class TestFetchFailureTolerated:
         assert result.files[0].authored_by == "coder"
 
 
+class _FakeRegistryWithPatch:
+    """Registry stub exposing both lookup_bulk and lookup_patch_ids."""
+
+    def __init__(self, sha_result=None, patch_result=None):
+        self._sha_result = sha_result if sha_result is not None else {}
+        self._patch_result = patch_result if patch_result is not None else {}
+        self.sha_calls: list[list[str]] = []
+        self.patch_calls: list[list[str]] = []
+
+    def lookup_bulk(self, shas):
+        self.sha_calls.append(list(shas))
+        return dict(self._sha_result)
+
+    def lookup_patch_ids(self, patch_ids):
+        self.patch_calls.append(list(patch_ids))
+        return dict(self._patch_result)
+
+
+class TestPatchIdRecovery:
+    """#2932: a commit whose SHA a rebase rewrote is recovered by patch-id.
+
+    When ``lookup_bulk`` returns nothing for a SHA (the rebase minted a new
+    one that was never registered), the attribution layer computes the
+    commit's patch-id and asks the registry which role authored a commit
+    with that patch-id.  Only a byte-identical diff matches, and an
+    ambiguous patch-id resolves to ``None`` registry-side, so the fallback
+    can only recover an attribution — never fabricate a bypass.
+    """
+
+    _PATCH_ID = "d" * 40
+
+    def _responses(self, *, commits_stdout, diff_stdout, patch_id_stdout):
+        return [
+            (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
+            (
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
+                _cp(returncode=0, stdout=commits_stdout),
+            ),
+            (lambda cmd: "diff-tree" in cmd, _cp(returncode=0, stdout=diff_stdout)),
+            # The push-time patch-id helper batches via
+            # ``git log --no-walk -p`` (#2932 follow-up); the previous
+            # per-sha ``git show`` pipeline is gone.
+            (
+                lambda cmd: "log" in cmd and "--no-walk" in cmd,
+                _cp(returncode=0, stdout="diff --git a/x b/x\n+content\n"),
+            ),
+            (
+                lambda cmd: "patch-id" in cmd,
+                _cp(returncode=0, stdout=patch_id_stdout),
+            ),
+        ]
+
+    def test_rebased_sha_recovered_via_patch_id(self, monkeypatch):
+        registry = _FakeRegistryWithPatch(
+            sha_result={},  # unregistered (rebase rewrote the SHA)
+            patch_result={self._PATCH_ID: "reviewer"},
+        )
+        fake_run, calls = make_run(
+            self._responses(
+                commits_stdout="abc1111\n",
+                diff_stdout="shared/x.py\n",
+                patch_id_stdout=f"{self._PATCH_ID} abc1111\n",
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.error is None
+        assert result.attribution == {"abc1111": "reviewer"}
+        assert result.files[0].authored_by == "reviewer"
+        # The patch-id was actually consulted.
+        assert registry.patch_calls == [[self._PATCH_ID]]
+        assert any("patch-id" in c for c in calls)
+
+    def test_unmatched_patch_id_stays_none(self, monkeypatch):
+        # Registry has no role for this patch-id (different content, or an
+        # ambiguous patch resolved to None server-side) → fail closed.
+        registry = _FakeRegistryWithPatch(sha_result={}, patch_result={self._PATCH_ID: None})
+        fake_run, _ = make_run(
+            self._responses(
+                commits_stdout="abc1111\n",
+                diff_stdout="shared/x.py\n",
+                patch_id_stdout=f"{self._PATCH_ID} abc1111\n",
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.files[0].authored_by is None
+
+    def test_registered_sha_skips_patch_id_lookup(self, monkeypatch):
+        # A SHA the registry already attributes must not trigger the
+        # content-based fallback.
+        registry = _FakeRegistryWithPatch(
+            sha_result={"abc1111": "coder"}, patch_result={self._PATCH_ID: "reviewer"}
+        )
+        fake_run, calls = make_run(
+            self._responses(
+                commits_stdout="abc1111\n",
+                diff_stdout="src/a.py\n",
+                patch_id_stdout=f"{self._PATCH_ID} abc1111\n",
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.files[0].authored_by == "coder"
+        assert registry.patch_calls == []
+        assert not any("patch-id" in c for c in calls)
+
+    def test_empty_patch_id_skips_lookup(self, monkeypatch):
+        # Merge / empty / rename-only commit → patch-id step emits nothing
+        # → no patch lookup attempted, commit stays fail-closed.
+        registry = _FakeRegistryWithPatch(sha_result={}, patch_result={self._PATCH_ID: "reviewer"})
+        fake_run, _ = make_run(
+            self._responses(
+                commits_stdout="abc1111\n",
+                diff_stdout="shared/x.py\n",
+                patch_id_stdout="",  # no diff → no patch-id
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.files[0].authored_by is None
+        assert registry.patch_calls == []
+
+    def test_client_without_patch_lookup_is_safe(self, monkeypatch):
+        # A legacy registry client lacking lookup_patch_ids must not break
+        # the push path — the fallback is simply skipped.
+        registry = FakeRegistryClient(result={})  # only has lookup_bulk
+        fake_run, _ = make_run(
+            self._responses(
+                commits_stdout="abc1111\n",
+                diff_stdout="shared/x.py\n",
+                patch_id_stdout=f"{self._PATCH_ID} abc1111\n",
+            )
+        )
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = get_attributed_changed_files_in_push(
+            "/fake/repo", "origin", "branch", session_role="coder", registry_client=registry
+        )
+
+        assert result.files[0].authored_by is None
+
+
 class TestInfraIdentityExemption:
     """#2927: unregistered commits by trusted infra committers are rescued.
 

@@ -287,6 +287,7 @@ from lifecycle_auth import require_lifecycle_secret
 if TYPE_CHECKING:
     from egg_container import MountSpec
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+    from egg_contracts.models import Slice as ContractSlice
 
     try:
         from ..container_spawner import ContainerSpawner
@@ -10317,7 +10318,7 @@ def _resolve_slice_base_branch(
     pipeline_id: str,
     pipeline_branch: str,
     extant_branches: set[str] | None = None,
-    merge_base_lookup: Callable[[str, str], str | None] | None = None,
+    parent_branch_exists: Callable[[str], bool] | None = None,
 ) -> str:
     """Return the parent branch for a slice's integration branch (#2777, cq-9).
 
@@ -10332,34 +10333,40 @@ def _resolve_slice_base_branch(
        return it. This is the primary path post-slice-4 — slices
        created after the eager persist landed always go through
        this arm.
-    2. **Merge-base fallback (slice-4 TASK-4-3)**. For legacy /
-       orphaned slices whose ``parent_branch_at_creation`` is empty,
-       when a ``merge_base_lookup`` callback is provided, compute
-       the merge-base SHA of the slice's integration branch against
-       the dependency-derived parent. If the merge-base resolves
-       (slice has a valid fork point and ancestor exists), the
-       slice has real commits — fall through to the dependency-
-       derived parent below as the legacy-correct stack target.
-       If the merge-base does NOT resolve (no fork point — either
-       the integration branch never existed on origin, or its
-       parent has been deleted), fall back to ``pipeline_branch``.
-       The merge-base SHA is logged for audit but not returned as
-       the resolver's value: downstream consumers
-       (``create_slice_integration_branch``,
-       ``is_slice_branch_merged_into_parent``) take branch names
-       and resolve to SHA via ``get_remote_branch_sha`` on the
-       gateway side, so returning a SHA here would break the
-       ``refs/heads/<name>`` ls-remote step at
-       ``gateway_client.py:~2288``. The merge-base call's role
-       is to VALIDATE the legacy ancestor before returning the
-       branch name — a structural improvement over the
-       pre-TASK-4-3 path which blindly returned the derived
-       parent.
+    2. **Dependency-derived parent, gated on parent existence
+       (#2928)**. For a non-root slice whose
+       ``parent_branch_at_creation`` is empty (the normal first-run
+       case), the stack target is its dependency parent's
+       integration branch ``{issue_branch}/{dependencies[0]}``. When
+       a ``parent_branch_exists`` callback is provided, the resolver
+       probes whether that parent branch is still present on origin:
+
+       * parent branch **exists** → return the dependency-derived
+         parent. This is the correct target for both fresh slices
+         (whose own integration branch does not exist yet) and
+         legacy slices.
+       * parent branch **absent** → the parent slice's PR was merged
+         into ``work`` and its branch deleted by the cascade, so
+         ``work`` already contains the parent's commits. Fall back
+         to ``pipeline_branch``.
+       * probe **raises** → conservative default: assume the parent
+         exists and return the derived parent. Never silently swap a
+         real slice onto ``work`` because of a flaky gateway.
+
+       This replaces the pre-#2928 merge-base check, which probed the
+       *slice's own* integration branch for a fork point and routed a
+       ``None`` result (no fork point) to ``pipeline_branch``. That
+       conflated a FRESH slice (integration branch not yet created —
+       the common first-run case) with a genuinely orphaned slice,
+       silently mis-basing fresh slices onto ``work`` whenever
+       ``work`` had advanced ahead of the parent (the wedge in
+       #2928).
     3. **Final fallback** to ``pipeline_branch`` (``egg/<id>/work``)
        when (a) no eager-persisted parent, (b) the slice is a root
-       (no dependencies), OR (c) the merge-base lookup reports no
-       fork point. Root-targeted branches are never deleted by the
-       cascade so this is always a safe terminal candidate.
+       (no dependencies), OR (c) the slice's dependency parent branch
+       is absent from origin. Root-targeted branches are never
+       deleted by the cascade so this is always a safe terminal
+       candidate.
 
     **Orphan-reconciler mode (``extant_branches`` non-None)**: the
     stacked-PR reconciler at ``orchestrator/stacked_pr_reconciler.py``
@@ -10388,19 +10395,33 @@ def _resolve_slice_base_branch(
             this set and skips any that are absent. The reconciler
             uses this to escape from the deleted parent branch up the
             DAG until an extant ancestor is reached.
-        merge_base_lookup: Optional callback used by slice-4
-            TASK-4-3's merge-base fallback. When provided, the
-            resolver invokes ``merge_base_lookup(ref_a, ref_b)``
-            with the slice's integration branch and the derived
-            parent's ``refs/remotes/origin/<parent_branch>``-shaped
-            ref. A non-None SHA return validates the legacy
-            ancestor; a ``None`` return indicates no fork point
-            and routes to ``pipeline_branch``. The default
-            ``_run_one_slice_inner`` caller wires this against
-            ``spawner.gateway.merge_base``; the stacked-PR
-            reconciler leaves it ``None`` (it has already
+        parent_branch_exists: Optional callback (#2928) used to
+            decide whether a non-root slice's dependency parent
+            branch is still on origin. When provided, the resolver
+            invokes ``parent_branch_exists(parent_branch)`` with the
+            dependency-derived parent branch name. ``True`` returns
+            the derived parent; ``False`` routes to
+            ``pipeline_branch`` (parent merged + cascade-deleted); a
+            raised exception is treated conservatively as ``True``.
+            The default ``_run_one_slice_inner`` caller wires this
+            against ``spawner.gateway.ls_remote_branch_strict`` — the
+            strict variant is required so a gateway / network /
+            policy failure RAISES into this resolver's ``try/except``
+            instead of being collapsed to ``False`` (which would
+            silently route a real slice onto ``pipeline_branch`` on
+            any gateway flake — re-creating the #2928 wedge). The
+            stacked-PR reconciler leaves it ``None`` (it has already
             verified extant branches via the ``extant_branches``
             set).
+
+            Mutually exclusive with ``extant_branches`` in practice:
+            the production caller (``_run_one_slice_inner``) passes
+            only this gate, and the stacked-PR reconciler passes only
+            ``extant_branches``. If a future caller passed both, this
+            gate would short-circuit to ``pipeline_branch`` on a
+            ``False`` return BEFORE the ``extant_branches`` walk
+            could find an extant ancestor; callers that have already
+            built the extant set should leave this ``None``.
 
     Returns:
         The branch name to use as the slice integration branch's
@@ -10458,66 +10479,62 @@ def _resolve_slice_base_branch(
     # the existing ``f"{issue_branch}/{parent_slice_id}"`` convention
     # at the legacy slice-loop call site.
     issue_branch = _slice_namespace_root(pipeline_branch)
+    derived_parent = f"{issue_branch}/{parent_slice_id}"
 
-    # Slice-4 TASK-4-3: merge-base fallback for orphaned / legacy
-    # slices. When eager-persist did not land (``parent_recorded``
-    # empty above) AND a ``merge_base_lookup`` callback is provided,
-    # compute ``git merge-base <integration_branch> <derived_parent>``
-    # to validate the legacy ancestor. A non-None SHA confirms the
-    # slice has a real fork point — fall through to the
-    # dependency-derived parent below as the legacy-correct stack
-    # target. A None SHA means no fork point (the slice's branch
-    # never existed on origin, OR its parent has been deleted, OR
-    # the two refs share no common history). In that case fall
-    # back to ``pipeline_branch`` so downstream
-    # ``create_slice_integration_branch`` has a stable parent.
-    if merge_base_lookup is not None:
-        integration_branch = f"{issue_branch}/{slice_id}"
-        derived_parent_ref = f"refs/remotes/origin/{issue_branch}/{parent_slice_id}"
-        integration_ref = f"refs/remotes/origin/{integration_branch}"
+    # #2928: parent-existence gate. When eager-persist did not land
+    # (``parent_recorded`` empty above) AND a ``parent_branch_exists``
+    # callback is provided, decide between the dependency-derived
+    # parent and ``pipeline_branch`` by probing whether the parent
+    # slice's integration branch is still on origin — NOT by probing
+    # the slice's own branch for a fork point.
+    #
+    # The pre-#2928 implementation computed
+    # ``merge_base(integration_branch, derived_parent)`` and routed a
+    # ``None`` result to ``pipeline_branch``. That conflated a FRESH
+    # slice (its integration branch is created *after* this resolver
+    # runs, so it has no fork point on the first run — the common
+    # case) with a genuinely orphaned slice, silently mis-basing
+    # fresh slices onto ``work`` whenever ``work`` had advanced ahead
+    # of the parent (e.g. a stray contract-state commit on ``work``).
+    # The correct discriminator is parent-branch existence:
+    #
+    #   * parent exists  → stack on it (fresh OR legacy slice).
+    #   * parent absent  → the parent PR merged into ``work`` and its
+    #     branch was cascade-deleted, so ``work`` already contains the
+    #     parent's commits → ``pipeline_branch`` is the right base.
+    #   * probe raises    → conservative: assume the parent exists and
+    #     return the derived parent; never silently swap a real slice
+    #     onto ``work`` because the gateway was flaky.
+    if parent_branch_exists is not None:
         try:
-            mb_sha = merge_base_lookup(integration_ref, derived_parent_ref)
+            exists = parent_branch_exists(derived_parent)
         except Exception as probe_err:  # noqa: BLE001
-            # Probe failure (gateway down, transient HTTP, missing
-            # local odb). Conservative default: assume the slice
-            # has a fork point and fall through to the derived
-            # parent — never silently swap to ``pipeline_branch``
-            # if we can't confirm the slice is truly orphaned.
             logger.warning(
-                "merge_base_lookup probe raised; falling through "
-                "to dependency-derived parent (slice-4 TASK-4-3)",
+                "parent_branch_exists probe raised; assuming parent "
+                "exists and returning dependency-derived parent (#2928)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                integration_ref=integration_ref,
-                derived_parent_ref=derived_parent_ref,
+                derived_parent=derived_parent,
                 error=str(probe_err),
             )
-            mb_sha = "skipped"  # sentinel: treat as "has fork point"
-        if mb_sha is None:
-            logger.info(
-                "Slice has no merge-base with derived parent; falling back "
-                "to pipeline branch (slice-4 TASK-4-3)",
+            exists = True
+        if not exists:
+            logger.warning(
+                "Dependency-parent branch absent on origin; parent "
+                "appears merged into work — basing slice on pipeline "
+                "branch (#2928)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                integration_ref=integration_ref,
-                derived_parent_ref=derived_parent_ref,
+                derived_parent=derived_parent,
                 pipeline_branch=pipeline_branch,
             )
             return pipeline_branch
-        if mb_sha != "skipped":
-            logger.debug(
-                "Merge-base validated for legacy slice; using derived parent (slice-4 TASK-4-3)",
-                pipeline_id=pipeline_id,
-                slice_id=slice_id,
-                merge_base_sha=mb_sha,
-                derived_parent=f"{issue_branch}/{parent_slice_id}",
-            )
 
     # Default mode (no extant filter): return the immediate parent
     # branch synthesised from the slice DAG. This is the unchanged
     # pre-extant-kwarg behaviour.
     if extant_branches is None:
-        return f"{issue_branch}/{parent_slice_id}"
+        return derived_parent
 
     # Orphan-reconciler mode: walk up the DAG via ``dependencies[0]``
     # until an extant ancestor branch is found. The forest constraint
@@ -12352,39 +12369,55 @@ def _build_brc_preamble(
         if roster:
             lines.append(roster)
 
-    # Dual-role ordering banner (#2749). A dual-role agent (today: only
-    # TESTER in the implement graph) receives both the Producer and
-    # Reviewer Lifecycle blocks below. Without an explicit ordering
-    # constraint, agents observed in pipelines f4c7d780 / 8b81ed32
-    # entered the reviewer-style ``wait-loop --for CONSENSUS_PROPOSE``
-    # BEFORE issuing their own producer PROPOSE — self-blocking the BRC
-    # round for 8–20 minutes per slice until they eventually proposed.
-    # The fix is two-pronged: (1) state the execution order up-front so
-    # the agent does not improvise it, and (2) augment the producer
-    # pre-confirm + STAY ALIVE waits (steps 4 and 6 below) to also wake
-    # on ``CONSENSUS_PROPOSE`` so the dual-role agent does not need a
-    # second wait-loop for its reviewer POLL after it has proposed.
+    # Dual-role ordering banner (#2749, updated for coder-owns-tests). A
+    # dual-role agent (today: only TESTER in the implement graph) receives
+    # both the Producer and Reviewer Lifecycle blocks below. The coder now
+    # authors its own tests; the tester's job is to review-and-harden them
+    # after the coder proposes. So the tester's producer WORK legitimately
+    # depends on the coder's ``CONSENSUS_PROPOSE`` — it orients up-front,
+    # waits for the coder's propose, then hardens + proposes + ACK/NACKs in
+    # one pass. This does not reintroduce the f4c7d780 / 8b81ed32 self-block
+    # (where the tester idled on a reviewer wait-loop before proposing its
+    # own scaffolded work): the coder proposes independently and does not
+    # wait on the tester, so the coder's propose is the trigger, and the
+    # tester proposes right after. The tester therefore has TWO reviewer
+    # rendezvous points: (a) the pre-PROPOSE wait-loop in step 1 of the
+    # banner below catches the coder's first ``CONSENSUS_PROPOSE`` (so the
+    # tester has something to harden); (b) re-proposes and peer-producer
+    # proposals after the tester has proposed fold into Producer Lifecycle
+    # step 4 / step 6, whose augmented filter already wakes on
+    # ``CONSENSUS_PROPOSE``.
     if is_dual_role:
         lines.append(
-            "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"
-            "You are both PRODUCER and REVIEWER. **The BRC round cannot "
-            "close until every producer (including you) has issued "
-            "`mcp__brc__propose` / `egg-orch consensus propose`.** If you "
-            "enter a reviewer-style `wait-loop --for CONSENSUS_PROPOSE` "
-            "before you have proposed your own work, you self-block the "
-            "round: peer producers waiting for your version sit idle, "
-            "your own reviewers have no version to ACK, and the slice "
-            "burns wall-clock until the overseer escalates.\n\n"
+            "### Dual-Role Execution Order (READ FIRST — #2749, updated for "
+            "coder-owns-tests)\n\n"
+            "You are both PRODUCER and REVIEWER (TESTER). **The BRC round "
+            "cannot close until every producer (including you) has issued "
+            "`mcp__brc__propose` / `egg-orch consensus propose`** — so you "
+            "MUST eventually propose, and if you wait but never propose your "
+            "own hardening you self-block the round. But your producer WORK "
+            "(reviewing and **hardening the coder's tests**) genuinely "
+            "depends on the coder's proposed tests existing, so unlike a "
+            "normal producer you start that work at the coder's PROPOSE, not "
+            "before. This does not deadlock: the coder proposes independently "
+            "and does **not** wait on you, so its `CONSENSUS_PROPOSE` is the "
+            "trigger that unblocks your work; you then propose right after.\n\n"
             "**Execute the lifecycles in this strict order:**\n\n"
-            "1. **Producer steps 1–3 (ORIENT → WORK → PROPOSE) come "
-            "FIRST.** While you are doing them, you may *opportunistically* "
-            "do the Reviewer Lifecycle's `1. PREPARE` work — read the "
-            "contract, scan the upstream producer's commits as they "
-            "land on the branch, draft scaffolding — but **do NOT call "
-            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` as your "
-            "scheduling primitive.** Your propose-ready iteration starts "
-            "at the upstream producer's first commit, not their first "
-            "propose.\n"
+            "1. **ORIENT first, then WAIT for the coder's PROPOSE.** Do the "
+            "Reviewer Lifecycle's `1. PREPARE` work up front — read the "
+            "contract, scan the existing test suite, form your view of "
+            "where coverage and adversarial cases belong. But **do NOT "
+            "write test files yet**: the coder authors its own tests, so "
+            "there is nothing to harden until it proposes, and racing its "
+            "in-flight commits churns against a moving target. Block on "
+            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` for the "
+            "coder. When the coder proposes, SYNC the worktree, then do "
+            "your Producer WORK (read the coder's tests; add the missing "
+            "regression + adversarial cases yourself — you share the test "
+            "scope with the coder; run the tests) and **PROPOSE** your "
+            "hardening. In the same pass, issue your reviewer verdict on "
+            "the coder: ACK if coverage is sound, or NACK naming the "
+            "specific failing test / coverage gap.\n"
             "2. **After your PROPOSE**, your producer pre-confirm wait "
             "(step 4) and STAY ALIVE wait (step 6) are **augmented to "
             "also wake on `CONSENSUS_PROPOSE`** (see the filters in "
@@ -12566,8 +12599,8 @@ def _build_brc_preamble(
                 "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
                 "land a commit that satisfies a *different* producer's "
                 "conditional-ACK obligation in-cycle — typical pattern: "
-                "the coder is gateway-blocked from a path under `tests/`, "
-                "you (as tester) cherry-pick the satisfying commit onto "
+                "the coder is gateway-blocked from a path under `docs/`, "
+                "you (as documenter) cherry-pick the satisfying commit onto "
                 "the branch — call `mcp__brc__resolve_obligation "
                 'reviewer_role="<reviewer>" producer_role="<other_producer>" '
                 "commit_sha=$(git rev-parse HEAD)` after pushing. The "
@@ -12602,20 +12635,33 @@ def _build_brc_preamble(
                 ),
                 "2. **POLL**: "
                 + (
-                    "**For dual-role agents (you), this step folds into "
-                    "Producer Lifecycle step 4 / step 6 — those waits "
-                    "already include `--for CONSENSUS_PROPOSE` per #2749. "
-                    "Do NOT issue a separate `wait-loop --for "
-                    "CONSENSUS_PROPOSE` before your own PROPOSE; that "
-                    "would self-block the BRC round (see the "
-                    "*Dual-Role Execution Order* banner above).** When "
-                    "your producer wait returns with a `CONSENSUS_PROPOSE` "
-                    "event, fall through to step 3 (SYNC) → step 4 "
-                    "(REVIEW) → step 5 (ACK/NACK) here, then re-enter "
-                    "the producer wait. Do NOT skip step 4 (REVIEW) — "
-                    "you must read the referenced files and form "
-                    "independent judgment, not ACK from the proposal "
-                    "summary alone."
+                    "**For dual-role agents (you), polling happens at TWO "
+                    "points, per the *Dual-Role Execution Order* banner "
+                    "above (updated for coder-owns-tests).** "
+                    "**(a) Pre-PROPOSE rendezvous** with the coder's "
+                    "first `CONSENSUS_PROPOSE`: this is the explicit "
+                    "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` "
+                    "in step 1 of the banner. You MUST issue it — your "
+                    "producer WORK is hardening the coder's tests, so "
+                    "there is nothing to propose until the coder has "
+                    "proposed. When that wait returns, SYNC the worktree, "
+                    "do your Producer WORK (review + harden), then "
+                    "PROPOSE and ACK/NACK the coder in the same pass "
+                    "(fall through to step 3 (SYNC) → step 4 (REVIEW) → "
+                    "step 5 (ACK/NACK) here). "
+                    "**(b) Post-PROPOSE rendezvous** with re-proposes "
+                    "(`CONSENSUS_PROPOSE` version > 1) and peer-producer "
+                    "proposals: these fold into Producer Lifecycle step 4 "
+                    "/ step 6, whose augmented filter already wakes on "
+                    "`CONSENSUS_PROPOSE` per #2749. Do NOT issue a second "
+                    "`wait-loop --for CONSENSUS_PROPOSE` after your own "
+                    "PROPOSE — the augmented producer waits already cover "
+                    "it. When a post-PROPOSE wakeup arrives, fall through "
+                    "to step 3 (SYNC) → step 4 (REVIEW) → step 5 "
+                    "(ACK/NACK) here, then re-enter the producer wait. "
+                    "Do NOT skip step 4 (REVIEW) — you must read the "
+                    "referenced files and form independent judgment, not "
+                    "ACK from the proposal summary alone."
                     if is_dual_role
                     else "Block on `CONSENSUS_PROPOSE` from assigned producers "
                     "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
@@ -12805,10 +12851,11 @@ def _build_brc_preamble(
                 "broadcast progress:",
                 "- **HANDOFF**: When your work is ready for a specific peer to act on, "
                 "send a HANDOFF message so they know to begin. For example, a coder "
-                "notifying the tester that implementation is complete.",
+                "notifying the tester that the implementation and its tests are in, so "
+                "the tester can review-and-harden them.",
                 "  ```",
                 '  egg-orch message send --to tester --type HANDOFF --subject "Auth module ready" '
-                '--body "auth.py is complete, tests can begin"',
+                '--body "auth.py + tests/test_auth.py are in; review and harden the tests"',
                 "  ```",
                 "- **STATUS**: Broadcast progress updates to all agents when you reach "
                 "significant milestones (e.g., halfway through implementation, blocked "
@@ -12852,15 +12899,15 @@ def _build_brc_preamble(
 # what artifacts they produce).
 _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "coder": (
-        "Implements code changes",
-        "commits with source files, tests may be included",
+        "Implements code changes AND authors their tests",
+        "commits with source files and their tests",
     ),
     "tester": (
-        "Writes comprehensive regression tests AND adversarially probes the "
-        "coder's implementation for bugs and edge cases (dual role: also "
-        "reviews coder)",
-        "test files (including failing tests that demonstrate bugs), check "
-        "results, gap reports back to the coder",
+        "Reviews-and-hardens the coder's tests after the coder proposes: adds "
+        "missing regression coverage AND adversarially probes the coder's "
+        "implementation for bugs and edge cases (dual role: also reviews coder)",
+        "hardened test files (including failing tests that demonstrate bugs), "
+        "check results, gap reports back to the coder",
     ),
     "documenter": (
         "Updates documentation for changes",
@@ -13026,8 +13073,10 @@ def _build_reviewer_preparation(
                 "requirements, "
                 "(c) checking the existing test infrastructure (test frameworks, "
                 "fixtures, test utilities). "
-                "Start writing test scaffolding for known requirements while "
-                "waiting — you can finalize once you see the actual implementation."
+                "Do NOT write test files while waiting — the coder authors the "
+                "tests, so there is nothing to harden until it proposes. Your "
+                "production work (reviewing + hardening the coder's tests, "
+                "running them) starts at the coder's CONSENSUS_PROPOSE."
             )
     elif phase == "plan":
         if role_value == "reviewer_plan":
@@ -13319,21 +13368,29 @@ def _build_producer_orientation(
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
-                "Identify edge cases from the requirements before writing tests. "
+                "Identify edge cases from the requirements so you know what good "
+                "coverage looks like. "
                 "**Your mandate is two-fold**: comprehensive regression "
                 "coverage AND adversarial probing for bugs the coder missed "
                 "— see the *Your Task* → mandate block for the full "
-                "instruction (including the failing-test → NACK → HANDOFF "
-                "workflow when you catch a coder-side bug). "
-                "**Scaffold-first while the coder is producing**: draft test "
-                "scaffolding from the plan alone — test file paths from "
-                "`tasks[].files`, function signatures from each task's acceptance "
-                "criteria, fixture imports, and mock-input scenarios from the YAML. "
-                "Leave assertion bodies as TODOs. Do NOT call `wait-loop` for the "
-                "coder's CONSENSUS_PROPOSE before drafting these scaffolds — the "
-                "scaffold work does not depend on coder output and recovers "
-                "downstream-producer time. Your propose-ready iteration should "
-                "start at the coder's first commit, not their first propose. "
+                "instruction (including the failing-test → NACK workflow when "
+                "you catch a coder-side bug). "
+                "**The coder now authors its own tests.** Your job is to "
+                "**review-and-harden the coder's tests**, not to write them "
+                "from scratch in parallel. **Orient only until the coder "
+                "proposes** — read the contract, scan the existing test suite, "
+                "and form your view of where coverage and adversarial cases "
+                "should land, but do NOT write test files before the coder's "
+                "CONSENSUS_PROPOSE (there is nothing to harden yet, and racing "
+                "the coder's in-flight commits churns against a moving target). "
+                "Once the coder proposes, sync the worktree, **read the coder's "
+                "tests**, decide what's missing or weak, **add the regression + "
+                "adversarial cases yourself** (you share the test scope with the "
+                "coder — your edits to coder-authored test files push cleanly), "
+                "**run the tests**, and report back to the coder with your "
+                "verdict: ACK if coverage is sound, or NACK naming the specific "
+                "failing test / coverage gap so the coder's re-propose is "
+                "actionable. "
                 "**You MUST propose** even when the slice warrants no new tests "
                 "(pure refactor / doc-only / symbol moves with no behavior "
                 "change): the BRC consensus blocks until every producer has "
@@ -13690,17 +13747,23 @@ def _build_agent_prompt(
             [
                 "**ROLE BOUNDARY: You are the TESTER, not the CODER.** "
                 "Do NOT implement application logic, create source files, write configuration, "
-                "or set up project infrastructure. Your job is to write tests for the CODER's "
-                "implementation, run checks, and report gaps. If the coder hasn't committed yet, "
-                "wait — do not implement the solution yourself.",
+                "or set up project infrastructure. **The coder authors its own tests; your job "
+                "is to review-and-harden them**, run checks, and report gaps — not to write the "
+                "test suite from scratch in parallel. **Wait for the coder's "
+                "`CONSENSUS_PROPOSE` before doing any test work**: there is nothing to harden "
+                "until the coder's tests exist, and racing its in-flight commits churns against "
+                "a moving target. Do not implement the solution yourself.",
                 "",
                 "**Your mandate is two-fold**:",
                 "",
-                "1. **Comprehensive coverage** — write tests that prevent "
-                "regressions, covering the happy path and realistic alternative "
-                "paths through every changed area. New behavior gets new tests; "
-                "modified behavior gets updated tests; nothing the coder changed "
-                "should silently lose coverage.",
+                "1. **Comprehensive coverage** — once the coder proposes, read the "
+                "coder's tests and **add the coverage they are missing** so the "
+                "suite prevents regressions across the happy path and realistic "
+                "alternative paths through every changed area. New behavior gets "
+                "new tests; modified behavior gets updated tests; nothing the "
+                "coder changed should silently lose coverage. You share the test "
+                "scope with the coder, so your edits to coder-authored test files "
+                "push cleanly.",
                 "2. **Adversarial probing** — actively probe the coder's "
                 "implementation for bugs and edge cases they missed. Treat the "
                 "implementation as suspect until you have tried to break it. "
@@ -13743,13 +13806,15 @@ def _build_agent_prompt(
                 "",
                 "If the slice **does** have new test work (real behavior "
                 "changes, new edge cases, modified contracts), do NOT use the "
-                "no-op path — author tests as usual.",
+                "no-op path — review and harden the coder's tests, adding the "
+                "missing coverage and adversarial cases as usual.",
                 "",
                 "### Testing",
                 "",
-                "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Build coverage tests for the happy path and realistic "
-                "alternative paths in every changed area",
+                "1. Review the changed files AND the coder's tests (available in "
+                "handoff data or via git diff)",
+                "2. Add coverage for the happy path and realistic alternative "
+                "paths in every changed area that the coder's tests miss",
                 "3. **Adversarially probe** the implementation: identify "
                 "suspected bugs and untested edge cases, then write tests that "
                 "target them",
@@ -16357,68 +16422,39 @@ def _run_implement_phase_slices(
                 # ``pipeline_branch`` like every other root slice — the
                 # work-branch context PR's diff already encompasses the
                 # slice-1 integration branch via ancestry.
-                # Slice-4 TASK-4-3: wire a merge-base lookup callback
-                # so the resolver can validate the legacy ancestor
-                # when ``parent_branch_at_creation`` is empty. The
-                # callback FETCHES both refs first (reviewer_code v2
-                # blocker 5 — without the prior fetch, a transient
-                # local-odb-lag returns None and silently swaps the
-                # slice's stack target onto ``pipeline_branch``).
-                # ``fetch_branch`` is best-effort (returns False on
-                # gateway failure but does not raise); the merge-base
-                # call then operates on whatever the local odb has
-                # post-fetch. A non-None SHA confirms the slice has a
-                # real fork point; a None SHA (after the fetch
-                # succeeded) tells the resolver to fall back to
-                # ``pipeline_branch``. Repoless test scaffolds short-
-                # circuit before the fetch and return None directly
-                # (matches the Layer-C classifier's behaviour for
-                # ``pipeline_repo is None``).
-                def _probe_merge_base(ref_a: str, ref_b: str) -> str | None:
+                # #2928: wire a parent-branch-existence probe so the
+                # resolver can tell a FRESH non-root slice (whose
+                # dependency parent branch is still on origin → stack
+                # on it) apart from an orphaned one (parent merged
+                # into ``work`` and cascade-deleted → base on
+                # ``pipeline_branch``). This replaces the pre-#2928
+                # merge-base probe, which probed the slice's OWN
+                # integration branch — non-existent on a first run —
+                # and so mis-routed every fresh non-root slice onto
+                # ``work`` whenever ``work`` had advanced ahead of the
+                # parent. Repoless test scaffolds short-circuit to
+                # ``True`` (no origin to check; the derived parent is
+                # the correct DAG target), mirroring the resolver's
+                # conservative "assume parent exists" default.
+                #
+                # IMPORTANT: this wrapper calls the STRICT ls-remote
+                # variant (``ls_remote_branch_strict``) so a gateway /
+                # network / policy failure RAISES into the resolver's
+                # ``try/except`` instead of being collapsed to
+                # ``False``. The lenient ``ls_remote_branch`` /
+                # ``get_remote_branch_sha`` helpers swallow all
+                # exceptions and return ``False`` / ``None`` for both
+                # "branch absent" AND "gateway error" — using either
+                # here would silently route a real slice onto
+                # ``pipeline_branch`` on a flaky gateway, re-creating
+                # the #2928 wedge that this PR claims to fix.
+                def _probe_parent_branch_exists(parent_branch: str) -> bool:
                     if not pipeline.repo:
-                        return None
-                    # Best-effort fetch of both refs into the local
-                    # odb so ``git merge-base`` can find them. Each
-                    # fetch_branch call is wrapped in try/except so a
-                    # gateway error on one ref doesn't skip the
-                    # second; the merge-base call below tolerates a
-                    # missing ref via returncode 1 → None return.
-                    for _ref in (ref_a, ref_b):
-                        # Strip ``refs/remotes/origin/`` to derive the
-                        # branch name the fetch refspec wants; the
-                        # merge-base call uses the remote-tracking ref
-                        # (which the fetch populates), not the bare
-                        # branch name.
-                        _branch = _ref
-                        for _pfx in (
-                            "refs/remotes/origin/",
-                            "refs/heads/",
-                        ):
-                            if _branch.startswith(_pfx):
-                                _branch = _branch[len(_pfx) :]
-                                break
-                        try:
-                            spawner.gateway.fetch_branch(
-                                pipeline_id,
-                                str(worktree_repo_path),
-                                args=[f"+refs/heads/{_branch}:refs/remotes/origin/{_branch}"],
-                                mode=gateway_mode,  # type: ignore[arg-type]
-                            )
-                        except Exception as fetch_err:  # noqa: BLE001
-                            logger.debug(
-                                "Pre-merge-base fetch failed (best-effort); "
-                                "merge_base will proceed against the existing "
-                                "local odb (slice-4 TASK-4-3)",
-                                pipeline_id=pipeline_id,
-                                slice_id=slice_id,
-                                ref=_branch,
-                                error=str(fetch_err),
-                            )
-                    return spawner.gateway.merge_base(
+                        return True
+                    return spawner.gateway.ls_remote_branch_strict(
                         pipeline_id,
                         str(worktree_repo_path),
-                        ref_a,
-                        ref_b,
+                        f"refs/heads/{parent_branch}",
                         mode=gateway_mode,  # type: ignore[arg-type]
                     )
 
@@ -16427,7 +16463,7 @@ def _run_implement_phase_slices(
                     slice_id,
                     pipeline_id=pipeline_id,
                     pipeline_branch=pipeline_branch,
-                    merge_base_lookup=_probe_merge_base,
+                    parent_branch_exists=_probe_parent_branch_exists,
                 )
                 integration_branch = f"{issue_branch}/{slice_id}"
 
@@ -19813,6 +19849,103 @@ def _populate_contract_from_plan_safe(
         return PopulateResult(PopulateOutcome.UNEXPECTED_EXCEPTION)
 
 
+def _merge_preserved_slice_runtime(
+    new_slices: "list[ContractSlice]",  # noqa: UP037
+    old_slices: "list[ContractSlice]",  # noqa: UP037
+) -> None:
+    """Carry runtime slice/task state from ``old_slices`` onto ``new_slices`` in place.
+
+    ``_populate_contract_from_plan`` re-parses the plan markdown into a
+    fresh set of slices on every call — and its safety-net caller fires
+    on *every* ``start_phase=implement`` restart (deliberately outside
+    the ``contract_synced`` guard). The plan is the source of truth for
+    slice/task STRUCTURE (names, descriptions, dependencies, acceptance
+    criteria); it always parses back as ``PENDING`` with the runtime
+    bookkeeping fields unset. Blindly assigning ``contract.slices =
+    <freshly parsed>`` therefore wipes every slice the slice loop had
+    already advanced — resetting COMPLETE slices to PENDING and dropping
+    the ``parent_branch_at_creation`` / ``integration_base_sha`` a real
+    run stamped — so a restarted pipeline re-runs slice-1 forever and can
+    never reach slice-2 (#2908).
+
+    Mirroring the PR-metadata preservation a few lines down in the
+    caller, this merges by slice id (and by task id within a slice): the
+    plan supplies STRUCTURE while RUNTIME state survives a re-populate.
+    Unmatched ids (a re-plan that adds or removes slices/tasks) simply
+    keep the plan's fresh ``PENDING`` defaults.
+
+    Task-level runtime fields covered (each is durably written by a
+    runtime path that the plan parser cannot reconstruct):
+
+    - ``status``, ``commit``, ``checkpoint_id``, ``review_cycles``,
+      ``escalated``, ``gaps`` — slice-loop / reviewer / tester
+      bookkeeping.
+    - ``role`` + ``delegation_attempts`` — paired SYSTEM-owned
+      impasse-delegation state. ``impasse_routing.py`` flips
+      ``task.role`` to the suggested alternative and bumps
+      ``delegation_attempts`` in the same ``apply_mutation`` cycle
+      under ``Role.SYSTEM`` (only SYSTEM owns these two fields); the
+      slice-loop dispatcher then routes the task to the new role.
+      Preserving the counter without the role would re-spawn the
+      original producer on restart and trip ``DELEGATION_LIMIT`` on
+      the next impasse, escalating to HITL even though no delegation
+      visibly happened — so both fields must survive together.
+    - ``notes`` — APPLIER writes Won't-Do drain failure reasons here
+      (``pipelines.py`` Won't-Do path) and agents write implementation
+      narrative via ``mcp__task__update_notes`` / ``egg-contract
+      update-notes``; the plan parser always emits ``""``.
+    - ``jira_action_status`` — APPLIER advances ``pending`` →
+      ``in_flight`` → ``applied``/``failed`` (#1557 risk_analyst R7);
+      idempotency depends on ``applied`` surviving re-populate so the
+      next apply skips it instead of re-creating the Jira issue.
+    - ``jira_key`` — APPLIER writes the freshly-allocated key back after
+      a ``create`` action so re-runs skip the create; plan parser emits
+      ``None`` on ``create`` actions, so re-populate would otherwise
+      strand the applier into creating duplicate tickets.
+    """
+    old_by_id = {s.id: s for s in (old_slices or [])}
+    for new_slice in new_slices:
+        old_slice = old_by_id.get(new_slice.id)
+        if old_slice is None:
+            continue
+        # Slice-level runtime state stamped by ``_run_one_slice_inner``
+        # and the bootstrap reconciler — never re-derivable from the plan.
+        new_slice.status = old_slice.status
+        new_slice.parent_branch_at_creation = old_slice.parent_branch_at_creation
+        new_slice.integration_base_sha = old_slice.integration_base_sha
+        new_slice.commit = old_slice.commit
+        new_slice.review_cycles = old_slice.review_cycles
+        # Defensive copy so post-merge mutations of the discarded ``old``
+        # contract don't alias-leak into the live ``new`` contract.
+        new_slice.review_feedback = list(old_slice.review_feedback)
+        new_slice.escalated = old_slice.escalated
+        new_slice.escalation_reason = old_slice.escalation_reason
+        # Task-level runtime state: match by task id so a re-plan that
+        # adds/removes tasks still preserves completion of the survivors.
+        old_tasks_by_id = {t.id: t for t in old_slice.tasks}
+        for new_task in new_slice.tasks:
+            old_task = old_tasks_by_id.get(new_task.id)
+            if old_task is None:
+                continue
+            new_task.status = old_task.status
+            new_task.commit = old_task.commit
+            new_task.checkpoint_id = old_task.checkpoint_id
+            new_task.review_cycles = old_task.review_cycles
+            new_task.escalated = old_task.escalated
+            # Paired SYSTEM-owned impasse-delegation state — preserving
+            # the counter without the role would silently undo the
+            # delegation on restart (see docstring).
+            new_task.role = old_task.role
+            new_task.delegation_attempts = old_task.delegation_attempts
+            new_task.gaps = list(old_task.gaps)
+            # Runtime narrative + applier idempotency anchors. The
+            # plan parser cannot reconstruct any of these — see the
+            # docstring for the per-field invariants.
+            new_task.notes = old_task.notes
+            new_task.jira_action_status = old_task.jira_action_status
+            new_task.jira_key = old_task.jira_key
+
+
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
@@ -19973,6 +20106,11 @@ def _populate_contract_from_plan(
                 # ``plan_review_feedback`` stash above is the durable
                 # signal the reviewer prompt picks up either way.
                 raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
+            # Preserve runtime slice/task progress across re-populates so
+            # the safety-net populator (which fires on every
+            # ``start_phase=implement`` restart) cannot reset COMPLETE
+            # slices to PENDING and strand the pipeline on slice-1 (#2908).
+            _merge_preserved_slice_runtime(contract_slices, contract.slices)
             contract.slices = contract_slices
             changed = True
 

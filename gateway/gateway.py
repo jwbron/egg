@@ -198,7 +198,7 @@ try:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from .repo_parser import parse_owner_repo
+    from .repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
     from .repo_visibility import get_repo_visibility
     from .session_manager import (
         get_session_manager,
@@ -354,7 +354,10 @@ except ImportError:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-untyped]
+    from repo_parser import (  # type: ignore[no-redef, import-untyped]
+        OWNER_REPO_PATTERN,
+        parse_owner_repo,
+    )
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
     from session_manager import (  # type: ignore[no-redef, import-untyped]
         get_session_manager,
@@ -4872,6 +4875,123 @@ def gh_execute() -> tuple[Response, int] | Response:
             status_code=500,
             details=result.to_dict(),
         )
+
+
+@app.route("/api/v1/gh/find_open_pr", methods=["POST"])
+@require_launcher_auth
+def gh_find_open_pr() -> tuple[Response, int] | Response:
+    """Control-plane idempotency lookup: return the open ``head → base`` PR number.
+
+    This is an **orchestrator-only** route, gated by ``@require_launcher_auth``
+    rather than ``@require_session_auth``: the caller is the control plane
+    (the orchestrator holds the launcher secret), not a sandboxed agent. It
+    exists so the orchestrator's slice-PR idempotency pre-flight (#2777 cq-8)
+    does not have to register a synthetic *agent* session and impersonate a
+    role on ``/api/v1/gh/execute`` — the conflation that #2893 papered over by
+    adding a bogus ``AgentRole.ORCHESTRATOR``. The orchestrator is not an
+    agent role; it is the server that manages pipelines, so it authenticates
+    as the control plane and uses a purpose-built read-only endpoint.
+
+    Unlike ``/api/v1/gh/execute`` (arbitrary allowlisted argv), this route
+    accepts only ``repo``/``head``/``base`` and constructs the fixed
+    read-only argv server-side, so there is no general gh-command surface on
+    the launcher-auth path.
+
+    Request body:
+        {"repo": "owner/name", "head": "<branch>", "base": "<branch>"}
+
+    Returns:
+        ``{"number": <int>}`` on hit, ``{"number": null}`` on miss. The GH
+        API documents at most one open PR per (head, base) tuple, so the
+        lookup is ``--limit 1``.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    # Validate and bind stripped values in one pass so mypy sees ``repo``
+    # / ``head`` / ``base`` as ``str`` (not the ``Any`` returned by
+    # ``data.get(...)``) below.
+    fields: dict[str, str] = {}
+    for name, value in (
+        ("repo", data.get("repo")),
+        ("head", data.get("head")),
+        ("base", data.get("base")),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            return make_error(f"Missing or invalid {name}: must be a non-empty string")
+        fields[name] = value.strip()
+    repo, head, base = fields["repo"], fields["head"], fields["base"]
+
+    # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
+    # also accepts full GitHub URLs); the docstring and the validation
+    # error below both promise the literal ``owner/name`` shape, so we
+    # match against the pattern directly rather than the URL-permissive
+    # helper.
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    args = [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--head",
+        head,
+        "--base",
+        base,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        # ``gh`` should not print credentials to stderr, but truncate
+        # defensively so we never page a giant stderr blob into the
+        # audit log.
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_find_open_pr_failed",
+            "gh_find_open_pr",
+            success=False,
+            details={"repo": repo, "head": head, "base": base, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    number: int | None = None
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            items = json.loads(stdout)
+        except ValueError, TypeError:
+            items = None
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("number") is not None:
+                    try:
+                        number = int(item["number"])
+                    except TypeError, ValueError:
+                        number = None
+                    break
+
+    audit_log(
+        "gh_find_open_pr",
+        "gh_find_open_pr",
+        success=True,
+        details={"repo": repo, "head": head, "base": base, "number": number},
+    )
+    return make_success("Open PR lookup complete", {"number": number})
 
 
 # =============================================================================

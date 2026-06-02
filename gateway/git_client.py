@@ -1728,6 +1728,29 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
+def _patch_ids_for_commits(repo_path: str, shas: list[str]) -> dict[str, str | None]:
+    """Bulk ``git patch-id --stable`` for ``shas`` via the gateway's hardened argv.
+
+    Push-time recovery helper for #2932: a rebase rewrites SHAs but the
+    patch-id is content-stable, so the original author is recoverable.
+    Delegates to ``commit_observer.patch_ids_for_commits`` (registration
+    side) so the two sides share one implementation; we just inject the
+    gateway's ``git_cmd`` argv builder so the safe-directory / hooks-path
+    / gc settings still apply.
+
+    Returns a dict keyed by every input SHA — string when git emitted a
+    patch-id, ``None`` for merge / empty / rename-only commits or any git
+    failure (the commit then stays fail-closed in the caller).
+    """
+    try:
+        from .commit_observer import patch_ids_for_commits
+    except ImportError:
+        from commit_observer import (  # type: ignore[no-redef,import-untyped]
+            patch_ids_for_commits,
+        )
+    return patch_ids_for_commits(repo_path, shas, git_cmd=git_cmd)
+
+
 # Reserved attribution role for commits created by egg infrastructure
 # (the orchestrator state-file committer, the salvage helper, and the
 # auto-formatter — which rides on the orchestrator's identity rather than
@@ -1917,13 +1940,62 @@ def get_attributed_changed_files_in_push(
                 missing=len(requested_shas - received_shas),
             )
 
+    # #2932: rescue commits whose SHA the registry never saw because a
+    # rebase rewrote them.  The patch-id is stable across the SHA rewrite,
+    # so for any commit still unattributed we compute its patch-id and ask
+    # the registry which role authored a commit with that patch-id.  Only a
+    # byte-identical diff matches, and an ambiguous patch-id resolves to
+    # ``None`` (registry-side), so this preserves #2039's fail-closed
+    # intent: it can only recover an attribution, never fabricate a bypass.
+    if commits and registry_client is not None:
+        lookup_patch_ids = getattr(registry_client, "lookup_patch_ids", None)
+        if callable(lookup_patch_ids):
+            unattributed = [sha for sha in commits if attribution.get(sha) is None]
+            sha_to_patch: dict[str, str] = {}
+            if unattributed:
+                # One batched ``git log --no-walk -p | git patch-id`` rather
+                # than N pairs of subprocess spawns — a recovery rebase that
+                # touches dozens of commits stays linear in git, not in
+                # Python process overhead.
+                for sha, pid in _patch_ids_for_commits(repo_path, unattributed).items():
+                    if pid:
+                        sha_to_patch[sha] = pid
+            if sha_to_patch:
+                try:
+                    patch_attr = dict(lookup_patch_ids(sorted(set(sha_to_patch.values()))))
+                except Exception:
+                    logger.warning(
+                        "commit_authorship_patch_lookup_exception",
+                        repo_path=repo_path,
+                        branch=branch,
+                        exc_info=True,
+                    )
+                    patch_attr = {}
+                recovered: list[str] = []
+                for sha, pid in sha_to_patch.items():
+                    role = patch_attr.get(pid)
+                    if role:
+                        attribution[sha] = role
+                        recovered.append(sha)
+                if recovered:
+                    logger.info(
+                        "commit_authorship_patch_id_recovery",
+                        repo_path=repo_path,
+                        branch=branch,
+                        session_role=session_role,
+                        recovered=len(recovered),
+                        shas=recovered,
+                    )
+
     # #2927: rescue commits the registry never saw because they were created
     # by egg infrastructure (orchestrator state-file commits, auto-formatter,
     # salvage) outside any agent session.  Without this, such commits stay
     # ``None`` and the push handler treats them as own-authored (fail-closed),
     # wedging a producer whose branch merely inherited them.  We only relax
     # for committers in the trusted infra allowlist; unknown unregistered
-    # authors remain ``None`` and continue to fail closed.
+    # authors remain ``None`` and continue to fail closed.  Runs after the
+    # #2932 patch-id rescue so a rebased *agent* commit is still attributed
+    # to its original role rather than being reclassified as infra.
     infra_exempted: list[str] = []
     for sha in commits:
         if attribution.get(sha) is not None:
