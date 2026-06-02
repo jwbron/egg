@@ -10403,10 +10403,24 @@ def _resolve_slice_base_branch(
             ``pipeline_branch`` (parent merged + cascade-deleted); a
             raised exception is treated conservatively as ``True``.
             The default ``_run_one_slice_inner`` caller wires this
-            against ``spawner.gateway.get_remote_branch_sha``; the
+            against ``spawner.gateway.ls_remote_branch_strict`` — the
+            strict variant is required so a gateway / network /
+            policy failure RAISES into this resolver's ``try/except``
+            instead of being collapsed to ``False`` (which would
+            silently route a real slice onto ``pipeline_branch`` on
+            any gateway flake — re-creating the #2928 wedge). The
             stacked-PR reconciler leaves it ``None`` (it has already
             verified extant branches via the ``extant_branches``
             set).
+
+            Mutually exclusive with ``extant_branches`` in practice:
+            the production caller (``_run_one_slice_inner``) passes
+            only this gate, and the stacked-PR reconciler passes only
+            ``extant_branches``. If a future caller passed both, this
+            gate would short-circuit to ``pipeline_branch`` on a
+            ``False`` return BEFORE the ``extant_branches`` walk
+            could find an extant ancestor; callers that have already
+            built the extant set should leave this ``None``.
 
     Returns:
         The branch name to use as the slice integration branch's
@@ -16373,16 +16387,27 @@ def _run_implement_phase_slices(
                 # ``True`` (no origin to check; the derived parent is
                 # the correct DAG target), mirroring the resolver's
                 # conservative "assume parent exists" default.
+                #
+                # IMPORTANT: this wrapper calls the STRICT ls-remote
+                # variant (``ls_remote_branch_strict``) so a gateway /
+                # network / policy failure RAISES into the resolver's
+                # ``try/except`` instead of being collapsed to
+                # ``False``. The lenient ``ls_remote_branch`` /
+                # ``get_remote_branch_sha`` helpers swallow all
+                # exceptions and return ``False`` / ``None`` for both
+                # "branch absent" AND "gateway error" — using either
+                # here would silently route a real slice onto
+                # ``pipeline_branch`` on a flaky gateway, re-creating
+                # the #2928 wedge that this PR claims to fix.
                 def _probe_parent_branch_exists(parent_branch: str) -> bool:
                     if not pipeline.repo:
                         return True
-                    sha = spawner.gateway.get_remote_branch_sha(
+                    return spawner.gateway.ls_remote_branch_strict(
                         pipeline_id,
                         str(worktree_repo_path),
                         f"refs/heads/{parent_branch}",
                         mode=gateway_mode,  # type: ignore[arg-type]
                     )
-                    return bool(sha)
 
                 parent_branch = _resolve_slice_base_branch(
                     contract,

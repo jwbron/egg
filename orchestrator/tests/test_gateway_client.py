@@ -2063,6 +2063,133 @@ class TestListRemoteBranchesWithShasOperationTag:
         assert registered_id == "pipeline-1-stacked-pr-ls-remote"
 
 
+class TestLsRemoteBranchStrict:
+    """Tests for ``ls_remote_branch_strict`` — the strict tri-state
+    ls-remote helper (#2928).
+
+    The lenient ``ls_remote_branch`` swallows gateway/network/policy
+    failures and returns ``False`` — collapsing "branch absent on
+    origin" with "probe could not be performed". That is unsafe for
+    the ``_resolve_slice_base_branch`` parent-existence gate, which
+    treats ``False`` as "parent merged + cascade-deleted → route the
+    slice onto ``pipeline_branch``" but a raised probe as "conservative
+    default: assume the parent exists". The strict variant exists to
+    preserve that distinction.
+    """
+
+    def test_present_branch_returns_true(self, gateway_client):
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(gateway_client, "register_session", return_value=session),
+            patch.object(gateway_client, "delete_session"),
+            patch.object(
+                gateway_client,
+                "_make_request",
+                return_value={"data": {"stdout": "abc123\trefs/heads/egg/issue-X/slice-1\n"}},
+            ),
+        ):
+            result = gateway_client.ls_remote_branch_strict(
+                pipeline_id="issue-X",
+                repo_path="/tmp/x",
+                ref="refs/heads/egg/issue-X/slice-1",
+            )
+        assert result is True
+
+    def test_absent_branch_returns_false(self, gateway_client):
+        """An empty ls-remote stdout means the ref is absent on origin —
+        this is the canonical FALSE return the resolver uses to route
+        onto ``pipeline_branch``."""
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(gateway_client, "register_session", return_value=session),
+            patch.object(gateway_client, "delete_session"),
+            patch.object(
+                gateway_client,
+                "_make_request",
+                return_value={"data": {"stdout": ""}},
+            ),
+        ):
+            result = gateway_client.ls_remote_branch_strict(
+                pipeline_id="issue-X",
+                repo_path="/tmp/x",
+                ref="refs/heads/egg/issue-X/slice-1",
+            )
+        assert result is False
+
+    def test_gateway_error_raises(self, gateway_client):
+        """The strict contract: a GatewayError from the underlying
+        ``/git/fetch`` call MUST propagate to the caller — NOT be
+        swallowed and returned as ``False``. This is what makes the
+        method usable as the parent-existence probe in
+        ``_resolve_slice_base_branch``: the resolver's ``try/except``
+        catches the raised error and applies the conservative
+        "assume parent exists" default, instead of mis-routing a
+        real slice onto ``pipeline_branch`` on a flaky gateway (#2928).
+        """
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(gateway_client, "register_session", return_value=session),
+            patch.object(gateway_client, "delete_session"),
+            patch.object(
+                gateway_client,
+                "_make_request",
+                side_effect=GatewayError("gateway is down", status_code=502),
+            ),
+            pytest.raises(GatewayError, match="gateway is down"),
+        ):
+            gateway_client.ls_remote_branch_strict(
+                pipeline_id="issue-X",
+                repo_path="/tmp/x",
+                ref="refs/heads/egg/issue-X/slice-1",
+            )
+
+    def test_register_session_error_raises(self, gateway_client):
+        """A failure during session bootstrap (auth / network) MUST
+        propagate. Lenient ``ls_remote_branch`` would log + return
+        ``False``; the strict variant must NOT."""
+        with (
+            patch.object(
+                gateway_client,
+                "register_session",
+                side_effect=GatewayError("register failed", status_code=500),
+            ),
+            patch.object(gateway_client, "delete_session"),
+            pytest.raises(GatewayError, match="register failed"),
+        ):
+            gateway_client.ls_remote_branch_strict(
+                pipeline_id="issue-X",
+                repo_path="/tmp/x",
+                ref="refs/heads/egg/issue-X/slice-1",
+            )
+
+    def test_session_deleted_on_error(self, gateway_client):
+        """Even when ``_make_request`` raises, the synthetic session
+        MUST be torn down in the ``finally`` block — otherwise we leak
+        gateway state every time the probe encounters a flaky network.
+        """
+        session = MagicMock()
+        session.session_token = "synthetic-token-xyz"
+        with (
+            patch.object(gateway_client, "register_session", return_value=session),
+            patch.object(gateway_client, "delete_session") as mock_del,
+            patch.object(
+                gateway_client,
+                "_make_request",
+                side_effect=GatewayError("boom", status_code=502),
+            ),
+        ):
+            with pytest.raises(GatewayError):
+                gateway_client.ls_remote_branch_strict(
+                    pipeline_id="issue-X",
+                    repo_path="/tmp/x",
+                    ref="refs/heads/egg/issue-X/slice-1",
+                )
+        mock_del.assert_called_once_with("synthetic-token-xyz")
+
+
 class TestSingletonClient:
     """Tests for singleton client."""
 

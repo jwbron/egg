@@ -3123,6 +3123,59 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def ls_remote_branch_strict(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Check if a remote branch exists using ls-remote.
+
+        Strict variant of :meth:`ls_remote_branch`: a gateway / network
+        / policy failure RAISES rather than collapsing to ``False``.
+        Use this when the caller needs to distinguish "branch absent
+        on origin" from "probe could not be performed" — for example,
+        ``_resolve_slice_base_branch`` (#2928) routes a confirmed
+        absent parent onto ``pipeline_branch`` but treats a raised
+        probe as "assume parent exists" so a flaky gateway never
+        silently swaps a real slice onto ``work``. The lenient
+        :meth:`ls_remote_branch` collapses those two outcomes and is
+        unsafe for that gate.
+        """
+        temp_container_id = f"{pipeline_id}-state-ls-remote-strict"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            result = self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "operation": "ls-remote",
+                    "args": ["--heads", ref],
+                },
+                bearer_token=session_token,
+            )
+
+            stdout = (result or {}).get("data", {}).get("stdout", "")
+            return bool(stdout.strip())
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def get_remote_branch_sha(
         self,
         pipeline_id: str,
