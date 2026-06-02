@@ -7,7 +7,6 @@ as MCP tools: message_wait, message_wait_loop, message_heartbeat.
 from __future__ import annotations
 
 import sys
-import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -318,9 +317,16 @@ class TestMessageWaitLoop:
         assert resp["cursor"] == "tip-b"
 
 
-
 class TestMessageHeartbeat:
-    def test_happy_path(self):
+    def test_happy_path(self, monkeypatch):
+        # Clear ``EGG_SLICE_ID`` so the deterministic assertion below is
+        # not perturbed by ``_maybe_attach_slice_id`` reading the env var
+        # in agent-pod runs (slice-4 tester hardening: previously this
+        # test only passed in environments without ``EGG_SLICE_ID``,
+        # i.e. local dev and CI, but failed inside the agent pod where
+        # the orchestrator exports ``EGG_SLICE_ID`` into the agent
+        # process).
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
         with patch(
             "egg_agent_tools.handlers.message.orchestrator_request",
             return_value={"success": True, "data": {"deduped": False}},
@@ -389,3 +395,111 @@ class TestMessageHeartbeat:
         ):
             with pytest.raises(GatewayError):
                 message.message_heartbeat({"pipeline_id": "p", "role": "coder", "state": "WORKING"})
+
+
+# ---------------------------------------------------------------------------
+# Slice-4 task-4-2 tester hardening
+# ---------------------------------------------------------------------------
+#
+# Task-4-2 deleted the agent-side ``message_wait_loop`` heartbeat /
+# gateway-session keep-alive path from ``handlers/message.py``. The
+# event-pump wrapper (``orchestrator/consensus_wrapper.py``) now owns
+# both responsibilities. Pin the deletion so any future regression that
+# re-introduces the agent-side helpers (and re-creates the double-
+# heartbeat / double keep-alive bug) trips a test instead of silently
+# regressing live traffic.
+
+
+class TestSliceFourHeartbeatHelpersDeleted:
+    """Slice-4 task-4-2 deleted:
+
+    * ``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS`` — the 60 s cadence constant.
+    * ``_default_emit_wait_loop_heartbeat`` — the agent-side emit helper.
+    * ``_start_wait_loop_heartbeat`` — the threaded periodic-tick helper.
+    * The per-iteration ``_emit_heartbeat`` hooks inside
+      ``message_wait_loop`` (now silently stripped from the inner
+      request payload so older tests don't 400 the wait endpoint).
+
+    The migration moved ownership to the wrapper's
+    ``start_background_heartbeat`` subshell. These hardening assertions
+    pin the deletion against partial regressions (e.g. a stub that
+    re-exports the constant but does nothing).
+    """
+
+    def test_wait_loop_heartbeat_interval_constant_not_importable(self):
+        """The ``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS`` 60 s constant was
+        deleted. A leftover stub would let callers silently rely on a
+        cadence the agent-side path no longer honors.
+        """
+        assert not hasattr(message, "_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS"), (
+            "_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS still exposed by "
+            "handlers/message.py; slice-4 task-4-2 deleted it. The "
+            "wrapper's EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT is "
+            "the replacement."
+        )
+
+    def test_default_emit_wait_loop_heartbeat_not_importable(self):
+        """The default-emit helper that drove the per-iteration WAITING
+        heartbeat was deleted. A leftover would silently double-emit
+        heartbeats on every wait_loop invocation now that the wrapper
+        owns the same cadence.
+        """
+        assert not hasattr(message, "_default_emit_wait_loop_heartbeat"), (
+            "_default_emit_wait_loop_heartbeat still exposed by "
+            "handlers/message.py; slice-4 task-4-2 deleted it. "
+            "Re-introducing the agent-side emit path would double-"
+            "heartbeat alongside the wrapper subshell."
+        )
+
+    def test_start_wait_loop_heartbeat_not_importable(self):
+        """The threaded periodic-tick helper that spawned the heartbeat
+        daemon thread was deleted.
+        """
+        assert not hasattr(message, "_start_wait_loop_heartbeat"), (
+            "_start_wait_loop_heartbeat still exposed by "
+            "handlers/message.py; slice-4 task-4-2 deleted it. "
+            "Re-introducing the daemon thread would conflict with the "
+            "wrapper's start_background_heartbeat subshell ownership."
+        )
+
+    def test_wait_loop_strips_legacy_heartbeat_hooks_from_inner_request(self):
+        """``message_wait_loop`` post-task-4-2 strips the legacy
+        ``_emit_heartbeat`` / ``_heartbeat_interval`` / ``_start_heartbeat``
+        hooks from the inner ``message_wait`` payload before forwarding,
+        so older tests/callers that still pass them don't end up with
+        the hooks leaking through to the wait endpoint (which would 400
+        on unknown query params).
+
+        We verify by patching ``message_wait`` and asserting the hooks
+        do NOT appear in the call args.
+        """
+        seen_inner: list[dict] = []
+
+        def fake_wait(req):
+            seen_inner.append(dict(req))
+            return {"ok": True, "matched": True, "messages": [{"id": "m1"}], "cursor": "c1"}
+
+        with patch("egg_agent_tools.handlers.message.message_wait", side_effect=fake_wait):
+            resp = message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "role": "coder",
+                    "for_types": ["CONSENSUS_ACK"],
+                    # These three are the legacy hooks slice-4 task-4-2
+                    # deleted alongside the heartbeat helpers. A
+                    # transitional caller passing them must NOT have them
+                    # leak through to the inner wait request.
+                    "_emit_heartbeat": lambda *a, **kw: None,
+                    "_heartbeat_interval": 0,
+                    "_start_heartbeat": lambda *a, **kw: None,
+                }
+            )
+        assert resp["matched"] is True
+        assert seen_inner, "message_wait was not called by message_wait_loop"
+        inner = seen_inner[0]
+        for legacy_hook in ("_emit_heartbeat", "_heartbeat_interval", "_start_heartbeat"):
+            assert legacy_hook not in inner, (
+                f"legacy hook {legacy_hook!r} leaked into the inner "
+                "message_wait payload; the wait endpoint would 400 on "
+                "the unknown query param. wait_loop must strip these."
+            )

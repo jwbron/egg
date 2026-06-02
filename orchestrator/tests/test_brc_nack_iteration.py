@@ -832,4 +832,8 @@ class TestDuplicatePhaseGatePrevention:
 # the equivalent tests live in
 # ``orchestrator/tests/test_compose_event_prompt.py``
 # (look for ``test_*_nack*``).
-        assert "unresolved_nacks" in _CONSENSUS_WRAPPER_TEMPLATE
+#
+# (The dangling ``assert "unresolved_nacks" in _CONSENSUS_WRAPPER_TEMPLATE``
+# orphan line that lived just below this comment block — a stub from
+# the deleted class that referenced the now-deleted module constant —
+# was removed by slice-4 tester hardening.)
