@@ -79,10 +79,11 @@ EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT = 60
 
 
 # Event-pump bash template (#2908 task-2-1). Composed by
-# ``build_consensus_wrapped_command`` when ``EGG_BRC_EVENT_PUMP=true`` is
-# set on the orchestrator pod at composition time. The pump is a
-# deterministic loop that calls ``egg-orch brc get-state`` +
-# ``egg-orch brc next-action`` to decide what to do next, blocks on
+# ``build_consensus_wrapped_command`` — the only template path
+# post-slice-4 task-4-2 (the legacy capped-restart template and the
+# ``EGG_BRC_EVENT_PUMP`` env-flag read were deleted in that task).
+# The pump is a deterministic loop that calls ``egg-orch brc get-state``
+# + ``egg-orch brc next-action`` to decide what to do next, blocks on
 # ``egg-orch message wait-loop`` while emitting wrapper-owned heartbeats
 # (#2036 + #2451 migrated out of the agent-side ``message_wait_loop``
 # handler), and invokes the agent one-shot via ``python3 -m egg_agent``
@@ -729,21 +730,20 @@ def build_event_pump_wrapped_command(
 ) -> list[str]:
     """Compose the event-pump wrapper bash command (#2908 task-2-1).
 
-    Public entry-point so tests can build the event-pump template
-    deterministically without setting ``EGG_BRC_EVENT_PUMP`` in the
-    test environment. ``build_consensus_wrapped_command`` delegates
-    here when the env flag is true.
+    Public entry-point retained so tests and
+    ``build_consensus_wrapped_command`` (which now unconditionally
+    delegates here post slice-4 task-4-2) share one composer.
 
-    The ``prompt_text`` argument is the *initial* prompt used today
-    by the legacy template; the event-pump emits its own per-event
-    prompts inside ``invoke_agent_for_event``, so the initial prompt
-    is not interpolated into the bash directly. We accept it for
-    interface parity with ``build_consensus_wrapped_command`` and so
-    a future revision can choose to pass it through (e.g. as a
-    bootstrap prompt for the first ``propose`` event in slice-3
-    when ``compose_event_prompt`` is wired up).
+    The ``prompt_text`` argument is kept for signature parity with
+    the legacy capped-restart entry-point that task-4-2 deleted; the
+    event-pump emits its own per-event prompts inside
+    ``invoke_agent_for_event`` from the rendered ``compose_event_prompt``
+    output (slice-3 task-3-1), so the initial prompt is not
+    interpolated into the bash directly. A future revision could
+    choose to pass it through as a bootstrap prompt for the first
+    ``propose`` event without breaking the public signature.
     """
-    del prompt_text  # reserved for slice-3 / interface parity (see docstring)
+    del prompt_text  # interface parity with the deleted legacy entry-point
 
     agent_prefix_parts = [
         "python3",

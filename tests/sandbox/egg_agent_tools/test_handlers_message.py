@@ -318,15 +318,17 @@ class TestMessageWaitLoop:
 
 
 class TestMessageHeartbeat:
-    def test_happy_path(self, monkeypatch):
-        # Clear ``EGG_SLICE_ID`` so the deterministic assertion below is
-        # not perturbed by ``_maybe_attach_slice_id`` reading the env var
-        # in agent-pod runs (slice-4 tester hardening: previously this
-        # test only passed in environments without ``EGG_SLICE_ID``,
-        # i.e. local dev and CI, but failed inside the agent pod where
-        # the orchestrator exports ``EGG_SLICE_ID`` into the agent
-        # process).
+    @pytest.fixture(autouse=True)
+    def _isolate_slice_id_env(self, monkeypatch):
+        """``message_heartbeat`` auto-attaches ``slice_id`` from
+        ``EGG_SLICE_ID`` via ``_maybe_attach_slice_id``. Clear it so
+        the request-body shape assertions in this class are
+        deterministic across developer machines that may have
+        ``EGG_SLICE_ID`` exported (e.g. the egg sandbox).
+        """
         monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+
+    def test_happy_path(self):
         with patch(
             "egg_agent_tools.handlers.message.orchestrator_request",
             return_value={"success": True, "data": {"deduped": False}},

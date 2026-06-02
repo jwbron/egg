@@ -543,7 +543,9 @@ def record_review(
 ) -> None:
     """Record a review event in the writer's per-role memory file.
 
-    No-op when ``EGG_BRC_MEMORY`` is ``off`` (the default).
+    No-op when ``EGG_BRC_MEMORY`` is ``off``. The default since slice-4
+    task-4-1 is ``full``, so production agents write by default; setting
+    ``EGG_BRC_MEMORY=off`` is the one-release rollback escape hatch.
 
     Args:
         role: Writer's role override. Defaults to ``$EGG_AGENT_ROLE``.

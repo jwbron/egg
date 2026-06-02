@@ -13,8 +13,9 @@ their coverage is folded into the event-pump test classes below.
 import os
 import shlex
 import subprocess
-import sys  # noqa: F401  -- used by behavioural tests below via sys.executable
-from pathlib import Path
+import sys
+
+import pytest
 
 # ``build_event_pump_wrapped_command`` is re-exported here so future
 # tests in this file can import it through the test module's namespace;
@@ -231,13 +232,16 @@ class TestEventPumpHeartbeatCadence:
             "without this wiring (risk_analyst R9)."
         )
 
-    # ``test_flag_off_heartbeat_path_unchanged`` was deleted by slice-4
-    # tester hardening: it pinned the *legacy* capped-restart template
-    # (asserting it did NOT take on wrapper-side heartbeating). Task-4-2
-    # deleted that template; the event-pump template is now the only
-    # production path AND it owns wrapper-side heartbeating, so the
-    # assertion is structurally inverted. The post-deletion analogue is
-    # ``test_flag_on_emits_heartbeat_subshell`` above.
+    # Note: slice-2's ``test_flag_off_heartbeat_path_unchanged`` was
+    # deleted by slice-4 task-4-2. The legacy template (and its
+    # "no wrapper-side heartbeat under flag-off" invariant) no longer
+    # exists; the agent-side ``handlers/message.py:_default_emit_wait_loop_heartbeat``
+    # was deleted alongside the legacy template, so the double-heartbeat
+    # bus-spam scenario that test guarded against is also gone. The
+    # wrapper now unconditionally emits the wrapper-owned heartbeat
+    # subshell (see ``test_flag_on_emits_heartbeat_subshell`` /
+    # ``test_flag_on_emits_heartbeat_subshell_template_marker`` for
+    # the post-deletion invariant).
 
 
 class TestEventPumpKeepAliveCadence:
@@ -266,24 +270,22 @@ class TestEventPumpKeepAliveCadence:
             "401."
         )
 
-    # ``test_flag_off_keep_alive_remains_agent_side`` was deleted by
-    # slice-4 tester hardening: it pinned the legacy capped-restart
-    # template that task-4-2 deleted, and was previously only passing
-    # because ``EVENT_PUMP`` happens not to appear as an uppercase
-    # substring in the rendered event-pump bash. With the legacy
-    # template gone there is no "agent-side keep-alive" path to keep
-    # untouched — the event-pump owns gateway-session keep-alive end-
-    # to-end (verified by ``test_flag_on_emits_keep_alive_subshell``).
+    # Note: slice-2's ``test_flag_off_keep_alive_remains_agent_side`` was
+    # deleted by slice-4 task-4-2. The legacy template is gone and the
+    # agent-side keep-alive (which lived inside ``message_wait_loop``'s
+    # heartbeat path) was deleted along with the legacy template, so
+    # the "old path unchanged" invariant no longer applies.
 
 
 class TestEventPumpIdleBudgetAlert:
     """(v) Idle / no-progress safety budget driven by env
-    ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When the new template path
-    is active and no actionable event has arrived for the budget
-    duration, the wrapper emits
+    ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When no actionable event
+    has arrived for the budget duration, the wrapper emits
     ``mcp__progress__overseer_alert`` (anomaly
     ``stuck-phase-transition``, priority ``high``) and continues
-    blocking. The old template keeps ``MAX_CONSENSUS_RESTARTS`` verbatim.
+    blocking. The legacy template that owned the historical restart
+    cap was deleted in slice-4 task-4-2; the idle budget is now the
+    only liveness ceiling in the wrapper.
 
     NOTE: Per scope update on #2908 issue body and contract cq-3, the
     durable server-side ``Pipeline.no_progress_budget`` is the binding
@@ -364,14 +366,13 @@ class TestEventPumpIdleBudgetAlert:
             "MUST continue blocking (plan line 867-868)."
         )
 
-    # ``test_flag_off_idle_budget_not_used`` was deleted by slice-4
-    # tester hardening: the assertion was that the legacy template must
-    # NOT reference ``EGG_BRC_IDLE_BUDGET_MIN``, but task-4-2 deleted
-    # the legacy template — the event-pump template is now the only
-    # production path AND it does reference ``EGG_BRC_IDLE_BUDGET_MIN``
-    # (correctly, as the idle-budget gate that replaced
-    # MAX_CONSENSUS_RESTARTS). The post-deletion analogue is
-    # ``test_flag_on_idle_budget_default_30_minutes`` above.
+    # Note: slice-2's ``test_flag_off_idle_budget_not_used`` was deleted
+    # by slice-4 task-4-2. The legacy template is gone; the unset-env
+    # path now emits the event-pump template, which DOES reference
+    # ``EGG_BRC_IDLE_BUDGET_MIN``. The "legacy template keeps the
+    # 3-restart cap verbatim" invariant no longer applies — see
+    # ``test_idle_budget_default_30_min_in_script`` for the post-deletion
+    # invariant.
 
 
 class TestEventPumpStaleVersionRefetch:
@@ -472,14 +473,16 @@ class TestEventPumpRoleCompleteConfirm:
             "catches the pseudocode-typo the architect corrected."
         )
 
-    # ``test_flag_off_legacy_path_does_not_auto_call_consensus_confirmed``
-    # was deleted by slice-4 tester hardening: the legacy template that
-    # this test referenced no longer exists. The event-pump template
-    # legitimately auto-calls ``egg-orch consensus confirmed`` on the
-    # ``confirm`` / ``complete`` arms (the whole point of the event-
-    # pump model). The post-deletion analogue is
-    # ``test_flag_on_role_complete_calls_consensus_confirmed`` above,
-    # which pins the auto-confirm semantics on the only remaining path.
+    # Note: slice-2's ``test_flag_off_legacy_path_does_not_auto_call_consensus_confirmed``
+    # was deleted by slice-4 task-4-2. The legacy template is gone; the
+    # event-pump template DOES invoke ``egg-orch consensus confirmed``
+    # under the ``confirm`` / ``complete`` arms of the action loop (driven
+    # by ``brc next-action``, not auto-invoked on agent exit). The
+    # symmetry-guard concern (the wrapper auto-confirming on behalf of
+    # the agent) is now structurally impossible — the only invocations
+    # happen inside the ``case "$ACTION"`` arms which require an
+    # orchestrator-side derivation, not a wrapper-side timer or exit
+    # condition.
 
 
 class TestEventPumpWaitFilterConditional:
@@ -644,30 +647,36 @@ class TestEventPumpSliceIdHeartbeatEdge:
         )
 
 
-class TestEventPumpFlagIsolation:
-    """Cross-cutting guards: the flag-on / flag-off paths must remain
-    cleanly partitioned so a flip in slice-4 lands as a single bit
-    change with no surprise interactions.
+class TestEventPumpIdleBudgetCeiling:
+    """Post slice-4 task-4-2 the event-pump template is the only
+    template path and the ``EGG_BRC_EVENT_PUMP`` env flag is silently
+    inert (the legacy capped-restart template and the env-flag read
+    were both deleted). This class pins the surviving invariant: the
+    idle budget — not a restart cap — is the liveness ceiling for the
+    wrapper. Originally named ``TestEventPumpFlagIsolation`` (slice-2)
+    when the slice-2/3/4 split between event-pump and legacy paths
+    needed to be policed; renamed and trimmed in slice-4 task-4-2 to
+    match the post-deletion single-template world.
     """
 
-    def test_event_pump_does_not_inherit_legacy_max_restarts(self, monkeypatch):
-        """The new event-pump path replaces ``MAX_CONSENSUS_RESTARTS``
-        with the idle budget. The rendered bash MUST NOT reference
-        ``MAX_RESTARTS`` / ``MAX_CONSENSUS_RESTARTS``, and the idle-
-        budget env-var MUST be the operational ceiling. Slice-4 task-4-2
-        deleted the ``max_restarts`` kwarg on
-        ``build_consensus_wrapped_command`` along with the legacy
-        template — passing it now is a TypeError (this test's earlier
-        form asserted ``cmd = build_consensus_wrapped_command("Prompt",
-        max_restarts=7)`` and tripped on that signature change).
+    def test_event_pump_relies_on_idle_budget_not_legacy_restart_cap(self, monkeypatch):
+        """The event-pump path uses ``EGG_BRC_IDLE_BUDGET_MIN`` as the
+        liveness ceiling — the legacy restart cap was deleted by
+        slice-4 task-4-2 along with the ``max_restarts`` kwarg on
+        ``build_consensus_wrapped_command``.
+
+        Renamed and simplified from the original
+        ``test_flag_on_does_not_inherit_legacy_max_restarts``: the
+        kwarg is gone and the env flag is silently inert, so the test
+        no longer needs to drive either.
         """
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        monkeypatch.delenv("EGG_BRC_EVENT_PUMP", raising=False)
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        # Idle budget is the only ceiling on the event-pump path.
         assert "EGG_BRC_IDLE_BUDGET_MIN" in script, (
-            "flag-on path must rely on EGG_BRC_IDLE_BUDGET_MIN, not "
-            "MAX_RESTARTS (plan TASK-2-3 acceptance)."
+            "event-pump path must rely on EGG_BRC_IDLE_BUDGET_MIN as the "
+            "liveness ceiling (slice-4 task-4-2 deleted the legacy "
+            "restart cap)."
         )
         # Legacy cap symbols MUST NOT appear in the rendered bash.
         for legacy_token in ("MAX_RESTARTS", "MAX_CONSENSUS_RESTARTS"):
@@ -1061,10 +1070,12 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
         is never called on persistent failure). The combined
         regression is the alert-flood scenario worth catching here.
         """
-        # ``_event_pump_enabled`` is read at template-composition time
-        # (in this Python process), NOT inside the subprocess shell.
-        # Set the env var here so ``build_consensus_wrapped_command``
-        # emits the flag-on event-pump template body.
+        # ``EGG_BRC_EVENT_PUMP`` is silently inert after slice-4 task-4-2
+        # (the env-flag read was deleted along with the legacy template);
+        # this ``setenv`` is harmlessly retained so a future regression
+        # that re-introduces a flag-gated branch trips the test if it
+        # depends on the env. ``build_consensus_wrapped_command`` always
+        # emits the event-pump template body now.
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         # Stub directory on PATH ahead of the real egg-orch.
         bin_dir = tmp_path / "bin"
@@ -1296,358 +1307,9 @@ class TestEventPumpInvokesComposer:
             "action argv would silently break the CLI contract."
         )
 
-    # ``test_flag_off_legacy_template_does_not_reference_event_prompt``
-    # was deleted by slice-4 tester hardening: the legacy capped-restart
-    # template that this test pinned has been deleted by task-4-2. The
-    # event-pump template is now the only production path AND it
-    # legitimately references ``event_prompt.py`` and
-    # ``invoke_agent_for_event`` (the composer is now part of the only
-    # template). The post-deletion analogues live above:
-    # ``test_flag_on_template_references_event_prompt_script`` and
-    # ``test_flag_on_template_defines_invoke_agent_for_event``.
-
-
-# ---------------------------------------------------------------------------
-# Slice-4 task-4-2 tester hardening
-# ---------------------------------------------------------------------------
-#
-# The classes below pin invariants that the deletion in task-4-2 must hold
-# permanently, against partial regressions on future revisions. They are
-# additive coverage that the coder-authored tests did not include.
-#
-# Coverage axes:
-#
-#   * Defensive grep on the source file (task-4-2 acceptance criterion).
-#   * Symbol-not-importable: the deleted Python module-level symbols must
-#     stay un-importable so an accidental ``from consensus_wrapper import
-#     _RECOVERY_SYSTEM_PROMPT`` in any caller fails fast at import time.
-#   * ``EGG_BRC_MEMORY`` default flip (task-4-1 acceptance: off → full).
-#   * Bash classifier semantics — ``is_buffer_overflow`` /
-#     ``is_transient_crash`` / ``is_startup_failure`` were preserved by
-#     relocation per task-4-2 acceptance. Pin their semantics by sourcing
-#     the rendered template into a bash subshell and exercising each.
-#     These are "dead" today (the propose/ack/nack arm uses the
-#     consecutive-failure counter instead) but task-4-2 specifically calls
-#     out keeping them "as named helpers for future revisions" — a silent
-#     semantic regression on the relocated helpers would defeat that goal.
-
-
-class TestSliceFourDeletionInvariants:
-    """Slice-4 task-4-2 acceptance: ``rg
-    'consensus\\.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'
-    orchestrator/consensus_wrapper.py`` returns zero matches. The
-    coder's commit message asserts this passes; pin it as a test so a
-    future regression that reintroduces any of the deleted strings is
-    caught by the suite, not by manual operator review.
-
-    Distinct from the rendered-bash checks above (which only see the
-    template body): this scans the *source file* including the Python
-    constants, docstrings, and ``build_*`` function definitions.
-    Excludes docstring/comment mentions explaining the deletion itself
-    (e.g. "deleted ``_RECOVERY_SYSTEM_PROMPT``" in the module docstring).
-    """
-
-    # Forbidden tokens straight from the task-4-2 defensive grep
-    # acceptance criterion.
-    _FORBIDDEN_TOKENS = (
-        "_RECOVERY_SYSTEM_PROMPT",
-        "_RECOVERY_USER_PROMPT",
-        "MAX_CONSENSUS_RESTARTS",
-        "MAX_READY_POLL_CYCLES",
-        "TRANSIENT_RESTART_BACKOFF_INITIAL",
-        "_CONSENSUS_WRAPPER_TEMPLATE",
-        "_event_pump_enabled",
-        "consensus.reached",
-        "sse_url",
-    )
-
-    def _strip_audit_mentions(self, text: str) -> str:
-        """Strip lines that mention a forbidden token only to explain
-        the deletion (docstring / comment audit trail). We allow such
-        mentions because they document the slice-4 history; what we
-        forbid is *executable* re-introduction.
-
-        Heuristic: a line is an audit-mention if it starts with optional
-        whitespace + ``#`` (comment), is inside the module docstring
-        (triple-quote region), or is a docstring continuation inside a
-        triple-double-quote block. We strip comments + the module docstring
-        and audit the remainder.
-        """
-        import re
-
-        # Drop ``# ...`` comment lines (full-line comments only — inline
-        # comments after code are rare in this file and would be too
-        # broad a strip).
-        no_comments = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
-        # Drop ``"""..."""`` blocks (non-greedy, multiline).
-        no_docstrings = re.sub(r'"""[\s\S]*?"""', "", no_comments)
-        return no_docstrings
-
-    def test_defensive_grep_zero_executable_matches(self):
-        """Source-file scan: every forbidden token must be absent from
-        executable code. Comments / docstrings explaining the deletion
-        are allowed (they document the audit trail) but executable
-        re-introduction is not.
-        """
-        source = _CONSENSUS_WRAPPER_SOURCE.read_text()
-        executable_source = self._strip_audit_mentions(source)
-        for token in self._FORBIDDEN_TOKENS:
-            assert token not in executable_source, (
-                f"Forbidden token {token!r} found in executable code of "
-                f"{_CONSENSUS_WRAPPER_SOURCE.name}. "
-                "Slice-4 task-4-2 acceptance: `rg "
-                "'consensus.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|"
-                "MAX_CONSENSUS_RESTARTS' orchestrator/consensus_wrapper.py` "
-                "must return zero matches outside of audit-trail comments."
-            )
-
-    def test_legacy_python_symbols_not_importable(self):
-        """The Python module-level symbols that task-4-2 deleted must
-        stay un-importable. A caller anywhere in the codebase that
-        accidentally re-references ``_RECOVERY_SYSTEM_PROMPT`` /
-        ``MAX_CONSENSUS_RESTARTS`` / ``_event_pump_enabled`` must hit an
-        ImportError or AttributeError at import time, not silently
-        find a stale stub.
-        """
-        import consensus_wrapper
-
-        for symbol in (
-            "_RECOVERY_SYSTEM_PROMPT",
-            "_RECOVERY_USER_PROMPT",
-            "_CONSENSUS_WRAPPER_TEMPLATE",
-            "MAX_CONSENSUS_RESTARTS",
-            "MAX_READY_POLL_CYCLES",
-            "TRANSIENT_RESTART_BACKOFF_INITIAL",
-            "STARTUP_FAILURE_WINDOW_SECONDS",
-            "_event_pump_enabled",
-        ):
-            assert not hasattr(consensus_wrapper, symbol), (
-                f"consensus_wrapper still exposes legacy symbol {symbol!r}; "
-                "slice-4 task-4-2 deleted these. A leftover stub will let "
-                "callers silently keep referencing the old API."
-            )
-
-
-class TestEventPumpMemoryDefaultFlip:
-    """Slice-4 task-4-1 acceptance: ``EGG_BRC_MEMORY`` flipped from
-    unset → ``off`` to unset → ``full``. The rendered bash MUST use
-    ``${EGG_BRC_MEMORY:-full}`` (default ``full``) so the event-pump
-    composer reads memory by default when the env is unset.
-    """
-
-    def test_event_pump_memory_default_is_full(self, monkeypatch):
-        """Rendered bash uses ``EGG_BRC_MEMORY:-full``, NOT ``:-off``.
-        A regression that left the default as ``off`` would silently
-        disable durable BRC memory in production.
-        """
-        monkeypatch.delenv("EGG_BRC_MEMORY", raising=False)
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-        # Slice-4 task-4-1 flipped this default. The literal substring
-        # is the simplest pin.
-        assert "EGG_BRC_MEMORY:-full" in script or 'EGG_BRC_MEMORY="full"' in script, (
-            "rendered bash must default EGG_BRC_MEMORY to `full` per "
-            "slice-4 task-4-1 acceptance; a `:-off` default leaves the "
-            "durable memory path silently disabled in production."
-        )
-        # And the legacy ``:-off`` default MUST be gone.
-        assert "EGG_BRC_MEMORY:-off" not in script, (
-            "rendered bash still defaults EGG_BRC_MEMORY to `off`; "
-            "slice-4 task-4-1 required the flip to `full`."
-        )
-
-
-class TestEventPumpClassifierFunctionsRelocated:
-    """Slice-4 task-4-2 acceptance: ``is_buffer_overflow`` /
-    ``is_transient_crash`` / ``is_startup_failure`` classifiers were
-    preserved by relocating into ``_EVENT_PUMP_WRAPPER_TEMPLATE``. Pin
-    the bash-level semantics by sourcing the rendered template into a
-    subshell and calling each function with curated inputs.
-
-    These are not currently wired into the event-pump's
-    ``propose|ack|nack`` arm (per the docstring in the wrapper source),
-    but they survive the deletion as named helpers. A semantic
-    regression on the relocated helpers (wrong signal codes, wrong
-    grep pattern, wrong startup window) would silently defeat the
-    "kept for future revisions" goal in the task-4-2 acceptance.
-    """
-
-    @pytest.fixture
-    def classifier_harness(self, tmp_path, monkeypatch):
-        """Render the event-pump template, strip it down to just the
-        classifier function definitions, and return a path to a bash
-        script we can source into ``bash -c`` subshells.
-
-        Returns ``(harness_path: Path, agent_log: Path)``: ``agent_log``
-        is a temp file the harness can be told to use as
-        ``$AGENT_OUTPUT_LOG`` for ``is_buffer_overflow`` tests.
-        """
-        import re
-
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
-        cmd = build_consensus_wrapped_command("Prompt")
-        script = cmd[2]
-
-        # Extract the three classifier function bodies in one go. They
-        # live in a contiguous block per task-4-2's relocation. We
-        # capture from the start of ``is_buffer_overflow()`` through
-        # the closing ``}`` of ``is_startup_failure()``.
-        match = re.search(
-            r"is_buffer_overflow\(\) \{(?:.|\n)*?^\}\s*$",
-            script,
-            flags=re.MULTILINE,
-        )
-        if match is None:
-            pytest.fail(
-                "classifier block not found in rendered template; "
-                "task-4-2 acceptance requires the three classifiers to "
-                "survive the deletion."
-            )
-        # Grab from the first classifier through the third.
-        start = match.start()
-        # Find the end of is_startup_failure's body.
-        startup_match = re.search(
-            r"is_startup_failure\(\) \{(?:.|\n)*?^\}\s*$",
-            script[start:],
-            flags=re.MULTILINE,
-        )
-        if startup_match is None:
-            pytest.fail(
-                "is_startup_failure block not found after the classifier extraction anchor."
-            )
-        end = start + startup_match.end()
-        # Also include the STARTUP_FAILURE_WINDOW_SECONDS assignment so
-        # is_startup_failure can resolve its window.
-        window_match = re.search(r"^STARTUP_FAILURE_WINDOW_SECONDS=\d+", script, re.MULTILINE)
-        prelude = window_match.group(0) if window_match else "STARTUP_FAILURE_WINDOW_SECONDS=30"
-
-        classifier_block = prelude + "\n" + script[start:end]
-        harness_path = tmp_path / "classifiers.sh"
-        harness_path.write_text(classifier_block)
-        agent_log = tmp_path / "agent.log"
-        return harness_path, agent_log
-
-    @staticmethod
-    def _exec(harness_path, body, env=None):
-        """Run ``bash`` sourcing the harness and then ``body``. Return
-        (rc, stdout, stderr).
-        """
-        run_env = dict(os.environ)
-        if env:
-            run_env.update(env)
-        result = subprocess.run(
-            ["bash", "-c", f"set +e; source {shlex.quote(str(harness_path))}; {body}"],
-            env=run_env,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode, result.stdout, result.stderr
-
-    def test_is_transient_crash_recognizes_signal_codes(self, classifier_harness):
-        """``is_transient_crash`` returns 0 for SIGABRT (134), SIGFPE
-        (136), SIGKILL/OOM (137), SIGSEGV (139), Bun segfault (255);
-        returns 1 for anything else.
-        """
-        harness_path, _ = classifier_harness
-        for code in (134, 136, 137, 139, 255):
-            rc, _, _ = self._exec(harness_path, f"is_transient_crash {code}; echo $?")
-            assert rc == 0, (
-                f"bash subshell exited non-zero ({rc}) sourcing classifier "
-                f"harness for code={code}; harness path: {harness_path}"
-            )
-            # Re-parse stdout for the inner $? echo.
-            _, stdout, _ = self._exec(harness_path, f"is_transient_crash {code}; echo $?")
-            assert stdout.strip() == "0", (
-                f"is_transient_crash {code} returned {stdout.strip()!r}; "
-                f"expected 0 (signal-based exit codes are transient)."
-            )
-        for code in (0, 1, 2, 99, 128, 200):
-            _, stdout, _ = self._exec(harness_path, f"is_transient_crash {code}; echo $?")
-            assert stdout.strip() == "1", (
-                f"is_transient_crash {code} returned {stdout.strip()!r}; "
-                f"expected 1 (non-signal exit codes are not transient)."
-            )
-
-    def test_is_startup_failure_within_window(self, classifier_harness):
-        """``is_startup_failure 1 <duration>`` returns 0 (true) when
-        duration < STARTUP_FAILURE_WINDOW_SECONDS (30) AND exit code
-        is exactly 1.
-        """
-        harness_path, _ = classifier_harness
-        _, stdout, _ = self._exec(harness_path, "is_startup_failure 1 5; echo $?")
-        assert stdout.strip() == "0", (
-            "is_startup_failure 1 5 returned non-zero; expected 0 "
-            "(exit=1 within 30-second startup window MUST classify)."
-        )
-
-    def test_is_startup_failure_outside_window(self, classifier_harness):
-        """``is_startup_failure 1 31`` returns 1 (false) — the exit
-        code is 1 but the duration is past the 30-second startup window,
-        so the failure is not a startup blip.
-        """
-        harness_path, _ = classifier_harness
-        _, stdout, _ = self._exec(harness_path, "is_startup_failure 1 31; echo $?")
-        assert stdout.strip() == "1", (
-            "is_startup_failure 1 31 should NOT classify (duration exceeds the startup window)."
-        )
-
-    def test_is_startup_failure_non_one_exit(self, classifier_harness):
-        """``is_startup_failure 2 5`` returns 1 (false) — only exit
-        code 1 within the window counts as a startup failure; other
-        exit codes (signal-based crashes, intentional non-zero) are
-        not startup blips.
-        """
-        harness_path, _ = classifier_harness
-        _, stdout, _ = self._exec(harness_path, "is_startup_failure 2 5; echo $?")
-        assert stdout.strip() == "1", (
-            "is_startup_failure 2 5 should NOT classify (only exit=1 "
-            "within window is a startup failure)."
-        )
-
-    def test_is_buffer_overflow_with_sdk_marker(self, classifier_harness):
-        """``is_buffer_overflow`` returns 0 when ``$AGENT_OUTPUT_LOG``
-        contains the SDK 1 MiB JSON reader overflow signature.
-        """
-        harness_path, agent_log = classifier_harness
-        agent_log.write_text(
-            "some prefix\nError: exceeded maximum buffer size of 1048576 bytes\nsome suffix\n"
-        )
-        _, stdout, _ = self._exec(
-            harness_path,
-            "is_buffer_overflow; echo $?",
-            env={"AGENT_OUTPUT_LOG": str(agent_log)},
-        )
-        assert stdout.strip() == "0", (
-            f"is_buffer_overflow on a log with the SDK marker returned "
-            f"{stdout.strip()!r}; expected 0. Log path: {agent_log}"
-        )
-
-    def test_is_buffer_overflow_without_sdk_marker(self, classifier_harness):
-        """``is_buffer_overflow`` returns 1 when the log does not
-        contain the SDK overflow signature.
-        """
-        harness_path, agent_log = classifier_harness
-        agent_log.write_text("nothing to see here\nnormal output\n")
-        _, stdout, _ = self._exec(
-            harness_path,
-            "is_buffer_overflow; echo $?",
-            env={"AGENT_OUTPUT_LOG": str(agent_log)},
-        )
-        assert stdout.strip() == "1", "is_buffer_overflow on a clean log should NOT classify."
-
-    def test_is_buffer_overflow_missing_log(self, classifier_harness):
-        """``is_buffer_overflow`` returns 1 when ``$AGENT_OUTPUT_LOG``
-        is unset / missing — defensive guard so the classifier never
-        false-positives on an absent log.
-        """
-        harness_path, agent_log = classifier_harness
-        # Don't create agent_log this time.
-        _, stdout, _ = self._exec(
-            harness_path,
-            "unset AGENT_OUTPUT_LOG; is_buffer_overflow; echo $?",
-        )
-        assert stdout.strip() == "1", (
-            "is_buffer_overflow with unset AGENT_OUTPUT_LOG should "
-            "return 1 (no false positive on missing log)."
-        )
+    # Note: slice-2's ``test_flag_off_legacy_template_does_not_reference_event_prompt``
+    # was deleted by slice-4 task-4-2. The legacy template is gone; the
+    # event-pump template now unconditionally references ``event_prompt.py``
+    # and ``invoke_agent_for_event``. See
+    # ``test_invokes_event_prompt_composer_script`` (above) for the
+    # post-deletion positive invariant.
