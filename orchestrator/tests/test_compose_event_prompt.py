@@ -435,6 +435,56 @@ def test_prompt_envelope_bounded_at_ten_kb_reviewer_with_large_delta() -> None:
     assert "+" * 1024 in prompt
 
 
+def test_pathological_nacks_payload_is_hard_truncated_under_envelope_cap() -> None:
+    """A multi-KB-per-reviewer NACKs payload must not silently push the
+    envelope past ``PROMPT_ENVELOPE_MAX_BYTES``.
+
+    The reviewer_holistic v2 finding: ``PROMPT_ENVELOPE_MAX_BYTES`` was
+    documented and tested under representative load but not enforced —
+    a pathological NACK payload (6 reviewers × ~2 KB reason each) would
+    sail past 10 KB silently. ``compose_event_prompt`` now truncates
+    the NACKs section byte-exactly with an explicit sentinel when the
+    envelope would overflow; the rest of the envelope (event banner,
+    contract, memory tail) remains intact so the agent still has its
+    role framing.
+    """
+    nacks = [
+        {
+            "reviewer": f"reviewer_{i}",
+            "version": 2,
+            "reason": ("Pathologically long blocker. " * 100),  # ~2.8 KB each
+            "artifact_refs": [f"src/file_{i}.py"],
+        }
+        for i in range(6)
+    ]
+
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        nacks,
+        [],
+        "main",
+    )
+
+    # Whole prompt = envelope here (no delta), so the envelope-cap
+    # check is the same as the full-prompt size check.
+    prompt_bytes = len(prompt.encode("utf-8"))
+    assert prompt_bytes <= PROMPT_ENVELOPE_MAX_BYTES, (
+        f"envelope is {prompt_bytes} > {PROMPT_ENVELOPE_MAX_BYTES} bytes — "
+        "the NACKs section must be hard-truncated when the surrounding "
+        "envelope would otherwise overflow."
+    )
+    # Truncation sentinel must be present so the agent sees the cut
+    # explicitly rather than silently reviewing half a barrier.
+    assert "NACK list truncated" in prompt, (
+        "envelope-truncation sentinel missing — the agent must see the cut"
+    )
+    # Role banner + contract survive — only the NACKs section is cut.
+    assert "Role: coder" in prompt
+    assert "## What to do" in prompt
+
+
 # ---------------------------------------------------------------------------
 # Defensive shape — empty / None inputs
 # ---------------------------------------------------------------------------

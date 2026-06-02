@@ -65,8 +65,26 @@ MEMORY_EXCERPT_MAX_CHARS: int = 2000
 # Cap on the prompt envelope EXCLUDING the git-log delta. The 10 KB
 # bound is the architect's plan acceptance: "per-event prompt envelope
 # (excluding delta) ≤ 10 KB". The delta itself scales with the
-# change and is not counted.
+# change and is not counted. The cap is enforced in
+# ``compose_event_prompt`` by hard-truncating the NACKs section (the
+# variable-size driver — event/contract are bounded and memory is
+# already 2 KB capped) when the rendered envelope would otherwise
+# overflow. A pathological NACK payload (e.g. 6 reviewers each with a
+# multi-KB ``reason``) would otherwise silently bloat the cacheable
+# prefix.
 PROMPT_ENVELOPE_MAX_BYTES: int = 10240
+
+# Sentinel appended when the NACKs section is byte-truncated to keep
+# the envelope under ``PROMPT_ENVELOPE_MAX_BYTES``. Mirrors the shape
+# of ``_GIT_LOG_DELTA_MAX_BYTES``'s truncation marker so the agent
+# sees the cut explicitly rather than reviewing a silently-clipped
+# blocker list.
+_ENVELOPE_TRUNCATION_SENTINEL: str = (
+    "\n…(NACK list truncated — surrounding envelope exceeded "
+    f"{PROMPT_ENVELOPE_MAX_BYTES} bytes; pull the full open-NACK "
+    "barrier with ``egg-orch brc get-state`` if you need every "
+    "blocker before re-proposing)\n"
+)
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -314,7 +332,12 @@ def compose_event_prompt(
         Rendered prompt string suitable for passing as the positional
         argument to ``python3 -m egg_agent``. The envelope (everything
         EXCLUDING the rendered delta) is bounded to ``PROMPT_ENVELOPE_MAX_BYTES``
-        bytes; the delta itself scales with the actual change.
+        bytes — when the rendered envelope would exceed the cap the
+        NACKs section (the variable-size driver per the reviewer's
+        worked example: 6 reviewers × multi-KB reasons) is hard-truncated
+        at the byte boundary with an explicit sentinel appended. The
+        delta itself scales with the actual change and is emitted
+        untruncated.
     """
     role = (role or "unknown").strip() or "unknown"
     base_branch = (base_branch or "main").strip() or "main"
@@ -339,6 +362,31 @@ def compose_event_prompt(
             "",
         ]
     )
+
+    # Enforce the envelope cap (architect plan acceptance: "per-event
+    # prompt envelope (excluding delta) ≤ 10 KB"). The envelope is the
+    # sum of all sections EXCLUDING the rendered delta; if it would
+    # overflow we truncate the NACKs section (the variable-size driver
+    # — event/contract are bounded and memory is already 2 KB capped)
+    # while preserving the architect's od-6 tail-position contract for
+    # memory. The truncation is byte-exact with ``errors="replace"`` so
+    # a UTF-8 multibyte sequence split at the boundary doesn't crash;
+    # the sentinel's own byte length is subtracted from the per-section
+    # budget so the post-truncation envelope honours the cap.
+    envelope_sections = [s for s in (event_section, nacks_section, contract, memory_section) if s]
+    envelope_bytes = sum(len(s.encode("utf-8")) for s in envelope_sections) + max(
+        0, len(envelope_sections) - 1
+    )
+    if envelope_bytes > PROMPT_ENVELOPE_MAX_BYTES and nacks_section:
+        non_nacks_bytes = envelope_bytes - len(nacks_section.encode("utf-8"))
+        sentinel_bytes = len(_ENVELOPE_TRUNCATION_SENTINEL.encode("utf-8"))
+        nacks_budget = max(0, PROMPT_ENVELOPE_MAX_BYTES - non_nacks_bytes - sentinel_bytes)
+        nacks_raw = nacks_section.encode("utf-8")
+        if len(nacks_raw) > nacks_budget:
+            nacks_section = (
+                nacks_raw[:nacks_budget].decode("utf-8", errors="replace")
+                + _ENVELOPE_TRUNCATION_SENTINEL
+            )
 
     parts: list[str] = [event_section]
     if delta_section:
