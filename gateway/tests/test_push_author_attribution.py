@@ -360,6 +360,39 @@ def test_scenario_7_unregistered_commits_fail_closed(client):
 
 
 # ---------------------------------------------------------------------------
+# Scenario 7b: infra-attributed commits (#2927) are pulled, not own-authored.
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_7b_infra_attributed_commit_is_exempt(client):
+    """An unregistered infra commit (resolved to the reserved ``infra``
+    role by the attribution layer) is treated as pulled, so a producer
+    isn't blocked for restricted files it never authored (#2927)."""
+    session = _make_session("coder")
+    # Files the coder cannot write, touched only by an infra commit.
+    files = [".egg-state/brc-history/slice-2.json", "tests/test_adversarial.py"]
+    attributed = AttributedPushRange(
+        files=[
+            AttributedFile(path=files[0], commit_sha=_UNREG_SHA, authored_by="infra"),
+            AttributedFile(path=files[1], commit_sha=_UNREG_SHA, authored_by="infra"),
+        ],
+        commits=[_UNREG_SHA],
+        attribution={_UNREG_SHA: "infra"},
+    )
+    with contextlib.ExitStack() as _stack:
+        for _p in _patches_for(session, files, attributed):
+            _stack.enter_context(_p)
+        _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+        response = _do_push(client)
+        assert response.status_code == 200
+        body = _body(response)
+        assert body["filtered"] is False
+        assert body["nothing_to_push"] is False
+        pulled = body["pulled_commits"]
+        assert any(p["sha"] == _UNREG_SHA and p["author_role"] == "infra" for p in pulled)
+
+
+# ---------------------------------------------------------------------------
 # Scenario 8: EGG_AGENT_RESTRICTIONS_ENFORCE=false → warn-only passthrough.
 # ---------------------------------------------------------------------------
 
