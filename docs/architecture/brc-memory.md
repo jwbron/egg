@@ -232,9 +232,9 @@ preserving the inert default.
 For the full architecture of the slice-3 reader (composer shape, 10 KB
 envelope, tail-position memory delivery per architect od-6 Option B,
 preamble collapse, slice-2 wrapper interplay), see
-[Orchestrator — BRC Per-Event Prompt Composer + Preamble Collapse](orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3)
+[Orchestrator — BRC Per-Event Prompt Composer + Preamble Collapse](orchestrator.md#brc-per-event-prompt-composer--preamble-collapse)
 and its wait-side companion
-[agent-wait-patterns §10.9](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
+[agent-wait-patterns §10.9](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse).
 
 ## Acceptance contract for the writer (slice-1)
 
