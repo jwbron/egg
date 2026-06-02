@@ -585,7 +585,7 @@
       "escalation_reason": null,
       "tasks": [
         {
-          "id": "task-4-2",
+          "id": "task-4-1",
           "description": "Flip the ``EGG_BRC_EVENT_PUMP`` default in\n``orchestrator/consensus_wrapper.py``'s\n``build_consensus_wrapped_command`` from false to true. With\nthe default flipped, the new template path is the production\npath; the old template path is only emitted when an operator\nsets ``EGG_BRC_EVENT_PUMP=false`` explicitly. Same flip for\n``EGG_BRC_MEMORY`` from ``off`` to ``full`` so the\ndelta-scoped re-analysis from slice-3 reads the memory file\nin production. Pre-flight: the slice-2 / slice-3 unit + BRC\nin-process regression suites pass on the new default (the\nqwen3.7-max #2906 k3s spike that previously gated this flip\nwas removed \u2014 the qwen route is unavailable in the k3s test\nenvironment and a Claude-route end-to-end consensus test is\nblocked on ScriptedProvider pod injection, deferred to #2585).",
           "status": "pending",
           "commit": null,
@@ -606,13 +606,13 @@
           "jira_action_status": null
         },
         {
-          "id": "task-4-3",
+          "id": "task-4-2",
           "description": "Delete the old capped-restart bash template, the\n``_RECOVERY_SYSTEM_PROMPT`` (consensus_wrapper.py:64-99),\nthe SSE ``consensus.reached`` machinery\n(consensus_wrapper.py:418-449), and the\n``MAX_CONSENSUS_RESTARTS`` constant + use-sites. Keep\n``is_buffer_overflow`` / ``is_transient_crash`` /\n``is_startup_failure`` classifiers \u2014 they're still valid\nsignals under the new idle/no-progress safety budget.\nDelete the agent-side wait_loop heartbeat path from\n``sandbox/egg_agent_tools/handlers/message.py:267-429`` \u2014\nthe wrapper now owns heartbeating (TASK-2-2). Same for the\ngateway-session keep-alive in the same region (TASK-2-4\nmigrated; this task deletes the agent-side path).",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "``orchestrator/consensus_wrapper.py`` no longer contains\n``MAX_CONSENSUS_RESTARTS``, ``_RECOVERY_SYSTEM_PROMPT``, or\nSSE / consensus.reached strings; ``rg 'consensus\\.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'\norchestrator/consensus_wrapper.py`` returns zero matches\n(defensive grep assertion against partial deletion);\n``handlers/message.py`` no longer emits heartbeats or\nrefreshes the gateway session; the three crash classifiers\nremain; relevant tests in\n``orchestrator/tests/test_consensus_wrapper.py`` updated\n(or deleted, where old-path-specific tests no longer apply)\n\u2014 replacement coverage lands in TASK-4-4.",
+          "acceptance_criteria": "``orchestrator/consensus_wrapper.py`` no longer contains\n``MAX_CONSENSUS_RESTARTS``, ``_RECOVERY_SYSTEM_PROMPT``, or\nSSE / consensus.reached strings; ``rg 'consensus\\.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'\norchestrator/consensus_wrapper.py`` returns zero matches\n(defensive grep assertion against partial deletion);\n``handlers/message.py`` no longer emits heartbeats or\nrefreshes the gateway session; the three crash classifiers\nremain; relevant tests in\n``orchestrator/tests/test_consensus_wrapper.py`` updated\n(or deleted, where old-path-specific tests no longer apply)\n\u2014 replacement coverage lands in TASK-4-3.",
           "files_affected": [
             "orchestrator/consensus_wrapper.py",
             "sandbox/egg_agent_tools/handlers/message.py"
@@ -628,8 +628,8 @@
           "jira_action_status": null
         },
         {
-          "id": "task-4-4",
-          "description": "Update tests in\n``orchestrator/tests/test_consensus_wrapper.py`` and\n``tests/sandbox/egg_agent_tools/test_handlers_message.py``\nto reflect the deletions in TASK-4-3. Delete tests of the\nretired capped-restart cap, recovery prompt, SSE path,\nand agent-side heartbeat / keep-alive. Add coverage for\nthe new wrapper behaviour where it replaces the old (the\nidle-budget test from slice-2 becomes the canonical\nliveness coverage).",
+          "id": "task-4-3",
+          "description": "Update tests in\n``orchestrator/tests/test_consensus_wrapper.py`` and\n``tests/sandbox/egg_agent_tools/test_handlers_message.py``\nto reflect the deletions in TASK-4-2. Delete tests of the\nretired capped-restart cap, recovery prompt, SSE path,\nand agent-side heartbeat / keep-alive. Add coverage for\nthe new wrapper behaviour where it replaces the old (the\nidle-budget test from slice-2 becomes the canonical\nliveness coverage).",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
@@ -650,7 +650,7 @@
           "jira_action_status": null
         },
         {
-          "id": "task-4-5",
+          "id": "task-4-4",
           "description": "Documenter: rewrite ``docs/architecture/orchestrator.md``\nconsensus-wrapper section to describe the post-deletion\nsteady state \u2014 event-pump as the only path, idle budget\nreplaces restart cap, wrapper owns heartbeat + keep-alive.\nRemove the \"flag-off legacy path\" caveats added in slice-2.\nDocument the rollback plan (revert slices 1\u20133) for\ncompleteness. Cross-link to\n``docs/architecture/brc-memory.md`` from slice-1.",
           "status": "pending",
           "commit": null,
