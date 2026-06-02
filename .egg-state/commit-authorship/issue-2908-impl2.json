@@ -99,6 +99,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "1424e15cd67e1a49985a70d47440dd7b7c087d72": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "668798923657951b3775eab6c11e57fc87cc3e5a",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.543088+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "1526fdd82401a85ad392f3d56977ef5c0ef2c4bb": {
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
@@ -352,6 +360,14 @@
       "registered_at": "2026-06-01T06:56:05.778768+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
+    },
+    "4e75925d5121e9372e9c901444cbbbdfd9787ac3": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "b8219794dc82aa49d717c0913332324c1305f0f9",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.589920+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     },
     "4f49f18235d3207f590bd75026c9add873351736": {
       "branch": "egg/issue-2908-impl2/slice-2",
@@ -948,6 +964,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_security"
     },
+    "b862844017ce07368eb5c906eb40464820225dd6": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "5e2c57fd94e20d05dc745413343d6cfb040fcb05",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.583461+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "b97eecfdfcfcc0ffc4d467c615d47a6a37e2e389": {
       "branch": "egg/issue-2908-impl2/slice-2",
       "pipeline_id": "issue-2908-impl2",
@@ -976,6 +1000,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_concurrency"
     },
+    "bfc5e5d4ef648cb6878e1aa610f99ecae1aeeb46": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "474c92d471b23224ea8616ec1c40687237135d71",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.573658+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "c01b7ce564ac3513c6a431566fe1504ca8ae6c46": {
       "branch": "egg/issue-2908-impl2/slice-1",
       "pipeline_id": "issue-2908-impl2",
@@ -990,6 +1022,14 @@
       "registered_at": "2026-06-02T18:07:22.148286+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
+    },
+    "c48afe8d70e8378aae82bfd7556607f2c200bd5a": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "90bacfad732626af6faa44a9466d5ab1f52e3e3e",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.560266+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     },
     "c564b9200e625a0a86d053ee7b023caf322ba2c1": {
       "branch": "egg/issue-2908-impl2/slice-2",
@@ -1039,6 +1079,14 @@
       "registered_at": "2026-06-01T17:59:17.151436+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_security"
+    },
+    "d277e2560aa68938c4a8b9f2a8490f199fdff768": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "7f5aad35efed5da30f2107b848efb77350a26ff1",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.586296+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     },
     "d37daad1380049ec26c7f7a037b7e31d6c0d831f": {
       "branch": "egg/issue-2908-impl2/slice-2",
@@ -1298,6 +1346,14 @@
       "registered_at": "2026-06-01T21:14:52.424484+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
+    },
+    "fcc96c1ab6dd2efa7043c91b7fa7d1271d051709": {
+      "branch": "egg/issue-2908-impl2/slice-2",
+      "patch_id": "328e220bf0d34935e89d9684157939ae3dbee9ba",
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T18:10:24.595812+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     },
     "fd11064811c12ec0db4ca0de88685583cfcd18b7": {
       "branch": "egg/issue-2908-impl2/slice-2",
