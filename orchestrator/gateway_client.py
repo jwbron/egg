@@ -2094,15 +2094,12 @@ class GatewayClient:
         ambient slice/pipeline pass their token through ``bearer_token``
         to avoid a redundant register/delete round-trip.
 
-        Used by slice-4 TASK-4-3's ``_resolve_slice_base_branch``
-        merge-base fallback: legacy slices whose
-        ``parent_branch_at_creation`` is empty AND whose integration
-        branch still exists on origin compute their fork SHA against
-        ``origin/main`` to confirm the slice has a valid divergence
-        point before the resolver returns the dependency-derived
-        parent branch. A ``None`` result signals "no fork point" and
-        the resolver routes onto ``pipeline_branch`` (the safe
-        root-stack fallback).
+        General ancestry/fork-point primitive. (Slice-4 TASK-4-3
+        once wired this into ``_resolve_slice_base_branch`` to
+        validate a slice's fork point, but #2928 replaced that with a
+        parent-branch-existence probe — probing the slice's own
+        not-yet-created integration branch mis-based fresh slices. The
+        method is retained as a general gateway utility.)
         """
         if not ref_a or not ref_b:
             return None
