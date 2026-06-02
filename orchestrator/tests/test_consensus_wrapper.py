@@ -2855,7 +2855,7 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
     """
 
     def test_persistent_confirm_failure_fires_overseer_alert(self, tmp_path, monkeypatch):
-        """End-to-end behavioural test of the §1 lock-in.
+        """End-to-end behavioural test of the §1 + §6.2 lock-in.
 
         Drive the rendered event-pump bash against stubbed
         ``egg-orch`` / ``python3`` shims:
@@ -2866,10 +2866,27 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
           - ``overseer alert`` → record the call to a log file
           - everything else → noop / exit 0
 
-        With ``EGG_BRC_IDLE_BUDGET_MIN=0`` the alert should fire on
-        the very first ``check_idle_budget`` after the failing
-        confirm; the test asserts the alert log was written within a
-        short timeout.
+        With ``EGG_BRC_IDLE_BUDGET_MIN=0`` the very first
+        ``check_idle_budget`` after the failing confirm trips the
+        ``idle >= 2*budget`` (= 0) branch -- exactly once, post-fix.
+
+        Discrimination: per-iteration count of the alert is the
+        differential between the bug and the fix.
+
+          - Pre-fix (note_progress reset on every iteration AND
+            ALERTED_AT_DOUBLE reset every iteration -- the combined
+            §1 + §6.2 bug): every loop iter resets the latch so
+            ``check_idle_budget`` re-fires the 2x alert *every*
+            iteration. Within the 8s timeout below, observed count
+            is several.
+          - Post-fix (rc-gated note_progress AND sticky
+            ALERTED_AT_DOUBLE): alert fires once on the first
+            iteration; subsequent iterations see the sticky latch
+            and do not re-fire.
+
+        The ``count == 1`` assertion locks in the combined fix:
+        either regression alone yields ``count != 1`` (zero if
+        ``LAST_PROGRESS`` reset wins; >1 if both regress together).
         """
         # ``_event_pump_enabled`` is read at template-composition time
         # (in this Python process), NOT inside the subprocess shell.
@@ -2981,4 +2998,24 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
         alert_text = alert_log.read_text()
         assert "stuck-phase-transition" in alert_text, (
             f"overseer alert fired but with the wrong anomaly type. Got:\n{alert_text}"
+        )
+        # Lock-in for the combined §1 + §6.2 regression (reviewer
+        # follow-up on PR #2926, commit 022fad4): the bug fires the
+        # 2x-budget alert *every* loop iteration because (a) the
+        # action arm called ``note_progress`` regardless of rc and
+        # (b) ``note_progress`` itself reset ``ALERTED_AT_DOUBLE``.
+        # The fix gates ``note_progress`` on rc==0 AND keeps the 2x
+        # latch sticky for the loop lifetime -> exactly one alert.
+        alert_count = alert_text.count("stuck-phase-transition")
+        assert alert_count == 1, (
+            "§1 + §6.2 regression: persistent confirm failure produced "
+            f"{alert_count} overseer alerts, expected exactly 1. "
+            "Pre-fix, the action arm reset both LAST_PROGRESS and the "
+            "ALERTED_AT_DOUBLE latch on every iteration, so "
+            "`check_idle_budget` re-fired the 2x-budget alert each "
+            "loop. Post-fix, `note_progress` is gated on rc==0 (so "
+            "persistent failure does not reset state) AND "
+            "`ALERTED_AT_DOUBLE` is sticky (so transient progress "
+            "later in the loop's life cannot re-arm the page). "
+            f"Alert text:\n{alert_text}"
         )

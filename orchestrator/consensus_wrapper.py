@@ -1052,13 +1052,22 @@ ALERTED_AT_DOUBLE=false
 # Consecutive-failure counters for the action arms (reviewer §1).
 # Used to apply linear backoff on the ``confirm`` arm and to surface
 # a distinguishable log when an action is persistently failing.
+# The counters are arm-cluster scoped: they reset to 0 at the top of the
+# loop when the next-action transitions away from the arm they apply to
+# (reviewer §2 follow-up). That way a long-ago confirm-failure streak
+# doesn't pre-load the backoff for a fresh confirm attempt hours later
+# after the role briefly transitioned through ``wait`` / ``propose``.
 CONFIRM_FAIL_STREAK=0
 AGENT_FAIL_STREAK=0
 # Consecutive failures from ``fetch_next_action`` (reviewer §3): used
 # to surface a distinguishable "many consecutive 5xx/transport failures"
 # log line so an unhealthy orchestrator is differentiable from a benign
-# 409 stale_version that re-derives on the next loop.
+# 409 stale_version that re-derives on the next loop. Latches are
+# sticky for the wrapper lifetime so the log doesn't re-fire if the
+# counter happens to land back on the threshold after a brief recovery.
 NEXT_ACTION_FAIL_STREAK=0
+NEXT_ACTION_ALERTED_5=false
+NEXT_ACTION_ALERTED_20=false
 
 raise_idle_alert() {{
     local idle="$1"
@@ -1157,13 +1166,37 @@ while true; do
         # health signal worth surfacing separately so operators reading
         # wrapper logs can tell a 409-stuck role from an unhealthy
         # orchestrator without correlating against the audit log.
+        #
+        # Use ``-ge`` with sticky latches (rather than ``-eq``) so the log
+        # is robust to any future change in how the counter advances and
+        # the warning fires the first time the threshold is crossed
+        # without re-firing on every iteration past it.
         NEXT_ACTION_FAIL_STREAK=$(( NEXT_ACTION_FAIL_STREAK + 1 ))
-        if [ "$NEXT_ACTION_FAIL_STREAK" -eq 5 ] || [ "$NEXT_ACTION_FAIL_STREAK" -eq 20 ]; then
+        if [ "$NEXT_ACTION_FAIL_STREAK" -ge 5 ] && [ "$NEXT_ACTION_ALERTED_5" != "true" ]; then
             cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
+            NEXT_ACTION_ALERTED_5=true
+        fi
+        if [ "$NEXT_ACTION_FAIL_STREAK" -ge 20 ] && [ "$NEXT_ACTION_ALERTED_20" != "true" ]; then
+            cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
+            NEXT_ACTION_ALERTED_20=true
         fi
     fi
     ACTION=$(next_action_field "$ACTION_JSON" "action")
     EVENT_PAYLOAD=$(next_action_field "$ACTION_JSON" "event_payload")
+
+    # Reviewer §2 (non-blocking): the per-arm failure counters are
+    # arm-cluster scoped, not wrapper-lifetime. When the orchestrator
+    # transitions the role to a different action verb (e.g., a stuck
+    # ``confirm`` recovers via a fresh ``propose`` after a re-review
+    # event), reset the streak for the arm we just left so a brand-new
+    # attempt isn't pre-loaded with an old streak's backoff cap.
+    if [ "$ACTION" != "confirm" ]; then
+        CONFIRM_FAIL_STREAK=0
+    fi
+    case "$ACTION" in
+        propose|ack|nack) ;;
+        *) AGENT_FAIL_STREAK=0 ;;
+    esac
 
     case "$ACTION" in
         complete)
@@ -1196,12 +1229,15 @@ while true; do
                 # within ~30 min on the default budget while consecutive
                 # short failures don't escalate the load on the route.
                 CONFIRM_FAIL_STREAK=$(( CONFIRM_FAIL_STREAK + 1 ))
-                local_backoff=$(( CONFIRM_FAIL_STREAK * 2 ))
-                if [ "$local_backoff" -gt 30 ]; then
-                    local_backoff=30
+                # NOTE: bash ``case``-branch scope is global, not function-
+                # local. Name reflects scope to avoid the false suggestion
+                # that this could be ``declare local`` (reviewer §4).
+                confirm_backoff_secs=$(( CONFIRM_FAIL_STREAK * 2 ))
+                if [ "$confirm_backoff_secs" -gt 30 ]; then
+                    confirm_backoff_secs=30
                 fi
-                cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${{local_backoff}}s. Idle counter continues to accrue."
-                sleep "$local_backoff"
+                cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${{confirm_backoff_secs}}s. Idle counter continues to accrue."
+                sleep "$confirm_backoff_secs"
             fi
             ;;
         wait)
