@@ -1398,7 +1398,7 @@ proven equivalent in slice-3's spike), and validates end-to-end on
 the #2906 qwen3.7-max repro via `egg_stack`. Until that point the
 event-pump path is opt-in per pipeline / per pod via the env var.
 
-### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse (slice-3, behind `EGG_BRC_MEMORY=full`)
+### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse (slice-3)
 
 > **Slice-3 of [#2908](https://github.com/jwbron/egg/issues/2908).**
 > Slice-2 (§10.1–§10.8 above) gives the wrapper the deterministic
@@ -1408,7 +1408,16 @@ event-pump path is opt-in per pipeline / per pod via the env var.
 > server-side preamble that used to teach the agent the wait
 > machinery. The architecture-side companion is
 > [Orchestrator — BRC Per-Event Prompt Composer + Preamble
-> Collapse](../architecture/orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3-behind-egg_brc_memoryfull).
+> Collapse](../architecture/orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3).
+>
+> **Flag mapping (read this first):** the composer runs whenever the
+> event-pump wrapper runs — gated by `EGG_BRC_EVENT_PUMP` (§10 above).
+> Only the *content* of the memory excerpt (and whether
+> `last_reviewed_commit_sha` is read from the memory file vs. fallen
+> back from `changed_artifacts`) is gated by `EGG_BRC_MEMORY`. The
+> `_build_brc_preamble` collapse (§10.9.5) runs **unconditionally** —
+> both wrapper paths see the collapsed preamble. See §10.9.4 for the
+> full matrix.
 
 #### 10.9.1 What shows up in the per-event prompt
 
@@ -1530,27 +1539,33 @@ exclusion are all removed from the prompt the agent sees.
 |------|-----|
 | Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
 | Dual-role ordering banner | Dual-role agents (e.g. `tester`) still receive both sides per invocation; the ordering invariant survives. |
-| Dual-mandate adversarial re-review banner (`orchestrator/routes/pipelines.py:12849-12872`, the "Your re-review has TWO equal-weight mandates …" block — anchored on by risk_analyst R6) | This is review-correctness framing, not wait machinery; it survives the collapse. |
+| Dual-mandate adversarial re-review banner (the "Your re-review has TWO equal-weight mandates …" block inside `_build_brc_preamble`; `pipelines.py:12849-12872` post-collapse — anchored on by risk_analyst R6) | This is review-correctness framing, not wait machinery; it survives the collapse. |
 
 The three caller sites at `orchestrator/routes/pipelines.py:13659`,
-`:13692`, `:13720` are unchanged in slice-3 — only the preamble text
-collapses, the call sites are byte-identical. The snapshot
-regression test at
+`:13692`, `:13720` (post-collapse positions per the slice-3 contract
+spec) are unchanged in slice-3 — only the preamble text collapses,
+the call sites are byte-identical. **The collapse is
+unconditional**: both the legacy capped-restart wrapper and the
+event-pump wrapper see the collapsed preamble.
+`EGG_BRC_EVENT_PUMP` selects the **wrapper**, not the preamble — so
+through slice-3 the collapsed preamble runs against the legacy
+wrapper (which re-supplies wait / restart instructions through its
+own recovery system prompt — see `orchestrator/consensus_wrapper.py`);
+under `EGG_BRC_EVENT_PUMP=true` the same collapsed preamble runs
+against the event-pump wrapper paired with the per-event composer.
+The snapshot regression test at
 `orchestrator/tests/test_brc_preamble_collapsed.py` (task-3-7) pins
 the absence of STAY-ALIVE / wait-loop / cursor strings, the
 presence of the agent roster, the presence of the phrase "Both must
-pass to ACK" (inside the dual-mandate banner at
-`pipelines.py:12856-12857`), and a ≥ 25% byte-size drop against the
-pre-collapse baseline (a softening from the originally-proposed 40%
-per a reviewer_plan v2 non-blocker — the exact number is set by the
-snapshot baseline rather than a pre-fixed target).
-
-The collapsed preamble runs against the **legacy** wrapper path
-through slice-3 (`EGG_BRC_EVENT_PUMP` default-off); the per-event
-composer's prompt is the spawning surface only when an operator
-opts into the event-pump path. Slice-4 flips the default so the
-collapsed preamble plus the per-event composer become the
-production pairing together.
+pass to ACK" (located inside the dual-mandate banner — the
+`pipelines.py:12856-12857` numbers are the post-collapse snapshot
+anchor from the contract spec), and a ≥ 25% byte-size drop against
+the pre-collapse baseline (a softening from the originally-proposed
+40% per a reviewer_plan v2 non-blocker — the exact number is set by
+the snapshot baseline rather than a pre-fixed target). Slice-4
+flips the wrapper default so the event-pump wrapper + collapsed
+preamble + per-event composer become the production pairing
+together.
 
 #### 10.9.6 `mission.md` rewrite reaches the agent pod only after a sandbox rebuild
 
@@ -1627,7 +1642,7 @@ implementation cites:
 - [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (the MCP variant superseded by #2211)
 - [Issue #2211](https://github.com/jwbron/egg/issues/2211) — wake-storm fix: replace MCP wait tools with Bash CLI
 - [Orchestrator Architecture — BRC Event-Pump Wrapper](../architecture/orchestrator.md#brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) — architecture-side companion to §10 (slice-2)
-- [Orchestrator Architecture — BRC Per-Event Prompt Composer + Preamble Collapse](../architecture/orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3-behind-egg_brc_memoryfull) — architecture-side companion to §10.9 (slice-3)
+- [Orchestrator Architecture — BRC Per-Event Prompt Composer + Preamble Collapse](../architecture/orchestrator.md#brc-per-event-prompt-composer--preamble-collapse-slice-3) — architecture-side companion to §10.9 (slice-3)
 - [Architecture — BRC Memory Artifact](../architecture/brc-memory.md) — slice-1 of #2908; supplies the per-producer `last_reviewed_commit_sha` that slice-3's composer substitutes into the per-event git-log delta
 - [REVIEWER-SYNC — re-review diff command alignment](../../shared/prompts/REVIEWER-SYNC.md) — why the slice-3 composer emits the **full** per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` instead of an orchestrator-`changed_artifacts` shortcut (the PR reviewer and SDLC reviewer share this contract)
 - [Architecture — Integration Test Trust Boundary](../architecture/integration-test-trust-boundary.md) — #2474 rationale for the slice-2 / slice-3 unit-test-only verification stance (see §10.7 and §10.9.7)
