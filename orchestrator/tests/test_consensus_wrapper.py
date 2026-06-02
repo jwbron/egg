@@ -13,27 +13,28 @@ their coverage is folded into the event-pump test classes below.
 import os
 import shlex
 import subprocess
-import sys
+import sys  # noqa: F401  -- used by behavioural tests below via sys.executable
+from pathlib import Path
 
+import consensus_wrapper as _consensus_wrapper_module
 import pytest
 
 # ``build_event_pump_wrapped_command`` is re-exported here so future
 # tests in this file can import it through the test module's namespace;
 # slice-4 keeps it on the public surface alongside
 # ``build_consensus_wrapped_command``.
-import consensus_wrapper as _consensus_wrapper_module
-import pytest
 from consensus_wrapper import (
     build_consensus_wrapped_command,
     build_event_pump_wrapped_command,  # noqa: F401  -- re-exported for tests
 )
 
-# Path to the source-file we audit for the task-4-2 defensive-grep
-# assertion (acceptance: "rg 'consensus\\.reached|sse_url|
+# Path to the consensus_wrapper source file. The slice-4 task-4-2
+# defensive-grep hardening below scans the source for deleted-symbol
+# re-introduction (acceptance: "rg 'consensus\\.reached|sse_url|
 # _RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'
-# orchestrator/consensus_wrapper.py returns zero matches"). Tests in
-# this file expect to run from anywhere; resolve the path off the
-# imported module so we don't depend on the test runner's cwd.
+# orchestrator/consensus_wrapper.py returns zero matches"); resolve
+# the path off the imported module so the scan works regardless of the
+# test runner's cwd.
 _CONSENSUS_WRAPPER_SOURCE = Path(_consensus_wrapper_module.__file__)
 
 
@@ -1313,3 +1314,329 @@ class TestEventPumpInvokesComposer:
     # and ``invoke_agent_for_event``. See
     # ``test_invokes_event_prompt_composer_script`` (above) for the
     # post-deletion positive invariant.
+
+
+# ---------------------------------------------------------------------------
+# Slice-4 task-4-2 tester hardening
+# ---------------------------------------------------------------------------
+#
+# Net-new coverage on top of the coder's v3 stale-test cleanup. The classes
+# below pin invariants that the deletion in task-4-2 must hold permanently
+# against partial regressions on future revisions:
+#
+#   * Defensive grep on the source file (task-4-2 acceptance criterion):
+#     a regression that re-introduces ``_RECOVERY_SYSTEM_PROMPT`` /
+#     ``MAX_CONSENSUS_RESTARTS`` / SSE strings into executable code trips
+#     a test instead of escaping to operator review.
+#   * Symbol-not-importable: the deleted Python module-level symbols must
+#     stay un-importable so an accidental
+#     ``from consensus_wrapper import _RECOVERY_SYSTEM_PROMPT`` in any
+#     caller fails fast at import time.
+#   * ``EGG_BRC_MEMORY`` default flip (task-4-1 acceptance: off → full).
+#   * Bash classifier semantics: ``is_buffer_overflow`` /
+#     ``is_transient_crash`` / ``is_startup_failure`` were preserved by
+#     relocation per task-4-2 acceptance. They are "dead" today (the
+#     propose/ack/nack arm uses the consecutive-failure counter instead),
+#     but the acceptance specifically calls out keeping them "as named
+#     helpers for future revisions" — a silent semantic regression on the
+#     relocated helpers would defeat that goal. The tests source the
+#     rendered template into bash subshells and exercise each helper.
+
+
+class TestSliceFourDeletionInvariants:
+    """Slice-4 task-4-2 acceptance: ``rg
+    'consensus\\.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|MAX_CONSENSUS_RESTARTS'
+    orchestrator/consensus_wrapper.py`` returns zero matches. The
+    coder's commit message asserts this passes; pin it as a test so a
+    future regression that reintroduces any of the deleted strings is
+    caught by the suite, not by manual operator review.
+
+    Distinct from the rendered-bash checks above (which only see the
+    template body): this scans the *source file* including the Python
+    constants, docstrings, and ``build_*`` function definitions.
+    Excludes docstring/comment mentions explaining the deletion itself
+    (e.g. "deleted ``_RECOVERY_SYSTEM_PROMPT``" in the module docstring).
+    """
+
+    # Forbidden tokens straight from the task-4-2 defensive grep
+    # acceptance criterion, plus the related companion symbols.
+    _FORBIDDEN_TOKENS = (
+        "_RECOVERY_SYSTEM_PROMPT",
+        "_RECOVERY_USER_PROMPT",
+        "MAX_CONSENSUS_RESTARTS",
+        "MAX_READY_POLL_CYCLES",
+        "TRANSIENT_RESTART_BACKOFF_INITIAL",
+        "_CONSENSUS_WRAPPER_TEMPLATE",
+        "_event_pump_enabled",
+        "consensus.reached",
+        "sse_url",
+    )
+
+    def _strip_audit_mentions(self, text: str) -> str:
+        """Strip lines that mention a forbidden token only to explain
+        the deletion (docstring / comment audit trail). What we forbid
+        is *executable* re-introduction.
+
+        Heuristic: drop ``# ...`` comment lines (full-line comments
+        only) plus triple-double-quote docstring blocks. The remainder
+        is the executable surface.
+        """
+        import re
+
+        no_comments = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+        no_docstrings = re.sub(r'"""[\s\S]*?"""', "", no_comments)
+        return no_docstrings
+
+    def test_defensive_grep_zero_executable_matches(self):
+        """Source-file scan: every forbidden token must be absent from
+        executable code. Comments / docstrings explaining the deletion
+        are allowed (they document the audit trail) but executable
+        re-introduction is not.
+        """
+        source = _CONSENSUS_WRAPPER_SOURCE.read_text()
+        executable_source = self._strip_audit_mentions(source)
+        for token in self._FORBIDDEN_TOKENS:
+            assert token not in executable_source, (
+                f"Forbidden token {token!r} found in executable code of "
+                f"{_CONSENSUS_WRAPPER_SOURCE.name}. "
+                "Slice-4 task-4-2 acceptance: `rg "
+                "'consensus.reached|sse_url|_RECOVERY_SYSTEM_PROMPT|"
+                "MAX_CONSENSUS_RESTARTS' orchestrator/consensus_wrapper.py` "
+                "must return zero matches outside of audit-trail comments."
+            )
+
+    def test_legacy_python_symbols_not_importable(self):
+        """The Python module-level symbols that task-4-2 deleted must
+        stay un-importable. A caller anywhere in the codebase that
+        accidentally re-references ``_RECOVERY_SYSTEM_PROMPT`` /
+        ``MAX_CONSENSUS_RESTARTS`` / ``_event_pump_enabled`` must hit
+        an AttributeError at import time, not silently find a stale
+        stub.
+        """
+        for symbol in (
+            "_RECOVERY_SYSTEM_PROMPT",
+            "_RECOVERY_USER_PROMPT",
+            "_CONSENSUS_WRAPPER_TEMPLATE",
+            "MAX_CONSENSUS_RESTARTS",
+            "MAX_READY_POLL_CYCLES",
+            "TRANSIENT_RESTART_BACKOFF_INITIAL",
+            "STARTUP_FAILURE_WINDOW_SECONDS",
+            "_event_pump_enabled",
+        ):
+            assert not hasattr(_consensus_wrapper_module, symbol), (
+                f"consensus_wrapper still exposes legacy symbol {symbol!r}; "
+                "slice-4 task-4-2 deleted these. A leftover stub will let "
+                "callers silently keep referencing the old API."
+            )
+
+
+class TestEventPumpMemoryDefaultFlip:
+    """Slice-4 task-4-1 acceptance: ``EGG_BRC_MEMORY`` flipped from
+    unset → ``off`` to unset → ``full``. The rendered bash MUST use
+    ``${EGG_BRC_MEMORY:-full}`` (default ``full``) so the event-pump
+    composer reads memory by default when the env is unset.
+    """
+
+    def test_event_pump_memory_default_is_full(self, monkeypatch):
+        """Rendered bash uses ``EGG_BRC_MEMORY:-full``, NOT ``:-off``.
+        A regression that left the default as ``off`` would silently
+        disable durable BRC memory in production.
+        """
+        monkeypatch.delenv("EGG_BRC_MEMORY", raising=False)
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Slice-4 task-4-1 flipped this default. The literal substring
+        # is the simplest pin.
+        assert "EGG_BRC_MEMORY:-full" in script or 'EGG_BRC_MEMORY="full"' in script, (
+            "rendered bash must default EGG_BRC_MEMORY to `full` per "
+            "slice-4 task-4-1 acceptance; a `:-off` default leaves the "
+            "durable memory path silently disabled in production."
+        )
+        # And the legacy ``:-off`` default MUST be gone.
+        assert "EGG_BRC_MEMORY:-off" not in script, (
+            "rendered bash still defaults EGG_BRC_MEMORY to `off`; "
+            "slice-4 task-4-1 required the flip to `full`."
+        )
+
+
+class TestEventPumpClassifierFunctionsRelocated:
+    """Slice-4 task-4-2 acceptance: ``is_buffer_overflow`` /
+    ``is_transient_crash`` / ``is_startup_failure`` classifiers were
+    preserved by relocating into ``_EVENT_PUMP_WRAPPER_TEMPLATE``. Pin
+    the bash-level semantics by sourcing the rendered template into a
+    subshell and calling each function with curated inputs.
+
+    These are not currently wired into the event-pump's
+    ``propose|ack|nack`` arm (per the docstring in the wrapper source),
+    but they survive the deletion as named helpers. A semantic
+    regression on the relocated helpers (wrong signal codes, wrong
+    grep pattern, wrong startup window) would silently defeat the
+    "kept for future revisions" goal in the task-4-2 acceptance.
+    """
+
+    @pytest.fixture
+    def classifier_harness(self, tmp_path, monkeypatch):
+        """Render the event-pump template, strip it down to just the
+        classifier function definitions, and return a path to a bash
+        script we can source into ``bash -c`` subshells.
+
+        Returns ``(harness_path: Path, agent_log: Path)``: ``agent_log``
+        is a temp file the harness can be told to use as
+        ``$AGENT_OUTPUT_LOG`` for ``is_buffer_overflow`` tests.
+        """
+        import re
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+
+        # Anchor at the start of ``is_buffer_overflow()``.
+        match = re.search(
+            r"is_buffer_overflow\(\) \{(?:.|\n)*?^\}\s*$",
+            script,
+            flags=re.MULTILINE,
+        )
+        if match is None:
+            pytest.fail(
+                "classifier block not found in rendered template; "
+                "task-4-2 acceptance requires the three classifiers to "
+                "survive the deletion."
+            )
+        start = match.start()
+        startup_match = re.search(
+            r"is_startup_failure\(\) \{(?:.|\n)*?^\}\s*$",
+            script[start:],
+            flags=re.MULTILINE,
+        )
+        if startup_match is None:
+            pytest.fail(
+                "is_startup_failure block not found after the classifier extraction anchor."
+            )
+        end = start + startup_match.end()
+        window_match = re.search(r"^STARTUP_FAILURE_WINDOW_SECONDS=\d+", script, re.MULTILINE)
+        prelude = window_match.group(0) if window_match else "STARTUP_FAILURE_WINDOW_SECONDS=30"
+
+        classifier_block = prelude + "\n" + script[start:end]
+        harness_path = tmp_path / "classifiers.sh"
+        harness_path.write_text(classifier_block)
+        agent_log = tmp_path / "agent.log"
+        return harness_path, agent_log
+
+    @staticmethod
+    def _exec(harness_path, body, env=None):
+        """Run ``bash`` sourcing the harness and then ``body``. Return
+        (rc, stdout, stderr).
+        """
+        run_env = dict(os.environ)
+        if env:
+            run_env.update(env)
+        result = subprocess.run(
+            ["bash", "-c", f"set +e; source {shlex.quote(str(harness_path))}; {body}"],
+            env=run_env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode, result.stdout, result.stderr
+
+    def test_is_transient_crash_recognizes_signal_codes(self, classifier_harness):
+        """``is_transient_crash`` returns 0 for SIGABRT (134), SIGFPE
+        (136), SIGKILL/OOM (137), SIGSEGV (139), Bun segfault (255);
+        returns 1 for anything else.
+        """
+        harness_path, _ = classifier_harness
+        for code in (134, 136, 137, 139, 255):
+            _, stdout, _ = self._exec(harness_path, f"is_transient_crash {code}; echo $?")
+            assert stdout.strip() == "0", (
+                f"is_transient_crash {code} returned {stdout.strip()!r}; "
+                f"expected 0 (signal-based exit codes are transient)."
+            )
+        for code in (0, 1, 2, 99, 128, 200):
+            _, stdout, _ = self._exec(harness_path, f"is_transient_crash {code}; echo $?")
+            assert stdout.strip() == "1", (
+                f"is_transient_crash {code} returned {stdout.strip()!r}; "
+                f"expected 1 (non-signal exit codes are not transient)."
+            )
+
+    def test_is_startup_failure_within_window(self, classifier_harness):
+        """``is_startup_failure 1 <duration>`` returns 0 (true) when
+        duration < STARTUP_FAILURE_WINDOW_SECONDS (30) AND exit code
+        is exactly 1.
+        """
+        harness_path, _ = classifier_harness
+        _, stdout, _ = self._exec(harness_path, "is_startup_failure 1 5; echo $?")
+        assert stdout.strip() == "0", (
+            "is_startup_failure 1 5 returned non-zero; expected 0 "
+            "(exit=1 within 30-second startup window MUST classify)."
+        )
+
+    def test_is_startup_failure_outside_window(self, classifier_harness):
+        """``is_startup_failure 1 31`` returns 1 (false) — the exit
+        code is 1 but the duration is past the 30-second startup window,
+        so the failure is not a startup blip.
+        """
+        harness_path, _ = classifier_harness
+        _, stdout, _ = self._exec(harness_path, "is_startup_failure 1 31; echo $?")
+        assert stdout.strip() == "1", (
+            "is_startup_failure 1 31 should NOT classify (duration exceeds the startup window)."
+        )
+
+    def test_is_startup_failure_non_one_exit(self, classifier_harness):
+        """``is_startup_failure 2 5`` returns 1 (false) — only exit
+        code 1 within the window counts as a startup failure; other
+        exit codes (signal-based crashes, intentional non-zero) are
+        not startup blips.
+        """
+        harness_path, _ = classifier_harness
+        _, stdout, _ = self._exec(harness_path, "is_startup_failure 2 5; echo $?")
+        assert stdout.strip() == "1", (
+            "is_startup_failure 2 5 should NOT classify (only exit=1 "
+            "within window is a startup failure)."
+        )
+
+    def test_is_buffer_overflow_with_sdk_marker(self, classifier_harness):
+        """``is_buffer_overflow`` returns 0 when ``$AGENT_OUTPUT_LOG``
+        contains the SDK 1 MiB JSON reader overflow signature.
+        """
+        harness_path, agent_log = classifier_harness
+        agent_log.write_text(
+            "some prefix\nError: exceeded maximum buffer size of 1048576 bytes\nsome suffix\n"
+        )
+        _, stdout, _ = self._exec(
+            harness_path,
+            "is_buffer_overflow; echo $?",
+            env={"AGENT_OUTPUT_LOG": str(agent_log)},
+        )
+        assert stdout.strip() == "0", (
+            f"is_buffer_overflow on a log with the SDK marker returned "
+            f"{stdout.strip()!r}; expected 0. Log path: {agent_log}"
+        )
+
+    def test_is_buffer_overflow_without_sdk_marker(self, classifier_harness):
+        """``is_buffer_overflow`` returns 1 when the log does not
+        contain the SDK overflow signature.
+        """
+        harness_path, agent_log = classifier_harness
+        agent_log.write_text("nothing to see here\nnormal output\n")
+        _, stdout, _ = self._exec(
+            harness_path,
+            "is_buffer_overflow; echo $?",
+            env={"AGENT_OUTPUT_LOG": str(agent_log)},
+        )
+        assert stdout.strip() == "1", "is_buffer_overflow on a clean log should NOT classify."
+
+    def test_is_buffer_overflow_missing_log(self, classifier_harness):
+        """``is_buffer_overflow`` returns 1 when ``$AGENT_OUTPUT_LOG``
+        is unset / missing — defensive guard so the classifier never
+        false-positives on an absent log.
+        """
+        harness_path, _ = classifier_harness
+        # Don't create agent_log this time.
+        _, stdout, _ = self._exec(
+            harness_path,
+            "unset AGENT_OUTPUT_LOG; is_buffer_overflow; echo $?",
+        )
+        assert stdout.strip() == "1", (
+            "is_buffer_overflow with unset AGENT_OUTPUT_LOG should "
+            "return 1 (no false positive on missing log)."
+        )
