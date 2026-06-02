@@ -27,7 +27,7 @@ slice-2 (event-pump wrapper, behind flag)
    ↓
 slice-3 (delta + prompt collapse)
    ↓
-slice-4 (spike + flag flip + delete old path)
+slice-4 (flag flip + delete old path)
    ↓
 slice-5 (additive: stdin/file prose plumbing + 2 new BRC subcommands)
    ↓
@@ -124,7 +124,7 @@ plan-reviewer §9 exception.
 | Wrapper-side gateway-session keep-alive | TASK-2-4 | Wrapper bash refreshes the lifecycle-secret-gated session while blocking. Migrated from same handler region (#2451). |
 | Per-event prompt composer (`compose_event_prompt`) | TASK-3-1 | New helper that builds the single-event prompt: role banner + event_payload + memory excerpt + full `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delta per producer + NACK payload. Tail-position memory delivery (architect od-6 Option B). |
 | Memory-delivery mechanism (Option B — inline at user-prompt tail) | TASK-3-2 | Wrapper bash invokes `python3 -m egg_agent "<event prompt> + <memory excerpt at tail>"`. The illustrative `--append-context` flag in the analysis pseudocode does NOT exist on `build_agent_command` (`shared/egg_agent/command.py:11-46`) — Option B sidesteps it. Option C (net-new `--memory-file` flag) is the explicit fallback. |
-| Three-point cache_read measurement schedule | TASK-3-7 (baseline check) + TASK-4-1 (post-slice-3) + TASK-6-7 (post-slice-6) | At each measurement point, capture `cache_read_input_tokens` / Qwen cost_callback aggregate per pipeline. Regression > 20% at any boundary triggers HITL pause (risk_analyst R8). |
+| Two-point cache_read measurement schedule | TASK-3-7 (post-slice-3 baseline) + TASK-6-7 (post-slice-6) | Capture `cache_read_input_tokens` per pipeline (Anthropic route) at each point. Regression > 20% at the boundary triggers HITL pause (risk_analyst R8). The slice-4 midpoint (#2) was removed with the qwen spike; the Qwen-route cost_callback aggregate is deferred with the qwen work. |
 | `egg-orch brc resolve-obligation` CLI | TASK-5-2 | Wraps existing `mcp__brc__resolve_obligation` handler. Prose `--note` via stdin or `--note-file PATH`. |
 | `egg-orch brc read-peer-artifact` CLI | TASK-5-3 | Wraps existing `mcp__brc__read_peer_artifact` handler. Stdout JSON; supports `--limit`, `--cursor`, `--phase`, `--peer-role`. |
 | `--summary-file PATH` / `--reason-file PATH` / `--files-reviewed-file PATH` + stdin sentinel on `consensus propose / ack / nack / withdraw` | TASK-5-1 | Hard constraint from #2741: prose args must NOT flow through `bash -c` argv. Reuses the `propose --file` pattern at `orch_cli.py:2552`. Existing argv `--reason` accepted as fallback during transition (deprecation in a separate cycle). |
@@ -202,7 +202,8 @@ Every slice carries its own unit + integration tests. Per slice
   (iii) in-process PeerConsensusTracker regression
   (`integration_tests/regression/test_brc_*.py`) passes — establishes
   zero orchestrator-side regression; (iv) true end-to-end validation
-  **deferred to slice-4** (the spike).
+  was removed — the slice-4 qwen spike was dropped and a
+  Claude-route E2E is blocked on ScriptedProvider (deferred to #2585).
 - **slice-3**: unit tests for `compose_event_prompt` (prompt shape +
   per-role budget); snapshot test for the collapsed
   `_build_brc_preamble`; assertion that the full
@@ -212,15 +213,15 @@ Every slice carries its own unit + integration tests. Per slice
   agent pod before the slice-3 sandbox rebuild ships); WS7 cache
   measurement #1 (post-slice-3 baseline); per-event prompt envelope
   (excluding git-log delta) bounded ≤ 10 KB.
-- **slice-4**: the spike — k3s integration test on the #2906 repro
-  (issue-2270, qwen3.7-max) with `EGG_BRC_EVENT_PUMP=true` and
-  `EGG_BRC_MEMORY=full`; assertions: consensus reaches CONFIRMED, no
-  restart churn, brc-memory.md populated with all six required
-  fields per producer entry (incl. `last_reviewed_commit_sha`
-  updated per producer), per-event context bounded, `cache_read`
-  instrumented on both routes (Anthropic via SDK usage, Qwen via
-  cost_callback files); cost-baseline comparison vs restart-churn
-  baseline from #2806. WS7 measurement #2 captured here.
+- **slice-4**: flag flip + delete old path — flip the
+  `EGG_BRC_EVENT_PUMP` / `EGG_BRC_MEMORY` defaults to on (gated on the
+  slice-2 / slice-3 unit + BRC in-process regression suites passing on
+  the new default) and delete the capped-restart / SSE /
+  recovery-prompt code plus the agent-side wait_loop heartbeat. The
+  qwen3.7-max #2906 k3s spike that previously validated this
+  end-to-end was removed — the qwen route is unavailable in the k3s
+  test env and a Claude-route E2E is blocked on ScriptedProvider pod
+  injection (deferred to #2585); no WS7 midpoint #2 is captured.
 - **slice-5**: stdin / `--reason-file` / `--summary-file` /
   `--files-reviewed-file` round-trip tests for prose containing
   `$VAR` / backticks / `;` / `&&` / embedded newlines (the
@@ -239,11 +240,12 @@ Every slice carries its own unit + integration tests. Per slice
   pause per risk_analyst R8.
 
 **Manual verification on slice-4 and slice-6** (recorded in
-`manual_steps`): human inspects spike output (memory content for
-reasoning fidelity; `last_reviewed_commit_sha` actually updates per
-producer; cost delta vs restart-churn baseline) and consents to flag
-flip; human inspects slice-6 WS7 #3 measurement and consents to
-deletion if cache_read regression is within tolerance.
+`manual_steps`): for slice-4, human confirms the slice-2 / slice-3
+unit + BRC in-process regression suites pass on the new default and
+consents to the flag flip (the qwen #2906 spike that previously
+produced reviewable output was removed — see the slice-4 goal); human
+inspects slice-6 WS7 #3 measurement and consents to deletion if
+cache_read regression is within tolerance.
 
 ## Manual pre/post-merge steps
 
@@ -253,12 +255,13 @@ deletion if cache_read regression is within tolerance.
   must happen BEFORE slice-4's flag flip — TASK-3-4 acceptance pins
   the rebuild verification so the rebuild lands as part of the
   slice-3 deploy.
-- **slice-4 pre-merge**: human reviews spike output (memory content,
-  `last_reviewed_commit_sha` correctness, WS7 cache measurement #2,
-  cost delta) before approving the default-on flip. Rollback plan
-  recorded: if the spike falsifies the design, `git revert` slices
-  1–3 (no production traffic touched the new path because the flag
-  stayed off until slice-4 flipped it).
+- **slice-4 pre-merge**: human confirms the slice-2 / slice-3 unit +
+  BRC in-process regression suites pass on the new default before
+  approving the default-on flip (the qwen #2906 spike that previously
+  produced reviewable output was removed — see the slice-4 goal).
+  Rollback plan recorded: if production traffic regresses, `git revert`
+  slices 1–3 (no production traffic touched the new path because the
+  flag stayed off until slice-4 flipped it).
 - **slice-4 post-merge**: monitor 24 h of production BRC traffic for
   any "Agent exited without BRC consensus" entries; if seen, flip
   `EGG_BRC_EVENT_PUMP=false` via deployment env and re-open the slice.
@@ -283,7 +286,7 @@ slice-2 (event-pump wrapper, behind flag)
 slice-3 (delta + prompt collapse, flag still off)
    │
    ▼
-slice-4 (spike + flag flip + delete old path)
+slice-4 (flag flip + delete old path)
    │
    ▼
 slice-5 (additive CLI prose plumbing + 2 new subcommands)
@@ -356,15 +359,16 @@ pr:
        `_build_brc_preamble` and `mission.md`; replace with a lean
        event-handler contract. Sandbox image rebuilt + agent pod
        restarted BEFORE slice-4 flag flip. WS7 cache measurement #1.
-    4. **slice-4 — Spike + flag flip + delete old path.** Run the
-       #2906 repro on k3s with `EGG_BRC_EVENT_PUMP=true` and
-       `EGG_BRC_MEMORY=full`; confirm consensus, instrumented
-       `cache_read`, populated memory (`last_reviewed_commit_sha`
-       updated per producer), bounded per-event context. Flip flag
-       defaults to on; delete the capped-restart bash, the
+    4. **slice-4 — Flag flip + delete old path.** Flip the
+       `EGG_BRC_EVENT_PUMP` / `EGG_BRC_MEMORY` defaults to on, gated on
+       the slice-2 / slice-3 unit + BRC in-process regression suites
+       passing on the new default; delete the capped-restart bash, the
        `_RECOVERY_SYSTEM_PROMPT`, the SSE machinery, and the
        agent-side wait_loop heartbeat code. Rollback plan: revert
-       slices 1–3 via `git revert` if spike falsifies.
+       slices 1–3 via `git revert` if production traffic regresses. The
+       qwen3.7-max #2906 k3s spike that previously validated this
+       end-to-end was removed (qwen route unavailable in k3s;
+       Claude-route E2E deferred to #2585).
     5. **slice-5 — Additive CLI prose plumbing + 2 new BRC
        subcommands.** Add stdin / `--reason-file` / `--summary-file`
        / `--files-reviewed-file` plumbing to
@@ -422,13 +426,13 @@ pr:
       asserted; per-event prompt envelope (excluding delta) ≤ 10 KB;
       sandbox-image rebuild verification (new mission.md reachable
       in pod) BEFORE slice-4 flag flip; WS7 cache measurement #1.
-    - slice-4: k3s integration test on the #2906 repro (issue-2270,
-      qwen3.7-max) with flag + memory both full; assertions on
-      CONFIRMED, no restart churn, populated memory with all six
-      required fields per producer entry (incl. `last_reviewed_commit_sha`
-      updated per producer), cache_read instrumented on both routes
-      (Anthropic via SDK usage, Qwen via cost_callback files); WS7
-      measurement #2 captured.
+    - slice-4: no new end-to-end test — the qwen3.7-max #2906 k3s
+      spike was removed (qwen route unavailable in k3s; Claude-route
+      E2E blocked on ScriptedProvider pod injection, deferred to
+      #2585). The flag flip is gated on the slice-2 / slice-3 unit +
+      BRC in-process regression suites passing on the new default;
+      the deletions in TASK-4-3 are covered by the updated unit tests
+      in TASK-4-4.
     - slice-5: stdin / `--reason-file` / `--summary-file` /
       `--files-reviewed-file` round-trip tests for prose containing
       `$VAR` / backticks / `;` / `&&` / embedded newlines (#2741
@@ -938,7 +942,7 @@ slices:
           either explicit-null or omitted slice_id on the heartbeat
           payload (NOT empty-string). The existing 3-cap tests must
           continue to pass with flag off. End-to-end validation is
-          OUT OF SCOPE for slice-2 (deferred to slice-4 spike).
+          OUT OF SCOPE for slice-2 (no slice-4 E2E spike; ScriptedProvider blocked, #2585).
         acceptance: |-
           All tests pass under ``make test``; flag-off snapshot
           matches existing template byte-for-byte; flag-on snapshot
@@ -965,10 +969,10 @@ slices:
           ``ScriptedProvider`` avenue was ruled out per #2474 (see
           ``integration_tests/regression/conftest.py:45`` and the
           comment in ``integration_tests/regression/test_brc_concurrency.py``
-          at lines 1-25). True end-to-end validation is deferred to
-          slice-4's spike on issue-2270/qwen3.7-max using the
-          ``egg_stack`` real-pod fixture
-          (``integration_tests/conftest.py:340``).
+          at lines 1-25). True end-to-end validation
+          via the ``egg_stack`` real-pod fixture is deferred: the
+          slice-4 qwen spike was dropped and a Claude-route E2E is
+          blocked on ScriptedProvider pod injection (#2585).
         acceptance: |-
           ``integration_tests/regression/test_brc_*.py`` runs green
           with flag off; no flag-on E2E added in this slice; the
@@ -1234,7 +1238,7 @@ slices:
           new prompt path on a local test pipeline and record
           ``cache_read_input_tokens`` / Qwen cost_callback aggregate
           to ``.egg-state/agent-outputs/ws7-measurement-slice-3.json``
-          for slice-4 / slice-6 comparison.
+          for slice-6 comparison.
         acceptance: |-
           Snapshot tests pass under ``make test``; snapshots
           committed; absent-strings assertions trigger on regression;
@@ -1248,82 +1252,23 @@ slices:
           - orchestrator/tests/test_brc_preamble_collapsed.py
   - id: 4
     name: |-
-      Spike validation + flag flip + delete old capped-restart wrapper path
+      Flag flip + delete old capped-restart wrapper path
     goal: |-
-      Run the #2906 repro (issue-2270, qwen3.7-max) end-to-end with
-      ``EGG_BRC_EVENT_PUMP=true`` and ``EGG_BRC_MEMORY=full``; confirm consensus
-      reaches CONFIRMED without restart churn, the memory file is populated and
-      consulted, per-event context is bounded, and ``cache_read`` is observed
-      across consecutive per-event invocations on both routes (Anthropic via
-      ``usage.cache_read_input_tokens``, Qwen via
-      ``~/.local/state/clm/cost-*.json`` per the WS7 closure comment). With
-      spike green, flip the flag default to on and delete the old
-      capped-restart / SSE / recovery-prompt path code from
-      ``consensus_wrapper.py``, plus the now-orphaned wait_loop heartbeat code
-      from ``handlers/message.py``. Old code lives behind ``EGG_BRC_EVENT_PUMP``
-      one release for emergency rollback; this slice deletes it.
+      Flip the ``EGG_BRC_EVENT_PUMP`` and ``EGG_BRC_MEMORY`` defaults to on so
+      the event-pump path and durable per-role memory become the production
+      path, then delete the old capped-restart / SSE / recovery-prompt path
+      code from ``consensus_wrapper.py`` plus the now-orphaned wait_loop
+      heartbeat code from ``handlers/message.py``. The flip is gated on the
+      slice-2 / slice-3 unit + BRC in-process regression suites passing on the
+      new default. (The qwen3.7-max #2906 k3s spike that previously validated
+      this end-to-end was removed: the qwen route is unavailable in the k3s
+      test environment, and a Claude-route end-to-end consensus test is
+      blocked on ScriptedProvider pod injection — deferred to #2585.) Old code
+      lives behind ``EGG_BRC_EVENT_PUMP`` one release for emergency rollback;
+      this slice deletes it.
     dependencies:
       - slice-3
     tasks:
-      - id: TASK-4-1
-        description: |-
-          Add k3s integration test
-          ``integration_tests/test_event_pump_spike_2906.py``
-          (directly under ``integration_tests/`` — the
-          ``local_pipeline/`` directory the architect referenced does
-          not exist in this codebase per reviewer_plan v2). Uses the
-          session-scoped ``egg_stack`` fixture at
-          ``integration_tests/conftest.py:340`` (k3s-backed; reaches
-          gateway via ``egg_stack.gateway_url`` attribute on the
-          ``EggStack`` dataclass at
-          ``integration_tests/conftest.py:78``; orchestrator via
-          ``egg_stack.orchestrator_url`` at :79; lifecycle bearer via
-          ``egg_stack.lifecycle_secret`` at :90). Pre-flight: assert
-          the sandbox image built in slice-3 (TASK-3-4) is the
-          deployed image tag AND assert the deployed
-          ``/opt/claude-rules/mission.md`` (the Dockerfile-baked path
-          per ``sandbox/Dockerfile:212-214`` +
-          ``sandbox/entrypoint.py:967``) NO LONGER contains the
-          STAY-ALIVE / wait-loop phrases — kubectl-exec into the
-          running pod and ``grep -E 'STAY-ALIVE\b|wait-loop|never
-          exit' /opt/claude-rules/mission.md`` must return zero
-          matches. Fail fast on either pre-flight check so a stale
-          image with fresh tag (or fresh image with stale mission.md
-          content) is caught BEFORE the spike runs. Run the #2906
-          repro:
-          issue-2270, qwen3.7-max provider configuration,
-          ``EGG_BRC_EVENT_PUMP=true``, ``EGG_BRC_MEMORY=full``,
-          default idle-budget. Assertions:
-          (a) consensus reaches CONFIRMED for every role in the
-          pipeline;
-          (b) no ``Agent exited without BRC consensus`` log entry;
-          (c) brc-memory.md populated per reviewer with all six
-          required fields and ``last_reviewed_commit_sha`` updated
-          per producer (mechanically derivable from the orchestrator
-          signal payload, so a static-value regression is catchable);
-          (d) per-event prompt envelope ≤ 10 KB on captured agent
-          invocations;
-          (e) ``cache_read_input_tokens`` > 0 on Anthropic route via
-          SDK usage capture;
-          (f) Qwen-route cache read > 0 via
-          ``~/.local/state/clm/cost-*.json`` aggregation.
-          Capture **WS7 measurement #2** to
-          ``.egg-state/agent-outputs/ws7-measurement-slice-4.json``
-          for slice-6 comparison.
-        acceptance: |-
-          Test passes against k3s with the qwen3.7-max provider;
-          assertions a–f all green; sandbox-image-deployed pre-flight
-          fails fast if (i) the new image is not picked up OR (ii)
-          the deployed pod's ``/opt/claude-rules/mission.md`` still
-          contains the STAY-ALIVE / wait-loop / never-exit phrases
-          (content-grep pre-flight, not just image-tag freshness);
-          WS7 #2 file written to ``.egg-state/agent-outputs/``;
-          test runs under ``make test-all`` against the
-          ``egg_stack`` fixture (kubectl-gated, k3s-backed; the test
-          skips if ``_kubectl_available()`` returns False).
-        role: tester
-        files:
-          - integration_tests/test_event_pump_spike_2906.py
       - id: TASK-4-2
         description: |-
           Flip the ``EGG_BRC_EVENT_PUMP`` default in
@@ -1334,7 +1279,11 @@ slices:
           sets ``EGG_BRC_EVENT_PUMP=false`` explicitly. Same flip for
           ``EGG_BRC_MEMORY`` from ``off`` to ``full`` so the
           delta-scoped re-analysis from slice-3 reads the memory file
-          in production. Pre-flight: TASK-4-1's spike test green.
+          in production. Pre-flight: the slice-2 / slice-3 unit + BRC
+          in-process regression suites pass on the new default (the
+          qwen3.7-max #2906 k3s spike that previously gated this flip
+          was removed — see the slice goal; Claude-route E2E is blocked
+          on ScriptedProvider pod injection, deferred to #2585).
         acceptance: |-
           ``build_consensus_wrapped_command`` with unset env emits
           the new template; with explicit
