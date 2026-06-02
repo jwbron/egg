@@ -12,11 +12,9 @@ These tests cover:
 
 * Clean assignments (each producer role pushing files within its scope)
   return no errors.
-* Coder assigned to test files — the dominant misassignment in the
-  #2530 audit (24 of 25 cases) — is flagged with ``tester`` as the
-  single eligible role.
-* Coder assigned to ``**/conftest.py`` is flagged (separate fixture
-  pattern from ``test_*.py``).
+* Coder assigned to test files (incl. ``**/conftest.py``) is **allowed**
+  — the coder authors its own tests now (intentional overlap with the
+  tester), so it is no longer a misassignment.
 * Coder assigned to ``.github/`` files — no producer role can push
   these — surfaces the ``.github-staging/`` (#2508) remediation hint.
 * Coder assigned to a markdown file is flagged with ``documenter`` as
@@ -110,7 +108,9 @@ class TestSingleEligibleRoleHint:
     """When exactly one producer role can push every file in the task,
     the validator must name that role in its hint."""
 
-    def test_coder_with_conftest_suggests_tester(self) -> None:
+    def test_coder_with_conftest_is_allowed(self) -> None:
+        # The coder authors its own tests now (overlap with the tester), so
+        # a coder→conftest.py assignment is no longer a misassignment.
         slices = [
             _slice(
                 "slice-1",
@@ -118,21 +118,14 @@ class TestSingleEligibleRoleHint:
             )
         ]
         errors = validate_task_role_alignment(slices)
-        assert len(errors) == 1
-        msg = errors[0]
-        assert "task-1-1" in msg
-        assert "slice-1" in msg
-        assert "'coder'" in msg
-        assert "integration_tests/conftest.py" in msg
-        assert "Reassign to role 'tester'" in msg
+        assert errors == []
 
-    def test_coder_with_test_py_suggests_tester(self) -> None:
-        # 24 of 25 misassignments in the #2530 audit were coder
-        # tasks containing test_*.py files.
+    def test_coder_with_test_py_is_allowed(self) -> None:
+        # Coder→test_*.py used to be the dominant misassignment (#2530 audit);
+        # it is now allowed because the coder authors its own tests.
         slices = [_slice("slice-1", [_task("task-1-1", ["tests/test_foo.py"], "coder")])]
         errors = validate_task_role_alignment(slices)
-        assert len(errors) == 1
-        assert "Reassign to role 'tester'" in errors[0]
+        assert errors == []
 
     def test_coder_with_markdown_suggests_documenter(self) -> None:
         slices = [_slice("slice-1", [_task("task-1-1", ["docs/guide.md"], "coder")])]
@@ -165,10 +158,10 @@ class TestMixedRoleFiles:
     validator must say so without listing a specific role to switch to."""
 
     def test_task_mixing_test_and_doc_files_has_no_eligible_role(self) -> None:
-        # tests/test_foo.py is blocked for coder + documenter (the
-        # latter via the ``tests/`` directory rule).
-        # docs/guide.md is blocked for coder + tester (both via
-        # ``**/*.md``). No producer role can push both.
+        # tests/test_foo.py is writable by coder + tester (not documenter).
+        # docs/guide.md is writable only by the documenter (coder + tester
+        # are blocked via ``**/*.md``). No single producer role can push
+        # both, so the assignment to coder is still flagged.
         slices = [
             _slice(
                 "slice-1",
@@ -191,14 +184,16 @@ class TestMultipleSlicesAndTasks:
     per offender."""
 
     def test_evidence_from_issue_2527(self) -> None:
-        # Reproduces the misassignments listed in the issue's evidence
-        # table for pipeline issue-2474-v2 slice-1: TASK-1-1 (conftest),
-        # TASK-1-3 (test_*.py + .github/), TASK-1-4 (conftest) all
-        # assigned to coder.
+        # Reproduces the issue's evidence table for pipeline issue-2474-v2
+        # slice-1. Under coder-owns-tests, the conftest-only tasks (TASK-1-1,
+        # TASK-1-4) are NO LONGER misassignments — the coder can author those
+        # tests. Only TASK-1-3 still offends, because it bundles a `.github/`
+        # workflow file that no producer role can push.
         slices = [
             _slice(
                 "slice-1",
                 [
+                    # task-1-1: conftest-only — now allowed (coder owns tests).
                     _task(
                         "task-1-1",
                         [
@@ -209,6 +204,7 @@ class TestMultipleSlicesAndTasks:
                     ),
                     # task-1-2 is correctly assigned -> no error
                     _task("task-1-2", ["src/foo.py"], "coder"),
+                    # task-1-3: still offends via the `.github/` file.
                     _task(
                         "task-1-3",
                         [
@@ -217,20 +213,21 @@ class TestMultipleSlicesAndTasks:
                         ],
                         "coder",
                     ),
+                    # task-1-4: conftest-only — now allowed.
                     _task("task-1-4", ["integration_tests/conftest.py"], "coder"),
                 ],
             )
         ]
         errors = validate_task_role_alignment(slices)
-        assert len(errors) == 3
-        offending_ids = {
-            tid for err in errors for tid in ("task-1-1", "task-1-3", "task-1-4") if tid in err
-        }
-        assert offending_ids == {"task-1-1", "task-1-3", "task-1-4"}
+        assert len(errors) == 1
+        assert "task-1-3" in errors[0]
+        assert ".github/workflows/test-e2e.yml" in errors[0]
 
     def test_errors_walk_every_slice(self) -> None:
+        # Two still-invalid coder assignments (docs are the documenter's
+        # scope) — confirms the walk emits one error per offending slice.
         slices = [
-            _slice("slice-1", [_task("task-1-1", ["tests/test_a.py"], "coder")]),
+            _slice("slice-1", [_task("task-1-1", ["docs/a.md"], "coder")]),
             _slice("slice-2", [_task("task-2-1", ["docs/x.md"], "coder")]),
         ]
         errors = validate_task_role_alignment(slices)

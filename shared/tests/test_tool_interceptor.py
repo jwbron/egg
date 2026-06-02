@@ -29,22 +29,32 @@ class TestCheckFileWritePermission:
         )
         assert result is None
 
-    def test_coder_writing_to_disallowed_test_file(self):
-        """Coder writing to a test file should be blocked."""
+    def test_coder_writing_to_test_file_allowed(self):
+        """Coder writing to a test file is allowed — the coder authors its own
+        tests (intentional overlap with the tester)."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
             agent_role="coder",
         )
+        assert result is None
+
+    def test_coder_writing_to_disallowed_docs_file(self):
+        """Coder writing to a docs file should be blocked (documenter's scope)."""
+        result = check_file_write_permission(
+            "Write",
+            {"file_path": "/home/egg/repos/myrepo/docs/guide.md"},
+            agent_role="coder",
+        )
         assert result is not None
         assert "coder" in result
-        assert "tests/test_foo.py" in result
+        assert "docs/guide.md" in result
 
     def test_edit_to_disallowed_path(self):
         """Edit tool writing to a disallowed path should be blocked."""
         result = check_file_write_permission(
             "Edit",
-            {"file_path": "/home/egg/repos/myrepo/tests/test_bar.py"},
+            {"file_path": "/home/egg/repos/myrepo/docs/reference.md"},
             agent_role="coder",
         )
         assert result is not None
@@ -100,12 +110,12 @@ class TestCheckFileWritePermission:
         """When blocked, the error message should hint at the owning role."""
         result = check_file_write_permission(
             "Write",
-            {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
+            {"file_path": "/home/egg/repos/myrepo/docs/guide.md"},
             agent_role="coder",
         )
         assert result is not None
-        # tests/ belongs to the tester role
-        assert "tester" in result
+        # docs/ belongs to the documenter role
+        assert "documenter" in result
 
     def test_tester_writing_to_test_file_allowed(self):
         """Tester writing to a test file should be allowed."""
@@ -148,7 +158,7 @@ class TestCheckFileWritePermission:
         """Error message should start with BLOCKED for blocked writes."""
         result = check_file_write_permission(
             "Write",
-            {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
+            {"file_path": "/home/egg/repos/myrepo/docs/guide.md"},
             agent_role="coder",
         )
         assert result is not None
@@ -158,7 +168,7 @@ class TestCheckFileWritePermission:
         """Error message should guide the LLM to focus on in-scope files."""
         result = check_file_write_permission(
             "Write",
-            {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
+            {"file_path": "/home/egg/repos/myrepo/docs/guide.md"},
             agent_role="coder",
         )
         assert result is not None
