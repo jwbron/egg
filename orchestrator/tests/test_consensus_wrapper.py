@@ -13,6 +13,7 @@ their coverage is folded into the event-pump test classes below.
 import os
 import shlex
 import subprocess
+import sys
 
 import pytest
 
@@ -264,12 +265,13 @@ class TestEventPumpKeepAliveCadence:
 
 class TestEventPumpIdleBudgetAlert:
     """(v) Idle / no-progress safety budget driven by env
-    ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When the new template path
-    is active and no actionable event has arrived for the budget
-    duration, the wrapper emits
+    ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When no actionable event
+    has arrived for the budget duration, the wrapper emits
     ``mcp__progress__overseer_alert`` (anomaly
     ``stuck-phase-transition``, priority ``high``) and continues
-    blocking. The old template keeps ``MAX_CONSENSUS_RESTARTS`` verbatim.
+    blocking. The legacy template that owned the historical restart
+    cap was deleted in slice-4 task-4-2; the idle budget is now the
+    only liveness ceiling in the wrapper.
 
     NOTE: Per scope update on #2908 issue body and contract cq-3, the
     durable server-side ``Pipeline.no_progress_budget`` is the binding
@@ -631,10 +633,16 @@ class TestEventPumpSliceIdHeartbeatEdge:
         )
 
 
-class TestEventPumpFlagIsolation:
-    """Cross-cutting guards: the flag-on / flag-off paths must remain
-    cleanly partitioned so a flip in slice-4 lands as a single bit
-    change with no surprise interactions.
+class TestEventPumpIdleBudgetCeiling:
+    """Post slice-4 task-4-2 the event-pump template is the only
+    template path and the ``EGG_BRC_EVENT_PUMP`` env flag is silently
+    inert (the legacy capped-restart template and the env-flag read
+    were both deleted). This class pins the surviving invariant: the
+    idle budget — not a restart cap — is the liveness ceiling for the
+    wrapper. Originally named ``TestEventPumpFlagIsolation`` (slice-2)
+    when the slice-2/3/4 split between event-pump and legacy paths
+    needed to be policed; renamed and trimmed in slice-4 task-4-2 to
+    match the post-deletion single-template world.
     """
 
     def test_event_pump_relies_on_idle_budget_not_legacy_restart_cap(self, monkeypatch):
@@ -1041,10 +1049,12 @@ class TestEventPumpConfirmFailureRaisesIdleAlert:
         is never called on persistent failure). The combined
         regression is the alert-flood scenario worth catching here.
         """
-        # ``_event_pump_enabled`` is read at template-composition time
-        # (in this Python process), NOT inside the subprocess shell.
-        # Set the env var here so ``build_consensus_wrapped_command``
-        # emits the flag-on event-pump template body.
+        # ``EGG_BRC_EVENT_PUMP`` is silently inert after slice-4 task-4-2
+        # (the env-flag read was deleted along with the legacy template);
+        # this ``setenv`` is harmlessly retained so a future regression
+        # that re-introduces a flag-gated branch trips the test if it
+        # depends on the env. ``build_consensus_wrapped_command`` always
+        # emits the event-pump template body now.
         monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
         # Stub directory on PATH ahead of the real egg-orch.
         bin_dir = tmp_path / "bin"
