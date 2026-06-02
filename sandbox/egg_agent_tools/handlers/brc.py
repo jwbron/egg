@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from egg_agent_tools.handlers import brc_memory as _brc_memory
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
@@ -19,6 +21,75 @@ from egg_agent_tools.handlers._gateway import (
 )
 from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_proposal_commit_sha(orchestrator_result: dict[str, Any], req: dict[str, Any]) -> str:
+    """Extract the producer's current proposal commit SHA from the response.
+
+    The orchestrator's ``handle_ack`` / ``handle_nack`` (`#2908 slice-1`
+    propagation hook in ``orchestrator/peer_consensus.py``) surfaces
+    the producer's current commit SHA in the response data so the
+    agent-side BRC memory writer doesn't need a second round-trip to
+    `get-state`. Callers may also override via ``req['commit_sha']``
+    (test/replay paths). Returns an empty string when the field is
+    absent — the memory writer renders that as ``-`` so the schema is
+    still well-formed.
+    """
+    explicit = (req.get("commit_sha") or "").strip()
+    if explicit:
+        return explicit
+    data = orchestrator_result.get("data") or {}
+    if not isinstance(data, dict):
+        return ""
+    return (data.get("commit_sha") or "").strip()
+
+
+def _record_review_memory(
+    *,
+    role: str,
+    verdict: str,
+    producer_role: str,
+    reason: str,
+    files_reviewed: list[str] | None,
+    commit_sha: str,
+    pre_merge_condition: str,
+) -> None:
+    """Best-effort durable BRC memory write (#2908 slice-1 task-1-6).
+
+    The writer is a side-effect on a successful ACK / NACK — handler
+    return values stay unchanged in every mode (off / write-only / full).
+    Any unexpected failure during the write is swallowed and logged so
+    a memory regression cannot break the BRC review path (which has
+    already succeeded at the orchestrator boundary by the time we get
+    here).
+    """
+    try:
+        _brc_memory.record_review(
+            role=role,
+            verdict=verdict,
+            producer_role=producer_role,
+            reason=reason,
+            files_reviewed=files_reviewed,
+            commit_sha=commit_sha,
+            pre_merge_condition=pre_merge_condition,
+        )
+    except ValueError as exc:
+        # Fail-closed role resolution raised — surface to the operator
+        # (a misconfigured pod is the only realistic cause) but do not
+        # break the BRC review path.
+        _logger.warning(
+            "BRC memory writer refused write: %s",
+            exc,
+        )
+    except Exception:  # pragma: no cover - defensive
+        # Any other failure (filesystem, parse error in a hand-edited
+        # prior file, etc.) is logged but never propagated. The
+        # orchestrator has already accepted the verdict; falling out
+        # because of a bookkeeping write would be a regression.
+        _logger.exception("BRC memory writer raised; suppressing")
+
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -580,6 +651,22 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "ack failed"))
+    # Durable BRC memory write (#2908 slice-1 task-1-6). Side-effect on
+    # a successful ACK — the slice-3 event-pump reads the resulting
+    # per-producer ``last_reviewed_commit_sha`` to scope the
+    # adversarial re-review git delta on the next re-proposal.
+    # Gated behind ``EGG_BRC_MEMORY``; default ``off`` so slice-1
+    # ships inert in production.
+    commit_sha_for_memory = _resolve_proposal_commit_sha(result, req)
+    _record_review_memory(
+        role=role,
+        verdict="ACK",
+        producer_role=producer_role,
+        reason=reason,
+        files_reviewed=list(req.get("files_reviewed") or []),
+        commit_sha=commit_sha_for_memory,
+        pre_merge_condition=pre_merge_condition,
+    )
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
 
 
@@ -634,6 +721,19 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
         raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "nack failed"))
+    # Durable BRC memory write (#2908 slice-1 task-1-6). Same
+    # side-effect contract as ``brc_ack`` — see the ack site for the
+    # rationale and the ``EGG_BRC_MEMORY`` mode gating.
+    commit_sha_for_memory = _resolve_proposal_commit_sha(result, req)
+    _record_review_memory(
+        role=role,
+        verdict="NACK",
+        producer_role=producer_role,
+        reason=reason,
+        files_reviewed=list(req.get("files_reviewed") or []),
+        commit_sha=commit_sha_for_memory,
+        pre_merge_condition="",
+    )
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
 
 
