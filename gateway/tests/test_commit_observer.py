@@ -568,7 +568,14 @@ class TestPatchIdRegistration:
 
 class TestPatchIdsForCommitsBulk:
     """Direct coverage for ``patch_ids_for_commits`` — the bulk helper shared
-    between observer (registration) and gateway/git_client (push-time recovery)."""
+    between observer (registration) and gateway/git_client (push-time recovery).
+
+    Fixture-width note: the placeholders here (``"aaaaaaaa"`` for patch-ids,
+    ``"sha1"`` / ``"sha2"`` for commit SHAs) are short for readability — the
+    helper does not validate widths internally. In production, ``git patch-id
+    --stable`` emits a 40-hex (SHA-1) or 64-hex (SHA-256) digest, and commit
+    SHAs are 40-hex / 64-hex; the route-level ``_PATCH_ID_RE`` enforces those
+    widths at the registration seam (see ``test_commit_authorship_routes``)."""
 
     def test_parses_pairs_and_correlates_by_sha(self, monkeypatch):
         # git log -p emits diffs for the requested SHAs; git patch-id --stable
