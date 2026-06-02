@@ -867,8 +867,14 @@ coupling. The schema is unchanged; only the *emitter* moves.
 The same migration applies to the gateway lifecycle-secret-gated
 session refresh that lived in `message_wait_loop` to keep the
 agent's gateway session alive while it was blocking. Under the
-event-pump path the wrapper performs the equivalent refresh as a
-second background subshell alongside the heartbeat emitter. Old path
+event-pump path the wrapper-side heartbeat POST *is* the
+gateway-session keep-alive vehicle: one subshell, two effects.
+`orchestrator/routes/messages.py:631` ("`post_heartbeat`")
+intentionally fans every accepted-or-deduped heartbeat through
+`_refresh_gateway_session` (see also `messages.py:705-718` and
+`messages.py:750-756`). The wrapper therefore does not need a
+second background subshell — the keep-alive effect rides for free
+on the heartbeat emitted by `start_background_heartbeat`. Old path
 unchanged; with the flag off the agent-side keep-alive still runs.
 
 ### Idle / no-progress safety budget (replaces the 3-restart FAIL cap)

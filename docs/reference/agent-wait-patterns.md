@@ -1197,8 +1197,8 @@ LEGACY (flag off, today's default):
 
 EVENT-PUMP (flag on):
     container ─► consensus_wrapper.sh
-                    ├─ background subshell A: wrapper-side heartbeat   ◄── §10.3
-                    ├─ background subshell B: gateway-session keep-alive ◄── §10.4
+                    ├─ background subshell: wrapper-side heartbeat     ◄── §10.3
+                    │     (also keeps the gateway session alive — §10.4)
                     └─ deterministic loop:
                          state    = $(egg-orch brc get-state --json)
                          if state.role_complete:
@@ -1285,9 +1285,18 @@ fails at the emission site, not later via skewed rate-limit logs.
 The same migration applies to the gateway lifecycle-secret-gated
 session refresh that lived inside `message_wait_loop` to keep the
 agent's gateway session alive while it was blocking. Under the
-event-pump path the wrapper performs the equivalent refresh as a
-**second background subshell** alongside the heartbeat emitter. With
-the flag off the agent-side keep-alive still runs.
+event-pump path the wrapper-side heartbeat POST *is* the
+gateway-session keep-alive vehicle: **one subshell, two effects**
+(overseer liveness + gateway-session idle reset). The
+orchestrator's `/messages/<pipeline>/heartbeat` route at
+`orchestrator/routes/messages.py:631` fans every accepted-or-deduped
+heartbeat through `_refresh_gateway_session` (see also
+`messages.py:705-718` and `messages.py:750-756`), so the keep-alive
+effect rides for free on the heartbeat subshell registered in
+§10.3 — there is no separate "keep-alive subshell" in the bash, and
+a future maintainer who adds one would emit a redundant
+double-heartbeat. With the flag off the agent-side keep-alive still
+runs.
 
 ### 10.5 Idle / no-progress safety budget (replaces the 3-restart FAIL cap)
 

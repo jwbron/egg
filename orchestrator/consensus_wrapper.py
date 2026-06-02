@@ -954,9 +954,13 @@ fetch_next_action() {{
     # reading wrapper logs can distinguish "orchestrator returned 409"
     # (benign, expected) from "transport unreachable" (worth checking)
     # without correlating against the orchestrator's audit log
-    # (tester v1 non-blocker #3).
+    # (tester v1 non-blocker #3). We always echo the fallback JSON so
+    # the next-action parser doesn't crash; we propagate the original
+    # ``rc`` as the function's exit code (caller reads ``$?`` after the
+    # ``$(...)`` substitution to count the streak per reviewer §3).
     cw_log "brc next-action returned rc=$rc / empty body; falling back to {{\"action\":\"wait\"}} and re-deriving state next loop."
     echo '{{"action":"wait"}}'
+    return "$rc"
 }}
 
 # Extract a top-level scalar field from a next-action JSON document.
@@ -1045,6 +1049,17 @@ LAST_PROGRESS=$SECONDS
 ALERTED_AT_BUDGET=false
 ALERTED_AT_DOUBLE=false
 
+# Consecutive-failure counters for the action arms (reviewer §1).
+# Used to apply linear backoff on the ``confirm`` arm and to surface
+# a distinguishable log when an action is persistently failing.
+CONFIRM_FAIL_STREAK=0
+AGENT_FAIL_STREAK=0
+# Consecutive failures from ``fetch_next_action`` (reviewer §3): used
+# to surface a distinguishable "many consecutive 5xx/transport failures"
+# log line so an unhealthy orchestrator is differentiable from a benign
+# 409 stale_version that re-derives on the next loop.
+NEXT_ACTION_FAIL_STREAK=0
+
 raise_idle_alert() {{
     local idle="$1"
     local priority="$2"
@@ -1110,7 +1125,10 @@ check_idle_budget() {{
 note_progress() {{
     LAST_PROGRESS=$SECONDS
     ALERTED_AT_BUDGET=false
-    ALERTED_AT_DOUBLE=false
+    # Reviewer §6 nit: ``ALERTED_AT_DOUBLE`` is sticky for the lifetime
+    # of the loop. Once the operator has been paged at 2x budget,
+    # re-arming a fresh 1x alert later (after a single spurious
+    # ``note_progress``) is noise, not signal.
 }}
 
 # --- main event-pump loop ---
@@ -1128,6 +1146,22 @@ while true; do
     ROLE_CONFIRMED=$(role_is_confirmed "$STATE_JSON")
 
     ACTION_JSON=$(fetch_next_action)
+    NEXT_ACTION_RC=$?
+    if [ "$NEXT_ACTION_RC" -eq 0 ]; then
+        NEXT_ACTION_FAIL_STREAK=0
+    else
+        # Reviewer §3 (minor): the CLI surfaces 409 stale_version, 409
+        # aggregated-NACK barrier, 5xx, and transport failure all as the
+        # same non-zero rc + empty body. A single non-zero rc is benign
+        # (expected event-pump signal). A *streak* is an orchestrator-
+        # health signal worth surfacing separately so operators reading
+        # wrapper logs can tell a 409-stuck role from an unhealthy
+        # orchestrator without correlating against the audit log.
+        NEXT_ACTION_FAIL_STREAK=$(( NEXT_ACTION_FAIL_STREAK + 1 ))
+        if [ "$NEXT_ACTION_FAIL_STREAK" -eq 5 ] || [ "$NEXT_ACTION_FAIL_STREAK" -eq 20 ]; then
+            cw_log "brc next-action has returned non-zero ${{NEXT_ACTION_FAIL_STREAK}} times in a row -- orchestrator may be unhealthy (5xx loop / transport down), not just a benign 409 stale_version. Idle budget continues to accrue."
+        fi
+    fi
     ACTION=$(next_action_field "$ACTION_JSON" "action")
     EVENT_PAYLOAD=$(next_action_field "$ACTION_JSON" "event_payload")
 
@@ -1139,9 +1173,36 @@ while true; do
             exit 0
             ;;
         confirm)
+            # Reviewer §1 (slice-4-blocking): ``note_progress`` must only
+            # fire when the CLI actually succeeded. Otherwise a persistent
+            # 5xx / transport / ``producer_not_fully_acked`` race against
+            # ``egg-orch consensus confirmed`` becomes a tight retry loop
+            # (~tens of ms per iteration, two short HTTP calls) that
+            # silently drains budget because the idle latch keeps resetting.
+            # The legacy template guarded this with ``MAX_CONSENSUS_RESTARTS=3``;
+            # the event-pump path's equivalent is the idle-budget safety net
+            # gated on rc.
             cw_log "Confirming via egg-orch consensus confirmed."
-            timeout 30 egg-orch consensus confirmed >/dev/null 2>&1 || true
-            note_progress
+            timeout 30 egg-orch consensus confirmed >/dev/null 2>&1
+            confirm_rc=$?
+            if [ "$confirm_rc" -eq 0 ]; then
+                note_progress
+                CONFIRM_FAIL_STREAK=0
+            else
+                # Floor the retry cadence so a persistent failure can't
+                # hot-loop the orchestrator faster than the idle counter
+                # can age. The sleep grows linearly with the streak length
+                # (capped at 30 s) so the operator sees the idle alert
+                # within ~30 min on the default budget while consecutive
+                # short failures don't escalate the load on the route.
+                CONFIRM_FAIL_STREAK=$(( CONFIRM_FAIL_STREAK + 1 ))
+                local_backoff=$(( CONFIRM_FAIL_STREAK * 2 ))
+                if [ "$local_backoff" -gt 30 ]; then
+                    local_backoff=30
+                fi
+                cw_log "consensus confirmed failed (rc=$confirm_rc, streak=$CONFIRM_FAIL_STREAK); backing off ${{local_backoff}}s. Idle counter continues to accrue."
+                sleep "$local_backoff"
+            fi
             ;;
         wait)
             # Block on the bus. ``wait_for_event`` returns 0 only when
@@ -1160,9 +1221,31 @@ while true; do
             fi
             ;;
         propose|ack|nack)
+            # Reviewer §1 (slice-4-blocking): symmetric with the ``confirm``
+            # arm above -- ``note_progress`` must only fire when the agent
+            # invocation actually succeeded. A persistent ``mcp__brc__propose``
+            # / API-quota / prompt-rendering failure can fail in well under a
+            # second, and without rc-gating here the idle latch resets every
+            # iteration so the operator-visible idle alert never fires. The
+            # PR removed ``MAX_CONSENSUS_RESTARTS=3``; this rc gate is the
+            # equivalent ceiling on the action path.
             cw_log "Invoking agent (action=$ACTION)."
-            invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD" || true
-            note_progress
+            invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"
+            agent_rc=$?
+            if [ "$agent_rc" -eq 0 ]; then
+                note_progress
+                AGENT_FAIL_STREAK=0
+            else
+                AGENT_FAIL_STREAK=$(( AGENT_FAIL_STREAK + 1 ))
+                cw_log "agent invocation failed (action=$ACTION, rc=$agent_rc, streak=$AGENT_FAIL_STREAK). Idle counter continues to accrue."
+                # Agent startup typically gives a natural floor of
+                # seconds-to-tens-of-seconds, so no explicit backoff is
+                # required here -- but if the failure was sub-second (e.g.
+                # a prompt-rendering crash before SDK init), add a small
+                # floor so the orchestrator's next-action route isn't
+                # hammered.
+                sleep 1
+            fi
             ;;
         *)
             # Defensive: unknown action surfaced from the orchestrator

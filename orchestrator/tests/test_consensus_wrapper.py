@@ -2833,3 +2833,152 @@ class TestEventPumpIdleAlertBrcSnapshot:
         assert "tester" in result_line, (
             f"snapshot does not contain the EGG_AGENT_ROLE; got {result_line!r}"
         )
+
+
+class TestEventPumpConfirmFailureRaisesIdleAlert:
+    """(reviewer §1 lock-in) When ``egg-orch consensus confirmed``
+    persistently fails on the ``confirm`` arm, the wrapper must NOT
+    tight-retry. The idle-budget overseer alert is the replacement
+    for the legacy ``MAX_CONSENSUS_RESTARTS=3`` ceiling -- it MUST
+    fire when the underlying CLI keeps returning non-zero.
+
+    Pre-fix bug shape (slice-2 v1): the ``confirm)`` arm called
+    ``note_progress`` unconditionally after the CLI returned, which
+    reset ``LAST_PROGRESS`` and both ``ALERTED_AT_*`` latches every
+    iteration. ``check_idle_budget`` therefore never observed a
+    growing idle and the alert never fired -- a tight retry loop
+    with zero operator-visible signal.
+
+    Post-fix: ``note_progress`` only fires on rc==0. A persistent
+    non-zero rc lets the idle counter accrue; ``check_idle_budget``
+    fires the OVERSEER_ALERT at the configured budget.
+    """
+
+    def test_persistent_confirm_failure_fires_overseer_alert(self, tmp_path, monkeypatch):
+        """End-to-end behavioural test of the §1 lock-in.
+
+        Drive the rendered event-pump bash against stubbed
+        ``egg-orch`` / ``python3`` shims:
+          - ``brc get-state`` → role unconfirmed
+          - ``brc next-action`` → ``{"action":"confirm"}``
+          - ``consensus confirmed`` → exit 1 every call (persistent
+            failure)
+          - ``overseer alert`` → record the call to a log file
+          - everything else → noop / exit 0
+
+        With ``EGG_BRC_IDLE_BUDGET_MIN=0`` the alert should fire on
+        the very first ``check_idle_budget`` after the failing
+        confirm; the test asserts the alert log was written within a
+        short timeout.
+        """
+        # ``_event_pump_enabled`` is read at template-composition time
+        # (in this Python process), NOT inside the subprocess shell.
+        # Set the env var here so ``build_consensus_wrapped_command``
+        # emits the flag-on event-pump template body.
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        # Stub directory on PATH ahead of the real egg-orch.
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        confirm_log = tmp_path / "confirm_calls.log"
+        alert_log = tmp_path / "alert_calls.log"
+        general_log = tmp_path / "egg_orch.log"
+
+        # Mock egg-orch: route on the first two positional words so we
+        # can recognise ``brc get-state`` / ``brc next-action`` /
+        # ``consensus confirmed`` / ``overseer alert`` etc.
+        mock_orch = bin_dir / "egg-orch"
+        mock_orch.write_text(
+            "#!/bin/bash\n"
+            f'echo "$@" >> {shlex.quote(str(general_log))}\n'
+            'sub="$1 $2"\n'
+            'case "$sub" in\n'
+            '    "brc get-state")\n'
+            '        echo \'{"consensus":{"agents":{"coder":{"confirmed":false,'
+            '"producer_phase":"WAITING_FOR_REVIEW"}},"is_complete":false}}\'\n'
+            "        ;;\n"
+            '    "brc next-action")\n'
+            '        echo \'{"action":"confirm"}\'\n'
+            "        ;;\n"
+            '    "consensus confirmed")\n'
+            f"        echo confirm_call >> {shlex.quote(str(confirm_log))}\n"
+            "        exit 1\n"
+            "        ;;\n"
+            '    "overseer alert")\n'
+            f'        echo "alert: $*" >> {shlex.quote(str(alert_log))}\n'
+            "        ;;\n"
+            "    *)\n"
+            "        # message heartbeat, message wait-loop, etc -- benign no-ops.\n"
+            "        ;;\n"
+            "esac\n"
+            "exit 0\n"
+        )
+        os.chmod(str(mock_orch), 0o755)  # nosec B103
+
+        # Stub python3 so the agent invocation arm (not exercised here
+        # because next-action == ``confirm``) doesn't accidentally run
+        # the real Agent SDK if a future regression flips the action.
+        # Forward inline ``python3 -c`` invocations (which the wrapper
+        # uses for JSON parsing) to the real interpreter.
+        real_python = sys.executable
+        mock_python = bin_dir / "python3"
+        mock_python.write_text(
+            "#!/bin/bash\n"
+            'if [ "$1" = "-c" ] || [ "$1" = "-" ]; then\n'
+            f'    exec {shlex.quote(real_python)} "$@"\n'
+            "fi\n"
+            "# Agent SDK invocation path -- treat as success no-op.\n"
+            "exit 0\n"
+        )
+        os.chmod(str(mock_python), 0o755)  # nosec B103
+
+        # Build the wrapper with the flag on; idle budget of 0 makes
+        # ``check_idle_budget`` fire on the first non-progress
+        # iteration.
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["EGG_BRC_EVENT_PUMP"] = "true"
+        env["EGG_BRC_IDLE_BUDGET_MIN"] = "0"
+        env["EGG_AGENT_ROLE"] = "coder"
+        env["EGG_PIPELINE_ID"] = "test-pipeline"
+        env["EGG_CONCURRENT_MODE"] = "true"
+
+        cmd = build_consensus_wrapped_command("Prompt")
+        # The wrapper loops forever; bound the test with a short
+        # timeout. By that time, several confirm attempts and at
+        # least one overseer alert must have been recorded if the
+        # §1 fix is in place.
+        try:
+            subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+        except subprocess.TimeoutExpired:
+            pass  # expected — the wrapper loops; we bound it.
+
+        assert confirm_log.exists(), (
+            "wrapper did not call `egg-orch consensus confirmed` at "
+            "all on the confirm arm -- the event-pump loop may not "
+            "have reached the confirm action. egg-orch log:\n"
+            + (general_log.read_text() if general_log.exists() else "(empty)")
+        )
+        confirm_attempts = confirm_log.read_text().count("confirm_call")
+        assert confirm_attempts >= 1, f"expected >= 1 confirm attempts, got {confirm_attempts}"
+
+        assert alert_log.exists(), (
+            "§1 regression: `egg-orch consensus confirmed` failed "
+            f"{confirm_attempts} times but the overseer idle-budget "
+            "alert never fired. The pre-fix `note_progress` reset "
+            "ran unconditionally on every confirm-arm iteration, "
+            "resetting LAST_PROGRESS and the ALERTED_AT_* latches so "
+            "`check_idle_budget` never observed a growing idle. "
+            "Post-fix: `note_progress` only fires on rc==0; "
+            "persistent confirm failure must surface as an "
+            "OVERSEER_ALERT. egg-orch log:\n" + general_log.read_text()
+        )
+        alert_text = alert_log.read_text()
+        assert "stuck-phase-transition" in alert_text, (
+            f"overseer alert fired but with the wrong anomaly type. Got:\n{alert_text}"
+        )
