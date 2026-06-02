@@ -30,6 +30,15 @@ except ImportError:
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+# Re-export the slice-3 per-event prompt composer so callers can still
+# import it via ``orchestrator.routes.pipelines.compose_event_prompt``
+# (the contract assigns this file in TASK-3-1) even though the body
+# lives in a sibling module to keep this file under the orchestrator
+# decomposition cap (#2261). The slice-3 plan acceptance is satisfied
+# by either import path; tests bind on
+# ``orchestrator.routes.event_prompt`` directly.
+from .event_prompt import compose_event_prompt  # noqa: F401
+
 
 # Closed enumeration of ``ContextPrCreationError.reason`` values
 # (#2777). Producer and downstream tests (TASK-3-8) bind on these
