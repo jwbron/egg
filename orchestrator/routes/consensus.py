@@ -185,12 +185,23 @@ def _has_pending_peer_proposals(
         entry = tracker.matrix.get_entry(reviewer, producer)
         # No verdict yet, or stale verdict on a prior version → review needed.
         if entry is None or entry.version < current_version:
+            # Enrich with the producer's current proposal artifact list
+            # so the wrapper's per-event prompt composer can render a
+            # degraded changed_artifacts fallback when the reviewer has
+            # no stored ``last_reviewed_commit_sha`` for this producer
+            # (slice-3 reviewer_code_holistic v2 finding #1 — wire the
+            # documented fallback through the live payload shape).
+            # The snapshot is read-only and locked through the tracker's
+            # public API; missing producers yield empty artifact lists.
+            snapshot = tracker.get_current_proposal_snapshot(producer)
+            artifact_refs = list(snapshot.get("artifacts") or [])
             pending.append(
                 {
                     "producer": producer,
                     "current_version": current_version,
                     "prior_version": entry.version if entry else 0,
                     "prior_verdict": entry.state.value if entry else "pending",
+                    "artifact_refs": artifact_refs,
                 }
             )
     return bool(pending), pending

@@ -794,3 +794,368 @@ def test_cli_off_mode_omits_memory_and_uses_changed_artifacts_fallback(tmp_path)
     # changed_artifacts fallback fires when no SHA is available.
     assert "src/foo.py" in out
     assert "degraded baseline" in out
+
+
+# ---------------------------------------------------------------------------
+# reviewer_code v2 NACK: REVIEWER-SYNC.md path is shared/prompts/,
+# NOT docs/architecture/ — every rendered prompt section must cite
+# the correct path so an agent following the link doesn't 404.
+# ---------------------------------------------------------------------------
+
+
+def test_per_producer_delta_section_cites_correct_reviewer_sync_path() -> None:
+    """The rendered per-producer delta section must point at
+    ``shared/prompts/REVIEWER-SYNC.md`` (the real location), NOT the
+    legacy ``docs/architecture/REVIEWER-SYNC.md`` placeholder that
+    would 404 for any agent following the link.
+    """
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack", "pending_reviews": [{"producer": "coder", "current_version": 1}]},
+        "",
+        [],
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "abc1234",
+                "delta": "(diff body)",
+            }
+        ],
+        "main",
+    )
+    # Correct path appears in the rendered prompt.
+    assert "shared/prompts/REVIEWER-SYNC.md" in prompt
+    # Wrong path absent — regression guard against the v1 placeholder.
+    assert "docs/architecture/REVIEWER-SYNC.md" not in prompt
+
+
+def test_module_docstring_cites_correct_reviewer_sync_path() -> None:
+    """The module docstring is read by developers; it must cite the
+    real ``shared/prompts/REVIEWER-SYNC.md`` location rather than the
+    legacy ``docs/architecture/`` placeholder.
+    """
+    from orchestrator.routes import event_prompt
+
+    doc = event_prompt.__doc__ or ""
+    assert "shared/prompts/REVIEWER-SYNC.md" in doc
+    assert "docs/architecture/REVIEWER-SYNC.md" not in doc
+
+
+# ---------------------------------------------------------------------------
+# reviewer_code_holistic v2 finding #2: ``_extract_nacks`` must accept the
+# ``unresolved_nacks`` key the next-action route emits for the
+# single-reviewer NACK propose path (the common case — the open-NACK
+# barrier requires 2+ reviewers).
+# ---------------------------------------------------------------------------
+
+
+def test_extract_nacks_accepts_unresolved_nacks_key_from_next_action() -> None:
+    """``unresolved_nacks`` is the key the next-action route's
+    single-reviewer NACK propose path emits (``_derive_next_action``
+    lines 329-348). The composer MUST extract it; omitting this key
+    silently dropped single-reviewer NACK feedback from the per-event
+    prompt (reviewer_code_holistic v2 finding #2).
+    """
+    from orchestrator.routes.event_prompt import _extract_nacks
+
+    payload = {
+        "producer": "coder",
+        "unresolved_nacks": [
+            {
+                "reviewer": "reviewer_code",
+                "version": 1,
+                "reason": "missing edge case in foo()",
+                "artifact_refs": ["src/foo.py"],
+            },
+        ],
+    }
+    extracted = _extract_nacks(payload)
+    assert len(extracted) == 1
+    assert extracted[0]["reviewer"] == "reviewer_code"
+    assert extracted[0]["reason"] == "missing edge case in foo()"
+
+
+def test_compose_event_prompt_renders_unresolved_nacks_section() -> None:
+    """End-to-end: a producer re-propose event carrying
+    ``unresolved_nacks`` must render the structured ``Open NACKs``
+    section so the agent can see reviewer ``reason`` + ``artifact_refs``
+    directly in the prompt (not recover them via a separate fetch).
+    """
+    from orchestrator.routes.event_prompt import _extract_nacks
+
+    payload = {
+        "producer": "coder",
+        "unresolved_nacks": [
+            {
+                "reviewer": "reviewer_code",
+                "version": 2,
+                "reason": "the foo() helper still raises on None",
+                "artifact_refs": ["orchestrator/routes/foo.py"],
+            },
+        ],
+    }
+    nacks = _extract_nacks(payload)
+    prompt = compose_event_prompt(
+        "coder",
+        payload,
+        "",
+        nacks,
+        [],  # producer side: no per-producer delta
+        "main",
+    )
+    # Structured Open-NACKs section renders with the reviewer's identity
+    # + reason + artifact_refs (the round-trip-per-NACK signal #2142
+    # was built to enforce).
+    assert "## Open NACKs against the current proposal version" in prompt
+    assert "reviewer_code" in prompt
+    assert "the foo() helper still raises on None" in prompt
+    assert "orchestrator/routes/foo.py" in prompt
+
+
+def test_extract_nacks_priority_order_nacks_over_unresolved_nacks() -> None:
+    """When both keys are present, ``nacks`` takes priority — it's the
+    canonical 2+-reviewer barrier shape that should override the
+    single-reviewer convenience key. The ``unresolved_nacks`` payload
+    is silently dropped in that edge case to keep barrier semantics
+    primary.
+    """
+    from orchestrator.routes.event_prompt import _extract_nacks
+
+    payload = {
+        "nacks": [{"reviewer": "rA", "reason": "barrier"}],
+        "unresolved_nacks": [{"reviewer": "rB", "reason": "single"}],
+    }
+    extracted = _extract_nacks(payload)
+    assert len(extracted) == 1
+    assert extracted[0]["reviewer"] == "rA"
+
+
+# ---------------------------------------------------------------------------
+# reviewer_code_holistic v2 finding #3: ``_build_delta_entries`` must
+# scope the producer set to the current event's ``pending_reviews``,
+# not enumerate every producer in the reviewer's memory file. Stale
+# deltas for unrelated prior producers must not ride along when the
+# event names a different producer for THIS invocation.
+# ---------------------------------------------------------------------------
+
+
+def test_build_delta_entries_scopes_to_pending_reviews_producer() -> None:
+    """Memory has SHA for coder; event names tester. Renderer must
+    produce the *tester* fallback (not coder's stale delta).
+    """
+    from pathlib import Path
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    memory_text = "## Per-producer assessment\n\n### coder\n\n- last_reviewed_commit_sha: abc1234\n"
+    entries = _build_delta_entries(
+        action="ack",
+        role="reviewer_code",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text=memory_text,
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "tester",
+                    "current_version": 1,
+                    "artifact_refs": ["tests/test_x.py"],
+                }
+            ],
+        },
+    )
+    # The rendered set should be scoped to *tester* (the current event's
+    # producer) — NOT to coder (the stale memory producer).
+    rendered_producers = [e["producer"] for e in entries]
+    assert "tester" in rendered_producers
+    assert "coder" not in rendered_producers
+    # Tester has no SHA in memory → fallback artifact_refs render.
+    tester_entry = next(e for e in entries if e["producer"] == "tester")
+    assert tester_entry["last_reviewed_commit_sha"] == ""
+    assert "tests/test_x.py" in tester_entry["delta"]
+    assert "degraded baseline" in tester_entry["delta"]
+
+
+def test_build_delta_entries_pending_reviews_with_sha_renders_real_delta() -> None:
+    """When pending_reviews names producer X AND memory has X's SHA,
+    render the verbatim git-log delta for X (not the fallback).
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    memory_text = (
+        "## Per-producer assessment\n\n"
+        "### coder\n\n"
+        "- last_reviewed_commit_sha: aaaa111\n"
+        "\n"
+        "### tester\n\n"
+        "- last_reviewed_commit_sha: bbbb222\n"
+    )
+    with patch(
+        "orchestrator.routes.event_prompt._run_git_log",
+        return_value="(real diff for tester)",
+    ) as mock_log:
+        entries = _build_delta_entries(
+            action="ack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=memory_text,
+            event_payload={
+                "pending_reviews": [{"producer": "tester", "current_version": 2}],
+            },
+        )
+    assert len(entries) == 1
+    assert entries[0]["producer"] == "tester"
+    assert entries[0]["last_reviewed_commit_sha"] == "bbbb222"
+    # Verify ``_run_git_log`` was invoked only for tester's SHA, not
+    # coder's — the scoping invariant must hold inside the git
+    # subprocess layer too.
+    sha_args = [call.args[0] for call in mock_log.call_args_list]
+    assert sha_args == ["bbbb222"]
+
+
+def test_build_delta_entries_multiple_pending_reviews_renders_each() -> None:
+    """``pending_reviews`` may name multiple producers (e.g. on the
+    first reviewer invocation of a slice). Each named producer
+    surfaces in the rendered entries.
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    memory_text = "## Per-producer assessment\n\n### coder\n\n- last_reviewed_commit_sha: aaaa111\n"
+    with patch(
+        "orchestrator.routes.event_prompt._run_git_log",
+        return_value="(diff)",
+    ):
+        entries = _build_delta_entries(
+            action="ack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=memory_text,
+            event_payload={
+                "pending_reviews": [
+                    {"producer": "coder", "current_version": 2},
+                    {
+                        "producer": "documenter",
+                        "current_version": 1,
+                        "artifact_refs": ["docs/x.md"],
+                    },
+                ],
+            },
+        )
+    producers = [e["producer"] for e in entries]
+    assert "coder" in producers
+    assert "documenter" in producers
+    # coder has a stored SHA → real delta path
+    coder_entry = next(e for e in entries if e["producer"] == "coder")
+    assert coder_entry["last_reviewed_commit_sha"] == "aaaa111"
+    # documenter has no SHA → fallback to per-producer artifact_refs
+    doc_entry = next(e for e in entries if e["producer"] == "documenter")
+    assert doc_entry["last_reviewed_commit_sha"] == ""
+    assert "docs/x.md" in doc_entry["delta"]
+
+
+def test_build_delta_entries_no_pending_reviews_falls_back_to_memory_enum() -> None:
+    """Legacy / synthetic-test payloads (no ``pending_reviews`` key)
+    fall back to enumerating all stored memory SHAs — preserves
+    backward compatibility for callers that bypass next-action.
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    memory_text = (
+        "## Per-producer assessment\n\n"
+        "### coder\n\n"
+        "- last_reviewed_commit_sha: aaaa111\n"
+        "\n"
+        "### tester\n\n"
+        "- last_reviewed_commit_sha: bbbb222\n"
+    )
+    with patch(
+        "orchestrator.routes.event_prompt._run_git_log",
+        return_value="(diff)",
+    ):
+        entries = _build_delta_entries(
+            action="ack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=memory_text,
+            event_payload={},  # no pending_reviews, no producer
+        )
+    # Both stored producers render (legacy fallback path).
+    rendered = sorted(e["producer"] for e in entries)
+    assert rendered == ["coder", "tester"]
+
+
+def test_extract_current_producers_dedupes_in_first_seen_order() -> None:
+    """The producer-extraction helper must preserve first-seen order
+    so rendered sections are stable across calls with the same
+    payload, and must de-dupe so a producer named twice doesn't
+    render twice.
+    """
+    from orchestrator.routes.event_prompt import _extract_current_producers
+
+    payload = {
+        "pending_reviews": [
+            {"producer": "tester"},
+            {"producer": "coder"},
+            {"producer": "tester"},  # duplicate
+            {"producer": "documenter"},
+        ],
+    }
+    assert _extract_current_producers(payload) == ["tester", "coder", "documenter"]
+
+
+def test_extract_current_producers_falls_back_to_top_level_producer() -> None:
+    """Producer-side events don't carry ``pending_reviews``; the
+    extractor must fall back to top-level ``producer`` /
+    ``producer_role``.
+    """
+    from orchestrator.routes.event_prompt import _extract_current_producers
+
+    assert _extract_current_producers({"producer": "coder"}) == ["coder"]
+    assert _extract_current_producers({"producer_role": "tester"}) == ["tester"]
+
+
+def test_extract_artifacts_for_producer_walks_pending_reviews_first() -> None:
+    """The per-producer artifact fallback must prefer
+    ``pending_reviews[i].artifact_refs`` (the production payload
+    shape) over the legacy top-level ``changed_artifacts`` key.
+    """
+    from orchestrator.routes.event_prompt import _extract_artifacts_for_producer
+
+    payload = {
+        "pending_reviews": [
+            {"producer": "coder", "artifact_refs": ["src/foo.py"]},
+            {"producer": "tester", "artifact_refs": ["tests/test_x.py"]},
+        ],
+        "changed_artifacts": ["legacy/path.py"],
+    }
+    # Each producer gets its OWN artifact_refs.
+    assert _extract_artifacts_for_producer(payload, "coder") == ["src/foo.py"]
+    assert _extract_artifacts_for_producer(payload, "tester") == ["tests/test_x.py"]
+
+
+def test_extract_artifacts_for_producer_respects_top_level_producer_match() -> None:
+    """When falling back to top-level ``changed_artifacts``, the
+    extractor must only honour the fallback if the payload's
+    top-level ``producer`` key matches the requested producer —
+    prevents cross-producer artifact leak in legacy / synthetic
+    test paths.
+    """
+    from orchestrator.routes.event_prompt import _extract_artifacts_for_producer
+
+    payload = {"producer": "coder", "changed_artifacts": ["src/foo.py"]}
+    # Match → return.
+    assert _extract_artifacts_for_producer(payload, "coder") == ["src/foo.py"]
+    # Mismatch → empty (no leak).
+    assert _extract_artifacts_for_producer(payload, "tester") == []
