@@ -13,7 +13,7 @@ the prompt also includes the FULL ``git log
 per producer so the re-review audits the actual delta — not just the
 orchestrator-side ``changed_artifacts`` summary, which would
 systematically weaken adversarial re-review (see
-``docs/architecture/REVIEWER-SYNC.md`` + risk_analyst R6 from
+``shared/prompts/REVIEWER-SYNC.md`` + risk_analyst R6 from
 the replan2 architect output).
 
 Design choices encoded here:
@@ -150,7 +150,7 @@ def _render_producer_delta_section(
         "``last_reviewed_commit_sha`` (stored in your durable BRC memory) "
         "to ``HEAD`` of the producer's branch, EXCLUDING commits already "
         "on the base branch. Audit the diff as a fresh review per "
-        "``docs/architecture/REVIEWER-SYNC.md``: the named-blockers from "
+        "``shared/prompts/REVIEWER-SYNC.md``: the named-blockers from "
         "your prior NACK MUST be addressed, AND any new findings the "
         "delta introduces are in scope. Both passes must succeed to ACK.",
         "",
@@ -498,18 +498,35 @@ def _build_delta_entries(
     """Render per-producer deltas for the current action.
 
     For review actions (``ack`` / ``nack``) we render one delta per
-    producer with a stored ``last_reviewed_commit_sha`` in the memory
-    file. For producer actions (``propose`` / ``confirm``) there is
-    no per-producer delta — the producer just looks at HEAD.
+    producer **scoped to the current event** (the producer(s) named
+    in ``event_payload.pending_reviews``). For producer actions
+    (``propose`` / ``confirm``) there is no per-producer delta — the
+    producer just looks at HEAD.
+
+    **Scoping invariant (reviewer_code_holistic v2 finding #3).** The
+    memory file accumulates a per-producer ``last_reviewed_commit_sha``
+    for every producer the reviewer has ever ACK/NACKed. The current
+    event names *one* producer (or a small set in
+    ``pending_reviews``) — the agent's job this invocation is to
+    review THAT producer's latest delta, not to be handed stale
+    deltas for unrelated prior producers. Treat the memory file as a
+    per-producer LOOKUP keyed by the current event's producers, not
+    as an ENUMERATION source. When the event payload doesn't name
+    producers (legacy / synthetic / test paths) we fall back to
+    rendering all stored SHAs — this preserves backward compatibility
+    for callers that bypass the next-action route.
 
     **``changed_artifacts`` fallback (plan TASK-3-2 acceptance).**
-    When no per-producer SHA is available (off mode, first-ever ACK
-    before any memory write, parse failure, file missing) and the
-    event payload carries a ``changed_artifacts`` list, render a
-    single fallback entry naming the producer and the artifact list
-    — explicitly labelled as a degraded baseline so the agent does
-    not mistake it for an adversarial-re-review-grade diff. The
-    documenter's docs at
+    For each scoped producer with no stored SHA (first-ever ACK,
+    parse failure, file missing) the renderer falls back to the
+    orchestrator's signal-level artifact list. The fallback is sourced
+    in priority order from (a) ``event_payload.pending_reviews[i].
+    artifact_refs`` (the next-action route enriches this from
+    ``PeerConsensusTracker.get_current_proposal_snapshot``), and (b)
+    the top-level ``event_payload.changed_artifacts`` key (legacy /
+    test path). The fallback is explicitly labelled as a degraded
+    baseline so the agent does not mistake it for an
+    adversarial-re-review-grade diff. The documenter's docs at
     ``docs/architecture/orchestrator.md`` and
     ``docs/reference/agent-wait-patterns.md`` describe the same
     fallback: "strictly a degraded baseline, not the adversarial
@@ -518,18 +535,28 @@ def _build_delta_entries(
     ``role`` is currently unused inside the function body; the
     parameter is retained for the call-site symmetry (architect
     plan: the composer signature passes role through alongside
-    action so a future revision can scope the producer set by the
-    reviewer/producer relationship).
+    action). Once the next-action route is the only producer of
+    event_payload, ``role`` can be re-purposed as the reviewer-role
+    half of the (reviewer, producer) relationship; for now the
+    producer derivation is event-payload-driven.
     """
-    del role  # see docstring
+    del role  # see docstring — kept for call-site symmetry
     if action not in ("ack", "nack"):
         return []
 
-    per_producer = _parse_per_producer_sha(memory_text)
-    if per_producer:
-        out: list[dict[str, Any]] = []
-        for producer in sorted(per_producer.keys()):
-            sha = per_producer[producer]
+    per_producer_sha = _parse_per_producer_sha(memory_text)
+
+    # Scope the producer set to the current event. Falls back to ALL
+    # stored producers in memory when the event payload doesn't name
+    # any (legacy callers, synthetic test payloads).
+    scoped_producers = _extract_current_producers(event_payload)
+    if not scoped_producers:
+        scoped_producers = sorted(per_producer_sha.keys())
+
+    out: list[dict[str, Any]] = []
+    for producer in scoped_producers:
+        sha = per_producer_sha.get(producer, "")
+        if sha:
             delta = _run_git_log(sha, base_branch, repo_path)
             out.append(
                 {
@@ -538,45 +565,49 @@ def _build_delta_entries(
                     "delta": delta,
                 }
             )
-        return out
+            continue
 
-    # ``changed_artifacts`` fallback — when there is no stored SHA we
-    # still surface the orchestrator's signal-level artifact list so
-    # the agent has SOMETHING to anchor the re-review on. This is
-    # explicitly a degraded baseline (the agent must hand-resolve any
-    # diff from it); the adversarial-re-review path is only honoured
-    # when a real ``last_reviewed_commit_sha`` is available.
-    changed_artifacts = _extract_changed_artifacts(event_payload)
-    if not changed_artifacts:
-        return []
-
-    producer = _extract_producer_role(event_payload)
-    refs_text = "\n".join(f"- `{a}`" for a in changed_artifacts)
-    fallback_delta = (
-        "(No `last_reviewed_commit_sha` recorded yet for this "
-        "producer — falling back to the orchestrator's signal-level "
-        "`changed_artifacts` list as a degraded baseline. This is "
-        "NOT the adversarial-re-review path; if your role demands a "
-        "full audit, fetch and read the actual file diffs yourself "
-        "before issuing a verdict.)\n\n"
-        f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
-    )
-    return [
-        {
-            "producer": producer,
-            "last_reviewed_commit_sha": "",
-            "delta": fallback_delta,
-        }
-    ]
+        # Per-producer fallback — no recorded SHA for this producer.
+        # Prefer per-producer artifact_refs from pending_reviews; fall
+        # back to the legacy top-level changed_artifacts key.
+        artifacts = _extract_artifacts_for_producer(event_payload, producer)
+        if not artifacts:
+            continue
+        refs_text = "\n".join(f"- `{a}`" for a in artifacts)
+        fallback_delta = (
+            "(No `last_reviewed_commit_sha` recorded yet for this "
+            "producer — falling back to the orchestrator's signal-level "
+            "`changed_artifacts` list as a degraded baseline. This is "
+            "NOT the adversarial-re-review path; if your role demands a "
+            "full audit, fetch and read the actual file diffs yourself "
+            "before issuing a verdict.)\n\n"
+            f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
+        )
+        out.append(
+            {
+                "producer": producer,
+                "last_reviewed_commit_sha": "",
+                "delta": fallback_delta,
+            }
+        )
+    return out
 
 
 def _extract_changed_artifacts(event_payload: Any) -> list[str]:
-    """Pull a ``changed_artifacts`` list out of the event payload.
+    """Pull a top-level ``changed_artifacts`` list out of the event payload.
 
     Defensive against schema drift — non-list shapes coerce to empty
     rather than raising. Entries are stringified so a future schema
     surfaces structured artifact refs (e.g. dicts with role / path)
     without crashing the renderer.
+
+    NB: the production payload from
+    ``orchestrator/routes/consensus.py::_derive_next_action`` does NOT
+    emit a top-level ``changed_artifacts`` key — reviewer-side
+    fallback should prefer ``_extract_artifacts_for_producer`` which
+    walks the ``pending_reviews[i].artifact_refs`` enrichment surfaced
+    by the next-action route. This helper remains as the legacy /
+    test-payload entry point.
     """
     if not isinstance(event_payload, dict):
         return []
@@ -584,6 +615,98 @@ def _extract_changed_artifacts(event_payload: Any) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [str(item) for item in raw if item is not None and str(item).strip()]
+
+
+def _extract_current_producers(event_payload: Any) -> list[str]:
+    """Return the producer roles named by the *current* event.
+
+    Walks the next-action route's payload shapes in priority order:
+
+    * ``pending_reviews`` — the reviewer-side payload key emitted when
+      one or more producers have proposals awaiting this reviewer's
+      verdict. Each entry is ``{producer, current_version,
+      prior_version, prior_verdict, artifact_refs?}``.
+    * ``producer`` / ``producer_role`` — the producer-side payload key
+      naming the agent's own producer slot (e.g. on a re-propose with
+      ``unresolved_nacks``).
+
+    Returns an empty list when no producer can be identified — the
+    caller treats that as "legacy / synthetic payload, fall back to
+    enumerating all stored memory SHAs" (backward-compat for callers
+    that bypass the next-action route).
+
+    De-dupes while preserving first-seen order so the rendered prompt
+    sections are stable across invocations.
+    """
+    if not isinstance(event_payload, dict):
+        return []
+
+    seen: list[str] = []
+    pending = event_payload.get("pending_reviews")
+    if isinstance(pending, list):
+        for entry in pending:
+            if not isinstance(entry, dict):
+                continue
+            producer = entry.get("producer") or entry.get("producer_role")
+            if not isinstance(producer, str):
+                continue
+            producer = producer.strip()
+            if producer and producer not in seen:
+                seen.append(producer)
+
+    if not seen:
+        raw = event_payload.get("producer") or event_payload.get("producer_role")
+        if isinstance(raw, str) and raw.strip():
+            seen.append(raw.strip())
+
+    return seen
+
+
+def _extract_artifacts_for_producer(event_payload: Any, producer: str) -> list[str]:
+    """Pull the artifact list for a specific producer from the payload.
+
+    Priority order (reviewer_code_holistic v2 finding #1 — wire the
+    per-producer artifact_refs the next-action route now emits, not
+    the never-emitted top-level ``changed_artifacts`` key):
+
+    1. ``pending_reviews[i].artifact_refs`` where ``entry.producer ==
+       producer`` — the production reviewer-side payload, enriched by
+       ``_has_pending_peer_proposals`` from
+       ``PeerConsensusTracker.get_current_proposal_snapshot``.
+    2. Top-level ``event_payload.changed_artifacts`` if the producer
+       in the payload's top-level ``producer`` / ``producer_role`` key
+       matches — preserved for legacy / synthetic test paths.
+
+    Returns ``[]`` when no artifacts can be associated with the named
+    producer.
+    """
+    if not isinstance(event_payload, dict) or not isinstance(producer, str):
+        return []
+    producer = producer.strip()
+    if not producer:
+        return []
+
+    pending = event_payload.get("pending_reviews")
+    if isinstance(pending, list):
+        for entry in pending:
+            if not isinstance(entry, dict):
+                continue
+            entry_producer = entry.get("producer") or entry.get("producer_role")
+            if not isinstance(entry_producer, str) or entry_producer.strip() != producer:
+                continue
+            raw = entry.get("artifact_refs")
+            if isinstance(raw, list):
+                refs = [str(item) for item in raw if item is not None and str(item).strip()]
+                if refs:
+                    return refs
+
+    # Legacy / synthetic-test fallback: only honour the top-level
+    # ``changed_artifacts`` when the payload's top-level producer
+    # matches the requested producer.
+    top_producer = event_payload.get("producer") or event_payload.get("producer_role")
+    if isinstance(top_producer, str) and top_producer.strip() == producer:
+        return _extract_changed_artifacts(event_payload)
+    return []
 
 
 def _extract_producer_role(event_payload: Any) -> str:
@@ -605,10 +728,20 @@ def _extract_nacks(event_payload: Any) -> list[dict[str, Any]]:
     The orchestrator's ``next-action`` route surfaces the open-NACK
     barrier (``orchestrator/peer_consensus.py:_open_nacks_barrier_response``)
     inside the event_payload when the action verb is ``propose`` on a
-    re-propose. Two keys are accepted so the surface naming can evolve
+    re-propose. Three keys are accepted so the surface naming can evolve
     without breaking the wrapper:
 
-    * ``nacks`` — the canonical key from ``_open_nacks_barrier_response``.
+    * ``nacks`` — the canonical key from ``_open_nacks_barrier_response``
+      used for the 2+-reviewer barrier shape.
+    * ``unresolved_nacks`` — the key emitted by ``next-action``'s
+      single-reviewer NACK path (``orchestrator/routes/consensus.py``
+      ``_derive_next_action`` lines 329-348). This is the common case
+      for producer re-propose events: a single reviewer NACK does not
+      trigger the open-NACK barrier (which requires 2+ distinct
+      reviewers) but still carries reviewer ``reason`` /
+      ``artifact_refs`` the producer needs to address. Omitting this
+      key silently dropped single-reviewer NACK feedback from the
+      per-event prompt (reviewer_code_holistic v2 finding).
     * ``aggregated_nacks`` — accepted for forward-compat in case the
       next-action route synthesises its own barrier-equivalent payload.
 
@@ -619,6 +752,8 @@ def _extract_nacks(event_payload: Any) -> list[dict[str, Any]]:
     if not isinstance(event_payload, dict):
         return []
     raw = event_payload.get("nacks")
+    if not isinstance(raw, list):
+        raw = event_payload.get("unresolved_nacks")
     if not isinstance(raw, list):
         raw = event_payload.get("aggregated_nacks")
     if not isinstance(raw, list):

@@ -561,3 +561,47 @@ def test_next_action_unknown_role_returns_4xx(client, simple_tracker):
     assert resp.status_code in (400, 404, 422), (
         f"Unknown role must surface as 4xx — got {resp.status_code}: {resp.data!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# reviewer_code_holistic v2 finding #1: pending_reviews entries must
+# carry artifact_refs so the slice-3 event-pump composer's
+# changed_artifacts fallback can render a degraded baseline when the
+# reviewer has no stored last_reviewed_commit_sha for the producer.
+# ---------------------------------------------------------------------------
+
+
+def test_next_action_reviewer_pending_reviews_includes_artifact_refs(client, simple_tracker):
+    """Reviewer-side pending_reviews entries must surface the producer's
+    current proposal artifact list as ``artifact_refs`` so the slice-3
+    composer can render a per-producer changed_artifacts fallback on
+    first-ever ACK (when no last_reviewed_commit_sha is yet stored).
+
+    Reviewer_code_holistic v2 finding #1: the documented fallback was
+    dead code in production because next-action emitted ``pending_reviews``
+    entries without artifact_refs and the composer's fallback path
+    looked for a top-level ``changed_artifacts`` key the route never
+    set. This test pins the new artifact_refs enrichment.
+    """
+    _propose(simple_tracker, "coder")
+    resp = _post_next_action(client, "reviewer_code", tracker=simple_tracker)
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    payload = data.get("data", data)
+    pending = (payload.get("event_payload") or {}).get("pending_reviews") or []
+    assert len(pending) >= 1, (
+        f"reviewer with pending proposal must surface pending_reviews — payload={payload!r}"
+    )
+    entry = pending[0]
+    assert entry.get("producer") == "coder"
+    assert "artifact_refs" in entry, (
+        f"pending_reviews entry must include artifact_refs (slice-3 holistic "
+        f"finding #1) — entry={entry!r}"
+    )
+    # _propose() above seeds artifacts=['a.py'] — the enriched payload
+    # must carry that through verbatim so the composer's fallback can
+    # render it as the degraded baseline.
+    assert entry["artifact_refs"] == ["a.py"], (
+        f"artifact_refs must mirror the producer's current proposal "
+        f"artifacts (a.py from _propose) — got {entry['artifact_refs']!r}"
+    )
