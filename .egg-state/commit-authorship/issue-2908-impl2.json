@@ -2428,6 +2428,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
+    "fa862ba8b343f9c8725fed8c9935f0237f3478fd": {
+      "branch": "egg/issue-2908-impl2/slice-4",
+      "patch_id": null,
+      "pipeline_id": "issue-2908-impl2",
+      "registered_at": "2026-06-02T23:34:06.452814+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code"
+    },
     "fab0f018b077eba6153c8e02ffe0e3e8867450d6": {
       "branch": "egg/issue-2908-impl2/slice-3",
       "patch_id": null,
