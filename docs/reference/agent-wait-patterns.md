@@ -903,7 +903,7 @@ Hosts invoke this via the SDLC skill's launcher,
 [#2971](https://github.com/jwbron/egg/issues/2971) the launcher is a
 **self-contained pure-stdlib client** — it carries a faithful vendored
 copy of `cmd_pipeline_wait_status` (pinned to this module by
-`sandbox/tests/test_skill_wait_status_standalone.py`) and needs no
+`tests/sandbox/test_skill_wait_status_standalone.py`) and needs no
 `.venv`, no `PYTHONPATH`, and no egg checkout. The skill can therefore
 be installed globally (`~/.claude/skills/sdlc/`) and driven from any
 working directory; its only requirement is a reachable orchestrator.

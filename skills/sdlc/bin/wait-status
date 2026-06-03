@@ -10,7 +10,7 @@
 # reachable orchestrator. It is a faithful vendored copy of the
 # ``egg-orch pipeline wait-status`` code path in
 # ``sandbox/egg_lib/orch_cli.py``; a contract test
-# (``sandbox/tests/test_skill_wait_status_standalone.py``) pins this
+# (``tests/sandbox/test_skill_wait_status_standalone.py``) pins this
 # copy's stdout JSON-lines and exit codes to that source so the two
 # can't drift.
 #
