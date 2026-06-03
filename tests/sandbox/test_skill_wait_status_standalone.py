@@ -283,7 +283,7 @@ class TestSelfContained:
     def test_distinct_module_from_orch_cli(self) -> None:
         assert skill_wait_status is not orch_cli
         assert skill_wait_status.__file__ is None or "skills/sdlc/bin/wait-status" in str(
-            _SKILL_SCRIPT
+            skill_wait_status.__file__
         )
 
     def test_no_egg_imports(self) -> None:

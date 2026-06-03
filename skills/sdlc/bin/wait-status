@@ -153,7 +153,7 @@ def api_request(base_url: str, endpoint: str, timeout: int = 15) -> dict[str, An
     except URLError as e:
         raise ApiError(f"Connection error: {e.reason}") from e
     except TimeoutError as e:
-        raise ApiError(f"Request timed out: {url}: {e}") from e
+        raise ApiError(f"Request timed out: {url}") from e
     except HTTPException as e:
         # ``http.client.RemoteDisconnected`` / ``IncompleteRead`` — raised
         # when the peer closes the connection mid-flight (e.g. orch pod

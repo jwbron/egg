@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
-_sandbox_path = str(Path(__file__).parent.parent)
+_sandbox_path = str(Path(__file__).resolve().parents[2] / "sandbox")
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
