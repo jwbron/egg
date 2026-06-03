@@ -6912,6 +6912,30 @@ def _confluence_error_from_upstream(exc: ConfluenceUpstreamError) -> tuple[Respo
     redactor only runs on 2xx bodies, so we apply it here too before the
     upstream body crosses the gateway/sandbox boundary.
     """
+    if 300 <= exc.status_code < 400:
+        # A 3xx is never a valid read response from the Atlassian REST API —
+        # it's the signature of an unauthenticated/misrouted request being
+        # bounced to the login page. The usual cause is a missing/invalid
+        # gateway Atlassian token or a wrong base URL (e.g. ATLASSIAN_BASE_URL
+        # set to a page browser URL, or CONFLUENCE_BASE_URL missing the
+        # ``/wiki`` suffix). Surface that pointedly instead of an opaque 502 so
+        # operators don't have to reverse-engineer the redirect. Still 502
+        # (bad upstream response), distinct from the 503 "creds absent" path.
+        return make_error(
+            f"Confluence upstream returned {exc.status_code} (redirect) — the "
+            "gateway received a login redirect instead of a REST response. "
+            "This usually means the gateway's Atlassian credentials are "
+            "missing/invalid or the base URL is wrong (e.g. ATLASSIAN_BASE_URL "
+            "must be the bare tenant origin, or CONFLUENCE_BASE_URL must include "
+            "the /wiki suffix).",
+            status_code=502,
+            details={
+                "upstream_status": exc.status_code,
+                "upstream_body": _redact_upstream_error_body(exc.body),
+                "path": exc.path,
+                "likely_cause": "missing_or_invalid_atlassian_credentials_or_base_url",
+            },
+        )
     if 400 <= exc.status_code < 500:
         status = exc.status_code
     else:

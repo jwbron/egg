@@ -336,6 +336,32 @@ class TestPageGet:
         # Non-redacted fields pass through.
         assert upstream_body["errorMessages"] == ["upstream blew up"]
 
+    def test_upstream_redirect_surfaces_actionable_error(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """A 3xx from Atlassian (login redirect — the signature of missing/
+        invalid gateway credentials or a wrong base URL) must surface a
+        pointed, actionable message + ``likely_cause`` rather than the opaque
+        ``Confluence upstream error 302``. Still HTTP 502 (bad upstream
+        response), distinct from the 503 credentials-absent path. See #2970."""
+        fake = MagicMock()
+        fake.get_page.side_effect = ConfluenceUpstreamError(302, "", "api/v2/pages/12345")
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/page/get",
+                headers=private_headers,
+                data=json.dumps({"pageId": "12345"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        body = json.loads(resp.data)
+        # Actionable message, not the opaque "Confluence upstream error 302".
+        assert "redirect" in body["message"].lower()
+        assert "Confluence upstream error" not in body["message"]
+        details = body["data"]
+        assert details["upstream_status"] == 302
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+
 
 # -----------------------------------------------------------------------------
 # /api/v1/confluence/space/list — list_spaces filtering end-to-end (risk R13)
