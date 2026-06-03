@@ -24,9 +24,9 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch phase advance [<id>]` | Advance to next phase |
 | `egg-orch phase start [<id>]` | Start current phase |
 | `egg-orch phase complete [<id>]` | Complete current phase |
-| `egg-orch phase get-context [<pipeline_id>] [--phase <p>] [--role <r>] [--no-artifacts] [--json]` | Bundle phase context — pipeline ID, phase, role, role-filtered task list, and prior-phase artifact paths (verb-level alias for `mcp__phase__get_context`; used by event-pump wrapper) |
-| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event |
-| `egg-orch brc get-state [<pipeline_id>] [--slice-id <id>] [--verbose] [--json]` | Return the BRC consensus state as structured JSON (verb-level alias for `mcp__brc__get_state`; `--verbose` includes raw orchestrator payload under `raw`) |
+| `egg-orch phase get-context [<pipeline_id>] [--phase <p>] [--role <r>] [--no-artifacts]` | Bundle phase context — pipeline ID, phase, role, role-filtered task list, and prior-phase artifact paths (verb-level alias for `mcp__phase__get_context`; used by event-pump wrapper). Output is always JSON. |
+| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`nack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event. `nack` is reserved in the schema (`_VALID_ACTIONS`) for symmetry with the BRC verb set but is not emitted by the current slice-1 derivation logic. |
+| `egg-orch brc get-state [<pipeline_id>] [--slice-id <id>] [--verbose]` | Return the BRC consensus state as structured JSON (verb-level alias for `mcp__brc__get_state`; `--verbose` includes raw orchestrator payload under `raw`). Output is always JSON. |
 | `egg-orch brc list-blocking [<pipeline_id>] [--json]` | List roles currently blocking consensus, newline-delimited by default (verb-level alias for `mcp__brc__list_blocking`) |
 | `egg-orch decision list [<id>]` | List HITL decisions |
 | `egg-orch decision create [<id>] --question <text>` | Queue a decision |
