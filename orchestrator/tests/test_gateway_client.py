@@ -1871,9 +1871,12 @@ class TestLookupOpenPr:
 
 class TestListOpenPrs:
     """#2925: ``GatewayClient.list_open_prs`` lists the repo's open PRs for
-    the context-PR idempotency pre-flight and the stacked-PR reconciler.
+    the stacked-PR reconciler. (The context-PR opener migrated off this
+    helper onto :meth:`lookup_open_pr` in #2934 — the narrower server-side
+    ``gh pr list --head --base`` filter — so ``list_open_prs`` no longer
+    backs that idempotency pre-flight.)
 
-    Like :meth:`_lookup_open_pr`, the listing runs on the **control-plane**
+    Like :meth:`lookup_open_pr`, the listing runs on the **control-plane**
     route ``/api/v1/gh/list_open_prs`` with launcher auth — the orchestrator
     is the server that manages pipelines, not an agent, so it does not
     register a synthetic agent session or impersonate a role on the

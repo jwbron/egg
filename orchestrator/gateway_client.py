@@ -2659,7 +2659,7 @@ class GatewayClient:
         plane holds the launcher secret), not a synthetic agent session.
         The gateway runs ``gh pr list --repo <repo> --state open --limit
         <N> --json number,headRefName,baseRefName`` server-side. This is
-        the seam #2922 established for :meth:`_lookup_open_pr`; #2925
+        the seam #2922 established for :meth:`lookup_open_pr`; #2925
         completes the migration so the orchestrator is never modelled as an
         ``AgentRole`` — it authenticates as the control plane, not as an
         agent.
