@@ -15818,7 +15818,10 @@ def _start_stacked_pr_reconciler(
     def _list_extant_branches() -> set[str]:
         # Lists remote branches via ``git ls-remote --heads origin``
         # so the reconciler can detect deleted parents. Routes through
-        # the existing per-agent ``git ls-remote`` allowlist.
+        # the existing per-agent ``git ls-remote`` allowlist. The
+        # synthetic session uses ``agent_role="orchestrator"`` so this
+        # orchestrator-driven ls-remote is attributed to the orchestrator
+        # in the audit log instead of a phantom coder (#2919).
         if not repo_path_str:
             return set()
         try:
@@ -15826,7 +15829,7 @@ def _start_stacked_pr_reconciler(
                 gateway.list_remote_branches(
                     pipeline_id,
                     repo_path_str,
-                    agent_role="coder",
+                    agent_role="orchestrator",
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -15852,7 +15855,13 @@ def _start_stacked_pr_reconciler(
                     old_base=orphan.deleted_base,
                     pr_number=orphan.pr_number,
                     repo=pr_repo or None,
-                    agent_role="coder",
+                    # Orchestrator-driven heal (rebase + force-push +
+                    # pr-edit); attribute to the orchestrator, not a
+                    # phantom coder (#2919). The force-push targets the
+                    # slice integration branch on a synthetic session, so
+                    # the slice-integration exemption admits it regardless
+                    # of role.
+                    agent_role="orchestrator",
                 )
             )
         except Exception:  # noqa: BLE001
@@ -16139,7 +16148,10 @@ def _run_implement_phase_slices(
                     # (un-started) slice branch whose tip is still at its
                     # creation base is not mistaken for merged work.
                     integration_base_sha=slice_obj.integration_base_sha,
-                    agent_role="coder",
+                    # Read-only ancestry check run by the orchestrator's
+                    # slice-loop scheduler; attribute to the orchestrator
+                    # in the audit log, not a phantom coder (#2919).
+                    agent_role="orchestrator",
                     mode=gateway_mode,  # type: ignore[arg-type]
                 )
             except Exception as detect_err:  # noqa: BLE001
@@ -16524,7 +16536,10 @@ def _run_implement_phase_slices(
                             integration_branch=integration_branch,
                             parent_branch=parent_branch,
                             integration_base_sha=recorded_base_sha,
-                            agent_role="coder",
+                            # Read-only ancestry check run by the
+                            # orchestrator's slice-loop scheduler; attribute
+                            # to the orchestrator, not a phantom coder (#2919).
+                            agent_role="orchestrator",
                             mode=gateway_mode,  # type: ignore[arg-type]
                         )
                     except Exception as detect_err:  # noqa: BLE001
@@ -16581,7 +16596,14 @@ def _run_implement_phase_slices(
                                 str(worktree_repo_path),
                                 integration_branch=integration_branch,
                                 parent_branch=parent_branch,
-                                agent_role="coder",
+                                # Orchestrator pre-creates the slice
+                                # integration branch on a synthetic session
+                                # before agents spawn; attribute to the
+                                # orchestrator, not a phantom coder (#2919).
+                                # The push rides the slice-integration
+                                # exemption (synthetic + branch shape), not a
+                                # role gate.
+                                agent_role="orchestrator",
                                 mode=gateway_mode,  # type: ignore[arg-type]
                             )
                         )
