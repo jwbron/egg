@@ -521,11 +521,11 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 ### Gateway-Level Push Enforcement (Pipeline Sessions)
 
-While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push` (the agent-side `mcp__brc__propose` MCP tool was retired with the rest of the agent MCP surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6).
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push` (the agent-side `mcp__brc__propose` MCP tool is being retired alongside this surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6).
 
 **How the marker flows:**
 
-1. Agent runs `egg-orch consensus propose --push --summary-file PATH --files-changed F1 F2 …`
+1. Agent runs `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 … --push` (the `--push` flag is opt-in and required in pipeline sessions; without it, the propose call succeeds but no push happens)
 2. The CLI delegates to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
 4. Pushes without the marker are rejected with HTTP 403 and the error points at `egg-orch consensus propose --push`

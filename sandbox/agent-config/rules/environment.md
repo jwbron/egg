@@ -15,14 +15,18 @@ Drive pipeline lifecycle operations (BRC consensus, HITL decisions,
 phase context, progress signals, task completion, checkpoint
 browsing) through `egg-orch` / `egg-contract` / `egg-checkpoint`
 directly. The agent-side MCP tool surface that the `EGG_MCP_TOOLS`
-flag used to gate was retired in
-[#2908](https://github.com/jwbron/egg/issues/2908) slice-6; setting
+flag used to gate is being retired in
+[#2908](https://github.com/jwbron/egg/issues/2908) slice-6
+(alongside `EGG_MCP_TOOLS` itself); once that slice merges, setting
 `EGG_MCP_TOOLS` has no effect. See
 `../../../docs/reference/agent-tools.md` for the CLI surface index
 and the slice-5 `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg
-channels that route LLM-authored free text safely without shell
-metacharacter corruption. The operator-facing orchestrator MCP
-server (port 9850) is unaffected.
+channels (covering `--summary` / `--reason` / `--note` /
+`--files-reviewed` on `egg-orch consensus *` + `egg-orch brc
+resolve-obligation`) that route LLM-authored free text safely without
+shell metacharacter corruption. Other prose flags do not have
+file/stdin channels yet — pass them as bare shell-safe strings. The
+operator-facing orchestrator MCP server (port 9850) is unaffected.
 
 ## Capabilities
 

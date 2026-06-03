@@ -3,24 +3,9 @@
 Track SDLC pipeline progress through the contract. Full reference:
 `$EGG_REPO_PATH/docs/reference/sdlc-contract.md`
 
-**Route free text through `--<arg>-file PATH` or stdin, not a bare
-`--<arg> "…"`.** The free-text fields (`--question`, `--options`,
-`--notes`) carry LLM-authored prose. In a `Bash` command string the
-shell interprets backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, and
-`&` — so prose that contains them (a markdown code span, a URL, a `<`
-comparison) is silently corrupted, and a backtick or `$(...)` span is
-*executed* as a command rather than stored. The slice-5 prose-arg
-channels (introduced in [#2908](https://github.com/jwbron/egg/issues/2908)
-slice-5) let you route the value as data: pass `--<arg>-file PATH` to
-read from a file, or `--<arg> -` to read from stdin. Mixing forms is
-rejected — exactly one source per argument. Example:
+**`egg-contract`'s free-text args (`--question`, `--options`, `--notes`) do NOT have file/stdin channels yet.** The slice-5 prose-arg channels added file/stdin variants to `egg-orch` (`consensus propose / ack / nack / withdraw` and `brc resolve-obligation`) only; `sandbox/egg_lib/contract_cli.py` was not touched. When passing LLM-authored prose to `egg-contract`, keep the value free of shell metacharacters (no backticks, no `$(...)`, no unquoted `<`, `>`, `;`, `|`, `&`) — in a `Bash` command string the shell interprets them and the prose is silently corrupted (a backtick or `$(...)` span is *executed* as a command rather than stored). Quote the entire value with single quotes when possible; if the value must contain a single quote, escape it.
 
-```bash
-cat > /tmp/notes.md <<'EOF'
-Multi-line notes with `code spans`, $vars, and <comparators>.
-EOF
-egg-contract update-notes --task task-1-2 --notes-file /tmp/notes.md
-```
+Adding `-file` / stdin channels to the contract CLI is a follow-up; until then, keep prose short and shell-safe at the `egg-contract` boundary, or write the prose to a draft file first and reference the file path in the `egg-contract` value rather than embedding the prose inline.
 
 **Commands:**
 
@@ -41,8 +26,8 @@ egg-contract update-notes --task task-1-2 --notes-file /tmp/notes.md
 
 ## HITL gates — open questions and feedback
 
-- `egg-contract add-decision --question-file PATH --options "A" "B"` — Create a HITL multiple-choice decision. **Available to every role, not just refiner/planner** — producers should call this when reviewer NACKs name an architectural scope question the operator (not the producer) must decide. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the producer-side checklist; do NOT file an `OVERSEER_ALERT` for this.
-- `egg-contract add-feedback --question-file PATH --format markdown` — Create an open-ended HITL feedback request.
+- `egg-contract add-decision --question "<text>" --options "A" "B"` — Create a HITL multiple-choice decision. **Available to every role, not just refiner/planner** — producers should call this when reviewer NACKs name an architectural scope question the operator (not the producer) must decide. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the producer-side checklist; do NOT file an `OVERSEER_ALERT` for this. *(No `--question-file` channel today — keep `<text>` shell-safe; see the prose-arg note above.)*
+- `egg-contract add-feedback --question "<text>" --format markdown` — Create an open-ended HITL feedback request.
 
 Tester→coder coverage-gap handoffs are written to
 `phases.<p>.tasks.<t>.gaps[]` through the handler layer (no CLI by

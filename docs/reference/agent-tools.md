@@ -3,10 +3,11 @@
 > Sandbox agents drive pipeline lifecycle operations (BRC consensus,
 > HITL decisions, phase context, progress signals, task completion,
 > checkpoint browsing) **through the `egg-orch` / `egg-contract` /
-> `egg-checkpoint` shell CLIs**. The previous in-process Claude Agent
-> SDK MCP tool surface was **retired** in
-> [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — the CLI
-> is now the single agent surface.
+> `egg-checkpoint` shell CLIs**. The in-process Claude Agent SDK MCP
+> tool surface is being **retired in
+> [#2908](https://github.com/jwbron/egg/issues/2908) slice-6** —
+> post-merge the CLI is the single agent surface. The operator-facing
+> orchestrator MCP server (port 9850) is unaffected.
 
 ## Why retired
 
@@ -38,21 +39,33 @@ The dual surface had a steady carrying cost:
   `egg-orch` is the wrapper-side surface the bash needs — an LLM
   round-trip through MCP would be wasted overhead.
 - **Free-text prose** that used to be the MCP surface's primary
-  advantage (no shell quoting) was reworked in slice-5 of #2908 — the
-  CLI gained `--<arg>-file PATH` / stdin (`-` sentinel) channels on
-  every prose-bearing subcommand, so an agent can route a multi-line
-  reason / note / summary through the CLI safely without shell
-  metacharacter corruption. The structured-tool advantage was real;
-  it is now delivered by the CLI itself.
+  advantage (no shell quoting) was partially reworked in slice-5 of
+  #2908 — the `egg-orch` CLI gained `--<arg>-file PATH` / stdin (`-`
+  sentinel) channels on a **specific four-arg set**: `--summary` (on
+  `consensus propose`), `--reason` (on `consensus ack` /
+  `consensus nack` / `consensus withdraw`), `--note` (on
+  `brc resolve-obligation`), and `--files-reviewed` (on `consensus ack`
+  / `consensus nack`, one path per line). Other prose flags
+  (`--question`, `--options`, `--notes`, `--detail`, `--recommend`,
+  `--error`, `--task`, `--pre-merge-condition`, `--text`) do **not**
+  have file/stdin channels yet — pass them as bare shell-safe strings.
+  Extending the channels to the rest of the `egg-orch` surface and to
+  `egg-contract` / `egg-checkpoint` is a follow-up. The structured-tool
+  advantage on the four covered args is real; it is now delivered by
+  the CLI itself.
 
-Slice-6 of #2908 deletes the seven `@tool` namespace files at
+Slice-6 of #2908 lands the deletions alongside this doc on the same
+slice-6 integration branch. As of this revision, the coder's task-6-1
+/ task-6-2 commits have removed the seven `@tool` namespace files at
 `sandbox/egg_agent_tools/tools/*.py`, the four infrastructure files
-(`__init__`, `_common`, `_registry`, `_tool_compat`), the
+`__init__` / `_common` / `_registry` / `_tool_compat`, the
 `SYSTEM_PROMPT_NUDGE` constant, the `build_sandbox_mcp_server`
 factory, and the MCP-registration block in
-`shared/egg_agent/client.py`. The `EGG_MCP_TOOLS` env flag is no
-longer recognised. The drift test
-`tests/tools/test_mcp_cli_drift.py` is retired in the same slice.
+`shared/egg_agent/client.py`; the tester's task-6-3 commit has
+removed `tests/tools/test_mcp_cli_drift.py`. The `EGG_MCP_TOOLS` env
+flag is no longer recognised — `shared/egg_agent/client.py` no longer
+reads it. The slice is in BRC consensus at the time of this commit;
+the doc state and the runtime state of the slice-6 branch agree.
 
 ## What is preserved
 
@@ -107,17 +120,21 @@ exit-code contract.
 
 | CLI | Reference | Covers |
 |-----|-----------|--------|
-| `egg-orch` | [Orchestrator CLI](orchestrator-cli.md) | BRC consensus (`consensus propose / ack / nack / confirmed`), BRC introspection (`brc next-action / get-state / list-blocking / read-peer-artifact / resolve-obligation`), message bus (`message send / wait / wait-loop / heartbeat`), pipeline status (`pipeline status / wait-status`), progress (`progress emit / query`), signals (`signal heartbeat / error / readiness / complete`), overseer alerts (`overseer alert`), health, phase, decision, container, anchor. |
+| `egg-orch` | [Orchestrator CLI](orchestrator-cli.md) | BRC consensus (`consensus propose / ack / nack / withdraw / confirmed`), BRC introspection (`brc next-action / get-state / list-blocking / read-peer-artifact / resolve-obligation`), message bus (`message send / wait / wait-loop / heartbeat`), pipeline status (`pipeline status / wait-status`), progress (`progress emit / query`), signals (`signal heartbeat / error / readiness / complete`), overseer alerts (`overseer alert`), health, phase, decision, container, anchor. |
 | `egg-contract` | [SDLC Contract](sdlc-contract.md) | Contract reads (`show`), task / phase mutations (`add-commit`, `update-notes`, `complete-task`, `complete-phase`, `verify-criterion`), HITL gates (`add-decision`, `add-feedback`). |
 | `egg-checkpoint` | [Checkpoint Browser](checkpoint-browser.md) | Checkpoint browsing (`list`, `show`, `search`, `browse`, `context`, `cost`). |
 
 ### Passing free text safely (prose-arg channels — slice-5 of #2908)
 
-Subcommands that take LLM-authored prose (`--question`,
-`--options`, `--notes`, `--summary`, `--detail`, `--reason`,
-`--recommend`, `--note`, …) accept the prose through one of three
-channels so shell metacharacters cannot corrupt or execute the
-content:
+A specific set of `egg-orch` subcommands accept LLM-authored prose
+through one of three channels so shell metacharacters cannot corrupt
+or execute the content. Slice-5 of #2908 covers **only** the four
+arg-names listed below today; other prose flags (`--question`,
+`--options`, `--notes`, `--detail`, `--recommend`, `--error`,
+`--task`, `--pre-merge-condition`, `--text`) take only the inline
+`--<arg> "value"` form and must be kept shell-safe at the call site.
+Extending the channels to the rest of `egg-orch` and to `egg-contract`
+/ `egg-checkpoint` is a follow-up.
 
 | Channel | When to use |
 |---------|-------------|
@@ -125,20 +142,51 @@ content:
 | `--<arg>-file PATH` | Prose that contains backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`, or spans multiple lines. The CLI reads the file's contents and treats it as the argument value. |
 | `--<arg> -` (stdin sentinel) | Prose piped in from another command. The CLI reads stdin and treats it as the argument value. |
 
+Args that have the file/stdin channels today:
+
+| Subcommand | Arg | File flag | Stdin form |
+|------------|-----|-----------|------------|
+| `egg-orch consensus propose` | `--summary` | `--summary-file PATH` | `--summary -` |
+| `egg-orch consensus ack` | `--reason` *(reserved — see below)* | `--reason-file PATH` | `--reason -` |
+| `egg-orch consensus ack` | `--files-reviewed` (list) | `--files-reviewed-file PATH` (one path per line) | — |
+| `egg-orch consensus nack` | `--reason` | `--reason-file PATH` | `--reason -` |
+| `egg-orch consensus nack` | `--files-reviewed` (list) | `--files-reviewed-file PATH` | — |
+| `egg-orch consensus withdraw` | `--reason` | `--reason-file PATH` | `--reason -` |
+| `egg-orch brc resolve-obligation` | `--note` | `--note-file PATH` | `--note -` |
+
 Mixing forms is rejected — exactly one source per argument. The
-canonical recipe for a long-form reason / note / summary is:
+canonical recipes are:
 
 ```bash
-cat > /tmp/reason.md <<'EOF'
-Multi-line LLM-authored prose with `code spans`, $vars, and <comparators>.
+# Producer re-propose (positional producer_role is implicit — the proposer
+# operates on its own behalf; --push is opt-in but required in pipeline sessions):
+cat > /tmp/summary.md <<'EOF'
+Long-form proposal summary with `code spans`, $vars, and <comparators>.
 The shell never touches this — the file path is the only thing the CLI sees.
 EOF
-egg-orch consensus nack --producer-role coder --reason-file /tmp/reason.md
+egg-orch consensus propose \
+  --summary-file /tmp/summary.md \
+  --files-changed shared/foo.py shared/bar.py \
+  --push
+
+# Reviewer NACK (producer_role is POSITIONAL, not --producer-role;
+# --files-reviewed and --nack-version are required):
+cat > /tmp/reason.md <<'EOF'
+Blocker: file `shared/foo.py:42` calls `bar()` without holding the lock.
+EOF
+egg-orch consensus nack coder \
+  --reason-file /tmp/reason.md \
+  --files-reviewed shared/foo.py shared/bar.py \
+  --nack-version 3
+
+# Reviewer ACK (producer_role positional; --files-reviewed and --ack-version required):
+egg-orch consensus ack coder \
+  --files-reviewed shared/foo.py shared/bar.py \
+  --ack-version 3
 ```
 
-See [Orchestrator CLI → Prose-arg channels](orchestrator-cli.md)
-and [SDLC Contract → Prose-arg channels](sdlc-contract.md) for the
-per-subcommand catalogue.
+See [Orchestrator CLI](orchestrator-cli.md) for the per-subcommand
+flag inventory and exit-code contract.
 
 ### Long-poll waits use `wait-loop` (not a tool re-entry)
 
@@ -266,29 +314,35 @@ incompatible upgrade.
 | Test | Purpose |
 |------|---------|
 | `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). |
-| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli.py`, `tests/shared/egg_contracts/test_checkpoint_cli*.py` | CLI parity against committed fixtures (no auto-record — every expected value is in the repo). |
+| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli_consensus_push.py`, `tests/sandbox/test_orch_cli_slice_id.py`, `tests/shared/egg_contracts/test_checkpoint_cli*.py` | CLI parity against committed fixtures (no auto-record — every expected value is in the repo). |
 | `tests/sandbox/egg_lib/test_orch_cli_brc.py`, `tests/sandbox/egg_lib/test_orch_cli_brc_adversarial.py` | `egg-orch brc *` verb-level subcommand parity + adversarial coverage (slice-1 / slice-5 of #2908). |
 | `tests/sandbox/egg_lib/test_orch_cli_phase.py` | `egg-orch phase get-context` verb parity. |
-| `tests/sandbox/egg_lib/test_orch_cli_prose_args.py`, `tests/sandbox/egg_lib/test_orch_cli_prose_args_adversarial.py` | `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg channel coverage (slice-5 of #2908). |
-| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated end-to-end exercise of the agent's CLI surface (post-slice-6: SDK-spawn round-trip drives `egg-orch consensus ack/nack` via the prose-arg channels; pre-slice-6 it asserted `mcp__*` tool calls). |
-| `integration_tests/test_mcp_to_cli_latency.py` | Per-event wall-clock regression check: compares the slice-5-captured `latency-mcp-baseline.json` against the post-deletion CLI-only `latency-mcp-vs-cli.json`. Fails only if the regression exceeds the 5 % budget; on failure surfaces a structured `OVERSEER_ALERT` priority `medium`. |
+| `tests/sandbox/egg_lib/test_orch_cli_prose_args.py`, `tests/sandbox/egg_lib/test_orch_cli_prose_args_adversarial.py` | `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg channel coverage on the four args slice-5 covered (`--summary` / `--reason` / `--note` / `--files-reviewed`). |
+| `integration_tests/test_mcp_baseline_capture.py` | Slice-5 baseline-capture exerciser for the per-event wall-clock latency measurement; produces `.egg-state/agent-outputs/latency-mcp-baseline.json` against the still-live MCP surface so the slice-6 post-deletion run can compare. |
+| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated end-to-end exercise of the agent's tool surface. Slice-6 task-6-4 migrated this from asserting `mcp__*` tool calls to asserting the equivalent `egg-orch consensus ack/nack` CLI invocations through the slice-5 prose-arg channels (verify the on-disk state at merge time). |
+| `integration_tests/test_mcp_to_cli_latency.py` *(slice-6 task-6-6)* | Per-event wall-clock regression check: reads the slice-5-captured `latency-mcp-baseline.json` and compares against a post-deletion CLI-only run. Fails only if the regression exceeds the 5 % budget; on failure surfaces a structured `OVERSEER_ALERT` priority `medium`. |
 
-Removed by slice-6:
+Removed alongside the slice-6 deletions:
 
 - `tests/sandbox/egg_agent_tools/test_tools.py`,
   `tests/sandbox/egg_agent_tools/test_server.py`,
   `tests/sandbox/egg_agent_tools/test_schemas.py`,
   `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` — exercised
-  the deleted `@tool` wrapper / server-factory / schema-derivation layer.
+  the `@tool` wrapper / server-factory / schema-derivation layer that
+  task-6-1 deletes.
 - `tests/tools/test_mcp_cli_drift.py` — the MCP↔CLI drift contract no
   longer applies (only the CLI surface remains). The shared handler
-  layer keeps both surfaces honest in spirit; the formal drift suite is
-  retired.
+  layer keeps both surfaces honest in spirit; task-6-3 retires the
+  formal drift suite.
 - `tests/tools/test_rule_doc_drift.py` (parts referencing the agent
   `TOOL_REGISTRY`) — the rule-doc drift gate previously asserted every
   `Prefer this over `egg-…`` line resolved to an agent-side
-  `TOOL_REGISTRY` entry. With the registry gone, that invariant is
-  meaningless; the gate is retired alongside the registry it referenced.
+  `TOOL_REGISTRY` entry. With the registry retired by task-6-1, that
+  invariant is meaningless; whatever residue of the gate references
+  the registry is removed in the same slice. The non-registry parts of
+  the rule-doc gate (e.g. the cross-link sanity it does between rule
+  files and `docs/reference/`) survive if any remain — verify against
+  the tester's task-6-3 / task-6-4 commits at merge time.
 
 ## Related
 
