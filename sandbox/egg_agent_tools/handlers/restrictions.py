@@ -3,9 +3,12 @@
 Two cheap handlers an agent calls when its assigned task looks
 structurally impossible:
 
-- ``check_file_restriction(req)`` — pure local read against
-  ``shared/egg_restrictions/patterns.py``. No gateway round-trip; the
-  pattern registry is statically resolvable inside the sandbox image.
+- ``check_file_restriction(req)`` — pure local read against both
+  ``shared/egg_restrictions/patterns.py`` (role layer) and
+  ``shared/egg_restrictions/phase_patterns.py`` (phase layer, mirroring
+  ``gateway/phase_filter.py``), so its ``can_write`` predicts what the
+  gateway will actually accept on push (#2968). No gateway round-trip;
+  both pattern sets are statically resolvable inside the sandbox image.
 - ``report_impasse(req)`` — persists a typed
   :class:`egg_contracts.Impasse` under ``AgentOutput.impasse`` (the
   same JSON file used for ``handoff_data`` today). The orchestrator
@@ -29,6 +32,7 @@ from typing import Any
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_contract_identifier,
+    get_phase,
     get_repo_path,
 )
 from egg_agent_tools.handlers.errors import HandlerError
@@ -42,6 +46,14 @@ def _load_pattern_registry() -> dict[str, Any]:
     from egg_restrictions.patterns import AGENT_PATTERNS
 
     return AGENT_PATTERNS
+
+
+def _load_phase_verdict() -> Any:
+    """Lazily import the phase-layer evaluator (same rationale as
+    :func:`_load_pattern_registry`)."""
+    from egg_restrictions.phase_patterns import phase_file_verdict
+
+    return phase_file_verdict
 
 
 def _alternative_role(blocked_role: str, file_path: str) -> str | None:
@@ -68,43 +80,68 @@ def _alternative_role(blocked_role: str, file_path: str) -> str | None:
 
 
 def check_file_restriction(req: dict[str, Any]) -> dict[str, Any]:
-    """Check whether the named role can write the named path(s).
+    """Check whether the named role can write the named path(s) *in a phase*.
 
-    Pure read against the pattern registry — does not mutate state and
-    does not call the gateway. Used by the agent before deciding to
-    explore a file or hand off the task.
+    The gateway gates every push on **two** independent layers, both of
+    which must allow a file (#2968):
 
-    No CLI counterpart: pattern matching is pure CPU and the registry
-    ships in the sandbox image; a CLI shim would just shell out to
-    re-import the same module. Decision-13 rationale.
+    - **Role layer** — ``shared/egg_restrictions/patterns.py``: can this
+      role ever write the path?
+    - **Phase layer** — ``shared/egg_restrictions/phase_patterns.py``
+      (mirror of ``gateway/phase_filter.py``): is the path writable in
+      the current pipeline phase, regardless of role? E.g. the *refine*
+      phase rejects ``.egg-state/drafts/*-plan.md`` (reserved to *plan*)
+      even though every drafting role's pattern allows it.
+
+    ``can_write`` is the **conjunction**: a push of ``path`` in ``phase``
+    by ``role`` will be accepted only if both layers allow it. The split
+    verdicts (``role_can_write`` / ``phase_allows``) and ``blocked_by``
+    are surfaced so producers and reviewers can see *which* gate fires —
+    a phase-gate block is a true gateway block, not a false agent claim.
+
+    Pure read — does not mutate state and does not call the gateway; both
+    pattern sets ship in the sandbox image. No CLI counterpart
+    (decision-13 rationale).
 
     Request:
         path (str | list[str]): a single path or a list. Required.
         role (str): role to check. Defaults to ``EGG_AGENT_ROLE``.
+        phase (str): pipeline phase to evaluate the phase layer against.
+            Defaults to ``EGG_PHASE``. When unset/unknown, the phase
+            layer is a no-op and ``can_write`` reduces to the role check
+            (backward-compatible with the pre-#2968 behaviour).
 
     Response (single path):
         {
             ok: True,
-            role: "coder",
-            path: "tests/test_x.py",
+            role: "refiner",
+            path: ".egg-state/drafts/p-plan.md",
+            phase: "refine",
             can_write: False,
-            reason: "matches blocked pattern '**/test_*.py'",
-            alternative_role: "tester",
+            role_can_write: True,
+            phase_allows: False,
+            blocked_by: "phase",
+            reason: "phase 'refine' blocks ... (gateway/phase_filter.py) ...",
+            alternative_role: None,
         }
 
     Response (list of paths):
         {
             ok: True,
-            role: "coder",
+            role: "refiner",
+            phase: "refine",
             results: [
-                {path, can_write, reason, alternative_role}, ...
+                {path, can_write, role_can_write, phase_allows,
+                 blocked_by, reason, alternative_role}, ...
             ],
         }
 
-    ``alternative_role`` is populated only when exactly one producer
-    role (other than the queried one) can write the path. Multi-role
-    or no-role coverage returns ``None`` — the agent should treat that
-    as "ask for HITL", not "guess a role".
+    ``alternative_role`` is populated only for **role**-layer blocks, and
+    only when exactly one producer role (other than the queried one) can
+    write the path. A phase-layer block has no alternative role — the
+    path is reserved to a different phase for everyone — so it stays
+    ``None``; the agent should defer the write to the owning phase rather
+    than hand off.
     """
     raw_path = req.get("path")
     if raw_path is None:
@@ -119,23 +156,51 @@ def check_file_restriction(req: dict[str, Any]) -> dict[str, Any]:
     if pattern is None:
         raise HandlerError(f"Unknown role {role!r}. Known roles: {sorted(registry.keys())}")
 
+    phase = req.get("phase") or get_phase()
+    phase_file_verdict = _load_phase_verdict()
+
     def _check_one(path: str) -> dict[str, Any]:
-        can_write = pattern.can_write(path)
-        if can_write:
-            return {
-                "path": path,
-                "can_write": True,
-                "reason": "matches an allowed pattern",
-                "alternative_role": None,
-            }
-        return {
+        role_can_write = pattern.can_write(path)
+        phase_allows, phase_block_reason = phase_file_verdict(phase, path)
+        can_write = role_can_write and phase_allows
+
+        result: dict[str, Any] = {
             "path": path,
-            "can_write": False,
-            "reason": (
-                f"role {role!r} is blocked from {path!r} by shared/egg_restrictions/patterns.py"
-            ),
-            "alternative_role": _alternative_role(role, path),
+            "can_write": can_write,
+            "role_can_write": role_can_write,
+            "phase_allows": phase_allows,
+            "phase": phase,
+            "blocked_by": None,
+            "alternative_role": None,
+            "reason": "",
         }
+
+        if not role_can_write:
+            # Role-layer block takes priority in the message: it's the
+            # one that may be delegable to another producer role.
+            result["blocked_by"] = "role"
+            result["alternative_role"] = _alternative_role(role, path)
+            result["reason"] = (
+                f"role {role!r} is blocked from {path!r} by shared/egg_restrictions/patterns.py"
+            )
+        elif not phase_allows:
+            result["blocked_by"] = "phase"
+            result["reason"] = (
+                f"phase {phase!r} blocks {path!r} at the gateway phase gate "
+                f"(gateway/phase_filter.py): {phase_block_reason}. The role pattern "
+                f"alone would allow it, but this path is reserved to another phase, "
+                f"so a push in this phase is rejected regardless of role. Defer the "
+                f"write to the owning phase rather than handing off."
+            )
+        elif phase:
+            result["reason"] = (
+                f"matches an allowed role pattern and is permitted in phase {phase!r}"
+            )
+        else:
+            # No phase context — role-only verdict (pre-#2968 wording).
+            result["reason"] = "matches an allowed pattern"
+
+        return result
 
     if isinstance(raw_path, list):
         if not raw_path:
@@ -145,7 +210,7 @@ def check_file_restriction(req: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(entry, str) or not entry:
                 raise HandlerError("'path' list entries must be non-empty strings")
             results.append(_check_one(entry))
-        return {"ok": True, "role": role, "results": results}
+        return {"ok": True, "role": role, "phase": phase, "results": results}
 
     if not isinstance(raw_path, str) or not raw_path:
         raise HandlerError("'path' must be a non-empty string or list")
