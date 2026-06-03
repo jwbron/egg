@@ -956,6 +956,290 @@ the [Environment Variables](#environment-variables) table below with
 their defaults; the [agent-wait-patterns §10 BRC Event-Pump Wrapper](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump)
 section is the wait-side companion to this architecture description.
 
+## BRC Per-Event Prompt Composer + Preamble Collapse (slice-3)
+
+> **Slice-3 of [#2908](https://github.com/jwbron/egg/issues/2908).** Slice-2
+> wired the wrapper-side deterministic loop and moved heartbeating /
+> keep-alive into the wrapper bash. Slice-3 lands the per-event prompt
+> the wrapper hands the agent on each `INVOKE`, the
+> delta-scoped adversarial re-review the prompt carries, and the
+> matching collapse of the server-side BRC preamble that no longer
+> needs to teach the agent any of the wait / cursor / stay-alive
+> plumbing the wrapper now owns. Reader side of the slice-1
+> [BRC Memory Artifact](brc-memory.md) lands here.
+>
+> **Flag mapping (read this first):** the composer runs whenever the
+> event-pump wrapper runs — gated by `EGG_BRC_EVENT_PUMP`. Only the
+> *content* of the memory excerpt (and whether `last_reviewed_commit_sha`
+> is read from the memory file vs. fallen back from
+> `changed_artifacts`) is gated by `EGG_BRC_MEMORY`. The
+> `_build_brc_preamble` collapse runs **unconditionally** — both wrapper
+> paths see the collapsed preamble. See [Composer interplay with
+> `EGG_BRC_MEMORY`](#composer-interplay-with-egg_brc_memory) for the
+> full matrix.
+
+### Per-event prompt composer (`compose_event_prompt`)
+
+`compose_event_prompt(role, event_payload, memory_excerpt, nacks,
+git_log_delta, base_branch) -> str` builds the one-shot user prompt the
+wrapper invokes the agent with at each `case action.kind == INVOKE`
+branch of the deterministic loop (see [Deterministic loop structure](#deterministic-loop-structure)
+above). It assembles, in order:
+
+| Position | Section | Source | Bound |
+|----------|---------|--------|-------|
+| Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
+| Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (line numbers come from the slice-3 contract spec and are drift-prone — prefer the function-name reference; the function span is around lines 949–1046 in practice) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |
+| Middle | Single expected action | `event_payload.kind` | A few hundred bytes; states whether the agent should review, fix, confirm, etc. |
+| Tail | Per-producer git-log delta | `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` ← `last_reviewed_commit_sha` from the [BRC memory file](brc-memory.md) | Scaled by actual change size; **NOT** counted against the 10 KB envelope. |
+| Tail | Memory excerpt | `.egg-state/agent-outputs/<role>/brc-memory.md` (slice-1 writer); truncated when the excerpt exceeds 2 KB | ≤ 2 KB after truncation. |
+
+The composer is invoked per role: producer prompts carry an `INVOKE` ↦
+`address NACKs and re-propose`; reviewer prompts carry an `INVOKE` ↦
+`review the current proposal`; dual-role agents (e.g. `tester`) get
+one prompt per side per invocation in the order the wrapper
+dispatches them.
+
+The **prompt envelope is bounded at ≤ 10 KB** for the prose
+(role banner + event description + NACK payload + memory excerpt
+section header + the single action). The git-log delta is
+intentionally **excluded** from the envelope cap because its size
+scales with the actual change set — capping it would defeat the
+adversarial re-review contract (see next subsection). The 2 KB
+memory-excerpt cap is enforced inside the prompt envelope and is the
+inner-loop bound; the unbounded git-log delta is appended after the
+envelope is composed.
+
+### The git-log delta is the **full** per-producer diff, by design
+
+The git-log delta is delivered verbatim with the per-producer
+`last_reviewed_commit_sha` substituted:
+
+```
+git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p
+```
+
+This is intentionally the **full delta since the prior review**, not
+a shortcut to the orchestrator's signal-level `changed_artifacts`
+set. The rationale traces to
+[`shared/prompts/REVIEWER-SYNC.md` Diff command (re-review / delta)](../../shared/prompts/REVIEWER-SYNC.md):
+the BRC re-review must audit the producer's v2+ delta **as a fresh
+review** — comparing the new change set against the prior reviewed
+SHA — or the stateless event-pump systematically weakens adversarial
+re-review (risk_analyst R6 of the slice-3 plan). The
+`changed_artifacts` set is the orchestrator's notion of "what
+changed", which is necessarily a subset (or sometimes a misclassified
+subset) of the producer's actual `git log` delta; a reviewer that
+audits only `changed_artifacts` will miss latent changes the
+producer's commit graph carried without surfacing on the signal
+envelope. The same diff command appears as the PR-reviewer's
+re-review delta (`action/build-review-prompt.sh`) — both surfaces
+align on full-delta semantics per the REVIEWER-SYNC contract.
+
+The unit-test contract in
+`orchestrator/tests/test_compose_event_prompt.py` (slice-3 task-3-6)
+includes a regression assertion that the emitted git-log command
+string contains `{last_reviewed_commit_sha}..HEAD --not
+origin/{base_branch}` verbatim and does **not** degrade to a
+`changed_artifacts`-only shortcut.
+
+### Memory delivery — inline at user-prompt tail (architect od-6 Option B)
+
+The memory excerpt rides at the **tail** of the user prompt, not as a
+system-prompt prefix and not as a separate flag. This is architect
+**open-decision od-6 Option B**: the per-event composer concatenates
+the excerpt onto the prompt string and the wrapper invokes
+`python3 -m egg_agent "<event prompt>"` exactly as it would
+without memory.
+
+The plan analysis pseudocode illustratively mentioned a
+`--append-context` flag on `build_agent_command`; **that flag does
+not exist** on the real `build_agent_command` surface (verified at
+`shared/egg_agent/command.py:11-46`). Option B sidesteps the missing
+flag without requiring a net-new CLI surface in slice-3. Option C —
+a net-new `--memory-file` flag — is documented as the explicit
+fallback in the slice-3 plan but is **not** the chosen path; reviewers
+inspecting the implementation should expect tail-position inline
+concatenation, not a CLI flag.
+
+### Composer interplay with `EGG_BRC_MEMORY`
+
+The composer is the **reader** complement to the slice-1 [BRC Memory
+Artifact](brc-memory.md) **writer**. The slice-1 default
+(`EGG_BRC_MEMORY=write-only`) keeps the writer hot and the reader
+inert; the slice-3 / slice-4 default (`EGG_BRC_MEMORY=full`) turns the
+reader on so the composer reads the memory file's per-producer
+`last_reviewed_commit_sha` and substitutes it into the git-log delta:
+
+| `EGG_BRC_MEMORY` | Composer behaviour |
+|------------------|--------------------|
+| `off` | Reader inert; `memory_excerpt = ""`. The composer falls back to the orchestrator's signal-level `changed_artifacts` as a baseline for the git-log delta when no per-producer SHA is available — strictly a degraded baseline, not the adversarial re-review path. |
+| `write-only` (slice-1 default) | Writes happen; reads are no-ops. `memory_excerpt = ""` even though the file exists, preserving slice-1's inert read behaviour. |
+| `full` (slice-3+ end state, default-flipped by slice-4) | Composer reads `.egg-state/agent-outputs/<role>/brc-memory.md`, extracts the per-producer `last_reviewed_commit_sha`, substitutes it into the git-log delta, and includes the truncated memory excerpt at the prompt tail. |
+
+The default stays `off` / `write-only` through slice-3 — operators opt
+into `full` per pipeline / per pod, mirroring the
+`EGG_BRC_EVENT_PUMP` flag-off default for slice-2. Slice-4 flips
+**both** flags as a coordinated default change.
+
+### Open-decision resolutions
+
+The slice-1, slice-2, and slice-3 implementation collectively resolves
+the architect's open decisions for the #2908 redesign. The
+resolutions are cited so a future reviewer touching the surrounding
+subsystem can locate the implementation:
+
+- **od-1 — subdirectory layout (`.egg-state/agent-outputs/<role>/brc-memory.md`)
+  + fail-closed path constructor.** Resolved by slice-1's writer
+  (`sandbox/egg_agent_tools/handlers/brc_memory.py`); the path
+  constructor raises on empty `EGG_AGENT_ROLE` per risk_analyst R14.
+  See [BRC Memory Artifact — File path / Fail-closed path constructor](brc-memory.md#file-path).
+- **od-2 — distill-on-write decision-log cap at 20 entries.** Resolved
+  by slice-1's writer (decision log truncated to last 20 on every
+  write). The alternative (append-only with prompt-side truncation)
+  was ruled out because `claude -p` does not currently expose the
+  prompt-construction control that would let the reader-side
+  enforce the cap. See [BRC Memory Artifact — Decision-log cap
+  (distill-on-write)](brc-memory.md#decision-log-cap-distill-on-write).
+- **od-3 — `egg-orch brc next-action` is a new dedicated endpoint, not
+  a derived view of `consensus status`.** Resolved by slice-1's
+  `orchestrator/routes/consensus.py` route handler. The sequencing
+  logic (WAIT / INVOKE / CONFIRM dispatch derived from
+  `consensus_status` + `_open_nacks_barrier_response.nacks[]` +
+  `changed_artifacts`) lives in testable orchestrator-side Python,
+  not in the wrapper bash. The route is HTTP-callable from the
+  wrapper without requiring the MCP server (the slice-6 motivator).
+- **od-4 — 30-minute idle / no-progress safety budget replacing the
+  3-restart FAIL cap.** Resolved by slice-2's
+  `EGG_BRC_IDLE_BUDGET_MIN` (default `30`). 30 minutes sits well
+  above the WS7-observed 10–13 min idle ceiling on real BRC phases.
+  See [Idle / no-progress safety budget (replaces the 3-restart FAIL
+  cap)](#idle--no-progress-safety-budget-replaces-the-3-restart-fail-cap).
+- **od-5 — persistent `egg-orch` daemon vs. per-invocation CLI.**
+  Deferred past slice-3 (slice-6's MCP→CLI deletion captures the
+  latency baseline; the daemon decision is gated on the post-deletion
+  latency regression measurement). Documented here as deferred so a
+  reviewer hitting this in the surrounding subsystem knows it's still
+  open.
+- **od-6 — memory delivered inline at user-prompt tail (Option B), not
+  via a `--memory-file` flag.** Resolved by slice-3's
+  `compose_event_prompt`. See [Memory delivery — inline at
+  user-prompt tail (architect od-6 Option B)](#memory-delivery--inline-at-user-prompt-tail-architect-od-6-option-b)
+  above.
+
+### `_build_brc_preamble` collapse
+
+`_build_brc_preamble` (defined in `orchestrator/routes/pipelines.py`)
+is **collapsed** by slice-3: the STAY-ALIVE / wait-loop mechanics /
+cursor-threading / pre-confirm-wait foot-gun guidance that previously
+taught the agent the lifecycle has been deleted. The wrapper now
+owns sequencing (see [Deterministic loop structure](#deterministic-loop-structure))
+so the agent no longer needs to be re-taught the lifecycle on every
+spawn.
+
+> The specific line-number references below come from the slice-3
+> contract spec and reflect the **post-collapse** positions inside
+> `pipelines.py` once task-3-3's coder commit lands; they may not
+> match the pre-collapse positions. Prefer the **function /
+> banner-name references** (`_build_brc_preamble`, the dual-mandate
+> banner) over the line numbers when reading the live file, and treat
+> the numbers as anchor cues for the snapshot regression test rather
+> than load-bearing citations.
+
+| Removed from preamble | Why |
+|-----------------------|-----|
+| Producer Lifecycle step 4 wait-loop plumbing | Wrapper holds the wait. |
+| Producer Lifecycle step 6 STAY-ALIVE loop | Wrapper loops back to `brc next-action` instead. |
+| Cursor / `--since` threading guidance | Cursor threading is automatic and wrapper-internal under the event-pump path. |
+| Pre-confirm-wait foot-gun guidance (anti-pattern 5) | The wrapper's conditional filter (see [Wait-filter construction (pre-confirm vs post-confirm)](#wait-filter-construction-pre-confirm-vs-post-confirm)) prevents the regression at the source. |
+
+| Kept in preamble | Why |
+|------------------|-----|
+| Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
+| Dual-role ordering banner | Dual-role agents (e.g. `tester`) still need the ordering invariant — wrapper dispatches both sides, but the agent must know to address them in the documented sequence. |
+| Dual-mandate adversarial re-review banner (`_build_brc_preamble`'s "Your re-review has TWO equal-weight mandates …" block at `orchestrator/routes/pipelines.py:12561-12573` post-collapse) | Behavioural framing for re-review correctness; anchored on by risk_analyst R6 and not a wait-mechanics concern. |
+
+The three caller sites at `orchestrator/routes/pipelines.py:13366`,
+`:13399`, `:13427` (post-collapse positions, accurate as of the
+slice-3 commit; prefer the `_build_brc_preamble` function name as
+the navigation anchor since line numbers drift with surrounding
+edits) are **unchanged** by slice-3 — only the preamble text
+collapses, the calling pattern is identical. The collapse happens
+**unconditionally**: both the legacy capped-restart wrapper and the
+event-pump wrapper see the collapsed preamble. `EGG_BRC_EVENT_PUMP`
+selects the **wrapper**, not the preamble; slice-4 flips the wrapper
+default to event-pump and retires the legacy template.
+
+The snapshot regression test at
+`orchestrator/tests/test_brc_preamble_collapsed.py` (slice-3 task-3-7)
+pins (a) absence of STAY-ALIVE / wait-loop / cursor strings;
+(b) presence of the agent roster; (c) presence of the phrase "Both
+must pass to ACK" (located inside the dual-mandate banner at
+`pipelines.py:12567`, post-collapse — again, prefer the banner
+substring "Both must pass to ACK" as the anchor since the line
+number drifts with surrounding edits); (d) a ≥ 25% byte-size drop
+against the pre-collapse baseline (a softening from the
+originally-proposed 40% per the reviewer_plan v2 non-blocker — the
+precise number is set by the snapshot baseline rather than a
+pre-fixed target).
+
+### `mission.md` rewrite reaches the agent pod only after a sandbox rebuild
+
+The sandbox runtime loads its agent rules from the Dockerfile-baked
+copy at `/opt/claude-rules/` (see `sandbox/entrypoint.py:967`
+`_CLAUDE_RULES_DIR`), populated at image build time by
+`sandbox/Dockerfile:212-214` `COPY sandbox/claude-rules/*.md`. In the
+working tree, `sandbox/claude-rules` is a **symlink** to
+`sandbox/agent-config/rules`, so editing one path edits both — the
+`diff sandbox/agent-config/rules/mission.md sandbox/claude-rules/mission.md`
+acceptance assertion holds trivially because the two paths resolve
+to the same file in git. The slice-3 mission.md rewrite to the
+event-handler contract (task-3-4) only reaches the agent pod after:
+
+```bash
+make build        # rebuild egg-sandbox / egg-orchestrator / egg-gateway / egg-litellm
+make k3s-import   # import rebuilt images into k3s
+make deploy       # roll out deployments in egg-system
+```
+
+(see [Deployment guide — Claude binary not found](../guides/deployment.md#claude-binary-not-found)
+for the canonical rebuild sequence; the same triplet drives any
+`sandbox/claude-rules/*.md` content change). Slice-4's flag-flip is
+gated on this rebuild having shipped — operators verify the new
+image tag is deployed before flipping `EGG_BRC_EVENT_PUMP` to `true`
+default, so a pod still running the pre-rewrite preamble does not
+land on the event-pump wrapper and find both lifecycle prompts in
+play.
+
+### Slice-3 verification stance
+
+Slice-3 ships **unit / snapshot tests only**, matching the slice-2
+verification stance (see [Slice-2 verification stance —
+unit-test-only](#slice-2-verification-stance--unit-test-only)) and
+anchored in the same #2474 trust-boundary boundary:
+
+- `orchestrator/tests/test_compose_event_prompt.py` (task-3-6) covers
+  each role's prompt shape, the 2 KB memory-excerpt truncation, the
+  NACK delta with 0 / 1 / 2+ reviewers, the verbatim git-log delta
+  command emission (regression-trap against the
+  `changed_artifacts`-only shortcut), and the ≤ 10 KB envelope
+  assertion per case.
+- `orchestrator/tests/test_brc_preamble_collapsed.py` (task-3-7)
+  pins the collapsed preamble (snapshot equality + absent-strings +
+  byte-size drop) at all three caller sites.
+- End-to-end validation against the #2906 qwen3.7-max repro stays
+  deferred to slice-4 via `egg_stack`, per the same trust-boundary
+  reasoning that pinned the slice-2 stance.
+
+### Operator-facing env vars (slice-3 cross-link)
+
+`EGG_BRC_MEMORY` is the slice-3 operator flag; it is documented in
+the [BRC Memory Artifact — Modes](brc-memory.md#modes--egg_brc_memory)
+table together with the slice-1 writer and the slice-3 reader
+behaviour. The wait-side companion to this architecture section is
+[agent-wait-patterns §10.9 BRC Per-Event Prompt Composer +
+Preamble Collapse](../reference/agent-wait-patterns.md#109-brc-per-event-prompt-composer--preamble-collapse-slice-3).
+
 ## Shared Package
 
 The `egg_orchestrator` shared package (`shared/egg_orchestrator/`) provides:
