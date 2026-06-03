@@ -1338,9 +1338,11 @@ class TestCanUseToolPassesNonWriteTools:
             return PermissionResultDeny(message=err) if err else PermissionResultAllow()
 
         # Representative non-write tools: read-only built-ins, shell, and
-        # the operator-facing orchestrator MCP surface that the agent may
-        # still observe (``orchestrator/mcp_server.py``).  None of these
-        # are write tools, so the interceptor must pass them through.
+        # a representative ``mcp__*``-style tool name (the agent does not
+        # invoke the operator-facing orchestrator MCP server; this just
+        # exercises that the interceptor does not deny by ``mcp__*``
+        # prefix).  None of these are write tools, so the interceptor
+        # must pass them through.
         for name in (
             "Bash",
             "Read",

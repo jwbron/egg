@@ -15,10 +15,10 @@ Drive pipeline lifecycle operations (BRC consensus, HITL decisions,
 phase context, progress signals, task completion, checkpoint
 browsing) through `egg-orch` / `egg-contract` / `egg-checkpoint`
 directly. The agent-side MCP tool surface that the `EGG_MCP_TOOLS`
-flag used to gate is being retired in
+flag used to gate was retired in
 [#2908](https://github.com/jwbron/egg/issues/2908) slice-6
-(alongside `EGG_MCP_TOOLS` itself); once that slice merges, setting
-`EGG_MCP_TOOLS` has no effect. See
+(alongside `EGG_MCP_TOOLS` itself); setting `EGG_MCP_TOOLS` has no
+effect. See
 `../../../docs/reference/agent-tools.md` for the CLI surface index
 and the slice-5 `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg
 channels (covering `--summary` / `--reason` / `--note` /

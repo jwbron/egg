@@ -46,7 +46,7 @@ If `.venv` is absent, run `make deps` to install everything. This installs `uv` 
   through the `egg-orch` / `egg-contract` / `egg-checkpoint` shell
   CLIs. The legacy interactive-mode CLI (`bin/egg`) was removed in
   [#1762](https://github.com/jwbron/egg/issues/1762); the
-  in-process agent-side MCP tool surface is being retired alongside
+  in-process agent-side MCP tool surface was retired alongside
   these docs in [#2908](https://github.com/jwbron/egg/issues/2908)
   slice-6 (the operator-facing orchestrator MCP server is
   unaffected). See

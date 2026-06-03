@@ -521,7 +521,7 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 ### Gateway-Level Push Enforcement (Pipeline Sessions)
 
-While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push` (the agent-side `mcp__brc__propose` MCP tool is being retired alongside this surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6).
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push` (the agent-side `mcp__brc__propose` MCP tool was retired alongside this surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6).
 
 **How the marker flows:**
 

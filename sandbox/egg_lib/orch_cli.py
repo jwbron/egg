@@ -988,7 +988,7 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 def cmd_signal_progress(args: argparse.Namespace) -> int:
     """Signal percent-based progress update (legacy /signal endpoint).
 
-    This is a separate code path from ``mcp__progress__emit``, which
+    This is a separate code path from ``egg-orch progress emit``, which
     hits the structured-event endpoint (``/progress``, step/state).
     Kept inline for CLI parity; no MCP tool ever exposed this verb.
     """

@@ -238,7 +238,7 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 This mechanism enforces the principle that **all changes must be reviewed**: post-proposal pushes cannot bypass the review process. The `check_confirm_guard()` provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification. See [Concurrent Execution — Auto Re-Propose on Push/Commit](concurrent-execution.md#auto-re-propose-on-pushcommit) for the full details.
 
-Additionally, the gateway enforces that **direct `git push` is blocked** for pipeline sessions — agents must use `egg-orch consensus propose --push` to bundle the push with a BRC proposal (the agent-side `mcp__brc__propose` MCP tool is being retired alongside this surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — post-merge the CLI is the single agent surface). This makes the review invariant structural rather than relying on auto-repropose detection. See [Concurrent Execution — Gateway-Level Push Enforcement](concurrent-execution.md#gateway-level-push-enforcement-pipeline-sessions) for details.
+Additionally, the gateway enforces that **direct `git push` is blocked** for pipeline sessions — agents must use `egg-orch consensus propose --push` to bundle the push with a BRC proposal (the agent-side `mcp__brc__propose` MCP tool was retired alongside this surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — the CLI is the single agent surface). This makes the review invariant structural rather than relying on auto-repropose detection. See [Concurrent Execution — Gateway-Level Push Enforcement](concurrent-execution.md#gateway-level-push-enforcement-pipeline-sessions) for details.
 
 ### Agent Crash Mid-Protocol
 
