@@ -355,9 +355,10 @@ class TestStartStackedPrReconciler:
         # actually retargets the PR on origin (without it the PR stays
         # orphaned on a deleted base).
         assert call_args.kwargs["pr_number"] == 4242
-        # agent_role is fixed to "coder" so the gateway accepts the
-        # request through the existing per-agent /git endpoint.
-        assert call_args.kwargs["agent_role"] == "coder"
+        # Orchestrator-driven heal: attribute to "orchestrator" (not a
+        # phantom coder) per #2919 audit-log attribution; the slice-
+        # integration exemption admits the force-push regardless of role.
+        assert call_args.kwargs["agent_role"] == "orchestrator"
 
     def test_rebase_onto_returns_false_on_gateway_exception(self) -> None:
         pipeline = _make_pipeline()
