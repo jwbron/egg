@@ -390,7 +390,9 @@ class TestPipelinePushBlockEdgeCases:
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "egg-orch consensus propose --push" in data["message"]
-            assert data.get("data", {}).get("recommended_cli") == "egg-orch consensus propose --push"
+            assert (
+                data.get("data", {}).get("recommended_cli") == "egg-orch consensus propose --push"
+            )
 
     def test_killswitch_values(self, client):
         """Killswitch should accept '0' and 'no' in addition to 'false'."""
