@@ -1633,9 +1633,10 @@ class TestBrcMemoryGatingEnvFlag:
         assert resp["ok"] is True
         assert memory_path.exists()
 
-    def test_unset_defaults_to_off(self, monkeypatch, tmp_path):
-        """Default is ``off`` so production behaviour is unchanged until
-        slice-4 flips it on."""
+    def test_unset_defaults_to_full(self, monkeypatch, tmp_path):
+        """Slice-4 task-4-1 flipped the unset-env default from ``off``
+        to ``full``: the event-pump wrapper (now the production path)
+        both writes AND reads the memory file by default."""
         memory_path = _memory_env(monkeypatch, tmp_path, mode="off")
         monkeypatch.delenv("EGG_BRC_MEMORY", raising=False)
         with patch(
@@ -1643,9 +1644,11 @@ class TestBrcMemoryGatingEnvFlag:
             return_value=_ok_response(),
         ):
             brc.brc_ack(_ack_request())
-        assert not memory_path.exists(), (
-            "Unset EGG_BRC_MEMORY must default to off — production "
-            "must not write the memory artifact until slice-4 flips it on."
+        assert memory_path.exists(), (
+            "Unset EGG_BRC_MEMORY must default to ``full`` post-slice-4 — "
+            "the production event-pump wrapper writes the memory artifact "
+            "and the per-event composer reads it. Setting "
+            "EGG_BRC_MEMORY=off is the one-release rollback escape hatch."
         )
 
 

@@ -12087,18 +12087,19 @@ def _build_brc_preamble(
     # authors its own tests; the tester's job is to review-and-harden them
     # after the coder proposes. So the tester's producer WORK legitimately
     # depends on the coder's ``CONSENSUS_PROPOSE`` — it orients up-front,
-    # waits for the coder's propose, then hardens + proposes + ACK/NACKs in
-    # one pass. This does not reintroduce the f4c7d780 / 8b81ed32 self-block
-    # (where the tester idled on a reviewer wait-loop before proposing its
-    # own scaffolded work): the coder proposes independently and does not
-    # wait on the tester, so the coder's propose is the trigger, and the
-    # tester proposes right after. The tester therefore has TWO reviewer
-    # rendezvous points: (a) the pre-PROPOSE wait-loop in step 1 of the
-    # banner below catches the coder's first ``CONSENSUS_PROPOSE`` (so the
-    # tester has something to harden); (b) re-proposes and peer-producer
-    # proposals after the tester has proposed fold into Producer Lifecycle
-    # step 4 / step 6, whose augmented filter already wakes on
-    # ``CONSENSUS_PROPOSE``.
+    # exits after ORIENT, and is re-invoked by the event-pump wrapper when
+    # the coder proposes, at which point it hardens + proposes + ACK/NACKs
+    # in one pass. This does not reintroduce the f4c7d780 / 8b81ed32
+    # self-block (where the tester idled on a reviewer wait-loop before
+    # proposing its own scaffolded work): the coder proposes independently
+    # and does not wait on the tester, so the coder's propose is the
+    # trigger, and the tester proposes right after. The tester therefore
+    # has TWO reviewer rendezvous points, both surfaced as fresh wrapper
+    # invocations under the event-pump model: (a) the coder's first
+    # ``CONSENSUS_PROPOSE`` re-invokes the tester so it has something to
+    # harden; (b) subsequent re-proposes and peer-producer proposals
+    # (after the tester has proposed) likewise re-invoke the tester to
+    # handle the Reviewer Lifecycle for those events.
     if is_dual_role:
         lines.append(
             "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"

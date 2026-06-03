@@ -921,13 +921,16 @@ def test_cli_full_mode_emits_memory_and_delta(tmp_path) -> None:
 
 
 def test_cli_write_only_mode_omits_memory_keeps_delta(tmp_path) -> None:
-    """``EGG_BRC_MEMORY=write-only`` (slice-1 default) omits the memory
-    excerpt but STILL emits the per-producer git-log delta against the
-    memory file's stored SHAs as a fallback baseline. The plan
-    TASK-3-2 wording is verbatim: "with EGG_BRC_MEMORY=write-only
-    (slice-1 default), the prompt omits memory but still emits the
-    git-log delta against the orchestrator's signal-level
-    changed_artifacts as a fallback baseline".
+    """``EGG_BRC_MEMORY=write-only`` omits the memory excerpt but
+    STILL emits the per-producer git-log delta against the memory
+    file's stored SHAs as a fallback baseline. The plan TASK-3-2
+    wording is verbatim: "with EGG_BRC_MEMORY=write-only (slice-1
+    default), the prompt omits memory but still emits the git-log
+    delta against the orchestrator's signal-level changed_artifacts
+    as a fallback baseline". (Slice-4 task-4-1 flipped the unset-env
+    default to ``full`` so production reads memory by default;
+    ``write-only`` is now the one-release rollback target that keeps
+    the writer warm without consuming the excerpt.)
     """
     repo = _make_tmp_repo_with_memory(
         tmp_path,
