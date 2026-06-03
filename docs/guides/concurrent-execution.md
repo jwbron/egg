@@ -641,14 +641,22 @@ EOF
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
   --reason-file /tmp/reviewer-code-ack.md --ack-version 1
 
-# Reviewer: conditional ACK — work approved but requires a human action before merge
+# Reviewer: conditional ACK — work approved but requires a human action before merge.
 # Use --pre-merge-condition when the work is correct but requires a merge-time action
 # that agents cannot perform (e.g. git mv, secret rotation, config flip in another repo).
 # The obligation is rendered as a "Pre-merge Obligations" section on the PR — do NOT use
 # this to smuggle blocking issues past the producer; NACK if the producer can fix it.
 # --pre-merge-condition is validated like --reason: boilerplate and short values are rejected with 400.
+# Author a distinct review-prose file for the conditional case so the verdict
+# narrative actually matches the obligation (don't re-use the unconditional file).
+cat > /tmp/reviewer-code-cond-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. JWT validation and
+session-management logic are correct end-to-end, and tests cover all branches.
+One file rename cannot be automated by the agent and must be performed by a human
+before merge — captured in --pre-merge-condition below.
+EOF
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason-file /tmp/reviewer-code-ack.md --ack-version 1 \
+  --reason-file /tmp/reviewer-code-cond-ack.md --ack-version 1 \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
 
 # Reviewer: NACK with structured blocking/non-blocking sections — stdin sentinel form
@@ -676,6 +684,12 @@ egg-orch consensus status
 # Typically called by the tester after cherry-picking work the coder is gateway-blocked from.
 # --note is prose; pass via --note-file PATH or `--note -` with stdin for any
 # multi-line body, per the same prose-arg rule above.
+cat > /tmp/obligation-resolved.md <<'EOF'
+Cherry-picked the rename commit ($(git rev-parse HEAD)) onto the slice branch on
+the tester's behalf; the gateway accepts the legacy/auth.py → src/auth.py move
+under the tester's role-restriction set, so the original conditional-ACK
+obligation no longer needs to surface on the PR body or the HITL gate.
+EOF
 egg-orch brc resolve-obligation \
   --reviewer-role reviewer_code \
   --producer-role coder \

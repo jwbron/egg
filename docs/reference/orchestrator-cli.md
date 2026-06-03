@@ -446,7 +446,7 @@ Every `consensus` flag that carries free-form prose (`--summary` on `propose`; `
 | Channel | Flag form | When to use |
 |---------|-----------|-------------|
 | **argv** *(deprecated)* | `--summary "…"` / `--reason "…"` | Short, ASCII-only literals where you control the shell-quoting. The CLI emits a deprecation warning to stderr; the value is still accepted for now to keep older operator scripts working. |
-| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line (blank lines and lines beginning with `#` are stripped so callers can drop comments into a generated manifest). |
 | **stdin sentinel `-`** | `--summary -` / `--reason -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) without writing a temp file. The CLI consumes stdin to EOF. |
 
 ```bash
@@ -472,8 +472,12 @@ egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 2 \
 - **src/feature.py:18** — Unused import `datetime`.
 EOF
 
-# --files-reviewed-file — JSON array on disk OR one path per line
-printf '%s\n' src/feature.py tests/test_feature.py > /tmp/files.txt
+# --files-reviewed-file — one path per line; blank lines and "#" comments stripped
+cat > /tmp/files.txt <<'EOF'
+# review manifest for the v2 ACK
+src/feature.py
+tests/test_feature.py
+EOF
 egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
   --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
   --ack-version 2
@@ -557,7 +561,7 @@ egg-orch brc read-peer-artifact --phase implement --peer-role coder \
 | `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
 | `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
 
-All five subcommands honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` for auth and run against the same gateway routes the MCP tools use. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
+Four of the five subcommands — `next-action`, `get-state`, `list-blocking`, `resolve-obligation` — honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` and run against the gateway routes the MCP tools use. `brc read-peer-artifact` is the odd one out: it reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk, with no HTTP transport. It consumes `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (to resolve the identifier) and `EGG_SLICE_ID` (to pick the per-slice partition for `phase == "implement"`) directly from the environment; `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` do not apply, so missing-secret failures against `read-peer-artifact` are misdiagnosed if you trace them through the HTTP layer. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
 
 ## Context PR Surfaces ([#2777](https://github.com/jwbron/egg/issues/2777))
 
