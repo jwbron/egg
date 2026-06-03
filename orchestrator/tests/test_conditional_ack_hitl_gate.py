@@ -362,6 +362,115 @@ class TestResolutionDispatch:
         mock_invalidate.assert_called_once_with("pipeline-x", conditions)
 
     @patch("routes.decisions._persist_deferred_actions")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_approve_envelope_persists_deferred_actions(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_persist,
+        client,
+        tmp_path,
+    ):
+        """#2978: the SDLC HITL CLI wraps the choice as
+        ``{"action": "select", "selected": "<option>"}``.  The dispatch
+        must unwrap that envelope before comparing against
+        ``CONDITIONAL_ACK_APPROVE`` — otherwise the operator's selection
+        falls into the unrecognized-option branch and the obligations
+        are never written to ``contract.pr.deferred_actions``.
+        """
+        conditions = [
+            {"reviewer": "reviewer_code", "producer": "coder", "condition": "git mv X Y"},
+        ]
+        envelope = json.dumps({"action": "select", "selected": CONDITIONAL_ACK_APPROVE})
+        resolved = HITLDecision(
+            id="decision-1",
+            question="conditional ACK",
+            status=DecisionStatus.RESOLVED,
+            resolution=envelope,
+            context=self._gate_context(conditions),
+        )
+        mock_store = MagicMock(repo_path=tmp_path)
+        mock_get_store_for_pipeline.return_value = (mock_store, MagicMock())
+        mock_get_queue.return_value.resolve_decision.return_value = resolved
+
+        resp = client.post(
+            "/api/v1/pipelines/pipeline-x/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": CONDITIONAL_ACK_APPROVE}},
+        )
+        assert resp.status_code == 200
+        mock_persist.assert_called_once_with("pipeline-x", conditions, tmp_path)
+
+    @patch("routes.decisions._force_nack_conditional_edges")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_reject_envelope_force_nacks_edges(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_force_nack,
+        client,
+        tmp_path,
+    ):
+        """Reject through the envelope must still drive force-NACK."""
+        conditions = [
+            {"reviewer": "reviewer_code", "producer": "coder", "condition": "git mv X Y"},
+        ]
+        envelope = json.dumps({"action": "select", "selected": CONDITIONAL_ACK_REJECT})
+        resolved = HITLDecision(
+            id="decision-1",
+            question="conditional ACK",
+            status=DecisionStatus.RESOLVED,
+            resolution=envelope,
+            context=self._gate_context(conditions),
+        )
+        mock_store = MagicMock(repo_path=tmp_path)
+        mock_get_store_for_pipeline.return_value = (mock_store, MagicMock())
+        mock_get_queue.return_value.resolve_decision.return_value = resolved
+
+        resp = client.post(
+            "/api/v1/pipelines/pipeline-x/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": CONDITIONAL_ACK_REJECT}},
+        )
+        assert resp.status_code == 200
+        mock_force_nack.assert_called_once_with("pipeline-x", conditions)
+
+    @patch("routes.decisions._invalidate_conditional_acks")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_address_envelope_invalidates_acks(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_invalidate,
+        client,
+        tmp_path,
+    ):
+        """Address-in-pipeline through the envelope must still
+        invalidate the conditioning ACK so the producer re-proposes."""
+        conditions = [
+            {"reviewer": "reviewer_code", "producer": "coder", "condition": "git mv X Y"},
+        ]
+        envelope = json.dumps({"action": "select", "selected": CONDITIONAL_ACK_ADDRESS})
+        resolved = HITLDecision(
+            id="decision-1",
+            question="conditional ACK",
+            status=DecisionStatus.RESOLVED,
+            resolution=envelope,
+            context=self._gate_context(conditions),
+        )
+        mock_store = MagicMock(repo_path=tmp_path)
+        mock_get_store_for_pipeline.return_value = (mock_store, MagicMock())
+        mock_get_queue.return_value.resolve_decision.return_value = resolved
+
+        resp = client.post(
+            "/api/v1/pipelines/pipeline-x/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": CONDITIONAL_ACK_ADDRESS}},
+        )
+        assert resp.status_code == 200
+        mock_invalidate.assert_called_once_with("pipeline-x", conditions)
+
+    @patch("routes.decisions._persist_deferred_actions")
     @patch("routes.decisions._force_nack_conditional_edges")
     @patch("routes.decisions._invalidate_conditional_acks")
     @patch("routes.decisions.get_state_store_for_pipeline")

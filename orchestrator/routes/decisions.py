@@ -162,6 +162,14 @@ def _normalize_choice_resolution(resolution: str) -> str:
     reads as an unrecognized option.  Bare-string resolutions (legacy /
     direct-API callers) and any other shape pass through unchanged so
     the caller's existing matching still runs.
+
+    Audit-trail note: this is a dispatch-side unwrap only.  The
+    persisted ``decision.resolution`` (and the ``DECISION_RESOLVED``
+    event / API response payload) still carries the raw envelope JSON
+    as the operator sent it.  Only the in-process value routed to the
+    Restart-agent / Continue-without / conditional-ACK / hard-reset
+    dispatch helpers — and any subsequent log line that echoes it — is
+    the normalized form.
     """
     if not resolution:
         return resolution
@@ -232,6 +240,8 @@ def _handle_hard_reset_recovery_resolution(
     # (routes.pipelines imports routes.decisions via the blueprint
     # registration path in some test setups).
     from routes.pipelines import (
+        _HARD_RESET_RECOVERY_ABORT,
+        _HARD_RESET_RECOVERY_CONTINUE,
         abort_pipeline_after_hard_reset_ack,
         resume_pipeline_after_hard_reset_ack,
     )
@@ -251,7 +261,7 @@ def _handle_hard_reset_recovery_resolution(
             f"(received: {resolution[:80]!r}; available: {valid_options!r})"
         )
 
-    if option_mismatch_reason is None and resolution == "Continue with post-reset state":
+    if option_mismatch_reason is None and resolution == _HARD_RESET_RECOVERY_CONTINUE:
         ok = resume_pipeline_after_hard_reset_ack(
             pipeline_id,
             phase_value=phase_value,
@@ -262,7 +272,7 @@ def _handle_hard_reset_recovery_resolution(
                 pipeline_id=pipeline_id,
                 phase=phase_value,
             )
-    elif option_mismatch_reason is None and resolution == "Abort pipeline":
+    elif option_mismatch_reason is None and resolution == _HARD_RESET_RECOVERY_ABORT:
         ok = abort_pipeline_after_hard_reset_ack(pipeline_id)
         if not ok:
             logger.warning(
@@ -297,7 +307,8 @@ def _handle_hard_reset_recovery_resolution(
                 alert_body = (
                     "Hard-reset recovery HITL resolved with an unrecognized "
                     f"option (received: {resolution[:80]!r}). Expected one of "
-                    "'Continue with post-reset state' or 'Abort pipeline'. The "
+                    f"{_HARD_RESET_RECOVERY_CONTINUE!r} or "
+                    f"{_HARD_RESET_RECOVERY_ABORT!r}. The "
                     "decision is marked RESOLVED but no dispatch ran; the "
                     "pipeline will stay in failed_pending_hitl until the "
                     "operator re-resolves with a valid option."
@@ -930,6 +941,16 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             source=getattr(request, "egg_source", "unknown"),
         )
 
+        # #2978: normalize the choice envelope once at the dispatch
+        # boundary so every dispatch hook below sees the bare option
+        # label instead of the ``{"action": "select", "selected": ...}``
+        # envelope the SDLC HITL CLI sends.  ``decision.resolution``
+        # (persisted on disk, emitted on ``DECISION_RESOLVED``, and
+        # returned in the API response) is intentionally unchanged —
+        # the audit trail keeps the raw envelope while dispatch routes
+        # on the unwrapped label.
+        dispatch_resolution = _normalize_choice_resolution(decision.resolution or "")
+
         try:
             emit_event(
                 EventType.DECISION_RESOLVED,
@@ -952,17 +973,17 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         #   "Agent <role> issue: <message>"
         # When the human resolves with "Restart agent", stop the old
         # container and respawn a replacement.
-        if decision.resolution == "Restart agent":
+        if dispatch_resolution == "Restart agent":
             _handle_restart_agent(pipeline_id, decision.question)
 
         # Handle the conditional-ACK 3-way HITL gate (#2004). Context
         # prefix is the discriminator — the question text is arbitrary
         # prose and mustn't be relied on for dispatch.
-        if decision.context and decision.resolution:
+        if decision.context and dispatch_resolution:
             _handle_conditional_ack_gate(
                 pipeline_id,
                 decision.context,
-                decision.resolution,
+                dispatch_resolution,
                 store.repo_path,
             )
 
@@ -970,7 +991,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # The concurrent executor stores "failed_role:<role>" in the decision
         # context when a reviewer crashes. Excuse the reviewer so consensus
         # can proceed without their ACK.
-        if decision.resolution == "Continue without" and decision.context.startswith(
+        if dispatch_resolution == "Continue without" and decision.context.startswith(
             "failed_role:"
         ):
             failed_role = decision.context.removeprefix("failed_role:")
@@ -1006,7 +1027,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             _handle_hard_reset_recovery_resolution(
                 pipeline_id,
                 decision.context,
-                decision.resolution or "",
+                dispatch_resolution,
                 valid_options=list(decision.options or []),
             )
 

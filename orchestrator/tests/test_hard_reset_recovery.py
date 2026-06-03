@@ -483,6 +483,51 @@ class TestDispatchResolutionChoiceEnvelope:
         mock_abort.assert_called_once_with("pipeline-abc")
         mock_resume.assert_not_called()
 
+    def test_select_continue_envelope_blocked_when_only_abort_allowed(self):
+        """#2978 coverage: envelope-form mirror of
+        ``test_continue_rejected_when_not_in_valid_options``.
+
+        The doubly-failed HITL collapses options to ``["Abort pipeline"]``
+        only.  A "Continue with post-reset state" selection wrapped in
+        the envelope must still be refused by the ``valid_options``
+        cross-check (the normalization runs *before* the cross-check),
+        and neither dispatch helper must be called.  This guards against
+        regression if normalization is ever moved or removed.
+        """
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        mock_store = MagicMock()
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+            patch("routes.decisions.logger") as mock_logger,
+            patch("message_store.get_message_store", return_value=mock_store),
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                json.dumps({"action": "select", "selected": "Continue with post-reset state"}),
+                valid_options=["Abort pipeline"],
+            )
+
+        mock_resume.assert_not_called()
+        mock_abort.assert_not_called()
+        mock_logger.warning.assert_called()
+        mock_store.add_message.assert_called_once()
+        sent_msg = mock_store.add_message.call_args.args[0]
+        assert sent_msg.message_type == "OVERSEER_ALERT"
+        assert sent_msg.metadata.get("anomaly") == "hard_reset_recovery_unknown_resolution"
+        # Body should report the *unwrapped* label, not the envelope JSON,
+        # so the operator sees a recognizable option name in the alert.
+        assert "Continue with post-reset state" in sent_msg.body
+        assert "Abort pipeline" in sent_msg.body
+
 
 class TestNormalizeChoiceResolution:
     """#2978: ``_normalize_choice_resolution`` unwraps the select envelope
