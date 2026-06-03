@@ -119,9 +119,11 @@ _CHECK_FILE_RESTRICTION_SCHEMA: dict[str, Any] = {
                 {"type": "array", "items": {"type": "string"}, "minItems": 1},
             ],
             "description": (
-                "Path (or list of paths) to check against the role's "
-                "file-write restrictions in shared/egg_restrictions/"
-                "patterns.py."
+                "Path (or list of paths) to check against BOTH gateway push "
+                "gates: the role layer (shared/egg_restrictions/patterns.py) "
+                "AND the phase layer (gateway/phase_filter.py, configured by "
+                ".egg/phase-permissions.json and mirrored in shared/"
+                "egg_restrictions/phase_patterns.py)."
             ),
         },
         "role": {
@@ -264,7 +266,12 @@ async def verify_criterion(args: dict[str, Any]) -> dict[str, Any]:
     "Returns can_write plus split verdicts (role_can_write, phase_allows, "
     "blocked_by) and alternative_role (set only for role-layer blocks, when "
     "exactly one producer role covers the path). A phase-layer block is a real "
-    "gateway block, not a false claim — defer the write to the owning phase.",
+    "gateway block, not a false claim — defer the write to the owning phase. "
+    "When reviewing another agent's proposal, pass `role` and `phase` "
+    "explicitly (e.g. role='coder', phase='implement') — the defaults read "
+    "EGG_AGENT_ROLE/EGG_PHASE, which give you the verdict for *your own* role/"
+    "phase, not the producer's. Without explicit args a reviewer's check will "
+    "diverge from what the gateway would have done to the producer.",
     _CHECK_FILE_RESTRICTION_SCHEMA,
 )
 async def check_file_restriction(args: dict[str, Any]) -> dict[str, Any]:

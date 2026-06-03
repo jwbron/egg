@@ -170,14 +170,45 @@ def phase_file_verdict(phase: str | None, file_path: str) -> tuple[bool, str | N
     ``False``; it is ``None`` when the file is allowed (or when no phase-layer
     restriction applies).
 
-    A falsy/unknown ``phase``, or a phase with no configured restriction, is
-    treated as unrestricted at this layer — the role layer and the gateway's own
-    enforcement still apply. This keeps a phase-less caller (no ``EGG_PHASE``)
-    behaving exactly as the role-only check did before #2968.
+    Behaviour mirrors ``PhaseFilter.check_phase_file_restrictions`` in
+    ``gateway/phase_filter.py``:
+
+    - ``None`` / empty string ⇒ no phase context, no-op ``(True, None)``. This
+      keeps a phase-less caller (no ``EGG_PHASE``) behaving exactly as the
+      role-only check did before #2968.
+    - A string the canonical :class:`PipelinePhase` enum doesn't recognise
+      (e.g. ``"IMPLEMENT"``, ``"unknown"``, the dead ``"pr"`` from #2777) ⇒
+      **fail closed** ``(False, reason)`` — the gateway would reject the push
+      with ``"Unknown phase ... blocking by default"``, and the mirror does
+      the same so an off-canonical caller can't slip a false ``can_write:
+      true`` through. In production the orchestrator always exports the
+      canonical lowercase ``EGG_PHASE`` (``kubernetes_spawner.py``), so this
+      path only fires on a manual / test caller passing a bad string.
+    - A canonical phase with no configured restriction (currently ``apply``,
+      whose deployed JSON carries no row) ⇒ ``(True, None)`` — matches the
+      gateway's "no phase file restrictions for phase" fall-through.
+    - Otherwise the mirror's :class:`PhaseFilePattern` is evaluated and its
+      verdict returned.
     """
     if not phase:
         return True, None
-    pattern = PHASE_FILE_PATTERNS.get(phase.lower())
+
+    # Local import: avoids a module-load cost for callers that only consume
+    # PHASE_FILE_PATTERNS / PhaseFilePattern, and dodges any future shared/
+    # ordering surprise if egg_contracts.models grows new transitive
+    # dependencies on egg_restrictions.
+    from egg_contracts.models import PipelinePhase
+
+    try:
+        canonical = PipelinePhase(phase)
+    except ValueError:
+        # Match the gateway's security stance for off-canonical phase strings.
+        return False, (
+            f"Unknown phase {phase!r}: phase-layer gate fails closed "
+            "(matches gateway/phase_filter.py)"
+        )
+
+    pattern = PHASE_FILE_PATTERNS.get(canonical.value)
     if pattern is None:
         return True, None
     allowed, reason = pattern.is_file_allowed(file_path)

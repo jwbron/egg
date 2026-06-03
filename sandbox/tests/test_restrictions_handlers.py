@@ -181,6 +181,40 @@ class TestCheckFileRestrictionPhase:
         assert by_path[self._PLAN_DRAFT]["can_write"] is False
         assert by_path[self._PLAN_DRAFT]["blocked_by"] == "phase"
 
+    def test_reviewer_impersonates_producer_via_explicit_args(self, monkeypatch):
+        # #2968 secondary fix: a reviewer adjudicating a producer's proposal
+        # needs to see the producer's verdict, not its own. With explicit
+        # ``role`` + ``phase`` args, the reviewer's defaults
+        # (EGG_AGENT_ROLE=reviewer_code, EGG_PHASE=implement) are overridden
+        # and the tool returns what the gateway would have done to the
+        # producer's refine-phase push of a plan draft.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer_code")
+        monkeypatch.setenv("EGG_PHASE", "implement")
+        out = restrictions.check_file_restriction(
+            {
+                "path": self._PLAN_DRAFT,
+                "role": "refiner",
+                "phase": "refine",
+            }
+        )
+        assert out["role"] == "refiner"
+        assert out["phase"] == "refine"
+        assert out["can_write"] is False
+        assert out["role_can_write"] is True
+        assert out["phase_allows"] is False
+        assert out["blocked_by"] == "phase"
+        # No alternative role for a phase block — it's reserved phase-wide.
+        assert out["alternative_role"] is None
+
+    def test_non_string_phase_rejected(self, monkeypatch):
+        # The schema declares ``phase`` a string; the handler boundary
+        # rejects a malformed caller (int, dict, etc.) with a structured
+        # HandlerError instead of leaking an AttributeError from
+        # ``PipelinePhase(phase)``.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        with pytest.raises(HandlerError, match="'phase' must be a string"):
+            restrictions.check_file_restriction({"path": self._PLAN_DRAFT, "phase": 7})
+
 
 class TestReportImpasse:
     def test_persists_to_agent_output(self, tmp_path, monkeypatch):

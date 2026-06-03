@@ -43,13 +43,33 @@ class TestPhaseFileVerdict:
     def test_implement_allows_code(self):
         assert phase_file_verdict("implement", "src/app.py")[0] is True
 
-    def test_case_insensitive_phase(self):
-        assert phase_file_verdict("REFINE", self._PLAN)[0] is False
+    def test_off_canonical_case_fails_closed(self):
+        # The mirror coerces via ``PipelinePhase(phase)``, which is
+        # case-sensitive — same as the gateway. Off-canonical case fails
+        # closed instead of silently lowercasing through to a verdict.
+        allowed, reason = phase_file_verdict("REFINE", self._PLAN)
+        assert allowed is False
+        assert reason and "Unknown phase 'REFINE'" in reason
 
-    def test_unknown_phase_is_unrestricted(self):
-        # apply has no row, and any unknown/garbage phase string is a no-op.
+    def test_known_phase_with_no_restriction_is_unrestricted(self):
+        # ``apply`` is a valid PipelinePhase but the deployed JSON carries
+        # no row, so the gateway's per-phase lookup misses and the call
+        # falls through to allow. The mirror matches that path.
         assert phase_file_verdict("apply", self._PLAN) == (True, None)
-        assert phase_file_verdict("not-a-phase", self._PLAN) == (True, None)
+
+    def test_unknown_phase_fails_closed(self):
+        # Off-enum strings (truly unknown phases, the dead "pr" from #2777,
+        # garbage from a misconfigured caller) fail closed at the mirror —
+        # the gateway would reject the push with "Unknown phase ...
+        # blocking by default", and the mirror's verdict matches so a
+        # phase-blind caller can't slip a false can_write:true through.
+        allowed, reason = phase_file_verdict("not-a-phase", self._PLAN)
+        assert allowed is False
+        assert reason and "Unknown phase 'not-a-phase'" in reason
+        # The dead "pr" key from .egg/phase-permissions.json takes the
+        # same path (PipelinePhase("pr") raises after #2777 deletion).
+        allowed, reason = phase_file_verdict("pr", self._PLAN)
+        assert allowed is False
 
     def test_empty_phase_is_unrestricted(self):
         assert phase_file_verdict(None, self._PLAN) == (True, None)

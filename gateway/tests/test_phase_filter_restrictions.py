@@ -758,3 +758,30 @@ class TestPhaseLayerSharedMirrorParity:
             "shared phase_patterns drifted from gateway/phase_filter.py — "
             "update PHASE_FILE_PATTERNS to match the live config: " + "; ".join(mismatches)
         )
+
+    # Off-enum strings: anything outside ``PipelinePhase``'s canonical
+    # lowercase set. In production the orchestrator always exports a
+    # canonical ``EGG_PHASE`` so this path only fires on a manual /
+    # test caller, but the gateway fails closed via the
+    # ``PipelinePhase(phase)`` coercion and the mirror has to match —
+    # otherwise a phase-blind caller could see ``can_write: true`` for a
+    # path the gateway will reject.
+    _OFF_ENUM_PHASES = ("IMPLEMENT", "unknown", "pr", "REFINE")
+
+    def test_shared_mirror_fails_closed_for_off_canonical_phase(self):
+        from egg_restrictions.phase_patterns import phase_file_verdict
+
+        pf = PhaseFilter()
+        for bad_phase in self._OFF_ENUM_PHASES:
+            for path in (".egg-state/drafts/p-plan.md", "src/app.py"):
+                gateway_allowed = pf.check_phase_file_restrictions(bad_phase, [path]).allowed
+                mirror_allowed = phase_file_verdict(bad_phase, path)[0]
+                assert gateway_allowed is False, (
+                    f"gateway should fail closed for off-enum phase "
+                    f"{bad_phase!r}, got allowed={gateway_allowed}"
+                )
+                assert mirror_allowed is False, (
+                    f"mirror should fail closed for off-enum phase "
+                    f"{bad_phase!r} to match the gateway, got "
+                    f"allowed={mirror_allowed}"
+                )

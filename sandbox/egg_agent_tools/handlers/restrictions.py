@@ -157,6 +157,12 @@ def check_file_restriction(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError(f"Unknown role {role!r}. Known roles: {sorted(registry.keys())}")
 
     phase = req.get("phase") or get_phase()
+    if phase is not None and not isinstance(phase, str):
+        # Defensive: the schema declares ``phase`` a string, but the rest of
+        # the handler is type-checking every other input — keep the boundary
+        # symmetric so a malformed caller gets a structured HandlerError
+        # instead of an AttributeError out of ``PipelinePhase(phase)``.
+        raise HandlerError("'phase' must be a string when provided")
     phase_file_verdict = _load_phase_verdict()
 
     def _check_one(path: str) -> dict[str, Any]:
