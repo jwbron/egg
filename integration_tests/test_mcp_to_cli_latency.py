@@ -90,12 +90,8 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_BASELINE_INPUT = (
-    _REPO_ROOT / ".egg-state" / "agent-outputs" / "latency-mcp-baseline.json"
-)
-_COMPARISON_OUTPUT = (
-    _REPO_ROOT / ".egg-state" / "agent-outputs" / "latency-mcp-vs-cli.json"
-)
+_BASELINE_INPUT = _REPO_ROOT / ".egg-state" / "agent-outputs" / "latency-mcp-baseline.json"
+_COMPARISON_OUTPUT = _REPO_ROOT / ".egg-state" / "agent-outputs" / "latency-mcp-vs-cli.json"
 _COMPARISON_SCHEMA_VERSION = "1"
 _REGRESSION_BUDGET = 0.05  # 5%
 
@@ -185,7 +181,7 @@ def _egg_git_sha() -> str:
             check=False,
         )
         return out.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return ""
 
 
@@ -211,7 +207,7 @@ def _agents_to_samples(
             continue
         try:
             start_dt = datetime.fromisoformat(started_at)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if isinstance(elapsed, (int, float)) and elapsed >= 0:
             duration = float(elapsed)
@@ -344,9 +340,7 @@ def _write_comparison(
             "slice": "slice-6",
             "pipeline_id": pipeline_id,
             "egg_git_sha": _egg_git_sha(),
-            "baseline_source": str(
-                _BASELINE_INPUT.relative_to(_REPO_ROOT)
-            ),
+            "baseline_source": str(_BASELINE_INPUT.relative_to(_REPO_ROOT)),
             "baseline_meta": baseline.get("_meta", {}),
         },
         "samples": samples,
@@ -435,9 +429,7 @@ class TestMCPToCLILatency:
                 f"(needs real GH credentials on the test cluster): {result['error']}"
             )
 
-        pipeline_id = result.get("pipeline_id") or result.get("data", {}).get(
-            "pipeline_id"
-        )
+        pipeline_id = result.get("pipeline_id") or result.get("data", {}).get("pipeline_id")
         if not pipeline_id:
             pytest.fail(f"submit_task returned no pipeline_id; got {result!r}")
 
@@ -450,7 +442,7 @@ class TestMCPToCLILatency:
         while time.monotonic() < deadline:
             try:
                 status = _get_pipeline_status(orchestrator_url, pipeline_id)
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
+            except urllib.error.URLError, TimeoutError, ConnectionError:
                 time.sleep(_PIPELINE_POLL_INTERVAL_SEC)
                 continue
             data = status.get("data", {}) if isinstance(status, dict) else {}

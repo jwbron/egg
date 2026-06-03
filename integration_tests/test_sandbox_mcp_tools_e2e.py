@@ -195,7 +195,7 @@ def test_consensus_ack_round_trip_via_reason_file(tmp_path) -> None:
     ):
         try:
             rc = orch_cli.cmd_consensus_ack(ns)
-        except (SystemExit, HandlerError):
+        except SystemExit, HandlerError:
             rc = 1
 
     assert rc == 0, f"cmd_consensus_ack failed: stderr={err.getvalue()!r}"
@@ -250,7 +250,7 @@ def test_consensus_nack_round_trip_via_stdin_sentinel(tmp_path) -> None:
     ):
         try:
             rc = orch_cli.cmd_consensus_nack(ns)
-        except (SystemExit, HandlerError):
+        except SystemExit, HandlerError:
             rc = 1
 
     assert rc == 0, f"cmd_consensus_nack failed: stderr={err.getvalue()!r}"
@@ -281,9 +281,7 @@ def test_agent_can_be_spawned_via_sdk(monkeypatch) -> None:
 
     live = os.environ.get("EGG_LIVE_SDK", "") in ("1", "true", "yes")
     if live:  # pragma: no cover - only in nightly job
-        pytest.skip(
-            "Live SDK path not implemented here — covered by nightly-only job"
-        )
+        pytest.skip("Live SDK path not implemented here — covered by nightly-only job")
 
     # Offline path: assert the deleted MCP registration block does NOT
     # auto-populate options.mcp_servers with egg namespaces.
