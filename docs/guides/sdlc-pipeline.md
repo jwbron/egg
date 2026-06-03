@@ -604,8 +604,8 @@ Agents are organized into five categories (execution, analysis, review, utility,
 
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
-| **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
+| **Coder** | Execution | Implements code changes and authors its own tests | All files except docs, `.egg-state/`, `.github/` (blocklist-complement; tests are coder-writable and overlap the tester — see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
+| **Tester** | Execution | Reviews-and-hardens the coder's tests, adds missing regression and adversarial coverage, runs linters, NACKs with a failing test when a bug is found | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
 | **Documenter** | Execution | Updates documentation | Documentation and markdown only: `docs/`, `**/*.md`, `**/README.md` (see [Agent Roles Reference](../reference/agent-roles.md#documenter)) |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
@@ -868,7 +868,7 @@ The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
 4. Validates the contract against the JSON schema
 5. Commits the updated contract to the feature branch
 
-This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped. For manual recovery via `advance_phase`, the populate step is also run automatically when transitioning out of the plan phase, so `contract.pr` is populated even when a force-advance bypasses the normal phase completion path.
+This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped, and auto-populates the contract at implement start if it is still empty (zero slices) — for example, when `start_phase=implement` is used and the contract was not pre-seeded (#2915). Push failure during this auto-populate is non-fatal: the contract is committed locally and agents proceed. For manual recovery via `advance_phase`, the populate step is also run automatically when transitioning out of the plan phase, so `contract.pr` is populated even when a force-advance bypasses the normal phase completion path.
 
 **Plan pre-flight validation at plan→implement** (#2777): when `advance_phase` transitions from plan to implement (without `force=true`), the orchestrator runs a structural pre-flight check on the plan draft *before* the populate step. The check verifies that the plan contains a parseable `yaml-tasks` block, non-empty `pr.title` / `pr.description` / `pr.test_plan` fields, and a present `pr.manual_steps` key (an empty string is allowed — the contract default — but the key must exist in the YAML). If any field is missing the call returns **422** with `reason: preflight_invalid_plan` and a `missing_fields` list naming each absent field — so the operator sees the full set of issues in one response rather than discovering them one at a time. Passing `force=true` bypasses the pre-flight validator (useful when a plan draft is unrecoverable and the operator needs to unstick the pipeline manually). Infra failures (dependency import errors, worktree probe / draft-read `OSError`s) surface as **500** with `reason: preflight_unavailable` so the operator retries rather than mistaking infra trouble for a passing check; if the draft path is undeclared or the draft file is absent on disk, the validator skips silently and lets the populate step handle the gap.
 
@@ -1353,7 +1353,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 |------|---------|---------|
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
-| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
+| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Implementation + tests are in — tester should review and harden the tests" |
 | `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop`) | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
@@ -1366,7 +1366,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
 
 # Send a role-boundary handoff
-egg-orch message send --to tester --type HANDOFF --subject "Test files ready" --body "See commit abc1234"
+egg-orch message send --to tester --type HANDOFF --subject "Implementation + tests in" --body "See commit abc1234 — review and harden the tests"
 
 # Poll for new messages
 egg-orch message poll [--since msg-abc123] [--limit 50]
@@ -1423,11 +1423,13 @@ commit messages (and, where the reviewer pass surfaces an ambiguity, by addressi
 the `NACK` rationale on re-propose). Signals `READY` after all implementation tasks
 are committed.
 
-**Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
-code is ready. Raises ambiguities through the review cycle — either via `NACK`
-rationale when reviewing the coder, or by emitting a `HEARTBEAT` with
-`state=WAITING_ON_ROLE --waiting-on coder` so the overseer can see the block.
-Signals `READY` after tests pass.
+**Tester**: Orients from the plan but does not write tests early — the coder
+authors its own tests. Waits for the coder's `CONSENSUS_PROPOSE`, then reviews
+and **hardens** the coder's tests (adds regression + adversarial cases), runs
+them, and reports back with an ACK/NACK. Raises ambiguities through the review
+cycle — either via `NACK` rationale when reviewing the coder, or by emitting a
+`HEARTBEAT` with `state=WAITING_ON_ROLE --waiting-on coder` so the overseer can
+see the block. Signals `READY` after tests pass.
 
 **Documenter**: Starts documentation based on the plan. Refines as implementation
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover

@@ -64,7 +64,7 @@ Phase 3: Converge      When all reviewers have ACKed all assigned producers, eac
 - **Delphi-style ordering.** Reviewers form independent judgments from git artifacts *before* seeing the producer's self-assessment. The server withholds producer metadata until the reviewer submits their own evaluation.
 - **Costly signals.** Proposals and reviews require structured attestations tied to real artifacts (commit SHAs, file paths, test counts), which are mechanically hard to fake without doing the work.
 - **Commitment devices.** Proposals have cooldown periods; retracting one requires citing specific new information; after repeated flip-flops the agent is locked out and escalated to a human.
-- **Adversarial tester.** The tester is a dual role: it writes regression tests *and* probes the coder's implementation for bugs, NACKing with a failing test as the bug report.
+- **Adversarial tester.** The tester is a dual role: it reviews-and-hardens the coder's tests (the coder authors its own tests), adds missing regression and adversarial cases, and probes the coder's implementation for bugs, NACKing with a failing test as the bug report.
 
 The review topology is asymmetric and sparse: reviewers evaluate producers, not each other, which keeps overhead at a handful of review edges instead of full pairwise review across the team. See [Agent Teams and Deliberative Consensus](docs/guides/agent-teams.md) for the full protocol, research foundations, and failure-mode analysis.
 
@@ -105,7 +105,7 @@ Human gate        Human gate        Human gate*        stacked-PR slices; humans
 1. **Refine.** Agents analyze the task, research the codebase, and produce requirements; reviewers validate. A human approves before planning begins.
 2. **Plan.** An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria and a **DAG of slices**, and a risk analyst flags concerns. A human approves before any code is written.
 3. **Apply** *(Jira epic-mode only)*. When the task resolves to a Jira Epic, an `applier` role drives Jira mutations (epic description writes, child-ticket creates/edits, link creates, Won't-Do handoffs) on operator approval, before implementation begins.
-4. **Implement.** The plan's slices are scheduled as a **DAG**: each slice runs as its own agent team on its own integration branch, with its own BRC consensus and its own stacked PR. Slices whose dependencies are satisfied run concurrently (per-pipeline cap `PipelineConfig.max_parallel_slices` at pipeline creation, falling back to `EGG_ORCH_MAX_PARALLEL_SLICES`, default 1 — raise on hosts with capacity; process-wide cap `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`, default 4); dependent slices wait for later waves. Within a slice the coder writes code, the tester writes and adversarially runs regression tests, and the documenter updates docs, while code, contract, security, and concurrency reviewers provide line-level feedback and can block consensus on a NACK.
+4. **Implement.** The plan's slices are scheduled as a **DAG**: each slice runs as its own agent team on its own integration branch, with its own BRC consensus and its own stacked PR. Slices whose dependencies are satisfied run concurrently (per-pipeline cap `PipelineConfig.max_parallel_slices` at pipeline creation, falling back to `EGG_ORCH_MAX_PARALLEL_SLICES`, default 1 — raise on hosts with capacity; process-wide cap `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`, default 4); dependent slices wait for later waves. Within a slice the coder writes code and its own tests, the tester reviews-and-hardens the coder's tests (adding missing coverage and adversarially probing for bugs), and the documenter updates docs, while code, contract, security, and concurrency reviewers provide line-level feedback and can block consensus on a NACK.
 
 There is **no separate "PR" phase**. The pipeline's context PR (`egg/<id>/work` into `main`) is opened up-front at the plan-to-implement boundary; slice PRs stack onto it and are created automatically by the orchestrator as each slice reaches consensus. Only a human can merge, via the GitHub UI. See the [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) and [Slice-DAG Implement Phase](docs/architecture/slice-dag.md).
 
@@ -166,7 +166,7 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 
 ```
 ┌─────────────────────────── egg-system (trusted) ───────────────────────────┐
-│                                                                             │
+│                                                                            │
 │  ┌──────────────────────┐   ┌───────────────────────────┐   ┌───────────┐  │
 │  │    Orchestrator      │   │     Gateway Sidecar       │   │  LiteLLM  │  │
 │  │                      │   │                           │   │  (proxy)  │  │
@@ -178,17 +178,17 @@ egg deploys as a set of containers on **Kubernetes (k3s)**, split across two nam
 │  │  • MCP server :9850  │   │  • Network isolation      │   │   :4000   │  │
 │  │  • REST API   :9849  │   │  • Jira/Confluence wrap   │   │           │  │
 │  └──────────────────────┘   │   :9848 (+ proxy :3129)   │   └───────────┘  │
-│                             └─────────────▲─────────────┘                  │
-└───────────────────────────────────────────┼───────────────────────────────┘
+│                             └──────────────▲────────────┘                  │
+└────────────────────────────────────────────┼───────────────────────────────┘
                                              │ all privileged ops + LLM calls
 ┌─────────────────────────── egg-agents ─────┼──────────── (untrusted) ──────┐
 │   ┌────────────────────────────────────────┴─────────────────────────────┐ │
-│   │  Sandbox agent Jobs (one per role per phase/slice)                    │ │
-│   │  • Claude Code via the Agent SDK (egg_agent)                          │ │
-│   │  • Standard git/gh wrappers → gateway   • No credentials              │ │
-│   │  • Per-agent git worktree               • No merge endpoint           │ │
+│   │  Sandbox agent Jobs (one per role per phase/slice)                   │ │
+│   │  • Claude Code via the Agent SDK (egg_agent)                         │ │
+│   │  • Standard git/gh wrappers → gateway   • No credentials             │ │
+│   │  • Per-agent git worktree               • No merge endpoint          │ │
 │   └──────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle:** the agent cannot bypass controls because the capabilities don't exist in its environment. This is infrastructure enforcement, not behavioral control. See the [Architecture Overview](docs/architecture/README.md) and [Kubernetes Migration](docs/architecture/kubernetes-migration.md).

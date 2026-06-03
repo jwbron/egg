@@ -77,8 +77,9 @@ class TestAgentRole:
 class TestAgentPatterns:
     def test_registry_has_all_20_roles(self):
         # Issue #1557 — APPLIER joined the registry (Jira-epic SDLC
-        # support); the count grew from 19 to 20.
-        assert len(AGENT_PATTERNS) == 19
+        # support); the count grew from 19 to 20. Issue #2893 — ORCHESTRATOR
+        # joined for audit-log attribution of read-only gh pre-flights.
+        assert len(AGENT_PATTERNS) == 20
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -102,6 +103,8 @@ class TestAgentPatterns:
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
+            # Issue #2893 — read-only audit attribution role for gh pre-flights.
+            AgentRole.ORCHESTRATOR,
         }
         assert set(AGENT_PATTERNS.keys()) == expected_roles
 
@@ -171,31 +174,38 @@ class TestCoderPatterns:
     def test_blocks_readme(self):
         assert not CODER_PATTERNS.can_write("README.md")
 
-    def test_blocks_test_files(self):
-        assert not CODER_PATTERNS.can_write("tests/test_foo.py")
-        assert not CODER_PATTERNS.can_write("test/test_bar.py")
-        assert not CODER_PATTERNS.can_write("gateway/tests/test_x.py")
+    def test_allows_test_files(self):
+        # Coder authors its own tests (intentional overlap with the tester);
+        # the gateway no longer 403s a coder test push. See _build_coder_pattern.
+        assert CODER_PATTERNS.can_write("tests/test_foo.py")
+        assert CODER_PATTERNS.can_write("test/test_bar.py")
+        assert CODER_PATTERNS.can_write("gateway/tests/test_x.py")
 
-    def test_blocks_conftest(self):
-        assert not CODER_PATTERNS.can_write("conftest.py")
+    def test_allows_conftest(self):
+        assert CODER_PATTERNS.can_write("conftest.py")
 
     def test_blocks_contracts(self):
         assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
 
 
 class TestCoderBlocklistComplement:
-    """TASK-5-1 (#1901): coder is now a blocklist-complement.
+    """TASK-5-1 (#1901): coder is a blocklist-complement.
 
     The historical coder allowlist enumerated extensions/filenames.  The
     new model uses ``allowed_patterns=["**"]`` paired with a blocklist
-    that carves out the tester scope (test files), the documenter scope
-    (docs/markdown), and pipeline-state directories (.egg-state/, except
-    agent-outputs/ which is carved back).
+    that carves out the documenter scope (docs/markdown) and
+    pipeline-state directories (.egg-state/, except agent-outputs/ which
+    is carved back).
+
+    The tester scope (test files) is **no longer carved out**: the coder
+    authors its own tests, intentionally overlapping the tester (the
+    #1901 strict-complement invariant is retired for the test scope
+    only). See ``_build_coder_pattern``.
 
     These tests assert behavior, not pattern shape — they remain green
-    if patterns.py is later refactored as long as the blocklist-complement
-    contract holds (e.g. extensionless scripts and arbitrary new top-level
-    paths stay coder-writable).
+    if patterns.py is later refactored as long as the blocklist contract
+    holds (e.g. extensionless scripts and arbitrary new top-level paths
+    stay coder-writable).
     """
 
     # --- Allowed (TASK-5-1 True list) ---
@@ -279,21 +289,20 @@ class TestCoderBlocklistComplement:
     def test_blocks_root_readme(self):
         assert not CODER_PATTERNS.can_write("README.md")
 
-    def test_blocks_tests_dir_test_file(self):
-        assert not CODER_PATTERNS.can_write("tests/test_x.py")
+    def test_allows_tests_dir_test_file(self):
+        # Coder authors its own tests (overlap with tester) — no longer blocked.
+        assert CODER_PATTERNS.can_write("tests/test_x.py")
 
-    def test_blocks_singular_test_dir(self):
-        assert not CODER_PATTERNS.can_write("test/test_y.py")
+    def test_allows_singular_test_dir(self):
+        assert CODER_PATTERNS.can_write("test/test_y.py")
 
-    def test_blocks_nested_tests_init(self):
-        """gateway/tests/__init__.py — exercises the matcher fix from TASK-2-1."""
-        assert not CODER_PATTERNS.can_write("gateway/tests/__init__.py")
+    def test_allows_nested_tests_init(self):
+        """gateway/tests/__init__.py — coder-writable now that tests overlap."""
+        assert CODER_PATTERNS.can_write("gateway/tests/__init__.py")
 
-    def test_blocks_root_conftest(self):
-        # Root-level conftest matches **/conftest.py under the fixed matcher —
-        # the ** branch matches zero or more path segments, so naive readers
-        # expecting a subdirectory should see this explicit case.
-        assert not CODER_PATTERNS.can_write("conftest.py")
+    def test_allows_root_conftest(self):
+        # Root-level conftest is coder-writable now that the coder authors tests.
+        assert CODER_PATTERNS.can_write("conftest.py")
 
     def test_blocks_egg_state_contracts(self):
         assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
@@ -675,11 +684,13 @@ class TestCheckAgentFileAccess:
         assert blocked == []
 
     def test_mixed_allowed_and_blocked(self):
+        # tests/ is now coder-writable (overlap with the tester); docs/ stays
+        # blocked (documenter's scope). A coder-authored test lands in allowed.
         files = ["gateway/server.py", "docs/guide.md", "tests/test_foo.py"]
         allowed, blocked, reason = check_agent_file_access("coder", files)
         assert allowed is False
         assert "docs/guide.md" in blocked
-        assert "tests/test_foo.py" in blocked
+        assert "tests/test_foo.py" not in blocked
         assert "gateway/server.py" not in blocked
 
     def test_truncation_message_for_many_blocked(self):

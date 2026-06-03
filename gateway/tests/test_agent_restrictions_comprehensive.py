@@ -118,10 +118,10 @@ class TestCoderFilePatterns:
     def test_coder_blocked_from_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/1030.json") is False
 
-    def test_coder_blocked_from_tests(self, pattern):
-        """Coder should not write test files (tester handles)."""
-        assert pattern.can_write("tests/test_foo.py") is False
-        assert pattern.can_write("orchestrator/tests/test_models.py") is False
+    def test_coder_can_write_tests(self, pattern):
+        """Coder authors its own tests (intentional overlap with the tester)."""
+        assert pattern.can_write("tests/test_foo.py") is True
+        assert pattern.can_write("orchestrator/tests/test_models.py") is True
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +574,9 @@ class TestThreeRoleBehavior1901:
             "skills/my-skill/SKILL.md",  # skills exempt
             "sandbox/agent-config/rules/foo.md",  # rules exempt
             "sandbox/scripts/gh",  # credential shim — gateway is the chokepoint
+            "tests/test_x.py",  # coder authors its own tests (overlap with tester)
+            "gateway/tests/__init__.py",  # test-package init — coder-writable now
+            "conftest.py",  # **/conftest.py at root — coder-writable now
         ],
     )
     def test_coder_allowed_blocklist_complement(self, path):
@@ -585,9 +588,6 @@ class TestThreeRoleBehavior1901:
         [
             "docs/foo.md",
             "README.md",
-            "tests/test_x.py",
-            "gateway/tests/__init__.py",  # matcher-fix coverage
-            "conftest.py",  # **/conftest.py at root
             ".egg-state/contracts/spec.json",
             ".egg-state/drafts/1901-plan.md",
             ".egg-state/secrets/key",  # future subdir

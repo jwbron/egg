@@ -2220,6 +2220,10 @@ class TestPlannerRoleAlignmentValidation:
     orchestrator reads it via ``git show <commit>:<plan_path>``.
     """
 
+    # A coder→docs assignment is still a misassignment (docs are the
+    # documenter's scope). Note: coder→test-files is NO LONGER a violation —
+    # the coder authors its own tests now (intentional overlap with the
+    # tester), so this fixture uses a docs file to exercise the reject path.
     _PLAN_WITH_MISASSIGNED_TASK = (
         "# Plan\n"
         "\n"
@@ -2231,11 +2235,11 @@ class TestPlannerRoleAlignmentValidation:
         "    goal: scaffolding\n"
         "    tasks:\n"
         "      - id: TASK-1-1\n"
-        "        description: Add pytest fixtures\n"
-        "        acceptance: fixtures load\n"
+        "        description: Document the new fixtures\n"
+        "        acceptance: docs updated\n"
         "        role: coder\n"
         "        files:\n"
-        "          - integration_tests/conftest.py\n"
+        "          - docs/fixtures.md\n"
         "```\n"
     )
 
@@ -3776,11 +3780,17 @@ class TestReviewerPreparation:
         assert "acceptance criteria" in prep.lower()
         assert "egg-contract show" in prep
 
-    def test_tester_gets_test_scaffolding(self):
-        """Tester prep includes test scaffolding and edge case identification."""
+    def test_tester_prep_waits_for_coder_before_writing_tests(self):
+        """Tester prep identifies edge cases but defers writing tests until the
+        coder proposes (coder authors its own tests; tester reviews-and-hardens).
+        """
         prep = _build_reviewer_preparation("tester", "implement")
-        assert "edge case" in prep.lower()
-        assert "test" in prep.lower()
+        lower = prep.lower()
+        assert "edge case" in lower
+        assert "test" in lower
+        # Must tell the tester NOT to write tests while waiting.
+        assert "do not write test" in lower
+        assert "consensus_propose" in lower
 
     def test_plan_reviewer_gets_architecture_exploration(self):
         """Plan reviewer prep includes codebase architecture exploration."""
@@ -3838,24 +3848,25 @@ class TestProducerOrientation:
         assert "test" in orient.lower()
         assert "edge case" in orient.lower()
 
-    def test_tester_orientation_directs_scaffold_first(self):
-        """Tester producer orientation tells tester to draft scaffolds before
-        wait-loop on coder.
+    def test_tester_orientation_directs_review_and_harden_after_propose(self):
+        """Tester producer orientation tells the tester to orient only until
+        the coder proposes, then review-and-harden the coder's tests.
 
-        Issue #2249: the scaffold-first instruction previously lived only in
-        the reviewer-preparation block; the producer-orientation block (which
-        is what tester reads while deciding whether to call wait-loop) had no
-        such directive. Mirror it on the producer side so the comfort path
-        (`wait-loop`) does not pull tester away from work it could do without
-        coder output.
+        Inverts the old #2249 scaffold-first directive: the coder now authors
+        its own tests, so the tester has nothing to scaffold ahead of time and
+        must wait for the coder's CONSENSUS_PROPOSE before producing. Guards
+        against the scaffold-first prose creeping back.
         """
         orient = _build_producer_orientation("tester", "implement", [])
-        assert "scaffold" in orient.lower()
-        assert "wait-loop" in orient.lower()
-        # The directive must point at plan-derived scaffolding inputs so the
-        # agent has a concrete starting point, not just a mandate.
-        assert "tasks[].files" in orient
-        assert "acceptance criteria" in orient.lower()
+        lower = orient.lower()
+        # Wait-for-propose, review-and-harden model.
+        assert "harden" in lower
+        assert "consensus_propose" in lower
+        # Must NOT write tests before the coder proposes.
+        assert "do not write test files before" in lower or "do not write test" in lower
+        # Old scaffold-first prose must be gone.
+        assert "scaffold" not in lower
+        assert "tasks[].files" not in orient
 
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the

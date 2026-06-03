@@ -66,6 +66,20 @@ class TestPartitionBasicBehavior:
         assert allowed == ["orchestrator/main.py", "gateway/gateway.py"]
         assert blocked == ["docs/guide.md", "README.md"]
 
+    def test_coder_authors_tests(self):
+        """Coder authors its own tests (intentional overlap with the tester):
+        a coder push that mixes source and test files is fully allowed, so the
+        gateway no longer 403s the test paths (`restricted_path_modified`)."""
+        files = [
+            "orchestrator/main.py",
+            "orchestrator/tests/test_main.py",
+            "tests/test_foo.py",
+            "gateway/conftest.py",
+        ]
+        allowed, blocked = partition_files_by_role(AgentRole.CODER, files)
+        assert allowed == files
+        assert blocked == []
+
     def test_empty_input(self):
         """Empty input always returns ([], []), regardless of role."""
         allowed, blocked = partition_files_by_role(AgentRole.CODER, [])
