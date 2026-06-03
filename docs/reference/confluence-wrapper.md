@@ -234,6 +234,7 @@ If a tenant carries custom Confluence macros, page properties, or fields known t
 | 403 | `/execute` denied verb, non-GET method, path traversal, disallowed path family (including the four flat-v2 anti-bypass paths), duplicate slash, non-ASCII | `confluence_execute_denied` with reason |
 | 403 | Atlassian returned 403 (bot lacks read access on the resource) | `confluence_upstream_403` (distinct from generic `confluence_upstream_error`) — body: `{"status": "forbidden", "reason": "bot_account_lacks_read_access", "pageId" \| "spaceKey": "..."}` |
 | 413 | Response body exceeds `CONFLUENCE_RESPONSE_MAX_BYTES` (5 MiB) post-redaction | `confluence_response_too_large` |
+| 502 | Atlassian upstream returned 3xx (login redirect — missing/invalid credentials or wrong base URL, e.g. `CONFLUENCE_BASE_URL` missing the `/wiki` suffix) | Error body: `{"likely_cause": "missing_or_invalid_atlassian_credentials_or_base_url", "upstream_status": 3xx, "upstream_body": ..., "path": ..., "upstream_location": "<Location header if present>"}` |
 | 503 | Atlassian credentials not configured (`ConfluenceCredentialsUnavailable`) | `confluence_credentials_unavailable` |
 | *upstream* | Atlassian 4xx/5xx other than the 404 envelope paths and the 403 escalation | Upstream status passed through, `confluence_upstream_error` audit entry |
 
