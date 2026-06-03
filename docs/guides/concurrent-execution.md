@@ -1205,3 +1205,4 @@ See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
 - [Checkpoint Access](checkpoint-access.md) — Cross-agent checkpoint queries
 - [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress
 - [Anchor Recovery Guide](anchor-recovery.md) — Agent post-compaction state recovery
+- [BRC Memory Artifact](../architecture/brc-memory.md) — Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack` so a future stateless event-pump handler can re-enter a review cycle with continuity ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1)
