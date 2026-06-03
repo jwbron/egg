@@ -791,6 +791,24 @@ _VALID_BRC_HISTORY_PHASES: tuple[str, ...] = ("refine", "plan", "implement", "pr
 # one channel.
 
 
+class _ProseArgError(Exception):
+    """Raised by the prose-arg helpers on a CLI-level validation failure.
+
+    The cmd_* functions catch this and convert it to a ``return 2``
+    (the established pattern for argument-validation failures in
+    orch_cli.py — see ``cmd_consensus_ack``'s
+    ``--pre-merge-condition-resolved-in-diff`` guard). Going through
+    a custom exception (rather than ``sys.exit(2)`` inside the
+    helper) keeps the helpers testable in isolation and lets cmd_*
+    surface the rc=2 the same way it surfaces other validation
+    failures.
+
+    The error message has already been emitted to stderr by the
+    helper before the exception is raised; cmd_* only needs to
+    convert the exception to ``return 2``.
+    """
+
+
 def _emit_argv_prose_deprecation(arg_name: str, *, suggested_file_flag: str) -> None:
     """Warn that argv prose is corruption-prone; suggest stdin/file form.
 
@@ -847,22 +865,30 @@ def _resolve_prose_arg(
             f"use exactly one delivery channel.",
             file=sys.stderr,
         )
-        sys.exit(2)
+        raise _ProseArgError
     if file_set and argv_set and not stdin_set:
         print(
             f"Error: {arg_name} and {file_flag} are mutually exclusive; "
             f"use exactly one delivery channel.",
             file=sys.stderr,
         )
-        sys.exit(2)
+        raise _ProseArgError
 
     if file_set:
         try:
             with open(file_path, encoding="utf-8") as fh:
                 return fh.read()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
+            # ``UnicodeDecodeError`` is a ``ValueError`` subclass, NOT
+            # an ``OSError``, so it slips through a bare ``except
+            # OSError`` and lands as a raw traceback on stderr. In the
+            # event-pump wrapper context this slice hardens, an
+            # operator that points ``--reason-file`` at binary garbage
+            # / a BOM-prefixed file / a mixed-encoding diff deserves
+            # the same actionable rc=2 + clear stderr message they
+            # get for a missing-file path (tester NACK v1).
             print(f"Error: failed to read {file_flag}={file_path}: {exc}", file=sys.stderr)
-            sys.exit(2)
+            raise _ProseArgError from exc
 
     if stdin_set:
         return sys.stdin.read()
@@ -877,7 +903,7 @@ def _resolve_prose_arg(
             f"{arg_name} - for stdin, or {file_flag} PATH).",
             file=sys.stderr,
         )
-        sys.exit(2)
+        raise _ProseArgError
     return ""
 
 
@@ -902,18 +928,23 @@ def _resolve_files_reviewed_arg(
             "exclusive; use exactly one delivery channel.",
             file=sys.stderr,
         )
-        sys.exit(2)
+        raise _ProseArgError
 
     if file_set:
         try:
             with open(file_path, encoding="utf-8") as fh:
                 raw_lines = fh.read().splitlines()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
+            # See ``_resolve_prose_arg`` for the rationale —
+            # ``UnicodeDecodeError`` is a ``ValueError`` subclass and
+            # is not caught by a bare ``except OSError``. Treat
+            # non-UTF-8 manifests as a clean rc=2 error rather than a
+            # raw traceback (tester NACK v1).
             print(
                 f"Error: failed to read --files-reviewed-file={file_path}: {exc}",
                 file=sys.stderr,
             )
-            sys.exit(2)
+            raise _ProseArgError from exc
         items: list[str] = []
         for line in raw_lines:
             stripped = line.strip()
@@ -2742,13 +2773,16 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         # is rejected downstream with a clearer error); leaving the
         # CLI permissive keeps the orchestrator the single source of
         # truth on summary-length policy. (#2741, #2908 slice-5.)
-        summary_text = _resolve_prose_arg(
-            argv_value=getattr(args, "summary", None),
-            file_path=getattr(args, "summary_file", None),
-            arg_name="--summary",
-            file_flag="--summary-file",
-            required=False,
-        )
+        try:
+            summary_text = _resolve_prose_arg(
+                argv_value=getattr(args, "summary", None),
+                file_path=getattr(args, "summary_file", None),
+                arg_name="--summary",
+                file_flag="--summary-file",
+                required=False,
+            )
+        except _ProseArgError:
+            return 2
         req = {
             "pipeline_id": pid,
             "role": role,
@@ -2838,17 +2872,20 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
     # path per line). The handler-layer still enforces non-empty reason,
     # so leaving the CLI surface permissive here keeps a single source
     # of truth (#2741, #2908 slice-5).
-    reason_text = _resolve_prose_arg(
-        argv_value=getattr(args, "reason", None),
-        file_path=getattr(args, "reason_file", None),
-        arg_name="--reason",
-        file_flag="--reason-file",
-        required=True,
-    )
-    files_reviewed = _resolve_files_reviewed_arg(
-        argv_value=getattr(args, "files_reviewed", None),
-        file_path=getattr(args, "files_reviewed_file", None),
-    )
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+        files_reviewed = _resolve_files_reviewed_arg(
+            argv_value=getattr(args, "files_reviewed", None),
+            file_path=getattr(args, "files_reviewed_file", None),
+        )
+    except _ProseArgError:
+        return 2
     if not files_reviewed:
         print(
             "Error: --files-reviewed (or --files-reviewed-file) is required.",
@@ -2902,17 +2939,20 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    reason_text = _resolve_prose_arg(
-        argv_value=getattr(args, "reason", None),
-        file_path=getattr(args, "reason_file", None),
-        arg_name="--reason",
-        file_flag="--reason-file",
-        required=True,
-    )
-    files_reviewed = _resolve_files_reviewed_arg(
-        argv_value=getattr(args, "files_reviewed", None),
-        file_path=getattr(args, "files_reviewed_file", None),
-    )
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+        files_reviewed = _resolve_files_reviewed_arg(
+            argv_value=getattr(args, "files_reviewed", None),
+            file_path=getattr(args, "files_reviewed_file", None),
+        )
+    except _ProseArgError:
+        return 2
     if not files_reviewed:
         print(
             "Error: --files-reviewed (or --files-reviewed-file) is required.",
@@ -2948,13 +2988,16 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     role = _require_role(args)
 
-    reason_text = _resolve_prose_arg(
-        argv_value=getattr(args, "reason", None),
-        file_path=getattr(args, "reason_file", None),
-        arg_name="--reason",
-        file_flag="--reason-file",
-        required=True,
-    )
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+    except _ProseArgError:
+        return 2
 
     data: dict[str, Any] = {
         "signal_type": "consensus_withdraw",
@@ -3254,13 +3297,16 @@ def cmd_brc_resolve_obligation(args: argparse.Namespace) -> int:
     producer_role = args.producer_role
     commit_sha = getattr(args, "commit_sha", None) or None
     # --note is optional, so don't fail if neither channel is set.
-    note_text = _resolve_prose_arg(
-        argv_value=getattr(args, "note", None),
-        file_path=getattr(args, "note_file", None),
-        arg_name="--note",
-        file_flag="--note-file",
-        required=False,
-    )
+    try:
+        note_text = _resolve_prose_arg(
+            argv_value=getattr(args, "note", None),
+            file_path=getattr(args, "note_file", None),
+            arg_name="--note",
+            file_flag="--note-file",
+            required=False,
+        )
+    except _ProseArgError:
+        return 2
 
     req: dict[str, Any] = {
         "pipeline_id": pid,

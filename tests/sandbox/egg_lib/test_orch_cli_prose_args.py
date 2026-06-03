@@ -239,23 +239,28 @@ class TestConsensusAckProseChannels:
         )
         assert "--reason" in str(depr[0].message)
 
-    def test_reason_and_reason_file_mutually_exclusive(self, brc_env, tmp_path):
+    def test_reason_and_reason_file_mutually_exclusive(self, brc_env, tmp_path, capsys):
         """Passing both ``--reason`` and ``--reason-file`` is a hard
         error — silent drop of one channel would invite composition-site
-        bugs."""
+        bugs. cmd_* returns rc=2 (the established orch_cli pattern for
+        argument-validation failures — see `cmd_consensus_ack`'s
+        `--pre-merge-condition-resolved-in-diff` guard)."""
         reason_path = tmp_path / "reason.txt"
         reason_path.write_text("from-file", encoding="utf-8")
-        with pytest.raises(SystemExit) as excinfo:
-            orch_cli.cmd_consensus_ack(
-                _ack_ns(reason="from-argv", reason_file=str(reason_path)),
-            )
-        assert excinfo.value.code == 2
+        rc = orch_cli.cmd_consensus_ack(
+            _ack_ns(reason="from-argv", reason_file=str(reason_path)),
+        )
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err
 
-    def test_missing_reason_fails_cleanly(self, brc_env):
-        """No reason channel set → exit 2 with a helpful error message."""
-        with pytest.raises(SystemExit) as excinfo:
-            orch_cli.cmd_consensus_ack(_ack_ns(reason=None, reason_file=None))
-        assert excinfo.value.code == 2
+    def test_missing_reason_fails_cleanly(self, brc_env, capsys):
+        """No reason channel set → cmd_* returns rc=2 with a helpful
+        error message on stderr (no SystemExit, no traceback)."""
+        rc = orch_cli.cmd_consensus_ack(_ack_ns(reason=None, reason_file=None))
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "--reason" in err
 
 
 class TestConsensusAckFilesReviewedFile:
@@ -302,18 +307,19 @@ class TestConsensusAckFilesReviewedFile:
             "shared/egg_agent/client.py",
         ]
 
-    def test_files_reviewed_and_file_mutually_exclusive(self, brc_env, tmp_path):
+    def test_files_reviewed_and_file_mutually_exclusive(self, brc_env, tmp_path, capsys):
         manifest = tmp_path / "m.txt"
         manifest.write_text("a.py\n", encoding="utf-8")
-        with pytest.raises(SystemExit) as excinfo:
-            orch_cli.cmd_consensus_ack(
-                _ack_ns(
-                    reason="r",
-                    files_reviewed=["b.py"],
-                    files_reviewed_file=str(manifest),
-                ),
-            )
-        assert excinfo.value.code == 2
+        rc = orch_cli.cmd_consensus_ack(
+            _ack_ns(
+                reason="r",
+                files_reviewed=["b.py"],
+                files_reviewed_file=str(manifest),
+            ),
+        )
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err
 
     def test_missing_files_reviewed_fails_cleanly(self, brc_env, capsys):
         """No files-reviewed channel set → return 2 with a helpful error
