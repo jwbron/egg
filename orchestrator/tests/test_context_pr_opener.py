@@ -14,7 +14,7 @@ This file pins the three paths task-3-8 calls out:
    ``contract.pr.title`` / ``contract.pr.description`` payload and the
    pipeline's ``branch`` (head) + ``base_branch`` (base), persists the
    parsed PR number via ``_persist_context_pr_number``, and returns it.
-2. **Idempotent path** — ``_lookup_open_pr`` returns the open PR number
+2. **Idempotent path** — ``lookup_open_pr`` returns the open PR number
    for ``head=branch base=base_branch``; the opener returns it
    WITHOUT invoking ``create_pr`` (negative-assert), and
    ``_persist_context_pr_number`` IS still called (the contract may have
@@ -120,7 +120,7 @@ def _make_contract(
 
 
 class TestOpenContextPrHappyPath:
-    """The opener creates a new PR when ``_lookup_open_pr`` does not
+    """The opener creates a new PR when ``lookup_open_pr`` does not
     surface a head/base match, persists the parsed PR number, and returns it."""
 
     def test_opens_new_pr_and_persists_number(self, tmp_path):
@@ -130,7 +130,7 @@ class TestOpenContextPrHappyPath:
         # Stub the spawner + gateway: no existing PR (lookup miss),
         # create_pr returns a parseable URL.
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.return_value = f"https://github.com/{pipeline.repo}/pull/4242"
 
         with (
@@ -180,7 +180,7 @@ class TestOpenContextPrHappyPath:
         pipeline = _make_pipeline(base_branch="release/v2")
         contract = _make_contract()
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/777"
 
         with (
@@ -206,11 +206,11 @@ class TestOpenContextPrHappyPath:
             _open_context_pr_at_implement_start(pipeline.id)
 
         assert spawner.gateway.create_pr.call_args.kwargs["base"] == "release/v2"
-        # ``_lookup_open_pr`` is called for the idempotency pre-flight with
+        # ``lookup_open_pr`` is called for the idempotency pre-flight with
         # the pipeline's head + base so the gateway's server-side
         # ``--head --base`` filter discriminates correctly.
-        spawner.gateway._lookup_open_pr.assert_called_once()
-        lookup_kwargs = spawner.gateway._lookup_open_pr.call_args.kwargs
+        spawner.gateway.lookup_open_pr.assert_called_once()
+        lookup_kwargs = spawner.gateway.lookup_open_pr.call_args.kwargs
         assert lookup_kwargs["head"] == pipeline.branch
         assert lookup_kwargs["base"] == "release/v2"
 
@@ -221,7 +221,7 @@ class TestOpenContextPrHappyPath:
 
 
 class TestOpenContextPrIdempotent:
-    """When ``_lookup_open_pr`` surfaces a PR matching the pipeline's
+    """When ``lookup_open_pr`` surfaces a PR matching the pipeline's
     head/base, the opener returns its number without invoking
     ``create_pr`` — but still persists the number (resume-from-orphan
     case)."""
@@ -232,7 +232,7 @@ class TestOpenContextPrIdempotent:
         existing_pr_number = 9999
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = existing_pr_number
+        spawner.gateway.lookup_open_pr.return_value = existing_pr_number
 
         with (
             patch(
@@ -267,7 +267,7 @@ class TestOpenContextPrIdempotent:
 
     def test_lookup_forwards_head_and_base_then_create_on_miss(self, tmp_path):
         """Head/base discrimination now lives server-side in
-        ``_lookup_open_pr``'s ``gh pr list --head --base`` filter (a
+        ``lookup_open_pr``'s ``gh pr list --head --base`` filter (a
         wrong-base PR can never come back as a hit). The opener's job is
         to forward the pipeline's exact head + base; on a miss (``None``)
         it falls through to ``create_pr``."""
@@ -275,7 +275,7 @@ class TestOpenContextPrIdempotent:
         contract = _make_contract()
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
 
         with (
@@ -302,7 +302,7 @@ class TestOpenContextPrIdempotent:
 
         # The opener forwarded the exact head + base for the server-side
         # filter to discriminate on.
-        lookup_kwargs = spawner.gateway._lookup_open_pr.call_args.kwargs
+        lookup_kwargs = spawner.gateway.lookup_open_pr.call_args.kwargs
         assert lookup_kwargs["head"] == "egg/issue-2777/work"
         assert lookup_kwargs["base"] == "main"
         # No hit — fell through to create_pr.
@@ -385,7 +385,7 @@ class TestOpenContextPrHardRequiredRaises:
         contract.pr = None  # Drop the PR metadata entirely.
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
 
         with (
             patch(
@@ -414,7 +414,7 @@ class TestOpenContextPrHardRequiredRaises:
         spawner.gateway.create_pr.assert_not_called()
 
     def test_lookup_open_pr_failure_raises_lookup_failed(self, tmp_path):
-        """If ``_lookup_open_pr`` raises unexpectedly, the opener wraps it
+        """If ``lookup_open_pr`` raises unexpectedly, the opener wraps it
         in a typed ``lookup_failed`` rather than letting a raw exception
         escape the cq-4 no-raw-exception contract. (The primitive itself
         soft-fails a transient gateway/parse error to ``None``, matching
@@ -424,7 +424,7 @@ class TestOpenContextPrHardRequiredRaises:
         contract = _make_contract()
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.side_effect = RuntimeError("gateway down")
+        spawner.gateway.lookup_open_pr.side_effect = RuntimeError("gateway down")
 
         with (
             patch(
@@ -460,7 +460,7 @@ class TestOpenContextPrHardRequiredRaises:
         contract = _make_contract()
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.side_effect = RuntimeError("HTTP 503")
 
         with (
@@ -494,7 +494,7 @@ class TestOpenContextPrHardRequiredRaises:
         contract = _make_contract()
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.return_value = None
 
         with (
@@ -538,7 +538,7 @@ class TestOpenContextPrHardRequiredRaises:
         contract = _make_contract()
 
         spawner = MagicMock()
-        spawner.gateway._lookup_open_pr.return_value = None
+        spawner.gateway.lookup_open_pr.return_value = None
         spawner.gateway.create_pr.return_value = bad_url
 
         with (

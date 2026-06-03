@@ -115,12 +115,12 @@ def spawner_factory():
         spawner = MagicMock(name="spawner")
         gw = MagicMock(name="gateway")
         # Both PR-idempotency sites now share the control-plane
-        # ``_lookup_open_pr(head, base)`` primitive (#2934); it returns a
+        # ``lookup_open_pr(head, base)`` primitive (#2934); it returns a
         # clean ``int | None`` rather than a list to filter client-side.
         if lookup_open_pr_side_effect is not None:
-            gw._lookup_open_pr.side_effect = lookup_open_pr_side_effect
+            gw.lookup_open_pr.side_effect = lookup_open_pr_side_effect
         else:
-            gw._lookup_open_pr.return_value = lookup_open_pr_return
+            gw.lookup_open_pr.return_value = lookup_open_pr_return
         if create_pr_side_effect is not None:
             gw.create_pr.side_effect = create_pr_side_effect
         else:
@@ -138,14 +138,14 @@ def spawner_factory():
 
 class TestOpenContextPRAtImplementStartIdempotency:
     """Calling the opener twice for the same pipeline is safe — the
-    second call sees the already-open PR via ``_lookup_open_pr`` and
+    second call sees the already-open PR via ``lookup_open_pr`` and
     re-persists the number without invoking ``create_pr``.
     """
 
     def test_idempotent_hit_re_persists_pr_number(
         self, tmp_path, monkeypatch, store, spawner_factory
     ):
-        """When ``_lookup_open_pr`` already returns our head→base PR
+        """When ``lookup_open_pr`` already returns our head→base PR
         number, the opener returns it, does NOT call ``create_pr``, AND
         still calls ``_persist_context_pr_number``
         (resume-from-orphaned-pipeline recovery path)."""
@@ -180,8 +180,8 @@ class TestOpenContextPRAtImplementStartIdempotency:
         assert result == 4242
         # The opener delegates head/base discrimination to the primitive,
         # so assert it forwarded the pipeline's work branch + base.
-        spawner.gateway._lookup_open_pr.assert_called_once()
-        lookup_kwargs = spawner.gateway._lookup_open_pr.call_args.kwargs
+        spawner.gateway.lookup_open_pr.assert_called_once()
+        lookup_kwargs = spawner.gateway.lookup_open_pr.call_args.kwargs
         assert lookup_kwargs["head"] == "egg/issue-2777/work"
         assert lookup_kwargs["base"] == "main"
         spawner.gateway.create_pr.assert_not_called()
@@ -300,7 +300,7 @@ class TestOpenContextPRAtImplementStartTypedErrors:
             assert exc_info.value.reason == ContextPrCreationReason.PIPELINE_LOAD_FAILED.value
 
     def test_lookup_open_pr_failure_raises_lookup_failed(self, tmp_path, store, spawner_factory):
-        """An unexpected ``_lookup_open_pr`` raise → typed ``lookup_failed``.
+        """An unexpected ``lookup_open_pr`` raise → typed ``lookup_failed``.
 
         The primitive itself soft-fails a transient gateway/parse error
         to ``None`` (matching the slice path), so in production this only
@@ -442,7 +442,7 @@ class TestOpenContextPRAtImplementStartImportFailures:
         self, tmp_path, store, spawner_factory, monkeypatch
     ):
         """``from egg_contracts.loader import load_contract`` failing on
-        the miss path (after ``_lookup_open_pr`` returns ``None``) surfaces
+        the miss path (after ``lookup_open_pr`` returns ``None``) surfaces
         as ``ContextPrCreationReason.LOADER_UNAVAILABLE``."""
         pipeline = _make_pipeline()
         spawner = spawner_factory(lookup_open_pr_return=None)

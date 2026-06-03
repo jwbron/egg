@@ -968,7 +968,7 @@ direction below it.
 Under #2777 the legacy `egg/<id>/context` doc-only branch was deleted:
 the pipeline work branch is itself the context PR's head. The
 multi-step soft-fail open path was replaced by a single idempotent
-gateway call — `GatewayClient._lookup_open_pr("egg/<id>/work", base)`
+gateway call — `GatewayClient.lookup_open_pr("egg/<id>/work", base)`
 runs `gh pr list --head <branch> --base <base> --state open --json
 number` first; on hit, the existing PR number is reused, on miss
 `gh pr create` runs once. The legacy PR phase as a separate pipeline

@@ -55,7 +55,7 @@ class ContextPrCreationReason(StrEnum):
     CONTRACT_LOAD_FAILED = "contract_load_failed"
     MISSING_PR_METADATA = "missing_pr_metadata"
     SAVE_FAILED = "save_failed"
-    # Gateway-layer failures wrapping ``_lookup_open_pr`` /
+    # Gateway-layer failures wrapping ``lookup_open_pr`` /
     # ``create_pr`` outcomes.
     LOOKUP_FAILED = "lookup_failed"
     GATEWAY_ERROR = "gateway_error"
@@ -10033,7 +10033,7 @@ def _open_context_pr_at_implement_start(
        to open. This matches the legacy wrapper's silent-skip behaviour
        for local pipelines so the new hard-required contract does not
        regress in-house test pipelines.
-    3. Otherwise call ``GatewayClient._lookup_open_pr(head, base)`` — the
+    3. Otherwise call ``GatewayClient.lookup_open_pr(head, base)`` — the
        same control-plane idempotency primitive ``create_slice_pr`` uses
        — to find the open PR whose head is the pipeline's work branch and
        whose base is the pipeline's base branch. The gateway runs the
@@ -10052,7 +10052,7 @@ def _open_context_pr_at_implement_start(
     Raises:
         ContextPrCreationError: on any of (a) pipeline lookup failure,
             (b) contract load failure / missing PR metadata,
-            (c) an unexpected ``_lookup_open_pr`` failure (the primitive
+            (c) an unexpected ``lookup_open_pr`` failure (the primitive
             itself soft-fails a transient gateway/parse error to ``None``,
             so this only fires on a programming error), (d) ``create_pr``
             failure, (e) persistence failure. NO soft-fail
@@ -10073,7 +10073,7 @@ def _open_context_pr_at_implement_start(
 
     Idempotency contract:
         Calling the function twice for the same pipeline is safe — the
-        second call sees the already-open PR via ``_lookup_open_pr`` and
+        second call sees the already-open PR via ``lookup_open_pr`` and
         re-persists the number through :func:`_persist_context_pr_number`.
         No second ``create_pr`` invocation occurs. Tests in TASK-3-8
         verify this by asserting ``create_pr`` is called zero times on
@@ -10141,11 +10141,11 @@ def _open_context_pr_at_implement_start(
     gateway_mode, _vis = _compute_gateway_mode(pipeline)
 
     # Step 3: idempotency pre-flight. Reuse the same control-plane
-    # ``_lookup_open_pr(head, base)`` primitive the per-slice path
+    # ``lookup_open_pr(head, base)`` primitive the per-slice path
     # (``create_slice_pr``) uses, so both PR-idempotency sites share the
     # narrow server-side ``gh pr list --head --base`` filter on the
     # launcher-auth route rather than this opener enumerating every open
-    # PR and filtering client-side (#2934). ``_lookup_open_pr`` returns a
+    # PR and filtering client-side (#2934). ``lookup_open_pr`` returns a
     # clean ``int | None`` (the head/base discrimination and number
     # coercion happen server-side + in the primitive), so the client-side
     # match loop and the malformed-``number`` guard the old
@@ -10157,7 +10157,7 @@ def _open_context_pr_at_implement_start(
     # gateway client), preserving the cq-4 no-raw-exception contract.
     spawner = _get_spawner()
     try:
-        existing_pr_number = spawner.gateway._lookup_open_pr(
+        existing_pr_number = spawner.gateway.lookup_open_pr(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
             head=pipeline.branch,
@@ -10165,7 +10165,7 @@ def _open_context_pr_at_implement_start(
         )
     except Exception as lookup_err:
         raise ContextPrCreationError(
-            f"gateway _lookup_open_pr failed for context-PR idempotency check: {lookup_err}",
+            f"gateway lookup_open_pr failed for context-PR idempotency check: {lookup_err}",
             reason="lookup_failed",
             cause=lookup_err,
         ) from lookup_err

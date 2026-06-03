@@ -1695,7 +1695,7 @@ class GatewayClient:
 
         Idempotency (#2777 cq-8 / task-3-2). Before invoking
         ``gh pr create``, an existing open PR with the same head +
-        base is looked up via :meth:`_lookup_open_pr`; on hit the
+        base is looked up via :meth:`lookup_open_pr`; on hit the
         existing PR URL is returned and ``gh pr create`` is skipped.
         This prevents a transient ``gh pr create`` failure that
         partially succeeded (PR created, network blip on response)
@@ -1782,7 +1782,7 @@ class GatewayClient:
             # (``/api/v1/gh/find_open_pr``, launcher auth) — the
             # orchestrator is the control plane, not an agent, so the
             # caller's ``agent_role`` is irrelevant here (#2893 follow-up).
-            existing_pr_number = self._lookup_open_pr(
+            existing_pr_number = self.lookup_open_pr(
                 pipeline_id=pipeline_id,
                 repo=repo,
                 head=head,
@@ -2654,7 +2654,7 @@ class GatewayClient:
                 except Exception:
                     pass
 
-    def _lookup_open_pr(
+    def lookup_open_pr(
         self,
         pipeline_id: str,
         repo: str,
@@ -2711,7 +2711,7 @@ class GatewayClient:
                 return None
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "_lookup_open_pr: gateway request failed (treating as miss)",
+                "lookup_open_pr: gateway request failed (treating as miss)",
                 pipeline_id=pipeline_id,
                 repo=repo,
                 head=head,
