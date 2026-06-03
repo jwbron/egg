@@ -38,6 +38,8 @@ from __future__ import annotations
 import posixpath
 from dataclasses import dataclass
 
+from egg_contracts.models import PipelinePhase
+
 from .matchers import match_pattern
 
 __all__ = [
@@ -175,7 +177,16 @@ def phase_file_verdict(phase: str | None, file_path: str) -> tuple[bool, str | N
 
     - ``None`` / empty string ⇒ no phase context, no-op ``(True, None)``. This
       keeps a phase-less caller (no ``EGG_PHASE``) behaving exactly as the
-      role-only check did before #2968.
+      role-only check did before #2968. Note that the gateway itself would
+      fail closed on an explicit ``""`` (``PipelinePhase("")`` raises), so the
+      empty-string branch is a small intentional divergence. It is unreachable
+      in practice because every live caller normalises ``""`` to ``None``
+      before it reaches this function (``restrictions.py`` does
+      ``req.get("phase") or get_phase()``, and ``get_phase()`` returns
+      ``None`` for an empty ``EGG_PHASE``); if a future caller ever exposes
+      ``phase_file_verdict`` to a path that doesn't pre-normalise, drop the
+      ``or empty`` branch so ``""`` falls through to the ``ValueError``
+      handler below and fails closed like the gateway.
     - A string the canonical :class:`PipelinePhase` enum doesn't recognise
       (e.g. ``"IMPLEMENT"``, ``"unknown"``, the dead ``"pr"`` from #2777) ⇒
       **fail closed** ``(False, reason)`` — the gateway would reject the push
@@ -192,12 +203,6 @@ def phase_file_verdict(phase: str | None, file_path: str) -> tuple[bool, str | N
     """
     if not phase:
         return True, None
-
-    # Local import: avoids a module-load cost for callers that only consume
-    # PHASE_FILE_PATTERNS / PhaseFilePattern, and dodges any future shared/
-    # ordering surprise if egg_contracts.models grows new transitive
-    # dependencies on egg_restrictions.
-    from egg_contracts.models import PipelinePhase
 
     try:
         canonical = PipelinePhase(phase)
