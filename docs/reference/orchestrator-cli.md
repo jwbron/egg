@@ -439,6 +439,50 @@ egg-orch consensus status
 egg-orch consensus status --slice-id slice-7
 ```
 
+### Prose-bearing args: stdin and `--*-file` channels ([#2741](https://github.com/jwbron/egg/issues/2741))
+
+Every `consensus` flag that carries free-form prose (`--summary` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed` on `ack` / `nack`) accepts the payload through three interchangeable channels:
+
+| Channel | Flag form | When to use |
+|---------|-----------|-------------|
+| **argv** *(deprecated)* | `--summary "…"` / `--reason "…"` | Short, ASCII-only literals where you control the shell-quoting. The CLI emits a deprecation warning to stderr; the value is still accepted for now to keep older operator scripts working. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line. |
+| **stdin sentinel `-`** | `--summary -` / `--reason -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) without writing a temp file. The CLI consumes stdin to EOF. |
+
+```bash
+# --summary-file (propose) — multi-line prose authored by the agent
+egg-orch consensus propose --push \
+  --summary-file .egg-state/agent-outputs/coder-proposal.md \
+  --artifacts src/feature.py --files-changed src/feature.py \
+  --tests-run tests/test_feature.py --tasks task-1-1 task-1-2 \
+  --commit-sha $(git rev-parse HEAD)
+
+# --reason-file (ack / nack / withdraw) — full review prose read from a file
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
+  --ack-version 2
+
+# stdin sentinel — pipe a heredoc straight into --reason
+egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 2 \
+  --reason - <<'EOF'
+### Blocking
+1. **src/feature.py:42** — Missing error handling for expired tokens;
+   auth bypass possible. Fix: wrap in try/except and return 401.
+### Non-blocking
+- **src/feature.py:18** — Unused import `datetime`.
+EOF
+
+# --files-reviewed-file — JSON array on disk OR one path per line
+printf '%s\n' src/feature.py tests/test_feature.py > /tmp/files.txt
+egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
+  --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
+  --ack-version 2
+```
+
+**Why the three channels exist.** When an event-pump wrapper composes a CLI command in bash, prose like `$VAR`, backticks, `;`, `&&`, or embedded newlines in the payload can be reinterpreted by the shell before argparse ever sees them — the wrapper bash silently corrupts the review body. The `--*-file` and stdin paths bypass argv entirely so the prose round-trips byte-for-byte through the orchestrator. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and slice-5 of #2908 for the structured channels that mitigate it.
+
+**Deprecation status of argv `--summary` / `--reason`.** The argv path still works, but each invocation now writes a deprecation warning to stderr. New wrappers and agent scripts should prefer `--*-file` or stdin; the argv form is retained only for legacy compatibility and is scheduled for removal in a follow-up cycle. The structured `--ack-version` / `--nack-version` integer flags, the boolean `--push`, and other non-prose args are not affected.
+
 **Exit-2 rejections (#2142):** `consensus propose` (re-propose), `consensus ack`, `consensus nack`, and `consensus confirmed` all return exit 2 with structured rejection details on the orchestrator-side concurrency-control paths. Producers see exit 2 + an `open_nacks_blocked` envelope on a re-propose attempt while ≥2 reviewers have NACKed the current version and the producer hasn't been informed of the full set yet — the response inlines every NACK so the producer can aggregate findings into one re-propose. Reviewers see exit 2 + a `stale_version` envelope when their ACK / NACK targets a superseded proposal — the response inlines the producer's current proposal snapshot so they can re-fetch and re-review without a separate status query. Both rejections are transient: act on the inlined details and retry. See [Concurrent Execution — BRC Protocol Flow](../guides/concurrent-execution.md#brc-protocol-flow) for the underlying race semantics.
 
 **Signal types for consensus:**
@@ -453,6 +497,67 @@ egg-orch consensus status --slice-id slice-7
 | `consensus_producer_push` | Triggers auto re-proposal when a producer pushes new commits after proposing — invalidates stale ACKs and notifies reviewers |
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
+
+## BRC verb-level operations (`egg-orch brc`)
+
+`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper (#2908 slice-2) and by agent scripts that need to drive BRC operations from bash without the MCP transport. Every subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler — the two surfaces share one handler function so they cannot drift (the `tests/tools/test_mcp_cli_drift.py` gate enforces it). Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
+
+```bash
+# brc next-action — derive the next BRC action for a role from the orchestrator
+# Used by the consensus wrapper to decide whether to PROPOSE / ACK / NACK / CONFIRM
+# / WAIT / COMPLETE before invoking the agent. JSON shape:
+#   {action: "wait"|"propose"|"ack"|"nack"|"confirm"|"complete", event_payload?: {...}}
+# --role defaults to $EGG_AGENT_ROLE; --slice-id defaults to $EGG_SLICE_ID.
+egg-orch brc next-action --role coder --json
+
+# brc get-state — verb-level alias for mcp__brc__get_state
+# JSON shape: {ok, slice_id, consensus: {agents, blocking_agents, is_complete}, raw?}
+# --verbose includes the full pipeline-status payload under the 'raw' key.
+egg-orch brc get-state
+egg-orch brc get-state --verbose
+
+# brc list-blocking — verb-level alias for mcp__brc__list_blocking
+# Default output is newline-delimited (one role per line) for shell-friendly consumption:
+#   while read role; do …; done < <(egg-orch brc list-blocking)
+# Exit code is 0 even when the list is empty.
+egg-orch brc list-blocking
+egg-orch brc list-blocking --json   # {"blocking_agents": [...]}
+
+# brc resolve-obligation — mark a reviewer's conditional-ACK obligation satisfied (#2338)
+# Typically called by the tester (or a producer that landed the conditioning work)
+# after cherry-picking a commit the gateway-blocked producer could not push themselves.
+# The matrix keeps the obligation text for audit but the PR body and HITL gate stop
+# surfacing it. The orchestrator rejects resolver_role == producer_role, so a producer
+# cannot self-resolve. Optional --note is prose; obey the prose-arg rule above and
+# pass it via --note-file PATH or stdin sentinel (- on --note) when it carries
+# shell metacharacters.
+egg-orch brc resolve-obligation \
+  --reviewer-role reviewer_code \
+  --producer-role coder \
+  --commit-sha $(git rev-parse HEAD) \
+  --note-file .egg-state/agent-outputs/obligation-resolved.md
+
+# brc read-peer-artifact — paginated read over .egg-state/brc-history/<id>-<phase>.json
+# files. Used by reviewers (and the prompt composer in slice-3) to reconstruct
+# peer-to-peer review history without hand-grepping JSON off disk. --phase is required;
+# --peer-role / --producer-role narrows by sender; --message-type can be repeated to
+# filter by CONSENSUS_* / STATUS / HANDOFF / etc. --limit defaults to 50, max 500;
+# --cursor is the opaque token returned by the previous call. Slice-scoped reads
+# (phase=implement + EGG_SLICE_ID set) merge in the per-pipeline unattributed file by
+# default; pass --no-include-unattributed to read only the per-slice file.
+egg-orch brc read-peer-artifact --phase implement --peer-role coder \
+  --message-type CONSENSUS_PROPOSE --message-type CONSENSUS_ACK --limit 100
+```
+
+| Subcommand | MCP counterpart | Purpose |
+|------------|-----------------|---------|
+| `brc next-action` | — *(new in slice-1 of #2908; no MCP counterpart — the wrapper bash needs the bare derivation, not an LLM round-trip)* | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. |
+| `brc get-state` | `mcp__brc__get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
+| `brc list-blocking` | `mcp__brc__list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
+| `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
+| `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
+
+All five subcommands honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` for auth and run against the same gateway routes the MCP tools use. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
 
 ## Context PR Surfaces ([#2777](https://github.com/jwbron/egg/issues/2777))
 

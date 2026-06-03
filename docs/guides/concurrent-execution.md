@@ -606,20 +606,23 @@ The redacted message preserves enough information for the reviewer to know *who*
 
 > **Why redact instead of withhold?** Previously, the filter dropped `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't evaluated the producer. This created a deadlock: reviewers waiting for a PROPOSE message to discover proposals never received one, because the filter withheld it until they reviewed. Redaction preserves the notification while protecting independent evaluation.
 
-Use `egg-orch consensus` commands to participate in the BRC protocol:
+Use `egg-orch consensus` commands to participate in the BRC protocol. **For any flag carrying free-form prose** — `--summary` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed` on `ack` / `nack` — prefer the `--*-file PATH` or stdin sentinel (`-`) channel over the argv form. The argv form still works but now emits a deprecation warning; the file/stdin channels are mandatory in any wrapper bash that composes the CLI invocation, because shell metacharacters (`$VAR`, backticks, `;`, `&&`, embedded newlines) in the prose are otherwise reinterpreted by the shell before argparse sees them and silently corrupt the verdict. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and [Orchestrator CLI — Prose-bearing args](../reference/orchestrator-cli.md#prose-bearing-args-stdin-and---file-channels-2741) for the full channel table.
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
 # --summary must be ≥50 chars describing what was built, tested, and which contract tasks it satisfies.
 # Boilerplate like "looks good" or "approved" is rejected with HTTP 400.
 git add src/feature.py && git commit -m "Implement feature X"
+printf '%s\n' "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  > .egg-state/agent-outputs/coder-proposal.md
 egg-orch consensus propose --push \
-  --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --summary-file .egg-state/agent-outputs/coder-proposal.md \
   --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
   --tasks task-1-1 task-1-2 --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
 # --files-changed, --tests-run, --tasks are optional but recommended for traceability.
+# Argv `--summary "…"` still works but writes a deprecation warning to stderr — see #2741.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
@@ -627,10 +630,16 @@ git fetch origin && git merge origin/egg/feature-x --no-edit
 # Reviewer: ACK after reviewing
 # --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
 # Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry and invalid-signature handling. All branches covered by tests.
+# Prefer --reason-file (or `--reason -` with stdin) for multi-line prose containing
+# Markdown, backticks, $VAR, or embedded newlines — see #2741.
+cat > /tmp/reviewer-code-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry
+and invalid-signature handling. All branches covered by tests.
 ### Non-blocking
-- **src/feature.py:72** — Consider extracting token_from_header() for readability."
+- **src/feature.py:72** — Consider extracting token_from_header() for readability.
+EOF
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason-file /tmp/reviewer-code-ack.md --ack-version 1
 
 # Reviewer: conditional ACK — work approved but requires a human action before merge
 # Use --pre-merge-condition when the work is correct but requires a merge-time action
@@ -639,18 +648,22 @@ egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.
 # this to smuggle blocking issues past the producer; NACK if the producer can fix it.
 # --pre-merge-condition is validated like --reason: boilerplate and short values are rejected with 400.
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Code is correct. One rename cannot be automated." \
+  --reason-file /tmp/reviewer-code-ack.md --ack-version 1 \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
 
-# Reviewer: NACK with structured blocking/non-blocking sections
-egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
+# Reviewer: NACK with structured blocking/non-blocking sections — stdin sentinel form
+egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 1 \
+  --reason - <<'EOF'
 ### Blocking
-1. **src/feature.py:42** — Missing error handling for expired tokens; auth bypass possible. Fix: wrap in try/except and return 401.
+1. **src/feature.py:42** — Missing error handling for expired tokens;
+   auth bypass possible. Fix: wrap in try/except and return 401.
 ### Non-blocking
-- **src/feature.py:18** — Unused import \`datetime\`."
+- **src/feature.py:18** — Unused import `datetime`.
+EOF
 
 # Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
+printf '%s\n' "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py" \
+  | egg-orch consensus withdraw --reason -
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -658,7 +671,21 @@ egg-orch consensus confirmed
 
 # Check consensus status (scopes to $EGG_SLICE_ID automatically in implement phase)
 egg-orch consensus status
+
+# Resolve a reviewer's conditional-ACK obligation in-cycle (#2338).
+# Typically called by the tester after cherry-picking work the coder is gateway-blocked from.
+# --note is prose; pass via --note-file PATH or `--note -` with stdin for any
+# multi-line body, per the same prose-arg rule above.
+egg-orch brc resolve-obligation \
+  --reviewer-role reviewer_code \
+  --producer-role coder \
+  --commit-sha $(git rev-parse HEAD) \
+  --note-file /tmp/obligation-resolved.md
 ```
+
+#### `egg-orch brc` — the verb-level read/derive surface
+
+The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler, used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
 
 ### BRC History Persistence
 

@@ -182,9 +182,12 @@ re-proposes would silently supersede in-flight NACKs from other
 reviewers, who would then re-NACK the new version verbatim.
 
 ```bash
-# Re-propose attempt — orchestrator rejects with the inline NACK list
+# Re-propose attempt — orchestrator rejects with the inline NACK list.
+# Prefer --summary-file (or `--summary -` with stdin) for the prose payload
+# so the wrapper bash cannot rewrite shell metacharacters in the summary —
+# see "Prose-bearing args" below and #2741 for the rationale.
 egg-orch consensus propose --changed-artifacts "src/auth.py" \
-    --summary "Fixed reviewer_security finding..." \
+    --summary-file .egg-state/agent-outputs/coder-re-propose-summary.md \
     --commit-sha $(git rev-parse HEAD)
 # Exit 2:
 # Re-propose blocked: 3 unresolved NACK(s) on v1
@@ -210,7 +213,12 @@ is rejected with HTTP 409 and the producer's current proposal snapshot
 inlined.
 
 ```bash
-egg-orch consensus ack coder --files-reviewed src/auth.py --reason "..."
+# Reviewer ACK — pass the review prose via --reason-file (or `--reason -` with
+# stdin) so shell metacharacters in the review body round-trip byte-for-byte;
+# see "Prose-bearing args" below and #2741 for the rationale.
+egg-orch consensus ack coder --files-reviewed src/auth.py \
+    --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
+    --ack-version 1
 # Exit 2:
 # ACK rejected: producer coder is at v2 (you reviewed an older version).
 #   Current commit: 7f3a1c8...
@@ -225,6 +233,53 @@ the orchestrator will reject again until you review the current
 version. The MCP-counterpart returns
 `{"ok": false, "status": "stale_version", "rejection": {...}}` with
 the snapshot under `rejection.current_proposal`.
+
+### Prose-bearing args use stdin / `--*-file`, not argv ([#2741](https://github.com/jwbron/egg/issues/2741))
+
+The `consensus` flags that carry free-form prose — `--summary` on
+`propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed`
+on `ack` / `nack` — accept the payload through three interchangeable
+channels. **Prefer the file or stdin channel** in any wrapper bash or
+agent script; the argv form is retained only for short ASCII literals
+and now writes a deprecation warning to stderr on every call.
+
+| Channel | Flag | Use when |
+|---------|------|----------|
+| **argv** *(deprecated, warns)* | `--summary "…"` / `--reason "…"` | The prose is a short ASCII literal you control end-to-end. Deprecation warning lands on stderr; value still accepted today. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper. Read verbatim from disk; zero shell parsing. `--files-reviewed-file` is one path per line on disk (the existing `--files-reviewed` `nargs="+"` argv form is still accepted). |
+| **stdin sentinel `-`** | `--summary -` / `--reason -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) when you don't want a temp file. The CLI consumes stdin to EOF. |
+
+```bash
+# Recommended: --reason-file for any review body that may contain
+# Markdown, backticks, $VAR, embedded newlines, or non-ASCII text.
+printf '%s\n' "${review_prose}" > /tmp/review.md
+egg-orch consensus ack coder --files-reviewed src/auth.py tests/test_auth.py \
+    --reason-file /tmp/review.md --ack-version 2
+
+# Same prose, via stdin — useful in a one-liner that doesn't want a temp file
+printf '%s\n' "${review_prose}" \
+    | egg-orch consensus ack coder --files-reviewed src/auth.py \
+        --reason - --ack-version 2
+
+# --files-reviewed-file is one path per line; equivalent to the argv list form
+printf '%s\n' src/auth.py tests/test_auth.py > /tmp/files.txt
+egg-orch consensus nack coder --files-reviewed-file /tmp/files.txt \
+    --reason-file /tmp/nack.md --nack-version 2
+```
+
+**Why all three channels exist.** The event-pump consensus wrapper (#2908
+slices 2-3) composes the CLI invocation in bash. Prose containing `$VAR`,
+backticks, `$()`, `;`, `&&`, or embedded newlines — exactly the kinds of
+characters a substantive review body or `NACK --reason` block contains —
+gets reinterpreted by the shell before argparse ever sees it, silently
+corrupting the verdict. Pulling the prose off argv into a file or stdin
+removes the shell-quoting hazard entirely: the payload round-trips
+byte-for-byte from the agent's authored text, through `EGG_LIFECYCLE_SECRET`-
+authenticated HTTP, into the orchestrator. See
+[#2741](https://github.com/jwbron/egg/issues/2741) for the original
+shell-injection finding and slice-5 of #2908 for the structured channels
+that mitigate it. The full CLI reference for the new flags lives in
+[Orchestrator CLI — Prose-bearing args](orchestrator-cli.md#prose-bearing-args-stdin-and---file-channels-2741).
 
 ## 2. The Five Anti-Patterns (#1897, #2064)
 
@@ -1651,3 +1706,5 @@ implementation cites:
 - [Architecture — Integration Test Trust Boundary](../architecture/integration-test-trust-boundary.md) — #2474 rationale for the slice-2 / slice-3 unit-test-only verification stance (see §10.7 and §10.9.7)
 - [Issue #2906](https://github.com/jwbron/egg/issues/2906) — the qwen3.7-max wait fall-out the event-pump path durably fixes
 - [Issue #2908](https://github.com/jwbron/egg/issues/2908) — durable fix: deterministic event-pump + durable agent memory
+- [Issue #2741](https://github.com/jwbron/egg/issues/2741) — shell-metachar corruption in wrapper-composed CLI prose; the slice-5 `--*-file` / stdin channels in §1 are the durable fix
+- [Orchestrator CLI — BRC verb-level operations](orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) — the `egg-orch brc next-action / get-state / list-blocking / resolve-obligation / read-peer-artifact` surface the event-pump wrapper consumes from bash (#2908 slices 1-2 + 5)
