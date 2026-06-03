@@ -175,7 +175,7 @@ def _normalize_choice_resolution(resolution: str) -> str:
         return resolution
     try:
         payload = json.loads(resolution)
-    except json.JSONDecodeError, TypeError:
+    except json.JSONDecodeError:
         return resolution
     if isinstance(payload, dict) and payload.get("action") == "select":
         selected = payload.get("selected")
@@ -381,6 +381,13 @@ def _handle_conditional_ack_gate(
         CONDITIONAL_ACK_GATE_MARKER,
         CONDITIONAL_ACK_REJECT,
     )
+
+    # #2978: defense-in-depth — unwrap the ``choice`` envelope so a future
+    # direct caller bypassing ``resolve_decision``'s dispatch-boundary
+    # normalization still sees the bare option label below.  Idempotent on
+    # already-unwrapped strings; mirrors the same call in
+    # ``_handle_hard_reset_recovery_resolution``.
+    resolution = _normalize_choice_resolution(resolution)
 
     if not context.startswith(CONDITIONAL_ACK_GATE_MARKER):
         return
