@@ -899,15 +899,23 @@ egg-orch pipeline wait-status <pipeline_id> [--since <cursor>]
 ```
 
 Hosts invoke this via the SDLC skill's launcher,
-`skills/sdlc/bin/wait-status`, which sets `PYTHONPATH` and
-`EGG_ORCHESTRATOR_URL` so no host-side configuration is required
-beyond `make deps` ([#2232](https://github.com/jwbron/egg/issues/2232)).
+`skills/sdlc/bin/wait-status`. As of
+[#2971](https://github.com/jwbron/egg/issues/2971) the launcher is a
+**self-contained pure-stdlib client** — it carries a faithful vendored
+copy of `cmd_pipeline_wait_status` (pinned to this module by
+`tests/sandbox/test_skill_wait_status_standalone.py`) and needs no
+`.venv`, no `PYTHONPATH`, and no egg checkout. The skill can therefore
+be installed globally (`~/.claude/skills/sdlc/`) and driven from any
+working directory; its only requirement is a reachable orchestrator.
 The launcher's default URL (`http://localhost:9849`) relies on the
 `hostPort: 9849` binding in
-`k8s/overlays/local/patches/orchestrator-volumes.yaml`. The bare
+`k8s/overlays/local/patches/orchestrator-volumes.yaml`; set
+`EGG_ORCHESTRATOR_URL` to override (e.g. a port-forward or a remote
+cluster). Note `localhost:9849` is reachable from the host shell but
+**not** from inside the Claude Code Bash sandbox. The bare
 `egg-orch pipeline wait-status` invocation shown above is the
-in-sandbox / unit-test entry point; host callers should always go
-through the launcher.
+in-sandbox / unit-test entry point; host callers go through the
+launcher.
 
 The CLI loops `GET /api/v1/pipelines/<id>/status/wait?wait=25`,
 threading the cursor between successive calls. Stdout is **JSON-lines**
@@ -918,7 +926,7 @@ threading the cursor between successive calls. Stdout is **JSON-lines**
 | `0` | Pipeline reached terminal state (`complete` / `failed` / `cancelled`) or terminal-event wire value (`pipeline.completed` / `pipeline.failed` / `pipeline.cancelled`). |
 | `1` | `--max-iterations` cap hit (test harnesses only — default loops forever). |
 | `2` | Transient error budget exceeded (5xx / connection errors after backoff). Caller should retry. |
-| `3` | Permanent error (4xx, malformed cursor, unknown pipeline). Caller should surface to user, not retry. The `skills/sdlc/bin/wait-status` launcher also exits 3 on env-setup failures (missing `.venv/bin/python` or `sandbox/bin/egg-orch`); both signals collapse to "don't retry" from the caller's perspective. |
+| `3` | Permanent error (4xx, malformed cursor, unknown pipeline). Caller should surface to user, not retry. (The standalone `skills/sdlc/bin/wait-status` launcher no longer has the old `.venv`/`egg-orch` env-setup preconditions that previously also exited 3 — see [#2971](https://github.com/jwbron/egg/issues/2971).) |
 
 Each emitted JSON line is a stable subset of the route's Path-A
 envelope:
@@ -1159,8 +1167,8 @@ render_full_dashboard(last_status)
 last_cursor = ""   # no cursor yet — first wait-status snaps to tip
 
 # blocking wait via Bash; emits one JSON line per event, exits on terminal.
-# Host-side callers use the SDLC skill's launcher (#2232); it wraps
-# `egg-orch pipeline wait-status` with PYTHONPATH and EGG_ORCHESTRATOR_URL.
+# Host-side callers use the SDLC skill's self-contained launcher (#2232,
+# #2971) — pure stdlib, no egg checkout; only EGG_ORCHESTRATOR_URL is read.
 skills/sdlc/bin/wait-status $TASK_ID --since "$last_cursor" \
   | while IFS= read -r line; do
       cursor=$(jq -r .cursor <<< "$line")
