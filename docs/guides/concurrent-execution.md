@@ -65,7 +65,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `EGG_BRC_ROLE_TYPE` | `"producer"`, `"reviewer"`, or `"producer,reviewer"` | Agent's role in the BRC review graph |
 | `EGG_BRC_REVIEWERS` | Comma-separated roles | Reviewer roles assigned to this producer (producers only) |
 | `EGG_BRC_PRODUCERS` | Comma-separated roles | Producer roles this agent must review (reviewers only) |
-| `EGG_SLICE_ID` | `"slice-<N>"` | Slice scope for per-slice BRC teams (implement phase only); absent for pipeline-level agents. BRC handlers forward this to the orchestrator so `CONSENSUS_*` signals are routed to the per-slice tracker. Also used for status reads: `mcp__brc__get_state` and `egg-orch consensus status` automatically scope to this value, so a per-slice agent sees its own slice's consensus rather than a misleading pipeline-level reconstruction (#2761). |
+| `EGG_SLICE_ID` | `"slice-<N>"` | Slice scope for per-slice BRC teams (implement phase only); absent for pipeline-level agents. BRC handlers forward this to the orchestrator so `CONSENSUS_*` signals are routed to the per-slice tracker. Also used for status reads: `egg-orch brc get-state` and `egg-orch consensus status` automatically scope to this value, so a per-slice agent sees its own slice's consensus rather than a misleading pipeline-level reconstruction (#2761). |
 
 Each agent is registered in the peer consensus tracker before spawning begins.
 
@@ -96,7 +96,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 | `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) for the legacy "already-confirmed" guard preserved for race-window safety when the wrapper observes `role_complete` between polls. |
 | `TRANSIENT_RESTART_BACKOFF_INITIAL` | `5` | Initial backoff delay (seconds) before restarting after a transient infrastructure crash (134/136/137/139/255). Doubles after each crash restart, capped at 30 s. Clean per-event exits do not trigger backoff. |
 | `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) during which exit code 1 is classified as a transient startup failure and retried. Set to `0` to disable. |
-| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Idle / no-progress safety budget in minutes. Replaces the pre-#2908 3-restart FAIL cap; at threshold and `2 ×` threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`) without transitioning the pipeline to FAILED. |
+| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Idle / no-progress safety budget in minutes. Replaces the pre-#2908 3-restart FAIL cap; at threshold and `2 ×` threshold the wrapper emits an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`, via `egg-orch overseer alert`) without transitioning the pipeline to FAILED. |
 | `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between heartbeat emissions and message polls. |
 
 ## Message Bus
@@ -370,7 +370,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
    > **Stale-version verdict rejection ([#2142](https://github.com/jwbron/egg/issues/2142)):** A reviewer whose ACK or NACK lands after the producer has re-proposed (i.e. the verdict targets a superseded version) is rejected with HTTP 409 and a structured `stale_version` envelope. The response inlines the producer's current proposal snapshot (`current_proposal.version`, `artifacts`, `commit_sha`) so the reviewer can re-fetch, re-review the diff, and re-submit without a separate status query. ACK guard already enforced version-match in `check_ack_guard`; the NACK guard now mirrors it via `check_nack_guard(..., nack_version=...)`.
 
-> **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The orchestrator re-arms the "ready to confirm" `STATUS` nudge on every producer `pending_acks` rejection ([#2100](https://github.com/jwbron/egg/issues/2100)), so the producer should wait for `STATUS` for any `pending_acks` branch — it fires automatically when the blocking condition (missing proposal, missing ACK, or stale ACK) clears. Disambiguate via `metadata.ready_to_confirm == True` (the same `STATUS` type is also used for unrelated notifications such as "Producer X excused from consensus"). Via `mcp__brc__confirm`, the equivalent is `ok=False` with `status="pending_acks"`; wait for the STATUS nudge and retry. **Do not** enter the STAY ALIVE `wait_loop --for CONSENSUS_CONFIRMED` as a recovery path — a producer whose own confirm hasn't succeeded yet deadlocks the pipeline (see [Anti-pattern 5](../reference/agent-wait-patterns.md#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)).
+> **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The orchestrator re-arms the "ready to confirm" `STATUS` nudge on every producer `pending_acks` rejection ([#2100](https://github.com/jwbron/egg/issues/2100)), so the producer should wait for `STATUS` for any `pending_acks` branch — it fires automatically when the blocking condition (missing proposal, missing ACK, or stale ACK) clears. Disambiguate via `metadata.ready_to_confirm == True` (the same `STATUS` type is also used for unrelated notifications such as "Producer X excused from consensus"). **Do not** enter the STAY ALIVE `wait_loop --for CONSENSUS_CONFIRMED` as a recovery path — a producer whose own confirm hasn't succeeded yet deadlocks the pipeline (see [Anti-pattern 5](../reference/agent-wait-patterns.md#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)).
 >
 > **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed) **or unresolved NACKs** (a NACK issued against a producer that has not yet re-proposed). In the stale-ACK case, the reviewer must re-ACK the listed producers at their current proposal version before confirming. In the unresolved-NACK case, the reviewer must wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version before confirming.
 
@@ -521,14 +521,14 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 ### Gateway-Level Push Enforcement (Pipeline Sessions)
 
-While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `mcp__brc__propose` (the fallback CLI is `egg-orch consensus propose --push`).
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push` (the agent-side `mcp__brc__propose` MCP tool was retired with the rest of the agent MCP surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6).
 
 **How the marker flows:**
 
-1. Agent calls `mcp__brc__propose(...)` (push defaults to true) — or runs `egg-orch consensus propose --push`
-2. Both surfaces delegate to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
+1. Agent runs `egg-orch consensus propose --push --summary-file PATH --files-changed F1 F2 …`
+2. The CLI delegates to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
-4. Pushes without the marker are rejected with HTTP 403 and the error points at `mcp__brc__propose`
+4. Pushes without the marker are rejected with HTTP 403 and the error points at `egg-orch consensus propose --push`
 5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No pipeline-push enforcement exists in this path — the gateway is not running to enforce it
 
 **Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
@@ -538,8 +538,8 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 **Error message for agents:**
 ```
 Direct git push is blocked for pipeline sessions. Publish your artifact via
-the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE
-in one step). Fallback CLI: `egg-orch consensus propose --push`.
+`egg-orch consensus propose --push` (which pushes to origin and sends
+CONSENSUS_PROPOSE in one step).
 ```
 
 See [Gateway README — Pipeline Push Enforcement](../../gateway/README.md#pipeline-push-enforcement-brc-sessions) for implementation details. See [#1669](https://github.com/jwbron/egg/issues/1669) for the motivating incident and design rationale.
@@ -584,10 +584,10 @@ When the slice plan assigns no tasks to a pure-producer role (e.g. CODER or DOCU
 The BRC preamble replaces the normal steps 2–5 with a short flow:
 
 1. **ORIENT** — run `egg-contract show` and confirm the role has no tasks in the current slice.
-2. **Try `egg-orch consensus confirmed`** (or `mcp__brc__confirm`):
+2. **Try `egg-orch consensus confirmed`**:
    - **Success** → proceed to STAY ALIVE.
    - **`pending_acks` / `global_zero_proposal`** (other producers haven't proposed yet) → block on `egg-orch message wait-loop --for STATUS --for CONSENSUS_RE_REVIEW --for CONSENSUS_ACK --for CONSENSUS_NACK --for OVERSEER_ALERT`. Retry `confirmed` on STATUS with `ready_to_confirm: true`, on `CONSENSUS_ACK`/`NACK` for your role, or on `CONSENSUS_RE_REVIEW` for your role.
-   - **`pending_acks` / `producer_not_fully_acked`** — a dual-role reviewer NACKed the seeded ACK because it found work your role should have done. This is a planning gap: call `mcp__sdlc__register_open_question` and surface the decision to the operator. Do **not** start producing without operator direction.
+   - **`pending_acks` / `producer_not_fully_acked`** — a dual-role reviewer NACKed the seeded ACK because it found work your role should have done. This is a planning gap: call `egg-contract add-decision --question-file PATH --options "A" "B"` and surface the decision to the operator. Do **not** start producing without operator direction.
 3. **STAY ALIVE** — follow normal stay-alive and re-review handling.
 
 **Critical constraint**: the agent must **not** run `egg-orch consensus propose` at any point. A real propose bumps the version to 2, invalidating the seeded version-1 ACKs and reopening the deadlock.
@@ -699,7 +699,7 @@ egg-orch brc resolve-obligation \
 
 #### `egg-orch brc` — the verb-level read/derive surface
 
-The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler, used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
+The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand calls the corresponding `handlers/brc.py::brc_*` handler (the shared handler layer that backed both the agent-side MCP tool surface and the CLI until [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 retired the MCP wrapper), used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
 
 ### BRC History Persistence
 
@@ -1215,7 +1215,7 @@ The health monitor is aware of BRC protocol state and **suppresses stall alerts 
 
 Once both conditions expire (all producers have proposed AND the grace period has elapsed), normal heartbeat/progress monitoring resumes.
 
-**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor sends a direct `OVERSEER_ALERT` to the stuck producer instructing it to call `mcp__brc__confirm`, and also escalates to overseer/HITL — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming. The timeout is also gated on `check_confirm_guard`: if any peer producer in the review graph has `proposal_version == 0` (never proposed), the global zero-proposal guard ([#1648](https://github.com/jwbron/egg/issues/1648)) would reject the confirm call anyway, so the health monitor suppresses the alert rather than sending a spurious nudge ([#2187](https://github.com/jwbron/egg/issues/2187)). The 180s window starts only once the guard clears.
+**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor sends a direct `OVERSEER_ALERT` to the stuck producer instructing it to call `egg-orch consensus confirmed`, and also escalates to overseer/HITL — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming. The timeout is also gated on `check_confirm_guard`: if any peer producer in the review graph has `proposal_version == 0` (never proposed), the global zero-proposal guard ([#1648](https://github.com/jwbron/egg/issues/1648)) would reject the confirm call anyway, so the health monitor suppresses the alert rather than sending a spurious nudge ([#2187](https://github.com/jwbron/egg/issues/2187)). The 180s window starts only once the guard clears.
 
 See [Pipeline Health Monitoring](pipeline-health-monitoring.md#post-propose-grace-period-for-reviewers) for implementation details and configuration.
 

@@ -163,7 +163,7 @@ The reasoning layer combines two complementary mechanisms with different purpose
 
 > **Tester `checks_passed` requirement:** The Tester's attestation must include a `checks_passed` list naming every configured check that **passed** (e.g. `["lint", "test"]`). Only include checks with a clean exit — do not include checks that failed. The server validates that all checks listed in `repositories.yaml` appear in this list and rejects the proposal if any are missing. Running tests alone is not sufficient — all configured checks must pass and be reported.
 
-> **Tester `attestation.tests_run` vs propose `tests_run`:** The `attestation.tests_run` field is an **integer count** of tests executed (e.g. `42`). This is distinct from the propose call's top-level `tests_run` argument, which is a **list of test identifiers** (e.g. `["tests/test_foo.py::test_bar"]`). Passing a list for `attestation.tests_run` (or leaving it at the default `0`) causes a validation error. The `mcp__brc__propose` handler validates tester attestation locally before sending to the orchestrator, so misconfigured payloads fail with an actionable error rather than a 400 from the server (#2338).
+> **Tester `attestation.tests_run` vs propose `tests_run`:** The `attestation.tests_run` field is an **integer count** of tests executed (e.g. `42`). This is distinct from the propose call's top-level `tests_run` argument, which is a **list of test identifiers** (e.g. `["tests/test_foo.py::test_bar"]`). Passing a list for `attestation.tests_run` (or leaving it at the default `0`) causes a validation error. The `egg-orch consensus propose` handler validates tester attestation locally before sending to the orchestrator, so misconfigured payloads fail with an actionable error rather than a 400 from the server (#2338).
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
@@ -238,7 +238,7 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 This mechanism enforces the principle that **all changes must be reviewed**: post-proposal pushes cannot bypass the review process. The `check_confirm_guard()` provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification. See [Concurrent Execution — Auto Re-Propose on Push/Commit](concurrent-execution.md#auto-re-propose-on-pushcommit) for the full details.
 
-Additionally, the gateway enforces that **direct `git push` is blocked** for pipeline sessions — agents must use `mcp__brc__propose` (or the fallback CLI `egg-orch consensus propose --push`) to bundle the push with a BRC proposal. This makes the review invariant structural rather than relying on auto-repropose detection. See [Concurrent Execution — Gateway-Level Push Enforcement](concurrent-execution.md#gateway-level-push-enforcement-pipeline-sessions) for details.
+Additionally, the gateway enforces that **direct `git push` is blocked** for pipeline sessions — agents must use `egg-orch consensus propose --push` to bundle the push with a BRC proposal (the previous agent-side `mcp__brc__propose` MCP tool was retired in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6). This makes the review invariant structural rather than relying on auto-repropose detection. See [Concurrent Execution — Gateway-Level Push Enforcement](concurrent-execution.md#gateway-level-push-enforcement-pipeline-sessions) for details.
 
 ### Agent Crash Mid-Protocol
 

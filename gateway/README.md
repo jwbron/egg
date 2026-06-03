@@ -145,19 +145,19 @@ Pipeline sessions must push only to their assigned branch. This prevents agents 
 
 ### Pipeline Push Enforcement (BRC Sessions)
 
-For every pipeline session, the gateway blocks direct `git push` operations. All pushes must go through the BRC consensus protocol via `mcp__brc__propose` (or the fallback CLI `egg-orch consensus propose --push`), which bundles the push with a proposal so all changes are peer-reviewed before landing on the branch. All SDLC producer phases (`refine`, `plan`, `implement`) are BRC phases ([`Pipeline.concurrent_phases`](../orchestrator/models.py)), so the enforcement is universal — there is no longer a "non-concurrent pipeline" path that allowed direct push ([#2028](https://github.com/jwbron/egg/issues/2028)).
+For every pipeline session, the gateway blocks direct `git push` operations. All pushes must go through the BRC consensus protocol via `egg-orch consensus propose --push` (the previous `mcp__brc__propose` MCP tool was retired with the rest of the agent-side MCP surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6; the CLI is the single agent surface today). The propose subcommand bundles the push with a proposal so all changes are peer-reviewed before landing on the branch. All SDLC producer phases (`refine`, `plan`, `implement`) are BRC phases ([`Pipeline.concurrent_phases`](../orchestrator/models.py)), so the enforcement is universal — there is no longer a "non-concurrent pipeline" path that allowed direct push ([#2028](https://github.com/jwbron/egg/issues/2028)).
 
 **How it works:**
-- The gateway checks pipeline-push enforcement BEFORE push-target enforcement so a pipeline agent on a per-role work branch sees the actionable "use mcp__brc__propose" error first, instead of a misleading wrong-branch error from the target check
+- The gateway checks pipeline-push enforcement BEFORE push-target enforcement so a pipeline agent on a per-role work branch sees the actionable "use `egg-orch consensus propose --push`" error first, instead of a misleading wrong-branch error from the target check
 - The check activates whenever the session has a `pipeline_id` and the push is not an infrastructure push (checkpoints, pipeline state). It no longer requires `EGG_CONCURRENT_MODE=true`
-- When `mcp__brc__propose` (or `egg-orch consensus propose --push`) runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
+- When `egg-orch consensus propose --push` runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 - Pushes without the `consensus_push` marker are rejected with HTTP 403
 
 **Why this matters:** Without this enforcement, agents can bypass the BRC review protocol by calling `git push` directly — changes land on the branch without peer review, breaking the "all changes must be reviewed" invariant. This was observed in pipeline #1570 v17, where the coder agent pushed 7 incremental commits without ever entering BRC consensus. Earlier versions of this check were gated on `EGG_CONCURRENT_MODE=true`, which left a gap: a pipeline session that didn't have that env var still hit a three-layer error cascade when it tried to push (sandbox wrapper → push-target validator → filtered-push fast-forward), thrashing the agent through wrong push variants ([#2028](https://github.com/jwbron/egg/issues/2028)). Gateway-level enforcement of the unconditional rule makes the invariant structural and gives a single, unambiguous error.
 
 **Marker flow:**
 ```
-mcp__brc__propose  (or  egg-orch consensus propose --push)
+egg-orch consensus propose --push
   └─→ calls gateway push API directly (bypasses git wrapper)
        └─→ includes "consensus_push": true in JSON payload
             └─→ gateway: allows push (marker present)
@@ -169,7 +169,9 @@ Fallback (no GATEWAY_URL, e.g. local dev):
 **Killswitch:** Set `PIPELINE_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). The legacy `CONCURRENT_PUSH_ENFORCEMENT=false` still works as an alias.
 
 **Error message:**
-- `Direct git push is blocked for pipeline sessions. Publish your artifact via the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE in one step). Fallback CLI: \`egg-orch consensus propose --push\`.` (HTTP 403)
+- `Direct git push is blocked for pipeline sessions. Publish your artifact via \`egg-orch consensus propose --push\` (which pushes to origin and sends CONSENSUS_PROPOSE in one step).` (HTTP 403)
+
+*(The legacy error text named the now-retired `mcp__brc__propose` MCP tool; gateway code that still emits the legacy text will be updated in the same #2908 slice-6 change as the doc.)*
 
 **Exempt scenarios:**
 - Infrastructure pushes (checkpoint branches, pipeline state branches) — exempted before this check via `is_infrastructure_push`

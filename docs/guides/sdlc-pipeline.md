@@ -1535,26 +1535,13 @@ the message bus to avoid conflicts. If an agent encounters a conflict when pushi
 should pull, rebase, and retry. If conflicts persist, the agent signals `BLOCKED` and a
 HITL decision is created. Consider adding role-based file restrictions to minimize overlap.
 
-## Agent MCP tools (`EGG_MCP_TOOLS` flag)
+## Agent pipeline-lifecycle surface (CLI only since #2908 slice-6)
 
-**Default: on since [#1942](https://github.com/jwbron/egg/issues/1942)** — set `EGG_MCP_TOOLS=false` per pipeline to opt out.
+Sandbox agents drive pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion, checkpoint browsing) through the `egg-orch` / `egg-contract` / `egg-checkpoint` shell CLIs. The previous in-process Claude Agent SDK MCP tool surface (introduced in [#1765](https://github.com/jwbron/egg/issues/1765) and expanded in [#1917](https://github.com/jwbron/egg/issues/1917)) was retired in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 along with the `EGG_MCP_TOOLS` env flag. Sandbox pods no longer recognise `EGG_MCP_TOOLS`; setting it has no effect.
 
-Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion, checkpoint browsing) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` / `egg-checkpoint` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 29-verb inventory across 6 namespaces (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`), schemas, and architecture.
+The shared pure-Python handler layer at `sandbox/egg_agent_tools/handlers/*.py` is preserved — it backs the CLI today (it always has; the deleted MCP tools and the CLI both called through the same handlers). Slice-6 collapsed **two surfaces to one**, not two to zero. See the [Agent Pipeline-Lifecycle Surface](../reference/agent-tools.md) reference for the full rationale, the per-CLI subcommand index, and the slice-5 prose-arg channels (`--<arg>-file PATH` / stdin `-` sentinel) that let agents route LLM-authored free text through the CLI without shell metacharacter corruption.
 
-**Opt out per-pipeline.** Iteration 1 (#1765) shipped this default-off; #1942 flipped the default after the wire-up stabilised. Set `EGG_MCP_TOOLS` to a falsy value (`false`, `0`, `no`, `off`) on your sandbox pod env to disable:
-
-```bash
-# Per-pipeline opt-out via submit-task / pipeline-create payload
-{
-  "config": {
-    "env": {"EGG_MCP_TOOLS": "false"}
-  }
-}
-```
-
-Or export it in a local-quickstart shell before running `egg-sdlc`. When the flag is opted out, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
-
-Iteration 2 (#1917) shipped peer-read, checkpoint, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
+The **operator-facing** orchestrator MCP server (port 9850; tools like `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `restart_agent`, `restart_phase`, `advance_phase`, `complete_phase`, `populate_contract`, `list_checkpoints`, `search_checkpoints`, …) is **unaffected** — it runs in the orchestrator process, not the sandbox, and is the surface operators / external MCP clients use to drive pipelines from outside the sandbox.
 
 ## Pipeline Health Monitoring
 

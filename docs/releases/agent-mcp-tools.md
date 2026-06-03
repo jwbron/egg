@@ -1,5 +1,19 @@
 # Release note — Agent MCP tools (iteration 1)
 
+> **Superseded by [#2908](https://github.com/jwbron/egg/issues/2908)
+> slice-6.** The agent-side MCP tool surface this note describes was
+> retired in #2908 slice-6 along with the `EGG_MCP_TOOLS` env flag.
+> Sandbox agents now drive pipeline lifecycle operations through the
+> `egg-orch` / `egg-contract` / `egg-checkpoint` shell CLIs (with the
+> slice-5 `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg
+> channels for safe free-text routing). The shared handler layer at
+> `sandbox/egg_agent_tools/handlers/*.py` is preserved and continues
+> to back the CLI. The operator-facing orchestrator MCP server (port
+> 9850) is unaffected. See
+> [Agent Pipeline-Lifecycle Surface](../reference/agent-tools.md)
+> for the current surface and the deletion rationale. This release
+> note is kept as a historical record of iteration 1.
+
 **Issue:** [#1765](https://github.com/jwbron/egg/issues/1765) — make
 egg-internal tools discoverable to sandbox agents so they do not burn
 tool calls re-deriving them from source.

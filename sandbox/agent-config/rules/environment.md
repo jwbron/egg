@@ -9,11 +9,20 @@ Sandboxed Docker container. No SSH keys, cloud creds, or production access.
 
 GitHub access MUST go through the gateway sidecar (not the proxy) for policy enforcement.
 
-## Environment Flags
+## Pipeline-Lifecycle Surface
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `EGG_MCP_TOOLS` | unset (on) | **On by default since #1942.** Registers the in-process SDK MCP tool surface (29 verbs across 6 namespaces: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) on `ClaudeAgentOptions.mcp_servers` and appends a bootstrap paragraph to the system prompt. Prefer these tools over Bash-ing `egg-contract` / `egg-orch` / `egg-checkpoint`. Set to `false` / `0` / `no` / `off` to opt out; the code path is then byte-identical to pre-#1765 behaviour. See `../../../docs/reference/agent-tools.md`. |
+Drive pipeline lifecycle operations (BRC consensus, HITL decisions,
+phase context, progress signals, task completion, checkpoint
+browsing) through `egg-orch` / `egg-contract` / `egg-checkpoint`
+directly. The agent-side MCP tool surface that the `EGG_MCP_TOOLS`
+flag used to gate was retired in
+[#2908](https://github.com/jwbron/egg/issues/2908) slice-6; setting
+`EGG_MCP_TOOLS` has no effect. See
+`../../../docs/reference/agent-tools.md` for the CLI surface index
+and the slice-5 `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg
+channels that route LLM-authored free text safely without shell
+metacharacter corruption. The operator-facing orchestrator MCP
+server (port 9850) is unaffected.
 
 ## Capabilities
 

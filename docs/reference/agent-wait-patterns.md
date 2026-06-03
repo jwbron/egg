@@ -201,10 +201,15 @@ egg-orch consensus propose --changed-artifacts "src/auth.py" \
 The agent then aggregates every blocking finding into one re-propose;
 the retry advances the version. Single-reviewer NACK cases bypass the
 barrier — no extra round-trip when there's nothing to aggregate. The
-MCP-counterpart (`mcp__brc__propose`) returns
+CLI returns exit code 2 with stderr naming the NACK envelope, and the
+JSON output (when `--json` is set or the underlying handler is invoked
+directly via `handlers/brc.py::brc_propose`) returns
 `{"ok": false, "status": "open_nacks_blocked", "rejection": {...}}`
 with the NACK array under `rejection.nacks` so the agent can introspect
-without parsing stderr.
+without parsing stderr. (The previous `mcp__brc__propose` MCP wrapper
+returned the same shape; it was retired with the rest of the agent-side
+MCP surface in [#2908](https://github.com/jwbron/egg/issues/2908)
+slice-6.)
 
 ### Stale-version verdict rejection (#2142)
 
@@ -1376,7 +1381,7 @@ recovery-restart cycle. Liveness is instead governed by an
 
 | `EGG_BRC_IDLE_BUDGET_MIN` | What happens at threshold |
 |---------------------------|---------------------------|
-| default `30` (minutes) | At budget threshold, wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and **continues blocking** (no `exit 1`, no FAILED transition). At `2 ×` budget the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
+| default `30` (minutes) | At budget threshold, wrapper emits an `OVERSEER_ALERT` (via `egg-orch overseer alert`, anomaly `stuck-phase-transition`, priority `high`) and **continues blocking** (no `exit 1`, no FAILED transition). At `2 ×` budget the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
 
 The trade is deliberate: a long-but-legitimate quiet phase could
 exhaust restarts and FAIL a healthy pipeline under the pre-#2908

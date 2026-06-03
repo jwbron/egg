@@ -39,9 +39,16 @@ If `.venv` is absent, run `make deps` to install everything. This installs `uv` 
 ## Key Entry Points
 
 - **Headless agents** use the Agent SDK (`egg_agent` package)
-- **Agent work** goes through the MCP server — see
-  [`submit_task`](docs/guides/sdlc-pipeline.md) (full
-  refine → plan → implement). The legacy interactive-mode CLI
+- **Operators submit work** through the orchestrator MCP server's
+  [`submit_task`](docs/guides/sdlc-pipeline.md) tool (full
+  refine → plan → implement). That MCP server is operator-facing
+  (port 9850); sandbox agents themselves no longer expose an
+  in-process MCP tool surface — they drive pipeline lifecycle
+  operations through the `egg-orch` / `egg-contract` /
+  `egg-checkpoint` shell CLIs. The legacy interactive-mode CLI
   (`bin/egg`) was removed in
-  [#1762](https://github.com/jwbron/egg/issues/1762).
+  [#1762](https://github.com/jwbron/egg/issues/1762); the
+  agent-side MCP tool surface was retired in
+  [#2908](https://github.com/jwbron/egg/issues/2908) slice-6. See
+  [Agent Pipeline-Lifecycle Surface](docs/reference/agent-tools.md).
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, branching, and PR workflow

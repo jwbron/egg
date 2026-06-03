@@ -33,7 +33,7 @@ When the gateway rejects a push because your commits modify a restricted path, t
 The supported recovery is the **conditional-ACK pattern** from #1998:
 
 1. Drop or revert your edits to the listed `blocked_paths` (e.g. `git checkout origin/main -- <path>` or `git rebase -i` to drop the commit).
-2. Re-propose the work as a partial change. In your `mcp__brc__propose` payload, attach a `--pre-merge-condition` describing the manual edit a human reviewer must make to the restricted file before merge. The reviewer's conditional-ACK records the obligation on the PR body.
+2. Re-propose the work as a partial change with `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 …`. The reviewer's conditional-ACK (`egg-orch consensus ack --producer-role <you> --pre-merge-condition-file PATH`) describing the manual edit a human reviewer must make to the restricted file before merge records the obligation on the PR body.
 3. Push again with the offending edit dropped.
 
 Do **not** try to "restore" the file with a follow-up commit on the same branch — that commit will also be rejected for the same reason. The only path past the restriction is to drop the edit and document the required manual change for the reviewer.
@@ -52,4 +52,4 @@ Before committing, verify your changes are in scope:
 
 - See the **File Boundaries** section of your system prompt for your role's allowed/blocked patterns.
 - `git diff --name-only` before `git commit` to review paths.
-- If your task requires modifying an out-of-scope file, plan for the conditional-ACK pattern from the start: do not edit the restricted file; instead, capture the required edit in the `--pre-merge-condition` payload of your proposal, or send a HANDOFF to the role that owns the file via `egg-orch message send --to <role> --type HANDOFF`.
+- If your task requires modifying an out-of-scope file, plan for the conditional-ACK pattern from the start: do not edit the restricted file; instead, ask the reviewer to attach the manual change as a `--pre-merge-condition-file` on their ACK, or send a HANDOFF to the role that owns the file via `egg-orch message send --to <role> --type HANDOFF`.

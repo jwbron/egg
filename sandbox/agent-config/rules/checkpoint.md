@@ -2,17 +2,23 @@
 
 Use `egg-checkpoint` to browse agent checkpoints (transcripts, tool calls, files, token usage). Full reference: `$EGG_REPO_PATH/docs/reference/checkpoint-browser.md`
 
-**Use the structured checkpoint tools — do not compose an `egg-checkpoint`
-command for the `Bash` tool.** The `search --text <t>` query and other
-free-text inputs are silently corrupted by shell metacharacters
-(backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`) when routed
-through a `Bash` command string, and a backtick or `$(...)` span is
-*executed* as a command rather than searched. The `mcp__checkpoint__*`
-tools (mapped below) pass each field as data and never touch a shell.
+**Route free text through `--<arg>-file PATH` or stdin, not a bare
+`--<arg> "…"`.** The `search --text <t>` query and other free-text
+inputs are silently corrupted by shell metacharacters (backticks,
+`$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`) when routed through a `Bash`
+command string, and a backtick or `$(...)` span is *executed* as a
+command rather than searched. The slice-5 prose-arg channels
+(introduced in [#2908](https://github.com/jwbron/egg/issues/2908)
+slice-5) let you route the value as data: pass `--text-file PATH` to
+read from a file, or `--text -` to read from stdin. Mixing forms is
+rejected — exactly one source per argument. Example:
 
-The `egg-checkpoint` commands below are the reference for what each
-operation does and stay available to human operators; agents invoke them
-through the structured tool.
+```bash
+cat > /tmp/q.txt <<'EOF'
+$BACKTICK_OR_DOLLAR_PAREN_PATTERN
+EOF
+egg-checkpoint search --text-file /tmp/q.txt --status failed --limit 10
+```
 
 **Commands**: `list`, `show <id>`, `browse --issue <n>`, `context`, `cost`, `search --text <t>`. All support `--json`.
 
@@ -32,27 +38,12 @@ egg-checkpoint search --text "error" --status failed --limit 10
 
 **Empty results**: The CLI prints which repo/branch was searched to stderr. With `--json`, empty results produce valid JSON (`[]` or structured empty object).
 
-## MCP tool equivalents
+## Pagination
 
-The operations above are also exposed as in-process MCP tools, which
-share the same `collect_checkpoints` / `load_checkpoint` /
-`search_checkpoints` helpers the CLI uses (drift-gate enforced). Prefer
-them for the reason in the callout above: free-text routed to the CLI
-through the `Bash` tool is mangled by the shell. Iteration-2
-([#1917](https://github.com/jwbron/egg/issues/1917)) added the **core
-3** verbs (per decision-3) — `browse`, `context`, and `cost` are still
-CLI-only and tracked for a follow-up.
+`egg-checkpoint list` and `egg-checkpoint search` accept optional
+`--limit <int>` (default 100) and `--cursor <opaque>` (the cursor token
+returned by the previous call). A `null` `next_cursor` in the response
+means the page is the last one. Tampered cursors are rejected.
 
-- `mcp__checkpoint__list` — Prefer this over `egg-checkpoint list`. Returns `{items, next_cursor}` paginated by `limit` (default 100) + opaque `cursor`.
-- `mcp__checkpoint__show` — Prefer this over `egg-checkpoint show`. Returns a single checkpoint dict; raises `HandlerError` for unknown id.
-- `mcp__checkpoint__search` — Prefer this over `egg-checkpoint search`. Substring search returning `{items, next_cursor}` with `limit`/`cursor` pagination.
-
-Pagination: `list` and `search` both accept optional `limit` (int,
-default 100) and `cursor` (opaque string). The handler returns
-`{items: [...], next_cursor: <str|None>}`. Pass the returned
-`next_cursor` back as `cursor` to fetch the next page; a `None`
-`next_cursor` means the page is the last one. Tampered cursors are
-rejected with `HandlerError`.
-
-See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 29-verb inventory.
+Full reference: [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
+and [`docs/reference/checkpoint-browser.md`](../../../docs/reference/checkpoint-browser.md).

@@ -504,7 +504,7 @@ The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and opt
 
 ## BRC verb-level operations (`egg-orch brc`)
 
-`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper (#2908 slice-2) and by agent scripts that need to drive BRC operations from bash without the MCP transport. Every subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler — the two surfaces share one handler function so they cannot drift (the `tests/tools/test_mcp_cli_drift.py` gate enforces it). Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
+`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper (#2908 slice-2) and by agent scripts that need to drive BRC operations from bash. Every subcommand is a thin CLI shim over the corresponding `handlers/brc.py::brc_*` handler — that shared handler layer originally backed both the agent-side MCP tool surface and the CLI, but slice-6 of [#2908](https://github.com/jwbron/egg/issues/2908) retired the MCP wrapper, so the CLI is the single agent surface today. Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
 
 ```bash
 # brc next-action — derive the next BRC action for a role from the orchestrator
@@ -514,13 +514,17 @@ The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and opt
 # --role defaults to $EGG_AGENT_ROLE; --slice-id defaults to $EGG_SLICE_ID.
 egg-orch brc next-action --role coder --json
 
-# brc get-state — verb-level alias for mcp__brc__get_state
+# brc get-state — verb-level read of BRC consensus state
+# (calls handlers.brc.brc_get_state; the previous mcp__brc__get_state MCP wrapper
+# was retired in #2908 slice-6)
 # JSON shape: {ok, slice_id, consensus: {agents, blocking_agents, is_complete}, raw?}
 # --verbose includes the full pipeline-status payload under the 'raw' key.
 egg-orch brc get-state
 egg-orch brc get-state --verbose
 
-# brc list-blocking — verb-level alias for mcp__brc__list_blocking
+# brc list-blocking — verb-level read of roles blocking BRC consensus
+# (calls handlers.brc.brc_list_blocking; the previous mcp__brc__list_blocking MCP wrapper
+# was retired in #2908 slice-6)
 # Default output is newline-delimited (one role per line) for shell-friendly consumption:
 #   while read role; do …; done < <(egg-orch brc list-blocking)
 # Exit code is 0 even when the list is empty.
@@ -553,13 +557,15 @@ egg-orch brc read-peer-artifact --phase implement --peer-role coder \
   --message-type CONSENSUS_PROPOSE --message-type CONSENSUS_ACK --limit 100
 ```
 
-| Subcommand | MCP counterpart | Purpose |
-|------------|-----------------|---------|
-| `brc next-action` | — *(new in slice-1 of #2908; no MCP counterpart — the wrapper bash needs the bare derivation, not an LLM round-trip)* | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. |
-| `brc get-state` | `mcp__brc__get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
-| `brc list-blocking` | `mcp__brc__list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
-| `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
-| `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
+| Subcommand | Handler | Purpose |
+|------------|---------|---------|
+| `brc next-action` | `handlers.brc.brc_next_action` | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. (New in slice-1 of #2908; the wrapper bash consumes the derivation directly.) |
+| `brc get-state` | `handlers.brc.brc_get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
+| `brc list-blocking` | `handlers.brc.brc_list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
+| `brc resolve-obligation` | `handlers.brc.brc_resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
+| `brc read-peer-artifact` | `handlers.brc.brc_read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
+
+The previous `mcp__brc__*` MCP wrappers around these same handlers were retired with the rest of the agent-side MCP surface in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — the CLI is now the single agent surface.
 
 Four of the five subcommands — `next-action`, `get-state`, `list-blocking`, `resolve-obligation` — honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` and run against the gateway routes the MCP tools use. `brc read-peer-artifact` is the odd one out: it reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk, with no HTTP transport. It consumes `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (to resolve the identifier) and `EGG_SLICE_ID` (to pick the per-slice partition for `phase == "implement"`) directly from the environment; `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` do not apply, so missing-secret failures against `read-peer-artifact` are misdiagnosed if you trace them through the HTTP layer. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
 

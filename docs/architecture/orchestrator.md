@@ -901,7 +901,7 @@ WS7-observed 10–13 min idle ceiling on real BRC phases).
 
 | `EGG_BRC_IDLE_BUDGET_MIN` | Behaviour |
 |---------------------------|-----------|
-| default `30` (minutes) | At budget threshold, wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) **and keeps blocking**. At `2 ×` budget, the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
+| default `30` (minutes) | At budget threshold, wrapper emits an `OVERSEER_ALERT` (via `egg-orch overseer alert`, anomaly `stuck-phase-transition`, priority `high`) **and keeps blocking**. At `2 ×` budget, the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
 
 The slice-2/-3 era also exposed an `EGG_BRC_EVENT_PUMP=false` escape
 to the legacy capped-restart wrapper; that escape is gone after
@@ -1336,7 +1336,7 @@ if is_orchestrator_mode():
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
 | `EGG_BRC_EVENT_PUMP` | **Removed in [#2908](https://github.com/jwbron/egg/issues/2908) slice-4 task-4-2.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template, the surrounding selector logic, and the env var read itself — the orchestrator no longer consults this variable. Operators that referenced it in helm values / pod-spec env can drop the row. The supported regression path is `git revert` of slices 1–3 / slice-4 in reverse-merge order (see [Rollback plan](#rollback-plan)); reverting slice-4 restores the env var alongside the legacy template. | n/a (removed) |
-| `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908)). Replaced the legacy 3-restart FAIL cap with an overseer-alert escalation that does not transition the pipeline to FAILED. At budget threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and keeps blocking; at `2 ×` budget the priority escalates and the wrapper still keeps blocking. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. See [Idle / no-progress safety budget](#idle--no-progress-safety-budget). | `30` |
+| `EGG_BRC_IDLE_BUDGET_MIN` | BRC consensus wrapper idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908)). Replaced the legacy 3-restart FAIL cap with an overseer-alert escalation that does not transition the pipeline to FAILED. At budget threshold the wrapper emits an `OVERSEER_ALERT` (via `egg-orch overseer alert`, anomaly `stuck-phase-transition`, priority `high`) and keeps blocking; at `2 ×` budget the priority escalates and the wrapper still keeps blocking. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. See [Idle / no-progress safety budget](#idle--no-progress-safety-budget). | `30` |
 
 ### Constants
 

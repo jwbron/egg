@@ -35,7 +35,7 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
   - Services and package installation
-  - Environment flags (`EGG_MCP_TOOLS`, etc.)
+  - Pipeline-lifecycle surface (CLI only since #2908 slice-6)
 
 ### Code Standards
 
@@ -62,9 +62,24 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
 - **checkpoint.md** - Checkpoint browser CLI commands
   - `egg-checkpoint` command reference (list, show, browse, context)
 
-### Agent MCP tools (default on)
+### Pipeline-lifecycle surface (CLI only since #2908 slice-6)
 
-Sandbox agents see in-process Claude Agent SDK MCP tools for HITL / BRC / phase / progress / task / checkpoint operations on the same `tool_use` stream they already handle (on by default since #1942; set `EGG_MCP_TOOLS=false` on the pod env to opt out). Prefer these (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) over shelling out to `egg-contract` / `egg-orch` / `egg-checkpoint` via Bash. The shell CLIs remain available for human operators, tests, and recovery scripts. Full reference: `$EGG_REPO_PATH/docs/reference/agent-tools.md`.
+Sandbox agents drive HITL / BRC / phase / progress / task /
+checkpoint operations through the `egg-orch` / `egg-contract` /
+`egg-checkpoint` shell CLIs. The previous in-process Claude Agent
+SDK MCP tool surface (`mcp__sdlc__*`, `mcp__brc__*`,
+`mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`,
+`mcp__checkpoint__*`) and its `EGG_MCP_TOOLS` gating flag were
+retired in [#2908](https://github.com/jwbron/egg/issues/2908)
+slice-6 — the CLI is now the single agent surface. Free-text args
+that previously motivated the MCP surface (shell metacharacter
+corruption) route through the slice-5 `--<arg>-file PATH` / stdin
+(`-` sentinel) prose-arg channels on every prose-bearing
+subcommand. The shared handler layer at
+`sandbox/egg_agent_tools/handlers/*.py` is preserved and continues
+to back the CLI; the operator-facing orchestrator MCP server (port
+9850) is unaffected. Full reference:
+`$EGG_REPO_PATH/docs/reference/agent-tools.md`.
 
 ### Recovery
 

@@ -2,21 +2,29 @@
 
 Run `egg-orch --help` for full usage. All commands support `--json`. Full reference: `$EGG_REPO_PATH/docs/reference/orchestrator-cli.md`
 
-**Use the structured orchestrator tools — do not compose an `egg-orch`
-command for the `Bash` tool.** Several subcommands carry LLM-authored
-free text — `overseer alert --summary "…" --detail "…" --recommend "…"`,
+**Route free text through `--<arg>-file PATH` or stdin, not a bare
+`--<arg> "…"`.** Several subcommands carry LLM-authored prose —
+`overseer alert --summary "…" --detail "…" --recommend "…"`,
 `progress emit --step "…" --detail "…" --blocker "…"`,
-`signal error --error "…"`, `anchor init --task "…"`. In a `Bash`
-command string the shell interprets backticks, `$(...)`, `$VAR`, `<`,
-`>`, `;`, `|`, and `&` — so prose that contains them (a markdown code
-span, a URL, a `<` comparison) is silently corrupted, and a backtick or
-`$(...)` span is *executed* as a command rather than stored. The
-`mcp__brc__*` / `mcp__progress__*` tools (mapped below) pass each field
-as data and never touch a shell.
+`signal error --error "…"`, `anchor init --task "…"`,
+`consensus propose --summary "…"`, `consensus nack --reason "…"`,
+`brc resolve-obligation --note "…"`. In a `Bash` command string the
+shell interprets backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, and
+`&` — so prose that contains them (a markdown code span, a URL, a `<`
+comparison) is silently corrupted, and a backtick or `$(...)` span is
+*executed* as a command rather than stored. The slice-5 prose-arg
+channels (introduced in [#2908](https://github.com/jwbron/egg/issues/2908)
+slice-5) let you route the value as data: pass `--<arg>-file PATH` to
+read from a file, or `--<arg> -` to read from stdin. Mixing forms is
+rejected — exactly one source per argument. Example:
 
-The `egg-orch` commands below are the reference for what each operation
-does and stay available to human operators; agents invoke them through
-the structured tool.
+```bash
+cat > /tmp/summary.md <<'EOF'
+Long-form proposal summary with `code spans`, $vars, and <comparators>.
+EOF
+egg-orch consensus propose --summary-file /tmp/summary.md \
+  --files-changed shared/foo.py shared/bar.py
+```
 
 **Essential commands:**
 
@@ -46,37 +54,31 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 **Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`
 
-## MCP tool equivalents
+## BRC consensus verbs
 
-The operations above are also exposed as in-process MCP tools, which
-share the same handler the CLI uses (drift-gate enforced). Prefer them
-for the reason in the callout above: free-text routed to the CLI through
-the `Bash` tool is mangled by the shell.
+- `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 …` — Producer broadcasts a proposal. Pushes committed work to origin via the gateway by default (pass `--no-push` if already pushed through another route).
+- `egg-orch consensus ack --producer-role <role>` — Reviewer ACKs a proposal. Add `--pre-merge-condition-file PATH` for a conditional ACK that surfaces a "Pre-merge Obligations" section on the auto-created PR ([Conditional ACK reference](../../../docs/reference/conditional-ack.md)).
+- `egg-orch consensus nack --producer-role <role> --reason-file PATH` — Reviewer NACKs with a blocker reason.
+- `egg-orch consensus confirmed` — Producer confirms after all reviewers ACK. Exit code 0 = transitioned to CONFIRMED; exit code 2 + JSON `status="pending_acks"` = rejected by the orchestrator (e.g. `producer_not_fully_acked`, `global_zero_proposal`, `stale_acks`) — read the message and take corrective action before retrying.
+- `egg-orch message heartbeat --state <WORKING|WAITING_ON_ROLE|WAITING_FOR_EVENT|PROPOSED|IDLE> [--waiting-on <peer>]` — Emit a structured HEARTBEAT to the dedicated `/heartbeat` endpoint.
 
-BRC consensus + heartbeats:
+> **Blocking waits use `wait-loop`** ([#2211](https://github.com/jwbron/egg/issues/2211)). For STAY ALIVE blocking waits use `egg-orch message wait` / `egg-orch message wait-loop` — the canonical idiom is in `docs/reference/agent-wait-patterns.md` §1. Under the BRC event-pump wrapper (slice-2 of #2908; default since slice-4), the wrapper owns the wait — you are invoked one-shot per actionable event.
 
-- `mcp__brc__propose` — Prefer this over `egg-orch consensus propose`. Producer broadcasts a proposal.
-- `mcp__brc__ack` — Prefer this over `egg-orch consensus ack`. Reviewer ACKs a proposal.
-- `mcp__brc__nack` — Prefer this over `egg-orch consensus nack`. Reviewer NACKs with a blocker reason.
-- `mcp__brc__confirm` — Prefer this over `egg-orch consensus confirmed`. Producer confirms after all reviewers ACK. Returns `ok: True` only when the producer transitioned to CONFIRMED; on `ok: False` (status `pending_acks`) the transition was rejected — read `message` for the reason (e.g. `producer_not_fully_acked`, `global_zero_proposal`, `stale_acks`) and take corrective action before retrying.
-- `mcp__brc__send_heartbeat` — Prefer this over `egg-orch message heartbeat`. Emit a structured HEARTBEAT to the dedicated `/heartbeat` endpoint.
+## BRC introspection verbs (slice-1 / slice-5 of #2908)
 
-> **Blocking waits use Bash, not MCP** (#2211). Both MCP transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), so every cap-elapsed return is a wasted LLM turn. For STAY ALIVE blocking waits use `egg-orch message wait` / `egg-orch message wait-loop` via Bash — the canonical idiom is in `docs/reference/agent-wait-patterns.md` §1.
+- `egg-orch brc next-action --role <role>` — Derive the next BRC action for the role: `wait` / `propose` / `ack` / `nack` / `confirm` / `complete` plus the matching event payload. The deterministic wrapper consumes this directly (no LLM round-trip).
+- `egg-orch brc get-state [--verbose]` — Full BRC consensus state JSON.
+- `egg-orch brc list-blocking [--json]` — Roles currently blocking consensus. Default output is newline-delimited (shell-friendly); `--json` returns an array.
+- `egg-orch brc read-peer-artifact --phase <phase> --peer-role <role> [--message-type <type>] [--limit <N>] [--cursor <tok>]` — Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log.
+- `egg-orch brc resolve-obligation --reviewer-role <r> --producer-role <p> [--commit-sha <sha>] [--note-file PATH]` — Mark a reviewer's conditional-ACK obligation as satisfied in-cycle ([#2338](https://github.com/jwbron/egg/issues/2338)). The orchestrator rejects self-resolution (`resolver_role == producer_role`), so the producer cannot drive their own resolution — typically the tester (or any non-producer satisfier) calls this after cherry-picking the conditioning commit.
 
-Progress + overseer (iter-2 added the overseer surface):
+## Progress + overseer
 
-- `mcp__progress__emit` — Prefer this over `egg-orch progress emit`. Emit a structured progress event (step/state/detail/blocker).
-- `mcp__progress__signal_error` — Prefer this over `egg-orch signal error`. Signal a recoverable / unrecoverable error.
-- `mcp__progress__heartbeat` — Prefer this over `egg-orch signal heartbeat`. Send a coarse-grained heartbeat.
-- `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline. **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `mcp__sdlc__register_open_question`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
-- `mcp__progress__query_status` — Prefer this over `egg-orch pipeline status`. Read structured pipeline status (agent matrix, BRC phase, blocked roles). Note: the MCP tool lives in the `progress` namespace per decision-5; the CLI lives in the `pipeline` subcommand subtree (decision-17 keeps the drift-gate symmetric with `overseer_alert`).
+- `egg-orch progress emit --step <text> --state <working|blocked|complete> [--detail-file PATH] [--blocker <id>]` — Emit a structured progress event.
+- `egg-orch signal error --error-file PATH [--recoverable]` — Signal a recoverable / unrecoverable error.
+- `egg-orch signal heartbeat` — Send a coarse-grained heartbeat.
+- `egg-orch overseer alert --anomaly <type> --priority <low|medium|high> --summary-file PATH [--detail-file PATH] [--recommend-file PATH]` — Broadcast an `OVERSEER_ALERT` to all agents. **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `egg-contract add-decision`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
+- `egg-orch pipeline status` — Read structured pipeline status (agent matrix, BRC phase, blocked roles). Pipeline ID is resolved from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`.
 
-No-CLI BRC introspection (iteration 1 + 2):
-
-- `mcp__brc__get_state` — Returns the full structured BRC consensus state as JSON.
-- `mcp__brc__list_blocking` — Returns the list of agent roles currently blocking consensus.
-- `mcp__brc__read_peer_artifact` — Reads `.egg-state/brc-history/<pipeline>-<phase>.json` filtered by `peer_role` with `limit`/`cursor` pagination. No CLI by design (reviewer-forensics helper; operators inspect the files directly).
-- `mcp__brc__resolve_obligation` — Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The orchestrator rejects self-resolution (`resolver_role == producer_role`), so the producer cannot drive their own resolution — typically the tester (or any non-producer satisfier) calls this after cherry-picking the conditioning commit. No CLI by design; in-cycle resolution flows through the MCP surface.
-
-See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 29-verb inventory.
+Full reference: [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
+and [`docs/reference/orchestrator-cli.md`](../../../docs/reference/orchestrator-cli.md).

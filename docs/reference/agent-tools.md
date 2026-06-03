@@ -1,229 +1,191 @@
-# Agent MCP Tools Reference
+# Agent Pipeline-Lifecycle Surface
 
-> Sandbox agents can call pipeline lifecycle operations (BRC consensus,
+> Sandbox agents drive pipeline lifecycle operations (BRC consensus,
 > HITL decisions, phase context, progress signals, task completion,
-> checkpoint browsing) through first-class MCP tools on the Claude
-> Agent SDK `tool_use` stream, instead of shelling out to
-> `egg-contract` / `egg-orch` / `egg-checkpoint` via `Bash`.
+> checkpoint browsing) **through the `egg-orch` / `egg-contract` /
+> `egg-checkpoint` shell CLIs**. The previous in-process Claude Agent
+> SDK MCP tool surface was **retired** in
+> [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — the CLI
+> is now the single agent surface.
 
-The tools are exposed as an in-process SDK MCP server built with
-[`claude_agent_sdk.create_sdk_mcp_server`](https://github.com/anthropics/claude-agent-sdk-python)
-and registered on `ClaudeAgentOptions.mcp_servers` by
-[`shared/egg_agent/client.py::run_agent_async`](../../shared/egg_agent/client.py).
-There is **no new network service, no new auth layer, no new process**
-— the tools run in the agent's own Python interpreter and call the
-same handler functions the `egg-contract` / `egg-orch` /
-`egg-checkpoint` CLIs call. Iteration 1 (the mechanism + 18 verbs) is
-tracked in [#1765](https://github.com/jwbron/egg/issues/1765);
-iteration 2 (12 additional verbs covering the rest of the capability
-audit) is tracked in
-[#1917](https://github.com/jwbron/egg/issues/1917).
+## Why retired
 
-## Flag — `EGG_MCP_TOOLS`
+The agent-side MCP tool surface (one in-process SDK MCP server per
+namespace, registered on `ClaudeAgentOptions.mcp_servers` and gated by
+`EGG_MCP_TOOLS`) was introduced in
+[#1765](https://github.com/jwbron/egg/issues/1765) and expanded in
+[#1917](https://github.com/jwbron/egg/issues/1917). It coexisted with
+the long-running shell CLIs and a drift gate
+(`tests/tools/test_mcp_cli_drift.py`) kept the two surfaces honest by
+asserting they dispatched through the same handlers.
 
-The MCP tool surface is **on by default** since [#1942](https://github.com/jwbron/egg/issues/1942). The env var now acts as a kill-switch:
+The dual surface had a steady carrying cost:
 
-| Flag | Effect |
-|------|--------|
-| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 31 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
-| `EGG_MCP_TOOLS=false` (or `0` / `no` / `off`) | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no `mcp_servers` registration, no prompt changes, no import cost. |
+- **Two surfaces to keep in sync.** Every new verb had to add a `@tool`
+  wrapper, a registration with a `cli_command` attribute, a
+  `Prefer this over …` rule-doc line, and pass the drift gate. Every
+  rename had to flow through both sides.
+- **MCP-loop reentry was a seam non-Claude models fell out of.** The
+  long-lived "agent re-enters a blocking `egg-orch message wait-loop`
+  between every BRC event" pattern depended on the model holding the
+  conversation across events. Claude usually does;
+  `qwen3.7-max` does not (`#2906`) — it exits success after one match,
+  the wrapper sees no `CONSENSUS_CONFIRMED`, the 3-restart cap trips
+  (`#2806`), and the pipeline `FAIL`s. Prompt-only mitigations narrow
+  the seam for one model; the seam itself is per-model. The new
+  **deterministic wrapper-driven event pump** (slice-2 of #2908)
+  reframes consensus-agent execution as one-shot invocations and
+  `egg-orch` is the wrapper-side surface the bash needs — an LLM
+  round-trip through MCP would be wasted overhead.
+- **Free-text prose** that used to be the MCP surface's primary
+  advantage (no shell quoting) was reworked in slice-5 of #2908 — the
+  CLI gained `--<arg>-file PATH` / stdin (`-` sentinel) channels on
+  every prose-bearing subcommand, so an agent can route a multi-line
+  reason / note / summary through the CLI safely without shell
+  metacharacter corruption. The structured-tool advantage was real;
+  it is now delivered by the CLI itself.
 
-Iteration 1 (#1765) shipped the flag default-off while the wire-up burned in.
-#1942 flipped the default to on and kept the env var as a rollback
-switch; a later follow-up (decision-9 in #1917) will remove the flag
-entirely once iter-2 has burned in.
+Slice-6 of #2908 deletes the seven `@tool` namespace files at
+`sandbox/egg_agent_tools/tools/*.py`, the four infrastructure files
+(`__init__`, `_common`, `_registry`, `_tool_compat`), the
+`SYSTEM_PROMPT_NUDGE` constant, the `build_sandbox_mcp_server`
+factory, and the MCP-registration block in
+`shared/egg_agent/client.py`. The `EGG_MCP_TOOLS` env flag is no
+longer recognised. The drift test
+`tests/tools/test_mcp_cli_drift.py` is retired in the same slice.
 
-To opt a pipeline out, set `EGG_MCP_TOOLS=false` via pod env, Docker
-Compose, or the `env` stanza on any submit-task payload. See
-[docs/guides/sdlc-pipeline.md — Agent MCP tools
-(EGG_MCP_TOOLS flag)](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
-for the per-pipeline recipe.
+## What is preserved
 
-## Tool inventory (31 verbs)
+### Shared handler layer
 
-All 31 tools are registered as `@tool`-decorated wrappers in
-`sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name is the verb
-itself (e.g. `"propose"`, `"register_open_question"`).
+The pure-Python request → response handlers at
+`sandbox/egg_agent_tools/handlers/*.py` are **kept** — they back the
+CLI today (they always have; the MCP tools and the CLI both called
+through them). Slice-6 collapses **two surfaces to one** (the CLI),
+not two to zero. Every gateway-fronted operation an agent issues on
+the BRC / phase / contract / task / checkpoint hot path still runs
+through the same handler — the only thing gone is the in-process MCP
+wrapping.
 
-### Tool-name resolution (how Claude sees these tools)
+### Operator-facing MCP server (`orchestrator/mcp_server.py`)
 
-The SDK renders an MCP tool in `tool_use` blocks as
-`mcp__<server_key>__<raw_tool_name>`. `build_sandbox_mcp_server`
-returns a `{namespace: server}` dict — one SDK MCP server per
-namespace, keyed by `sdlc`, `brc`, `phase`, `progress`, `task`, or
-`checkpoint` — and `shared/egg_agent/client.py::run_agent_async`
-merges that dict into `options.mcp_servers` unless `EGG_MCP_TOOLS` is
-explicitly falsy. With raw `@tool` names declared as plain verbs,
-Claude's composition naturally produces the semantic names in the
-tables below:
+The **operator-facing** orchestrator MCP server (port 9850; tools
+like `submit_task`, `get_status`, `provide_input`, `list_tasks`,
+`cancel_task`, `restart_agent`, `restart_phase`, `advance_phase`,
+`complete_phase`, `populate_contract`, `list_checkpoints`,
+`search_checkpoints`, …) is **unaffected**. It runs in the
+orchestrator process, not the sandbox, and is the surface operators /
+external MCP clients use to drive pipelines from outside the sandbox.
+Slice-6 only removes the sandbox-side agent tool surface.
 
-- raw name `propose` in server key `brc` → `mcp__brc__propose`
-- raw name `register_open_question` in server key `sdlc` →
-  `mcp__sdlc__register_open_question`
-- raw name `list` in server key `checkpoint` → `mcp__checkpoint__list`
-- ...and so on for every verb.
+See
+[Architecture → Orchestrator → MCP Server (`/mcp`)](../architecture/orchestrator.md#mcp-server-mcp)
+for the orchestrator MCP tool inventory.
 
-The tables list the **SDK-visible tool names** (what appears in
-`tool_use` blocks and what agents call). The `ToolRegistration.name`
-attribute in `sandbox/egg_agent_tools/tools/_registry.py` carries
-the same full name for drift-test introspection and nudge
-generation. The authoritative sources are the shipping `TOOL_LIST`
-and per-namespace dict returned by
-`sandbox/egg_agent_tools/server.py::build_sandbox_mcp_server()`, plus
-the `SYSTEM_PROMPT_NUDGE` generated at import time by
-`sandbox/egg_agent_tools/server.py::_render_nudge()`.
+### CLI subcommands added during #2908
 
-Every tool with a shell-CLI counterpart declares a `cli_command`
-attribute on its `ToolRegistration` (e.g. `("egg-orch", "consensus",
-"propose")`) so a CI drift test
-(`tests/tools/test_mcp_cli_drift.py`) can assert the MCP tool and
-the CLI subparser dispatch the same handler function. If a handler
-moves, both surfaces move together or CI fails. Adding a new tool
-means adding a `cli_command` attribute on the registration (or
-explicitly setting it to `None` for new verbs with no CLI
-counterpart) — the drift gate will refuse the PR otherwise. Tools
-that set `cli_command=None` are governed by an additional gate (see
-[`cli_command=None` rationale](#cli_commandnone-rationale-pattern-decision-13))
-that requires the handler docstring to explain why no CLI exists.
+Slices 1 and 5 of #2908 added several `egg-orch brc <verb>`
+subcommands that previously existed only as MCP verbs (and a new
+wrapper-only `brc next-action`). These continue to ship and are
+documented under
+[Orchestrator CLI → BRC verb-level operations (`egg-orch brc`)](orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc):
 
-### `mcp__sdlc__*` — HITL and contract-level operations
+| Subcommand | Purpose |
+|------------|---------|
+| `egg-orch brc next-action` | Derive the next BRC action for a role (`wait` / `propose` / `ack` / `nack` / `confirm` / `complete`) plus the event payload. New in slice-1; no MCP counterpart by design — the deterministic wrapper consumes the derivation directly. |
+| `egg-orch brc get-state` | Full BRC consensus state JSON. |
+| `egg-orch brc list-blocking` | Roles currently blocking consensus. |
+| `egg-orch brc resolve-obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle ([#2338](https://github.com/jwbron/egg/issues/2338)). |
+| `egg-orch brc read-peer-artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__sdlc__register_open_question` | Create a HITL decision (multiple-choice) on the contract. | `handlers.sdlc.register_open_question` | `egg-contract add-decision` |
-| `mcp__sdlc__request_feedback` | Create an open-ended feedback request on the contract. | `handlers.sdlc.request_feedback` | `egg-contract add-feedback` |
-| `mcp__sdlc__check_hitl_answers` | Return resolved decisions and feedback (submitted or pending) for the current contract. Without a `phase` arg, returns HITL across all phases; pass `phase` to narrow to a single phase. | `handlers.sdlc.check_hitl_answers` | — *(no CLI; new capability)* |
-| `mcp__sdlc__show_contract` | Read the current contract as a dict. Optional `fields=[…]` projection returns only the named top-level keys; an unknown field raises `HandlerError` (no silent skip). State-machine effect: **read-only**. | `handlers.sdlc.show_contract` | `egg-contract show` |
-| `mcp__sdlc__verify_criterion` | Mark an acceptance criterion verified on the contract. **REVIEWER role only** — the gateway rejects non-REVIEWER writers; the handler does not re-check (decision-7). State-machine effect: marks the criterion verified; no-op if already verified. | `handlers.sdlc.verify_criterion` | `egg-contract verify-criterion` |
-| `mcp__sdlc__check_file_restriction` | Pure-local read against `shared/egg_restrictions/patterns.py`: returns `can_write` + `alternative_role` for a path or list of paths. Producers call this before exploring a file outside their role boundary (#2529). Read-only; no gateway round-trip. | `handlers.restrictions.check_file_restriction` | — *(no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module)* |
-| `mcp__sdlc__report_impasse` | Persist a typed `Impasse` (category, reason, suggested_role, blocked_files, evidence, task_id) under `AgentOutput.impasse` (#2529). For `category=wrong_role`, `task_id` and `suggested_role` are **mandatory** — the handler raises `HandlerError` if either is missing, since the orchestrator's auto-delegation path needs both to rewire `task.role` unambiguously (no role-match fallback when a slice has multiple tasks per role). For other categories (`plan_bug`, `external_blocker`, `unknown`), both fields stay optional — those always escalate to HITL. The orchestrator reads the impasse post-phase and either auto-delegates to `suggested_role` (first attempt, `wrong_role` only) or escalates to HITL (second attempt or non-`wrong_role`). State-machine effect: **the agent must exit cleanly without committing after this returns**. | `handlers.restrictions.report_impasse` | — *(no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one)* |
+## The agent's CLI surface today
 
-### `mcp__brc__*` — Broadcast-Review-Converge consensus
+Three CLIs cover every pipeline-lifecycle operation an agent issues
+on the hot path. Each one is the source of truth for its subdomain;
+the linked references list every subcommand, every flag, and every
+exit-code contract.
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__brc__propose` | Push committed changes to origin then broadcast a `CONSENSUS_PROPOSE` signal. See [push behavior](#brc_propose-push-behavior) below. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
-| `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. Optional `pre_merge_condition` (str) turns this into a **conditional ACK** — the work is approved but a human must perform the named action before merging (e.g. `git mv old/path new/path`). The obligation is rendered as a "Pre-merge Obligations" section on the auto-created PR. Leave empty for an unconditional ACK. When non-empty, the condition is validated like `reason`: boilerplate and short values are rejected with 400. Optional `pre_merge_condition_resolved_in_diff` (str, commit SHA) marks the obligation as satisfied within the same PR's diff on a re-ACK — the renderer demotes it to a "✅ Resolved within this PR" subsection instead of the merge-blocking banner. Requires a non-empty `pre_merge_condition`; rejected at 400 on a plain ACK. See [Conditional ACK reference](conditional-ack.md). | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
-| `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
-| `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. Returns `ok=True` when the transition to CONFIRMED succeeded. Returns `ok=False` with `status="pending_acks"` when the orchestrator rejected the transition (e.g. not yet fully ACKed, stale ACKs); this is transient — retry after polling for outstanding ACKs. Equivalent to CLI exit code 0 vs 2. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
-| `mcp__brc__get_state` | Full structured consensus state (JSON; accepts `verbose: bool`). Slice-aware (#2761): scopes to the per-slice BRC tracker via `slice_id` (defaults to `EGG_SLICE_ID`), so a per-slice agent sees its own slice's consensus rather than a pipeline-level reconstruction. | `handlers.brc.brc_get_state` | `egg-orch brc get-state` *(slice-1 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
-| `mcp__brc__list_blocking` | Return the list of agent roles currently blocking consensus (derived view). | `handlers.brc.brc_list_blocking` | `egg-orch brc list-blocking` *(slice-1 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
-| `mcp__brc__send_heartbeat` | Emit a structured `HEARTBEAT` (schema-validated, per-role deduped, rate-limited) to the dedicated `/heartbeat` endpoint. Use `state=WAITING_ON_ROLE` + `waiting_on=<peer>` while blocking on BRC. Valid states: `WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`. | `handlers.message.message_heartbeat` | `egg-orch message heartbeat` |
+| CLI | Reference | Covers |
+|-----|-----------|--------|
+| `egg-orch` | [Orchestrator CLI](orchestrator-cli.md) | BRC consensus (`consensus propose / ack / nack / confirmed`), BRC introspection (`brc next-action / get-state / list-blocking / read-peer-artifact / resolve-obligation`), message bus (`message send / wait / wait-loop / heartbeat`), pipeline status (`pipeline status / wait-status`), progress (`progress emit / query`), signals (`signal heartbeat / error / readiness / complete`), overseer alerts (`overseer alert`), health, phase, decision, container, anchor. |
+| `egg-contract` | [SDLC Contract](sdlc-contract.md) | Contract reads (`show`), task / phase mutations (`add-commit`, `update-notes`, `complete-task`, `complete-phase`, `verify-criterion`), HITL gates (`add-decision`, `add-feedback`). |
+| `egg-checkpoint` | [Checkpoint Browser](checkpoint-browser.md) | Checkpoint browsing (`list`, `show`, `search`, `browse`, `context`, `cost`). |
 
-> **Blocking waits use Bash, not MCP** (#2211). Long-poll waits don't fit the MCP transport — both transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), and every cap-elapsed return is a wasted LLM turn. Use `egg-orch message wait` / `egg-orch message wait-loop` (sandbox) and `egg-orch pipeline wait-status` (host) via Bash. The §1 idiom in `docs/reference/agent-wait-patterns.md` is the canonical shape.
-| `mcp__brc__read_peer_artifact` | Read entries from `.egg-state/brc-history/<identifier>-<phase>.json` (and the per-slice partition `<identifier>-implement-<slice_id>.json` when `EGG_SLICE_ID` is set and `phase == "implement"`; the sibling `<identifier>-implement-unattributed.json` is merged in by default and disabled via `include_unattributed=False`). Optional filters: `peer_role` / `producer_role` (alias), `message_type` (str or list). `limit` / `cursor` pagination (default `limit=50`, max 500). The identifier is resolved server-side from `EGG_ISSUE_NUMBER` / `EGG_PIPELINE_ID` (agents cannot pass an arbitrary id; path-traversal hardening). Returns `{items: [...], next_cursor: <str|None>, total_available: <int>, skipped_malformed: <int>}`. | `handlers.brc.brc_read_peer_artifact` | `egg-orch brc read-peer-artifact` *(slice-5 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
-| `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The matrix keeps the obligation text for audit, but `get_pre_merge_conditions` filters resolved entries — the PR body and HITL gate stop surfacing the obligation. The orchestrator persists a `CONSENSUS_OBLIGATION_RESOLVED` message so the resolution survives orchestrator restart, and rejects `resolver_role == producer_role` so a producer cannot self-resolve their own obligation. Resolution is per-version: any later ACK / NACK / invalidate on the same edge resets the resolved flag. | `handlers.brc.brc_resolve_obligation` | `egg-orch brc resolve-obligation` *(slice-5 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
+### Passing free text safely (prose-arg channels — slice-5 of #2908)
 
-#### `brc_propose` push behavior
+Subcommands that take LLM-authored prose (`--question`,
+`--options`, `--notes`, `--summary`, `--detail`, `--reason`,
+`--recommend`, `--note`, …) accept the prose through one of three
+channels so shell metacharacters cannot corrupt or execute the
+content:
 
-`mcp__brc__propose` pushes committed changes to origin via the gateway
-before broadcasting the proposal. The `push` parameter defaults to
-`true`; set it to `false` if you have already pushed through another
-route. Push failure short-circuits the handler — no proposal is sent
-for an un-pushed artifact.
+| Channel | When to use |
+|---------|-------------|
+| `--<arg> "value"` | Short, single-line prose with no shell metacharacters. |
+| `--<arg>-file PATH` | Prose that contains backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`, or spans multiple lines. The CLI reads the file's contents and treats it as the argument value. |
+| `--<arg> -` (stdin sentinel) | Prose piped in from another command. The CLI reads stdin and treats it as the argument value. |
 
-### `mcp__phase__*` — Phase context
+Mixing forms is rejected — exactly one source per argument. The
+canonical recipe for a long-form reason / note / summary is:
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__phase__get_context` | Bundle `EGG_PIPELINE_ID`, `EGG_PHASE`, `EGG_AGENT_ROLE`, the role-filtered task list, and prior-phase artifact paths (`.egg-state/drafts/`, `.egg-state/agent-outputs/`). | `handlers.phase.phase_get_context` | — *(no CLI; new capability)* |
-| `mcp__phase__get_assigned_tasks` | Return only the tasks assigned to the caller's role (`EGG_AGENT_ROLE`) from the contract. | `handlers.phase.phase_get_assigned_tasks` | — *(no CLI; filtered view over `egg-contract show`)* |
-| `mcp__phase__complete_phase` | Mutate `phases.<p>.status` to `"complete"` via the gateway `/api/v1/contract/mutate` path. State-machine effect: **transitions phase status to complete; downstream `phase_complete` signal fires.** | `handlers.phase.complete_phase` | `egg-contract complete-phase` |
+```bash
+cat > /tmp/reason.md <<'EOF'
+Multi-line LLM-authored prose with `code spans`, $vars, and <comparators>.
+The shell never touches this — the file path is the only thing the CLI sees.
+EOF
+egg-orch consensus nack --producer-role coder --reason-file /tmp/reason.md
+```
 
-Some fields on `mcp__phase__get_context` remain best-effort (e.g.
-`active_peers`, `reviewer_peers`, `hitl_pending`); promotion to
-required is tracked as a separate follow-up after iter-2 burn-in
-(decision-6 in #1917).
+See [Orchestrator CLI → Prose-arg channels](orchestrator-cli.md)
+and [SDLC Contract → Prose-arg channels](sdlc-contract.md) for the
+per-subcommand catalogue.
 
-### `mcp__progress__*` — Progress signals + overseer surface
+### Long-poll waits use `wait-loop` (not a tool re-entry)
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__progress__emit` | Emit a structured progress event: required `step` (step name) and `state` (`working`/`blocked`/`complete`), optional `detail` and `blocker`. | `handlers.progress.progress_emit` | `egg-orch progress emit` |
-| `mcp__progress__signal_error` | Signal an error to the orchestrator (`--error <msg>` payload + recoverable flag). | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
-| `mcp__progress__heartbeat` | Send a heartbeat so the orchestrator knows the agent is alive (coarse-grained; for fine-grained BRC heartbeats use `mcp__brc__send_heartbeat`). | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
-| `mcp__progress__overseer_alert` | Broadcast an `OVERSEER_ALERT` to all agents in the pipeline (`to_role="all"` hard-coded). **For observer roles only (overseer/mediator).** The `unmediated-disagreement` anomaly type is intended for observers flagging that no one is adjudicating a disagreement; it is informational. Producers blocked by reviewer NACKs that name an operator-decidable scope question should call `mcp__sdlc__register_open_question` instead — that creates a contract-tracked HITL gate in `pending_decisions`, not just an alert. | `handlers.progress.overseer_alert` | `egg-orch overseer alert` |
-| `mcp__progress__query_status` | `GET /api/v1/pipelines/<pipeline_id>/status` — read the structured pipeline status (agent matrix, BRC phase, blocked roles). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; agents cannot query arbitrary pipelines (path-traversal / cross-pipeline-read hardening). When the pipeline is wedged between phases (pipeline is `running`, current phase is `complete`, no pending decisions, no successor scheduled for >60 s), the response includes `wedged_no_successor: {phase, completed_at, since_seconds}`. | `handlers.progress.query_status` | `egg-orch pipeline status` |
+Blocking waits go through `egg-orch message wait-loop` (sandbox) and
+`egg-orch pipeline wait-status` (host), not an MCP `wait_for_event`
+tool. This was [#2211](https://github.com/jwbron/egg/issues/2211) in
+the MCP era — both MCP transports cap tool calls below typical
+quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK),
+and every cap-elapsed return is a wasted LLM turn. The canonical idiom
+is in
+[Agent Wait Patterns §1](agent-wait-patterns.md#1-canonical-stay-alive-egg-orch-message-wait-loop).
 
-### `mcp__task__*` — Task-level mutations
+Under the BRC event-pump wrapper (slice-2 of #2908; default since
+slice-4), the wrapper bash owns the wait — the agent is invoked
+one-shot per actionable event and exits naturally between events,
+so the wait surface above is owned by the wrapper, not the agent.
+See [Mission → You are an event handler — the wrapper owns the
+wait](../../sandbox/agent-config/rules/mission.md) and
+[BRC Memory Artifact](../architecture/brc-memory.md) for the
+continuity model.
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__task__complete` | Mark a contract task complete, optionally linking a commit SHA. State-machine effect: **transitions task status to complete; idempotent**. | `handlers.task.task_complete` | `egg-contract complete-task` |
-| `mcp__task__add_commit` | Link a commit SHA to a task. State-machine effect: **records the commit on the task; does not mark the task complete**. | `handlers.task.add_commit` | `egg-contract add-commit` |
-| `mcp__task__update_notes` | Append implementation notes to a task. | `handlers.task.update_notes` | `egg-contract update-notes` |
-| `mcp__task__mark_gap` | Append a structured coverage-gap entry to `phases.<p>.tasks.<t>.gaps[]`. **Tester role writes; coder role reads.** Handler stamps `created_at` (ISO-8601 UTC) and generates a stable `gap-<N>` id from `max(existing) + 1`. Validation rejects missing `from_role` / `to_role` / `description`. | `handlers.task.mark_gap` | — *(no CLI; tester→coder coverage-gap handoff is agent-to-agent; operators don't need it)* |
+### Error handling
 
-### `mcp__checkpoint__*` — Checkpoint browsing
+The CLIs catch gateway-side `GatewayError` / `TimeoutError` /
+`HandlerError` and render an actionable stderr message + non-zero
+exit code. Handlers never call `sys.exit` — that rule (originally
+imposed for the agent SDK's event loop in #1765) is preserved
+because the CLI shims still import the same handler modules and a
+handler that called `sys.exit` would terminate the CLI process
+mid-call without writing an error envelope. The CLI `cmd_*`
+functions in `sandbox/egg_lib/orch_cli.py`,
+`sandbox/egg_lib/contract_cli.py`, and
+`shared/egg_contracts/checkpoint_cli.py` may still call
+`sys.exit(1)` on argparse-level errors (e.g. missing `--role`),
+which is fine because they run in their own process.
 
-The checkpoint namespace is new in iter-2 (decision-3: ship the
-**core 3** verbs — `list`, `show`, `search`). The CLI `browse`,
-`context`, and `cost` subcommands stay shell-only for now and are
-tracked for a follow-up. The handlers import three pure helpers from
-`shared/egg_contracts/checkpoint_cli.py` (`collect_checkpoints`,
-`load_checkpoint`, `search_checkpoints`) extracted from the existing
-`cmd_*` functions, so the CLI and the handler share one code path
-(decision-20: helper extraction, no new gateway endpoint).
+## Output-size cap (`EGG_TOOL_OUTPUT_CAP_BYTES`, [#2805](https://github.com/jwbron/egg/issues/2805))
 
-| Tool | Purpose | Handler | CLI counterpart |
-|------|---------|---------|-----------------|
-| `mcp__checkpoint__list` | List checkpoints filtered by pipeline / role / date-range. Returns `{items: [...], next_cursor: <str|None>}` with `limit`/`cursor` pagination (default `limit=100`). | `handlers.checkpoint.checkpoint_list` | `egg-checkpoint list` |
-| `mcp__checkpoint__show` | Resolve a checkpoint id → dict. Raises `HandlerError` for an unknown id. | `handlers.checkpoint.checkpoint_show` | `egg-checkpoint show` |
-| `mcp__checkpoint__search` | Substring search over checkpoint metadata; returns `{items, next_cursor}` with `limit`/`cursor` pagination (default `limit=100`). | `handlers.checkpoint.checkpoint_search` | `egg-checkpoint search` |
-
-Total: **31 tools** across 6 namespaces (`sdlc`, `brc`, `phase`,
-`progress`, `task`, `checkpoint`) — 18 iter-1 + 12 iter-2 (#1917) = 30,
-then −2 in #2211 (`wait_for_event` + `wait_loop` removed; long-poll
-waits go through `egg-orch message wait` / `wait-loop` via Bash), then
-+1 in #2338 (`resolve_obligation`), then +2 in #2529
-(`check_file_restriction` + `report_impasse` — runtime escape
-hatch). Covers the BRC consensus loop,
-HITL (decisions + feedback + answers), phase context + completion,
-progress signals + overseer alerts + status queries, task completion
-+ commits + notes + coverage-gaps, and checkpoint browsing — every
-verb a pipeline agent issues on the hot path. The count (`31`) is
-asserted by
-`tests/sandbox/egg_agent_tools/test_server.py::TestToolRegistry::test_tool_count_registered`
-and the namespace set (`{sdlc, brc, phase, progress, task,
-checkpoint}`) by `TestToolRegistry::test_namespace_set_is_six` so the
-prose numbers in this doc cannot drift silently.
-
-## Conventions
-
-### Pagination convention (decision-12)
-
-Verbs that return a potentially large list paginate via opaque
-cursors instead of start/poll/complete triplets:
-
-| Verb | Default `limit` |
-|------|-----------------|
-| `mcp__brc__read_peer_artifact` | 50 |
-| `mcp__checkpoint__list` | 100 |
-| `mcp__checkpoint__search` | 100 |
-
-The handler returns `{items: [...], next_cursor: <str|None>}`. Pass
-the returned `next_cursor` back as the next call's `cursor` to fetch
-the next page; a `None` `next_cursor` means the page is the last one.
-The internal encoding of `cursor` is implementation-defined and must
-not be parsed or constructed by agents — treat it as an opaque token
-that round-trips through the handler. Tampered cursors are rejected
-with `HandlerError`. The defaults are
-sized to keep a worst-case page under the SDK's 60 s MCP timeout; if
-you know your dataset is small, raise `limit` to skip the second
-round-trip.
-
-### Output-size cap (`EGG_TOOL_OUTPUT_CAP_BYTES`, #2805)
-
-Every egg-owned tool result is bounded as **model-context/cost
-discipline** before it crosses the Claude Agent SDK reader — a runaway
-result would otherwise dump tens of thousands of tokens to the model in
-a single tool call. The cap is applied at two chokepoints: the
-orchestrator MCP server (`handle_tool_call` → `cap_result_dict`) and
-every sandbox `@tool` wrapper (`invoke_handler` → `cap_text`), both via
-the shared `shared/egg_tool_output.py` helper. The cap is **not** the
-crash-prevention layer for the SDK reader (the upstream 1 MiB buffer was
-the original concern, but egg raises that to 32 MiB at
-`ClaudeAgentOptions.max_buffer_size`, #2884 — see
+The output-size cap continues to apply to the **orchestrator MCP
+server** (`handle_tool_call` → `cap_result_dict`) via the shared
+`shared/egg_tool_output.py` helper, which bounds every operator-facing
+MCP tool result as model-context / cost discipline before it crosses
+the Claude Agent SDK reader. The cap is **not** the crash-prevention
+layer for the SDK reader (the upstream 1 MiB buffer was the original
+concern, but egg raises that to 32 MiB at
+`ClaudeAgentOptions.max_buffer_size`, [#2884](https://github.com/jwbron/egg/issues/2884) —
+see
 [Agent Recovery → SDK Reader Buffer](agent-recovery.md#sdk-reader-buffer-the-crash-prevention-layer)).
 
 | Variable | Default | Effect |
@@ -235,329 +197,109 @@ sensible upper bound for a single model-bound tool result. A
 non-positive or non-integer value is **ignored with a logged warning**
 (the operator is not left believing a cap is in effect when it isn't);
 the helper falls back to the 100 KB default. The orchestrator measures
-the cap against `indent=2`-serialized JSON (matching what its MCP server
-ships), so raising the cap stays safe against the reader buffer above it
-either way.
+the cap against `indent=2`-serialized JSON (matching what its MCP
+server ships).
 
-**Built-in tool cap (complementary):** The cap above covers egg-owned MCP
-`@tool` payloads. Built-in Claude Code tools (`Read`, `Grep`, etc.) run
-inside the CLI and can't be wrapped the same way. [#2876](https://github.com/jwbron/egg/issues/2876)
-adds a PreToolUse hook that predicts when a result would be excessive
+The previous agent-side `invoke_handler` → `cap_text` chokepoint went
+away with the agent MCP tools. Agent-side CLI calls are subject only
+to the orchestrator-side cap (when the CLI's response originates from
+a gateway round-trip the orchestrator's MCP server already capped) and
+the per-tool predictive output cap below.
+
+**Built-in tool cap (complementary):** Built-in Claude Code tools
+(`Read`, `Grep`, etc.) run inside the CLI and can't be wrapped the
+same way. [#2876](https://github.com/jwbron/egg/issues/2876) adds a
+PreToolUse hook that predicts when a result would be excessive
 *before* the tool runs and denies the call with a narrowing hint. See
 [Agent Recovery → Predictive Output Cap](agent-recovery.md#predictive-output-cap-pretooluse)
-for the heuristic table and the `EGG_TOOL_OUTPUT_CAP` / `EGG_READ_CAP_BYTES`
-operator knobs.
+for the heuristic table and the `EGG_TOOL_OUTPUT_CAP` /
+`EGG_READ_CAP_BYTES` operator knobs.
 
-### `cli_command=None` rationale pattern (decision-13)
-
-A `ToolRegistration` declares `cli_command=None` for verbs that have
-no CLI counterpart on purpose (new agent-only capabilities or
-deliberately-no-CLI affordances). For these verbs the drift gate
-(`tests/tools/test_mcp_cli_drift.py`) skips the CLI parity check, but
-a separate gate (`tests/tools/test_rule_doc_drift.py`, assertion C)
-asserts the handler docstring is non-empty AND contains the substring
-`"no CLI"` or `"no-CLI"` so the rationale is captured at the source
-and discoverable from the registration. Today the `cli_command=None`
-verbs are:
-
-- `mcp__sdlc__check_hitl_answers` — no CLI; aggregates HITL state across phases.
-- `mcp__brc__get_state` — registration says no CLI (`schemas.py` hand-authored); a `egg-orch brc get-state` thin wrapper was added in slice-1 of #2908 but the registration was deliberately left `cli_command=None` (no schema auto-derivation, no drift-gate parity check). The hand-authored MCP schema returns the dict; the CLI `egg-orch consensus status` still prints text.
-- `mcp__brc__list_blocking` — registration says no CLI; thin `egg-orch brc list-blocking` wrapper added in slice-1 of #2908 under the same wrapper-only pattern as `get_state`.
-- `mcp__brc__read_peer_artifact` — registration says no CLI; thin `egg-orch brc read-peer-artifact` wrapper added in slice-5 of #2908. Reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk — no HTTP / gateway.
-- `mcp__brc__resolve_obligation` — registration says no CLI; thin `egg-orch brc resolve-obligation` wrapper added in slice-5 of #2908. Net-new in-cycle conditional-ACK obligation-resolution capability (#2338); producer/tester-driven via the MCP surface and the wrapper.
-- `mcp__phase__get_context` — no CLI; environment + filtered task list bundle.
-- `mcp__phase__get_assigned_tasks` — no CLI; filtered view over `egg-contract show`.
-- `mcp__task__mark_gap` — no CLI; tester→coder coverage-gap handoff is agent-to-agent.
-- `mcp__sdlc__check_file_restriction` — no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module (decision-13 rationale in `handlers/restrictions.py`).
-- `mcp__sdlc__report_impasse` — no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one (decision-13 rationale in `handlers/restrictions.py`).
-
-> **CLI surface added in #2908 (registration unchanged):** `mcp__brc__get_state`, `mcp__brc__list_blocking` (slice-1), `mcp__brc__read_peer_artifact`, and `mcp__brc__resolve_obligation` (slice-5) gained matching `egg-orch brc <verb>` subcommands so the event-pump consensus wrapper (#2908 slices 1-2) can drive them from bash without an LLM round-trip. The MCP-side `ToolRegistration` entries in `sandbox/egg_agent_tools/tools/brc.py` still carry `cli_command=None`, so the drift gate continues to treat these four as no-CLI tools and their JSON schemas continue to be hand-authored in `schemas.py` (the bullets above stay accurate from the registration / drift-gate perspective). Promoting the registrations to `cli_command=("egg-orch", "brc", "<verb>")` so the schemas auto-derive from the argparse parsers is a follow-up — until then, treat the CLI subcommands as thin shell wrappers over the same handlers, sharing the handler but not the schema source. A fifth net-new `brc next-action` subcommand has no MCP counterpart by design — the wrapper consumes the derivation directly. See [Orchestrator CLI — BRC verb-level operations](orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc).
-
-When adding a new `cli_command=None` verb, the handler docstring
-must explain the no-CLI rationale; CI fails otherwise.
-
-### Two-way rule-doc drift gate (decision-11)
-
-`tests/tools/test_rule_doc_drift.py` asserts a two-way invariant:
-
-- **A.** Every `Prefer this over `egg-…`` line in
-  `sandbox/agent-config/rules/*.md` and
-  `sandbox/egg_lib/data/hitl_editing_rules.md` resolves to a tool in
-  `TOOL_REGISTRY`.
-- **B.** Every registration with `cli_command != None` has a matching
-  `Prefer this over …` line in at least one of those docs.
-- **C.** Every registration with `cli_command == None` has a handler
-  docstring containing `"no CLI"` or `"no-CLI"` (the rationale gate
-  above).
-
-The gate keeps rule docs and the registry from drifting in either
-direction. When adding a new tool, add the `Prefer this over …` line
-to the appropriate rule doc in the same PR; CI fails otherwise.
-
-## Input/output schemas
-
-Input schemas are derived automatically from the argparse subparsers
-that back the CLI counterparts (`sandbox/egg_lib/orch_cli.py::create_parser`
-and `sandbox/egg_lib/contract_cli.py::create_parser`) by
-`sandbox/egg_agent_tools/schemas.py::derive_schema_from_argparse`.
-Each tool may supply a per-tool override dict for cases where argparse
-help is insufficient (e.g. richer descriptions or tighter enum
-constraints). Tools whose `ToolRegistration` declares `cli_command=None`
-— `phase_get_context`, `phase_get_assigned_tasks`, `check_hitl_answers`,
-`task_mark_gap`, and the four `mcp__brc__*` verbs covered above
-(`brc_get_state`, `brc_list_blocking`, `brc_read_peer_artifact`,
-`brc_resolve_obligation`) — declare their JSON schema directly in
-`schemas.py` (or alongside the `@tool` definition); the
-`derive_schema_from_argparse` path is skipped because the registration
-has no argparse subparser bound to it. The slice-1 / slice-5 of
-[#2908](https://github.com/jwbron/egg/issues/2908) `egg-orch brc <verb>`
-CLI wrappers reuse the same handlers but do **not** flip the
-registrations off `cli_command=None`; promoting the registrations and
-auto-deriving schemas from the argparse parsers is a follow-up.
-
-Output: every tool returns the handler's dict response serialised as a
-JSON string per the
-[SDK tool contract](https://github.com/anthropics/claude-agent-sdk-python).
-On error, the `@tool` wrapper catches `GatewayError` / `TimeoutError`
-/ generic `Exception` and returns a structured
-`{is_error: True, content: [{type: "text", text: <message>}]}` block.
-Gateway flakes therefore surface as tool errors the agent can retry —
-never as an agent crash.
-
-## System-prompt nudge (`SYSTEM_PROMPT_NUDGE`)
-
-When the flag is on (the default), `run_agent_async` appends a short bootstrap
-paragraph (`≤200` words) to `options.system_prompt`. The paragraph is
-**generated programmatically** at module import from `TOOL_NAMESPACES`
-— it is not a hand-authored string literal — so adding or renaming a
-namespace updates the nudge automatically. Two paired unit tests in
-`tests/sandbox/egg_agent_tools/test_server.py::TestSystemPromptNudge`
-enforce a symmetric match between the nudge and `TOOL_NAMESPACES`:
-`test_each_namespace_appears_in_nudge` asserts every registered
-namespace appears as `mcp__<ns>__` in the nudge, and
-`test_nudge_substrings_back_to_registered_namespaces` asserts every
-`mcp__<ns>__` substring in the nudge corresponds to a registered
-namespace (extras in either direction fail CI). The companion
-`TestToolRegistry::test_tool_count_registered` and
-`test_namespace_set_is_six` pin `len(TOOL_REGISTRY) == 31` and
-`set(TOOL_NAMESPACES.keys()) == {"sdlc", "brc", "phase", "progress",
-"task", "checkpoint"}` so a future iteration cannot drift the prose
-counts in this file silently.
-
-**The source of truth is `sandbox/egg_agent_tools/server.py::_render_nudge()`.**
-This doc does NOT embed a copy of the rendered string — the template
-currently iterates over every registered namespace and emits one
-bullet per namespace plus a short description, then closes with a
-sentence instructing the agent to prefer the `mcp__*` tools over
-Bash. To see the exact text your agent will receive, read
-`_render_nudge()` or inspect
-`sandbox.egg_agent_tools.SYSTEM_PROMPT_NUDGE` at import time. The
-renderer is intentionally namespace-driven so the nudge and
-`TOOL_NAMESPACES` cannot drift — changes to the tool list update the
-nudge on the next import, and the drift test in `test_server.py`
-keeps both sides honest.
-
-The nudge points agents at `mcp__<namespace>__*`, which is the
-literal name Claude sees in `tool_use` blocks — the per-namespace
-server split (one SDK MCP server per `sdlc` / `brc` / `phase` /
-`progress` / `task` / `checkpoint` key) makes the composed
-`mcp__<server_key>__<raw_name>` resolve directly to the semantic
-name the nudge advertises. No mental prefix-prepending required.
-
-## Architecture
+## Architecture (post-#2908)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ Agent container (Python, claude_agent_sdk)                      │
 │                                                                 │
 │  shared/egg_agent/client.py::run_agent_async                    │
-│      └── EGG_MCP_TOOLS ≠ falsy ▶ build_sandbox_mcp_server()     │
+│      (no agent-side MCP registration; no SYSTEM_PROMPT_NUDGE)   │
 │                                                                 │
-│                ┌─── sandbox/egg_agent_tools/ ───┐               │
-│                │  server.py    (SDK factory)    │               │
-│                │  schemas.py   (argparse→JSON)  │               │
-│                │  tools/*.py   (@tool wrappers) │               │
-│                │       │                        │               │
-│                │       │ asyncio.to_thread()    │               │
-│                │       ▼                        │               │
-│                │  handlers/*.py (pure req→res)  │               │
-│                │       │                        │               │
-│                │       │ make_gateway_request   │               │
-│                │       ▼                        │               │
-│                │  GatewayError on 5xx/timeout   │               │
-│                └────────┬────────────────────────┘              │
+│  agent invokes egg-orch / egg-contract / egg-checkpoint via Bash│
+│                                                                 │
+│                ┌── sandbox/egg_lib/ ──┐ ┌── shared/egg_contracts ──┐
+│                │  orch_cli.py         │ │  checkpoint_cli.py        │
+│                │  contract_cli.py     │ │                           │
+│                └────────┬─────────────┘ └────────────┬──────────────┘
+│                         │                            │
+│                         ▼                            ▼
+│                ┌─── sandbox/egg_agent_tools/handlers/ ────┐
+│                │  pure req→res Python                     │
+│                │  raises GatewayError / HandlerError      │
+│                │  asyncio.to_thread() inside CLI shim     │
+│                └────────┬─────────────────────────────────┘
+│                         │ make_gateway_request
+│                         ▼
 └────────────────────────────┬───────────────────────────────────┘
-                             │ HTTP (same gateway path the CLIs use)
+                             │ HTTP
                              ▼
                     gateway / orchestrator
+                       └── operator-facing MCP server (port 9850)
+                           unaffected by slice-6 — operator surface
 ```
 
-Checkpoint handlers do NOT go through the gateway — they import the
+Checkpoint handlers do not go through the gateway — they import the
 three pure helpers `collect_checkpoints` / `load_checkpoint` /
 `search_checkpoints` from `shared/egg_contracts/checkpoint_cli.py` and
-operate on local git-ref state. The CLI keeps its argparse + stdout
-shape; the handler returns dicts. The drift gate asserts the handler
-dispatches through the same helper path the CLI uses.
-
-### Why in-process?
-
-- **Network-mode neutral.** No sandbox-egress requirement — the MCP
-  server runs in the agent's own interpreter. Works identically in
-  `public` and `private` network modes.
-- **Authz by construction.** Sandbox agents cannot invoke orchestrator
-  MCP tools they do not register; there is no second MCP server to
-  lock down.
-- **Zero new dependency.** `claude-agent-sdk` is already a sandbox
-  dependency; the `create_sdk_mcp_server` / `@tool` surface is what
-  the SDK ships for exactly this case.
-
-### Async + error discipline
-
-`@tool` wrappers invoke their handlers via `asyncio.to_thread(handler,
-req)` so the sync `urllib` gateway I/O does not block the agent event
-loop. Handlers **raise** exceptions (`GatewayError`, `TimeoutError`,
-`HandlerError`) — they **never** call `sys.exit`. The `@tool` wrapper
-catches those exceptions and returns them as structured tool-result
-error blocks of the form `{is_error: True, content: [{type: "text",
-text: <message>}]}`, which the agent can surface as a tool error and
-retry. The CLI `cmd_*` shim catches the same `GatewayError` and
-renders the pre-#1765 stderr message + exit code for human callers,
-so shell behaviour is byte-identical.
-
-> **Handler rule — MUST NEVER `sys.exit`.** Every handler under
-> `sandbox/egg_agent_tools/handlers/*.py` returns a dict response or
-> raises a typed exception. A handler that calls `sys.exit` would
-> terminate the Python interpreter the Claude Agent SDK is running in
-> and bring the entire agent down (see the risk-analyst R1 note in
-> `.egg-state/agent-outputs/1765-risk_analyst-output.json`). The
-> same rule applies transitively to any helper imported by a handler
-> — notably `make_gateway_request`, which backs every gateway-fronted
-> handler in `egg_agent_tools` and was refactored in TASK-1-3 of
-> #1765 to raise `GatewayError` instead of exiting; the same rule
-> applies to the iter-2 checkpoint helpers, which return dicts and
-> raise `HandlerError` instead of calling `sys.exit`. This rule is
-> about **handlers**, not shell CLI shims: unrefactored `cmd_*`
-> functions in `sandbox/egg_lib/orch_cli.py` may still call
-> `sys.exit(1)` on argparse-level errors (e.g. missing `--role`),
-> which is fine because they run in their own process, not inside
-> the agent SDK loop. When adding a new verb, inherit this contract:
-> handlers raise; `@tool` wrappers catch; any `sys.exit` lives only
-> in a CLI shim that runs as a subprocess, never in code imported
-> into the agent event loop.
-
-See
-[`.egg-state/drafts/1765-plan.md`](../../.egg-state/drafts/1765-plan.md)
-for the iter-1 plan,
-[`.egg-state/agent-outputs/1765-architect-output.json`](../../.egg-state/agent-outputs/1765-architect-output.json)
-for the iter-1 architect's technical decisions, and
-[`.egg-state/drafts/1917-plan.md`](../../.egg-state/drafts/1917-plan.md)
-for the iter-2 plan that adds the remaining 12 verbs and the rule-doc
-drift gate.
-
-## CLI surface preserved (decision-4 of #1765)
-
-Existing `sandbox/bin/egg-*` CLIs are **not deprecated**. Every
-refactored `cmd_*` function in `sandbox/egg_lib/contract_cli.py`,
-`sandbox/egg_lib/orch_cli.py`, and `shared/egg_contracts/checkpoint_cli.py`
-still:
-
-- Accepts the same argparse flags.
-- Prints the same stdout text.
-- Exits with the same codes.
-
-Only the internal call flow changes — `cmd_*` now builds a request
-dict from `argparse.Namespace`, calls the shared `handlers.*`
-function (or shared helper, in the case of checkpoint), and renders
-the response for stdout. Humans, bash scripts, recovery tooling, and
-the existing test suite see zero behaviour change. Parity is enforced
-by committed fixture tests under `tests/sandbox/test_contract_cli.py`,
-`tests/sandbox/test_orch_cli.py`, and
-`tests/shared/egg_contracts/test_checkpoint_cli*.py` (no auto-record
-— every expected value is in the repo).
-
-See [Orchestrator CLI reference](orchestrator-cli.md), [SDLC Contract
-reference](sdlc-contract.md), and
-[Checkpoint Browser reference](checkpoint-browser.md) for the
-complete shell CLI surface.
-
-## Known limitations
-
-- **Anchor verbs (decision-2 of #1917):** The capability audit also
-  surfaced `anchor_init` / `anchor_update` / `anchor_get`. They are
-  deferred to iteration 3 so the anchor design can be done
-  deliberately. The phantom `egg-orch anchor *` CLI references in
-  `sandbox/agent-config/rules/orchestrator.md` will be retracted
-  alongside the iter-3 anchor MCP landing.
-- **Directed peer messaging (decision-14 of #1917):**
-  `brc_send_message` / `brc_poll_messages` remain deferred pending
-  the REQUEST/REPLY subsystem.
-- **Checkpoint `browse` / `context` / `cost`:** Excluded from iter-2
-  per decision-3 (core 3 only — `list` / `show` / `search`); these
-  three remain CLI-only.
-- **Phase-context field promotion (decision-6 of #1917):**
-  `active_peers` / `reviewer_peers` / `hitl_pending` on
-  `mcp__phase__get_context` stay best-effort; promotion to required
-  is a separate follow-up.
-- **`EGG_MCP_TOOLS` flag removal (decision-9 of #1917):** Kept for
-  iter-2 burn-in; removal is a third follow-up.
-- **Timeouts:** The SDK's default 60 s MCP-tool timeout is sufficient
-  for all 31 verbs (none are long-running). Pagination (decision-12
-  of #1917) keeps `read_peer_artifact` / `checkpoint_list` /
-  `checkpoint_search` page sizes well under the limit. If a future
-  tool needs to exceed 60 s, it must be restructured as a
-  start/poll/complete triplet — handled in a follow-up.
-- **Observability:** Native SDK `tool_use` naming is enough today —
-  `mcp__brc__propose` vs `Bash` surfaces cleanly in checkpoint logs.
-  No changes to the [Checkpoint Browser](checkpoint-browser.md) are
-  required.
+operate on local git-ref state.
 
 ## Version pin
 
-`claude-agent-sdk` is pinned to `>=0.1.65,<0.2` in
+`claude-agent-sdk` remains pinned to `>=0.1.65,<0.2` in
 `sandbox/pyproject.toml` and the `CLAUDE_AGENT_SDK_VERSION` ARG in
-`sandbox/Dockerfile`. A smoke test at
-`tests/sandbox/egg_agent_tools/test_sdk_surface.py` imports
-`claude_agent_sdk.create_sdk_mcp_server` and `claude_agent_sdk.tool`
-at module load time; if a future pre-1.0 SDK bump changes that
-surface, CI fails at test-collection time with a clear pointer to the
-SDK release notes rather than silently breaking every sandbox.
+`sandbox/Dockerfile` — the SDK is still the agent runtime. A smoke
+test at `tests/sandbox/egg_agent_tools/test_sdk_surface.py` imports
+the SDK at module load time so CI fails at test-collection time on an
+incompatible upgrade.
 
 ## Testing
 
 | Test | Purpose |
 |------|---------|
 | `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). |
-| `tests/sandbox/egg_agent_tools/handlers/test_*.py` | Per-handler unit tests for the iter-2 verbs (`show_contract`, `add_commit`, `update_notes`, `complete_phase`, `verify_criterion`, `read_peer_artifact`, `overseer_alert`, `query_status`, `checkpoint`, `mark_gap`). |
-| `tests/sandbox/egg_agent_tools/test_tools.py` | `@tool` wrappers (JSON-serialised success; `is_error=True` structured block on handler exception). |
-| `tests/sandbox/egg_agent_tools/test_server.py` | `build_sandbox_mcp_server` registers all 31 tools; `SYSTEM_PROMPT_NUDGE` symmetric drift test; derived-count assertions (`len(TOOL_REGISTRY) == 31` and the 6-namespace set). |
-| `tests/sandbox/egg_agent_tools/test_schemas.py` | `derive_schema_from_argparse` correctness + override merge. |
-| `tests/sandbox/egg_agent_tools/test_sdk_surface.py` | SDK import smoke (fails loud on incompatible SDK upgrade). |
-| `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` | Integration test: loads `TOOL_LIST` via `create_sdk_mcp_server`; asserts no registration errors and that completion/mutation verbs (`task_complete`, `phase__complete_phase`, `task__add_commit`, `sdlc__verify_criterion`) name the state-machine effect in their description. |
-| `tests/shared/egg_agent/test_client.py` | Flag-on/flag-off wire-up in `run_agent_async`; `can_use_tool` passes `mcp__*` tool names. |
-| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli.py`, `tests/shared/egg_contracts/test_checkpoint_cli*.py` | CLI parity against committed fixtures. |
-| `tests/tools/test_mcp_cli_drift.py` | Every tool with a `cli_command` attribute dispatches the same handler as its CLI subparser (or shared helper, for checkpoint). |
-| `tests/tools/test_rule_doc_drift.py` | Two-way rule-doc invariant: (A) every `Prefer this over `egg-…`` line resolves to a `TOOL_REGISTRY` entry; (B) every `cli_command != None` registration has a matching rule-doc line; (C) every `cli_command == None` registration has a handler docstring mentioning `"no CLI"` or `"no-CLI"` (decision-13 gate). |
-| `tests/shared/egg_contracts/test_models_gaps.py` | Pydantic round-trip for `Task.gaps`; back-compat with old contract fixtures (parse to `gaps: []`). |
-| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated live SDK round-trip — asserts the agent's first `tool_use` block names an `mcp__*` tool. |
+| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli.py`, `tests/shared/egg_contracts/test_checkpoint_cli*.py` | CLI parity against committed fixtures (no auto-record — every expected value is in the repo). |
+| `tests/sandbox/egg_lib/test_orch_cli_brc.py`, `tests/sandbox/egg_lib/test_orch_cli_brc_adversarial.py` | `egg-orch brc *` verb-level subcommand parity + adversarial coverage (slice-1 / slice-5 of #2908). |
+| `tests/sandbox/egg_lib/test_orch_cli_phase.py` | `egg-orch phase get-context` verb parity. |
+| `tests/sandbox/egg_lib/test_orch_cli_prose_args.py`, `tests/sandbox/egg_lib/test_orch_cli_prose_args_adversarial.py` | `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg channel coverage (slice-5 of #2908). |
+| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated end-to-end exercise of the agent's CLI surface (post-slice-6: SDK-spawn round-trip drives `egg-orch consensus ack/nack` via the prose-arg channels; pre-slice-6 it asserted `mcp__*` tool calls). |
+| `integration_tests/test_mcp_to_cli_latency.py` | Per-event wall-clock regression check: compares the slice-5-captured `latency-mcp-baseline.json` against the post-deletion CLI-only `latency-mcp-vs-cli.json`. Fails only if the regression exceeds the 5 % budget; on failure surfaces a structured `OVERSEER_ALERT` priority `medium`. |
+
+Removed by slice-6:
+
+- `tests/sandbox/egg_agent_tools/test_tools.py`,
+  `tests/sandbox/egg_agent_tools/test_server.py`,
+  `tests/sandbox/egg_agent_tools/test_schemas.py`,
+  `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` — exercised
+  the deleted `@tool` wrapper / server-factory / schema-derivation layer.
+- `tests/tools/test_mcp_cli_drift.py` — the MCP↔CLI drift contract no
+  longer applies (only the CLI surface remains). The shared handler
+  layer keeps both surfaces honest in spirit; the formal drift suite is
+  retired.
+- `tests/tools/test_rule_doc_drift.py` (parts referencing the agent
+  `TOOL_REGISTRY`) — the rule-doc drift gate previously asserted every
+  `Prefer this over `egg-…`` line resolved to an agent-side
+  `TOOL_REGISTRY` entry. With the registry gone, that invariant is
+  meaningless; the gate is retired alongside the registry it referenced.
 
 ## Related
 
-- [Orchestrator CLI](orchestrator-cli.md) — full `egg-orch` shell
-  surface (still the source of truth for human operators).
-- [SDLC Contract](sdlc-contract.md) — full `egg-contract` shell
-  surface.
-- [Checkpoint Browser](checkpoint-browser.md) — full `egg-checkpoint`
-  shell surface (CLI `browse` / `context` / `cost` remain CLI-only).
-- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — per-pipeline
-  opt-out recipe for `EGG_MCP_TOOLS`.
-- [Concurrent Execution Guide](../guides/concurrent-execution.md) —
-  where BRC + consensus + message-bus live, which the `mcp__brc__*`
-  namespace exposes.
-- [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md) —
-  `EGG_MCP_TOOLS` alongside other sandbox env flags.
-- [#1765](https://github.com/jwbron/egg/issues/1765) — iteration 1
-  (mechanism + 18 verbs).
-- [#1917](https://github.com/jwbron/egg/issues/1917) — iteration 2
-  (12 additional verbs + rule-doc drift gate + decision-13 gate).
-- [#1955](https://github.com/jwbron/egg/issues/1955) — closed by
-  iteration 2's `mcp__sdlc__show_contract` + state-machine writes.
+- [Orchestrator CLI](orchestrator-cli.md) — full `egg-orch` shell surface.
+- [SDLC Contract](sdlc-contract.md) — full `egg-contract` shell surface.
+- [Checkpoint Browser](checkpoint-browser.md) — full `egg-checkpoint` shell surface.
+- [Architecture → Orchestrator → MCP Server](../architecture/orchestrator.md#mcp-server-mcp) — operator-facing MCP server (port 9850) and its tool inventory.
+- [Agent Wait Patterns](agent-wait-patterns.md) — `wait-loop` idiom, exit-code contract, BRC event-pump wrapper interaction.
+- [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus + message bus the `egg-orch consensus *` subcommands drive.
+- [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md) — sandbox env flags (post-slice-6 `EGG_MCP_TOOLS` is gone).
+- [#1765](https://github.com/jwbron/egg/issues/1765) — iteration 1 (original agent MCP tool surface; superseded by #2908 slice-6).
+- [#1917](https://github.com/jwbron/egg/issues/1917) — iteration 2 (additional agent MCP verbs + rule-doc drift gate; superseded by #2908 slice-6).
+- [#2908](https://github.com/jwbron/egg/issues/2908) — BRC event-pump wrapper; slice-6 retires the agent MCP surface.
+- [#2906](https://github.com/jwbron/egg/issues/2906) — the qwen3.7-max reentry-seam failure that motivated the wrapper rework.
