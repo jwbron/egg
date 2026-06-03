@@ -480,6 +480,65 @@ class TestSpawnAgentJob:
         create_kwargs = mock_k8s_client.create_container.call_args.kwargs
         assert "EGG_SLICE_ID" not in create_kwargs["environment"]
 
+    def test_spawn_with_base_branch_sets_egg_base_branch_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """``base_branch=`` propagates into ``EGG_BASE_BRANCH`` (#2967).
+
+        The BRC event-pump's per-producer ``git log --not origin/<base>``
+        delta reads this env var (via the consensus wrapper and the
+        event-prompt composer). Nothing exported it before, so both
+        consumers fell back to ``origin/main`` and the delta errored on any
+        non-``main`` repo, silently dropping the slice-3 diff reviewers audit.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            base_branch="jwbron-claude-md",
+        )
+        assert result.environment.get("EGG_BASE_BRANCH") == "jwbron-claude-md"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_BASE_BRANCH") == "jwbron-claude-md"
+
+    def test_spawn_without_base_branch_does_not_set_egg_base_branch(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """An unresolved (None) base leaves ``EGG_BASE_BRANCH`` unset (#2967).
+
+        The consumers carry their own documented ``main`` default, so the
+        spawner leaves the key absent rather than injecting an empty string
+        when the caller couldn't resolve a concrete branch.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        assert "EGG_BASE_BRANCH" not in result.environment
+
+    def test_extra_env_cannot_override_egg_base_branch(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """``extra_env`` cannot override ``EGG_BASE_BRANCH`` — protected key (#2967).
+
+        The spawner is the single source of truth: the same resolved base
+        branch creates the worktree, builds the prompt's diff commands, and
+        is exported here. An ``extra_env`` override could point the
+        ``--not origin/<base>`` delta at a different branch than the worktree
+        was based on, silently corrupting the re-review scope.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            base_branch="develop",
+            extra_env={"EGG_BASE_BRANCH": "attacker-supplied"},
+        )
+        assert result.environment.get("EGG_BASE_BRANCH") == "develop"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_BASE_BRANCH") == "develop"
+
     def test_spawn_sets_egg_wait_producer_allowlist_for_reviewer(
         self, spawner, mock_k8s_client, mock_gateway
     ):

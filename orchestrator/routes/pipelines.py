@@ -17062,7 +17062,16 @@ def _run_concurrent_phase(
         phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
-        base_branch=pipeline.base_branch,
+        # Pass the *resolved* base branch (above) rather than the raw
+        # ``pipeline.base_branch`` so a ``None`` (auto-detect) base still
+        # reaches the spawner as a concrete branch name. The spawner exports
+        # it as ``EGG_BASE_BRANCH`` for the BRC event-pump's per-producer
+        # ``git log --not origin/<base>`` delta (#2967); without a concrete
+        # value the wrapper + composer fall back to ``origin/main`` and the
+        # delta errors out on every non-``main`` repo. Worktree creation is
+        # unaffected: the gateway resolves the same default branch when handed
+        # ``None``, so resolving one layer up here is equivalent.
+        base_branch=_resolved_base_branch,
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         slice_id=slice_id,
