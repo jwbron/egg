@@ -574,11 +574,15 @@ GitHub API so unit tests can substitute deterministic fakes. In
 production the run loop binds them to live gateway helpers — the
 reconciler is fully functional, not a no-op:
 
-- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which runs
-  `gh pr list --json number,headRefName,baseRefName,state` through the
-  existing per-agent `gh` allowlist. JSON parsing failures degrade to
-  an empty list (logged warning) so a transient `gh` flake does not
-  cause the reconciler to misclassify orphans.
+- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which calls the
+  orchestrator-only control-plane route `/api/v1/gh/list_open_prs` with
+  launcher auth (not a synthetic agent session — [#2925](https://github.com/jwbron/egg/issues/2925)). The gateway constructs a
+  fixed read-only argv server-side — `gh pr list --repo <r> --state open
+  --limit <N> --json number,headRefName,baseRefName` — and returns
+  `{"prs": [...]}`. The `--state open --limit <N>` qualifiers are what
+  keep this route narrow rather than a general `gh` shell. JSON parsing
+  failures degrade to an empty list (logged warning) so a transient `gh`
+  flake does not cause the reconciler to misclassify orphans.
 - **`list_remote_branches`** → `GatewayClient.list_remote_branches(...)`,
   which runs `git ls-remote --heads origin` through the existing
   per-agent `ls-remote` allowlist (`operation="ls-remote"`). The
@@ -612,10 +616,13 @@ reconciler is fully functional, not a no-op:
   gateway unavailable) return `False` and the reconciler counts them
   as `rebases_failed`.
 
-**No new privileged orchestrator-role endpoint is introduced** for any
-of the three callables (refine-phase decision-15) — every gateway call
-flows through the same per-agent allowlists the slice's regular agent
-team uses.
+`list_remote_branches` and `rebase_onto` flow through the existing
+per-agent allowlists. `list_open_prs` uses the dedicated control-plane
+route `/api/v1/gh/list_open_prs` with launcher auth rather than a
+synthetic agent session (refine-phase decision-15 intent preserved: no
+general-purpose privileged gh-command surface is introduced — the route
+accepts only `repo`/`limit` and constructs the fixed read-only argv
+server-side).
 
 ## Architect, planner & plan-reviewer prompt updates
 
@@ -737,8 +744,10 @@ during refine. The most consequential are referenced inline above:
   trade-off accepted).
 - **decision-14** — BRC tracker keying: hybrid (`pipeline_id` for
   cross-slice telemetry, nested `pipeline_id/slice_id` for `CONSENSUS_*`).
-- **decision-15** — no privileged orchestrator merge endpoint; reconciler
-  authenticates as the existing low-privilege agent identity.
+- **decision-15** — no general-purpose privileged gh-command surface;
+  reconciler reads via narrow read-only routes (per-agent allowlists for
+  `ls-remote`/rebase; control-plane fixed-argv `/api/v1/gh/list_open_prs`
+  with launcher auth, post [#2925](https://github.com/jwbron/egg/issues/2925)).
 - **decision-16** — stacked-PR rebase: GitHub auto-retarget primary path,
   reconciler safety net.
 - **decision-17** — auto-serialization for would-be multi-parent slices:

@@ -575,6 +575,7 @@ The following roles have been removed but are still handled for backward compati
 | `reviewer` (generic) | Mapped to `reviewer_code` |
 | `checker` | Replaced by `tester` |
 | `integrator` | Removed — no replacement needed |
+| `orchestrator` | Removed ([#2925](https://github.com/jwbron/egg/issues/2925)) — the orchestrator is the control plane, not an agent role; its read-only `gh pr list` pre-flights now use the dedicated `/api/v1/gh/list_open_prs` route with launcher auth |
 
 ## Team Composition Templates
 

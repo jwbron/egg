@@ -33,15 +33,22 @@ def _set_role(monkeypatch):
     monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
     monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
     monkeypatch.delenv("EGG_ISSUE_NUMBER", raising=False)
+    # No phase by default: the phase layer is a no-op so these role-layer
+    # assertions stay deterministic regardless of the ambient EGG_PHASE.
+    monkeypatch.delenv("EGG_PHASE", raising=False)
 
 
 class TestCheckFileRestriction:
     def test_blocked_path_for_coder(self):
-        out = restrictions.check_file_restriction({"path": "tests/test_x.py"})
+        # docs/ is documenter-owned: coder is blocked and documenter is the
+        # sole producer alternative. (Used tests/test_x.py until #2936 let
+        # the coder author its own tests, which made that path coder-writable
+        # and left this assertion stale.)
+        out = restrictions.check_file_restriction({"path": "docs/guide.md"})
         assert out["ok"] is True
         assert out["role"] == "coder"
         assert out["can_write"] is False
-        assert out["alternative_role"] == "tester"
+        assert out["alternative_role"] == "documenter"
         assert "blocked" in out["reason"]
 
     def test_allowed_path_for_coder(self):
@@ -58,12 +65,14 @@ class TestCheckFileRestriction:
         assert out["alternative_role"] is None
 
     def test_batch_form(self):
-        out = restrictions.check_file_restriction({"path": ["tests/test_x.py", "src/app.py"]})
+        # docs/guide.md blocked (documenter alt), src/app.py allowed. (Was
+        # tests/test_x.py until #2936 — see test_blocked_path_for_coder.)
+        out = restrictions.check_file_restriction({"path": ["docs/guide.md", "src/app.py"]})
         assert out["ok"] is True
         assert len(out["results"]) == 2
         blocked = [r for r in out["results"] if not r["can_write"]]
         allowed = [r for r in out["results"] if r["can_write"]]
-        assert len(blocked) == 1 and blocked[0]["alternative_role"] == "tester"
+        assert len(blocked) == 1 and blocked[0]["alternative_role"] == "documenter"
         assert len(allowed) == 1
 
     def test_explicit_role_override(self):
@@ -88,6 +97,123 @@ class TestCheckFileRestriction:
         monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
         with pytest.raises(HandlerError):
             restrictions.check_file_restriction({"path": "x.py"})
+
+
+class TestCheckFileRestrictionPhase:
+    """The phase layer (#2968): can_write must also reflect the gateway's
+    phase gate, not just the role pattern."""
+
+    _PLAN_DRAFT = ".egg-state/drafts/pipeline-8cf1f000-plan.md"
+    _ANALYSIS_DRAFT = ".egg-state/drafts/pipeline-8cf1f000-analysis.md"
+
+    def test_refiner_plan_draft_blocked_by_phase_in_refine(self, monkeypatch):
+        # The #2968 case: refiner's role pattern allows .egg-state/drafts/,
+        # but the refine phase gate reserves *-plan.md to the plan phase.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PHASE", "refine")
+        out = restrictions.check_file_restriction({"path": self._PLAN_DRAFT})
+        assert out["can_write"] is False
+        assert out["role_can_write"] is True
+        assert out["phase_allows"] is False
+        assert out["blocked_by"] == "phase"
+        assert out["phase"] == "refine"
+        # No alternative role for a phase block — it's reserved phase-wide.
+        assert out["alternative_role"] is None
+        assert "phase_filter.py" in out["reason"]
+
+    def test_refiner_plan_draft_writable_in_plan_phase(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PHASE", "plan")
+        out = restrictions.check_file_restriction({"path": self._PLAN_DRAFT})
+        assert out["can_write"] is True
+        assert out["blocked_by"] is None
+
+    def test_refiner_analysis_draft_writable_in_refine(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PHASE", "refine")
+        out = restrictions.check_file_restriction({"path": self._ANALYSIS_DRAFT})
+        assert out["can_write"] is True
+        assert out["role_can_write"] is True
+        assert out["phase_allows"] is True
+
+    def test_explicit_phase_arg_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PHASE", "plan")  # env says writable
+        out = restrictions.check_file_restriction(
+            {"path": self._PLAN_DRAFT, "phase": "refine"}  # arg says blocked
+        )
+        assert out["phase"] == "refine"
+        assert out["can_write"] is False
+        assert out["blocked_by"] == "phase"
+
+    def test_role_block_takes_priority_over_phase(self, monkeypatch):
+        # Contracts are blocked at BOTH layers for a coder in implement
+        # (role: .egg-state/ minus carve-outs; phase: implement blocks
+        # contracts). When both fire, blocked_by reports "role" so the
+        # message points at the layer that might be delegable.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+        monkeypatch.setenv("EGG_PHASE", "implement")
+        out = restrictions.check_file_restriction({"path": ".egg-state/contracts/p.json"})
+        assert out["can_write"] is False
+        assert out["role_can_write"] is False
+        assert out["phase_allows"] is False
+        assert out["blocked_by"] == "role"
+
+    def test_no_phase_env_is_role_only(self, monkeypatch):
+        # Backward-compat: without EGG_PHASE the phase layer is a no-op,
+        # so the refiner's role-level allowance stands.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.delenv("EGG_PHASE", raising=False)
+        out = restrictions.check_file_restriction({"path": self._PLAN_DRAFT})
+        assert out["can_write"] is True
+        assert out["phase"] is None
+        assert out["phase_allows"] is True
+
+    def test_batch_form_carries_phase(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        monkeypatch.setenv("EGG_PHASE", "refine")
+        out = restrictions.check_file_restriction(
+            {"path": [self._ANALYSIS_DRAFT, self._PLAN_DRAFT]}
+        )
+        assert out["phase"] == "refine"
+        by_path = {r["path"]: r for r in out["results"]}
+        assert by_path[self._ANALYSIS_DRAFT]["can_write"] is True
+        assert by_path[self._PLAN_DRAFT]["can_write"] is False
+        assert by_path[self._PLAN_DRAFT]["blocked_by"] == "phase"
+
+    def test_reviewer_impersonates_producer_via_explicit_args(self, monkeypatch):
+        # #2968 secondary fix: a reviewer adjudicating a producer's proposal
+        # needs to see the producer's verdict, not its own. With explicit
+        # ``role`` + ``phase`` args, the reviewer's defaults
+        # (EGG_AGENT_ROLE=reviewer_code, EGG_PHASE=implement) are overridden
+        # and the tool returns what the gateway would have done to the
+        # producer's refine-phase push of a plan draft.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer_code")
+        monkeypatch.setenv("EGG_PHASE", "implement")
+        out = restrictions.check_file_restriction(
+            {
+                "path": self._PLAN_DRAFT,
+                "role": "refiner",
+                "phase": "refine",
+            }
+        )
+        assert out["role"] == "refiner"
+        assert out["phase"] == "refine"
+        assert out["can_write"] is False
+        assert out["role_can_write"] is True
+        assert out["phase_allows"] is False
+        assert out["blocked_by"] == "phase"
+        # No alternative role for a phase block — it's reserved phase-wide.
+        assert out["alternative_role"] is None
+
+    def test_non_string_phase_rejected(self, monkeypatch):
+        # The schema declares ``phase`` a string; the handler boundary
+        # rejects a malformed caller (int, dict, etc.) with a structured
+        # HandlerError instead of leaking an AttributeError from
+        # ``PipelinePhase(phase)``.
+        monkeypatch.setenv("EGG_AGENT_ROLE", "refiner")
+        with pytest.raises(HandlerError, match="'phase' must be a string"):
+            restrictions.check_file_restriction({"path": self._PLAN_DRAFT, "phase": 7})
 
 
 class TestReportImpasse:

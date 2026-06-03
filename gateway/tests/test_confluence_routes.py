@@ -336,6 +336,160 @@ class TestPageGet:
         # Non-redacted fields pass through.
         assert upstream_body["errorMessages"] == ["upstream blew up"]
 
+    def test_upstream_redirect_surfaces_actionable_error(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """A 3xx from Atlassian (login redirect — the signature of missing/
+        invalid gateway credentials or a wrong base URL) must surface a
+        pointed, actionable message + ``likely_cause`` rather than the opaque
+        ``Confluence upstream error 302``. Still HTTP 502 (bad upstream
+        response), distinct from the 503 credentials-absent path. The
+        upstream ``Location`` header — when the client captured it — must be
+        surfaced so the operator can confirm the bounce target without
+        reproducing. See #2970."""
+        fake = MagicMock()
+        fake.get_page.side_effect = ConfluenceUpstreamError(
+            302, "", "api/v2/pages/12345", location="/login"
+        )
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/page/get",
+                headers=private_headers,
+                data=json.dumps({"pageId": "12345"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        body = json.loads(resp.data)
+        # Actionable message, not the opaque "Confluence upstream error 302".
+        assert "redirect" in body["message"].lower()
+        assert "Confluence upstream error" not in body["message"]
+        assert "/login" in body["message"]
+        details = body["data"]
+        assert details["upstream_status"] == 302
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+        assert details["upstream_location"] == "/login"
+
+    def test_upstream_redirect_without_location_header(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """When the upstream 3xx omits the ``Location`` header, the actionable
+        message and ``likely_cause`` still fire — ``upstream_location`` is
+        simply absent from the details. The translator must not crash on a
+        ``None`` location."""
+        fake = MagicMock()
+        fake.get_page.side_effect = ConfluenceUpstreamError(302, "", "api/v2/pages/12345")
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/page/get",
+                headers=private_headers,
+                data=json.dumps({"pageId": "12345"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        body = json.loads(resp.data)
+        assert "redirect" in body["message"].lower()
+        details = body["data"]
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+        assert "upstream_location" not in details
+
+    @pytest.mark.parametrize(
+        "route,client_method,body,extra_setup",
+        [
+            ("/api/v1/confluence/page/get", "get_page", {"pageId": "12345"}, None),
+            (
+                "/api/v1/confluence/page/descendants",
+                "get_page_descendants",
+                {"pageId": "12345"},
+                None,
+            ),
+            (
+                "/api/v1/confluence/page/footer-comments",
+                "get_page_footer_comments",
+                {"pageId": "12345"},
+                None,
+            ),
+            (
+                "/api/v1/confluence/page/inline-comments",
+                "get_page_inline_comments",
+                {"pageId": "12345"},
+                None,
+            ),
+            ("/api/v1/confluence/space/list", "list_spaces", {}, None),
+            ("/api/v1/confluence/search", "search_cql", {"cql": "space = ENG"}, None),
+            # ``space/pages`` resolves ``spaceKey → spaceId`` before calling
+            # ``get_space_pages``.  Seed the cache so we exercise the
+            # post-resolve translator call site (gateway.py:7701) rather than
+            # the populate-cache one (7663).
+            (
+                "/api/v1/confluence/space/pages",
+                "get_space_pages",
+                {"spaceKey": "ENG"},
+                lambda fake: setattr(
+                    fake.space_cache,
+                    "id_for_key",
+                    lambda k: "1" if k == "ENG" else None,
+                ),
+            ),
+            # ``execute`` funnels every whitelisted path through
+            # ``execute_raw``; use a page-scoped path so the allowlist gate
+            # doesn't short-circuit before the upstream call.
+            (
+                "/api/v1/confluence/execute",
+                "execute_raw",
+                {"method": "GET", "path": "api/v2/pages/12345"},
+                None,
+            ),
+        ],
+    )
+    def test_upstream_redirect_translator_applies_to_all_routes(
+        self,
+        client,
+        private_headers,
+        allow_eng,
+        captured_audit,
+        route,
+        client_method,
+        body,
+        extra_setup,
+    ):
+        """Regression guard for the shared translator (#2970).
+
+        ``_confluence_error_from_upstream`` is the single funnel every
+        ``/api/v1/confluence/*`` route uses. The single-route test proves the
+        translator's logic; this one proves the *wiring* — if a future route
+        is added that bypasses the funnel (and therefore the actionable-3xx
+        branch), this regression test will catch it. Asserting on each route
+        rather than just one would let a route quietly fall back to the
+        generic ``Confluence upstream error 302`` envelope.
+
+        Covers all eight ``/api/v1/confluence/*`` routes that funnel
+        through ``_confluence_error_from_upstream``."""
+        fake = MagicMock()
+        if extra_setup is not None:
+            extra_setup(fake)
+        getattr(fake, client_method).side_effect = ConfluenceUpstreamError(
+            302, "", "api/v2/some-path", location="/login"
+        )
+        with _patch_client(fake):
+            resp = client.post(
+                route,
+                headers=private_headers,
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502, f"route {route} did not return 502"
+        envelope = json.loads(resp.data)
+        assert "redirect" in envelope["message"].lower(), (
+            f"route {route} did not get the actionable redirect message — "
+            "likely bypassed _confluence_error_from_upstream"
+        )
+        assert "Confluence upstream error" not in envelope["message"], (
+            f"route {route} fell through to the opaque generic message"
+        )
+        details = envelope["data"]
+        assert details["upstream_status"] == 302
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+
 
 # -----------------------------------------------------------------------------
 # /api/v1/confluence/space/list — list_spaces filtering end-to-end (risk R13)

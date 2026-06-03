@@ -26,6 +26,7 @@ resume helper were all removed in #2979 (the sync is now non-destructive
 and the in-loop callers resume inline).
 """
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -420,6 +421,44 @@ class TestSyncWorktreeReconcilingDivergence:
         # initial sync + 2 resume re-runs = 3 sync calls; then budget hit.
         assert mock_sync.call_count == 3
         assert dq.wait_for_decision.call_count == 2
+
+
+class TestNormalizeChoiceResolution:
+    """#2978: ``_normalize_choice_resolution`` unwraps the select envelope
+    and passes everything else through untouched."""
+
+    def test_unwraps_select_envelope(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert (
+            _normalize_choice_resolution(
+                json.dumps({"action": "select", "selected": "Abort pipeline"})
+            )
+            == "Abort pipeline"
+        )
+
+    def test_bare_string_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("Abort pipeline") == "Abort pipeline"
+
+    def test_non_select_action_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        # A request_changes envelope isn't a bare label — leave it intact so
+        # the caller's existing (non-)matching is unchanged.
+        payload = json.dumps({"action": "request_changes", "feedback": "no"})
+        assert _normalize_choice_resolution(payload) == payload
+
+    def test_malformed_json_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("{not json") == "{not json"
+
+    def test_empty_string_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("") == ""
 
 
 class TestEmptyContractHitlWordingNoLongerNamesPriorPopulator:

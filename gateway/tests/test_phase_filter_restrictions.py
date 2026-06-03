@@ -251,6 +251,19 @@ class TestPhaseFilterDefaultPermissions:
         result = pf.check_phase_file_restrictions("refine", [".egg-state/drafts/644-analysis.md"])
         assert result.allowed is True
 
+    def test_refine_blocks_plan_drafts(self):
+        # The inverse of the above and the crux of #2968: plan drafts are
+        # reserved to the plan phase, so refine rejects them even though
+        # every drafting role's pattern allows .egg-state/drafts/.
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("refine", [".egg-state/drafts/644-plan.md"])
+        assert result.allowed is False
+
+    def test_plan_blocks_analysis_drafts(self):
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("plan", [".egg-state/drafts/644-analysis.md"])
+        assert result.allowed is False
+
     def test_refine_allows_checkpoints(self):
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions("refine", [".egg-state/checkpoints/ckpt.json"])
@@ -733,3 +746,77 @@ class TestThreeRoleFileRestrictions:
     # gateway, so the coarse entry never matched a real session_role in
     # production. The block on ``.egg-state/contracts/`` is preserved
     # transitively via the fine-grained role tests above.
+
+
+class TestPhaseLayerSharedMirrorParity:
+    """#2968: the sandbox-side phase mirror (shared/egg_restrictions/
+    phase_patterns.py) must agree with the live gateway phase gate for
+    every phase. This is the drift guard that lets the phase-blind
+    check_file_restriction MCP tool trust its own can_write."""
+
+    @pytest.fixture(autouse=True)
+    def reset_filter(self):
+        reset_phase_filter()
+        yield
+        reset_phase_filter()
+
+    # Representative paths spanning every .egg-state/ subdir the configs key
+    # on, plus a code path and a traversal attempt.
+    _BATTERY = [
+        ".egg-state/drafts/p-analysis.md",
+        ".egg-state/drafts/p-plan.md",
+        ".egg-state/contracts/p.json",
+        ".egg-state/reviews/r.json",
+        ".egg-state/checkpoints/c.json",
+        ".egg-state/agent-outputs/o.json",
+        ".egg-state/agent-anchors/a.json",
+        ".egg-state/pipelines/p.json",
+        "src/app.py",
+        "docs/guide.md",
+        "../escape.txt",
+    ]
+
+    def test_shared_mirror_matches_gateway_for_every_phase(self):
+        from egg_restrictions.phase_patterns import phase_file_verdict
+
+        pf = PhaseFilter()  # loads the real .egg/phase-permissions.json
+        mismatches = []
+        for phase in PipelinePhase:
+            for path in self._BATTERY:
+                gateway_allowed = pf.check_phase_file_restrictions(phase, [path]).allowed
+                mirror_allowed = phase_file_verdict(phase.value, path)[0]
+                if gateway_allowed != mirror_allowed:
+                    mismatches.append(
+                        f"{phase.value}:{path} gateway={gateway_allowed} mirror={mirror_allowed}"
+                    )
+        assert not mismatches, (
+            "shared phase_patterns drifted from gateway/phase_filter.py — "
+            "update PHASE_FILE_PATTERNS to match the live config: " + "; ".join(mismatches)
+        )
+
+    # Off-enum strings: anything outside ``PipelinePhase``'s canonical
+    # lowercase set. In production the orchestrator always exports a
+    # canonical ``EGG_PHASE`` so this path only fires on a manual /
+    # test caller, but the gateway fails closed via the
+    # ``PipelinePhase(phase)`` coercion and the mirror has to match —
+    # otherwise a phase-blind caller could see ``can_write: true`` for a
+    # path the gateway will reject.
+    _OFF_ENUM_PHASES = ("IMPLEMENT", "unknown", "pr", "REFINE")
+
+    def test_shared_mirror_fails_closed_for_off_canonical_phase(self):
+        from egg_restrictions.phase_patterns import phase_file_verdict
+
+        pf = PhaseFilter()
+        for bad_phase in self._OFF_ENUM_PHASES:
+            for path in (".egg-state/drafts/p-plan.md", "src/app.py"):
+                gateway_allowed = pf.check_phase_file_restrictions(bad_phase, [path]).allowed
+                mirror_allowed = phase_file_verdict(bad_phase, path)[0]
+                assert gateway_allowed is False, (
+                    f"gateway should fail closed for off-enum phase "
+                    f"{bad_phase!r}, got allowed={gateway_allowed}"
+                )
+                assert mirror_allowed is False, (
+                    f"mirror should fail closed for off-enum phase "
+                    f"{bad_phase!r} to match the gateway, got "
+                    f"allowed={mirror_allowed}"
+                )

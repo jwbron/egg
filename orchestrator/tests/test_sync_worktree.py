@@ -164,8 +164,16 @@ class TestSyncWorktreeWithRemote:
             # Already-in-sync skips the step-4 reset entirely.
             assert mock_run.call_count == 3
 
-    def test_push_fails_continues_with_reset(self):
-        """(e) push fails → logs warning, continues with reset."""
+    def test_push_fails_preserves_local_without_reset(self):
+        """(e) push fails + prior phase succeeded → preserve local, NO reset.
+
+        Regression for #2972: ``remote_ahead == 0`` means origin holds
+        nothing the worktree lacks, so a ``reset --hard origin`` after a
+        failed push would silently discard the completed, committed local
+        work (e.g. the agent-registered HITL contract decisions the
+        pre-sync commit just persisted) before the phase_gate decision
+        bridge could surface them.  The function must NOT reset here.
+        """
         spawner = _make_spawner(push_ok=False)
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -178,10 +186,8 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: local is 2 ahead, 0 behind
                 _make_subprocess_result(stdout="2\t0\n"),
-                # Step 4: reset succeeds (after push failure)
-                _make_subprocess_result(returncode=0),
             ]
-            _sync_worktree_with_remote(
+            outcome = _sync_worktree_with_remote(
                 spawner,
                 "pipe-1",
                 Path("/tmp/repo"),
@@ -189,10 +195,15 @@ class TestSyncWorktreeWithRemote:
             )
             # Push was attempted but failed
             spawner.gateway.push_worktree_branch.assert_called_once()
-            # Warning logged about push failure
+            # Warning logged about the unpushed tip
             mock_logger.warning.assert_called()
-            # Reset still happened
-            assert mock_run.call_count == 4
+            # No reset — the local-ahead commits are preserved (only steps
+            # 2, 3, 3b ran; step 4 reset would be call #4).
+            assert mock_run.call_count == 3
+            reset_calls = [c for c in mock_run.call_args_list if "reset" in c[0][0]]
+            assert reset_calls == []
+            # Outcome reports the failed push without a destructive reset.
+            assert outcome.case == "local_ahead_push_failed"
 
     def test_diverged_attempts_rebase(self):
         """(f) diverged → calls the rebase helper (#2337)."""
@@ -601,8 +612,15 @@ class TestSyncWorktreeOutcomeTaxonomy:
             )
         assert _outcome_cases(mock_logger) == ["local_ahead_pushed"]
 
-    def test_case_local_ahead_push_failed_falls_through_to_reset(self):
-        """Push failure emits local_ahead_push_failed, then step 4 emits reset_succeeded."""
+    def test_case_local_ahead_push_failed_preserves_without_reset(self):
+        """Push failure emits local_ahead_push_failed and returns — no reset (#2972).
+
+        ``remote_ahead == 0`` means origin holds nothing the worktree
+        lacks, so resetting after a failed push would only discard the
+        committed local work.  The taxonomy must therefore show
+        ``local_ahead_push_failed`` alone, with no trailing
+        ``reset_succeeded``.
+        """
         spawner = _make_spawner(push_ok=False)
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -612,15 +630,14 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
                 _make_subprocess_result(stdout="2\t0\n"),
-                _make_subprocess_result(returncode=0),
             ]
-            _sync_worktree_with_remote(
+            outcome = _sync_worktree_with_remote(
                 spawner, "pipe-1", Path("/tmp/repo"), prior_phase_succeeded=True
             )
-        assert _outcome_cases(mock_logger) == [
-            "local_ahead_push_failed",
-            "reset_succeeded",
-        ]
+        assert _outcome_cases(mock_logger) == ["local_ahead_push_failed"]
+        assert outcome.case == "local_ahead_push_failed"
+        # No step-4 reset ran (only steps 2, 3, 3b).
+        assert mock_run.call_count == 3
         # PushResult diagnostics are propagated into the structured log so
         # operators don't need to pull gateway-side logs for the failure mode.
         push_failed_call = next(

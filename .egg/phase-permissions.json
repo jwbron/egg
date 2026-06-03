@@ -116,32 +116,6 @@
         }
       ],
       "exit_requires": "reviewer"
-    },
-    "pr": {
-      "allowed_operations": [
-        {
-          "type": "gh",
-          "pattern": "pr create*",
-          "description": "Create pull requests"
-        },
-        {
-          "type": "gh",
-          "pattern": "pr edit *",
-          "description": "Edit pull requests"
-        },
-        {
-          "type": "git",
-          "pattern": "push *",
-          "description": "Push code to remote"
-        },
-        {
-          "type": "egg-contract",
-          "pattern": "show *",
-          "description": "View contract state"
-        }
-      ],
-      "blocked_operations": [],
-      "exit_requires": "human"
     }
   },
   "phase_file_restrictions": {
@@ -173,10 +147,6 @@
         ".egg-state/reviews/*"
       ],
       "description": "Implement phase can push code but not .egg-state files (except checkpoints)"
-    },
-    "pr": {
-      "allowed_patterns": ["*"],
-      "description": "PR phase can push everything"
     }
   }
 }

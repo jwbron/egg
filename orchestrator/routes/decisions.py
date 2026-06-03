@@ -150,6 +150,40 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
         )
 
 
+def _normalize_choice_resolution(resolution: str) -> str:
+    """Unwrap a structured ``choice`` envelope to its bare option label (#2978).
+
+    The local SDLC HITL CLI resolves a ``choice`` decision by sending
+    ``{"action": "select", "selected": "<option>"}`` (see
+    ``sandbox/egg_lib/sdlc_hitl.py``); :func:`resolve_decision`
+    JSON-serializes that dict into ``decision.resolution``.  Dispatch
+    hooks that compare the resolution against bare option labels must
+    unwrap the envelope first — otherwise every structured selection
+    reads as an unrecognized option.  Bare-string resolutions (legacy /
+    direct-API callers) and any other shape pass through unchanged so
+    the caller's existing matching still runs.
+
+    Audit-trail note: this is a dispatch-side unwrap only.  The
+    persisted ``decision.resolution`` (and the ``DECISION_RESOLVED``
+    event / API response payload) still carries the raw envelope JSON
+    as the operator sent it.  Only the in-process value routed to the
+    Restart-agent / Continue-without / conditional-ACK / hard-reset
+    dispatch helpers — and any subsequent log line that echoes it — is
+    the normalized form.
+    """
+    if not resolution:
+        return resolution
+    try:
+        payload = json.loads(resolution)
+    except json.JSONDecodeError:
+        return resolution
+    if isinstance(payload, dict) and payload.get("action") == "select":
+        selected = payload.get("selected")
+        if isinstance(selected, str):
+            return selected
+    return resolution
+
+
 def _handle_conditional_ack_gate(
     pipeline_id: str,
     context: str,
@@ -191,6 +225,12 @@ def _handle_conditional_ack_gate(
         CONDITIONAL_ACK_GATE_MARKER,
         CONDITIONAL_ACK_REJECT,
     )
+
+    # #2978: defense-in-depth — unwrap the ``choice`` envelope so a future
+    # direct caller bypassing ``resolve_decision``'s dispatch-boundary
+    # normalization still sees the bare option label below.  Idempotent on
+    # already-unwrapped strings.
+    resolution = _normalize_choice_resolution(resolution)
 
     if not context.startswith(CONDITIONAL_ACK_GATE_MARKER):
         return
@@ -751,6 +791,16 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             source=getattr(request, "egg_source", "unknown"),
         )
 
+        # #2978: normalize the choice envelope once at the dispatch
+        # boundary so every dispatch hook below sees the bare option
+        # label instead of the ``{"action": "select", "selected": ...}``
+        # envelope the SDLC HITL CLI sends.  ``decision.resolution``
+        # (persisted on disk, emitted on ``DECISION_RESOLVED``, and
+        # returned in the API response) is intentionally unchanged —
+        # the audit trail keeps the raw envelope while dispatch routes
+        # on the unwrapped label.
+        dispatch_resolution = _normalize_choice_resolution(decision.resolution or "")
+
         try:
             emit_event(
                 EventType.DECISION_RESOLVED,
@@ -773,17 +823,17 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         #   "Agent <role> issue: <message>"
         # When the human resolves with "Restart agent", stop the old
         # container and respawn a replacement.
-        if decision.resolution == "Restart agent":
+        if dispatch_resolution == "Restart agent":
             _handle_restart_agent(pipeline_id, decision.question)
 
         # Handle the conditional-ACK 3-way HITL gate (#2004). Context
         # prefix is the discriminator — the question text is arbitrary
         # prose and mustn't be relied on for dispatch.
-        if decision.context and decision.resolution:
+        if decision.context and dispatch_resolution:
             _handle_conditional_ack_gate(
                 pipeline_id,
                 decision.context,
-                decision.resolution,
+                dispatch_resolution,
                 store.repo_path,
             )
 
@@ -791,7 +841,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # The concurrent executor stores "failed_role:<role>" in the decision
         # context when a reviewer crashes. Excuse the reviewer so consensus
         # can proceed without their ACK.
-        if decision.resolution == "Continue without" and decision.context.startswith(
+        if dispatch_resolution == "Continue without" and decision.context.startswith(
             "failed_role:"
         ):
             failed_role = decision.context.removeprefix("failed_role:")

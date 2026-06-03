@@ -108,7 +108,7 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus_wrapper.py    # Shell wrapper templates: legacy capped-restart path + event-pump path (EGG_BRC_EVENT_PUMP, default off) that replaces model-driven re-entry with a deterministic wrapper loop
+├── consensus_wrapper.py    # Shell wrapper template: deterministic event-pump loop (sole path since slice-4; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── events.py               # Event bus for pipeline events
@@ -285,6 +285,7 @@ shared/
 │   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern, BLOCKED_HINTS, derive_hint
 │   ├── matchers.py         # Canonical glob-pattern matcher (match_pattern) shared by all four enforcement layers
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
+│   ├── phase_patterns.py   # Phase-scoped file-write patterns (PHASE_FILE_PATTERNS, PhaseFilePattern, phase_file_verdict) — sandbox mirror of gateway/phase_filter.py
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
 ├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy

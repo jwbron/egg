@@ -367,6 +367,48 @@ def _resolve_github_token(repo_path: str) -> str | None:
         return None
 
 
+def _resolve_remote_token(
+    checkpoint_repo: str | None,
+    repo_path: str,
+    github_token: str | None,
+) -> str | None:
+    """Resolve the token to authenticate git ops against the checkpoint store.
+
+    When checkpoints are written to an external ``checkpoint_repo``, the
+    source repo's token is the wrong credential. A pipeline working on a
+    private external repo authenticates in ``user`` mode with a PAT scoped
+    to that customer repo, which has no access to the egg-owned checkpoint
+    store — so the push is rejected with ``remote: Write access to
+    repository not granted`` and the captured checkpoint is silently dropped
+    (#2969). Resolve a token scoped to the checkpoint repo itself instead:
+    ``get_token_for_repo`` returns the egg bot/App installation token for the
+    internal store (its ``auth_mode`` defaults to ``bot``), which does have
+    access.
+
+    Deployment assumption: the checkpoint repo must be reachable by the egg
+    App installation (or, equivalently, by whatever identity backs the
+    repo's configured ``auth_mode`` in ``repositories.yaml``). If a
+    deployment ever configures the checkpoint repo with ``auth_mode=user``,
+    this helper will return that user PAT and the same scoping bug returns
+    — point ``checkpoint_repo`` at a store the App can write, or install
+    the App on that repo.
+
+    Falls back to the source-repo token when no separate checkpoint repo is
+    set (same-repo storage) or when a dedicated token cannot be resolved.
+    """
+    if checkpoint_repo:
+        token_str, _auth_mode, error_msg = get_token_for_repo(checkpoint_repo)
+        if token_str:
+            return token_str
+        logger.warning(
+            "Could not resolve a token scoped to the checkpoint repo; falling "
+            "back to the source-repo token (remote checkpoint ops may be denied)",
+            checkpoint_repo=checkpoint_repo,
+            error=error_msg,
+        )
+    return github_token or _resolve_github_token(repo_path)
+
+
 class CheckpointError(Exception):
     """Error during checkpoint capture."""
 
@@ -884,6 +926,15 @@ class CheckpointHandler:
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
 
+        # #2969: authenticate every remote checkpoint-store op (ls-remote,
+        # fetch, push) with a token scoped to the checkpoint repo, not the
+        # source repo. The github_token passed in is the source-push token
+        # (e.g. a user-mode PAT for a private customer repo) and has no access
+        # to the egg-owned store, so the push is rejected with "Write access
+        # to repository not granted". The local worktree ops below target the
+        # source bare repo and need no token, so they are left untouched.
+        remote_token = _resolve_remote_token(checkpoint_repo, repo_path, github_token)
+
         try:
             with (
                 _get_store_lock(checkpoint_repo or repo_path),
@@ -894,7 +945,7 @@ class CheckpointHandler:
                 temp_path = Path(temp_dir)
 
                 branch_exists = self._branch_exists(
-                    repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
+                    repo_path, target, CHECKPOINT_BRANCH, github_token=remote_token
                 )
 
                 # Wrap the worktree-add and the checkpoint work so that
@@ -924,7 +975,7 @@ class CheckpointHandler:
                                     repo_path,
                                     fetch_args,
                                     timeout=fetch_timeout,
-                                    github_token=github_token,
+                                    github_token=remote_token,
                                 )
                                 break
                             except (
@@ -1045,7 +1096,7 @@ class CheckpointHandler:
                                 str(temp_path),
                                 ["push", target, f"HEAD:{CHECKPOINT_BRANCH}"],
                                 timeout=120,
-                                github_token=github_token,
+                                github_token=remote_token,
                             )
                             break
                         except CheckpointError as push_err:
@@ -1081,7 +1132,7 @@ class CheckpointHandler:
                                 repo_path,
                                 ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
                                 timeout=60,
-                                github_token=github_token,
+                                github_token=remote_token,
                             )
                             self._run_git(
                                 str(temp_path),
@@ -1206,8 +1257,11 @@ class CheckpointHandler:
         Returns:
             The parsed checkpoint index, or None if unavailable.
         """
-        if github_token is None:
-            github_token = _resolve_github_token(repo_path)
+        # #2969: read the external checkpoint store with a token scoped to the
+        # checkpoint repo, not the source repo (which may lack access to a
+        # private egg-owned store). Overrides an explicitly passed source token
+        # when a separate checkpoint_repo is configured.
+        github_token = _resolve_remote_token(checkpoint_repo, repo_path, github_token)
 
         target = _resolve_checkpoint_target(checkpoint_repo, "origin", repo_path)
 
@@ -1288,8 +1342,11 @@ class CheckpointHandler:
         Returns:
             A git ref string, or None if the branch doesn't exist.
         """
-        if github_token is None:
-            github_token = _resolve_github_token(repo_path)
+        # #2969: read the external checkpoint store with a token scoped to the
+        # checkpoint repo, not the source repo (which may lack access to a
+        # private egg-owned store). Overrides an explicitly passed source token
+        # when a separate checkpoint_repo is configured.
+        github_token = _resolve_remote_token(checkpoint_repo, repo_path, github_token)
 
         target = _resolve_checkpoint_target(checkpoint_repo, "origin", repo_path)
 
