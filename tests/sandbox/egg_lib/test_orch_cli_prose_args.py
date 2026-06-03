@@ -98,6 +98,7 @@ def _ack_ns(**overrides):
         "files_reviewed": ["a.py"],
         "files_reviewed_file": None,
         "pre_merge_condition": "",
+        "pre_merge_condition_file": None,
         "pre_merge_condition_resolved_in_diff": "",
         "ack_version": 1,
         "json": False,
@@ -130,7 +131,8 @@ def _propose_ns(**overrides):
         "summary": None,
         "summary_file": None,
         "artifacts": [],
-        "risk": "",
+        "risk": None,
+        "risk_file": None,
         "commit_sha": None,
         "changed_artifacts": None,
         "files_changed": [],
@@ -496,6 +498,182 @@ class TestConsensusProposeSummaryChannels:
         )
 
 
+class TestConsensusProposeRiskChannels:
+    """``consensus propose --risk`` / ``--risk -`` / ``--risk-file``.
+
+    Risk prose is exactly the kind of content where a reviewer NACK
+    might quote shell-hazard descriptions (e.g. backticked
+    ``git reset --hard`` or ``; rm -rf /``) — the same #2741
+    shell-metachar plumbing applies.
+    """
+
+    @pytest.mark.parametrize("payload", PROSE_PAYLOADS)
+    def test_risk_file_round_trips_byte_equal(self, brc_env, payload, tmp_path):
+        rf = tmp_path / "risk.txt"
+        rf.write_text(payload, encoding="utf-8")
+        captured = {}
+
+        def fake_brc_propose(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_propose",
+            side_effect=fake_brc_propose,
+        ):
+            rc = orch_cli.cmd_consensus_propose(_propose_ns(risk_file=str(rf)))
+        assert rc == 0
+        assert captured["risk_considered"] == payload
+
+    @pytest.mark.parametrize("payload", PROSE_PAYLOADS)
+    def test_risk_stdin_sentinel_round_trips_byte_equal(self, brc_env, payload, monkeypatch):
+        captured = {}
+
+        def fake_brc_propose(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_propose",
+            side_effect=fake_brc_propose,
+        ):
+            rc = orch_cli.cmd_consensus_propose(_propose_ns(risk="-"))
+        assert rc == 0
+        assert captured["risk_considered"] == payload
+
+    def test_risk_argv_emits_deprecation_warning(self, brc_env):
+        captured = {}
+
+        def fake_brc_propose(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with warnings.catch_warnings(record=True) as warnlog:
+            warnings.simplefilter("always")
+            with patch(
+                "egg_agent_tools.handlers.brc.brc_propose",
+                side_effect=fake_brc_propose,
+            ):
+                rc = orch_cli.cmd_consensus_propose(_propose_ns(risk="argv-risk"))
+        assert rc == 0
+        depr = [w for w in warnlog if issubclass(w.category, DeprecationWarning)]
+        assert depr and any("--risk" in str(w.message) for w in depr)
+
+
+class TestConsensusAckPreMergeConditionChannels:
+    """``consensus ack --pre-merge-condition`` / ``-`` / ``--pre-merge-condition-file``.
+
+    The obligation prose frequently quotes shell commands the wrapper
+    bash would otherwise corrupt (e.g. ``git mv legacy/auth.py
+    src/auth.py``); same plumbing as ``--reason``.
+    """
+
+    @pytest.mark.parametrize("payload", PROSE_PAYLOADS)
+    def test_pre_merge_condition_file_round_trips_byte_equal(self, brc_env, payload, tmp_path):
+        pmc_path = tmp_path / "pmc.txt"
+        pmc_path.write_text(payload, encoding="utf-8")
+        reason_path = tmp_path / "reason.txt"
+        reason_path.write_text("approved with obligation", encoding="utf-8")
+        captured = {}
+
+        def fake_brc_ack(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_ack",
+            side_effect=fake_brc_ack,
+        ):
+            rc = orch_cli.cmd_consensus_ack(
+                _ack_ns(
+                    reason_file=str(reason_path),
+                    pre_merge_condition_file=str(pmc_path),
+                ),
+            )
+        assert rc == 0
+        assert captured["pre_merge_condition"] == payload
+
+    @pytest.mark.parametrize("payload", PROSE_PAYLOADS)
+    def test_pre_merge_condition_stdin_sentinel_round_trips_byte_equal(
+        self, brc_env, payload, monkeypatch, tmp_path
+    ):
+        reason_path = tmp_path / "reason.txt"
+        reason_path.write_text("approved with obligation", encoding="utf-8")
+        captured = {}
+
+        def fake_brc_ack(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_ack",
+            side_effect=fake_brc_ack,
+        ):
+            rc = orch_cli.cmd_consensus_ack(
+                _ack_ns(
+                    reason_file=str(reason_path),
+                    pre_merge_condition="-",
+                ),
+            )
+        assert rc == 0
+        assert captured["pre_merge_condition"] == payload
+
+    def test_pre_merge_condition_argv_emits_deprecation_warning(self, brc_env, tmp_path):
+        reason_path = tmp_path / "reason.txt"
+        reason_path.write_text("approved with obligation", encoding="utf-8")
+        captured = {}
+
+        def fake_brc_ack(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with warnings.catch_warnings(record=True) as warnlog:
+            warnings.simplefilter("always")
+            with patch(
+                "egg_agent_tools.handlers.brc.brc_ack",
+                side_effect=fake_brc_ack,
+            ):
+                rc = orch_cli.cmd_consensus_ack(
+                    _ack_ns(
+                        reason_file=str(reason_path),
+                        pre_merge_condition="argv-pmc",
+                    ),
+                )
+        assert rc == 0
+        depr = [w for w in warnlog if issubclass(w.category, DeprecationWarning)]
+        assert depr and any("--pre-merge-condition" in str(w.message) for w in depr)
+
+    def test_default_empty_pre_merge_condition_emits_no_warning(self, brc_env, tmp_path):
+        """The argparse default ``pre_merge_condition=""`` (no flag
+        passed) must not emit a spurious deprecation warning — only an
+        explicitly supplied argv value should warn."""
+        reason_path = tmp_path / "reason.txt"
+        reason_path.write_text("unconditional approval", encoding="utf-8")
+
+        def fake_brc_ack(req):
+            return {"ok": True, "signal": {}}
+
+        with warnings.catch_warnings(record=True) as warnlog:
+            warnings.simplefilter("always")
+            with patch(
+                "egg_agent_tools.handlers.brc.brc_ack",
+                side_effect=fake_brc_ack,
+            ):
+                rc = orch_cli.cmd_consensus_ack(
+                    _ack_ns(reason_file=str(reason_path)),
+                )
+        assert rc == 0
+        pmc_depr = [
+            w
+            for w in warnlog
+            if issubclass(w.category, DeprecationWarning)
+            and "--pre-merge-condition" in str(w.message)
+        ]
+        assert not pmc_depr, "default empty --pre-merge-condition must not emit deprecation"
+
+
 # ---------------------------------------------------------------------------
 # task-5-1: --reason / --reason-file on consensus withdraw
 # ---------------------------------------------------------------------------
@@ -576,10 +754,20 @@ class TestParserHelpAdvertisesNewFlags:
     @pytest.mark.parametrize(
         ("argv", "must_contain"),
         [
-            (["consensus", "ack", "--help"], ["--reason-file", "--files-reviewed-file"]),
+            (
+                ["consensus", "ack", "--help"],
+                [
+                    "--reason-file",
+                    "--files-reviewed-file",
+                    "--pre-merge-condition-file",
+                ],
+            ),
             (["consensus", "nack", "--help"], ["--reason-file", "--files-reviewed-file"]),
             (["consensus", "withdraw", "--help"], ["--reason-file"]),
-            (["consensus", "propose", "--help"], ["--summary-file"]),
+            (
+                ["consensus", "propose", "--help"],
+                ["--summary-file", "--risk-file"],
+            ),
         ],
     )
     def test_help_lists_new_flags(self, brc_env, capsys, argv, must_contain):

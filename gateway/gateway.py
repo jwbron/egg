@@ -3750,10 +3750,10 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     if policy_result.details and policy_result.details.get("force_draft"):
         draft = True
 
-    # Inject machine-parseable pipeline metadata as an HTML comment.
-    # Note: _build_pr_body (in the orchestrator) also adds a human-readable
-    # "## Pipeline Context" section. The two formats are intentionally
-    # complementary — visible for humans, hidden comment for tooling.
+    # Inject machine-parseable pipeline metadata as an HTML comment so
+    # downstream tooling (status reporters, audit scrapers) can recover
+    # the pipeline_id / agent_role / issue from the PR body without
+    # round-tripping through the orchestrator state store.
     session = getattr(g, "session", None)
     session_pipeline_id = getattr(session, "pipeline_id", None) if session else None
     if session_pipeline_id:
@@ -4996,6 +4996,117 @@ def gh_find_open_pr() -> tuple[Response, int] | Response:
         details={"repo": repo, "head": head, "base": base, "number": number},
     )
     return make_success("Open PR lookup complete", {"number": number})
+
+
+@app.route("/api/v1/gh/list_open_prs", methods=["POST"])
+@require_launcher_auth
+def gh_list_open_prs() -> tuple[Response, int] | Response:
+    """Control-plane listing: return the repo's open PRs (number/head/base).
+
+    Like ``/api/v1/gh/find_open_pr``, this is an **orchestrator-only**
+    route gated by ``@require_launcher_auth`` rather than
+    ``@require_session_auth``: the caller is the control plane (the
+    orchestrator holds the launcher secret), not a sandboxed agent. It
+    exists so the orchestrator's context-PR idempotency pre-flight
+    (``_open_context_pr_at_implement_start``) and stacked-PR reconciler
+    do not have to register a synthetic *agent* session and impersonate a
+    role on ``/api/v1/gh/execute`` — the conflation #2910 papered over by
+    adding a bogus ``AgentRole.ORCHESTRATOR`` (removed in #2925). The
+    orchestrator is not an agent role; it is the server that manages
+    pipelines, so it authenticates as the control plane and uses a
+    purpose-built read-only endpoint.
+
+    Unlike ``/api/v1/gh/execute`` (arbitrary allowlisted argv), this route
+    accepts only ``repo``/``limit`` and constructs the fixed read-only
+    argv server-side, so there is no general gh-command surface on the
+    launcher-auth path.
+
+    Request body:
+        {"repo": "owner/name", "limit": <int 1..1000, optional, default 200>}
+
+    Returns:
+        ``{"prs": [{"number": int, "headRefName": str, "baseRefName": str}, ...]}``.
+        The caller (``GatewayClient.list_open_prs``) normalises this into
+        the ``number``/``head_ref``/``base_ref`` shape its consumers expect.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+    # ``request.get_json()`` returns whatever JSON parses — a launcher
+    # caller could legitimately post an array or scalar. Reject anything
+    # other than an object up front so ``data.get(...)`` below cannot
+    # raise ``AttributeError`` → 500.
+    if not isinstance(data, dict):
+        return make_error("Invalid body: must be a JSON object")
+
+    repo = data.get("repo")
+    if not isinstance(repo, str) or not repo.strip():
+        return make_error("Missing or invalid repo: must be a non-empty string")
+    repo = repo.strip()
+
+    # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
+    # also accepts full GitHub URLs); the docstring promises the literal
+    # ``owner/name`` shape, so we match against the pattern directly.
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    # ``bool`` is a subclass of ``int``; reject it explicitly so ``True``
+    # cannot slip through as ``limit=1``.
+    limit = data.get("limit", 200)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        return make_error("Invalid limit: must be an integer in [1, 1000]")
+
+    args = [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--limit",
+        str(limit),
+        "--json",
+        "number,headRefName,baseRefName",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        # ``gh`` should not print credentials to stderr, but truncate
+        # defensively so we never page a giant stderr blob into the
+        # audit log.
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_list_open_prs_failed",
+            "gh_list_open_prs",
+            success=False,
+            details={"repo": repo, "limit": limit, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    prs: list[dict[str, Any]] = []
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            items = json.loads(stdout)
+        except ValueError, TypeError:
+            items = None
+        if isinstance(items, list):
+            prs = [item for item in items if isinstance(item, dict)]
+
+    audit_log(
+        "gh_list_open_prs",
+        "gh_list_open_prs",
+        success=True,
+        details={"repo": repo, "limit": limit, "count": len(prs)},
+    )
+    return make_success("Open PR list complete", {"prs": prs})
 
 
 # =============================================================================

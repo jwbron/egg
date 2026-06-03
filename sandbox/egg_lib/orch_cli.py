@@ -2780,6 +2780,13 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
                 file_flag="--summary-file",
                 required=False,
             )
+            risk_text = _resolve_prose_arg(
+                argv_value=getattr(args, "risk", None),
+                file_path=getattr(args, "risk_file", None),
+                arg_name="--risk",
+                file_flag="--risk-file",
+                required=False,
+            )
         except _ProseArgError:
             return 2
         req = {
@@ -2787,7 +2794,7 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
             "role": role,
             "summary": summary_text,
             "artifacts": list(getattr(args, "artifacts", []) or []),
-            "risk_considered": getattr(args, "risk", "") or "",
+            "risk_considered": risk_text,
             "files_changed": list(getattr(args, "files_changed", []) or []),
             "tests_run": list(getattr(args, "tests_run", []) or []),
             "tasks": list(getattr(args, "tasks", []) or []),
@@ -2854,23 +2861,15 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    pre_merge_condition = getattr(args, "pre_merge_condition", "") or ""
     pre_merge_condition_resolved_in_diff = (
         getattr(args, "pre_merge_condition_resolved_in_diff", "") or ""
     )
-    if pre_merge_condition_resolved_in_diff and not pre_merge_condition:
-        print(
-            "error: --pre-merge-condition-resolved-in-diff requires "
-            "--pre-merge-condition; a resolution SHA has nothing to resolve "
-            "on a plain ACK",
-            file=sys.stderr,
-        )
-        return 2
     # Resolve prose --reason from argv / stdin sentinel / --reason-file,
-    # and --files-reviewed from argv list / --files-reviewed-file (one
-    # path per line). The handler-layer still enforces non-empty reason,
-    # so leaving the CLI surface permissive here keeps a single source
-    # of truth (#2741, #2908 slice-5).
+    # --pre-merge-condition from argv / stdin sentinel / file, and
+    # --files-reviewed from argv list / --files-reviewed-file (one path
+    # per line). The handler-layer still enforces non-empty reason, so
+    # leaving the CLI surface permissive here keeps a single source of
+    # truth (#2741, #2908 slice-5).
     try:
         reason_text = _resolve_prose_arg(
             argv_value=getattr(args, "reason", None),
@@ -2879,11 +2878,26 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
             file_flag="--reason-file",
             required=True,
         )
+        pre_merge_condition = _resolve_prose_arg(
+            argv_value=getattr(args, "pre_merge_condition", None) or None,
+            file_path=getattr(args, "pre_merge_condition_file", None),
+            arg_name="--pre-merge-condition",
+            file_flag="--pre-merge-condition-file",
+            required=False,
+        )
         files_reviewed = _resolve_files_reviewed_arg(
             argv_value=getattr(args, "files_reviewed", None),
             file_path=getattr(args, "files_reviewed_file", None),
         )
     except _ProseArgError:
+        return 2
+    if pre_merge_condition_resolved_in_diff and not pre_merge_condition:
+        print(
+            "error: --pre-merge-condition-resolved-in-diff requires "
+            "--pre-merge-condition; a resolution SHA has nothing to resolve "
+            "on a plain ACK",
+            file=sys.stderr,
+        )
         return 2
     if not files_reviewed:
         print(
@@ -4051,7 +4065,25 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     cons_propose.add_argument("--artifacts", nargs="*", help="Artifact paths")
-    cons_propose.add_argument("--risk", help="Risk considerations")
+    cons_propose.add_argument(
+        "--risk",
+        help=(
+            "Risk considerations. Pass ``--risk -`` to read from stdin, or "
+            "use ``--risk-file PATH`` for a file source (recommended when the "
+            "prose contains shell metacharacters — argv prose flows through "
+            "``bash -c`` and is corrupted by ``$VAR`` / backticks / ``;`` / "
+            "``&&`` / embedded newlines; #2741, #2908 slice-5)."
+        ),
+    )
+    cons_propose.add_argument(
+        "--risk-file",
+        dest="risk_file",
+        help=(
+            "Path to a file containing risk considerations (#2741 "
+            "shell-metachar-safe alternative to ``--risk``). Mutually "
+            "exclusive with non-sentinel ``--risk``."
+        ),
+    )
     cons_propose.add_argument(
         "--commit-sha",
         default=None,
@@ -4140,7 +4172,22 @@ def create_parser() -> argparse.ArgumentParser:
             "Optional: mark this as a conditional ACK (#1998). The work is "
             "approved but the named action must be performed by a human "
             "before merging (e.g. 'git mv old/path new/path'). Surfaces as "
-            "a Pre-merge Obligations section on the auto-created PR."
+            "a Pre-merge Obligations section on the auto-created PR. "
+            "Pass ``--pre-merge-condition -`` to read from stdin, or use "
+            "``--pre-merge-condition-file PATH`` for a file source "
+            "(recommended when the prose contains shell metacharacters — "
+            "obligation strings frequently quote shell commands; #2741, "
+            "#2908 slice-5)."
+        ),
+    )
+    cons_ack.add_argument(
+        "--pre-merge-condition-file",
+        dest="pre_merge_condition_file",
+        help=(
+            "Path to a file containing the pre-merge obligation prose "
+            "(#2741 shell-metachar-safe alternative to "
+            "``--pre-merge-condition``). Mutually exclusive with non-sentinel "
+            "``--pre-merge-condition``."
         ),
     )
     cons_ack.add_argument(

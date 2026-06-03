@@ -241,18 +241,22 @@ the snapshot under `rejection.current_proposal`.
 
 ### Prose-bearing args use stdin / `--*-file`, not argv ([#2741](https://github.com/jwbron/egg/issues/2741))
 
-The `consensus` flags that carry free-form prose — `--summary` on
-`propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed`
-on `ack` / `nack` — accept the payload through three interchangeable
-channels. **Prefer the file or stdin channel** in any wrapper bash or
-agent script; the argv form is retained only for short ASCII literals
-and now writes a deprecation warning to stderr on every call.
+The `consensus` flags that carry free-form prose — `--summary` and
+`--risk` on `propose`; `--reason` on `ack` / `nack` / `withdraw`;
+`--pre-merge-condition` on `ack`; `--files-reviewed` on `ack` / `nack`
+— accept the payload through three interchangeable channels. **Prefer
+the file or stdin channel** in any wrapper bash or agent script; the
+argv form is retained only for short ASCII literals and now writes a
+deprecation warning to stderr on every call. Note that
+`--pre-merge-condition-resolved-in-diff` accepts a commit SHA only
+(hex, validated downstream) and is therefore not exposed through these
+channels.
 
 | Channel | Flag | Use when |
 |---------|------|----------|
-| **argv** *(deprecated, warns)* | `--summary "…"` / `--reason "…"` | The prose is a short ASCII literal you control end-to-end. Deprecation warning lands on stderr; value still accepted today. |
-| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper. Read verbatim from disk; zero shell parsing. `--files-reviewed-file` is one path per line on disk (blank lines and lines beginning with `#` are stripped, so wrapper-generated manifests can carry comments; the existing `--files-reviewed` `nargs="+"` argv form is still accepted). |
-| **stdin sentinel `-`** | `--summary -` / `--reason -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) when you don't want a temp file. The CLI consumes stdin to EOF. |
+| **argv** *(deprecated, warns)* | `--summary "…"` / `--reason "…"` / `--risk "…"` / `--pre-merge-condition "…"` | The prose is a short ASCII literal you control end-to-end. Deprecation warning lands on stderr; value still accepted today. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--risk-file ./risk.md` / `--pre-merge-condition-file ./obligation.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper. Read verbatim from disk; zero shell parsing. `--files-reviewed-file` is one path per line on disk (blank lines and lines beginning with `#` are stripped, so wrapper-generated manifests can carry comments; the existing `--files-reviewed` `nargs="+"` argv form is still accepted). |
+| **stdin sentinel `-`** | `--summary -` / `--reason -` / `--risk -` / `--pre-merge-condition -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) when you don't want a temp file. The CLI consumes stdin to EOF. |
 
 ```bash
 # Recommended: --reason-file for any review body that may contain
