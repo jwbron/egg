@@ -1020,7 +1020,11 @@ def _safe_json(response: httpx.Response, path: str) -> dict[str, Any]:
     try:
         data = response.json()
     except Exception as exc:  # pragma: no cover — Atlassian always returns JSON
-        raise ConfluenceUpstreamError(response.status_code, response.text, path) from exc
+        # 2xx-with-non-JSON-body: no ``Location`` to capture, pass ``None``
+        # explicitly so the kwarg's intent is obvious to future readers.
+        raise ConfluenceUpstreamError(
+            response.status_code, response.text, path, location=None
+        ) from exc
     if not isinstance(data, dict):
         return {"data": data}
     return data

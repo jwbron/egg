@@ -393,26 +393,52 @@ class TestPageGet:
         assert "upstream_location" not in details
 
     @pytest.mark.parametrize(
-        "route,client_method,body",
+        "route,client_method,body,extra_setup",
         [
-            ("/api/v1/confluence/page/get", "get_page", {"pageId": "12345"}),
+            ("/api/v1/confluence/page/get", "get_page", {"pageId": "12345"}, None),
             (
                 "/api/v1/confluence/page/descendants",
                 "get_page_descendants",
                 {"pageId": "12345"},
+                None,
             ),
             (
                 "/api/v1/confluence/page/footer-comments",
                 "get_page_footer_comments",
                 {"pageId": "12345"},
+                None,
             ),
             (
                 "/api/v1/confluence/page/inline-comments",
                 "get_page_inline_comments",
                 {"pageId": "12345"},
+                None,
             ),
-            ("/api/v1/confluence/space/list", "list_spaces", {}),
-            ("/api/v1/confluence/search", "search_cql", {"cql": "space = ENG"}),
+            ("/api/v1/confluence/space/list", "list_spaces", {}, None),
+            ("/api/v1/confluence/search", "search_cql", {"cql": "space = ENG"}, None),
+            # ``space/pages`` resolves ``spaceKey → spaceId`` before calling
+            # ``get_space_pages``.  Seed the cache so we exercise the
+            # post-resolve translator call site (gateway.py:7701) rather than
+            # the populate-cache one (7663).
+            (
+                "/api/v1/confluence/space/pages",
+                "get_space_pages",
+                {"spaceKey": "ENG"},
+                lambda fake: setattr(
+                    fake.space_cache,
+                    "id_for_key",
+                    lambda k: "1" if k == "ENG" else None,
+                ),
+            ),
+            # ``execute`` funnels every whitelisted path through
+            # ``execute_raw``; use a page-scoped path so the allowlist gate
+            # doesn't short-circuit before the upstream call.
+            (
+                "/api/v1/confluence/execute",
+                "execute_raw",
+                {"method": "GET", "path": "api/v2/pages/12345"},
+                None,
+            ),
         ],
     )
     def test_upstream_redirect_translator_applies_to_all_routes(
@@ -424,6 +450,7 @@ class TestPageGet:
         route,
         client_method,
         body,
+        extra_setup,
     ):
         """Regression guard for the shared translator (#2970).
 
@@ -433,8 +460,13 @@ class TestPageGet:
         is added that bypasses the funnel (and therefore the actionable-3xx
         branch), this regression test will catch it. Asserting on each route
         rather than just one would let a route quietly fall back to the
-        generic ``Confluence upstream error 302`` envelope."""
+        generic ``Confluence upstream error 302`` envelope.
+
+        Covers all eight ``/api/v1/confluence/*`` routes that funnel
+        through ``_confluence_error_from_upstream``."""
         fake = MagicMock()
+        if extra_setup is not None:
+            extra_setup(fake)
         getattr(fake, client_method).side_effect = ConfluenceUpstreamError(
             302, "", "api/v2/some-path", location="/login"
         )
