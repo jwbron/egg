@@ -19,14 +19,14 @@ _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 # Apply-phase notes-prefix projection. The APPLIER role on Jira-epic
 # pipelines (issue #1557) encodes per-task lifecycle status as a
-# structured prefix line in ``Task.notes`` (no typed ``mcp__task__set_status``
-# MCP exists today). When ``task_update_notes`` writes notes whose first
-# lines match these patterns, we project the values onto the typed
-# ``Task.jira_action_status`` / ``Task.jira_key`` fields immediately
-# after the notes write so downstream consumers (apply-phase
-# ``reviewer_contract``, the wontdo drain's idempotency gate,
-# plan-parser round-trips) see a single coherent surface instead of two
-# views that can drift.
+# structured prefix line in ``Task.notes`` (no typed
+# ``Task.set_status`` setter exists today). When ``task_update_notes``
+# writes notes whose first lines match these patterns, we project the
+# values onto the typed ``Task.jira_action_status`` / ``Task.jira_key``
+# fields immediately after the notes write so downstream consumers
+# (apply-phase ``reviewer_contract``, the wontdo drain's idempotency
+# gate, plan-parser round-trips) see a single coherent surface instead
+# of two views that can drift.
 #
 # Atomicity: the projection issues 1-2 additional ``_task_field_mutate``
 # gateway calls after the notes write. These are NOT atomic with the
@@ -34,7 +34,7 @@ _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # the prefix by one mutation. The notes prefix remains the
 # authoritative source under that race; the next ``task_update_notes``
 # call re-runs the projection, and reviewers / drain that read either
-# surface still converge. (When a typed ``mcp__task__set_status`` MCP
+# surface still converge. (When a typed ``Task.set_status`` setter
 # lands, both surfaces collapse to one and this race goes away.)
 _JIRA_ACTION_STATUS_PREFIX_RE = re.compile(
     r"^jira_action_status=(pending|in_flight|applied|failed)\s*$"

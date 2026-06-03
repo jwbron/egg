@@ -1328,10 +1328,11 @@ class TestBrcPipelineIdValidation:
 
 
 class TestBrcResolveObligation:
-    """Handler smoke tests for ``mcp__brc__resolve_obligation`` (#2338).
+    """Handler smoke tests for ``brc_resolve_obligation`` (#2338).
 
-    The handler is a thin wrapper around the orchestrator's signal endpoint
-    — these tests cover request shaping, validation, and response shape.
+    The handler backs ``egg-orch brc resolve-obligation`` and is a thin
+    wrapper around the orchestrator's signal endpoint — these tests cover
+    request shaping, validation, and response shape.
     """
 
     def test_happy_path_threads_args_into_signal(self):

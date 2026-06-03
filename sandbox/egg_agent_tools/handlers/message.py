@@ -2,15 +2,14 @@
 
 These back the ``egg-orch message wait``, ``egg-orch message wait-loop``,
 and ``egg-orch message heartbeat`` CLI subcommands introduced in
-issue #1897, and the ``mcp__brc__wait_for_event`` /
-``mcp__brc__wait_loop`` / ``mcp__brc__send_heartbeat`` MCP tools that
-expose the same primitives to SDK agents.
+issue #1897. They previously also backed the ``mcp__brc__wait_for_event``
+/ ``mcp__brc__wait_loop`` / ``mcp__brc__send_heartbeat`` MCP tools
+retired in #2908 slice-6; the CLI is now the only caller.
 
 The handler functions return structured dicts.  The CLI shim in
 ``sandbox/egg_lib/orch_cli.py`` maps responses and exceptions onto the
 0/1/2/3 exit-code contract #1897 documented (0=match, 1=timeout/no
-match, 2=transient error, 3=permanent error).  MCP callers receive the
-structured dict directly and classify ``matched``/``ok`` themselves.
+match, 2=transient error, 3=permanent error).
 """
 
 from __future__ import annotations

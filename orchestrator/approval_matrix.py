@@ -453,8 +453,8 @@ class ApprovalMatrix:
         re-asserted the obligation on the new version.
 
         Obligations that have been resolved in-cycle by another agent (via
-        ``mark_obligation_resolved`` / ``mcp__brc__resolve_obligation``) are
-        also dropped (#2338) — the conditioning work is already on the
+        ``mark_obligation_resolved`` / ``egg-orch brc resolve-obligation``)
+        are also dropped (#2338) — the conditioning work is already on the
         branch, so transcribing the obligation into the PR body or firing
         the HITL gate would be busywork.
 

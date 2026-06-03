@@ -260,12 +260,12 @@ class TestEventPumpKeepAliveCadence:
 class TestEventPumpIdleBudgetAlert:
     """(v) Idle / no-progress safety budget driven by env
     ``EGG_BRC_IDLE_BUDGET_MIN`` (default 30). When no actionable event
-    has arrived for the budget duration, the wrapper emits
-    ``mcp__progress__overseer_alert`` (anomaly
-    ``stuck-phase-transition``, priority ``high``) and continues
-    blocking. The legacy template that owned the historical restart
-    cap was deleted in slice-4 task-4-2; the idle budget is now the
-    only liveness ceiling in the wrapper.
+    has arrived for the budget duration, the wrapper emits an
+    ``egg-orch overseer alert`` (anomaly ``stuck-phase-transition``,
+    priority ``high``) and continues blocking. The legacy template
+    that owned the historical restart cap was deleted in slice-4
+    task-4-2; the idle budget is now the only liveness ceiling in
+    the wrapper.
 
     NOTE: Per scope update on #2908 issue body and contract cq-3, the
     durable server-side ``Pipeline.no_progress_budget`` is the binding

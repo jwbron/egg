@@ -676,12 +676,12 @@ while true; do
         propose|ack|nack)
             # Reviewer §1 (slice-4-blocking): symmetric with the ``confirm``
             # arm above -- ``note_progress`` must only fire when the agent
-            # invocation actually succeeded. A persistent ``mcp__brc__propose``
-            # / API-quota / prompt-rendering failure can fail in well under a
-            # second, and without rc-gating here the idle latch resets every
-            # iteration so the operator-visible idle alert never fires. The
-            # PR removed the legacy 3-restart cap; this rc gate is the
-            # equivalent ceiling on the action path.
+            # invocation actually succeeded. A persistent ``egg-orch consensus
+            # propose`` / API-quota / prompt-rendering failure can fail in
+            # well under a second, and without rc-gating here the idle latch
+            # resets every iteration so the operator-visible idle alert never
+            # fires. The PR removed the legacy 3-restart cap; this rc gate is
+            # the equivalent ceiling on the action path.
             cw_log "Invoking agent (action=$ACTION)."
             invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"
             agent_rc=$?

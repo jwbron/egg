@@ -248,7 +248,9 @@ class TestBrcGetState:
         raise AttributeError("Expected egg_lib.orch_cli to expose cmd_brc_get_state")
 
     def test_happy_path_matches_mcp_shape(self, brc_env, capsys):
-        """Output mirrors ``mcp__brc__get_state`` for the same pipeline."""
+        """Output mirrors the ``brc_get_state`` handler payload (the
+        same shape the retired ``mcp__brc__get_state`` tool emitted)
+        for the same pipeline."""
         handler = self._resolve_handler()
         consensus = {
             "is_complete": False,
@@ -468,10 +470,10 @@ class TestBrcParserRegistration:
 
 
 class TestBrcResolveObligation:
-    """``egg-orch brc resolve-obligation`` — CLI wrapper around
-    ``mcp__brc__resolve_obligation`` (#2338).
+    """``egg-orch brc resolve-obligation`` — CLI replacement for the
+    retired ``mcp__brc__resolve_obligation`` MCP tool (#2338).
 
-    Slice-5 adds this CLI because slice-6 deletes the agent-side MCP
+    Slice-5 added this CLI because slice-6 deleted the agent-side MCP
     server: the wrapper bash must reach the obligation-resolution
     signal without an MCP round-trip. The prose ``--note`` flows
     through the same #2741 plumbing as the other reason / summary
@@ -620,8 +622,8 @@ class TestBrcResolveObligation:
 
 
 class TestBrcReadPeerArtifact:
-    """``egg-orch brc read-peer-artifact`` — CLI wrapper around
-    ``mcp__brc__read_peer_artifact``.
+    """``egg-orch brc read-peer-artifact`` — CLI replacement for the
+    retired ``mcp__brc__read_peer_artifact`` MCP tool.
 
     The handler reads ``.egg-state/brc-history/`` files locally; the
     CLI is a structural pass-through (argparse → handler-request dict

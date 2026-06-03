@@ -19510,8 +19510,8 @@ def _merge_preserved_slice_runtime(
       visibly happened — so both fields must survive together.
     - ``notes`` — APPLIER writes Won't-Do drain failure reasons here
       (``pipelines.py`` Won't-Do path) and agents write implementation
-      narrative via ``mcp__task__update_notes`` / ``egg-contract
-      update-notes``; the plan parser always emits ``""``.
+      narrative via ``egg-contract update-notes``; the plan parser
+      always emits ``""``.
     - ``jira_action_status`` — APPLIER advances ``pending`` →
       ``in_flight`` → ``applied``/``failed`` (#1557 risk_analyst R7);
       idempotency depends on ``applied`` surviving re-populate so the

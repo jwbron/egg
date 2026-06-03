@@ -223,9 +223,9 @@ class TestGetStateSliceScope:
 
     A per-slice agent's BRC consensus lives in the per-slice tracker
     ``{pipeline_id}/{slice_id}``. ``brc_get_state`` must forward the
-    slice scope to the status endpoint so ``mcp__brc__get_state`` /
-    ``egg-orch consensus status`` report the agent's own slice rather
-    than a pipeline-level (non-slice) reconstruction.
+    slice scope to the status endpoint so ``egg-orch consensus status``
+    reports the agent's own slice rather than a pipeline-level
+    (non-slice) reconstruction.
     """
 
     def test_get_state_appends_slice_id_from_env(self, monkeypatch):

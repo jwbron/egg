@@ -383,9 +383,9 @@ class TestDocumenterOnlySliceEndToEnd:
         NACK at the seeded version, ``is_fully_acked("coder")`` drops
         to False, and a subsequent CODER ``handle_confirmed`` is
         rejected with ``producer_not_fully_acked``. The shortcut text
-        instructs the agent to call
-        ``mcp__sdlc__register_open_question`` at this point rather than
-        silently start producing."""
+        instructs the agent to register an HITL open question at this
+        point (``egg-contract add-decision``) rather than silently
+        start producing."""
         tracker = _build_tracker(implement_graph)
         tracker.seed_auto_ack_for_empty_pure_producers({"documenter"})
         assert tracker.matrix.is_fully_acked("coder") is True

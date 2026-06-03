@@ -1724,11 +1724,11 @@ class PeerConsensusTracker:
         """Return producers that are ready to confirm but have not yet done so.
 
         A producer is "ready" only when ``check_confirm_guard`` would actually
-        allow ``mcp__brc__confirm`` to succeed. That includes the per-role
-        fully-ACKed check AND the global zero-proposal guard (#1648): if any
-        producer in the review graph has ``proposal_version == 0``, no agent
-        can confirm yet, and a ``brc_confirmation_timeout`` alert against the
-        patient producer would be a false positive (#2187).
+        allow ``egg-orch consensus confirmed`` to succeed. That includes the
+        per-role fully-ACKed check AND the global zero-proposal guard (#1648):
+        if any producer in the review graph has ``proposal_version == 0``, no
+        agent can confirm yet, and a ``brc_confirmation_timeout`` alert against
+        the patient producer would be a false positive (#2187).
 
         Returns:
             Dict mapping producer role to proposal timestamp (epoch float)

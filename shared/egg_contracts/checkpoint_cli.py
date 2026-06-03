@@ -1011,10 +1011,10 @@ def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     """List checkpoints with metadata.
 
-    Delegates to :func:`collect_checkpoints` (also used by the
-    ``mcp__checkpoint__list`` MCP handler) so both dispatch paths
-    share one helper. When a gateway is configured we still use the
-    HTTP path for parity with legacy behaviour (live pipelines).
+    Delegates to :func:`collect_checkpoints` (the same helper the
+    orchestrator HTTP route invokes). When a gateway is configured we
+    still use the HTTP path for parity with legacy behaviour (live
+    pipelines).
     """
     gateway_url = _get_gateway_url()
     if gateway_url:
@@ -1098,9 +1098,8 @@ def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
 def cmd_show(args: argparse.Namespace) -> int:
     """Display full checkpoint details by checkpoint ID or commit SHA.
 
-    Delegates to :func:`load_checkpoint` (also used by the
-    ``mcp__checkpoint__show`` MCP handler) so both dispatch paths
-    share one helper.
+    Delegates to :func:`load_checkpoint` (the same helper the
+    orchestrator HTTP route invokes).
     """
     gateway_url = _get_gateway_url()
     if gateway_url:
@@ -1952,9 +1951,8 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     """Search checkpoint transcripts for matching text.
 
-    Delegates to :func:`search_checkpoints` (also used by the
-    ``mcp__checkpoint__search`` MCP handler) so both dispatch paths
-    share one helper.
+    Delegates to :func:`search_checkpoints` (the same helper the
+    orchestrator HTTP route invokes).
     """
     gateway_url = _get_gateway_url()
     if gateway_url:

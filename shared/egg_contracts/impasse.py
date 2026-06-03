@@ -58,7 +58,7 @@ class ImpasseCategory(StrEnum):
 class Impasse(BaseModel):
     """A typed signal that a task is structurally impossible.
 
-    Emitted by a producer via the ``mcp__sdlc__report_impasse`` tool and
+    Emitted by a producer via ``egg-contract report-impasse`` and
     serialised under ``AgentOutput.impasse``. The orchestrator's
     impasse-routing helpers consume this post-phase to decide whether to
     delegate (for ``WRONG_ROLE`` with a single eligible alternative) or

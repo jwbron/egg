@@ -783,10 +783,10 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
     its own BRC consensus, keyed ``{pipeline_id}/{slice_id}``. The
     ``slice_id`` is read from the request or, by default, the
     ``EGG_SLICE_ID`` env var the orchestrator sets on per-slice agents —
-    so a per-slice agent's ``mcp__brc__get_state`` / ``egg-orch
-    consensus status`` reflects *its own* slice's tracker rather than a
-    misleading pipeline-level reconstruction. Pipeline-level agents
-    leave it unset and see pipeline-level consensus.
+    so a per-slice agent's ``egg-orch consensus status`` reflects *its
+    own* slice's tracker rather than a misleading pipeline-level
+    reconstruction. Pipeline-level agents leave it unset and see
+    pipeline-level consensus.
 
     Request:
         pipeline_id: override.

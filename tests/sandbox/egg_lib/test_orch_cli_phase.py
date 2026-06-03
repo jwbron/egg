@@ -164,7 +164,9 @@ class TestPhaseGetContext:
         assert rc == 0
 
     def test_output_matches_mcp_surface(self, phase_env, capsys):
-        """Output matches the MCP-tool ``mcp__phase__get_context`` shape."""
+        """Output matches the ``phase_get_context`` handler shape (the
+        same payload the retired ``mcp__phase__get_context`` tool
+        emitted)."""
         handler = _resolve_handler()
         # Same shape as phase_get_context returns (lines 180-190).
         expected_keys = {

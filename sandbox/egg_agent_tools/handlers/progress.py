@@ -45,9 +45,9 @@ def progress_emit(req: dict[str, Any]) -> dict[str, Any]:
 
     Note: this wraps the structured-event endpoint
     (``POST /api/v1/pipelines/<pid>/progress``), not the legacy
-    signal-progress endpoint.  The tool name ``mcp__progress__emit``
-    matches the structured-event semantic.  For the percent-based
-    progress signal, use a direct CLI call to
+    signal-progress endpoint.  ``egg-orch progress emit`` is the CLI
+    entry point and matches the structured-event semantic.  For the
+    percent-based progress signal, use a direct CLI call to
     ``egg-orch signal progress``.
     """
     pid = _require_pipeline_id(req)

@@ -132,8 +132,8 @@ def _track_long_poll_end() -> None:
 
 # Heartbeat states that bypass the ``(state, waiting_on)`` dedup filter
 # in the heartbeat route. ``WAITING_FOR_EVENT`` (issue #2036) is a
-# liveness keep-alive emitted by ``mcp__brc__wait_loop`` while it's
-# blocked — periodic identical beats are exactly the signal the
+# liveness keep-alive emitted by ``egg-orch message wait-loop`` while
+# it's blocked — periodic identical beats are exactly the signal the
 # overseer's stall detector consumes, so dedup must not collapse them.
 # Rate-limit (20/min per slice+role; #2471) still applies.
 _DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})

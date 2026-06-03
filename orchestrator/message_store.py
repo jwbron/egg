@@ -81,8 +81,8 @@ class MessageType:
 
 
 # Valid HEARTBEAT states (issue #1897). Validated server-side in routes/messages.py.
-# ``WAITING_FOR_EVENT`` (issue #2036) is emitted by ``mcp__brc__wait_loop`` while
-# it is blocking on a message filter. It is a liveness signal, not a state
+# ``WAITING_FOR_EVENT`` (issue #2036) is emitted by ``egg-orch message wait-loop``
+# while it is blocking on a message filter. It is a liveness signal, not a state
 # transition, so the dedup layer lets duplicates through for this state.
 HEARTBEAT_STATES: frozenset[str] = frozenset(
     {

@@ -5225,10 +5225,10 @@ class TestDualRoleExecutionOrdering:
     Background: across pipelines ``f4c7d780`` and ``8b81ed32`` the
     dual-role tester repeatedly entered a reviewer-style
     ``wait-loop --for CONSENSUS_PROPOSE`` before issuing its own
-    ``mcp__brc__propose``. The BRC round cannot close until every
-    producer has proposed, so the round burned 8–20 minutes per
-    slice until the tester eventually proposed. The fix is two
-    pieces of prompt scaffolding:
+    ``egg-orch consensus propose``. The BRC round cannot close
+    until every producer has proposed, so the round burned 8–20
+    minutes per slice until the tester eventually proposed. The
+    fix is two pieces of prompt scaffolding:
 
     1. An explicit *Dual-Role Execution Order* banner BEFORE the
        lifecycles stating the structural constraint and the strict

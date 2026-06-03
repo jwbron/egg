@@ -2,9 +2,10 @@
 
 Covers ``check_file_restriction`` (pure local read) and
 ``report_impasse`` (writes typed Impasse to the role's agent-output
-file). Both back the ``mcp__sdlc__check_file_restriction`` and
-``mcp__sdlc__report_impasse`` tools registered in
-``sandbox/egg_agent_tools/tools/sdlc.py``.
+file). Both back the ``egg-contract check-file-restriction`` and
+``egg-contract report-impasse`` CLI subcommands; the
+``mcp__sdlc__check_file_restriction`` / ``mcp__sdlc__report_impasse``
+MCP tools they previously also backed were retired in #2908 slice-6.
 """
 
 from __future__ import annotations
