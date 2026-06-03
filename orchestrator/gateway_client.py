@@ -2553,73 +2553,40 @@ class GatewayClient:
         pipeline_id: str,
         repo: str,
         *,
-        agent_role: str = "orchestrator",
-        mode: Literal["public", "private"] = "public",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        """List open PRs in ``repo`` via the existing per-agent ``gh pr list`` allowlist.
+        """List open PRs in ``repo`` via the orchestrator-only control-plane route.
 
-        Returns a list of PR dicts with at least ``number``,
-        ``head_ref``, ``base_ref`` shaped to match
-        :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s
-        contract. The transport is the standard
-        ``/api/v1/gh/execute`` route — ``pr list`` is on the
-        ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
-        (gateway/github_client.py) so no privileged endpoint is introduced
-        (decision-15).
+        Returns a list of PR dicts with ``number``, ``head_ref``,
+        ``base_ref`` shaped to match
+        :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s contract.
 
-        The synthetic session defaults to ``agent_role="orchestrator"`` so the
-        audit log attributes these calls to the orchestrator (the actual
-        caller) instead of impersonating a coder. The gateway's
-        ``AGENT_GH_RESTRICTIONS`` allowlist accepts that role for read-only
-        ``gh pr list`` calls (#2893).
+        Calls ``/api/v1/gh/list_open_prs`` with launcher auth (the control
+        plane holds the launcher secret), not a synthetic agent session.
+        The gateway runs ``gh pr list --repo <repo> --state open --limit
+        <N> --json number,headRefName,baseRefName`` server-side. This is
+        the seam #2922 established for :meth:`_lookup_open_pr`; #2925
+        completes the migration so the orchestrator is never modelled as an
+        ``AgentRole`` — it authenticates as the control plane, not as an
+        agent.
 
-        On any error (gateway 4xx/5xx, JSON parse failure) the
-        function logs and returns an empty list — the reconciler
-        treats this as "see no orphans this tick" which is safe.
+        On any error (gateway 4xx/5xx, JSON parse failure) the function
+        logs and returns an empty list — the context-PR opener and the
+        stacked-PR reconciler treat this as "no existing PR / see no
+        orphans this tick", which is safe (the opener falls through to
+        ``gh pr create``).
         """
         if not repo:
             return []
-        temp_container_id = f"{pipeline_id}-stacked-pr-list"
-        session_token: str | None = None
         try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                agent_role=agent_role,
-                synthetic=True,
-            )
-            session_token = session.session_token
-
-            args = [
-                "pr",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "open",
-                "--limit",
-                str(int(limit)),
-                "--json",
-                "number,headRefName,baseRefName",
-            ]
             result = self._make_request(
-                "/api/v1/gh/execute",
+                "/api/v1/gh/list_open_prs",
                 method="POST",
-                data={"args": args, "repo": repo},
-                bearer_token=session_token,
+                data={"repo": repo, "limit": int(limit)},
+                use_launcher_auth=True,
             )
-            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
-            try:
-                items = json.loads(stdout) if stdout.strip() else []
-            except ValueError, TypeError:
-                logger.debug(
-                    "list_open_prs: gh stdout not JSON",
-                    pipeline_id=pipeline_id,
-                    repo=repo,
-                )
+            items = (result.get("data", {}) or {}).get("prs", []) or []
+            if not isinstance(items, list):
                 return []
 
             normalised: list[dict[str, Any]] = []
@@ -2631,9 +2598,13 @@ class GatewayClient:
                 base_ref = item.get("baseRefName") or item.get("base_ref") or ""
                 if number is None or not head_ref:
                     continue
+                try:
+                    number_int = int(number)
+                except TypeError, ValueError:
+                    continue
                 normalised.append(
                     {
-                        "number": int(number),
+                        "number": number_int,
                         "head_ref": str(head_ref),
                         "base_ref": str(base_ref),
                     }
@@ -2647,12 +2618,6 @@ class GatewayClient:
                 error=str(exc),
             )
             return []
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
 
     def _lookup_open_pr(
         self,

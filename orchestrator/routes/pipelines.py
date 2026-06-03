@@ -10152,7 +10152,6 @@ def _open_context_pr_at_implement_start(
         open_prs = spawner.gateway.list_open_prs(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
-            mode=gateway_mode,
         )
     except Exception as list_err:
         raise ContextPrCreationError(
@@ -15577,8 +15576,11 @@ def _start_stacked_pr_reconciler(
 
     The list-callables (``list_open_prs`` and ``list_remote_branches``)
     forward to ``GatewayClient.list_open_prs`` /
-    ``GatewayClient.list_remote_branches`` — both route through
-    existing per-agent allowlists. The rebase callable forwards to
+    ``GatewayClient.list_remote_branches``. ``list_open_prs`` routes
+    through the launcher-authed control-plane route
+    ``/api/v1/gh/list_open_prs`` (#2925); ``list_remote_branches`` routes
+    through the existing per-agent ``git ls-remote`` allowlist. The rebase
+    callable forwards to
     ``GatewayClient.rebase_onto``, which performs the full local
     rebase + ``--force-with-lease`` push + ``gh api PATCH base=…``
     retarget so an orphaned child PR is fully healed on origin
@@ -15614,17 +15616,15 @@ def _start_stacked_pr_reconciler(
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
         # can detect children whose base branch was deleted (parent
-        # merged through the GitHub UI). Routes through the existing
-        # per-agent ``gh pr list`` allowlist on the gateway — no new
-        # privileged endpoint (decision-15).
+        # merged through the GitHub UI). Routes through the launcher-authed
+        # control-plane endpoint ``/api/v1/gh/list_open_prs`` — the
+        # orchestrator is the server that manages pipelines, not an agent,
+        # so it does not register a synthetic agent session or impersonate
+        # a role (#2922 / #2925).
         if not pr_repo:
             return []
         try:
-            # Stacked-PR reconciler is orchestrator-driven; the synthetic
-            # session uses ``agent_role="orchestrator"`` so the audit log
-            # attributes these `gh pr list` calls to the actual caller
-            # (the orchestrator) instead of impersonating a coder (#2893).
-            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="orchestrator"))
+            return list(gateway.list_open_prs(pipeline_id, pr_repo))
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "stacked_pr_reconciler: list_open_prs raised — treating as empty",

@@ -583,35 +583,6 @@ OVERSEER_PATTERNS = AgentFilePattern(
 )
 
 
-# Orchestrator role pattern (#2893)
-# The orchestrator role exists for audit-log attribution of read-only
-# gh pre-flights (e.g., `gh pr list`, `gh pr view`) issued by the
-# orchestrator itself. The orchestrator never pushes through the gateway's
-# agent restriction surface, so no file writes are allowed.
-ORCHESTRATOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.ORCHESTRATOR,
-    description="read-only role for gh pre-flights; no file writes allowed",
-    allowed_patterns=[],
-    # Defense-in-depth list; `allowed_patterns=[]` already denies all writes.
-    # These entries make the intent explicit for readers grepping for what
-    # the role cannot touch.
-    blocked_patterns=[
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "orchestrator/",
-        "docs/",
-        "tests/",
-        "test/",
-        ".egg-state/",
-        ".github/",
-    ],
-)
-
-
 # Autofixer agent pattern
 # The autofixer applies automated lint/type-check/formatting fixes to source
 # and config files.  It cannot modify docs or contracts.
@@ -764,7 +735,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
-    AgentRole.ORCHESTRATOR: ORCHESTRATOR_PATTERNS,
 }
 
 
@@ -867,7 +837,6 @@ def build_agent_patterns(
         AgentRole.OVERSEER: OVERSEER_PATTERNS,
         AgentRole.AUTOFIXER: autofixer,
         AgentRole.CONFLICT_RESOLVER: conflict_resolver,
-        AgentRole.ORCHESTRATOR: ORCHESTRATOR_PATTERNS,
     }
 
 

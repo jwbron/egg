@@ -45,8 +45,12 @@ from state_store import InvalidPipelineIdError, PipelineNotFoundError
 # ``EGG_WAIT_PRODUCER_ALLOWLIST`` (kubernetes_spawner
 # ``_WAIT_ALLOWLIST_SYSTEM_SENDERS``). They must stay accepted at the
 # route boundary so OVERSEER_ALERT / CONSENSUS_RE_REVIEW keep waking
-# scoped waiters. Kept separate from ``AgentRole`` because neither
-# ``overseer`` nor ``orchestrator`` is a spawnable agent role.
+# scoped waiters. Listed here rather than derived solely from
+# ``AgentRole`` because ``orchestrator`` is not in the ``AgentRole`` enum
+# at all — the control plane is not a spawnable agent role (#2925); it
+# emits these system events on its own behalf. (``overseer`` is also in
+# the enum, so the union below would cover it regardless; it is named
+# here for completeness alongside the orchestrator.)
 _SYSTEM_FROM_PRODUCER_SENDERS: frozenset[str] = frozenset({"overseer", "orchestrator"})
 
 
