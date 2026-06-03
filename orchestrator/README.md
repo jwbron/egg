@@ -88,7 +88,7 @@ Before each pipeline phase starts, the orchestrator syncs the agent worktree wit
 
 - **Prior phase succeeded + local ahead of remote:** Local commits are pushed to remote before resetting, preserving completed work.
 - **Prior phase failed + local ahead of remote:** Local commits are discarded and the worktree is reset to remote, removing incomplete work.
-- **Local and remote diverged:** A fast-forward merge is attempted. If the merge fails, the orchestrator logs an error and leaves the worktree unchanged (may require manual intervention).
+- **Local and remote diverged:** Local commits are rebased onto `origin/<branch>`, auto-resolving conflicts confined to `.egg-state/agent-outputs/` in favor of the remote. If the rebase cannot reconcile (a conflict outside that path), the orchestrator pins the local-only commits under a backup ref (`refs/egg-backup/sync-recovery/<pipeline_id>/<ts>`), hard-resets the worktree to `origin/<branch>`, marks the pipeline FAILED, and surfaces a hard-reset recovery HITL ack (#2792/#2797). _Note: this destructive recovery is being redesigned to reconcile non-destructively — see #2979._
 - **Local behind or in-sync with remote:** Standard reset to remote tip.
 
 ### HITL Decisions

@@ -819,6 +819,160 @@ class TestContinueWithoutExcusesReviewer:
         mock_get_tracker.assert_not_called()
 
 
+class TestChoiceEnvelopeDispatchNormalization:
+    """#2978: dispatch must unwrap the ``{"action": "select", "selected": ...}``
+    envelope before comparing against bare option labels.
+
+    The SDLC HITL CLI (`sandbox/egg_lib/sdlc_hitl.py`) wraps every
+    `choice` resolution in that envelope; ``resolve_decision`` serializes
+    it into ``decision.resolution``.  Bare-string compares against
+    ``"Restart agent"`` / ``"Continue without"`` would otherwise miss
+    every structured operator selection and silently drop the dispatch
+    while still marking the decision RESOLVED — wedging the pipeline.
+
+    The persisted ``decision.resolution`` (and the ``DECISION_RESOLVED``
+    event payload) intentionally still carry the raw envelope so the
+    audit trail records what the operator actually sent.
+    """
+
+    @patch("routes.decisions._handle_restart_agent")
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_restart_agent_envelope_triggers_restart(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_emit,
+        mock_handle_restart,
+        client,
+        tmp_path,
+    ):
+        """An envelope-wrapped ``Restart agent`` resolution must invoke
+        ``_handle_restart_agent``; bare-string compare misses it."""
+        import json
+
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+        envelope = json.dumps({"action": "select", "selected": "Restart agent"})
+        resolved_decision = _make_decision(
+            question="Agent reviewer_code issue: stalled",
+            status="resolved",
+            resolution=envelope,
+        )
+        resolved_decision.context = ""
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": "Restart agent"}},
+        )
+
+        assert response.status_code == 200
+        mock_handle_restart.assert_called_once_with(
+            "test-pipeline", "Agent reviewer_code issue: stalled"
+        )
+
+    @patch("routes.decisions._handle_restart_agent")
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolution_persisted_as_envelope_for_audit_trail(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_emit,
+        mock_handle_restart,
+        client,
+        tmp_path,
+    ):
+        """Even when dispatch unwraps the envelope, the persisted
+        ``decision.resolution`` and the ``DECISION_RESOLVED`` event keep
+        the raw envelope so the audit trail records exactly what the
+        operator sent.
+        """
+        import json
+
+        from events import EventType
+
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+        envelope = json.dumps({"action": "select", "selected": "Restart agent"})
+        resolved_decision = _make_decision(
+            question="Agent reviewer_code issue: stalled",
+            status="resolved",
+            resolution=envelope,
+        )
+        resolved_decision.context = ""
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": "Restart agent"}},
+        )
+
+        assert response.status_code == 200
+        # Dispatch ran on the unwrapped label.
+        mock_handle_restart.assert_called_once()
+        # The persisted/emitted payload kept the raw envelope.
+        assert response.get_json()["data"]["decision"]["resolution"] == envelope
+        mock_emit.assert_called_once_with(
+            EventType.DECISION_RESOLVED,
+            pipeline_id="test-pipeline",
+            data={
+                "decision_id": "decision-1",
+                "resolution": envelope,
+            },
+        )
+
+    @patch("routes.decisions.get_peer_consensus_tracker")
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_continue_without_envelope_calls_excuse_reviewer(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_emit,
+        mock_get_tracker,
+        client,
+        tmp_path,
+    ):
+        """An envelope-wrapped ``Continue without`` on a
+        ``failed_role:<role>`` decision must still excuse the reviewer
+        so BRC consensus can proceed."""
+        import json
+
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+        envelope = json.dumps({"action": "select", "selected": "Continue without"})
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution=envelope,
+        )
+        resolved_decision.context = "failed_role:reviewer_code"
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        mock_tracker = MagicMock()
+        mock_tracker.excuse_reviewer.return_value = {
+            "status": "excused",
+            "role": "reviewer_code",
+            "affected_producers": ["coder"],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": "Continue without"}},
+        )
+
+        assert response.status_code == 200
+        mock_tracker.excuse_reviewer.assert_called_once_with("reviewer_code")
+
+
 class TestCancelDecisionEndpoint:
     """Tests for POST cancel-decision endpoint."""
 
