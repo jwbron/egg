@@ -2224,6 +2224,10 @@ class TestPlannerRoleAlignmentValidation:
     # documenter's scope). Note: coder→test-files is NO LONGER a violation —
     # the coder authors its own tests now (intentional overlap with the
     # tester), so this fixture uses a docs file to exercise the reject path.
+    # (Cherry-picked from main #2936 in the slice-4 v3 cycle to match the
+    # current validator semantics; the original slice-3 conflict-resolution
+    # kept the old ``integration_tests/conftest.py`` fixture but that path
+    # no longer trips the validator post-#2936.)
     _PLAN_WITH_MISASSIGNED_TASK = (
         "# Plan\n"
         "\n"
@@ -3780,17 +3784,11 @@ class TestReviewerPreparation:
         assert "acceptance criteria" in prep.lower()
         assert "egg-contract show" in prep
 
-    def test_tester_prep_waits_for_coder_before_writing_tests(self):
-        """Tester prep identifies edge cases but defers writing tests until the
-        coder proposes (coder authors its own tests; tester reviews-and-hardens).
-        """
+    def test_tester_gets_test_scaffolding(self):
+        """Tester prep includes test scaffolding and edge case identification."""
         prep = _build_reviewer_preparation("tester", "implement")
-        lower = prep.lower()
-        assert "edge case" in lower
-        assert "test" in lower
-        # Must tell the tester NOT to write tests while waiting.
-        assert "do not write test" in lower
-        assert "consensus_propose" in lower
+        assert "edge case" in prep.lower()
+        assert "test" in prep.lower()
 
     def test_plan_reviewer_gets_architecture_exploration(self):
         """Plan reviewer prep includes codebase architecture exploration."""
@@ -3848,25 +3846,24 @@ class TestProducerOrientation:
         assert "test" in orient.lower()
         assert "edge case" in orient.lower()
 
-    def test_tester_orientation_directs_review_and_harden_after_propose(self):
-        """Tester producer orientation tells the tester to orient only until
-        the coder proposes, then review-and-harden the coder's tests.
+    def test_tester_orientation_directs_scaffold_first(self):
+        """Tester producer orientation tells tester to draft scaffolds before
+        wait-loop on coder.
 
-        Inverts the old #2249 scaffold-first directive: the coder now authors
-        its own tests, so the tester has nothing to scaffold ahead of time and
-        must wait for the coder's CONSENSUS_PROPOSE before producing. Guards
-        against the scaffold-first prose creeping back.
+        Issue #2249: the scaffold-first instruction previously lived only in
+        the reviewer-preparation block; the producer-orientation block (which
+        is what tester reads while deciding whether to call wait-loop) had no
+        such directive. Mirror it on the producer side so the comfort path
+        (`wait-loop`) does not pull tester away from work it could do without
+        coder output.
         """
         orient = _build_producer_orientation("tester", "implement", [])
-        lower = orient.lower()
-        # Wait-for-propose, review-and-harden model.
-        assert "harden" in lower
-        assert "consensus_propose" in lower
-        # Must NOT write tests before the coder proposes.
-        assert "do not write test files before" in lower or "do not write test" in lower
-        # Old scaffold-first prose must be gone.
-        assert "scaffold" not in lower
-        assert "tasks[].files" not in orient
+        assert "scaffold" in orient.lower()
+        assert "wait-loop" in orient.lower()
+        # The directive must point at plan-derived scaffolding inputs so the
+        # agent has a concrete starting point, not just a mandate.
+        assert "tasks[].files" in orient
+        assert "acceptance criteria" in orient.lower()
 
     def test_tester_orientation_contains_dual_mandate_pointer(self):
         """Tester orientation carries a brief dual-mandate pointer, NOT the
@@ -5392,6 +5389,14 @@ class TestDualRoleExecutionOrdering:
     # The pure-producer / pure-reviewer leakage guards die with the
     # underlying filter assertions — the dual-role banner-presence /
     # banner-absence tests above remain the structural pins.
+    #
+    # The coder-owns-tests refinement (#2936) merged in via slice-4
+    # rephrases the banner: the tester's first invocation does
+    # ORIENT/PREPARE only; the wrapper re-invokes it on the coder's
+    # ``CONSENSUS_PROPOSE`` with the proposal in event_payload, and
+    # the tester does its producer WORK + PROPOSE + ACK/NACK in that
+    # single invocation. The structural banner-presence pin still
+    # captures this — see test_dual_role_banner_fall_through_mentions_step_4_review.
 
     def test_dual_role_banner_fall_through_mentions_step_4_review(self):
         """The dual-role banner's strict-order body must still name the
