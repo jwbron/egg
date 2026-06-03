@@ -1209,12 +1209,14 @@ spawn.
 |------------------|-----|
 | Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
 | Dual-role ordering banner | Dual-role agents (e.g. `tester`) still need the ordering invariant — wrapper dispatches both sides, but the agent must know to address them in the documented sequence. |
-| Dual-mandate adversarial re-review banner (`_build_brc_preamble`'s "Your re-review has TWO equal-weight mandates …" block at `orchestrator/routes/pipelines.py:12849-12872` post-collapse) | Behavioural framing for re-review correctness; anchored on by risk_analyst R6 and not a wait-mechanics concern. |
+| Dual-mandate adversarial re-review banner (`_build_brc_preamble`'s "Your re-review has TWO equal-weight mandates …" block at `orchestrator/routes/pipelines.py:12561-12573` post-collapse) | Behavioural framing for re-review correctness; anchored on by risk_analyst R6 and not a wait-mechanics concern. |
 
 The three caller sites at `orchestrator/routes/pipelines.py:13659`,
 `:13692`, `:13720` (post-collapse positions per the slice-3 contract
-spec) are **unchanged** by the collapse — only the preamble text
-shrinks, the calling pattern is identical. The collapse runs
+spec; prefer the `_build_brc_preamble` function name as the
+navigation anchor since line numbers drift with surrounding edits)
+are **unchanged** by the collapse — only the preamble text shrinks,
+the calling pattern is identical. The collapse runs
 **unconditionally** at every agent spawn: the event-pump wrapper is
 now the only consensus-wrapper path (see
 [BRC Consensus Wrapper](#brc-consensus-wrapper)), and the collapsed
@@ -1224,9 +1226,10 @@ The snapshot regression test at
 `orchestrator/tests/test_brc_preamble_collapsed.py` (slice-3 task-3-7)
 pins (a) absence of STAY-ALIVE / wait-loop / cursor strings;
 (b) presence of the agent roster; (c) presence of the phrase "Both
-must pass to ACK" (located inside the dual-mandate banner —
-`pipelines.py:12856-12857` is the post-collapse target the contract
-spec uses for the snapshot anchor); (d) a ≥ 25% byte-size drop
+must pass to ACK" (located inside the dual-mandate banner at
+`pipelines.py:12567`, post-collapse — again, prefer the banner
+substring "Both must pass to ACK" as the anchor since the line
+number drifts with surrounding edits); (d) a ≥ 25% byte-size drop
 against the pre-collapse baseline (a softening from the
 originally-proposed 40% per the reviewer_plan v2 non-blocker — the
 precise number is set by the snapshot baseline rather than a
