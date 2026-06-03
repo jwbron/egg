@@ -7032,8 +7032,14 @@ def _sync_worktree_with_remote(
     compatibility with non-pipeline scripts.
 
     When local is ahead of remote:
-    - If the prior phase succeeded, push local commits to remote first,
-      then reset to origin (preserves completed work).
+    - If the prior phase succeeded, push local commits to remote first.
+      On a successful push, reset to origin (a no-op fast-forward that
+      keeps the worktree clean).  If the push FAILS, the local commits
+      are preserved as-is and the function returns without resetting —
+      ``remote_ahead == 0`` means origin holds nothing to incorporate, so
+      a ``reset --hard origin`` would only discard completed, committed
+      work (e.g. agent-registered HITL contract decisions) before the
+      phase_gate decision bridge could surface them (#2972).
     - If the prior phase failed or was killed, discard local commits and
       reset to remote (discards incomplete work).
 
@@ -7254,6 +7260,24 @@ def _sync_worktree_with_remote(
                 )
                 return WorktreeSyncOutcome(case="local_ahead_pushed")
             else:
+                # Push failed.  ``remote_ahead == 0`` in this branch, so
+                # origin holds nothing the worktree lacks — resetting to
+                # origin here would discard the completed, committed local
+                # work (e.g. the agent-registered HITL contract decisions
+                # the pre-sync ``_commit_statefiles_to_worktree`` just
+                # committed) for ZERO reconcile benefit, then advance
+                # silently.  That is exactly how #2972 dropped a refiner's
+                # ``register_open_question`` / ``request_feedback`` items
+                # before the phase_gate decision bridge could surface them:
+                # the prior code fell through to the Step-4 ``reset --hard``
+                # and returned ``reset_succeeded`` (``hard_reset_performed``
+                # False), so no operator signal fired.  Preserve the local
+                # commits instead — they remain in the worktree for
+                # downstream reads (the decision bridge, populator) and for
+                # the next push attempt.  The WARNING below is the loud
+                # breadcrumb that the tip is unpushed; unlike the divergence
+                # path (``remote_ahead > 0``) there is no remote work to
+                # rebase onto, so non-destructive preservation is correct.
                 logger.warning(
                     "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
@@ -7265,6 +7289,7 @@ def _sync_worktree_with_remote(
                     category=push_result.category,
                     error=push_result.detail,
                 )
+                return WorktreeSyncOutcome(case="local_ahead_push_failed")
         else:
             # Prior phase failed — incomplete local work will be discarded by
             # the step-4 reset. Emit a distinct case so operators can grep
@@ -7279,8 +7304,10 @@ def _sync_worktree_with_remote(
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
             )
-        # Fall through to reset (Step 4) — discards local work when prior phase
-        # failed, or recovers via reset after a push failure.
+        # Fall through to reset (Step 4) — discards incomplete local work
+        # from a failed/killed prior phase.  (The successful-phase
+        # push-failure case returns above without resetting so completed
+        # work is never silently dropped — #2972.)
 
     elif local_ahead > 0 and remote_ahead > 0:
         # True divergence.  Reconcile by rebasing local commits onto
