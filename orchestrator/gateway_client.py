@@ -2540,6 +2540,11 @@ class GatewayClient:
                 # *un-started* branch still sitting at its base on the
                 # fast-forward push path (advancing it to the new parent
                 # tip) rather than pinning it to the stale base.
+                # ``existing_sha`` and ``integration_base_sha`` both
+                # originate from ``get_remote_branch_sha`` (full 40-char
+                # SHAs), so an exact compare is correct (same invariant as
+                # the #2871 un-started-branch guard in
+                # ``is_slice_branch_merged_into_parent``).
                 if (
                     integration_base_sha
                     and existing_sha != integration_base_sha

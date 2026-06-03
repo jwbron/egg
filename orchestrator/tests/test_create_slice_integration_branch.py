@@ -797,10 +797,26 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
 
         return fake_get_remote_branch_sha
 
-    def _create(self, gateway_client, fake_make_request, remotes, *, base_sha):
+    def _create(
+        self,
+        gateway_client,
+        fake_make_request,
+        remotes,
+        *,
+        base_sha,
+        delete_calls: list[str] | None = None,
+        session_token: str = "tok-resume",
+    ):
+        def fake_delete(token):
+            if delete_calls is not None:
+                delete_calls.append(token)
+            return True
+
         with (
-            patch.object(gateway_client, "register_session", return_value=_session_info()),
-            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(
+                gateway_client, "register_session", return_value=_session_info(session_token)
+            ),
+            patch.object(gateway_client, "delete_session", side_effect=fake_delete),
             patch.object(gateway_client, "fetch_branch", return_value=True),
             patch.object(gateway_client, "get_remote_branch_sha", side_effect=remotes),
             patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
@@ -823,6 +839,7 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         parent_sha = "a2a2a2a2" * 5  # slice-2 tip, advanced additively
         push_invoked: list[dict] = []
         merge_base_args: list[list[str]] = []
+        delete_calls: list[str] = []
         ancestry = {
             (parent_sha, existing_sha): False,  # #2512: parent NOT ancestor of existing
             (base_sha, existing_sha): True,  # base IS ancestor of existing (our branch)
@@ -835,6 +852,8 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             ),
             self._remotes(parent_sha, existing_sha),
             base_sha=base_sha,
+            delete_calls=delete_calls,
+            session_token="tok-resume-incident",
         )
 
         assert ok is True, "additive-advance + own commits must resume in place"
@@ -848,6 +867,18 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
             [base_sha, existing_sha],
             [base_sha, parent_sha],
         ]
+        # Symmetric coverage for ``test_push_failure_returns_false_and_cleans
+        # _up_session``: the new ``return True`` lives inside the outer
+        # ``try``, so ``delete_session`` must still fire from the ``finally``
+        # on this success path. Pinning it here freezes that — a future
+        # refactor that moved the early-return outside the try (or skipped
+        # session cleanup) would leak the synthetic session on every
+        # resume-in-place recovery.
+        assert delete_calls == ["tok-resume-incident"], (
+            "synthetic session must be deleted on the resume-in-place "
+            "success path (the ``finally`` must still fire despite the "
+            "early ``return True``)"
+        )
 
     def test_parent_rebase_falls_through_to_push(self, gateway_client):
         """If the parent was *rewritten* (rebase) rather than advanced
@@ -907,6 +938,11 @@ class TestCreateSliceIntegrationBranchResumeInPlace:
         )
 
         assert len(push_invoked) == 1, "unknown work must fall through to the push"
+        # Symmetric with ``test_parent_rebase_falls_through_to_push``: pin the
+        # refspec so a hypothetical regression that pushed the wrong SHA in
+        # the garbage-branch case (e.g. ``existing_sha`` or ``base_sha``
+        # instead of ``parent_sha``) would surface here.
+        assert push_invoked[0]["refspec"] == f"{parent_sha}:refs/heads/{self._INT}"
         # base->parent must NOT run — the conjunction short-circuits once
         # base->existing is False.
         assert [a[1:] for a in merge_base_args] == [
