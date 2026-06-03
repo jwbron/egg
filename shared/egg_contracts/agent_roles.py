@@ -214,8 +214,8 @@ CODER_ROLE = AgentRoleDefinition(
             ".egg-state/agent-outputs/",  # For handoff data
             # Issue #2508: staging dir for proposed `.github/` changes.
             # `.github/` itself is blocked below; the agent stages the
-            # proposed end-state here and the PR builder emits a manual
-            # step asking the human reviewer to move the files into
+            # proposed end-state here and calls the staged files out
+            # in its PR body so the human reviewer moves them into
             # `.github/` before merge.
             ".github-staging/",
         ],

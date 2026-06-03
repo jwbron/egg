@@ -1681,8 +1681,8 @@ def _check_role_files(task: Task, slice_id: str, repo: str | None = None) -> str
             "No producer role can push every file in this task. Either "
             "split the task so each subtask falls within a single "
             "role's scope, or — for `.github/` files — stage them "
-            "under top-level `.github-staging/` and let the PR "
-            "builder emit a manual reviewer step (issue #2508)."
+            "under top-level `.github-staging/` and call them out in "
+            "the PR body for the human reviewer (issue #2508)."
         )
     return (
         f"Task '{task.id}' (slice '{slice_id}') is assigned role "

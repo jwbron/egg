@@ -6186,15 +6186,14 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
         "end-state to top-level `.github-staging/`, mirroring the "
         "`.github/` structure (e.g. a proposed change to "
         "`.github/workflows/ci.yml` is staged at "
-        "`.github-staging/workflows/ci.yml`). The orchestrator's PR "
-        "builder auto-detects `.github-staging/` and emits a manual "
-        "step asking the human reviewer to move the staged files into "
-        "place before merge. Assign such tasks to `role: coder` and "
-        "make the staging path explicit in the task's "
-        "`files_affected`. `.github-staging/` must remain tracked by "
-        "git (do not add it to `.gitignore`); otherwise the staged "
-        "files won't be in the PR commit and the reviewer's `git mv` "
-        "will fail."
+        "`.github-staging/workflows/ci.yml`). The producing agent must "
+        "call the staged files out in the PR body so the human "
+        "reviewer moves them into `.github/` before merge. Assign such "
+        "tasks to `role: coder` and make the staging path explicit in "
+        "the task's `files_affected`. `.github-staging/` must remain "
+        "tracked by git (do not add it to `.gitignore`); otherwise the "
+        "staged files won't be in the PR commit and the reviewer's "
+        "`git mv` will fail."
     )
     lines.append("")
 
@@ -9523,129 +9522,6 @@ def _build_brc_history_link_line(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
     )
     return f"_Per-phase BRC transcripts: {links}._"
-
-
-def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
-    """Render the auto manual-step for `.github-staging/` files (issue #2508).
-
-    Producer agents (coder, etc.) cannot push to `.github/` because the
-    gateway blocks the path as a branch-protection invariant.  When a
-    plan calls for CI workflow or CODEOWNERS changes, the agent instead
-    writes the proposed end-state to top-level `.github-staging/`,
-    mirroring the `.github/` structure.  This helper scans that
-    directory and returns a markdown step the human reviewer must
-    complete before merge: review the staged files, move them into
-    `.github/`, delete the staging dir, and push the resulting commit.
-
-    Returns an empty string when `.github-staging/` is absent or empty.
-    """
-    staging_dir = worktree_repo_path / ".github-staging"
-    # Drop the whole step when ``.github-staging`` itself is a symlink:
-    # ``Path.is_dir()`` follows symlinks, so without this guard a
-    # ``.github-staging -> /etc`` (or any other host path) would let
-    # ``rglob`` enumerate the link target's files into the manual-step
-    # file list, polluting the PR body with arbitrary host-filesystem
-    # paths. Mirrors the per-entry symlink guard below.
-    if staging_dir.is_symlink():
-        return ""
-    if not staging_dir.is_dir():
-        return ""
-
-    staged_paths: list[str] = []
-    for path in sorted(staging_dir.rglob("*")):
-        # Skip symlinks: ``Path.is_file()`` follows them, so without this
-        # guard a staged ``.github-staging/evil.yml`` → ``/etc/passwd``
-        # would be surfaced in the manual-step file list, the reviewer's
-        # ``git mv`` would preserve it, and ``.github/evil.yml`` would
-        # land in the repo as a symlink. The reviewer's only mitigation
-        # would be the diff (where a symlink shows as a small mode
-        # change that's easy to skim past). Drop staged symlinks here so
-        # the helper is the choke point.
-        if path.is_symlink():
-            continue
-        if not path.is_file():
-            continue
-        try:
-            rel = path.relative_to(worktree_repo_path).as_posix()
-        except ValueError:
-            continue
-        staged_paths.append(rel)
-
-    if not staged_paths:
-        return ""
-
-    # Compute concrete move commands per staged file, choosing
-    # ``git mv`` vs ``git rm`` + ``git mv`` based on whether the target
-    # ``.github/<rest>`` already exists.  ``git mv`` refuses to
-    # overwrite an existing destination, so a template that always
-    # emits the plain form breaks for replacement scenarios (e.g.
-    # restaging an existing workflow).
-    staging_prefix = ".github-staging/"
-    target_prefix = ".github/"
-    mkdir_dirs: list[str] = []
-    move_cmds: list[str] = []
-    for rel in staged_paths:
-        if not rel.startswith(staging_prefix):
-            continue
-        rest = rel[len(staging_prefix) :]
-        target_rel = f"{target_prefix}{rest}"
-        target_dir = target_rel.rsplit("/", 1)[0] if "/" in rest else target_prefix.rstrip("/")
-        if target_dir and target_dir not in mkdir_dirs:
-            mkdir_dirs.append(target_dir)
-        target_abs = worktree_repo_path / target_rel
-        # ``Path.exists()`` follows symlinks and returns False for a
-        # broken link, so an existing-but-broken symlink would slip
-        # through the existence check and ``git mv`` would still refuse
-        # to overwrite it. ``Path.is_symlink()`` returns True regardless
-        # of whether the target resolves, so the disjunction catches
-        # regular files, valid symlinks, and broken symlinks.
-        if target_abs.is_symlink() or target_abs.exists():
-            move_cmds.append(f"git rm {target_rel}  # target exists; remove before mv")
-        move_cmds.append(f"git mv {rel} {target_rel}")
-
-    lines = [
-        "### Move staged `.github/` changes (auto-generated, issue #2508)",
-        "",
-        "This PR includes proposed `.github/` changes under `.github-staging/`. "
-        "Agent roles cannot push to `.github/` directly (CI workflow / CODEOWNERS "
-        "branch-protection invariant), so the agent staged the proposed "
-        "end-state for human review.",
-        "",
-        "Staged files:",
-    ]
-    for rel in staged_paths:
-        lines.append(f"- `{rel}`")
-    lines.extend(
-        [
-            "",
-            "Before merging:",
-            "",
-            "1. Review each staged file for correctness — these are proposed "
-            "CI / repo-config changes that bypass the agent's normal sandbox.",
-            "2. Run the following to move each staged file into `.github/` "
-            "(commands below are pre-computed for this PR; replacement targets "
-            "are handled via `git rm` + `git mv` since `git mv` refuses to "
-            "overwrite an existing destination):",
-            "   ```",
-        ]
-    )
-    for d in mkdir_dirs:
-        lines.append(f"   mkdir -p {d}")
-    for cmd in move_cmds:
-        lines.append(f"   {cmd}")
-    lines.extend(
-        [
-            "   ```",
-            "   After the moves, `.github-staging/` is no longer tracked "
-            "by git (git doesn't track empty directories). Run "
-            "`rm -rf .github-staging` locally if you want to clear any "
-            "leftover empty subdirectories from your worktree.",
-            "3. Commit the move and push from a context with the GitHub "
-            "`workflow` scope (a normal user push works; the bot token may "
-            "not — see issue #2508 layer 2).",
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _derive_producer_roles_with_tasks(
@@ -13406,9 +13282,10 @@ def _build_file_boundary_section(role_value: str, repo: str | None = None) -> st
             "end-state to top-level `.github-staging/` instead, mirroring "
             "the `.github/` structure (e.g. stage "
             "`.github/workflows/test-e2e.yml` as "
-            "`.github-staging/workflows/test-e2e.yml`). The PR builder "
-            "auto-emits a manual step asking the human reviewer to move "
-            "the staged files into place before merge — see issue #2508."
+            "`.github-staging/workflows/test-e2e.yml`). Call out the "
+            "staged files explicitly in your PR body so the human reviewer "
+            "knows to move them into `.github/` before merge — see issue "
+            "#2508."
         )
     lines.append("")
     return "\n".join(lines)
