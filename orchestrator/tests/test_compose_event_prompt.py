@@ -485,6 +485,136 @@ def test_pathological_nacks_payload_is_hard_truncated_under_envelope_cap() -> No
     assert "## What to do" in prompt
 
 
+def test_production_shaped_open_barrier_payload_honours_envelope_cap() -> None:
+    """The production NACK payload is rendered ONCE, not twice.
+
+    Reviewer re-review finding (commit ``aaaa17f1``): the prior
+    truncation pass only touched ``nacks_section``, but the same NACK
+    payload was also embedded verbatim inside ``event_section`` via
+    ``json.dumps(event_payload, ...)`` because the production payload
+    from ``_producer_has_open_barrier`` /
+    ``_producer_has_unresolved_nacks_on_current_version`` puts the
+    full ``nacks`` / ``unresolved_nacks`` list directly inside the
+    event payload (see ``orchestrator/routes/consensus.py:233-249``
+    and ``:340-358``). That meant the worked example — 6 reviewers ×
+    multi-KB reasons — sailed past the 10 KiB cap because the JSON
+    copy was untouched. The fix strips the NACK keys from the JSON
+    block and routes them through the single ``nacks_section`` path
+    that the envelope cap actually governs.
+
+    This test pins the production-shaped payload (NACKs in both
+    ``event_payload`` AND in the ``nacks`` argument, matching what
+    ``_cli`` does at runtime via ``_extract_nacks``) and asserts the
+    envelope stays under the cap.
+    """
+    nacks = [
+        {
+            "reviewer": f"reviewer_{i}",
+            "version": 2,
+            "reason": ("Pathologically long blocker. " * 100),  # ~2.8 KB each
+            "artifact_refs": [f"src/file_{i}.py"],
+            "timestamp": "2026-06-02T12:00:00Z",
+        }
+        for i in range(6)
+    ]
+    # Production shape from _producer_has_open_barrier — NACKs are
+    # embedded directly in the event payload that flows through to the
+    # composer. ``_cli`` then calls ``_extract_nacks(event_payload)``
+    # and passes the result as the ``nacks`` argument, so in
+    # production the same data is in both places.
+    event_payload = {
+        "status": "open_nacks_blocked",
+        "producer": "coder",
+        "current_version": 2,
+        "nacking_reviewers": [n["reviewer"] for n in nacks],
+        "nacks": nacks,
+        "action": "propose",
+    }
+
+    prompt = compose_event_prompt(
+        "coder",
+        event_payload,
+        "",
+        nacks,
+        [],
+        "main",
+    )
+
+    prompt_bytes = len(prompt.encode("utf-8"))
+    assert prompt_bytes <= PROMPT_ENVELOPE_MAX_BYTES, (
+        f"envelope is {prompt_bytes} > {PROMPT_ENVELOPE_MAX_BYTES} bytes — "
+        "production-shaped NACK payload (nacks in event_payload AND in the "
+        "nacks argument) must not silently push the envelope past the cap."
+    )
+    # The JSON event block must NOT contain the full NACK list — only
+    # the cross-reference marker. The reviewer's worked-example
+    # reproduction relied on the second copy of the NACK list being
+    # baked into the JSON; that has to be gone now.
+    json_block_match = re.search(r"```json\n(.*?)\n```", prompt, flags=re.DOTALL)
+    assert json_block_match, "event JSON block missing"
+    json_block = json_block_match.group(1)
+    assert "Pathologically long blocker" not in json_block, (
+        "NACK ``reason`` text leaked into the event_section JSON — strip pass "
+        "in _render_event_section is not stripping the nacks key."
+    )
+    assert "rendered in the" in json_block, (
+        "cross-reference marker missing — the agent should still see that "
+        "NACKs are attached and where to find them."
+    )
+    # The full NACK list (markdown rendering, or truncated form) lives
+    # in ``nacks_section`` — the single source of truth.
+    assert "## Open NACKs against the current proposal version" in prompt
+    # Role banner + contract survive.
+    assert "Role: coder" in prompt
+    assert "## What to do" in prompt
+
+
+def test_production_shaped_unresolved_nacks_payload_honours_envelope_cap() -> None:
+    """Single-reviewer ``unresolved_nacks`` shape also goes through the strip pass.
+
+    ``_producer_has_unresolved_nacks_on_current_version`` is the
+    single-reviewer NACK case; ``_derive_next_action`` puts the result
+    under the ``unresolved_nacks`` key (consensus.py:340-358). Same
+    bug class as the multi-reviewer barrier: if the JSON block embeds
+    the full list, the envelope can balloon under a pathologically
+    chatty single reviewer.
+    """
+    nacks = [
+        {
+            "reviewer": "reviewer_code",
+            "version": 3,
+            "reason": ("Pathologically long single-reviewer blocker. " * 200),  # ~9 KB
+            "artifact_refs": ["src/file.py"],
+        }
+    ]
+    event_payload = {
+        "unresolved_nacks": nacks,
+        "producer": "coder",
+        "action": "propose",
+    }
+
+    prompt = compose_event_prompt(
+        "coder",
+        event_payload,
+        "",
+        nacks,
+        [],
+        "main",
+    )
+
+    prompt_bytes = len(prompt.encode("utf-8"))
+    assert prompt_bytes <= PROMPT_ENVELOPE_MAX_BYTES, (
+        f"envelope is {prompt_bytes} > {PROMPT_ENVELOPE_MAX_BYTES} bytes — "
+        "unresolved_nacks shape must be stripped from event JSON same as nacks."
+    )
+    json_block_match = re.search(r"```json\n(.*?)\n```", prompt, flags=re.DOTALL)
+    assert json_block_match, "event JSON block missing"
+    json_block = json_block_match.group(1)
+    assert "Pathologically long single-reviewer" not in json_block, (
+        "unresolved_nacks reason leaked into event_section JSON"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Defensive shape — empty / None inputs
 # ---------------------------------------------------------------------------

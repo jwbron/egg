@@ -103,6 +103,38 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 1] + "…"
 
 
+# Keys carrying the variable-size NACK payload that ``_render_nacks_section``
+# already renders. We strip these from the JSON copy in
+# ``_render_event_section`` so the envelope-cap pass over ``nacks_section``
+# is the single source of truth for the rendered NACK bytes.
+_NACK_PAYLOAD_KEYS: tuple[str, ...] = ("nacks", "unresolved_nacks", "aggregated_nacks")
+
+
+def _strip_nacks_for_json(event_payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of ``event_payload`` with NACK lists replaced.
+
+    Each NACK key present in the original is replaced with a small
+    cross-reference marker (``"<rendered in '## Open NACKs ...' section>"``
+    plus the entry count) so the agent still sees that NACKs are
+    attached and that the full payload lives in the dedicated section
+    that the envelope-cap pass governs. The structural shape of the
+    payload (keys, ordering, non-NACK values) is preserved so the agent
+    can still inspect the rest of the JSON for context.
+    """
+    out: dict[str, Any] = {}
+    for key, value in event_payload.items():
+        if key in _NACK_PAYLOAD_KEYS and isinstance(value, list):
+            out[key] = (
+                f"<{len(value)} entr{'y' if len(value) == 1 else 'ies'} "
+                "rendered in the '## Open NACKs against the current proposal "
+                "version' section below; truncated under the envelope budget "
+                "when oversized>"
+            )
+        else:
+            out[key] = value
+    return out
+
+
 def _render_event_section(role: str, event_payload: dict[str, Any] | None) -> str:
     """Render the role banner + event description.
 
@@ -110,6 +142,18 @@ def _render_event_section(role: str, event_payload: dict[str, Any] | None) -> st
     indent) so the rendering is deterministic — two callers with the
     same payload produce byte-identical output, which lets snapshot
     tests pin the shape without sensitivity to dict-iteration order.
+
+    Variable-size NACK lists (``nacks`` / ``unresolved_nacks`` /
+    ``aggregated_nacks``) are stripped from the JSON before rendering
+    so the same data is not also embedded here — ``_render_nacks_section``
+    is the single source of truth for the rendered NACK list, and it
+    honours the ``PROMPT_ENVELOPE_MAX_BYTES`` truncation budget.
+    Without this strip the NACK payload appears twice in the envelope
+    (once as JSON here, once as markdown in nacks_section), defeating
+    the envelope cap because the truncation pass only touches the
+    nacks_section copy. The stripped keys are replaced with a
+    cross-reference marker so the agent still sees that NACKs are
+    attached and where to find them.
     """
     if event_payload is None:
         event_payload = {}
@@ -118,7 +162,10 @@ def _render_event_section(role: str, event_payload: dict[str, Any] | None) -> st
         # ``next-action`` puts the chosen verb under ``action`` (see
         # ``orchestrator/routes/consensus.py``'s ``_VALID_ACTIONS``).
         action = str(event_payload.get("action") or "")
-    payload_json = json.dumps(event_payload, indent=2, sort_keys=True)
+        payload_for_json = _strip_nacks_for_json(event_payload)
+    else:
+        payload_for_json = event_payload
+    payload_json = json.dumps(payload_for_json, indent=2, sort_keys=True)
 
     lines = [
         f"# BRC Event-Pump Handler — Role: {role}",
