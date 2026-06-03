@@ -49,7 +49,6 @@ Slice-4 history
 
 import shlex
 
-
 # Default idle budget for the event-pump template (#2908 task-2-3). The
 # overseer alert fires when ``LAST_PROGRESS`` ages past this many
 # minutes without an actionable BRC event; priority climbs to ``high``
