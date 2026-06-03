@@ -4,10 +4,10 @@
 > HITL decisions, phase context, progress signals, task completion,
 > checkpoint browsing) **through the `egg-orch` / `egg-contract` /
 > `egg-checkpoint` shell CLIs**. The in-process Claude Agent SDK MCP
-> tool surface is being **retired in
-> [#2908](https://github.com/jwbron/egg/issues/2908) slice-6** —
-> post-merge the CLI is the single agent surface. The operator-facing
-> orchestrator MCP server (port 9850) is unaffected.
+> tool surface was **retired in
+> [#2908](https://github.com/jwbron/egg/issues/2908) slice-6** — the
+> CLI is the single agent surface. The operator-facing orchestrator
+> MCP server (port 9850) is unaffected.
 
 ## Why retired
 
@@ -54,18 +54,16 @@ The dual surface had a steady carrying cost:
   advantage on the four covered args is real; it is now delivered by
   the CLI itself.
 
-Slice-6 of #2908 lands the deletions alongside this doc on the same
-slice-6 integration branch. As of this revision, the coder's task-6-1
-/ task-6-2 commits have removed the seven `@tool` namespace files at
-`sandbox/egg_agent_tools/tools/*.py`, the four infrastructure files
-`__init__` / `_common` / `_registry` / `_tool_compat`, the
-`SYSTEM_PROMPT_NUDGE` constant, the `build_sandbox_mcp_server`
-factory, and the MCP-registration block in
-`shared/egg_agent/client.py`; the tester's task-6-3 commit has
-removed `tests/tools/test_mcp_cli_drift.py`. The `EGG_MCP_TOOLS` env
-flag is no longer recognised — `shared/egg_agent/client.py` no longer
-reads it. The slice is in BRC consensus at the time of this commit;
-the doc state and the runtime state of the slice-6 branch agree.
+Slice-6 of #2908 deleted the in-process MCP surface: the seven
+`@tool` namespace files at `sandbox/egg_agent_tools/tools/*.py`, the
+four infrastructure files (`__init__` / `_common` / `_registry` /
+`_tool_compat`), the `SYSTEM_PROMPT_NUDGE` constant, the
+`build_sandbox_mcp_server` factory, the MCP-registration block in
+`shared/egg_agent/client.py`, and the MCP↔CLI drift gate at
+`tests/tools/test_mcp_cli_drift.py`. The `EGG_MCP_TOOLS` env flag is
+no longer recognised. The handler layer at
+`sandbox/egg_agent_tools/handlers/*.py` is preserved and continues to
+back the CLI.
 
 ## What is preserved
 
@@ -318,8 +316,8 @@ incompatible upgrade.
 | `tests/sandbox/egg_lib/test_orch_cli_brc.py`, `tests/sandbox/egg_lib/test_orch_cli_brc_adversarial.py` | `egg-orch brc *` verb-level subcommand parity + adversarial coverage (slice-1 / slice-5 of #2908). |
 | `tests/sandbox/egg_lib/test_orch_cli_phase.py` | `egg-orch phase get-context` verb parity. |
 | `tests/sandbox/egg_lib/test_orch_cli_prose_args.py`, `tests/sandbox/egg_lib/test_orch_cli_prose_args_adversarial.py` | `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg channel coverage on the four args slice-5 covered (`--summary` / `--reason` / `--note` / `--files-reviewed`). |
-| `integration_tests/test_mcp_baseline_capture.py` | Slice-5 baseline-capture exerciser for the per-event wall-clock latency measurement; produces `.egg-state/agent-outputs/latency-mcp-baseline.json` against the still-live MCP surface so the slice-6 post-deletion run can compare. |
-| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated end-to-end exercise of the agent's tool surface. Slice-6 task-6-4 migrated this from asserting `mcp__*` tool calls to asserting the equivalent `egg-orch consensus ack/nack` CLI invocations through the slice-5 prose-arg channels (verify the on-disk state at merge time). |
+| `integration_tests/test_mcp_baseline_capture.py` | Slice-5 baseline-capture exerciser for the per-event wall-clock latency measurement; captured `.egg-state/agent-outputs/latency-mcp-baseline.json` against the then-live MCP surface so the slice-6 post-deletion run can compare. |
+| `integration_tests/test_sandbox_mcp_tools_e2e.py` | Marker-gated end-to-end exercise of the agent's tool surface. Slice-6 task-6-4 migrated this from asserting `mcp__*` tool calls to asserting the equivalent `egg-orch consensus ack/nack` CLI invocations through the slice-5 prose-arg channels. |
 | `integration_tests/test_mcp_to_cli_latency.py` *(slice-6 task-6-6)* | Per-event wall-clock regression check: reads the slice-5-captured `latency-mcp-baseline.json` and compares against a post-deletion CLI-only run. Fails only if the regression exceeds the 5 % budget; on failure surfaces a structured `OVERSEER_ALERT` priority `medium`. |
 
 Removed alongside the slice-6 deletions:
@@ -338,11 +336,10 @@ Removed alongside the slice-6 deletions:
   `TOOL_REGISTRY`) — the rule-doc drift gate previously asserted every
   `Prefer this over `egg-…`` line resolved to an agent-side
   `TOOL_REGISTRY` entry. With the registry retired by task-6-1, that
-  invariant is meaningless; whatever residue of the gate references
-  the registry is removed in the same slice. The non-registry parts of
-  the rule-doc gate (e.g. the cross-link sanity it does between rule
-  files and `docs/reference/`) survive if any remain — verify against
-  the tester's task-6-3 / task-6-4 commits at merge time.
+  invariant is meaningless; whatever residue of the gate referenced
+  the registry was removed in the same slice. The non-registry parts
+  of the rule-doc gate (e.g. the cross-link sanity it does between
+  rule files and `docs/reference/`) survive if any remain.
 
 ## Related
 
@@ -355,5 +352,5 @@ Removed alongside the slice-6 deletions:
 - [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md) — sandbox env flags (post-slice-6 `EGG_MCP_TOOLS` is gone).
 - [#1765](https://github.com/jwbron/egg/issues/1765) — iteration 1 (original agent MCP tool surface; superseded by #2908 slice-6).
 - [#1917](https://github.com/jwbron/egg/issues/1917) — iteration 2 (additional agent MCP verbs + rule-doc drift gate; superseded by #2908 slice-6).
-- [#2908](https://github.com/jwbron/egg/issues/2908) — BRC event-pump wrapper; slice-6 retires the agent MCP surface.
+- [#2908](https://github.com/jwbron/egg/issues/2908) — BRC event-pump wrapper; slice-6 retired the agent MCP surface.
 - [#2906](https://github.com/jwbron/egg/issues/2906) — the qwen3.7-max reentry-seam failure that motivated the wrapper rework.
