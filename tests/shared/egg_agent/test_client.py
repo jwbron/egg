@@ -8,7 +8,6 @@ from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
-import pytest
 from egg_agent.client import (
     _BUFFER_OVERFLOW_MARKER,
     _DEFAULT_SDK_MAX_BUFFER_BYTES,
@@ -158,11 +157,11 @@ except ImportError:
     _mock_sdk.HookMatcher = HookMatcher  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
 
-    # Stubs for the in-process MCP server surface used by egg_agent_tools.
-    # build_sandbox_mcp_server() lazily imports create_sdk_mcp_server and
-    # _tool_compat.py imports tool — both from claude_agent_sdk.  Without
-    # these stubs, EGG_MCP_TOOLS=true tests and the SDK-surface smoke
-    # tests fail because the mock module is missing the expected symbols.
+    # Stubs for the in-process MCP server surface preserved here for
+    # the DDG-fallback path (issue #2856) which still passes a
+    # stdio-MCP server dict through ``options.mcp_servers``.  The egg
+    # in-process MCP surface itself was retired in #2908 slice-6 —
+    # the SDK server factory and system-prompt nudge constant are gone.
     def _mock_create_sdk_mcp_server(*, name: str, version: str, tools: list):  # type: ignore[no-untyped-def]
         return {"__mock__": name, "version": version, "tools": tools}
 
@@ -851,8 +850,9 @@ class TestDdgMcpFallback:
     These assert the real consumer contract — the server reaching
     ``options.mcp_servers`` — rather than a dict landing in settings.json (the
     original #2857 defect, where ``mcpServers`` was written to a key Claude Code
-    ignores). ``EGG_MCP_TOOLS=false`` isolates these from the in-process egg tool
-    registration so only the DDG block populates ``mcp_servers``.
+    ignores).  The egg in-process MCP surface was retired in #2908 slice-6 —
+    ``options.mcp_servers`` now only carries entries that the DDG fallback puts
+    there, with no egg-side noise to filter out.
     """
 
     @patch.dict(
@@ -860,7 +860,6 @@ class TestDdgMcpFallback:
         {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "EGG_PRIVATE_MODE": "false",
-            "EGG_MCP_TOOLS": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
@@ -879,7 +878,6 @@ class TestDdgMcpFallback:
         env = os.environ.copy()
         env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
         env["EGG_PRIVATE_MODE"] = "false"
-        env["EGG_MCP_TOOLS"] = "false"
         with patch.dict(os.environ, env, clear=True):
             result = _run_async(run_agent_async("test prompt"))
         assert result.success is True
@@ -892,7 +890,6 @@ class TestDdgMcpFallback:
         {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "EGG_PRIVATE_MODE": "true",
-            "EGG_MCP_TOOLS": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
@@ -917,7 +914,6 @@ class TestDdgMcpFallback:
         {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "EGG_PRIVATE_MODE": "false",
-            "EGG_MCP_TOOLS": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
@@ -951,7 +947,6 @@ class TestDdgMcpFallback:
         env = os.environ.copy()
         env.pop("ANTHROPIC_CUSTOM_MODEL_OPTION", None)
         env["EGG_PRIVATE_MODE"] = "false"
-        env["EGG_MCP_TOOLS"] = "false"
         with patch.dict(os.environ, env, clear=True):
             result = _run_async(run_agent_async("test prompt"))
         assert result.success is True
@@ -965,7 +960,6 @@ class TestDdgMcpFallback:
         {
             "ANTHROPIC_CUSTOM_MODEL_OPTION": "qwen3-coder-30b[1m]",
             "EGG_PRIVATE_MODE": "true",
-            "EGG_MCP_TOOLS": "false",
         },
     )
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
@@ -996,7 +990,7 @@ class TestBuiltinOutputCapHook:
         hooks = opts.hooks["PreToolUse"]
         return next(hm for hm in hooks if hm.matcher == matcher).hooks[0]
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_and_grep_matchers_registered_by_default(self, mock_query):
         result = _run_async(run_agent_async("test prompt"))
@@ -1016,7 +1010,7 @@ class TestBuiltinOutputCapHook:
         assert "Read" not in matchers
         assert "Grep" not in matchers
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_hook_denies_large_file(self, mock_query, tmp_path):
         big = tmp_path / "big.py"
@@ -1036,7 +1030,7 @@ class TestBuiltinOutputCapHook:
         assert decision["permissionDecision"] == "deny"
         assert "limit" in decision["permissionDecisionReason"]
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_read_hook_allows_small_file(self, mock_query, tmp_path):
         small = tmp_path / "small.py"
@@ -1053,7 +1047,7 @@ class TestBuiltinOutputCapHook:
         )
         assert out == {}
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
+    @patch.dict(os.environ, {"EGG_TOOL_OUTPUT_CAP": ""}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_grep_hook_denies_unbounded_content_grep(self, mock_query):
         _run_async(run_agent_async("test prompt"))
@@ -1081,7 +1075,7 @@ class TestSdkReaderBuffer:
     the reader on large files. Tunable via EGG_SDK_MAX_BUFFER_BYTES.
     """
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false"}, clear=False)
+    @patch.dict(os.environ, {}, clear=False)
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_max_buffer_size_wired_by_default(self, mock_query):
         os.environ.pop("EGG_SDK_MAX_BUFFER_BYTES", None)
@@ -1092,7 +1086,7 @@ class TestSdkReaderBuffer:
         # The default must clear the 1 MiB SDK default that crashes on #2884.
         assert opts.max_buffer_size > 1024 * 1024
 
-    @patch.dict(os.environ, {"EGG_MCP_TOOLS": "false", "EGG_SDK_MAX_BUFFER_BYTES": "8388608"})
+    @patch.dict(os.environ, {"EGG_SDK_MAX_BUFFER_BYTES": "8388608"})
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_max_buffer_size_configurable_via_env(self, mock_query):
         _run_async(run_agent_async("test prompt"))
@@ -1315,78 +1309,13 @@ class TestRunAgentSync:
         assert "Hello from Claude" in result.stdout
 
 
-# ── EGG_MCP_TOOLS wire-up tests (issues #1765, #1942) ──────────────────────
-class TestMcpToolsFlag:
-    """Capture ClaudeAgentOptions kwargs via a patched constructor and
-    verify the gating behaviour of EGG_MCP_TOOLS.  Default is on since
-    issue #1942 — set the env to a falsy value to opt out."""
-
-    def _patch_options(self, captured: list):
-        from claude_agent_sdk import ClaudeAgentOptions as _Real
-
-        class _Capturing(_Real):  # type: ignore[misc,valid-type]
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                captured.append(self)
-
-        return _Capturing
-
-    def _require_tools(self):
-        try:
-            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
-
-            return SYSTEM_PROMPT_NUDGE
-        except ImportError:
-            pytest.skip("egg_agent_tools not importable")
-
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_mcp_tools_default_on_when_env_unset(self, mock_query, monkeypatch):
-        monkeypatch.delenv("EGG_MCP_TOOLS", raising=False)
-        nudge = self._require_tools()
-        captured: list = []
-        capturing_cls = self._patch_options(captured)
-        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
-            _run_async(run_agent_async("hi"))
-        assert len(captured) == 1
-        opts = captured[0]
-        assert getattr(opts, "mcp_servers", None)
-        assert opts.system_prompt == nudge
-
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "FALSE", "No"])
-    def test_mcp_tools_opt_out_explicit_falsy(self, mock_query, monkeypatch, value):
-        monkeypatch.setenv("EGG_MCP_TOOLS", value)
-        captured: list = []
-        capturing_cls = self._patch_options(captured)
-        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
-            _run_async(run_agent_async("hi"))
-        assert len(captured) == 1
-        opts = captured[0]
-        mcp = getattr(opts, "mcp_servers", None)
-        assert not mcp
-
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_mcp_tools_flag_on_preserves_caller_prompt(self, mock_query, monkeypatch):
-        monkeypatch.setenv("EGG_MCP_TOOLS", "true")
-        nudge = self._require_tools()
-        captured: list = []
-        capturing_cls = self._patch_options(captured)
-        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
-            _run_async(run_agent_async("hi", system_prompt="existing-prompt"))
-        opts = captured[0]
-        assert getattr(opts, "mcp_servers", None)
-        assert opts.system_prompt.endswith(nudge)
-        assert opts.system_prompt.startswith("existing-prompt")
-
-    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_mcp_tools_flag_on_no_caller_prompt(self, mock_query, monkeypatch):
-        monkeypatch.setenv("EGG_MCP_TOOLS", "yes")
-        nudge = self._require_tools()
-        captured: list = []
-        capturing_cls = self._patch_options(captured)
-        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
-            _run_async(run_agent_async("hi"))
-        assert captured[0].system_prompt == nudge
+# The historical ``TestMcpToolsFlag`` class (issues #1765, #1942) was
+# removed in #2908 slice-6.  The egg in-process MCP tool surface (the
+# SDK server factory and system-prompt nudge constant) and the
+# env-flag check that gated it were retired in favour of the
+# ``egg-orch`` / ``egg-contract`` shell CLIs.  Coverage that the egg
+# MCP servers do NOT auto-register on ``options.mcp_servers`` lives in
+# ``integration_tests/test_sandbox_mcp_tools_e2e.py::test_agent_can_be_spawned_via_sdk``.
 
 
 class TestCanUseToolPassesMcpNames:

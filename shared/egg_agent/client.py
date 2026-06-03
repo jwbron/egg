@@ -296,68 +296,16 @@ async def run_agent_async(
     if system_prompt is not None:
         options.system_prompt = system_prompt
 
-    # --- Register in-process SDK MCP servers with egg's agent tools ---
-    # Default-on since issue #1942.  Set ``EGG_MCP_TOOLS=false`` (or
-    # ``0`` / ``no`` / ``off``) on the pod env to opt out — the kill
-    # switch preserved from #1765's opt-in rollout.  See issue #1765
-    # for the original design and #1942 for the default flip.
-    #
-    # The factory returns one SDK MCP server per namespace (keys: sdlc,
-    # brc, phase, progress, task).  The Claude-visible tool name is
-    # ``mcp__<server_key>__<raw_@tool_name>`` — keying each server by
-    # its namespace is what produces the decision-7 visible names
-    # ``mcp__sdlc__register_open_question`` etc.  A single aggregate
-    # server would double-prefix (``mcp__egg__mcp__sdlc__...``).
-    _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "").strip().lower()
-    if _mcp_flag_raw not in ("false", "0", "no", "off"):
-        try:
-            from egg_agent_tools import (  # noqa: PLC0415
-                SYSTEM_PROMPT_NUDGE,
-                build_sandbox_mcp_server,
-            )
-
-            mcp_servers = build_sandbox_mcp_server()
-            # ``mcp_servers`` is already a {namespace: server} dict;
-            # merge into any caller-supplied mcp_servers on options.
-            existing_servers = getattr(options, "mcp_servers", None) or {}
-            options.mcp_servers = {**existing_servers, **mcp_servers}
-            # Preserve any caller-supplied system_prompt; append the
-            # nudge.  ``options.system_prompt`` is typed
-            # ``str | SystemPromptPreset | SystemPromptFile | None`` —
-            # we only know how to extend the plain-str case; for preset
-            # / file forms the nudge is set as the full prompt (the
-            # caller's preset/file remains accessible via the SDK's own
-            # plumbing but SystemPromptPreset / SystemPromptFile
-            # append semantics are not defined).
-            existing_prompt = options.system_prompt
-            if isinstance(existing_prompt, str) and existing_prompt:
-                options.system_prompt = existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
-            elif existing_prompt:
-                # SystemPromptPreset / SystemPromptFile — we cannot
-                # append to these forms.  Preserve the caller's prompt
-                # and skip the nudge to avoid silent data loss.
-                logger.warning(
-                    "Cannot append MCP tool nudge to non-string system_prompt "
-                    f"(type={type(existing_prompt).__name__}); MCP tools are registered but the nudge is omitted",
-                    event_type="system",
-                    event_subtype="mcp_nudge_skipped",
-                )
-            else:
-                options.system_prompt = SYSTEM_PROMPT_NUDGE
-            logger.info(
-                "Registered egg MCP tools",
-                event_type="system",
-                event_subtype="mcp_tools_enabled",
-                flag="EGG_MCP_TOOLS",
-                namespaces=list(mcp_servers.keys()),
-            )
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(
-                "Failed to register egg MCP tools; continuing without them",
-                event_type="system",
-                event_subtype="mcp_tools_error",
-                error=str(e),
-            )
+    # The in-process MCP tool surface (sandbox/egg_agent_tools/tools/)
+    # and the env-flag check that gated it were retired in #2908
+    # slice-6.  Sandbox agents now drive every consensus / phase /
+    # task / progress / SDLC verb through the ``egg-orch`` and
+    # ``egg-contract`` shell CLIs in
+    # ``sandbox/egg_lib/{orch_cli,contract_cli}.py``.  See #2908 for
+    # the deletion rationale and
+    # docs/architecture/orchestrator.md for the event-pump model.
+    # The operator-facing ``orchestrator/mcp_server.py`` is
+    # unaffected.
 
     # --- Predictive output cap for built-in CC tools (#2876) ---
     # This is model-context/cost discipline, NOT the buffer-crash fix (that is

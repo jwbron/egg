@@ -226,10 +226,10 @@ class TestReportImpasse:
         assert out["ok"] is True
 
 
-class TestToolRegistration:
-    def test_mcp_names_registered(self):
-        from egg_agent_tools.tools.sdlc import REGISTRATIONS
-
-        names = {r.name for r in REGISTRATIONS}
-        assert "mcp__sdlc__check_file_restriction" in names
-        assert "mcp__sdlc__report_impasse" in names
+# The MCP ``@tool``-decorated wrappers in ``egg_agent_tools.tools`` were
+# retired in #2908 slice-6; the historical
+# ``TestToolRegistration::test_mcp_names_registered`` lookup against
+# ``egg_agent_tools.tools.sdlc.REGISTRATIONS`` no longer applies.  The
+# CLI surface registration is covered by
+# ``tests/sandbox/egg_lib/test_orch_cli_brc.py`` and
+# ``integration_tests/test_sandbox_mcp_tools_e2e.py``.

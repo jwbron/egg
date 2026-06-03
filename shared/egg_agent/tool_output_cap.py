@@ -74,8 +74,9 @@ _warned_cap_values: set[str] = set()
 def is_output_cap_disabled() -> bool:
     """True when the predictive cap is switched off via env.
 
-    Mirrors the EGG_MCP_TOOLS kill-switch convention so operators can
-    disable the heuristic without a code change if it proves too noisy.
+    Honours the standard egg kill-switch convention (false / 0 / no /
+    off) so operators can disable the heuristic without a code change
+    if it proves too noisy.
     """
     return os.environ.get("EGG_TOOL_OUTPUT_CAP", "").strip().lower() in (
         "false",
