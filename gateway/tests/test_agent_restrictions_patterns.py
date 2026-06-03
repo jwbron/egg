@@ -261,9 +261,9 @@ class TestCoderRole:
 
         The `.github/` blocked prefix is matched via ``startswith(".github/")``,
         which doesn't match `.github-staging/...`, so the catch-all
-        ``**`` allowlist reaches it. The PR builder turns staged files
-        into a manual step asking the human reviewer to move them
-        into `.github/` before merge.
+        ``**`` allowlist reaches it. The agent calls the staged files
+        out in its PR body so the human reviewer moves them into
+        `.github/` before merge.
         """
         assert pattern.can_write(".github-staging/workflows/ci.yml") is True
         assert pattern.can_write(".github-staging/CODEOWNERS") is True

@@ -24,6 +24,10 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch phase advance [<id>]` | Advance to next phase |
 | `egg-orch phase start [<id>]` | Start current phase |
 | `egg-orch phase complete [<id>]` | Complete current phase |
+| `egg-orch phase get-context [<pipeline_id>] [--phase <p>] [--role <r>] [--no-artifacts]` | Bundle phase context — pipeline ID, phase, role, role-filtered task list, and prior-phase artifact paths (verb-level alias for `mcp__phase__get_context`; used by event-pump wrapper). Output is always JSON. |
+| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`nack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event. `nack` is reserved in the schema (`_VALID_ACTIONS`) for symmetry with the BRC verb set but is not emitted by the current slice-1 derivation logic. |
+| `egg-orch brc get-state [<pipeline_id>] [--slice-id <id>] [--verbose]` | Return the BRC consensus state as structured JSON (verb-level alias for `mcp__brc__get_state`; `--verbose` includes raw orchestrator payload under `raw`). Output is always JSON. |
+| `egg-orch brc list-blocking [<pipeline_id>] [--json]` | List roles currently blocking consensus, newline-delimited by default (verb-level alias for `mcp__brc__list_blocking`) |
 | `egg-orch decision list [<id>]` | List HITL decisions |
 | `egg-orch decision create [<id>] --question <text>` | Queue a decision |
 | `egg-orch decision resolve [<id>] <did> --resolution <text>` | Resolve a decision |
@@ -74,6 +78,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_AUTHORSHIP_REPO` | Override which repo the commit-authorship store uses in multi-repo deployments. Accepts an absolute path or a repo directory name relative to `EGG_REPO_PATH`. When unset, the store prefers a repo named `egg`; falls back to the first repo alphabetically. |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
+| `EGG_BRC_MEMORY` | BRC memory writer mode for reviewers. `off` (default) — writes are no-ops; `write-only` — handlers populate the per-role memory file but no other code path reads it (slice-1 rollout posture); `full` — handlers write and the event-pump reads the file on re-entry. See [BRC Memory Artifact](../architecture/brc-memory.md). |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
 | `EGG_MESSAGE_POLL_MAX_WAIT` | Server-side cap (seconds) on `message wait --timeout`. Default `60`, minimum `1`. Values `> 90` trigger a startup `warnings.warn` + WARNING log because the gateway's baked-in Squid `read_timeout` / `request_timeout` directives cap backend long-polls at ~60s — raising the cap above that requires a gateway image rebuild, not a ConfigMap edit. See [Agent Wait Patterns §6](agent-wait-patterns.md#6-egg_message_poll_max_wait--long-poll-cap-coupling). |
 | `EGG_SLICE_ID` | Set by `kubernetes_spawner` for every slice-scoped agent. When set, `message wait` / `message wait-loop` only match messages whose `metadata.slice_id` equals this value OR is null (pipeline-level passthrough — OVERSEER_ALERT and global phase signals continue to wake every waiter). Override with `--slice`. See [Agent Wait Patterns — Auto-scoping](agent-wait-patterns.md#auto-scoping-by-slice-and-producer-allowlist-2725). |

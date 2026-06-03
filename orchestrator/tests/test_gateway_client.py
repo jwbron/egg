@@ -1869,6 +1869,124 @@ class TestLookupOpenPr:
         assert result is None
 
 
+class TestListOpenPrs:
+    """#2925: ``GatewayClient.list_open_prs`` lists the repo's open PRs for
+    the context-PR idempotency pre-flight and the stacked-PR reconciler.
+
+    Like :meth:`_lookup_open_pr`, the listing runs on the **control-plane**
+    route ``/api/v1/gh/list_open_prs`` with launcher auth — the orchestrator
+    is the server that manages pipelines, not an agent, so it does not
+    register a synthetic agent session or impersonate a role on the
+    per-agent ``/api/v1/gh/execute`` surface (the #2910 conflation this
+    removes). These tests pin the helper's input/output contract against a
+    mocked ``_make_request``: it POSTs ``{repo, limit}`` with
+    ``use_launcher_auth=True`` and normalises ``data.prs`` into the
+    ``number``/``head_ref``/``base_ref`` shape its consumers expect.
+    """
+
+    def test_list_open_prs_uses_control_plane_route_with_launcher_auth(self, gateway_client):
+        """The listing must hit the launcher-authed control-plane route,
+        never register a synthetic agent session."""
+        from unittest.mock import patch
+
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            captured["endpoint"] = endpoint
+            captured["data"] = data
+            captured["use_launcher_auth"] = kwargs.get("use_launcher_auth")
+            return {
+                "success": True,
+                "data": {
+                    "prs": [
+                        {"number": 11, "headRefName": "egg/i/slice-1", "baseRefName": "egg/i/work"},
+                    ]
+                },
+            }
+
+        with (
+            patch.object(gateway_client, "register_session") as mock_register,
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            result = gateway_client.list_open_prs("issue-42", "owner/repo")
+        assert result == [
+            {"number": 11, "head_ref": "egg/i/slice-1", "base_ref": "egg/i/work"},
+        ]
+        assert captured["endpoint"] == "/api/v1/gh/list_open_prs"
+        assert captured["use_launcher_auth"] is True
+        assert captured["data"] == {"repo": "owner/repo", "limit": 200}
+        mock_register.assert_not_called()
+
+    def test_list_open_prs_forwards_limit(self, gateway_client):
+        """A caller-supplied ``limit`` is forwarded to the gateway body."""
+        from unittest.mock import patch
+
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            captured["data"] = data
+            return {"success": True, "data": {"prs": []}}
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            gateway_client.list_open_prs("issue-42", "owner/repo", limit=25)
+        assert captured["data"] == {"repo": "owner/repo", "limit": 25}
+
+    def test_list_open_prs_empty_repo_skips_request(self, gateway_client):
+        """An empty repo short-circuits to ``[]`` without a gateway call."""
+        from unittest.mock import patch
+
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            assert gateway_client.list_open_prs("issue-42", "") == []
+        mock_request.assert_not_called()
+
+    def test_list_open_prs_drops_malformed_entries(self, gateway_client):
+        """Entries missing ``number``/``headRefName`` or with a non-int
+        ``number`` are dropped; well-formed entries survive normalised."""
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            return {
+                "success": True,
+                "data": {
+                    "prs": [
+                        {"number": 1, "headRefName": "h1", "baseRefName": "b1"},
+                        {"number": None, "headRefName": "h2", "baseRefName": "b2"},  # no number
+                        {"number": 3, "headRefName": "", "baseRefName": "b3"},  # no head
+                        {"number": "nope", "headRefName": "h4", "baseRefName": "b4"},  # bad int
+                        "garbage",  # not a dict
+                    ]
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            result = gateway_client.list_open_prs("issue-42", "owner/repo")
+        assert result == [{"number": 1, "head_ref": "h1", "base_ref": "b1"}]
+
+    def test_list_open_prs_returns_empty_on_transport_error(self, gateway_client):
+        """Transport failure returns ``[]`` (never raises) — the reconciler
+        and context-PR opener treat this as 'see no orphans / no existing
+        PR this tick', which is safe."""
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            raise RuntimeError("gateway unreachable")
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            result = gateway_client.list_open_prs("issue-42", "owner/repo")
+        assert result == []
+
+    def test_list_open_prs_returns_empty_on_non_list_payload(self, gateway_client):
+        """A malformed ``prs`` payload (not a list) normalises to ``[]``."""
+        from unittest.mock import patch
+
+        def fake_make_request(endpoint, method, data, **kwargs):  # noqa: ARG001
+            return {"success": True, "data": {"prs": "not-a-list"}}
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            result = gateway_client.list_open_prs("issue-42", "owner/repo")
+        assert result == []
+
+
 class TestSelfIpResolution:
     """Tests for self_ip property used in temporary session registration."""
 

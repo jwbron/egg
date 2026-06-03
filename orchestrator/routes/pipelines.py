@@ -30,6 +30,15 @@ except ImportError:
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+# Re-export the slice-3 per-event prompt composer so callers can still
+# import it via ``orchestrator.routes.pipelines.compose_event_prompt``
+# (the contract assigns this file in TASK-3-1) even though the body
+# lives in a sibling module to keep this file under the orchestrator
+# decomposition cap (#2261). The slice-3 plan acceptance is satisfied
+# by either import path; tests bind on
+# ``orchestrator.routes.event_prompt`` directly.
+from .event_prompt import compose_event_prompt  # noqa: F401
+
 
 # Closed enumeration of ``ContextPrCreationError.reason`` values
 # (#2777). Producer and downstream tests (TASK-3-8) bind on these
@@ -1834,12 +1843,11 @@ def create_pipeline() -> tuple[Response, int]:
         #
         # This is the *primary* eviction site for auto-FAILED prior runs,
         # not just a defensive backstop: paths like restart_agent spawn
-        # failure and _handle_pr_creation_failure call
-        # store.update_pipeline / store.save_pipeline directly (bypassing
-        # PATCH), so the PATCH-site clear never fires for them. Without
-        # this POST-site clear, those auto-FAILED pipelines would leak
-        # consensus + message-store state into the next run that reuses
-        # the id.
+        # failure call store.update_pipeline / store.save_pipeline directly
+        # (bypassing PATCH), so the PATCH-site clear never fires for them.
+        # Without this POST-site clear, those auto-FAILED pipelines would
+        # leak consensus + message-store state into the next run that
+        # reuses the id.
         _clear_pipeline_runtime_state(pipeline.id, reason="pipeline_create")
 
         logger.info(
@@ -6186,15 +6194,14 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
         "end-state to top-level `.github-staging/`, mirroring the "
         "`.github/` structure (e.g. a proposed change to "
         "`.github/workflows/ci.yml` is staged at "
-        "`.github-staging/workflows/ci.yml`). The orchestrator's PR "
-        "builder auto-detects `.github-staging/` and emits a manual "
-        "step asking the human reviewer to move the staged files into "
-        "place before merge. Assign such tasks to `role: coder` and "
-        "make the staging path explicit in the task's "
-        "`files_affected`. `.github-staging/` must remain tracked by "
-        "git (do not add it to `.gitignore`); otherwise the staged "
-        "files won't be in the PR commit and the reviewer's `git mv` "
-        "will fail."
+        "`.github-staging/workflows/ci.yml`). The producing agent must "
+        "call the staged files out in the PR body so the human "
+        "reviewer moves them into `.github/` before merge. Assign such "
+        "tasks to `role: coder` and make the staging path explicit in "
+        "the task's `files_affected`. `.github-staging/` must remain "
+        "tracked by git (do not add it to `.gitignore`); otherwise the "
+        "staged files won't be in the PR commit and the reviewer's "
+        "`git mv` will fail."
     )
     lines.append("")
 
@@ -8729,66 +8736,6 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     }
 
 
-def _handle_pr_creation_failure(
-    pipeline_id: str,
-    current_phase: str,
-    store,
-    reason: str | None = None,
-) -> None:
-    """Mark a pipeline as FAILED after PR creation returns no URL.
-
-    Extracted from ``_health_monitor_poll`` so this state-transition logic can
-    be tested independently of the full polling loop.
-
-    The error message attached to the pipeline tells the user exactly what
-    happened and how to rescue the work.  The agents' commits are on
-    ``origin/<pipeline.branch>`` regardless of the failure mode, so the
-    rescue is always "open the PR manually against that branch" — we
-    surface the exact ``gh pr create`` invocation to avoid forcing users
-    to dig through orchestrator logs (see #1731).
-
-    ``reason`` is a short phrase explaining *why* PR creation failed (e.g.
-    ``"fetch+rebase reconcile failed"``).  When omitted, the generic
-    ``"no PR URL returned"`` message is used for back-compat.
-    """
-    reason_text = reason or "no PR URL returned"
-    error_msg = f"Auto PR creation failed: {reason_text}"
-    logger.error(error_msg, pipeline_id=pipeline_id, reason=reason_text)
-    with get_pipeline_state_lock(pipeline_id):
-        pipeline = store.load_pipeline(pipeline_id)
-        phase_execution = pipeline.get_phase_execution(current_phase)
-        # Compose a user-facing message that includes the rescue hint,
-        # using pipeline state we only have access to inside the lock.
-        rescue_hint = _format_rescue_hint(pipeline)
-        full_error = f"{error_msg}\n{rescue_hint}" if rescue_hint else error_msg
-        phase_execution.status = PipelineStatus.FAILED
-        phase_execution.error = full_error
-        phase_execution.completed_at = datetime.now(UTC)
-        pipeline.status = PipelineStatus.FAILED
-        pipeline.error = full_error
-        store.save_pipeline(pipeline)
-
-
-def _format_rescue_hint(pipeline) -> str:
-    """Build a user-facing rescue hint for a pipeline whose PR couldn't be auto-created.
-
-    Returns an empty string when we don't have enough state to compose a
-    useful hint (no repo or no branch on the pipeline) — in that case the
-    error log + pipeline ID are the user's only handholds.
-    """
-    repo = getattr(pipeline, "repo", None)
-    branch = getattr(pipeline, "branch", None)
-    if not repo or not branch:
-        return ""
-    base = getattr(pipeline, "base_branch", None) or "main"
-    return (
-        f"Agent work is on origin/{branch} in {repo}. "
-        f"To open the PR manually:\n"
-        f"  gh pr create --repo '{repo}' --head '{branch}' --base '{base}' "
-        f'--title "..." --body "..."'
-    )
-
-
 BRC_HISTORY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
@@ -9583,189 +9530,6 @@ def _build_brc_history_link_line(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
     )
     return f"_Per-phase BRC transcripts: {links}._"
-
-
-def _pr_metadata_from_plan_draft(
-    worktree_repo_path: Path,
-    issue_number: int | None,
-    pipeline_id: str,
-) -> tuple[str | None, str, str, str, list[str], str | None]:
-    """Parse PR metadata from the plan draft on disk.
-
-    Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
-    populated — e.g. when the plan-phase contract write did not reach the
-    branch tip (see #1829). The plan draft itself is reliably on the
-    branch even when the contract is not.
-
-    Returns ``(title, description, test_plan, manual_steps, warnings,
-    draft_rel_path)``. ``title`` is ``None`` when the draft is missing,
-    unparseable, or has no ``pr:`` block, signalling the caller to fall
-    through to the next tier. ``warnings`` is a list of
-    human-readable parse warning strings collected from ``parse_plan``
-    (empty when the parse was clean or the draft was absent); it is
-    surfaced in the PR body when the caller falls through to the stub
-    tier so reviewers can see what went wrong (see #1975).
-    ``draft_rel_path`` is the relative path to the draft that was
-    parsed, or ``None`` if no draft was attempted.
-    """
-    warnings_out: list[str] = []
-    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
-    if not draft_rel:
-        return None, "", "", "", warnings_out, None
-    plan_path = worktree_repo_path / draft_rel
-    if not plan_path.exists():
-        warnings_out.append(f"Plan draft not found at {draft_rel}")
-        return None, "", "", "", warnings_out, draft_rel
-    try:
-        from egg_contracts.plan_parser import parse_plan
-
-        result = parse_plan(plan_path.read_text())
-    except Exception as e:
-        logger.debug(
-            "Could not parse plan draft for PR metadata fallback",
-            path=str(plan_path),
-            error=str(e),
-        )
-        warnings_out.append(f"parse_plan raised: {e}")
-        return None, "", "", "", warnings_out, draft_rel
-    for w in result.warnings:
-        msg = w.message
-        if w.context:
-            msg = f"{msg} ({w.context})"
-        warnings_out.append(msg)
-    if not result.pr_title:
-        return None, "", "", "", warnings_out, draft_rel
-    return (
-        result.pr_title,
-        result.pr_description or "",
-        result.pr_test_plan or "",
-        result.pr_manual_steps or "",
-        warnings_out,
-        draft_rel,
-    )
-
-
-def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
-    """Render the auto manual-step for `.github-staging/` files (issue #2508).
-
-    Producer agents (coder, etc.) cannot push to `.github/` because the
-    gateway blocks the path as a branch-protection invariant.  When a
-    plan calls for CI workflow or CODEOWNERS changes, the agent instead
-    writes the proposed end-state to top-level `.github-staging/`,
-    mirroring the `.github/` structure.  This helper scans that
-    directory and returns a markdown step the human reviewer must
-    complete before merge: review the staged files, move them into
-    `.github/`, delete the staging dir, and push the resulting commit.
-
-    Returns an empty string when `.github-staging/` is absent or empty.
-    """
-    staging_dir = worktree_repo_path / ".github-staging"
-    # Drop the whole step when ``.github-staging`` itself is a symlink:
-    # ``Path.is_dir()`` follows symlinks, so without this guard a
-    # ``.github-staging -> /etc`` (or any other host path) would let
-    # ``rglob`` enumerate the link target's files into the manual-step
-    # file list, polluting the PR body with arbitrary host-filesystem
-    # paths. Mirrors the per-entry symlink guard below.
-    if staging_dir.is_symlink():
-        return ""
-    if not staging_dir.is_dir():
-        return ""
-
-    staged_paths: list[str] = []
-    for path in sorted(staging_dir.rglob("*")):
-        # Skip symlinks: ``Path.is_file()`` follows them, so without this
-        # guard a staged ``.github-staging/evil.yml`` → ``/etc/passwd``
-        # would be surfaced in the manual-step file list, the reviewer's
-        # ``git mv`` would preserve it, and ``.github/evil.yml`` would
-        # land in the repo as a symlink. The reviewer's only mitigation
-        # would be the diff (where a symlink shows as a small mode
-        # change that's easy to skim past). Drop staged symlinks here so
-        # the helper is the choke point.
-        if path.is_symlink():
-            continue
-        if not path.is_file():
-            continue
-        try:
-            rel = path.relative_to(worktree_repo_path).as_posix()
-        except ValueError:
-            continue
-        staged_paths.append(rel)
-
-    if not staged_paths:
-        return ""
-
-    # Compute concrete move commands per staged file, choosing
-    # ``git mv`` vs ``git rm`` + ``git mv`` based on whether the target
-    # ``.github/<rest>`` already exists.  ``git mv`` refuses to
-    # overwrite an existing destination, so a template that always
-    # emits the plain form breaks for replacement scenarios (e.g.
-    # restaging an existing workflow).
-    staging_prefix = ".github-staging/"
-    target_prefix = ".github/"
-    mkdir_dirs: list[str] = []
-    move_cmds: list[str] = []
-    for rel in staged_paths:
-        if not rel.startswith(staging_prefix):
-            continue
-        rest = rel[len(staging_prefix) :]
-        target_rel = f"{target_prefix}{rest}"
-        target_dir = target_rel.rsplit("/", 1)[0] if "/" in rest else target_prefix.rstrip("/")
-        if target_dir and target_dir not in mkdir_dirs:
-            mkdir_dirs.append(target_dir)
-        target_abs = worktree_repo_path / target_rel
-        # ``Path.exists()`` follows symlinks and returns False for a
-        # broken link, so an existing-but-broken symlink would slip
-        # through the existence check and ``git mv`` would still refuse
-        # to overwrite it. ``Path.is_symlink()`` returns True regardless
-        # of whether the target resolves, so the disjunction catches
-        # regular files, valid symlinks, and broken symlinks.
-        if target_abs.is_symlink() or target_abs.exists():
-            move_cmds.append(f"git rm {target_rel}  # target exists; remove before mv")
-        move_cmds.append(f"git mv {rel} {target_rel}")
-
-    lines = [
-        "### Move staged `.github/` changes (auto-generated, issue #2508)",
-        "",
-        "This PR includes proposed `.github/` changes under `.github-staging/`. "
-        "Agent roles cannot push to `.github/` directly (CI workflow / CODEOWNERS "
-        "branch-protection invariant), so the agent staged the proposed "
-        "end-state for human review.",
-        "",
-        "Staged files:",
-    ]
-    for rel in staged_paths:
-        lines.append(f"- `{rel}`")
-    lines.extend(
-        [
-            "",
-            "Before merging:",
-            "",
-            "1. Review each staged file for correctness — these are proposed "
-            "CI / repo-config changes that bypass the agent's normal sandbox.",
-            "2. Run the following to move each staged file into `.github/` "
-            "(commands below are pre-computed for this PR; replacement targets "
-            "are handled via `git rm` + `git mv` since `git mv` refuses to "
-            "overwrite an existing destination):",
-            "   ```",
-        ]
-    )
-    for d in mkdir_dirs:
-        lines.append(f"   mkdir -p {d}")
-    for cmd in move_cmds:
-        lines.append(f"   {cmd}")
-    lines.extend(
-        [
-            "   ```",
-            "   After the moves, `.github-staging/` is no longer tracked "
-            "by git (git doesn't track empty directories). Run "
-            "`rm -rf .github-staging` locally if you want to clear any "
-            "leftover empty subdirectories from your worktree.",
-            "3. Commit the move and push from a context with the GitHub "
-            "`workflow` scope (a normal user push works; the bot token may "
-            "not — see issue #2508 layer 2).",
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _derive_producer_roles_with_tasks(
@@ -12220,57 +11984,6 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
-def _brc_preconfirm_wait_line(is_dual_role: bool) -> str:
-    """Producer step 4 (pre-confirm) wait-loop invocation.
-
-    Dual-role agents (#2749) get ``--for CONSENSUS_PROPOSE`` added so
-    peer producer proposals wake them without a separate reviewer
-    ``wait-loop``. The returned string ends with a period so the caller
-    can append " Do **not** include …" prose with a single intervening
-    space.
-    """
-    if is_dual_role:
-        return (
-            "`egg-orch message wait-loop --for CONSENSUS_ACK "
-            "--for CONSENSUS_NACK --for CONSENSUS_PROPOSE "
-            "--for CONSENSUS_RE_REVIEW --for STATUS "
-            "--for OVERSEER_ALERT` (the `CONSENSUS_PROPOSE` "
-            "entry is the dual-role augmentation from #2749 — "
-            "see the *Dual-Role Execution Order* banner above; "
-            "it folds your reviewer POLL into this wait so you "
-            "do not issue a second `wait-loop`)."
-        )
-    return (
-        "`egg-orch message wait-loop --for CONSENSUS_ACK "
-        "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
-        "--for STATUS --for OVERSEER_ALERT`."
-    )
-
-
-def _brc_stay_alive_wait_line(is_dual_role: bool) -> str:
-    """Producer step 6 (STAY ALIVE) wait-loop invocation.
-
-    Dual-role agents (#2749) get ``--for CONSENSUS_PROPOSE`` added so
-    peer producer re-proposes still wake them after their own confirm.
-    The returned string ends with a trailing space so the caller can
-    append "until the orchestrator stops you." prose directly.
-    """
-    if is_dual_role:
-        return (
-            "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
-            "--for CONSENSUS_PROPOSE --for CONSENSUS_RE_REVIEW "
-            "--for OVERSEER_ALERT --timeout 60` (the "
-            "`CONSENSUS_PROPOSE` entry is the dual-role "
-            "augmentation from #2749 so peer producer proposals "
-            "still wake you for review after you have confirmed) "
-        )
-    return (
-        "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
-        "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
-        "--timeout 60` "
-    )
-
-
 def _build_brc_preamble(
     role_value: str,
     phase: str,
@@ -12383,51 +12096,47 @@ def _build_brc_preamble(
     # ``CONSENSUS_PROPOSE``.
     if is_dual_role:
         lines.append(
-            "### Dual-Role Execution Order (READ FIRST — #2749, updated for "
-            "coder-owns-tests)\n\n"
-            "You are both PRODUCER and REVIEWER (TESTER). **The BRC round "
-            "cannot close until every producer (including you) has issued "
-            "`mcp__brc__propose` / `egg-orch consensus propose`** — so you "
-            "MUST eventually propose, and if you wait but never propose your "
-            "own hardening you self-block the round. But your producer WORK "
-            "(reviewing and **hardening the coder's tests**) genuinely "
-            "depends on the coder's proposed tests existing, so unlike a "
-            "normal producer you start that work at the coder's PROPOSE, not "
-            "before. This does not deadlock: the coder proposes independently "
-            "and does **not** wait on you, so its `CONSENSUS_PROPOSE` is the "
-            "trigger that unblocks your work; you then propose right after.\n\n"
+            "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"
+            "You are both PRODUCER and REVIEWER. **The BRC round cannot "
+            "close until every producer (including you) has issued "
+            "`mcp__brc__propose` / `egg-orch consensus propose`** — so "
+            "you must propose your own work, and you must do so before "
+            "treating any reviewer-style wait as a scheduling primitive. "
+            "Treating one as a primitive before you propose would "
+            "self-block the round. If your producer work is gated on "
+            "an upstream peer's proposal, the event-pump wrapper "
+            "invokes you again when that proposal arrives; you propose "
+            "right after.\n\n"
             "**Execute the lifecycles in this strict order:**\n\n"
-            "1. **ORIENT first, then WAIT for the coder's PROPOSE.** Do the "
-            "Reviewer Lifecycle's `1. PREPARE` work up front — read the "
-            "contract, scan the existing test suite, form your view of "
-            "where coverage and adversarial cases belong. But **do NOT "
-            "write test files yet**: the coder authors its own tests, so "
-            "there is nothing to harden until it proposes, and racing its "
-            "in-flight commits churns against a moving target. Block on "
-            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` for the "
-            "coder. When the coder proposes, SYNC the worktree, then do "
-            "your Producer WORK (read the coder's tests; add the missing "
-            "regression + adversarial cases yourself — you share the test "
-            "scope with the coder; run the tests) and **PROPOSE** your "
-            "hardening. In the same pass, issue your reviewer verdict on "
-            "the coder: ACK if coverage is sound, or NACK naming the "
-            "specific failing test / coverage gap.\n"
-            "2. **After your PROPOSE**, your producer pre-confirm wait "
-            "(step 4) and STAY ALIVE wait (step 6) are **augmented to "
-            "also wake on `CONSENSUS_PROPOSE`** (see the filters in "
-            "those steps). That augmented wait IS your reviewer POLL "
-            "— you do NOT issue a second `wait-loop` for the reviewer "
-            "POLL step. When a `CONSENSUS_PROPOSE` arrives, fall "
-            "through to Reviewer Lifecycle step 3 (SYNC) → step 4 "
-            "(REVIEW) → step 5 (ACK/NACK), then re-enter the same "
-            "producer wait. Do NOT skip step 4 (REVIEW) — reading the "
-            "actual referenced files and forming independent judgment "
-            "from them is what keeps re-reviews from becoming "
-            "rubber-stamps.\n"
-            "3. **Re-reviews (`CONSENSUS_RE_REVIEW`) and terminal "
-            "events (`CONSENSUS_CONFIRMED`)** continue to land on the "
-            "same waits — the augmented filter is a strict superset of "
-            "the pure-producer filter.\n"
+            "1. **Producer ORIENT (step 1) comes FIRST.** Run ORIENT now "
+            "to load context. **Your role-specific orientation tells you "
+            "whether Producer WORK (step 2) runs immediately or is gated "
+            "on an upstream producer's `CONSENSUS_PROPOSE`** — e.g. the "
+            "implement-phase tester reviews-and-hardens the coder's tests, "
+            "so its WORK begins after the coder proposes (#2936). Do not "
+            "race ahead of the role-specific orientation. While you are in "
+            "ORIENT, you may *opportunistically* do the Reviewer "
+            "Lifecycle's `1. PREPARE` work — read the contract, scan the "
+            "upstream producer's commits as they land on the branch — but "
+            "do NOT start producing artifacts your role-specific "
+            "orientation gates on an upstream PROPOSE. Do NOT block on a "
+            "reviewer wait as your scheduling primitive: the event-pump "
+            "wrapper invokes you again when the upstream producer's "
+            "`CONSENSUS_PROPOSE` arrives, at which point you handle the "
+            "review AND (if your WORK was gated on it) start producing.\n"
+            "2. **On an upstream producer's PROPOSE**, the wrapper "
+            "re-invokes you with the proposal in your event payload. "
+            "SYNC the worktree, fall through to Reviewer Lifecycle "
+            "step 3 (SYNC) → step 4 (REVIEW) → step 5 (ACK/NACK), then "
+            "exit. Do NOT skip step 4 (REVIEW) — reading the actual "
+            "referenced files and forming independent judgment from them "
+            "is what keeps re-reviews from becoming rubber-stamps.\n"
+            "3. **Subsequent re-proposes** (from any producer) and "
+            "`CONSENSUS_RE_REVIEW` events surface as new wrapper "
+            "invocations. Each one is a fresh review against the new "
+            "delta; the per-event prompt includes the full "
+            "`git log {last_reviewed_commit_sha}..HEAD --not "
+            "origin/{base_branch} -p` so you can audit the change.\n"
         )
 
     if is_producer:
@@ -12452,28 +12161,18 @@ def _build_brc_preamble(
                 "Your lifecycle replaces steps 2–5 below with this short flow:\n"
                 "  (a) Run step 1 (ORIENT) to confirm your role has no tasks.\n"
                 "  (b) Try `egg-orch consensus confirmed`.\n"
-                "      - If it succeeds, proceed to step 6 (STAY ALIVE).\n"
+                "      - If it succeeds, exit; the orchestrator (slice-2 "
+                "event-pump wrapper) re-invokes you with the next event.\n"
                 "      - If it returns `status: pending_acks` referencing "
                 "`global_zero_proposal` (other slice producers haven't "
-                "proposed yet), this is expected. Block on "
-                "`egg-orch message wait-loop --for STATUS --for "
-                "CONSENSUS_RE_REVIEW --for CONSENSUS_ACK --for "
-                "CONSENSUS_NACK --for OVERSEER_ALERT`. The "
-                "`CONSENSUS_ACK` / `CONSENSUS_NACK` subscriptions cover "
-                "the dual-role-NACK-recovery scenario: if a dual-role "
-                "reviewer (TESTER) NACKs your seeded ACKs while you "
-                "wait, the NACK breaks `is_fully_acked` and "
-                "`_collect_newly_ready_producers` stops emitting the "
-                "STATUS nudge — without these subscriptions the wait "
-                "would hang. On STATUS with metadata "
-                "`ready_to_confirm: true` (#2531), retry "
-                "`egg-orch consensus confirmed`. On `CONSENSUS_ACK` / "
-                "`CONSENSUS_NACK` for your role, retry "
-                "`egg-orch consensus confirmed` so the orchestrator "
-                "tells you whether you can proceed (success) or you've "
-                "hit the `producer_not_fully_acked` branch below. "
-                "On `CONSENSUS_RE_REVIEW` for your role, re-confirm "
-                "(do not propose). On `OVERSEER_ALERT`, surface it.\n"
+                "proposed yet), exit; the wrapper will re-invoke you when "
+                "a peer producer proposes. Retry `egg-orch consensus "
+                "confirmed` on the next invocation. The dual-role-NACK-"
+                "recovery scenario (a dual-role reviewer NACKs your seeded "
+                "ACKs while you wait) is also surfaced via re-invocation: "
+                "the next event will carry the NACK in `event_payload`. On "
+                "any `CONSENSUS_RE_REVIEW` event for your role, re-confirm "
+                "(do not propose).\n"
                 "      - If it returns `status: pending_acks` with "
                 "`producer_not_fully_acked`, a dual-role reviewer (TESTER) "
                 "has NACKed the seeded version because its own work uncovered "
@@ -12483,8 +12182,8 @@ def _build_brc_preamble(
                 '`("Add coder task to this slice", "Defer to a follow-up '
                 'slice", "Treat the slice as documenter-only")` so the '
                 "operator can resolve it; do NOT silently start producing.\n"
-                "  (c) Proceed to step 6 (STAY ALIVE) and follow the normal "
-                "stay-alive / re-review handling."
+                "  (c) Re-confirm on subsequent re-invocations until the "
+                "orchestrator stops you."
             )
         producer_lifecycle.extend(
             [
@@ -12504,93 +12203,49 @@ def _build_brc_preamble(
                 "The `--summary` must be ≥50 chars of substantive content describing what was "
                 "built, what was tested, and which contract tasks it satisfies. "
                 "Boilerplate like 'looks good' or 'approved' will be rejected.",
-                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers with "
-                + _brc_preconfirm_wait_line(is_dual_role)
-                + " Do **not** include "
-                "`CONSENSUS_CONFIRMED` in this pre-confirm wait — your own "
-                "confirm is part of what generates that signal, so the "
-                "orchestrator rejects the wait with HTTP 400 "
-                "(#2064, #2482); the confirmed event belongs only in step "
-                "6 STAY ALIVE, after your confirm has succeeded. "
-                "`STATUS` is required so the orchestrator's directed "
-                "**Ready to confirm — all confirm preconditions satisfied** "
-                "nudge wakes you (#2531): when every reviewer has already "
-                "ACKed the current version, no further `CONSENSUS_ACK` / "
-                "`CONSENSUS_NACK` will arrive, and the directed `STATUS` "
-                "(metadata `ready_to_confirm: true`) is the only signal "
-                "that the global confirm preconditions cleared. On wake, "
-                "if the message is the directed *Ready to confirm* nudge, "
-                "go straight to step 5 **CONFIRM**; other `STATUS` wakeups "
-                "(e.g. *Producer X excused from consensus*) are "
-                "informational — re-enter the wait. "
-                "On the first NACK, start fixing "
-                "immediately — don't wait. **Aggregation is enforced by the "
-                "orchestrator, not by you (#2142):** when **two or more distinct "
-                "reviewers** have NACKed the current version and you call "
-                "`egg-orch consensus propose --changed-artifacts ...` (re-propose), "
-                "the call is rejected with HTTP 409 and the response `details` "
-                "inline every unresolved NACK (reviewer, reason, artifact_refs). "
-                "A single-reviewer NACK does **not** trigger the barrier — there "
-                "is nothing to aggregate, so re-propose proceeds normally. Read "
-                "every NACK in the rejection, fix them all, and re-propose again "
-                "— the retry succeeds once you've been informed of the full set. "
-                "Don't re-propose addressing only one reviewer's NACK; the "
-                "orchestrator will kick you back with the rest.\n\n"
+                "4. **RESPOND TO REVIEWS**: When a reviewer NACKs your "
+                "proposal you will be re-invoked to address it. Read every "
+                "NACK in the event payload, fix all named blockers, and "
+                "re-propose with `--changed-artifacts`. **Aggregation is "
+                "enforced by the orchestrator (#2142):** when two or more "
+                "distinct reviewers have NACKed the current version, the "
+                "re-propose call returns HTTP 409 with the full set "
+                "(reviewer, reason, artifact_refs) inline in `details`; "
+                "address every NACK then retry. A single-reviewer NACK "
+                "does not trigger the barrier — re-propose proceeds "
+                "normally.\n\n"
                 "   **A NACK naming new findings on your re-propose is "
                 "legitimate adversarial review, not goalpost-moving.** "
-                "Reviewers are explicitly primed to re-review the v2+ delta "
-                "as a fresh review — they will surface new issues introduced "
-                "by your fix even when those issues lie outside the scope of "
-                "their prior NACK. A NACK is not invalid merely because it "
-                "raises something the reviewer did not raise before — "
-                "\"that's not what you NACK'd last time\" is not a valid "
-                "objection. "
-                "**You can and should push back on a NACK on its merits.** "
-                "If you believe a finding is wrong — the reviewer misread the "
-                "code, the concern does not apply, the cited behavior is "
-                "actually correct — contest it: send a directed message to "
-                "the reviewer stating your case with evidence (file:line, a "
-                "test, a doc reference). BRC consensus is a negotiation "
-                "between peers; you are not subordinate to a reviewer's "
-                "verdict, and an incorrect NACK should be challenged, not "
-                "silently worked around. What is *not* productive is "
-                "contesting a NACK you know is correct just to avoid another "
-                "cycle — re-reviews are cheap by design, so when the finding "
-                "is real, fix it and re-propose rather than arguing.",
-                "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
-                "6. **STAY ALIVE**: Block on the next BRC event with "
-                + _brc_stay_alive_wait_line(is_dual_role)
-                + "until the orchestrator stops you. "
-                "**Don't** wrap this in a shell `for i in 1..N` loop; "
-                "**don't** prefix it with `sleep N`.  The wait-loop "
-                "blocks server-side and returns the moment a NEW BRC "
-                "event arrives.  Exit code 0 means act on the returned "
-                "message, 1 means the wrapper exhausted retries "
-                "(surface it).  Cursor threading across re-entries is "
-                "automatic (issue #2323): the CLI persists the response "
-                "cursor under "
-                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* so "
-                "events that land between your call returning and the next "
-                "call entering are still delivered, and the send→wait "
-                "race is closed without manual `--since` anchoring.  "
-                "See docs/reference/agent-wait-patterns.md.",
-                "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
+                "Reviewers re-review v2+ as a fresh delta; \"that's not "
+                "what you NACK'd last time\" is not a valid objection. "
+                "**You can and should push back on a NACK on its merits** — "
+                "if the reviewer misread the code or the concern does not "
+                "apply, contest it via a directed message with evidence "
+                "(file:line, test, doc reference). What is *not* productive "
+                "is contesting a NACK you know is correct — re-reviews are "
+                "cheap by design, so when the finding is real, fix it and "
+                "re-propose.",
+                "5. **CONFIRM**: When all reviewers ACK, run "
+                "`egg-orch consensus confirmed` to mark your role's "
+                "consensus.",
+                "6. **HANDLE RE-REVIEW**: When you are re-invoked with a "
+                "`CONSENSUS_RE_REVIEW` event"
                 + (
-                    "(or a `CONSENSUS_PROPOSE` for a re-propose — "
+                    " (or a `CONSENSUS_PROPOSE` for a re-propose — "
                     "version > 1, after you NACKed a prior version; "
-                    "this wakes you via the dual-role augmentation on "
-                    "step 6's wait per #2749 — see Reviewer Lifecycle "
-                    "step 8 for symmetry) "
+                    "dual-role agents handle both — see Reviewer "
+                    "Lifecycle step 8 for the adversarial re-review "
+                    "framing)"
                     if is_dual_role
                     else ""
                 )
-                + "while staying alive, you MUST act on it — failure to do so will stall "
-                "the entire pipeline. If you are a reviewer of the re-proposing producer, "
-                "re-review and ACK/NACK the new proposal (dual-role agents: see "
-                "Reviewer Lifecycle step 8 below for the adversarial re-review framing "
-                "that applies to this case). Otherwise, re-confirm via "
-                "`egg-orch consensus confirmed`. Do NOT ignore these messages.",
-                "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
+                + ", act on it — failure to respond stalls the pipeline. "
+                "If you are a reviewer of the re-proposing producer, "
+                "re-review and ACK/NACK the new proposal (dual-role agents: "
+                "see Reviewer Lifecycle step 8 below for the adversarial "
+                "re-review framing that applies to this case). Otherwise, "
+                "re-confirm via `egg-orch consensus confirmed`.",
+                "7. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
                 "land a commit that satisfies a *different* producer's "
                 "conditional-ACK obligation in-cycle — typical pattern: "
                 "the coder is gateway-blocked from a path under `docs/`, "
@@ -12627,56 +12282,23 @@ def _build_brc_preamble(
                     branch=branch,
                     base_branch=base_branch,
                 ),
-                "2. **POLL**: "
+                "2. **INVOKED PER EVENT**: The orchestrator's event-pump "
+                "wrapper invokes you one-shot per actionable event. When a "
+                "`CONSENSUS_PROPOSE` arrives for an assigned producer, "
+                "you are spawned with the proposal in your event payload. "
+                "Do your preparation work from step 1 on the first "
+                "invocation; subsequent invocations land you directly at "
+                "step 3 (SYNC) with the proposal already in context."
                 + (
-                    "**For dual-role agents (you), polling happens at TWO "
-                    "points, per the *Dual-Role Execution Order* banner "
-                    "above (updated for coder-owns-tests).** "
-                    "**(a) Pre-PROPOSE rendezvous** with the coder's "
-                    "first `CONSENSUS_PROPOSE`: this is the explicit "
-                    "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` "
-                    "in step 1 of the banner. You MUST issue it — your "
-                    "producer WORK is hardening the coder's tests, so "
-                    "there is nothing to propose until the coder has "
-                    "proposed. When that wait returns, SYNC the worktree, "
-                    "do your Producer WORK (review + harden), then "
-                    "PROPOSE and ACK/NACK the coder in the same pass "
-                    "(fall through to step 3 (SYNC) → step 4 (REVIEW) → "
-                    "step 5 (ACK/NACK) here). "
-                    "**(b) Post-PROPOSE rendezvous** with re-proposes "
-                    "(`CONSENSUS_PROPOSE` version > 1) and peer-producer "
-                    "proposals: these fold into Producer Lifecycle step 4 "
-                    "/ step 6, whose augmented filter already wakes on "
-                    "`CONSENSUS_PROPOSE` per #2749. Do NOT issue a second "
-                    "`wait-loop --for CONSENSUS_PROPOSE` after your own "
-                    "PROPOSE — the augmented producer waits already cover "
-                    "it. When a post-PROPOSE wakeup arrives, fall through "
-                    "to step 3 (SYNC) → step 4 (REVIEW) → step 5 "
-                    "(ACK/NACK) here, then re-enter the producer wait. "
-                    "Do NOT skip step 4 (REVIEW) — you must read the "
-                    "referenced files and form independent judgment, not "
-                    "ACK from the proposal summary alone."
+                    "\n\n   **Dual-role agents (you)** — per the "
+                    "*Dual-Role Execution Order* banner above: do "
+                    "Producer steps 1–3 (ORIENT → WORK → PROPOSE) first "
+                    "on the first invocation. Subsequent invocations land "
+                    "you at the reviewer SYNC → REVIEW → ACK/NACK path "
+                    "for each upstream producer's PROPOSE; each one is a "
+                    "fresh review, not a continuation."
                     if is_dual_role
-                    else "Block on `CONSENSUS_PROPOSE` from assigned producers "
-                    "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
-                    "`wait-loop` blocks server-side and returns exit 0 the moment "
-                    "a proposal arrives (stdout has it); exit 1 means a permanent "
-                    "error (surface it — do NOT retry).  It re-issues the inner "
-                    "long-poll internally so timeouts never surface to you.  "
-                    "**Re-enter the same command** after each ACK/NACK to wait "
-                    "for the next producer's proposal — cursor threading across "
-                    "these re-entries is automatic (issue #2323): the CLI "
-                    "persists the response cursor under "
-                    "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* "
-                    "so a proposal "
-                    "that lands in the gap between your previous wait returning "
-                    "and the next one entering is still delivered.  Do NOT "
-                    "wrap this in a shell `for` loop, do NOT `sleep N`, and "
-                    "do NOT use bare `egg-orch message wait` here — a bare "
-                    "`wait` exits 1 on each timeout which the tool surface "
-                    "renders as an error and invites a tight retry loop "
-                    "(issue #1943).  Finish your preparation work from "
-                    "step 1 before entering the wait-loop."
+                    else ""
                 ),
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
@@ -12717,90 +12339,45 @@ def _build_brc_preamble(
                 '   "\n'
                 "   ```\n"
                 "\n"
-                "   **Conditional ACK** (issue #1998 — use when the work is "
-                "correct but requires a human action at merge time that agents "
-                "cannot perform themselves, e.g. a `git mv`, a secret "
-                "rotation, a config flip in another repo): add "
-                '`--pre-merge-condition "…"` to the ACK command. The '
-                "obligation is recorded on the approval matrix and rendered "
-                'as a "Pre-merge Obligations" section high up in the '
-                "auto-created PR body so the merger cannot skim past it. Do "
-                "NOT use this to smuggle blocking issues past the producer — "
-                "if the producer could fix it, NACK instead.\n"
-                "   Example:\n"
-                "   ```\n"
-                '   egg-orch consensus ack <role> --files-reviewed "f1" '
-                '--ack-version <N> --reason "Code is correct but …" '
-                '--pre-merge-condition "A human must `git mv legacy/x '
-                'new/x` before merging — agents cannot push renames through"\n'
-                "   ```\n"
+                "   **Conditional ACK (#1998)** — use when the work is "
+                "correct but a human action is needed at merge time "
+                "(`git mv`, secret rotation, cross-repo flip): add "
+                '`--pre-merge-condition "…"` to the ACK. The obligation '
+                "renders as a `Pre-merge Obligations` block in the PR "
+                "body. Do NOT use this to smuggle blocking issues past "
+                "the producer — if the producer could fix it, NACK "
+                "instead.\n"
                 "\n"
                 "   **Drop satisfied obligations on re-ACK (#2338).** When "
                 "you re-ACK at a new proposal version and the conditioning "
-                "work has landed in-cycle (another role cherry-picked the "
-                "satisfying commit, the rename is now in the diff, the "
+                "work has landed in-cycle (the rename is in the diff, the "
                 "obligation is moot), drop the obligation: re-ACK without "
-                "`--pre-merge-condition`. Do NOT re-attach the same "
-                'obligation with a "Status: satisfied — manual '
-                're-verification required" hedge — the PR body renders '
-                "obligations verbatim under a `do not merge until "
-                "complete` banner, and transcribing a satisfied obligation "
-                "produces a self-contradicting PR body. If the satisfier "
-                "has called `mcp__brc__resolve_obligation`, the matrix is "
-                "already filtering it out, but the resolution resets when "
-                "you re-ACK — dropping the obligation is the durable "
-                "fix.\n"
-                "\n"
-                "   **Alternative — keep the obligation but mark it resolved "
-                "(#2336).** If you want to preserve the audit trail of the "
-                "obligation in the PR body (under a 'Resolved within this "
-                "PR' subsection rather than the merge-blocking section), "
+                "`--pre-merge-condition`. Do NOT re-attach it with a "
+                'self-contradicting "satisfied" hedge — the PR body '
+                "renders obligations verbatim under a `do not merge` "
+                "banner. To preserve the audit trail instead of dropping, "
                 "re-ACK with `--pre-merge-condition-resolved-in-diff <sha>` "
-                "in addition to `--pre-merge-condition`. The renderer demotes "
-                "the entry instead of dropping it. Prefer this when the "
-                "obligation history is useful context for the merger; prefer "
-                "the drop path above when the obligation is moot and "
-                "transcribing it just adds noise.\n"
+                "alongside `--pre-merge-condition` so the renderer "
+                "demotes (not drops) the entry (#2336).\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"
                 "\n"
                 "   **Stale-version rejection (#2142):** if the producer "
-                "re-proposed while your verdict was in flight, your ACK / "
-                "NACK is rejected with HTTP 409 and the response `details` "
-                "inline the producer's current proposal snapshot "
-                "(`current_proposal.version`, `artifacts`, `commit_sha`). "
-                "Re-fetch (`git fetch && git merge`), re-review against the "
-                "new commit (often a small diff against what you just read), "
-                "and re-submit your verdict. Don't retry blindly with the "
-                "same payload — the orchestrator will reject again until you "
-                "review the current version.",
+                "re-proposed while your verdict was in flight, the ACK / "
+                "NACK is rejected with HTTP 409 inlining the current "
+                "proposal snapshot (version, artifacts, commit_sha). "
+                "`git fetch && git merge`, re-review against the new "
+                "commit, and re-submit — don't retry the same payload.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
-                "7. **STAY ALIVE**: Block on the next BRC event with "
-                "`egg-orch message wait-loop --for CONSENSUS_PROPOSE "
-                "--for CONSENSUS_RE_REVIEW --for CONSENSUS_CONFIRMED "
-                "--for OVERSEER_ALERT --timeout 60` until the "
-                "orchestrator stops you. **Don't** wrap this in a "
-                "shell `for i in 1..N` loop; **don't** prefix it with "
-                "`sleep N`.  The wait-loop blocks server-side and "
-                "returns the moment a NEW BRC event arrives.  Exit 0 "
-                "means act on the returned event; exit 1 means the "
-                "wrapper exhausted retries (surface it).  Cursor "
-                "threading across re-entries is automatic (issue "
-                "#2323): the CLI persists the response cursor under "
-                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* so "
-                "events that land between your call returning and the next "
-                "call entering are still delivered, and the send→wait "
-                "race is closed without manual `--since` anchoring.  "
-                "See docs/reference/agent-wait-patterns.md.",
-                "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` "
-                "message (or a `CONSENSUS_PROPOSE` for a re-propose — version > 1, "
-                "after you NACKed a prior version) while staying alive, you MUST "
-                "act on it — failure to do so will stall the entire pipeline. "
-                "Re-review the re-proposing producer's new proposal and ACK/NACK "
-                "it, then re-confirm via `egg-orch consensus confirmed`. Do NOT "
-                "ignore these messages.\n\n"
+                "7. **HANDLE RE-REVIEW**: When you are re-invoked with a "
+                "`CONSENSUS_RE_REVIEW` event (or a `CONSENSUS_PROPOSE` for "
+                "a re-propose — version > 1, after you NACKed a prior "
+                "version), act on it — failure to respond stalls the "
+                "pipeline. Re-review the re-proposing producer's new "
+                "proposal and ACK/NACK it, then re-confirm via "
+                "`egg-orch consensus confirmed`.\n\n"
                 "   **This is adversarial re-review, not blocker-verification.** "
                 "Your re-review has TWO equal-weight mandates: (1) verify the "
                 "blockers from your prior NACK were addressed AND (2) audit the "
@@ -12809,22 +12386,12 @@ def _build_brc_preamble(
                 "{last_reviewed_commit}..HEAD --not origin/{base_branch} -p`) — "
                 "as a fresh reviewer with no NACK history, bounded to that "
                 "delta, NOT the whole accumulated surface. Both must pass to "
-                "ACK. "
-                "**The message body is authoritative for the full framing** — "
-                "the orchestrator appends an adversarial re-prime to every "
-                "re-review trigger with the complete dual-mandate decomposition, "
-                "the named-blockers-anchor trap, and the operator-copy-paste "
-                "verification ladder; this lifecycle text is a pointer to that, "
-                "not a substitute. Your spawn-time mandate stands: find ALL "
-                "issues, last line of defense before production. New issues "
-                "outside the scope of your prior NACK are blocking. Re-reviews "
-                "are cheap by design — read the delta, apply your rubric, "
-                "decide. Minutes, not hours. **NACK without hesitance**; the "
-                "orchestrator absorbs cycles. Two NACKs on the same producer "
-                "where the second names new findings is the correct trajectory, "
-                "not goalpost-moving. The downstream GitHub reviewer should find "
-                "nothing in your re-reviewed deltas — anything it catches is a "
-                "miss attributable to this cycle.\n",
+                "ACK. The orchestrator's adversarial re-prime in the event "
+                "body carries the full framing; this is a pointer. New issues "
+                "outside your prior NACK's scope are blocking; **NACK without "
+                "hesitance** — re-reviews are cheap by design, and the "
+                "downstream GitHub reviewer should find nothing in your "
+                "re-reviewed deltas.\n",
             ]
         )
 
@@ -12879,9 +12446,15 @@ def _build_brc_preamble(
 
     lines.extend(
         [
-            "**If you exit before the orchestrator stops you, you have FAILED your role.** "
-            "Completing your task is necessary but NOT sufficient — you must reach "
-            "CONFIRMED state and remain alive until consensus.\n",
+            "**Event-handler contract (#2908):** The orchestrator's "
+            "event-pump wrapper drives your lifecycle. You are invoked "
+            "one-shot per actionable BRC event: handle the event per the "
+            "lifecycle above, update durable BRC memory (writes happen "
+            "automatically inside `egg-orch consensus ack` / `nack` "
+            "handlers), then exit naturally. The wrapper polls "
+            "`egg-orch brc next-action` and re-invokes you with the next "
+            "event. You do NOT block on `egg-orch message wait-loop` "
+            "yourself; the wrapper owns the wait and the heartbeat.\n",
             "",
         ]
     )
@@ -13521,9 +13094,10 @@ def _build_file_boundary_section(role_value: str, repo: str | None = None) -> st
             "end-state to top-level `.github-staging/` instead, mirroring "
             "the `.github/` structure (e.g. stage "
             "`.github/workflows/test-e2e.yml` as "
-            "`.github-staging/workflows/test-e2e.yml`). The PR builder "
-            "auto-emits a manual step asking the human reviewer to move "
-            "the staged files into place before merge — see issue #2508."
+            "`.github-staging/workflows/test-e2e.yml`). Call out the "
+            "staged files explicitly in your PR body so the human reviewer "
+            "knows to move them into `.github/` before merge — see issue "
+            "#2508."
         )
     lines.append("")
     return "\n".join(lines)
@@ -15753,8 +15327,11 @@ def _start_stacked_pr_reconciler(
 
     The list-callables (``list_open_prs`` and ``list_remote_branches``)
     forward to ``GatewayClient.list_open_prs`` /
-    ``GatewayClient.list_remote_branches`` — both route through
-    existing per-agent allowlists. The rebase callable forwards to
+    ``GatewayClient.list_remote_branches``. ``list_open_prs`` routes
+    through the launcher-authed control-plane route
+    ``/api/v1/gh/list_open_prs`` (#2925); ``list_remote_branches`` routes
+    through the existing per-agent ``git ls-remote`` allowlist. The rebase
+    callable forwards to
     ``GatewayClient.rebase_onto``, which performs the full local
     rebase + ``--force-with-lease`` push + ``gh api PATCH base=…``
     retarget so an orphaned child PR is fully healed on origin
@@ -15790,17 +15367,15 @@ def _start_stacked_pr_reconciler(
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
         # can detect children whose base branch was deleted (parent
-        # merged through the GitHub UI). Routes through the existing
-        # per-agent ``gh pr list`` allowlist on the gateway — no new
-        # privileged endpoint (decision-15).
+        # merged through the GitHub UI). Routes through the launcher-authed
+        # control-plane endpoint ``/api/v1/gh/list_open_prs`` — the
+        # orchestrator is the server that manages pipelines, not an agent,
+        # so it does not register a synthetic agent session or impersonate
+        # a role (#2922 / #2925).
         if not pr_repo:
             return []
         try:
-            # Stacked-PR reconciler is orchestrator-driven; the synthetic
-            # session uses ``agent_role="orchestrator"`` so the audit log
-            # attributes these `gh pr list` calls to the actual caller
-            # (the orchestrator) instead of impersonating a coder (#2893).
-            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="orchestrator"))
+            return list(gateway.list_open_prs(pipeline_id, pr_repo))
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "stacked_pr_reconciler: list_open_prs raised — treating as empty",
@@ -15812,7 +15387,10 @@ def _start_stacked_pr_reconciler(
     def _list_extant_branches() -> set[str]:
         # Lists remote branches via ``git ls-remote --heads origin``
         # so the reconciler can detect deleted parents. Routes through
-        # the existing per-agent ``git ls-remote`` allowlist.
+        # the existing per-agent ``git ls-remote`` allowlist. The
+        # synthetic session uses ``agent_role="orchestrator"`` so this
+        # orchestrator-driven ls-remote is attributed to the orchestrator
+        # in the audit log instead of a phantom coder (#2919).
         if not repo_path_str:
             return set()
         try:
@@ -15820,7 +15398,7 @@ def _start_stacked_pr_reconciler(
                 gateway.list_remote_branches(
                     pipeline_id,
                     repo_path_str,
-                    agent_role="coder",
+                    agent_role="orchestrator",
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -15846,7 +15424,13 @@ def _start_stacked_pr_reconciler(
                     old_base=orphan.deleted_base,
                     pr_number=orphan.pr_number,
                     repo=pr_repo or None,
-                    agent_role="coder",
+                    # Orchestrator-driven heal (rebase + force-push +
+                    # pr-edit); attribute to the orchestrator, not a
+                    # phantom coder (#2919). The force-push targets the
+                    # slice integration branch on a synthetic session, so
+                    # the slice-integration exemption admits it regardless
+                    # of role.
+                    agent_role="orchestrator",
                 )
             )
         except Exception:  # noqa: BLE001
@@ -16133,7 +15717,10 @@ def _run_implement_phase_slices(
                     # (un-started) slice branch whose tip is still at its
                     # creation base is not mistaken for merged work.
                     integration_base_sha=slice_obj.integration_base_sha,
-                    agent_role="coder",
+                    # Read-only ancestry check run by the orchestrator's
+                    # slice-loop scheduler; attribute to the orchestrator
+                    # in the audit log, not a phantom coder (#2919).
+                    agent_role="orchestrator",
                     mode=gateway_mode,  # type: ignore[arg-type]
                 )
             except Exception as detect_err:  # noqa: BLE001
@@ -16518,7 +16105,10 @@ def _run_implement_phase_slices(
                             integration_branch=integration_branch,
                             parent_branch=parent_branch,
                             integration_base_sha=recorded_base_sha,
-                            agent_role="coder",
+                            # Read-only ancestry check run by the
+                            # orchestrator's slice-loop scheduler; attribute
+                            # to the orchestrator, not a phantom coder (#2919).
+                            agent_role="orchestrator",
                             mode=gateway_mode,  # type: ignore[arg-type]
                         )
                     except Exception as detect_err:  # noqa: BLE001
@@ -16575,7 +16165,21 @@ def _run_implement_phase_slices(
                                 str(worktree_repo_path),
                                 integration_branch=integration_branch,
                                 parent_branch=parent_branch,
-                                agent_role="coder",
+                                # #2947 — hand the slice's recorded fork
+                                # base to the gateway so a crash/restart
+                                # over a branch that already carries this
+                                # slice's commits (with an additively
+                                # advanced parent) resumes in place
+                                # instead of non-fast-forward-failing.
+                                integration_base_sha=recorded_base_sha,
+                                # Orchestrator pre-creates the slice
+                                # integration branch on a synthetic session
+                                # before agents spawn; attribute to the
+                                # orchestrator, not a phantom coder (#2919).
+                                # The push rides the slice-integration
+                                # exemption (synthetic + branch shape), not a
+                                # role gate.
+                                agent_role="orchestrator",
                                 mode=gateway_mode,  # type: ignore[arg-type]
                             )
                         )
