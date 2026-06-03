@@ -15798,17 +15798,14 @@ def _start_stacked_pr_reconciler(
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
         # can detect children whose base branch was deleted (parent
-        # merged through the GitHub UI). Routes through the existing
-        # per-agent ``gh pr list`` allowlist on the gateway — no new
-        # privileged endpoint (decision-15).
+        # merged through the GitHub UI). Routes through the launcher-authed
+        # control-plane endpoint ``/api/v1/gh/list_open_prs`` — the
+        # orchestrator is the server that manages pipelines, not an agent,
+        # so it does not register a synthetic agent session or impersonate
+        # a role (#2922 / #2925).
         if not pr_repo:
             return []
         try:
-            # Stacked-PR reconciler is orchestrator-driven. ``list_open_prs``
-            # runs on the launcher-authed control-plane route
-            # ``/api/v1/gh/list_open_prs`` — the orchestrator is the server
-            # that manages pipelines, not an agent, so it does not register a
-            # synthetic agent session or impersonate a role (#2922 / #2925).
             return list(gateway.list_open_prs(pipeline_id, pr_repo))
         except Exception as exc:  # noqa: BLE001
             logger.debug(

@@ -116,16 +116,18 @@ class TestListOpenPrsListing:
         """The route must NOT accept arbitrary argv — it builds the fixed
         read-only ``gh pr list`` command server-side from repo + limit.
 
-        Also pins the ``mode=auth_mode`` flow-through: the route resolves
-        ``auth_mode = get_auth_mode(repo)`` and forwards it as a kwarg to
-        ``github.execute`` so the gateway uses the right credentials for
-        the target repo. A regression that drops the ``mode`` keyword
-        would silently fall back to the default mode.
+        Also pins the ``mode=auth_mode`` flow-through at both seams: the
+        route resolves ``auth_mode = get_auth_mode(repo)`` and forwards it
+        as a kwarg to both ``get_github_client`` (so the upstream auth-mode
+        lookup picks the right client) AND ``github.execute`` (so the
+        per-call execution uses the matching credentials). A regression
+        that drops the ``mode`` keyword at either seam would silently fall
+        back to the default mode.
         """
         github = _fake_github("[]")
         with (
             patch.object(gateway, "get_auth_mode", return_value="bot"),
-            patch.object(gateway, "get_github_client", return_value=github),
+            patch.object(gateway, "get_github_client", return_value=github) as get_client,
         ):
             response = client.post(
                 "/api/v1/gh/list_open_prs",
@@ -148,6 +150,7 @@ class TestListOpenPrsListing:
         ]
         called_kwargs = github.execute.call_args[1]
         assert called_kwargs.get("mode") == "bot"
+        get_client.assert_called_with(mode="bot")
 
     def test_default_limit_is_200(self, client, launcher_auth_headers):
         """Omitting ``limit`` defaults to 200 in the server-side argv."""
@@ -206,6 +209,26 @@ class TestListOpenPrsValidation:
         response = client.post(
             "/api/v1/gh/list_open_prs",
             json={"repo": malformed_repo},
+            headers=launcher_auth_headers,
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize(
+        "non_object_body",
+        [
+            [],  # JSON array — ``data.get(...)`` would raise AttributeError
+            ["owner/repo"],
+            "owner/repo",  # JSON string
+        ],
+    )
+    def test_non_object_body_returns_400(self, client, launcher_auth_headers, non_object_body):
+        """A launcher caller that posts a non-object JSON body (array,
+        string, etc.) gets a clean 400, not a 500 from
+        ``AttributeError: 'list' object has no attribute 'get'``.
+        """
+        response = client.post(
+            "/api/v1/gh/list_open_prs",
+            json=non_object_body,
             headers=launcher_auth_headers,
         )
         assert response.status_code == 400

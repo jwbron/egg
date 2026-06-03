@@ -5028,6 +5028,12 @@ def gh_list_open_prs() -> tuple[Response, int] | Response:
     data = request.get_json()
     if not data:
         return make_error("Missing request body")
+    # ``request.get_json()`` returns whatever JSON parses — a launcher
+    # caller could legitimately post an array or scalar. Reject anything
+    # other than an object up front so ``data.get(...)`` below cannot
+    # raise ``AttributeError`` → 500.
+    if not isinstance(data, dict):
+        return make_error("Invalid body: must be a JSON object")
 
     repo = data.get("repo")
     if not isinstance(repo, str) or not repo.strip():
