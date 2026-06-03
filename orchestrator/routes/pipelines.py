@@ -16414,6 +16414,13 @@ def _run_implement_phase_slices(
                                 str(worktree_repo_path),
                                 integration_branch=integration_branch,
                                 parent_branch=parent_branch,
+                                # #2947 — hand the slice's recorded fork
+                                # base to the gateway so a crash/restart
+                                # over a branch that already carries this
+                                # slice's commits (with an additively
+                                # advanced parent) resumes in place
+                                # instead of non-fast-forward-failing.
+                                integration_base_sha=recorded_base_sha,
                                 # Orchestrator pre-creates the slice
                                 # integration branch on a synthetic session
                                 # before agents spawn; attribute to the

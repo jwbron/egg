@@ -2323,6 +2323,7 @@ class GatewayClient:
         *,
         integration_branch: str,
         parent_branch: str,
+        integration_base_sha: str | None = None,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
     ) -> bool:
@@ -2347,6 +2348,17 @@ class GatewayClient:
         ``gateway/gateway.py``.  The branch itself still passes the
         normal ``egg/`` prefix branch-ownership check, so no
         orchestrator-role push surface is introduced.
+
+        ``integration_base_sha`` is the fork base recorded at the
+        slice's creation (#2871). When supplied it unlocks the #2947
+        resume-in-place path below: a crash / ``restart_phase`` that
+        lands while the slice already has committed work *and* the
+        parent advanced additively is recognised as a resumable branch
+        (rather than non-fast-forward-rejected) by checking that the
+        recorded base is still an ancestor of both the existing tip and
+        the advanced parent. ``None`` (slices provisioned before #2871,
+        or whose base was never recorded) degrades to the prior
+        behaviour — the rejection surfaces.
 
         Returns ``True`` on success, ``False`` on any error (the
         caller logs and surfaces a clear error to the run loop).
@@ -2480,6 +2492,88 @@ class GatewayClient:
                         parent_branch=parent_branch,
                         parent_sha=parent_sha,
                         existing_sha=existing_sha,
+                    )
+                    return True
+                # #2947 — crash / restart mid-slice resume-in-place. The
+                # existing tip is NOT a descendant of the (advanced)
+                # parent, so the #2512 fast-path above did not fire — but
+                # that does not necessarily mean diverged/unknown history.
+                # When a host crash or ``restart_phase`` lands while the
+                # slice already has its own committed work AND the parent
+                # moved forward *additively* (no history rewrite), the
+                # slice is a legitimate, resumable branch that simply has
+                # not picked up the parent's new commits yet. The #2914
+                # "treat as fresh to force re-spawn" path then routes it
+                # back through here, and a plain
+                # ``parent_sha:refs/heads/<int>`` push would be
+                # non-fast-forward — failing the slice and cascading the
+                # whole phase (the exact 2026-06-02 issue-2908-impl2
+                # slice-3 incident).
+                #
+                # We can recognise this case precisely using the fork
+                # base recorded at creation (#2871): if the slice's own
+                # recorded base is a *strict* ancestor of the existing tip
+                # (the branch genuinely carries this slice's commits built
+                # on its base) AND that base is also an ancestor of the
+                # advanced parent (the parent moved forward without
+                # rewriting the base out of its history), then the slice
+                # and the parent differ only by additive commits on each
+                # side of a shared base. Preserve the branch as-is and
+                # short-circuit success: the cohort re-spawns onto the
+                # existing tip, and the parent's new commits reconcile at
+                # slice-PR / merge time exactly as they would for a slice
+                # whose parent advanced while it was running normally. We
+                # never reset or force-push, so no committed work is
+                # destroyed.
+                #
+                # Gating on the slice's *own* recorded base (not a generic
+                # merge-base of the two tips) is what keeps this safe: a
+                # genuinely unrelated stale branch would not descend from
+                # this slice's recorded base, so it still falls through to
+                # the push and surfaces the rejection (preserving the
+                # #2512/#2549 "don't silently overwrite unknown work"
+                # instinct). A true history rewrite of the parent (rebase)
+                # drops the base out of the parent's ancestry, so the
+                # second check fails and we likewise fall through — that
+                # harder class is deliberately left to the operator. The
+                # ``existing_sha != integration_base_sha`` guard keeps an
+                # *un-started* branch still sitting at its base on the
+                # fast-forward push path (advancing it to the new parent
+                # tip) rather than pinning it to the stale base.
+                # ``existing_sha`` and ``integration_base_sha`` both
+                # originate from ``get_remote_branch_sha`` (full 40-char
+                # SHAs), so an exact compare is correct (same invariant as
+                # the #2871 un-started-branch guard in
+                # ``is_slice_branch_merged_into_parent``).
+                if (
+                    integration_base_sha
+                    and existing_sha != integration_base_sha
+                    and self._sha_is_ancestor(
+                        pipeline_id,
+                        repo_path,
+                        integration_base_sha,
+                        existing_sha,
+                        bearer_token=session_token,
+                    )
+                    and self._sha_is_ancestor(
+                        pipeline_id,
+                        repo_path,
+                        integration_base_sha,
+                        parent_sha,
+                        bearer_token=session_token,
+                    )
+                ):
+                    logger.info(
+                        "Slice integration branch carries its own commits "
+                        "and the parent advanced additively since creation "
+                        "— preserving the branch and resuming in place "
+                        "(#2947 crash/restart recovery)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        parent_branch=parent_branch,
+                        parent_sha=parent_sha,
+                        existing_sha=existing_sha,
+                        integration_base_sha=integration_base_sha,
                     )
                     return True
                 # Could not verify ancestry: parent_sha is either not
