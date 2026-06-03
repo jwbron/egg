@@ -343,10 +343,10 @@ def cmd_show(args: argparse.Namespace) -> int:
     """Display current contract state.
 
     Delegates to :func:`egg_agent_tools.handlers.sdlc.show_contract`
-    so the CLI and the ``mcp__sdlc__show_contract`` MCP tool share a
-    handler. Stdout/stderr shape is byte-compatible with the prior
-    hand-rolled implementation (summary for TTY, ``--json`` for
-    machine consumption, ``--audit`` to include audit-log).
+    (the same handler the orchestrator HTTP route invokes). Stdout/stderr
+    shape is byte-compatible with the prior hand-rolled implementation
+    (summary for TTY, ``--json`` for machine consumption, ``--audit`` to
+    include audit-log).
     """
     from egg_agent_tools.handlers import sdlc as _handlers
 
@@ -451,8 +451,7 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
     """Link a commit to a task.
 
     Delegates to :func:`egg_agent_tools.handlers.task.task_add_commit`
-    so the CLI and the ``mcp__task__add_commit`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import task as _handlers
 
@@ -490,8 +489,7 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
     """Add implementation notes to a task.
 
     Delegates to :func:`egg_agent_tools.handlers.task.task_update_notes`
-    so the CLI and the ``mcp__task__update_notes`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import task as _handlers
 
@@ -529,9 +527,9 @@ def cmd_complete_task(args: argparse.Namespace) -> int:
     """Mark a task as complete, optionally linking a commit.
 
     Delegates to :func:`egg_agent_tools.handlers.task.task_complete`
-    so the MCP ``mcp__task__complete`` tool and the shell CLI share a
-    single handler.  Stdout text and exit code are byte-identical to
-    the pre-refactor CLI behaviour.
+    (the same handler the orchestrator HTTP route invokes).  Stdout
+    text and exit code are byte-identical to the pre-refactor CLI
+    behaviour.
 
     The handler raises :class:`GatewayError` with a message prefixed
     ``"Task marked complete but failed to link commit: "`` on
@@ -585,8 +583,7 @@ def cmd_complete_phase(args: argparse.Namespace) -> int:
     """Mark a phase as complete, optionally linking a commit.
 
     Delegates to :func:`egg_agent_tools.handlers.phase.phase_complete_phase`
-    so the CLI and the ``mcp__phase__complete_phase`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
 
     Handler ordering changed in response to reviewer_code NACK #6: the
     commit-link happens BEFORE the status flip, so a mid-way failure
@@ -700,8 +697,7 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
     used by contract verification reviewers to mark criteria as verified.
 
     Delegates to :func:`egg_agent_tools.handlers.sdlc.verify_criterion`
-    so the CLI and the ``mcp__sdlc__verify_criterion`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import sdlc as _handlers
 
@@ -738,10 +734,9 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     """Create a HITL decision point.
 
     Delegates to :func:`egg_agent_tools.handlers.sdlc.register_open_question`
-    so the MCP ``mcp__sdlc__register_open_question`` tool and the CLI share
-    a single handler.  Note: the TOCTOU race on the decision ID is
-    inherited from the handler; the gateway rejects duplicate indices
-    server-side.
+    (the same handler the orchestrator HTTP route invokes).  Note: the
+    TOCTOU race on the decision ID is inherited from the handler; the
+    gateway rejects duplicate indices server-side.
     """
     from egg_agent_tools.handlers import sdlc as _handlers
 
@@ -1250,8 +1245,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
     """Create a feedback comment for open-ended questions.
 
     Delegates to :func:`egg_agent_tools.handlers.sdlc.request_feedback`
-    so the MCP ``mcp__sdlc__request_feedback`` tool and the CLI share a
-    single handler.
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import sdlc as _handlers
 

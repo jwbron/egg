@@ -537,8 +537,7 @@ def cmd_pipeline_status(args: argparse.Namespace) -> int:
     """Get pipeline status.
 
     Delegates to :func:`egg_agent_tools.handlers.progress.progress_query_status`
-    so the CLI and the ``mcp__progress__query_status`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -2137,8 +2136,7 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
     only react to OVERSEER_ALERT — STATUS/HANDOFF blend into normal traffic.
 
     Delegates to :func:`egg_agent_tools.handlers.progress.progress_overseer_alert`
-    so the CLI and the ``mcp__progress__overseer_alert`` MCP tool share a
-    handler (iter-2 drift gate).
+    (the same handler the orchestrator HTTP route invokes).
     """
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -2682,9 +2680,9 @@ def cmd_signal_readiness(args: argparse.Namespace) -> int:
 def _consensus_push() -> int:
     """Back-compat alias for :func:`egg_agent_tools.push.consensus_push`.
 
-    The implementation moved to ``egg_agent_tools.push`` in #1994 so the
-    ``mcp__brc__propose`` tool can share it.  Kept here as a thin alias
-    so existing CLI callers and unit tests keep working.
+    The implementation lives in ``egg_agent_tools.push`` (moved in
+    #1994).  Kept here as a thin alias so existing CLI callers and unit
+    tests keep working.
 
     Returns only the exit code (discards error message) — the CLI
     surfaces errors via stderr prints inside ``consensus_push()``.
@@ -2729,10 +2727,9 @@ def _render_stale_version_rejection(
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
     """Send CONSENSUS_PROPOSE signal, optionally pushing code first.
 
-    Delegates to :func:`egg_agent_tools.handlers.brc.brc_propose` so the
-    MCP ``mcp__brc__propose`` tool and the CLI share one handler.  The
-    ``--push`` / ``--file`` / ``--json`` / ``--commit-sha`` surface is
-    preserved.
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_propose` (the
+    same handler the orchestrator HTTP route invokes).  The ``--push``
+    / ``--file`` / ``--json`` / ``--commit-sha`` surface is preserved.
     """
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -3057,9 +3054,9 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     """Show BRC consensus status (approval matrix and review graph).
 
     Delegates the structured data-build to
-    :func:`egg_agent_tools.handlers.brc.brc_get_state` so the MCP
-    ``mcp__brc__get_state`` tool and this CLI share one handler.  The
-    human-readable rendering stays here in the shim.
+    :func:`egg_agent_tools.handlers.brc.brc_get_state` (the same
+    handler the orchestrator HTTP route invokes).  The human-readable
+    rendering stays here in the shim.
     """
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -3461,8 +3458,8 @@ def cmd_progress_emit(args: argparse.Namespace) -> int:
     """Emit a structured progress event.
 
     Delegates to :func:`egg_agent_tools.handlers.progress.progress_emit`
-    so the MCP ``mcp__progress__emit`` tool and the CLI share one
-    handler.  Stdout / exit-code parity preserved.
+    (the same handler the orchestrator HTTP route invokes).  Stdout /
+    exit-code parity preserved.
     """
     from egg_agent_tools.handlers import progress as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -4510,7 +4507,7 @@ def create_parser() -> argparse.ArgumentParser:
     _add_json_flag(ph_complete)
     ph_complete.set_defaults(func=cmd_phase_complete)
 
-    # phase get-context (verb-level alias for mcp__phase__get_context)
+    # phase get-context
     #
     # The event-pump wrapper (#2908 slice-2) calls this when it needs
     # the bundled phase context (pipeline_id, phase, role, assigned

@@ -271,10 +271,11 @@ print(json.dumps({
         case "$http_code" in
             401) echo "Authentication failed - check session token" >&2 ;;
             403)
-                # Pipeline-session pushes must route through mcp__brc__propose.
-                # The gateway marks those with recommended_tool="mcp__brc__propose"
-                # in the error details.
-                pipeline_block=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('data', {}).get('recommended_tool') == 'mcp__brc__propose' or 'pipeline sessions' in d.get('message', '').lower())" 2>/dev/null)
+                # Pipeline-session pushes must route through the BRC propose
+                # CLI. The gateway marks those with
+                # recommended_cli="egg-orch consensus propose --push" in the
+                # error details.
+                pipeline_block=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('data', {}).get('recommended_cli') == 'egg-orch consensus propose --push' or 'pipeline sessions' in d.get('message', '').lower())" 2>/dev/null)
                 if [ "$pipeline_block" = "True" ]; then
                     cat >&2 << 'EOF'
 
@@ -283,7 +284,7 @@ print(json.dumps({
 ================================================================================
 
 Direct git push is blocked for pipeline sessions.
-Use: mcp__brc__propose  (or CLI fallback: egg-orch consensus propose --push)
+Use: egg-orch consensus propose --push
 
 See error details above for more information.
 

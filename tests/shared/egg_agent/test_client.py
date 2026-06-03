@@ -1318,11 +1318,11 @@ class TestRunAgentSync:
 # ``integration_tests/test_sandbox_mcp_tools_e2e.py::test_agent_can_be_spawned_via_sdk``.
 
 
-class TestCanUseToolPassesMcpNames:
+class TestCanUseToolPassesNonWriteTools:
     """The can_use_tool callback only targets Write/Edit/NotebookEdit.
-    MCP tool names (mcp__*) must pass through with PermissionResultAllow."""
+    All other tool names must pass through with PermissionResultAllow."""
 
-    def test_can_use_tool_passes_mcp_names(self, monkeypatch):
+    def test_can_use_tool_passes_non_write_tools(self, monkeypatch):
         monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         from egg_agent.tool_interceptor import (
@@ -1337,13 +1337,17 @@ class TestCanUseToolPassesMcpNames:
             err = check_file_write_permission(tool_name, tool_input, role)
             return PermissionResultDeny(message=err) if err else PermissionResultAllow()
 
+        # Representative non-write tools: read-only built-ins, shell, and
+        # the operator-facing orchestrator MCP surface that the agent may
+        # still observe (``orchestrator/mcp_server.py``).  None of these
+        # are write tools, so the interceptor must pass them through.
         for name in (
-            "mcp__brc__propose",
-            "mcp__sdlc__register_open_question",
-            "mcp__phase__get_context",
-            "mcp__task__complete",
-            "mcp__progress__emit",
+            "Bash",
+            "Read",
+            "Glob",
+            "Grep",
+            "mcp__orchestrator__submit_task",
         ):
             assert isinstance(_run_async(_check(name, {}, object())), PermissionResultAllow), (
-                f"MCP tool denied: {name}"
+                f"Non-write tool denied: {name}"
             )
