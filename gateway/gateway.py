@@ -3746,10 +3746,10 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     if policy_result.details and policy_result.details.get("force_draft"):
         draft = True
 
-    # Inject machine-parseable pipeline metadata as an HTML comment.
-    # Note: _build_pr_body (in the orchestrator) also adds a human-readable
-    # "## Pipeline Context" section. The two formats are intentionally
-    # complementary — visible for humans, hidden comment for tooling.
+    # Inject machine-parseable pipeline metadata as an HTML comment so
+    # downstream tooling (status reporters, audit scrapers) can recover
+    # the pipeline_id / agent_role / issue from the PR body without
+    # round-tripping through the orchestrator state store.
     session = getattr(g, "session", None)
     session_pipeline_id = getattr(session, "pipeline_id", None) if session else None
     if session_pipeline_id:

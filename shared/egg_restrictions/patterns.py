@@ -230,9 +230,9 @@ def _build_coder_pattern(
             # `.github/` changes (CI workflow edits, CODEOWNERS rotation)
             # write the proposed end-state to top-level `.github-staging/`
             # mirroring the `.github/` structure; the prefix-match below
-            # leaves `.github-staging/` allowed via the `**` allowlist, and
-            # `_build_pr_body` auto-emits a manual step for the human
-            # reviewer to move the files into `.github/` before merge
+            # leaves `.github-staging/` allowed via the `**` allowlist.
+            # The agent flags the staged files in its PR body so the
+            # human reviewer moves them into `.github/` before merge
             # (issue #2508).
             ".github/",
         ],

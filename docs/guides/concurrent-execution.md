@@ -286,8 +286,9 @@ egg-orch message send --to coder --type HANDOFF \
   --subject "CI needs a step for the new regression suite" \
   --body "tests/test_auth_regression.py won't run in CI. The workflow needs a
 step invoking it. Please stage the end-state under .github-staging/workflows/
-ci.yml (add a 'pytest tests/test_auth_regression.py' step); the PR builder
-emits a manual move-into-.github step for the human reviewer."
+ci.yml (add a 'pytest tests/test_auth_regression.py' step) and call the
+staged file out in your PR body so the human reviewer moves it into
+.github/ before merge."
 
 # 2. Coder receives the HANDOFF on its next poll cycle:
 egg-orch message poll --wait 30

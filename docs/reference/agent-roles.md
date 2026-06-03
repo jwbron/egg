@@ -205,8 +205,9 @@ worktree branch.
   config — branch-protection invariant). To propose `.github/` changes,
   write the end-state to `.github-staging/` mirroring the `.github/`
   structure (e.g. stage `.github/workflows/ci.yml` as
-  `.github-staging/workflows/ci.yml`); the PR builder auto-emits a
-  manual step asking the human reviewer to move the files before merge
+  `.github-staging/workflows/ci.yml`); the agent must call the staged
+  files out in its PR body so the human reviewer moves them into
+  `.github/` before merge
   ([#2508](https://github.com/jwbron/egg/issues/2508)).
   `sandbox/scripts/` is **writable** — the gateway is the sole egress
   chokepoint, so credential-shim modifications are reviewed by
