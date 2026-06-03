@@ -106,8 +106,8 @@ that requires the handler docstring to explain why no CLI exists.
 | `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. Optional `pre_merge_condition` (str) turns this into a **conditional ACK** — the work is approved but a human must perform the named action before merging (e.g. `git mv old/path new/path`). The obligation is rendered as a "Pre-merge Obligations" section on the auto-created PR. Leave empty for an unconditional ACK. When non-empty, the condition is validated like `reason`: boilerplate and short values are rejected with 400. Optional `pre_merge_condition_resolved_in_diff` (str, commit SHA) marks the obligation as satisfied within the same PR's diff on a re-ACK — the renderer demotes it to a "✅ Resolved within this PR" subsection instead of the merge-blocking banner. Requires a non-empty `pre_merge_condition`; rejected at 400 on a plain ACK. See [Conditional ACK reference](conditional-ack.md). | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
 | `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
 | `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. Returns `ok=True` when the transition to CONFIRMED succeeded. Returns `ok=False` with `status="pending_acks"` when the orchestrator rejected the transition (e.g. not yet fully ACKed, stale ACKs); this is transient — retry after polling for outstanding ACKs. Equivalent to CLI exit code 0 vs 2. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
-| `mcp__brc__get_state` | Full structured consensus state (JSON; accepts `verbose: bool`). Slice-aware (#2761): scopes to the per-slice BRC tracker via `slice_id` (defaults to `EGG_SLICE_ID`), so a per-slice agent sees its own slice's consensus rather than a pipeline-level reconstruction. | `handlers.brc.brc_get_state` | `egg-orch brc get-state` *(slice-1 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
-| `mcp__brc__list_blocking` | Return the list of agent roles currently blocking consensus (derived view). | `handlers.brc.brc_list_blocking` | `egg-orch brc list-blocking` *(slice-1 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
+| `mcp__brc__get_state` | Full structured consensus state (JSON; accepts `verbose: bool`). Slice-aware (#2761): scopes to the per-slice BRC tracker via `slice_id` (defaults to `EGG_SLICE_ID`), so a per-slice agent sees its own slice's consensus rather than a pipeline-level reconstruction. | `handlers.brc.brc_get_state` | `egg-orch brc get-state` *(verb-level CLI alias added in #2908; `cli_command=None` in MCP registry — schema is in `schemas.py`, not argparse)* |
+| `mcp__brc__list_blocking` | Return the list of agent roles currently blocking consensus (derived view). | `handlers.brc.brc_list_blocking` | `egg-orch brc list-blocking` *(verb-level CLI alias added in #2908; `cli_command=None` in MCP registry)* |
 | `mcp__brc__send_heartbeat` | Emit a structured `HEARTBEAT` (schema-validated, per-role deduped, rate-limited) to the dedicated `/heartbeat` endpoint. Use `state=WAITING_ON_ROLE` + `waiting_on=<peer>` while blocking on BRC. Valid states: `WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`. | `handlers.message.message_heartbeat` | `egg-orch message heartbeat` |
 
 > **Blocking waits use Bash, not MCP** (#2211). Long-poll waits don't fit the MCP transport — both transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), and every cap-elapsed return is a wasted LLM turn. Use `egg-orch message wait` / `egg-orch message wait-loop` (sandbox) and `egg-orch pipeline wait-status` (host) via Bash. The §1 idiom in `docs/reference/agent-wait-patterns.md` is the canonical shape.
@@ -126,7 +126,7 @@ for an un-pushed artifact.
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__phase__get_context` | Bundle `EGG_PIPELINE_ID`, `EGG_PHASE`, `EGG_AGENT_ROLE`, the role-filtered task list, and prior-phase artifact paths (`.egg-state/drafts/`, `.egg-state/agent-outputs/`). | `handlers.phase.phase_get_context` | — *(no CLI; new capability)* |
+| `mcp__phase__get_context` | Bundle `EGG_PIPELINE_ID`, `EGG_PHASE`, `EGG_AGENT_ROLE`, the role-filtered task list, and prior-phase artifact paths (`.egg-state/drafts/`, `.egg-state/agent-outputs/`). | `handlers.phase.phase_get_context` | `egg-orch phase get-context` *(verb-level CLI alias added in #2908; `cli_command=None` in MCP registry — schema is in `schemas.py`, not argparse)* |
 | `mcp__phase__get_assigned_tasks` | Return only the tasks assigned to the caller's role (`EGG_AGENT_ROLE`) from the contract. | `handlers.phase.phase_get_assigned_tasks` | — *(no CLI; filtered view over `egg-contract show`)* |
 | `mcp__phase__complete_phase` | Mutate `phases.<p>.status` to `"complete"` via the gateway `/api/v1/contract/mutate` path. State-machine effect: **transitions phase status to complete; downstream `phase_complete` signal fires.** | `handlers.phase.complete_phase` | `egg-contract complete-phase` |
 
@@ -261,11 +261,11 @@ and discoverable from the registration. Today the `cli_command=None`
 verbs are:
 
 - `mcp__sdlc__check_hitl_answers` — no CLI; aggregates HITL state across phases.
-- `mcp__brc__get_state` — registration says no CLI (`schemas.py` hand-authored); a `egg-orch brc get-state` thin wrapper was added in slice-1 of #2908 but the registration was deliberately left `cli_command=None` (no schema auto-derivation, no drift-gate parity check). The hand-authored MCP schema returns the dict; the CLI `egg-orch consensus status` still prints text.
-- `mcp__brc__list_blocking` — registration says no CLI; thin `egg-orch brc list-blocking` wrapper added in slice-1 of #2908 under the same wrapper-only pattern as `get_state`.
+- `mcp__brc__get_state` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch brc get-state` (added in #2908 for the event-pump wrapper). Schema derives from `schemas.py`, not argparse.
+- `mcp__brc__list_blocking` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch brc list-blocking` (added in #2908).
 - `mcp__brc__read_peer_artifact` — registration says no CLI; thin `egg-orch brc read-peer-artifact` wrapper added in slice-5 of #2908. Reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk — no HTTP / gateway.
 - `mcp__brc__resolve_obligation` — registration says no CLI; thin `egg-orch brc resolve-obligation` wrapper added in slice-5 of #2908. Net-new in-cycle conditional-ACK obligation-resolution capability (#2338); producer/tester-driven via the MCP surface and the wrapper.
-- `mcp__phase__get_context` — no CLI; environment + filtered task list bundle.
+- `mcp__phase__get_context` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch phase get-context` (added in #2908 for the event-pump wrapper). Schema derives from `schemas.py`, not argparse.
 - `mcp__phase__get_assigned_tasks` — no CLI; filtered view over `egg-contract show`.
 - `mcp__task__mark_gap` — no CLI; tester→coder coverage-gap handoff is agent-to-agent.
 - `mcp__sdlc__check_file_restriction` — no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module (decision-13 rationale in `handlers/restrictions.py`).
@@ -311,9 +311,10 @@ constraints). Tools whose `ToolRegistration` declares `cli_command=None`
 `derive_schema_from_argparse` path is skipped because the registration
 has no argparse subparser bound to it. The slice-1 / slice-5 of
 [#2908](https://github.com/jwbron/egg/issues/2908) `egg-orch brc <verb>`
-CLI wrappers reuse the same handlers but do **not** flip the
-registrations off `cli_command=None`; promoting the registrations and
-auto-deriving schemas from the argparse parsers is a follow-up.
+CLI wrappers, plus the `egg-orch phase get-context` wrapper, reuse the
+same handlers but do **not** flip the registrations off
+`cli_command=None`; promoting the registrations and auto-deriving
+schemas from the argparse parsers is a follow-up.
 
 Output: every tool returns the handler's dict response serialised as a
 JSON string per the
