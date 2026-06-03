@@ -355,9 +355,11 @@ class TestStartStackedPrReconciler:
         # actually retargets the PR on origin (without it the PR stays
         # orphaned on a deleted base).
         assert call_args.kwargs["pr_number"] == 4242
-        # Orchestrator-driven heal: attribute to "orchestrator" (not a
-        # phantom coder) per #2919 audit-log attribution; the slice-
-        # integration exemption admits the force-push regardless of role.
+        # agent_role is "orchestrator" so the audit log attributes this
+        # orchestrator-driven heal (rebase + force-push + pr-edit) to the
+        # orchestrator rather than a phantom coder (#2919). The force-push
+        # rides the slice-integration exemption (synthetic session + branch
+        # shape), so the attribution flip does not change push acceptance.
         assert call_args.kwargs["agent_role"] == "orchestrator"
 
     def test_rebase_onto_returns_false_on_gateway_exception(self) -> None:

@@ -75,11 +75,13 @@ class TestAgentRole:
 
 
 class TestAgentPatterns:
-    def test_registry_has_all_20_roles(self):
+    def test_registry_has_all_19_roles(self):
         # Issue #1557 — APPLIER joined the registry (Jira-epic SDLC
-        # support); the count grew from 19 to 20. Issue #2893 — ORCHESTRATOR
-        # joined for audit-log attribution of read-only gh pre-flights.
-        assert len(AGENT_PATTERNS) == 20
+        # support); the count grew from 19 to 20. Issue #2925 — ORCHESTRATOR
+        # was removed (the orchestrator is the control plane, not an agent
+        # role; its gh pre-flights now run on launcher-authed control-plane
+        # routes), dropping the count back to 19.
+        assert len(AGENT_PATTERNS) == 19
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -103,8 +105,6 @@ class TestAgentPatterns:
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
-            # Issue #2893 — read-only audit attribution role for gh pre-flights.
-            AgentRole.ORCHESTRATOR,
         }
         assert set(AGENT_PATTERNS.keys()) == expected_roles
 

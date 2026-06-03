@@ -1844,12 +1844,11 @@ def create_pipeline() -> tuple[Response, int]:
         #
         # This is the *primary* eviction site for auto-FAILED prior runs,
         # not just a defensive backstop: paths like restart_agent spawn
-        # failure and _handle_pr_creation_failure call
-        # store.update_pipeline / store.save_pipeline directly (bypassing
-        # PATCH), so the PATCH-site clear never fires for them. Without
-        # this POST-site clear, those auto-FAILED pipelines would leak
-        # consensus + message-store state into the next run that reuses
-        # the id.
+        # failure call store.update_pipeline / store.save_pipeline directly
+        # (bypassing PATCH), so the PATCH-site clear never fires for them.
+        # Without this POST-site clear, those auto-FAILED pipelines would
+        # leak consensus + message-store state into the next run that
+        # reuses the id.
         _clear_pipeline_runtime_state(pipeline.id, reason="pipeline_create")
 
         logger.info(
@@ -6196,15 +6195,14 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
         "end-state to top-level `.github-staging/`, mirroring the "
         "`.github/` structure (e.g. a proposed change to "
         "`.github/workflows/ci.yml` is staged at "
-        "`.github-staging/workflows/ci.yml`). The orchestrator's PR "
-        "builder auto-detects `.github-staging/` and emits a manual "
-        "step asking the human reviewer to move the staged files into "
-        "place before merge. Assign such tasks to `role: coder` and "
-        "make the staging path explicit in the task's "
-        "`files_affected`. `.github-staging/` must remain tracked by "
-        "git (do not add it to `.gitignore`); otherwise the staged "
-        "files won't be in the PR commit and the reviewer's `git mv` "
-        "will fail."
+        "`.github-staging/workflows/ci.yml`). The producing agent must "
+        "call the staged files out in the PR body so the human "
+        "reviewer moves them into `.github/` before merge. Assign such "
+        "tasks to `role: coder` and make the staging path explicit in "
+        "the task's `files_affected`. `.github-staging/` must remain "
+        "tracked by git (do not add it to `.gitignore`); otherwise the "
+        "staged files won't be in the PR commit and the reviewer's "
+        "`git mv` will fail."
     )
     lines.append("")
 
@@ -8739,66 +8737,6 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     }
 
 
-def _handle_pr_creation_failure(
-    pipeline_id: str,
-    current_phase: str,
-    store,
-    reason: str | None = None,
-) -> None:
-    """Mark a pipeline as FAILED after PR creation returns no URL.
-
-    Extracted from ``_health_monitor_poll`` so this state-transition logic can
-    be tested independently of the full polling loop.
-
-    The error message attached to the pipeline tells the user exactly what
-    happened and how to rescue the work.  The agents' commits are on
-    ``origin/<pipeline.branch>`` regardless of the failure mode, so the
-    rescue is always "open the PR manually against that branch" — we
-    surface the exact ``gh pr create`` invocation to avoid forcing users
-    to dig through orchestrator logs (see #1731).
-
-    ``reason`` is a short phrase explaining *why* PR creation failed (e.g.
-    ``"fetch+rebase reconcile failed"``).  When omitted, the generic
-    ``"no PR URL returned"`` message is used for back-compat.
-    """
-    reason_text = reason or "no PR URL returned"
-    error_msg = f"Auto PR creation failed: {reason_text}"
-    logger.error(error_msg, pipeline_id=pipeline_id, reason=reason_text)
-    with get_pipeline_state_lock(pipeline_id):
-        pipeline = store.load_pipeline(pipeline_id)
-        phase_execution = pipeline.get_phase_execution(current_phase)
-        # Compose a user-facing message that includes the rescue hint,
-        # using pipeline state we only have access to inside the lock.
-        rescue_hint = _format_rescue_hint(pipeline)
-        full_error = f"{error_msg}\n{rescue_hint}" if rescue_hint else error_msg
-        phase_execution.status = PipelineStatus.FAILED
-        phase_execution.error = full_error
-        phase_execution.completed_at = datetime.now(UTC)
-        pipeline.status = PipelineStatus.FAILED
-        pipeline.error = full_error
-        store.save_pipeline(pipeline)
-
-
-def _format_rescue_hint(pipeline) -> str:
-    """Build a user-facing rescue hint for a pipeline whose PR couldn't be auto-created.
-
-    Returns an empty string when we don't have enough state to compose a
-    useful hint (no repo or no branch on the pipeline) — in that case the
-    error log + pipeline ID are the user's only handholds.
-    """
-    repo = getattr(pipeline, "repo", None)
-    branch = getattr(pipeline, "branch", None)
-    if not repo or not branch:
-        return ""
-    base = getattr(pipeline, "base_branch", None) or "main"
-    return (
-        f"Agent work is on origin/{branch} in {repo}. "
-        f"To open the PR manually:\n"
-        f"  gh pr create --repo '{repo}' --head '{branch}' --base '{base}' "
-        f'--title "..." --body "..."'
-    )
-
-
 BRC_HISTORY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
@@ -9595,189 +9533,6 @@ def _build_brc_history_link_line(
     return f"_Per-phase BRC transcripts: {links}._"
 
 
-def _pr_metadata_from_plan_draft(
-    worktree_repo_path: Path,
-    issue_number: int | None,
-    pipeline_id: str,
-) -> tuple[str | None, str, str, str, list[str], str | None]:
-    """Parse PR metadata from the plan draft on disk.
-
-    Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
-    populated — e.g. when the plan-phase contract write did not reach the
-    branch tip (see #1829). The plan draft itself is reliably on the
-    branch even when the contract is not.
-
-    Returns ``(title, description, test_plan, manual_steps, warnings,
-    draft_rel_path)``. ``title`` is ``None`` when the draft is missing,
-    unparseable, or has no ``pr:`` block, signalling the caller to fall
-    through to the next tier. ``warnings`` is a list of
-    human-readable parse warning strings collected from ``parse_plan``
-    (empty when the parse was clean or the draft was absent); it is
-    surfaced in the PR body when the caller falls through to the stub
-    tier so reviewers can see what went wrong (see #1975).
-    ``draft_rel_path`` is the relative path to the draft that was
-    parsed, or ``None`` if no draft was attempted.
-    """
-    warnings_out: list[str] = []
-    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
-    if not draft_rel:
-        return None, "", "", "", warnings_out, None
-    plan_path = worktree_repo_path / draft_rel
-    if not plan_path.exists():
-        warnings_out.append(f"Plan draft not found at {draft_rel}")
-        return None, "", "", "", warnings_out, draft_rel
-    try:
-        from egg_contracts.plan_parser import parse_plan
-
-        result = parse_plan(plan_path.read_text())
-    except Exception as e:
-        logger.debug(
-            "Could not parse plan draft for PR metadata fallback",
-            path=str(plan_path),
-            error=str(e),
-        )
-        warnings_out.append(f"parse_plan raised: {e}")
-        return None, "", "", "", warnings_out, draft_rel
-    for w in result.warnings:
-        msg = w.message
-        if w.context:
-            msg = f"{msg} ({w.context})"
-        warnings_out.append(msg)
-    if not result.pr_title:
-        return None, "", "", "", warnings_out, draft_rel
-    return (
-        result.pr_title,
-        result.pr_description or "",
-        result.pr_test_plan or "",
-        result.pr_manual_steps or "",
-        warnings_out,
-        draft_rel,
-    )
-
-
-def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
-    """Render the auto manual-step for `.github-staging/` files (issue #2508).
-
-    Producer agents (coder, etc.) cannot push to `.github/` because the
-    gateway blocks the path as a branch-protection invariant.  When a
-    plan calls for CI workflow or CODEOWNERS changes, the agent instead
-    writes the proposed end-state to top-level `.github-staging/`,
-    mirroring the `.github/` structure.  This helper scans that
-    directory and returns a markdown step the human reviewer must
-    complete before merge: review the staged files, move them into
-    `.github/`, delete the staging dir, and push the resulting commit.
-
-    Returns an empty string when `.github-staging/` is absent or empty.
-    """
-    staging_dir = worktree_repo_path / ".github-staging"
-    # Drop the whole step when ``.github-staging`` itself is a symlink:
-    # ``Path.is_dir()`` follows symlinks, so without this guard a
-    # ``.github-staging -> /etc`` (or any other host path) would let
-    # ``rglob`` enumerate the link target's files into the manual-step
-    # file list, polluting the PR body with arbitrary host-filesystem
-    # paths. Mirrors the per-entry symlink guard below.
-    if staging_dir.is_symlink():
-        return ""
-    if not staging_dir.is_dir():
-        return ""
-
-    staged_paths: list[str] = []
-    for path in sorted(staging_dir.rglob("*")):
-        # Skip symlinks: ``Path.is_file()`` follows them, so without this
-        # guard a staged ``.github-staging/evil.yml`` → ``/etc/passwd``
-        # would be surfaced in the manual-step file list, the reviewer's
-        # ``git mv`` would preserve it, and ``.github/evil.yml`` would
-        # land in the repo as a symlink. The reviewer's only mitigation
-        # would be the diff (where a symlink shows as a small mode
-        # change that's easy to skim past). Drop staged symlinks here so
-        # the helper is the choke point.
-        if path.is_symlink():
-            continue
-        if not path.is_file():
-            continue
-        try:
-            rel = path.relative_to(worktree_repo_path).as_posix()
-        except ValueError:
-            continue
-        staged_paths.append(rel)
-
-    if not staged_paths:
-        return ""
-
-    # Compute concrete move commands per staged file, choosing
-    # ``git mv`` vs ``git rm`` + ``git mv`` based on whether the target
-    # ``.github/<rest>`` already exists.  ``git mv`` refuses to
-    # overwrite an existing destination, so a template that always
-    # emits the plain form breaks for replacement scenarios (e.g.
-    # restaging an existing workflow).
-    staging_prefix = ".github-staging/"
-    target_prefix = ".github/"
-    mkdir_dirs: list[str] = []
-    move_cmds: list[str] = []
-    for rel in staged_paths:
-        if not rel.startswith(staging_prefix):
-            continue
-        rest = rel[len(staging_prefix) :]
-        target_rel = f"{target_prefix}{rest}"
-        target_dir = target_rel.rsplit("/", 1)[0] if "/" in rest else target_prefix.rstrip("/")
-        if target_dir and target_dir not in mkdir_dirs:
-            mkdir_dirs.append(target_dir)
-        target_abs = worktree_repo_path / target_rel
-        # ``Path.exists()`` follows symlinks and returns False for a
-        # broken link, so an existing-but-broken symlink would slip
-        # through the existence check and ``git mv`` would still refuse
-        # to overwrite it. ``Path.is_symlink()`` returns True regardless
-        # of whether the target resolves, so the disjunction catches
-        # regular files, valid symlinks, and broken symlinks.
-        if target_abs.is_symlink() or target_abs.exists():
-            move_cmds.append(f"git rm {target_rel}  # target exists; remove before mv")
-        move_cmds.append(f"git mv {rel} {target_rel}")
-
-    lines = [
-        "### Move staged `.github/` changes (auto-generated, issue #2508)",
-        "",
-        "This PR includes proposed `.github/` changes under `.github-staging/`. "
-        "Agent roles cannot push to `.github/` directly (CI workflow / CODEOWNERS "
-        "branch-protection invariant), so the agent staged the proposed "
-        "end-state for human review.",
-        "",
-        "Staged files:",
-    ]
-    for rel in staged_paths:
-        lines.append(f"- `{rel}`")
-    lines.extend(
-        [
-            "",
-            "Before merging:",
-            "",
-            "1. Review each staged file for correctness — these are proposed "
-            "CI / repo-config changes that bypass the agent's normal sandbox.",
-            "2. Run the following to move each staged file into `.github/` "
-            "(commands below are pre-computed for this PR; replacement targets "
-            "are handled via `git rm` + `git mv` since `git mv` refuses to "
-            "overwrite an existing destination):",
-            "   ```",
-        ]
-    )
-    for d in mkdir_dirs:
-        lines.append(f"   mkdir -p {d}")
-    for cmd in move_cmds:
-        lines.append(f"   {cmd}")
-    lines.extend(
-        [
-            "   ```",
-            "   After the moves, `.github-staging/` is no longer tracked "
-            "by git (git doesn't track empty directories). Run "
-            "`rm -rf .github-staging` locally if you want to clear any "
-            "leftover empty subdirectories from your worktree.",
-            "3. Commit the move and push from a context with the GitHub "
-            "`workflow` scope (a normal user push works; the bot token may "
-            "not — see issue #2508 layer 2).",
-        ]
-    )
-    return "\n".join(lines)
-
-
 def _derive_producer_roles_with_tasks(
     pipeline_id: str,
     slice_id: str | None,
@@ -10152,7 +9907,6 @@ def _open_context_pr_at_implement_start(
         open_prs = spawner.gateway.list_open_prs(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
-            mode=gateway_mode,
         )
     except Exception as list_err:
         raise ContextPrCreationError(
@@ -13346,9 +13100,10 @@ def _build_file_boundary_section(role_value: str, repo: str | None = None) -> st
             "end-state to top-level `.github-staging/` instead, mirroring "
             "the `.github/` structure (e.g. stage "
             "`.github/workflows/test-e2e.yml` as "
-            "`.github-staging/workflows/test-e2e.yml`). The PR builder "
-            "auto-emits a manual step asking the human reviewer to move "
-            "the staged files into place before merge — see issue #2508."
+            "`.github-staging/workflows/test-e2e.yml`). Call out the "
+            "staged files explicitly in your PR body so the human reviewer "
+            "knows to move them into `.github/` before merge — see issue "
+            "#2508."
         )
     lines.append("")
     return "\n".join(lines)
@@ -15578,8 +15333,11 @@ def _start_stacked_pr_reconciler(
 
     The list-callables (``list_open_prs`` and ``list_remote_branches``)
     forward to ``GatewayClient.list_open_prs`` /
-    ``GatewayClient.list_remote_branches`` — both route through
-    existing per-agent allowlists. The rebase callable forwards to
+    ``GatewayClient.list_remote_branches``. ``list_open_prs`` routes
+    through the launcher-authed control-plane route
+    ``/api/v1/gh/list_open_prs`` (#2925); ``list_remote_branches`` routes
+    through the existing per-agent ``git ls-remote`` allowlist. The rebase
+    callable forwards to
     ``GatewayClient.rebase_onto``, which performs the full local
     rebase + ``--force-with-lease`` push + ``gh api PATCH base=…``
     retarget so an orphaned child PR is fully healed on origin
@@ -15615,17 +15373,15 @@ def _start_stacked_pr_reconciler(
     def _list_open_prs() -> list[dict[str, Any]]:
         # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
         # can detect children whose base branch was deleted (parent
-        # merged through the GitHub UI). Routes through the existing
-        # per-agent ``gh pr list`` allowlist on the gateway — no new
-        # privileged endpoint (decision-15).
+        # merged through the GitHub UI). Routes through the launcher-authed
+        # control-plane endpoint ``/api/v1/gh/list_open_prs`` — the
+        # orchestrator is the server that manages pipelines, not an agent,
+        # so it does not register a synthetic agent session or impersonate
+        # a role (#2922 / #2925).
         if not pr_repo:
             return []
         try:
-            # Stacked-PR reconciler is orchestrator-driven; the synthetic
-            # session uses ``agent_role="orchestrator"`` so the audit log
-            # attributes these `gh pr list` calls to the actual caller
-            # (the orchestrator) instead of impersonating a coder (#2893).
-            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="orchestrator"))
+            return list(gateway.list_open_prs(pipeline_id, pr_repo))
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "stacked_pr_reconciler: list_open_prs raised — treating as empty",
@@ -16415,6 +16171,13 @@ def _run_implement_phase_slices(
                                 str(worktree_repo_path),
                                 integration_branch=integration_branch,
                                 parent_branch=parent_branch,
+                                # #2947 — hand the slice's recorded fork
+                                # base to the gateway so a crash/restart
+                                # over a branch that already carries this
+                                # slice's commits (with an additively
+                                # advanced parent) resumes in place
+                                # instead of non-fast-forward-failing.
+                                integration_base_sha=recorded_base_sha,
                                 # Orchestrator pre-creates the slice
                                 # integration branch on a synthetic session
                                 # before agents spawn; attribute to the
