@@ -231,9 +231,9 @@ def _build_coder_pattern(
             # write the proposed end-state to top-level `.github-staging/`
             # mirroring the `.github/` structure; the prefix-match below
             # leaves `.github-staging/` allowed via the `**` allowlist, and
-            # `_build_pr_body` auto-emits a manual step for the human
-            # reviewer to move the files into `.github/` before merge
-            # (issue #2508).
+            # `_build_github_staging_manual_step` renders a manual step
+            # for the human reviewer to move the files into `.github/`
+            # before merge (issue #2508).
             ".github/",
         ],
         block_exempt_patterns=[
