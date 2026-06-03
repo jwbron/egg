@@ -68,6 +68,7 @@ def _ack_ns(**overrides):
         "files_reviewed": ["a.py"],
         "files_reviewed_file": None,
         "pre_merge_condition": "",
+        "pre_merge_condition_file": None,
         "pre_merge_condition_resolved_in_diff": "",
         "ack_version": 1,
         "json": False,

@@ -47,6 +47,19 @@ JSON schema written to ``latency-mcp-baseline.json``::
 slice-6's TASK-6-6 reads only the ``samples`` list and the
 ``aggregate`` block, so additive ``_meta`` fields are forward-safe.
 
+TODO(slice-6 TASK-6-6): the committed baseline this file produces can
+be a *synthetic* placeholder (``_meta.synthetic == true``, see
+``synthetic_reason``) when the real-LLM 5-role run could not be driven
+end-to-end at slice-5 capture time. Since slice-6's comparison
+implementation is documented above as ignoring ``_meta``, a synthetic
+placeholder can silently become the baseline a real MCP-vs-CLI
+comparison gates on. Slice-6 TASK-6-6 must **hard-gate** on
+``_meta.synthetic`` — refuse the comparison (skip with a clear
+"regenerate the baseline first" message, or fail loudly) when the
+baseline is synthetic — so the 5% latency budget cannot pass by
+coincidence against ``p50=150s`` / ``p95=270s`` placeholder numbers.
+See PR #2952 review (egg-reviewer Finding 3) for the trip-wire writeup.
+
 No ``ScriptedProvider`` import / reference: per the slice-5 plan
 re-scope, this baseline runs against the real LLM route configured
 for the test stack (egg-litellm) — there is no in-process provider
@@ -169,7 +182,7 @@ def _egg_git_sha() -> str:
             check=False,
         )
         return out.stdout.strip()
-    except FileNotFoundError, subprocess.TimeoutExpired:
+    except (FileNotFoundError, subprocess.TimeoutExpired):  # fmt: skip
         return ""
 
 
@@ -207,7 +220,7 @@ def _agents_to_samples(
             continue
         try:
             start_dt = datetime.fromisoformat(started_at)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):  # fmt: skip
             continue
         if isinstance(elapsed, (int, float)) and elapsed >= 0:
             duration = float(elapsed)
@@ -366,7 +379,7 @@ class TestMCPBaselineCapture:
         while time.monotonic() < deadline:
             try:
                 status = _get_pipeline_status(orchestrator_url, pipeline_id)
-            except urllib.error.URLError, TimeoutError, ConnectionError:
+            except (urllib.error.URLError, TimeoutError, ConnectionError):  # fmt: skip
                 # Transient — keep polling.
                 time.sleep(_PIPELINE_POLL_INTERVAL_SEC)
                 continue

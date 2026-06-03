@@ -446,13 +446,13 @@ egg-orch consensus status --slice-id slice-7
 
 ### Prose-bearing args: stdin and `--*-file` channels ([#2741](https://github.com/jwbron/egg/issues/2741))
 
-Every `consensus` flag that carries free-form prose (`--summary` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed` on `ack` / `nack`) accepts the payload through three interchangeable channels:
+Every `consensus` flag that carries free-form prose (`--summary` and `--risk` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--pre-merge-condition` on `ack`; `--files-reviewed` on `ack` / `nack`) accepts the payload through three interchangeable channels. `--pre-merge-condition-resolved-in-diff` carries a commit SHA (hex, validated downstream) and is therefore not exposed through these channels:
 
 | Channel | Flag form | When to use |
 |---------|-----------|-------------|
-| **argv** *(deprecated)* | `--summary "…"` / `--reason "…"` | Short, ASCII-only literals where you control the shell-quoting. The CLI emits a deprecation warning to stderr; the value is still accepted for now to keep older operator scripts working. |
-| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line (blank lines and lines beginning with `#` are stripped so callers can drop comments into a generated manifest). |
-| **stdin sentinel `-`** | `--summary -` / `--reason -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) without writing a temp file. The CLI consumes stdin to EOF. |
+| **argv** *(deprecated)* | `--summary "…"` / `--reason "…"` / `--risk "…"` / `--pre-merge-condition "…"` | Short, ASCII-only literals where you control the shell-quoting. The CLI emits a deprecation warning to stderr; the value is still accepted for now to keep older operator scripts working. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--risk-file ./risk.md` / `--pre-merge-condition-file ./obligation.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line (blank lines and lines beginning with `#` are stripped so callers can drop comments into a generated manifest). |
+| **stdin sentinel `-`** | `--summary -` / `--reason -` / `--risk -` / `--pre-merge-condition -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) without writing a temp file. The CLI consumes stdin to EOF. |
 
 ```bash
 # --summary-file (propose) — multi-line prose authored by the agent
