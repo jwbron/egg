@@ -2220,6 +2220,14 @@ class TestPlannerRoleAlignmentValidation:
     orchestrator reads it via ``git show <commit>:<plan_path>``.
     """
 
+    # A coder→docs assignment is still a misassignment (docs are the
+    # documenter's scope). Note: coder→test-files is NO LONGER a violation —
+    # the coder authors its own tests now (intentional overlap with the
+    # tester), so this fixture uses a docs file to exercise the reject path.
+    # (Cherry-picked from main #2936 in the slice-4 v3 cycle to match the
+    # current validator semantics; the original slice-3 conflict-resolution
+    # kept the old ``integration_tests/conftest.py`` fixture but that path
+    # no longer trips the validator post-#2936.)
     _PLAN_WITH_MISASSIGNED_TASK = (
         "# Plan\n"
         "\n"
@@ -2231,11 +2239,11 @@ class TestPlannerRoleAlignmentValidation:
         "    goal: scaffolding\n"
         "    tasks:\n"
         "      - id: TASK-1-1\n"
-        "        description: Add pytest fixtures\n"
-        "        acceptance: fixtures load\n"
+        "        description: Document the new fixtures\n"
+        "        acceptance: docs updated\n"
         "        role: coder\n"
         "        files:\n"
-        "          - integration_tests/conftest.py\n"
+        "          - docs/fixtures.md\n"
         "```\n"
     )
 
