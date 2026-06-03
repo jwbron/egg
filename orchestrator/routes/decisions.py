@@ -150,6 +150,32 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
         )
 
 
+def _normalize_choice_resolution(resolution: str) -> str:
+    """Unwrap a structured ``choice`` envelope to its bare option label (#2978).
+
+    The local SDLC HITL CLI resolves a ``choice`` decision by sending
+    ``{"action": "select", "selected": "<option>"}`` (see
+    ``sandbox/egg_lib/sdlc_hitl.py``); :func:`resolve_decision`
+    JSON-serializes that dict into ``decision.resolution``.  Dispatch
+    hooks that compare the resolution against bare option labels must
+    unwrap the envelope first — otherwise every structured selection
+    reads as an unrecognized option.  Bare-string resolutions (legacy /
+    direct-API callers) and any other shape pass through unchanged so
+    the caller's existing matching still runs.
+    """
+    if not resolution:
+        return resolution
+    try:
+        payload = json.loads(resolution)
+    except json.JSONDecodeError, TypeError:
+        return resolution
+    if isinstance(payload, dict) and payload.get("action") == "select":
+        selected = payload.get("selected")
+        if isinstance(selected, str):
+            return selected
+    return resolution
+
+
 def _handle_hard_reset_recovery_resolution(
     pipeline_id: str,
     context: str,
@@ -190,6 +216,17 @@ def _handle_hard_reset_recovery_resolution(
     will stay stuck in ``failed_pending_hitl`` until someone intervenes.
     """
     phase_value = context.removeprefix("hard_reset_recovery:")
+
+    # #2978: the SDLC HITL CLI resolves a ``choice`` decision by sending a
+    # ``{"action": "select", "selected": "<option>"}`` envelope, which
+    # ``resolve_decision`` serializes into ``decision.resolution``.  Unwrap
+    # it to the bare option label BEFORE the ``valid_options`` cross-check
+    # and the Continue/Abort compares below — otherwise the JSON string
+    # matches neither, every structured selection routes to the
+    # unrecognized-option path, and the pipeline stays wedged in
+    # ``failed_pending_hitl`` (the phase-gate path already unwraps this
+    # envelope in ``routes.pipelines``).
+    resolution = _normalize_choice_resolution(resolution)
 
     # Local import to avoid circular import at module load
     # (routes.pipelines imports routes.decisions via the blueprint

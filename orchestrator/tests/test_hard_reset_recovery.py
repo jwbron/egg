@@ -17,6 +17,7 @@ dispatch wiring so a regression in either is caught by a unit test that
 doesn't need a real git worktree.
 """
 
+import json
 import subprocess
 import sys
 import threading
@@ -416,6 +417,109 @@ class TestDispatchResolution:
             )
 
         mock_resume.assert_called_once()
+
+
+class TestDispatchResolutionChoiceEnvelope:
+    """#2978: the dispatch must accept the structured ``choice`` envelope.
+
+    The SDLC HITL CLI resolves a choice decision by sending
+    ``{"action": "select", "selected": "<option>"}`` (see
+    ``sandbox/egg_lib/sdlc_hitl.py``); ``resolve_decision`` serializes that
+    into ``decision.resolution`` and the dispatch hook receives the JSON
+    string with the decision's ``options`` as ``valid_options``.  Before
+    #2978 the bare-string compare (and the ``valid_options`` cross-check)
+    matched neither, so every operator selection routed to the
+    unrecognized-option path and left the pipeline wedged in
+    ``failed_pending_hitl``.  These tests drive the real envelope through
+    the dispatch helper so that regression is caught without a live CLI.
+    """
+
+    def test_select_continue_envelope_triggers_resume_helper(self):
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                json.dumps({"action": "select", "selected": "Continue with post-reset state"}),
+                valid_options=["Continue with post-reset state", "Abort pipeline"],
+            )
+
+        mock_resume.assert_called_once()
+        assert mock_resume.call_args.kwargs["phase_value"] == "plan"
+        mock_abort.assert_not_called()
+
+    def test_select_abort_envelope_triggers_abort_helper(self):
+        from routes.decisions import _handle_hard_reset_recovery_resolution
+
+        with (
+            patch(
+                "routes.pipelines.resume_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_resume,
+            patch(
+                "routes.pipelines.abort_pipeline_after_hard_reset_ack",
+                return_value=True,
+            ) as mock_abort,
+        ):
+            _handle_hard_reset_recovery_resolution(
+                "pipeline-abc",
+                "hard_reset_recovery:plan",
+                json.dumps({"action": "select", "selected": "Abort pipeline"}),
+                # Doubly-failed HITL collapses options to Abort-only — the
+                # envelope must still dispatch through the cross-check.
+                valid_options=["Abort pipeline"],
+            )
+
+        mock_abort.assert_called_once_with("pipeline-abc")
+        mock_resume.assert_not_called()
+
+
+class TestNormalizeChoiceResolution:
+    """#2978: ``_normalize_choice_resolution`` unwraps the select envelope
+    and passes everything else through untouched."""
+
+    def test_unwraps_select_envelope(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert (
+            _normalize_choice_resolution(
+                json.dumps({"action": "select", "selected": "Abort pipeline"})
+            )
+            == "Abort pipeline"
+        )
+
+    def test_bare_string_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("Abort pipeline") == "Abort pipeline"
+
+    def test_non_select_action_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        # A request_changes envelope isn't a bare label — leave it intact so
+        # the caller's existing (non-)matching is unchanged.
+        payload = json.dumps({"action": "request_changes", "feedback": "no"})
+        assert _normalize_choice_resolution(payload) == payload
+
+    def test_malformed_json_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("{not json") == "{not json"
+
+    def test_empty_string_passes_through(self):
+        from routes.decisions import _normalize_choice_resolution
+
+        assert _normalize_choice_resolution("") == ""
 
 
 class TestEmptyContractHitlWordingNoLongerNamesPriorPopulator:
