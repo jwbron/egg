@@ -875,6 +875,7 @@ def _resolve_prose_arg(
         raise _ProseArgError
 
     if file_set:
+        assert file_path is not None
         try:
             with open(file_path, encoding="utf-8") as fh:
                 return fh.read()
@@ -931,6 +932,7 @@ def _resolve_files_reviewed_arg(
         raise _ProseArgError
 
     if file_set:
+        assert file_path is not None
         try:
             with open(file_path, encoding="utf-8") as fh:
                 raw_lines = fh.read().splitlines()
