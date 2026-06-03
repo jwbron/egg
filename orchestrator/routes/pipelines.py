@@ -55,10 +55,9 @@ class ContextPrCreationReason(StrEnum):
     CONTRACT_LOAD_FAILED = "contract_load_failed"
     MISSING_PR_METADATA = "missing_pr_metadata"
     SAVE_FAILED = "save_failed"
-    # Gateway-layer failures wrapping ``list_open_prs`` /
+    # Gateway-layer failures wrapping ``_lookup_open_pr`` /
     # ``create_pr`` outcomes.
     LOOKUP_FAILED = "lookup_failed"
-    LOOKUP_BAD_RESPONSE = "lookup_bad_response"
     GATEWAY_ERROR = "gateway_error"
     GATEWAY_NO_URL = "gateway_no_url"
     GATEWAY_BAD_URL = "gateway_bad_url"
@@ -10034,11 +10033,16 @@ def _open_context_pr_at_implement_start(
        to open. This matches the legacy wrapper's silent-skip behaviour
        for local pipelines so the new hard-required contract does not
        regress in-house test pipelines.
-    3. Otherwise call ``GatewayClient.list_open_prs`` and filter for an
-       open PR whose ``head_ref`` matches the pipeline's work branch
-       and whose ``base_ref`` matches the pipeline's base branch. On
-       hit, persist the PR number via :func:`_persist_context_pr_number`
-       and return it (no ``gh pr create`` invocation).
+    3. Otherwise call ``GatewayClient._lookup_open_pr(head, base)`` — the
+       same control-plane idempotency primitive ``create_slice_pr`` uses
+       — to find the open PR whose head is the pipeline's work branch and
+       whose base is the pipeline's base branch. The gateway runs the
+       narrow ``gh pr list --head --base --state open`` filter server-side
+       (launcher auth, ``/api/v1/gh/find_open_pr``), so both PR-idempotency
+       sites share one seam instead of this opener enumerating every open
+       PR and filtering client-side (#2934). On hit, persist the PR number
+       via :func:`_persist_context_pr_number` and return it (no
+       ``gh pr create`` invocation).
     4. On miss, read ``contract.pr.title`` / ``contract.pr.description``
        — the canonical fields populated from the plan's ``pr:`` block
        per :func:`extract_pr_metadata_from_yaml`. Call
@@ -10048,9 +10052,11 @@ def _open_context_pr_at_implement_start(
     Raises:
         ContextPrCreationError: on any of (a) pipeline lookup failure,
             (b) contract load failure / missing PR metadata,
-            (c) gateway ``list_open_prs`` failure that prevents
-            idempotency, (d) ``create_pr`` failure, (e) persistence
-            failure. NO soft-fail ``return None`` for any of these —
+            (c) an unexpected ``_lookup_open_pr`` failure (the primitive
+            itself soft-fails a transient gateway/parse error to ``None``,
+            so this only fires on a programming error), (d) ``create_pr``
+            failure, (e) persistence failure. NO soft-fail
+            ``return None`` for any of these —
             the failure must reach the BRC NACK / 422 surface so the
             operator sees the failure rather than silently stranding
             the slice stack on ``/work``. The test in TASK-3-8 asserts
@@ -10067,7 +10073,7 @@ def _open_context_pr_at_implement_start(
 
     Idempotency contract:
         Calling the function twice for the same pipeline is safe — the
-        second call sees the already-open PR via ``list_open_prs`` and
+        second call sees the already-open PR via ``_lookup_open_pr`` and
         re-persists the number through :func:`_persist_context_pr_number`.
         No second ``create_pr`` invocation occurs. Tests in TASK-3-8
         verify this by asserting ``create_pr`` is called zero times on
@@ -10134,47 +10140,35 @@ def _open_context_pr_at_implement_start(
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     gateway_mode, _vis = _compute_gateway_mode(pipeline)
 
-    # Step 3: idempotency pre-flight. ``list_open_prs`` returns every
-    # open PR in the repo; filter client-side for our head + base.
-    # task-3-2 will extract a ``_lookup_open_pr(head, base)`` primitive
-    # so this and ``create_slice_pr`` share the same idempotency check.
+    # Step 3: idempotency pre-flight. Reuse the same control-plane
+    # ``_lookup_open_pr(head, base)`` primitive the per-slice path
+    # (``create_slice_pr``) uses, so both PR-idempotency sites share the
+    # narrow server-side ``gh pr list --head --base`` filter on the
+    # launcher-auth route rather than this opener enumerating every open
+    # PR and filtering client-side (#2934). ``_lookup_open_pr`` returns a
+    # clean ``int | None`` (the head/base discrimination and number
+    # coercion happen server-side + in the primitive), so the client-side
+    # match loop and the malformed-``number`` guard the old
+    # ``list_open_prs`` path needed are gone. The primitive soft-fails a
+    # transient gateway/parse error to ``None`` — matching the slice path,
+    # and safe because ``gh pr create`` would reject a duplicate
+    # ``head → base`` PR server-side anyway. The ``try`` is the opener's
+    # typed-error backstop for an unexpected raise (e.g. a misconfigured
+    # gateway client), preserving the cq-4 no-raw-exception contract.
     spawner = _get_spawner()
     try:
-        open_prs = spawner.gateway.list_open_prs(
+        existing_pr_number = spawner.gateway._lookup_open_pr(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
-            mode=gateway_mode,
+            head=pipeline.branch,
+            base=pipeline.base_branch,
         )
-    except Exception as list_err:
+    except Exception as lookup_err:
         raise ContextPrCreationError(
-            f"gateway list_open_prs failed for context-PR idempotency check: {list_err}",
+            f"gateway _lookup_open_pr failed for context-PR idempotency check: {lookup_err}",
             reason="lookup_failed",
-            cause=list_err,
-        ) from list_err
-
-    # Defence in depth (reviewer_concurrency non-blocking #1): guard
-    # against a malformed gateway response where ``number`` is missing
-    # or non-numeric. ``list_open_prs`` already filters those entries
-    # out client-side at ``orchestrator/gateway_client.py:2776`` (any
-    # entry missing ``number`` or ``head_ref`` is dropped), but the
-    # extra try/except below means a regression in that filter cannot
-    # escape the opener's typed-exception contract.
-    existing_pr_number: int | None = None
-    for entry in open_prs:
-        if (
-            entry.get("head_ref") == pipeline.branch
-            and entry.get("base_ref") == pipeline.base_branch
-        ):
-            try:
-                existing_pr_number = int(entry["number"])
-            except (KeyError, TypeError, ValueError) as entry_err:
-                raise ContextPrCreationError(
-                    "gateway list_open_prs returned an entry with a "
-                    f"malformed 'number' field: {entry!r}",
-                    reason="lookup_bad_response",
-                    cause=entry_err,
-                ) from entry_err
-            break
+            cause=lookup_err,
+        ) from lookup_err
 
     if existing_pr_number is not None:
         # Idempotent path. Persist the number even though it MAY

@@ -107,17 +107,20 @@ def spawner_factory():
 
     def _build(
         *,
-        list_open_prs_return=None,
-        list_open_prs_side_effect=None,
+        lookup_open_pr_return=None,
+        lookup_open_pr_side_effect=None,
         create_pr_return="https://github.com/owner/repo/pull/4242",
         create_pr_side_effect=None,
     ):
         spawner = MagicMock(name="spawner")
         gw = MagicMock(name="gateway")
-        if list_open_prs_side_effect is not None:
-            gw.list_open_prs.side_effect = list_open_prs_side_effect
+        # Both PR-idempotency sites now share the control-plane
+        # ``_lookup_open_pr(head, base)`` primitive (#2934); it returns a
+        # clean ``int | None`` rather than a list to filter client-side.
+        if lookup_open_pr_side_effect is not None:
+            gw._lookup_open_pr.side_effect = lookup_open_pr_side_effect
         else:
-            gw.list_open_prs.return_value = list_open_prs_return or []
+            gw._lookup_open_pr.return_value = lookup_open_pr_return
         if create_pr_side_effect is not None:
             gw.create_pr.side_effect = create_pr_side_effect
         else:
@@ -135,27 +138,19 @@ def spawner_factory():
 
 class TestOpenContextPRAtImplementStartIdempotency:
     """Calling the opener twice for the same pipeline is safe — the
-    second call sees the already-open PR via ``list_open_prs`` and
+    second call sees the already-open PR via ``_lookup_open_pr`` and
     re-persists the number without invoking ``create_pr``.
     """
 
     def test_idempotent_hit_re_persists_pr_number(
         self, tmp_path, monkeypatch, store, spawner_factory
     ):
-        """When ``list_open_prs`` already returns our head→base PR, the
-        opener returns the existing PR number, does NOT call
-        ``create_pr``, AND still calls ``_persist_context_pr_number``
+        """When ``_lookup_open_pr`` already returns our head→base PR
+        number, the opener returns it, does NOT call ``create_pr``, AND
+        still calls ``_persist_context_pr_number``
         (resume-from-orphaned-pipeline recovery path)."""
         pipeline = _make_pipeline()
-        spawner = spawner_factory(
-            list_open_prs_return=[
-                {
-                    "number": 4242,
-                    "head_ref": "egg/issue-2777/work",
-                    "base_ref": "main",
-                }
-            ]
-        )
+        spawner = spawner_factory(lookup_open_pr_return=4242)
         contract = _make_contract()
 
         save_calls: list = []
@@ -183,7 +178,12 @@ class TestOpenContextPRAtImplementStartIdempotency:
             result = _open_context_pr_at_implement_start("issue-2777")
 
         assert result == 4242
-        spawner.gateway.list_open_prs.assert_called_once()
+        # The opener delegates head/base discrimination to the primitive,
+        # so assert it forwarded the pipeline's work branch + base.
+        spawner.gateway._lookup_open_pr.assert_called_once()
+        lookup_kwargs = spawner.gateway._lookup_open_pr.call_args.kwargs
+        assert lookup_kwargs["head"] == "egg/issue-2777/work"
+        assert lookup_kwargs["base"] == "main"
         spawner.gateway.create_pr.assert_not_called()
         # Persistence DOES fire on the idempotent path so an orphaned
         # contract recovers ``context_pr_number``.
@@ -196,7 +196,7 @@ class TestOpenContextPRAtImplementStartHappyPath:
         parsed for the PR number, and the number is persisted."""
         pipeline = _make_pipeline()
         spawner = spawner_factory(
-            list_open_prs_return=[],
+            lookup_open_pr_return=None,
             create_pr_return="https://github.com/owner/repo/pull/9001",
         )
         contract = _make_contract()
@@ -299,11 +299,18 @@ class TestOpenContextPRAtImplementStartTypedErrors:
                 _open_context_pr_at_implement_start("issue-2777")
             assert exc_info.value.reason == ContextPrCreationReason.PIPELINE_LOAD_FAILED.value
 
-    def test_list_open_prs_failure_raises_lookup_failed(self, tmp_path, store, spawner_factory):
-        """Gateway ``list_open_prs`` raising → typed ``lookup_failed``."""
+    def test_lookup_open_pr_failure_raises_lookup_failed(self, tmp_path, store, spawner_factory):
+        """An unexpected ``_lookup_open_pr`` raise → typed ``lookup_failed``.
+
+        The primitive itself soft-fails a transient gateway/parse error
+        to ``None`` (matching the slice path), so in production this only
+        fires on a programming error; the opener's ``try`` is the
+        typed-error backstop that keeps a raw exception from escaping the
+        cq-4 no-raw-exception contract.
+        """
         pipeline = _make_pipeline()
         spawner = spawner_factory(
-            list_open_prs_side_effect=RuntimeError("gateway down"),
+            lookup_open_pr_side_effect=RuntimeError("gateway down"),
         )
         with (
             patch(
@@ -317,30 +324,6 @@ class TestOpenContextPRAtImplementStartTypedErrors:
                 _open_context_pr_at_implement_start("issue-2777")
             assert exc_info.value.reason == ContextPrCreationReason.LOOKUP_FAILED.value
 
-    def test_malformed_pr_number_raises_lookup_bad_response(self, tmp_path, store, spawner_factory):
-        """Gateway returns an entry with a non-integer ``number`` field → typed error."""
-        pipeline = _make_pipeline()
-        spawner = spawner_factory(
-            list_open_prs_return=[
-                {
-                    "number": "not-a-number",
-                    "head_ref": "egg/issue-2777/work",
-                    "base_ref": "main",
-                }
-            ],
-        )
-        with (
-            patch(
-                "routes.get_state_store_for_pipeline",
-                return_value=(store, pipeline),
-            ),
-            patch("routes.resolve_worktree_path", return_value=tmp_path),
-            patch("routes.pipelines._get_spawner", return_value=spawner),
-        ):
-            with pytest.raises(ContextPrCreationError) as exc_info:
-                _open_context_pr_at_implement_start("issue-2777")
-            assert exc_info.value.reason == ContextPrCreationReason.LOOKUP_BAD_RESPONSE.value
-
     def test_missing_pr_block_raises_missing_pr_metadata(self, tmp_path, store, spawner_factory):
         """No PR block on the contract → typed ``missing_pr_metadata``.
 
@@ -349,7 +332,7 @@ class TestOpenContextPRAtImplementStartTypedErrors:
         the ``pr=None`` branch is the reachable one.
         """
         pipeline = _make_pipeline()
-        spawner = spawner_factory(list_open_prs_return=[])
+        spawner = spawner_factory(lookup_open_pr_return=None)
         contract = _make_contract(with_pr_metadata=False)
         with (
             patch(
@@ -368,7 +351,7 @@ class TestOpenContextPRAtImplementStartTypedErrors:
         """Gateway ``create_pr`` raising → typed ``gateway_error``."""
         pipeline = _make_pipeline()
         spawner = spawner_factory(
-            list_open_prs_return=[],
+            lookup_open_pr_return=None,
             create_pr_side_effect=RuntimeError("gh failed"),
         )
         contract = _make_contract()
@@ -389,7 +372,7 @@ class TestOpenContextPRAtImplementStartTypedErrors:
         """Gateway returns empty URL → typed ``gateway_no_url``."""
         pipeline = _make_pipeline()
         spawner = spawner_factory(
-            list_open_prs_return=[],
+            lookup_open_pr_return=None,
             create_pr_return="",
         )
         contract = _make_contract()
@@ -410,7 +393,7 @@ class TestOpenContextPRAtImplementStartTypedErrors:
         """Gateway returns a URL without ``/pull/<n>`` → typed ``gateway_bad_url``."""
         pipeline = _make_pipeline()
         spawner = spawner_factory(
-            list_open_prs_return=[],
+            lookup_open_pr_return=None,
             create_pr_return="https://github.com/owner/repo/not-a-pr-url",
         )
         contract = _make_contract()
@@ -459,10 +442,10 @@ class TestOpenContextPRAtImplementStartImportFailures:
         self, tmp_path, store, spawner_factory, monkeypatch
     ):
         """``from egg_contracts.loader import load_contract`` failing on
-        the miss path (after ``list_open_prs`` returns empty) surfaces
+        the miss path (after ``_lookup_open_pr`` returns ``None``) surfaces
         as ``ContextPrCreationReason.LOADER_UNAVAILABLE``."""
         pipeline = _make_pipeline()
-        spawner = spawner_factory(list_open_prs_return=[])
+        spawner = spawner_factory(lookup_open_pr_return=None)
         with (
             patch(
                 "routes.get_state_store_for_pipeline",
@@ -487,7 +470,7 @@ class TestOpenContextPRAtImplementStartImportFailures:
         ``ContextPrCreationReason.CONTRACT_LOAD_FAILED`` — the typed
         422 the BRC NACK / advance_phase handler contracts on."""
         pipeline = _make_pipeline()
-        spawner = spawner_factory(list_open_prs_return=[])
+        spawner = spawner_factory(lookup_open_pr_return=None)
         with (
             patch(
                 "routes.get_state_store_for_pipeline",
