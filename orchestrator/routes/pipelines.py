@@ -12374,10 +12374,10 @@ def _build_brc_preamble(
                 "has NACKed the seeded version because its own work uncovered "
                 "a need for code your role should have produced. This is a "
                 "planning gap — call "
-                "`egg-contract add-decision --question \"...\" "
-                "--options \"Add coder task to this slice\" "
-                "\"Defer to a follow-up slice\" "
-                "\"Treat the slice as documenter-only\"` so the "
+                '`egg-contract add-decision --question "..." '
+                '--options "Add coder task to this slice" '
+                '"Defer to a follow-up slice" '
+                '"Treat the slice as documenter-only"` so the '
                 "operator can resolve it; do NOT silently start producing.\n"
                 "  (c) Re-confirm on subsequent re-invocations until the "
                 "orchestrator stops you."

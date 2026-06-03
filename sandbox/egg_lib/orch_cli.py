@@ -4324,10 +4324,7 @@ def create_parser() -> argparse.ArgumentParser:
     brc_state.add_argument(
         "--verbose",
         action="store_true",
-        help=(
-            "Include the full orchestrator status payload under "
-            "the 'raw' key."
-        ),
+        help=("Include the full orchestrator status payload under the 'raw' key."),
     )
     brc_state.set_defaults(func=cmd_brc_get_state)
 
