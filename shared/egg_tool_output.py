@@ -13,13 +13,16 @@ hop, regardless of how large the SDK reader buffer is.
 
 This module is the shared helper referenced by #2805's "consistent across
 tools" requirement. It is deliberately a flat, stdlib-only module (no
-package ``__init__`` side effects, no ``claude_agent_sdk`` import) so both
-sides of the boundary can import it once ``shared/`` is on ``sys.path``:
+package ``__init__`` side effects, no ``claude_agent_sdk`` import) so
+``shared/`` consumers can import it without dragging in agent-only
+dependencies:
 
 * the **orchestrator** MCP server (operator-facing tools in
-  ``orchestrator/mcp_tools.py``), and
-* the **sandbox** agent ``@tool`` wrappers
-  (``sandbox/egg_agent_tools/tools/_common.py``).
+  ``orchestrator/mcp_tools.py``) is the primary consumer post-#2908
+  slice-6.  Pre-slice-6 the agent-side ``@tool`` wrappers in
+  ``sandbox/egg_agent_tools/tools/`` also imported this module;
+  that subpackage was retired in slice-6 and the agent surface is
+  now driven by the ``egg-orch`` / ``egg-contract`` shell CLIs.
 
 Two strategies are exposed:
 

@@ -3215,11 +3215,10 @@ def cmd_brc_next_action(args: argparse.Namespace) -> int:
 def cmd_brc_get_state(args: argparse.Namespace) -> int:
     """Return the BRC consensus state as structured JSON.
 
-    Verb-level alias for ``mcp__brc__get_state``. The MCP-tool surface
-    exposed shape ``{ok, slice_id, consensus, is_complete,
-    blocking_agents, raw?}``; we mirror that exact shape so the
-    event-pump wrapper (#2908 slice-2) can call the CLI form
-    interchangeably with the MCP form.
+    Verb-level wrapper around ``handlers.brc.brc_get_state``. Returns
+    shape ``{ok, slice_id, consensus, is_complete, blocking_agents,
+    raw?}`` so the event-pump wrapper (#2908 slice-2) can drive it
+    directly from bash.
     """
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -3247,8 +3246,8 @@ def cmd_brc_get_state(args: argparse.Namespace) -> int:
 def cmd_brc_list_blocking(args: argparse.Namespace) -> int:
     """List agent roles currently blocking consensus.
 
-    Verb-level CLI wrapper around ``mcp__brc__list_blocking``. Default
-    output is one role per line for shell-friendly consumption
+    Verb-level CLI wrapper around ``handlers.brc.brc_list_blocking``.
+    Default output is one role per line for shell-friendly consumption
     (``while read role; do …; done``); ``--json`` returns the
     ``{blocking_agents: [...]}`` array. Exit code 0 even when the
     list is empty so the wrapper bash can call this unconditionally
@@ -3276,11 +3275,11 @@ def cmd_brc_list_blocking(args: argparse.Namespace) -> int:
 def cmd_brc_resolve_obligation(args: argparse.Namespace) -> int:
     """Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338).
 
-    Verb-level CLI wrapper around ``mcp__brc__resolve_obligation``. The
-    write-side BRC verbs (propose / ack / nack / withdraw / confirmed)
-    live under ``consensus``; the read/derive verbs and the
-    obligation-management verbs live under ``brc``. Slice-5 adds this
-    CLI because slice-6 deletes the agent-side MCP server — the
+    Verb-level CLI wrapper around ``handlers.brc.brc_resolve_obligation``.
+    The write-side BRC verbs (propose / ack / nack / withdraw /
+    confirmed) live under ``consensus``; the read/derive verbs and
+    the obligation-management verbs live under ``brc``. Slice-5 added
+    this CLI because slice-6 deleted the agent-side MCP server — the
     wrapper bash must reach this signal without an MCP round-trip.
 
     Args mirror the handler request: ``--reviewer-role`` and
@@ -3337,13 +3336,13 @@ def cmd_brc_resolve_obligation(args: argparse.Namespace) -> int:
 def cmd_brc_read_peer_artifact(args: argparse.Namespace) -> int:
     """Read consensus history for a peer from the local brc-history log.
 
-    Verb-level CLI wrapper around ``mcp__brc__read_peer_artifact``. The
-    handler reads ``.egg-state/brc-history/<identifier>-<phase>.json``
+    Verb-level CLI wrapper around ``handlers.brc.brc_read_peer_artifact``.
+    The handler reads ``.egg-state/brc-history/<identifier>-<phase>.json``
     (and the per-slice partition for ``phase == "implement"`` when
-    ``EGG_SLICE_ID`` is set). Output is always JSON; pagination uses an
-    opaque ``next_cursor`` token round-tripped via ``--cursor``.
+    ``EGG_SLICE_ID`` is set). Output is always JSON; pagination uses
+    an opaque ``next_cursor`` token round-tripped via ``--cursor``.
 
-    Slice-5 adds this CLI because slice-6 deletes the MCP server —
+    Slice-5 added this CLI because slice-6 deleted the MCP server —
     reviewers in the event-pump model invoke ``egg-orch brc
     read-peer-artifact`` from bash to inspect a peer's prior history
     without leaving the wrapper loop.
@@ -3394,10 +3393,10 @@ def cmd_brc_read_peer_artifact(args: argparse.Namespace) -> int:
 def cmd_phase_get_context(args: argparse.Namespace) -> int:
     """Bundle phase context (pipeline_id, phase, role, tasks, artifacts).
 
-    Verb-level alias for ``mcp__phase__get_context``. Returns the same
-    JSON shape the MCP tool produces so wrapper bash can call this
-    interchangeably. Defaults pull from ``$EGG_PIPELINE_ID`` /
-    ``$EGG_AGENT_ROLE`` / ``$EGG_PHASE`` env vars.
+    Verb-level wrapper around ``handlers.phase.phase_get_context``.
+    Returns structured JSON the wrapper bash can drive directly.
+    Defaults pull from ``$EGG_PIPELINE_ID`` / ``$EGG_AGENT_ROLE`` /
+    ``$EGG_PHASE`` env vars.
     """
     from egg_agent_tools.handlers import phase as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -4310,7 +4309,10 @@ def create_parser() -> argparse.ArgumentParser:
     # brc get-state
     brc_state = brc_sub.add_parser(
         "get-state",
-        help=("Return the BRC consensus state (verb-level alias for mcp__brc__get_state)"),
+        help=(
+            "Return the BRC consensus state (verb-level wrapper around "
+            "``handlers.brc.brc_get_state``)"
+        ),
     )
     brc_state.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     brc_state.add_argument(
@@ -4324,7 +4326,7 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Include the full orchestrator status payload under "
-            "the 'raw' key — matches the MCP-tool 'verbose' flag."
+            "the 'raw' key."
         ),
     )
     brc_state.set_defaults(func=cmd_brc_get_state)
@@ -4334,8 +4336,8 @@ def create_parser() -> argparse.ArgumentParser:
         "list-blocking",
         help=(
             "List roles currently blocking consensus (verb-level "
-            "alias for mcp__brc__list_blocking). Newline-delimited "
-            "by default; --json returns the array."
+            "wrapper around ``handlers.brc.brc_list_blocking``). "
+            "Newline-delimited by default; --json returns the array."
         ),
     )
     brc_blocking.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
@@ -4347,8 +4349,8 @@ def create_parser() -> argparse.ArgumentParser:
         "resolve-obligation",
         help=(
             "Mark a reviewer's conditional-ACK obligation satisfied in-cycle "
-            "(verb-level alias for mcp__brc__resolve_obligation, #2338). "
-            "Use after committing the conditioning work to drop the "
+            "(verb-level wrapper around ``handlers.brc.brc_resolve_obligation``, "
+            "#2338). Use after committing the conditioning work to drop the "
             "obligation from the PR body and HITL gate."
         ),
     )
@@ -4415,9 +4417,9 @@ def create_parser() -> argparse.ArgumentParser:
     brc_read = brc_sub.add_parser(
         "read-peer-artifact",
         help=(
-            "Read BRC consensus history for a peer (verb-level alias for "
-            "mcp__brc__read_peer_artifact). Stdout JSON; pagination via "
-            "--limit + opaque --cursor token."
+            "Read BRC consensus history for a peer (verb-level wrapper around "
+            "``handlers.brc.brc_read_peer_artifact``). Stdout JSON; pagination "
+            "via --limit + opaque --cursor token."
         ),
     )
     brc_read.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
@@ -4516,7 +4518,10 @@ def create_parser() -> argparse.ArgumentParser:
     # tasks, prior-phase artifact paths) before invoking the agent.
     ph_ctx = phase_sub.add_parser(
         "get-context",
-        help=("Bundle the caller's phase context (verb-level alias for mcp__phase__get_context)"),
+        help=(
+            "Bundle the caller's phase context (verb-level wrapper "
+            "around ``handlers.phase.phase_get_context``)"
+        ),
     )
     ph_ctx.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     ph_ctx.add_argument(

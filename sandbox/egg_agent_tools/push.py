@@ -1,20 +1,21 @@
 """Shared BRC consensus-push helper.
 
-This module exposes :func:`consensus_push` — the single implementation
-of "push code to the gateway with the ``consensus_push`` marker" shared
-between the ``egg-orch consensus propose --push`` CLI shim and the
-``mcp__brc__propose`` MCP tool wrapper.  Both surfaces MUST route through
-this helper so the gateway receives the marker and permits the push in
-concurrent mode.
+This module exposes :func:`consensus_push` — the implementation of
+"push code to the gateway with the ``consensus_push`` marker" consumed
+by the ``egg-orch consensus propose --push`` CLI shim.  The CLI must
+route through this helper so the gateway receives the marker and
+permits the push in concurrent mode.
 
 The actual ``git push`` happens inside the gateway process, which holds
 the GitHub App credentials.  The agent's sandbox does not authenticate
 to origin directly; this helper only hits ``POST /api/v1/git/push`` on
 the gateway sidecar.
 
-Extracted from ``sandbox/egg_lib/orch_cli.py:_consensus_push`` for #1994
-so MCP-only agents (which cannot shell out to the CLI) can publish BRC
-artifacts.
+Historical context: extracted from
+``sandbox/egg_lib/orch_cli.py:_consensus_push`` for #1994 so the
+pre-#2908-slice-6 in-process MCP ``mcp__brc__propose`` tool wrapper
+and the CLI could share one publish path.  Slice-6 retired the MCP
+surface; the CLI is the only caller now.
 """
 
 from __future__ import annotations
