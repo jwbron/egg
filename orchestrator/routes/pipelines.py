@@ -1835,12 +1835,11 @@ def create_pipeline() -> tuple[Response, int]:
         #
         # This is the *primary* eviction site for auto-FAILED prior runs,
         # not just a defensive backstop: paths like restart_agent spawn
-        # failure and _handle_pr_creation_failure call
-        # store.update_pipeline / store.save_pipeline directly (bypassing
-        # PATCH), so the PATCH-site clear never fires for them. Without
-        # this POST-site clear, those auto-FAILED pipelines would leak
-        # consensus + message-store state into the next run that reuses
-        # the id.
+        # failure call store.update_pipeline / store.save_pipeline directly
+        # (bypassing PATCH), so the PATCH-site clear never fires for them.
+        # Without this POST-site clear, those auto-FAILED pipelines would
+        # leak consensus + message-store state into the next run that
+        # reuses the id.
         _clear_pipeline_runtime_state(pipeline.id, reason="pipeline_create")
 
         logger.info(
@@ -8730,66 +8729,6 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     }
 
 
-def _handle_pr_creation_failure(
-    pipeline_id: str,
-    current_phase: str,
-    store,
-    reason: str | None = None,
-) -> None:
-    """Mark a pipeline as FAILED after PR creation returns no URL.
-
-    Extracted from ``_health_monitor_poll`` so this state-transition logic can
-    be tested independently of the full polling loop.
-
-    The error message attached to the pipeline tells the user exactly what
-    happened and how to rescue the work.  The agents' commits are on
-    ``origin/<pipeline.branch>`` regardless of the failure mode, so the
-    rescue is always "open the PR manually against that branch" — we
-    surface the exact ``gh pr create`` invocation to avoid forcing users
-    to dig through orchestrator logs (see #1731).
-
-    ``reason`` is a short phrase explaining *why* PR creation failed (e.g.
-    ``"fetch+rebase reconcile failed"``).  When omitted, the generic
-    ``"no PR URL returned"`` message is used for back-compat.
-    """
-    reason_text = reason or "no PR URL returned"
-    error_msg = f"Auto PR creation failed: {reason_text}"
-    logger.error(error_msg, pipeline_id=pipeline_id, reason=reason_text)
-    with get_pipeline_state_lock(pipeline_id):
-        pipeline = store.load_pipeline(pipeline_id)
-        phase_execution = pipeline.get_phase_execution(current_phase)
-        # Compose a user-facing message that includes the rescue hint,
-        # using pipeline state we only have access to inside the lock.
-        rescue_hint = _format_rescue_hint(pipeline)
-        full_error = f"{error_msg}\n{rescue_hint}" if rescue_hint else error_msg
-        phase_execution.status = PipelineStatus.FAILED
-        phase_execution.error = full_error
-        phase_execution.completed_at = datetime.now(UTC)
-        pipeline.status = PipelineStatus.FAILED
-        pipeline.error = full_error
-        store.save_pipeline(pipeline)
-
-
-def _format_rescue_hint(pipeline) -> str:
-    """Build a user-facing rescue hint for a pipeline whose PR couldn't be auto-created.
-
-    Returns an empty string when we don't have enough state to compose a
-    useful hint (no repo or no branch on the pipeline) — in that case the
-    error log + pipeline ID are the user's only handholds.
-    """
-    repo = getattr(pipeline, "repo", None)
-    branch = getattr(pipeline, "branch", None)
-    if not repo or not branch:
-        return ""
-    base = getattr(pipeline, "base_branch", None) or "main"
-    return (
-        f"Agent work is on origin/{branch} in {repo}. "
-        f"To open the PR manually:\n"
-        f"  gh pr create --repo '{repo}' --head '{branch}' --base '{base}' "
-        f'--title "..." --body "..."'
-    )
-
-
 BRC_HISTORY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
@@ -9584,66 +9523,6 @@ def _build_brc_history_link_line(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
     )
     return f"_Per-phase BRC transcripts: {links}._"
-
-
-def _pr_metadata_from_plan_draft(
-    worktree_repo_path: Path,
-    issue_number: int | None,
-    pipeline_id: str,
-) -> tuple[str | None, str, str, str, list[str], str | None]:
-    """Parse PR metadata from the plan draft on disk.
-
-    Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
-    populated — e.g. when the plan-phase contract write did not reach the
-    branch tip (see #1829). The plan draft itself is reliably on the
-    branch even when the contract is not.
-
-    Returns ``(title, description, test_plan, manual_steps, warnings,
-    draft_rel_path)``. ``title`` is ``None`` when the draft is missing,
-    unparseable, or has no ``pr:`` block, signalling the caller to fall
-    through to the next tier. ``warnings`` is a list of
-    human-readable parse warning strings collected from ``parse_plan``
-    (empty when the parse was clean or the draft was absent); it is
-    surfaced in the PR body when the caller falls through to the stub
-    tier so reviewers can see what went wrong (see #1975).
-    ``draft_rel_path`` is the relative path to the draft that was
-    parsed, or ``None`` if no draft was attempted.
-    """
-    warnings_out: list[str] = []
-    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
-    if not draft_rel:
-        return None, "", "", "", warnings_out, None
-    plan_path = worktree_repo_path / draft_rel
-    if not plan_path.exists():
-        warnings_out.append(f"Plan draft not found at {draft_rel}")
-        return None, "", "", "", warnings_out, draft_rel
-    try:
-        from egg_contracts.plan_parser import parse_plan
-
-        result = parse_plan(plan_path.read_text())
-    except Exception as e:
-        logger.debug(
-            "Could not parse plan draft for PR metadata fallback",
-            path=str(plan_path),
-            error=str(e),
-        )
-        warnings_out.append(f"parse_plan raised: {e}")
-        return None, "", "", "", warnings_out, draft_rel
-    for w in result.warnings:
-        msg = w.message
-        if w.context:
-            msg = f"{msg} ({w.context})"
-        warnings_out.append(msg)
-    if not result.pr_title:
-        return None, "", "", "", warnings_out, draft_rel
-    return (
-        result.pr_title,
-        result.pr_description or "",
-        result.pr_test_plan or "",
-        result.pr_manual_steps or "",
-        warnings_out,
-        draft_rel,
-    )
 
 
 def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
