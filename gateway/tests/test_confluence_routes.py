@@ -343,9 +343,14 @@ class TestPageGet:
         invalid gateway credentials or a wrong base URL) must surface a
         pointed, actionable message + ``likely_cause`` rather than the opaque
         ``Confluence upstream error 302``. Still HTTP 502 (bad upstream
-        response), distinct from the 503 credentials-absent path. See #2970."""
+        response), distinct from the 503 credentials-absent path. The
+        upstream ``Location`` header — when the client captured it — must be
+        surfaced so the operator can confirm the bounce target without
+        reproducing. See #2970."""
         fake = MagicMock()
-        fake.get_page.side_effect = ConfluenceUpstreamError(302, "", "api/v2/pages/12345")
+        fake.get_page.side_effect = ConfluenceUpstreamError(
+            302, "", "api/v2/pages/12345", location="/login"
+        )
         with _patch_client(fake):
             resp = client.post(
                 "/api/v1/confluence/page/get",
@@ -358,7 +363,98 @@ class TestPageGet:
         # Actionable message, not the opaque "Confluence upstream error 302".
         assert "redirect" in body["message"].lower()
         assert "Confluence upstream error" not in body["message"]
+        assert "/login" in body["message"]
         details = body["data"]
+        assert details["upstream_status"] == 302
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+        assert details["upstream_location"] == "/login"
+
+    def test_upstream_redirect_without_location_header(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """When the upstream 3xx omits the ``Location`` header, the actionable
+        message and ``likely_cause`` still fire — ``upstream_location`` is
+        simply absent from the details. The translator must not crash on a
+        ``None`` location."""
+        fake = MagicMock()
+        fake.get_page.side_effect = ConfluenceUpstreamError(302, "", "api/v2/pages/12345")
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/page/get",
+                headers=private_headers,
+                data=json.dumps({"pageId": "12345"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        body = json.loads(resp.data)
+        assert "redirect" in body["message"].lower()
+        details = body["data"]
+        assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
+        assert "upstream_location" not in details
+
+    @pytest.mark.parametrize(
+        "route,client_method,body",
+        [
+            ("/api/v1/confluence/page/get", "get_page", {"pageId": "12345"}),
+            (
+                "/api/v1/confluence/page/descendants",
+                "get_page_descendants",
+                {"pageId": "12345"},
+            ),
+            (
+                "/api/v1/confluence/page/footer-comments",
+                "get_page_footer_comments",
+                {"pageId": "12345"},
+            ),
+            (
+                "/api/v1/confluence/page/inline-comments",
+                "get_page_inline_comments",
+                {"pageId": "12345"},
+            ),
+            ("/api/v1/confluence/space/list", "list_spaces", {}),
+            ("/api/v1/confluence/search", "search_cql", {"cql": "space = ENG"}),
+        ],
+    )
+    def test_upstream_redirect_translator_applies_to_all_routes(
+        self,
+        client,
+        private_headers,
+        allow_eng,
+        captured_audit,
+        route,
+        client_method,
+        body,
+    ):
+        """Regression guard for the shared translator (#2970).
+
+        ``_confluence_error_from_upstream`` is the single funnel every
+        ``/api/v1/confluence/*`` route uses. The single-route test proves the
+        translator's logic; this one proves the *wiring* — if a future route
+        is added that bypasses the funnel (and therefore the actionable-3xx
+        branch), this regression test will catch it. Asserting on each route
+        rather than just one would let a route quietly fall back to the
+        generic ``Confluence upstream error 302`` envelope."""
+        fake = MagicMock()
+        getattr(fake, client_method).side_effect = ConfluenceUpstreamError(
+            302, "", "api/v2/some-path", location="/login"
+        )
+        with _patch_client(fake):
+            resp = client.post(
+                route,
+                headers=private_headers,
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502, f"route {route} did not return 502"
+        envelope = json.loads(resp.data)
+        assert "redirect" in envelope["message"].lower(), (
+            f"route {route} did not get the actionable redirect message — "
+            "likely bypassed _confluence_error_from_upstream"
+        )
+        assert "Confluence upstream error" not in envelope["message"], (
+            f"route {route} fell through to the opaque generic message"
+        )
+        details = envelope["data"]
         assert details["upstream_status"] == 302
         assert details["likely_cause"] == "missing_or_invalid_atlassian_credentials_or_base_url"
 

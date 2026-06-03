@@ -221,13 +221,26 @@ _SPACE_CACHE_MAX_ENTRIES: int = 256
 class ConfluenceUpstreamError(RuntimeError):
     """Raised when Atlassian returns a non-2xx response that isn't a 404 on
     the endpoints where 404 is modelled as a ``not_found`` envelope.
+
+    ``location`` carries the upstream ``Location`` response header for 3xx
+    responses (e.g. ``/login`` on the login bounce) so the gateway can
+    surface it in the actionable-error envelope without needing to refetch.
+    It is ``None`` for non-3xx responses and for 3xx responses that omit
+    the header.
     """
 
-    def __init__(self, status_code: int, body: Any, path: str):
+    def __init__(
+        self,
+        status_code: int,
+        body: Any,
+        path: str,
+        location: str | None = None,
+    ):
         super().__init__(f"Confluence upstream returned {status_code} for {path}")
         self.status_code = status_code
         self.body = body
         self.path = path
+        self.location = location
 
 
 class ConfluenceUpstreamForbidden(RuntimeError):
@@ -986,7 +999,12 @@ def _raise_for_status(response: httpx.Response, path: str) -> None:
         body = response.json()
     except Exception:
         body = response.text
-    raise ConfluenceUpstreamError(response.status_code, body, path)
+    # Carry the ``Location`` header on 3xx so the gateway translator can
+    # surface "redirected to /login" in the operator-facing envelope.
+    location: str | None = None
+    if 300 <= response.status_code < 400:
+        location = response.headers.get("Location")
+    raise ConfluenceUpstreamError(response.status_code, body, path, location)
 
 
 def _safe_response_body(response: httpx.Response) -> Any:

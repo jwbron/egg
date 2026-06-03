@@ -6921,21 +6921,27 @@ def _confluence_error_from_upstream(exc: ConfluenceUpstreamError) -> tuple[Respo
         # ``/wiki`` suffix). Surface that pointedly instead of an opaque 502 so
         # operators don't have to reverse-engineer the redirect. Still 502
         # (bad upstream response), distinct from the 503 "creds absent" path.
-        return make_error(
+        message = (
             f"Confluence upstream returned {exc.status_code} (redirect) — the "
             "gateway received a login redirect instead of a REST response. "
             "This usually means the gateway's Atlassian credentials are "
             "missing/invalid or the base URL is wrong (e.g. ATLASSIAN_BASE_URL "
             "must be the bare tenant origin, or CONFLUENCE_BASE_URL must include "
-            "the /wiki suffix).",
-            status_code=502,
-            details={
-                "upstream_status": exc.status_code,
-                "upstream_body": _redact_upstream_error_body(exc.body),
-                "path": exc.path,
-                "likely_cause": "missing_or_invalid_atlassian_credentials_or_base_url",
-            },
+            "the /wiki suffix)."
         )
+        details: dict[str, Any] = {
+            "upstream_status": exc.status_code,
+            "upstream_body": _redact_upstream_error_body(exc.body),
+            "path": exc.path,
+            "likely_cause": "missing_or_invalid_atlassian_credentials_or_base_url",
+        }
+        # Surface the upstream ``Location`` when present so the operator can
+        # confirm the bounce target (typically ``/login`` or the tenant root)
+        # without reproducing.
+        if exc.location:
+            message += f" Upstream redirected to: {exc.location}"
+            details["upstream_location"] = exc.location
+        return make_error(message, status_code=502, details=details)
     if 400 <= exc.status_code < 500:
         status = exc.status_code
     else:
