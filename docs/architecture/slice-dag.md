@@ -574,11 +574,13 @@ GitHub API so unit tests can substitute deterministic fakes. In
 production the run loop binds them to live gateway helpers — the
 reconciler is fully functional, not a no-op:
 
-- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which runs
-  `gh pr list --json number,headRefName,baseRefName,state` through the
-  existing per-agent `gh` allowlist. JSON parsing failures degrade to
-  an empty list (logged warning) so a transient `gh` flake does not
-  cause the reconciler to misclassify orphans.
+- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which calls the
+  orchestrator-only control-plane route `/api/v1/gh/list_open_prs` with
+  launcher auth (not a synthetic agent session — [#2925](https://github.com/jwbron/egg/issues/2925)). The gateway runs
+  `gh pr list --json number,headRefName,baseRefName` server-side and
+  returns `{"prs": [...]}`. JSON parsing failures degrade to an empty
+  list (logged warning) so a transient `gh` flake does not cause the
+  reconciler to misclassify orphans.
 - **`list_remote_branches`** → `GatewayClient.list_remote_branches(...)`,
   which runs `git ls-remote --heads origin` through the existing
   per-agent `ls-remote` allowlist (`operation="ls-remote"`). The
@@ -612,10 +614,13 @@ reconciler is fully functional, not a no-op:
   gateway unavailable) return `False` and the reconciler counts them
   as `rebases_failed`.
 
-**No new privileged orchestrator-role endpoint is introduced** for any
-of the three callables (refine-phase decision-15) — every gateway call
-flows through the same per-agent allowlists the slice's regular agent
-team uses.
+`list_remote_branches` and `rebase_onto` flow through the existing
+per-agent allowlists. `list_open_prs` uses the dedicated control-plane
+route `/api/v1/gh/list_open_prs` with launcher auth rather than a
+synthetic agent session (refine-phase decision-15 intent preserved: no
+general-purpose privileged gh-command surface is introduced — the route
+accepts only `repo`/`limit` and constructs the fixed read-only argv
+server-side).
 
 ## Architect, planner & plan-reviewer prompt updates
 
