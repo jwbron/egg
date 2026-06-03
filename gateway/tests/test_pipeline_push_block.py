@@ -1,17 +1,19 @@
 """Tests for pipeline-session push blocking (#1669, #1994, #2028).
 
 All SDLC producer phases (refine/plan/implement) are BRC phases, so every
-pipeline-session push must route through ``mcp__brc__propose`` (or the
-fallback CLI ``egg-orch consensus propose --push``), which sets a
-``consensus_push`` marker in the request payload.  Direct ``git push``
-from a pipeline session — regardless of ``EGG_CONCURRENT_MODE`` — is
-rejected with a single actionable error pointing at the right tool,
-instead of the three-layer error cascade (#2028).
+pipeline-session push must route through
+``egg-orch consensus propose --push``, which sets a ``consensus_push``
+marker in the request payload.  Direct ``git push`` from a pipeline
+session — regardless of ``EGG_CONCURRENT_MODE`` — is rejected with a
+single actionable error pointing at the right CLI, instead of the
+three-layer error cascade (#2028).  The pre-#2908 in-process agent MCP
+tool surface was retired in slice-6; the CLI is the only path now.
 
 The gateway enforces this BEFORE the push-target enforcement so BRC agents
-on per-role work branches see the actionable "use mcp__brc__propose" error
-first rather than a misleading wrong-branch message (#1994). Infrastructure
-pushes (checkpoints, pipeline state) are always exempt.
+on per-role work branches see the actionable
+"use ``egg-orch consensus propose --push``" error first rather than a
+misleading wrong-branch message (#1994). Infrastructure pushes
+(checkpoints, pipeline state) are always exempt.
 
 Test scenarios:
   1. Push blocked for pipeline session without consensus_push marker
@@ -176,7 +178,7 @@ class TestPipelinePushBlock:
             data = json.loads(response.data)
             assert data["success"] is False
             assert "pipeline sessions" in data["message"].lower()
-            assert "mcp__brc__propose" in data["message"]
+            assert "egg-orch consensus propose --push" in data["message"]
 
     def test_push_allowed_with_consensus_marker(self, client):
         """Push with consensus_push=true should be allowed."""
@@ -340,7 +342,13 @@ class TestPipelinePushBlockEdgeCases:
             assert "pipeline sessions" in data["message"].lower()
 
     def test_error_response_includes_details(self, client):
-        """The 403 error should include pipeline_id, requirement, and recommended_tool."""
+        """The 403 error should include pipeline_id, requirement, and recommended_cli.
+
+        The slice-6 #2908 deletion replaced the historical
+        ``recommended_tool: 'mcp__brc__propose'`` payload with
+        ``recommended_cli: 'egg-orch consensus propose --push'`` since
+        the in-process agent MCP tool surface was retired.
+        """
         session = _make_session("coder", pipeline_id="issue-1669")
         patches = _push_context(session)
 
@@ -359,11 +367,13 @@ class TestPipelinePushBlockEdgeCases:
             resp_data = data.get("data", {})
             assert resp_data.get("pipeline_id") == "issue-1669"
             assert resp_data.get("requirement") == "consensus_push"
-            assert resp_data.get("recommended_tool") == "mcp__brc__propose"
+            assert resp_data.get("recommended_cli") == "egg-orch consensus propose --push"
 
     def test_error_message_suggests_consensus_propose(self, client):
-        """The 403 error message should point at mcp__brc__propose (primary)
-        and list the CLI fallback (#1994)."""
+        """The 403 error message should point at
+        ``egg-orch consensus propose --push`` (the agent-side MCP tool
+        surface was retired in #2908 slice-6 — the CLI is the only
+        path now)."""
         session = _make_session("coder")
         patches = _push_context(session)
 
@@ -379,9 +389,8 @@ class TestPipelinePushBlockEdgeCases:
             response = _do_push(client)
             assert response.status_code == 403
             data = json.loads(response.data)
-            assert "mcp__brc__propose" in data["message"]
             assert "egg-orch consensus propose --push" in data["message"]
-            assert data.get("data", {}).get("recommended_tool") == "mcp__brc__propose"
+            assert data.get("data", {}).get("recommended_cli") == "egg-orch consensus propose --push"
 
     def test_killswitch_values(self, client):
         """Killswitch should accept '0' and 'no' in addition to 'false'."""
@@ -562,8 +571,9 @@ class TestOrchestratorLauncherAuthPush:
             response = _do_launcher_push(client)
             assert response.status_code == 200
             data = json.loads(response.data)
-            # Should NOT carry the agent-targeted "use mcp__brc__propose" hint.
-            assert "mcp__brc__propose" not in data.get("message", "")
+            # Should NOT carry the agent-targeted
+            # "use `egg-orch consensus propose --push`" hint.
+            assert "consensus propose" not in data.get("message", "")
 
     def test_launcher_push_audited_as_orchestrator_authenticated(self, client):
         """Launcher-auth pushes emit a distinct audit event for traceability."""
@@ -775,11 +785,12 @@ class TestSliceIntegrationBranchExemption:
     def test_non_synthetic_session_slice_branch_push_blocked(self, client):
         """Agent (non-synthetic) push to a slice integration branch is still blocked.
 
-        Agents reach a slice's integration branch via ``mcp__brc__propose``
-        (``consensus_push=true``); a direct push is the very pattern #2028 is
-        designed to catch.  The exemption MUST gate on ``synthetic=True`` —
-        if the regex alone is enough, agents can use slice-shaped branch
-        names to bypass enforcement.
+        Agents reach a slice's integration branch via
+        ``egg-orch consensus propose --push`` (``consensus_push=true``);
+        a direct push is the very pattern #2028 is designed to catch.
+        The exemption MUST gate on ``synthetic=True`` — if the regex
+        alone is enough, agents can use slice-shaped branch names to
+        bypass enforcement.
         """
         session = _make_session(synthetic=False, assigned_branch="egg/issue-2261/slice-7")
         patches = _push_context(session)

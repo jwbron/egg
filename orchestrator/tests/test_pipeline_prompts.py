@@ -1067,12 +1067,16 @@ class TestProducerEscapeHatchInPrompts:
             prompt="# Feature",
             issue_number=42,
         )
-        assert "mcp__sdlc__report_impasse" in result, (
-            f"{role} prompt missing the report_impasse escape-hatch tool name; "
+        # #2908 slice-6: the producer escape hatch now points at the
+        # ``egg-contract`` CLI verbs since the in-process MCP tool
+        # surface (mcp__sdlc__{check_file_restriction,report_impasse})
+        # was retired.
+        assert "egg-contract report-impasse" in result, (
+            f"{role} prompt missing the report-impasse escape-hatch CLI; "
             "producers must see the actionable guidance to avoid inventing workarounds."
         )
-        assert "mcp__sdlc__check_file_restriction" in result, (
-            f"{role} prompt missing the check_file_restriction tool name."
+        assert "egg-contract check-file-restriction" in result, (
+            f"{role} prompt missing the check-file-restriction CLI."
         )
         assert "DO NOT invent workarounds" in result, (
             f"{role} prompt missing the anti-workaround directive."
@@ -1093,10 +1097,10 @@ class TestProducerEscapeHatchInPrompts:
         assert "Runtime delegation" in result
         assert "auto-delegate" in result
         # The actionable producer-only directives should NOT appear in
-        # the planner prompt — the summary mentions ``report_impasse``
+        # the planner prompt — the summary mentions ``report-impasse``
         # by name for context, but doesn't tell the planner to call it.
         assert "DO NOT invent workarounds" not in result
-        assert "mcp__sdlc__check_file_restriction" not in result
+        assert "egg-contract check-file-restriction" not in result
 
     def test_architect_prompt_does_not_contain_escape_hatch(self):
         """Architect is a non-impassing analysis role — it shouldn't
@@ -1109,7 +1113,7 @@ class TestProducerEscapeHatchInPrompts:
             prompt="# Feature",
             issue_number=42,
         )
-        assert "mcp__sdlc__report_impasse" not in result
+        assert "egg-contract report-impasse" not in result
 
 
 # ── Additional tester-authored coverage ──────────────────────────────────────

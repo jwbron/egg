@@ -93,7 +93,9 @@ class TestSendBRCConfirmationNudge:
         # the producer regardless of which wait they are blocked on.
         assert message.message_type == MessageType.OVERSEER_ALERT
         assert message.phase == "implement"
-        assert "mcp__brc__confirm" in message.body
+        # #2908 slice-6: nudge points at the CLI now that the in-process
+        # mcp__brc__confirm MCP tool has been retired.
+        assert "egg-orch consensus confirmed" in message.body
         assert "240s" in message.body
         assert message.metadata["alert_type"] == "brc_confirmation_timeout"
         assert message.metadata["elapsed_seconds"] == 240

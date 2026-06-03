@@ -2562,7 +2562,8 @@ class TestBRCProgressGlobalZeroProposalGate:
     ``check_brc_progress`` reads its candidate set from
     ``PeerConsensusTracker.get_fully_acked_producers``. Prior to #2187 the
     helper returned PROPOSED+ACKed producers regardless of whether
-    ``mcp__brc__confirm`` would actually accept them, so a fast producer
+    ``egg-orch consensus confirmed`` would actually accept them, so a
+    fast producer
     waiting on a slower peer's first proposal was nudged with
     ``brc_confirmation_timeout``. The agent then dutifully called confirm,
     got rejected with ``pending_acks`` (global zero-proposal guard, #1648),
@@ -2588,8 +2589,9 @@ class TestBRCProgressGlobalZeroProposalGate:
     def test_no_alert_while_peer_producer_has_zero_proposal(self):
         """No ``brc_confirmation_timeout`` while any peer producer has
         ``proposal_version == 0`` — the patient agent is correctly waiting,
-        and ``mcp__brc__confirm`` would reject under the global zero-proposal
-        guard. Mirrors the issue-2187 repro: documenter proposes + gets
+        and ``egg-orch consensus confirmed`` would reject under the
+        global zero-proposal guard. Mirrors the issue-2187 repro:
+        documenter proposes + gets
         ACKed, coder/tester are still WORKING."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)

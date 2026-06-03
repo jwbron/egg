@@ -750,12 +750,13 @@ def _send_brc_confirmation_nudge(
 
     body = (
         f"You are PROPOSED and fully ACKed but have not confirmed in "
-        f"{elapsed}s. Call `mcp__brc__confirm` now. If it returns "
-        "`status='pending_acks'`, read `message` for the guard reason and "
-        "wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a "
-        "producer hasn't proposed (`zero_proposal_producers`), "
-        "`CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is "
-        "stale or unresolved. Then retry confirm."
+        f"{elapsed}s. Run `egg-orch consensus confirmed` now. If it "
+        "returns `status='pending_acks'`, read `message` for the guard "
+        "reason and wait on the prerequisite events instead: "
+        "`CONSENSUS_PROPOSE` if a producer hasn't proposed "
+        "(`zero_proposal_producers`), `CONSENSUS_ACK` / "
+        "`CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or "
+        "unresolved. Then retry the confirm."
     )
 
     try:
@@ -771,7 +772,7 @@ def _send_brc_confirmation_nudge(
                 from_role="orchestrator",
                 to_role=producer,
                 message_type=MessageType.OVERSEER_ALERT,
-                subject="BRC confirmation timeout — call mcp__brc__confirm",
+                subject="BRC confirmation timeout — run `egg-orch consensus confirmed`",
                 body=body,
                 phase=phase,
                 metadata={
@@ -6179,7 +6180,7 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
     lines.append(
         "If a producer discovers mid-execution that its assigned task "
         "is structurally impossible, it emits a typed Impasse via "
-        "``mcp__sdlc__report_impasse`` and the orchestrator may "
+        "``egg-contract report-impasse`` and the orchestrator may "
         "auto-delegate the task to a different producer role (see "
         "issue #2529). You don't need to plan for this — it's a "
         "runtime safety net for plan bugs, role-restriction "
@@ -6194,12 +6195,14 @@ def _build_impasse_escape_hatch_section() -> str:
     """Build the producer-facing runtime escape hatch section (#2529).
 
     Injected into the coder/tester/documenter prompts so producers know
-    to call ``mcp__sdlc__check_file_restriction`` /
-    ``mcp__sdlc__report_impasse`` instead of inventing workarounds when
-    they hit a structurally impossible task. The planner never emits
-    impasses, so this section is omitted from its prompt — see
+    to call ``egg-contract check-file-restriction`` /
+    ``egg-contract report-impasse`` instead of inventing workarounds
+    when they hit a structurally impossible task. The planner never
+    emits impasses, so this section is omitted from its prompt — see
     ``_build_role_restrictions_section`` for the planner-facing
-    summary.
+    summary.  The agent-side in-process MCP tool surface was retired
+    in #2908 slice-6; the CLI verbs below land in the shell directly
+    on every sandbox agent.
     """
     return "\n".join(
         [
@@ -6216,34 +6219,35 @@ def _build_impasse_escape_hatch_section() -> str:
                 "min and triggered downstream NACKs that way."
             ),
             "",
-            "Instead, use the two MCP tools:",
+            "Instead, use the two CLI subcommands:",
             "",
             (
-                '1. `mcp__sdlc__check_file_restriction({path: "..."})` — '
-                "cheap pure-local read against `shared/egg_restrictions/"
-                "patterns.py`. Confirms whether your role can write the "
-                "path and returns `alternative_role` (the producer role "
-                "that *can* write it, when exactly one covers it). Call "
-                "this BEFORE exploring a file you suspect is outside "
-                "your boundary."
+                "1. `egg-contract check-file-restriction --path <p> "
+                "[--path <p2> ...]` — cheap pure-local read against "
+                "`shared/egg_restrictions/patterns.py`.  Confirms "
+                "whether your role can write the path and returns "
+                "`alternative_role` (the producer role that *can* "
+                "write it, when exactly one covers it). Call this "
+                "BEFORE exploring a file you suspect is outside your "
+                "boundary."
             ),
             "",
             (
-                "2. `mcp__sdlc__report_impasse({category, reason, "
-                "task_id, suggested_role, blocked_files})` — emits a "
-                "typed Impasse signal and exits cleanly. **`task_id` is "
-                "required for ``wrong_role`` impasses** (look it up in "
-                "your spawn prompt or via `egg-contract show`); without "
-                "it the orchestrator cannot route precisely and "
-                "escalates to HITL. The orchestrator detects the "
-                "impasse post-phase and either delegates to "
-                "``suggested_role`` (first attempt) or escalates to "
-                "HITL (second attempt or no eligible role). Categories: "
-                "``wrong_role`` (file restrictions; auto-delegateable), "
-                "``plan_bug`` / ``external_blocker`` / ``unknown`` "
-                "(always HITL). Once you've called this tool, do NOT "
-                "commit code or call any other producer tool — just "
-                "exit."
+                "2. `egg-contract report-impasse --category <c> "
+                "--reason <r> [--task-id <id>] [--suggested-role <r>] "
+                "[--blocked-files <p> ...]` — emits a typed Impasse "
+                "signal and exits cleanly. **`--task-id` is required "
+                "for ``wrong_role`` impasses** (look it up in your "
+                "spawn prompt or via `egg-contract show`); without it "
+                "the orchestrator cannot route precisely and escalates "
+                "to HITL. The orchestrator detects the impasse "
+                "post-phase and either delegates to ``--suggested-role`` "
+                "(first attempt) or escalates to HITL (second attempt "
+                "or no eligible role). Categories: ``wrong_role`` "
+                "(file restrictions; auto-delegateable), ``plan_bug`` "
+                "/ ``external_blocker`` / ``unknown`` (always HITL). "
+                "Once you've called this CLI, do NOT commit code or "
+                "call any other producer tool — just exit."
             ),
             "",
         ]
@@ -10721,11 +10725,11 @@ def _escalate_layer_c_hitl(
 
     Shared transport for case (4) blocked-without-HITL and case (5)
     corrupt-status escalations. Per the plan task body — "escalate
-    via ``mcp__sdlc__register_open_question`` (do NOT silently
-    re-yield as READY — silent classification error is worse than
-    an operator pause)" — Layer C must create an unresolved
-    ``Decision`` on the contract that pauses the slice until the
-    operator picks an option, not just a message-bus broadcast.
+    via ``egg-contract add-decision`` (do NOT silently re-yield as
+    READY — silent classification error is worse than an operator
+    pause)" — Layer C must create an unresolved ``Decision`` on the
+    contract that pauses the slice until the operator picks an
+    option, not just a message-bus broadcast.
 
     The caller supplies ``worktree_repo_path`` (the per-pipeline
     worktree where the live contract lives — Layer C runs inside
@@ -12287,9 +12291,9 @@ def _build_brc_preamble(
             "coder-owns-tests)\n\n"
             "You are both PRODUCER and REVIEWER (TESTER). **The BRC round "
             "cannot close until every producer (including you) has issued "
-            "`mcp__brc__propose` / `egg-orch consensus propose`** — so you "
-            "MUST eventually propose, and if you never propose your own "
-            "hardening you self-block the round. But your producer WORK "
+            "`egg-orch consensus propose`** — so you MUST eventually "
+            "propose, and if you never propose your own hardening you "
+            "self-block the round. But your producer WORK "
             "(reviewing and **hardening the coder's tests**) genuinely "
             "depends on the coder's proposed tests existing, so unlike a "
             "normal producer you start that work at the coder's PROPOSE, "
@@ -12370,9 +12374,10 @@ def _build_brc_preamble(
                 "has NACKed the seeded version because its own work uncovered "
                 "a need for code your role should have produced. This is a "
                 "planning gap — call "
-                "`mcp__sdlc__register_open_question` with options "
-                '`("Add coder task to this slice", "Defer to a follow-up '
-                'slice", "Treat the slice as documenter-only")` so the '
+                "`egg-contract add-decision --question \"...\" "
+                "--options \"Add coder task to this slice\" "
+                "\"Defer to a follow-up slice\" "
+                "\"Treat the slice as documenter-only\"` so the "
                 "operator can resolve it; do NOT silently start producing.\n"
                 "  (c) Re-confirm on subsequent re-invocations until the "
                 "orchestrator stops you."
@@ -12442,9 +12447,9 @@ def _build_brc_preamble(
                 "conditional-ACK obligation in-cycle — typical pattern: "
                 "the coder is gateway-blocked from a path under `tests/`, "
                 "you (as tester) cherry-pick the satisfying commit onto "
-                "the branch — call `mcp__brc__resolve_obligation "
-                'reviewer_role="<reviewer>" producer_role="<other_producer>" '
-                "commit_sha=$(git rev-parse HEAD)` after pushing. The "
+                "the branch — call `egg-orch brc resolve-obligation "
+                "--reviewer-role <reviewer> --producer-role <other_producer> "
+                "--commit-sha $(git rev-parse HEAD)` after pushing. The "
                 "matrix keeps the obligation text for audit but stops "
                 "surfacing it on the PR body and HITL gate. Skip this "
                 "for obligations that genuinely require a human at "

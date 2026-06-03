@@ -2239,7 +2239,9 @@ class TestProducerPendingConfirmGuard:
                 msg = json.loads(resp.data)["message"]
                 assert "documenter" in msg
                 assert "CONSENSUS_CONFIRMED" in msg
-                assert "mcp__brc__confirm" in msg
+                # #2908 slice-6: error points at the CLI now that
+                # mcp__brc__confirm has been retired.
+                assert "egg-orch consensus confirmed" in msg
                 assert "#2064" in msg
 
     def test_producer_in_proposed_blocked_on_consensus_confirmed(

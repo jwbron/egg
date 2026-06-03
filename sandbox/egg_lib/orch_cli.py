@@ -4714,8 +4714,7 @@ def create_parser() -> argparse.ArgumentParser:
             "'unmediated-disagreement' is for observers (overseer/mediator) "
             "flagging that no one is adjudicating; producers blocked by "
             "reviewer NACKs naming an operator-decidable scope question "
-            "should use 'egg-contract add-decision' / "
-            "'mcp__sdlc__register_open_question' instead -- alerts are "
+            "should use 'egg-contract add-decision' instead -- alerts are "
             "informational, decisions are HITL gates."
         ),
     )

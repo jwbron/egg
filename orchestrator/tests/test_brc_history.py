@@ -1903,7 +1903,7 @@ class TestPerSliceImplementBrcHistory:
                 pipeline_id="issue-42",
                 from_role="orchestrator",
                 message_type=MessageType.OVERSEER_ALERT,
-                subject="brc_confirmation_timeout — call mcp__brc__confirm",
+                subject="brc_confirmation_timeout — run `egg-orch consensus confirmed`",
                 body="orchestrator nudge with no explicit slice scope",
                 phase="implement",
                 slice_id=None,

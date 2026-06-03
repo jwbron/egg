@@ -1425,12 +1425,14 @@ def git_push() -> tuple[Response, int] | Response:
 
     # SECURITY: Pipeline push enforcement.
     # All SDLC producer phases (refine/plan/implement) are BRC phases, so every
-    # pipeline-session push must route through mcp__brc__propose (which sets the
-    # consensus_push marker).  A direct git push from a pipeline session — whether
-    # bare, mis-targeted, or correctly-targeted — is rejected with a single
-    # unambiguous error pointing at the right tool, instead of the three-layer
-    # error cascade that previously sent agents refspec-hunting (#2028).
-    # Infrastructure pushes (checkpoint branches, etc.) are exempt.
+    # pipeline-session push must route through `egg-orch consensus propose --push`
+    # (which sets the consensus_push marker).  A direct git push from a
+    # pipeline session — whether bare, mis-targeted, or correctly-targeted —
+    # is rejected with a single unambiguous error pointing at the right CLI,
+    # instead of the three-layer error cascade that previously sent agents
+    # refspec-hunting (#2028).  Infrastructure pushes (checkpoint branches,
+    # etc.) are exempt.  The pre-#2908 in-process MCP tool surface was
+    # retired in slice-6; the CLI is the only path now.
     if not is_infrastructure_push:
         # Killswitch: PIPELINE_PUSH_ENFORCEMENT=false (legacy alias:
         # CONCURRENT_PUSH_ENFORCEMENT=false) disables the block.
@@ -1458,15 +1460,16 @@ def git_push() -> tuple[Response, int] | Response:
                     )
                     return make_error(
                         "Direct git push is blocked for pipeline sessions. "
-                        "Publish your artifact via the mcp__brc__propose tool "
-                        "(which pushes to origin and sends CONSENSUS_PROPOSE "
-                        "in one step). Fallback CLI: "
-                        "`egg-orch consensus propose --push`.",
+                        "Publish your artifact via "
+                        "`egg-orch consensus propose --push` (which pushes "
+                        "to origin and sends CONSENSUS_PROPOSE in one step). "
+                        "The pre-#2908 mcp__brc__propose MCP tool was "
+                        "retired in slice-6 — the CLI is the only path now.",
                         status_code=403,
                         details={
                             "pipeline_id": session_pipeline_id,
                             "requirement": "consensus_push",
-                            "recommended_tool": "mcp__brc__propose",
+                            "recommended_cli": "egg-orch consensus propose --push",
                         },
                     )
 
@@ -1499,7 +1502,8 @@ def git_push() -> tuple[Response, int] | Response:
                     return make_error(
                         f"Pipeline sessions must push to their assigned branch "
                         f"'{session_assigned_branch}'. Got '{branch}'. "
-                        f"mcp__brc__propose handles branch targeting for you.",
+                        f"`egg-orch consensus propose --push` handles branch "
+                        f"targeting for you.",
                         status_code=403,
                         details={
                             "assigned_branch": session_assigned_branch,

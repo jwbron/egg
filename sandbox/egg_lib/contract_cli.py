@@ -1300,6 +1300,103 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_file_restriction(args: argparse.Namespace) -> int:
+    """Check whether the agent's role can write the named path(s).
+
+    Delegates to :func:`egg_agent_tools.handlers.restrictions.check_file_restriction`.
+    Pure-local read against ``shared/egg_restrictions/patterns.py`` — no
+    gateway round-trip.  Added in #2908 slice-6 to replace the retired
+    ``mcp__sdlc__check_file_restriction`` MCP tool.
+    """
+    from egg_agent_tools.handlers import restrictions as _handlers
+
+    paths_arg = list(args.path) if args.path else []
+    if not paths_arg:
+        print("Error: --path required (one or more)", file=sys.stderr)
+        return 1
+    payload: Any = paths_arg[0] if len(paths_arg) == 1 else paths_arg
+
+    req: dict[str, Any] = {"path": payload}
+    if args.role:
+        req["role"] = args.role
+
+    try:
+        resp = _handlers.check_file_restriction(req)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+
+    if args.json:
+        import json
+
+        print(json.dumps(resp, indent=2))
+        return 0
+    if "results" in resp:
+        for entry in resp["results"]:
+            verdict = "ALLOW" if entry.get("can_write") else "BLOCK"
+            alt = entry.get("alternative_role") or "-"
+            print(f"{verdict} {entry.get('path')!r} (alt-role={alt})")
+    else:
+        verdict = "ALLOW" if resp.get("can_write") else "BLOCK"
+        alt = resp.get("alternative_role") or "-"
+        print(f"{verdict} {resp.get('path')!r} (alt-role={alt})")
+    return 0
+
+
+def cmd_report_impasse(args: argparse.Namespace) -> int:
+    """Emit a typed Impasse signal and exit.
+
+    Delegates to :func:`egg_agent_tools.handlers.restrictions.report_impasse`.
+    Persists the impasse under ``AgentOutput.impasse``; the orchestrator
+    routes it post-phase.  Added in #2908 slice-6 to replace the
+    retired ``mcp__sdlc__report_impasse`` MCP tool.
+    """
+    from egg_agent_tools.handlers import restrictions as _handlers
+
+    req: dict[str, Any] = {
+        "category": args.category,
+        "reason": args.reason,
+    }
+    if args.task_id:
+        req["task_id"] = args.task_id
+    if args.suggested_role:
+        req["suggested_role"] = args.suggested_role
+    if args.blocked_files:
+        req["blocked_files"] = list(args.blocked_files)
+    if args.role:
+        req["role"] = args.role
+    if args.repo_path:
+        req["repo_path"] = args.repo_path
+
+    identifier = get_contract_identifier(args)
+    if identifier is not None:
+        if isinstance(identifier, int):
+            req["issue"] = identifier
+        else:
+            req["pipeline_id"] = identifier
+
+    try:
+        resp = _handlers.report_impasse(req)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+
+    if args.json:
+        import json
+
+        print(json.dumps(resp, indent=2))
+        return 0
+    written = resp.get("written_to", "<agent-output>")
+    print(f"Impasse recorded ({args.category}) → {written}")
+    guidance = resp.get("guidance")
+    if guidance:
+        print(guidance)
+    return 0
+
+
+_VALID_IMPASSE_CATEGORIES = ["wrong_role", "plan_bug", "external_blocker", "unknown"]
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -1460,6 +1557,93 @@ def create_parser() -> argparse.ArgumentParser:
     )
     agent_next_parser.add_argument("--json", action="store_true", help="Output as JSON")
     agent_next_parser.set_defaults(func=cmd_agent_next)
+
+    # check-file-restriction command (#2908 slice-6 — replaces the
+    # retired mcp__sdlc__check_file_restriction MCP tool that the
+    # runtime escape-hatch section in the producer prompt references).
+    check_restriction_parser = subparsers.add_parser(
+        "check-file-restriction",
+        help=(
+            "Check whether the agent's role can write the named path(s); "
+            "returns can_write + alternative_role"
+        ),
+    )
+    check_restriction_parser.add_argument(
+        "--path",
+        action="append",
+        required=True,
+        help=(
+            "Path to check against the role's file-write restrictions. "
+            "Pass multiple --path flags to batch-check; pure-local read, "
+            "no gateway round-trip."
+        ),
+    )
+    check_restriction_parser.add_argument(
+        "--role",
+        help="Role to check (defaults to EGG_AGENT_ROLE).",
+    )
+    check_restriction_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full JSON response (default: shell-friendly summary)",
+    )
+    check_restriction_parser.set_defaults(func=cmd_check_file_restriction)
+
+    # report-impasse command (#2908 slice-6 — replaces the retired
+    # mcp__sdlc__report_impasse MCP tool referenced by the runtime
+    # escape-hatch section in the producer prompt).
+    report_impasse_parser = subparsers.add_parser(
+        "report-impasse",
+        help=(
+            "Persist a typed Impasse signal stating the assigned task "
+            "is structurally impossible; orchestrator routes it post-phase"
+        ),
+    )
+    report_impasse_parser.add_argument(
+        "--category",
+        required=True,
+        choices=_VALID_IMPASSE_CATEGORIES,
+        help=(
+            "Why the task is impossible. ``wrong_role`` triggers "
+            "auto-delegation to ``suggested_role`` (when supplied); the "
+            "others always escalate to HITL."
+        ),
+    )
+    report_impasse_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Human-readable explanation surfaced verbatim in the HITL decision body.",
+    )
+    report_impasse_parser.add_argument(
+        "--task-id",
+        help=(
+            "Contract task ID (e.g. ``task-1-3``). Required for "
+            "``--category wrong_role`` so the orchestrator can route precisely."
+        ),
+    )
+    report_impasse_parser.add_argument(
+        "--suggested-role",
+        help=(
+            "For ``--category wrong_role``: the producer role that *can* "
+            "write the blocked files. Use the ``alternative_role`` "
+            "returned by ``egg-contract check-file-restriction``."
+        ),
+    )
+    report_impasse_parser.add_argument(
+        "--blocked-files",
+        nargs="*",
+        help="Files the assigned role cannot write (optional).",
+    )
+    report_impasse_parser.add_argument(
+        "--role",
+        help="Agent role (defaults to EGG_AGENT_ROLE).",
+    )
+    report_impasse_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full JSON response (default: human-readable summary)",
+    )
+    report_impasse_parser.set_defaults(func=cmd_report_impasse)
 
     return parser
 

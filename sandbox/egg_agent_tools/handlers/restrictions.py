@@ -227,10 +227,11 @@ def report_impasse(req: dict[str, Any]) -> dict[str, Any]:
         if not suggested_role:
             raise HandlerError(
                 "'suggested_role' is required for category='wrong_role'. "
-                "Call mcp__sdlc__check_file_restriction first to discover "
-                "the producer role that *can* write the blocked files, "
-                "then pass it as suggested_role. Use category='unknown' "
-                "if no single producer role covers the impasse."
+                "Run `egg-contract check-file-restriction --path <p>` "
+                "first to discover the producer role that *can* write "
+                "the blocked files, then pass it as --suggested-role. "
+                "Use --category unknown if no single producer role "
+                "covers the impasse."
             )
         if suggested_role == role:
             raise HandlerError(

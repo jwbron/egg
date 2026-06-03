@@ -21,7 +21,7 @@ def test_unmatched_path_returns_none() -> None:
     ("blocked_path", "expected_substring"),
     [
         (".egg-state/contracts/foo.json", "egg-contract CLI"),
-        (".egg-state/agent-anchors/coder.json", "mcp__sdlc__update_anchor"),
+        (".egg-state/agent-anchors/coder.json", "orchestrator API"),
         (".egg-state/drafts/plan.md", "different agent role"),
         (".egg-state/reviews/code.md", "different agent role"),
         # Issue #2508: hint points agents at the `.github-staging/`

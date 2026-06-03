@@ -411,8 +411,9 @@ def _check_producer_pending_confirm_guard(
     """Reject ``wait`` calls where a non-confirmed producer waits on
     ``CONSENSUS_CONFIRMED``.
 
-    A producer's own ``mcp__brc__confirm`` is part of what generates
-    the global ``CONSENSUS_CONFIRMED`` signal, so a producer in
+    A producer's own ``egg-orch consensus confirmed`` call is part of
+    what generates the global ``CONSENSUS_CONFIRMED`` signal, so a
+    producer in
     ``WORKING`` or ``PROPOSED`` that blocks on it would wait on
     itself (#2064). Rather than letting the overseer's heartbeat-stall
     detector bail the pipeline out minutes later, we surface the bug
@@ -450,7 +451,7 @@ def _check_producer_pending_confirm_guard(
         f"Producer '{role}' cannot wait on {sorted_blocking} before its own "
         "consensus_confirmed has succeeded — its own confirm is part of "
         "what generates that signal, so the wait would deadlock (#2064). "
-        "Call mcp__brc__confirm first; if it returns status='pending_acks' "
+        "Run `egg-orch consensus confirmed` first; if it returns status='pending_acks' "
         "(e.g. another producer hasn't proposed yet, or your reviewers "
         "haven't ACKed), wait on the prerequisite events instead — "
         "CONSENSUS_PROPOSE from missing producers, CONSENSUS_ACK from "

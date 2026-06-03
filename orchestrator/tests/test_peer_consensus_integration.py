@@ -3447,7 +3447,7 @@ class TestGetFullyAckedProducers:
 
         A producer that is PROPOSED + fully-ACKed must not appear in the
         result while another producer in the graph is still at
-        ``proposal_version == 0`` — ``mcp__brc__confirm`` would reject with
+        ``proposal_version == 0`` — ``egg-orch consensus confirmed`` would reject with
         ``pending_acks`` (global zero-proposal guard, #1648), so firing a
         ``brc_confirmation_timeout`` against the patient producer is a false
         positive.

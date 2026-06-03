@@ -169,9 +169,9 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
             mediator) flagging that no one is adjudicating a
             disagreement; producers blocked by reviewer NACKs that
             name an operator-decidable scope question should call
-            ``mcp__sdlc__register_open_question`` instead so the
-            decision lands in ``pending_decisions`` (HITL gate)
-            rather than as an informational alert.
+            ``egg-contract add-decision`` instead so the decision
+            lands in ``pending_decisions`` (HITL gate) rather than
+            as an informational alert.
         priority (str): required — one of ``low``/``medium``/``high``.
         summary (str): required — one-line description.
         detail (str): optional longer description / observed evidence.

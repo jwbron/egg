@@ -30,7 +30,10 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
     ),
     (
         ".egg-state/agent-anchors/",
-        "Anchor writes go through the orchestrator API (`mcp__sdlc__update_anchor`), not git push.",
+        # Anchor writes are managed by the orchestrator (see
+        # `orchestrator/routes/anchors.py::create_or_update_anchor`).
+        # The agent does not push anchor files via git.
+        "Anchor writes are managed by the orchestrator API, not git push.",
     ),
     (
         ".egg-state/drafts/",

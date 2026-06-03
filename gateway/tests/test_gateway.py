@@ -1432,7 +1432,7 @@ class TestGitPush:
             # from the blocked path category. The role-level path skips this
             # check via the coder block_exempt_patterns carve-out, so without
             # the explicit derive_hint call here the field would be missing.
-            assert "mcp__sdlc__update_anchor" in data["data"]["hint"]
+            assert "orchestrator API" in data["data"]["hint"]
 
     def test_push_allowed_for_own_anchor_write(self, client):
         """Push allowed when agent writes to its own anchor file."""
