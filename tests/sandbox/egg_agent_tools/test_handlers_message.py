@@ -7,7 +7,6 @@ as MCP tools: message_wait, message_wait_loop, message_heartbeat.
 from __future__ import annotations
 
 import sys
-import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -316,7 +315,6 @@ class TestMessageWaitLoop:
             )
         assert resp["matched"] is False
         assert resp["cursor"] == "tip-b"
-
 
 
 class TestMessageHeartbeat:

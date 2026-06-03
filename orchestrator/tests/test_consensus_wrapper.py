@@ -15,13 +15,7 @@ import shlex
 import subprocess
 import sys
 
-import pytest
-
-from consensus_wrapper import (
-    build_consensus_wrapped_command,
-    build_event_pump_wrapped_command,
-)
-
+from consensus_wrapper import build_consensus_wrapped_command
 
 # Sentinel event types the event-pump wait filter must always cover.
 # Plan TASK-2-1 line 797-799 enumerates these six explicitly.

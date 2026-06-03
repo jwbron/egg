@@ -5129,8 +5129,7 @@ class TestDirectedCoordinationGuidance:
         coord_pos = preamble.index("### Directed Coordination")
         event_handler_pos = preamble.index("**Event-handler contract")
         assert coord_pos < event_handler_pos, (
-            "Directed Coordination should come before the Event-handler "
-            "contract block (#2908)."
+            "Directed Coordination should come before the Event-handler contract block (#2908)."
         )
 
     # --- Phase variations ---
