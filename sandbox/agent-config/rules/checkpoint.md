@@ -2,23 +2,9 @@
 
 Use `egg-checkpoint` to browse agent checkpoints (transcripts, tool calls, files, token usage). Full reference: `$EGG_REPO_PATH/docs/reference/checkpoint-browser.md`
 
-**Route free text through `--<arg>-file PATH` or stdin, not a bare
-`--<arg> "…"`.** The `search --text <t>` query and other free-text
-inputs are silently corrupted by shell metacharacters (backticks,
-`$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`) when routed through a `Bash`
-command string, and a backtick or `$(...)` span is *executed* as a
-command rather than searched. The slice-5 prose-arg channels
-(introduced in [#2908](https://github.com/jwbron/egg/issues/2908)
-slice-5) let you route the value as data: pass `--text-file PATH` to
-read from a file, or `--text -` to read from stdin. Mixing forms is
-rejected — exactly one source per argument. Example:
+**`egg-checkpoint`'s free-text args (`--text` on `search`, etc.) do NOT have file/stdin channels yet.** The slice-5 prose-arg channels added file/stdin variants to `egg-orch` only; `shared/egg_contracts/checkpoint_cli.py` was not touched. When passing LLM-authored prose to `egg-checkpoint`, keep the value free of shell metacharacters (no backticks, no `$(...)`, no unquoted `<`, `>`, `;`, `|`, `&`) — in a `Bash` command string the shell interprets them and the query is silently corrupted (a backtick or `$(...)` span is *executed* as a command rather than searched). Quote the entire value with single quotes when possible.
 
-```bash
-cat > /tmp/q.txt <<'EOF'
-$BACKTICK_OR_DOLLAR_PAREN_PATTERN
-EOF
-egg-checkpoint search --text-file /tmp/q.txt --status failed --limit 10
-```
+Adding `-file` / stdin channels to the checkpoint CLI is a follow-up; until then, narrow the search via the structured filters (`--issue`, `--pipeline`, `--agent-type`, `--phase`, `--status`) instead of attempting to land long free-text patterns through the shell.
 
 **Commands**: `list`, `show <id>`, `browse --issue <n>`, `context`, `cost`, `search --text <t>`. All support `--json`.
 

@@ -35,7 +35,7 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
   - Services and package installation
-  - Pipeline-lifecycle surface (CLI only since #2908 slice-6)
+  - Pipeline-lifecycle surface (CLI-only post-#2908 slice-6)
 
 ### Code Standards
 
@@ -62,20 +62,22 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
 - **checkpoint.md** - Checkpoint browser CLI commands
   - `egg-checkpoint` command reference (list, show, browse, context)
 
-### Pipeline-lifecycle surface (CLI only since #2908 slice-6)
+### Pipeline-lifecycle surface (CLI-only post-#2908 slice-6)
 
 Sandbox agents drive HITL / BRC / phase / progress / task /
 checkpoint operations through the `egg-orch` / `egg-contract` /
-`egg-checkpoint` shell CLIs. The previous in-process Claude Agent
-SDK MCP tool surface (`mcp__sdlc__*`, `mcp__brc__*`,
-`mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`,
-`mcp__checkpoint__*`) and its `EGG_MCP_TOOLS` gating flag were
-retired in [#2908](https://github.com/jwbron/egg/issues/2908)
-slice-6 — the CLI is now the single agent surface. Free-text args
-that previously motivated the MCP surface (shell metacharacter
-corruption) route through the slice-5 `--<arg>-file PATH` / stdin
-(`-` sentinel) prose-arg channels on every prose-bearing
-subcommand. The shared handler layer at
+`egg-checkpoint` shell CLIs. The in-process Claude Agent SDK MCP
+tool surface (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`,
+`mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) and its
+`EGG_MCP_TOOLS` gating flag are being retired in
+[#2908](https://github.com/jwbron/egg/issues/2908) slice-6 —
+once that slice merges, the CLI is the single agent surface. The
+slice-5 `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg
+channels cover the four args most subject to shell metacharacter
+corruption (`--summary` / `--reason` / `--note` /
+`--files-reviewed` on `egg-orch consensus *` + `egg-orch brc
+resolve-obligation`); other prose flags do not have file/stdin
+channels yet. The shared handler layer at
 `sandbox/egg_agent_tools/handlers/*.py` is preserved and continues
 to back the CLI; the operator-facing orchestrator MCP server (port
 9850) is unaffected. Full reference:

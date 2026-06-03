@@ -2,28 +2,18 @@
 
 Run `egg-orch --help` for full usage. All commands support `--json`. Full reference: `$EGG_REPO_PATH/docs/reference/orchestrator-cli.md`
 
-**Route free text through `--<arg>-file PATH` or stdin, not a bare
-`--<arg> "…"`.** Several subcommands carry LLM-authored prose —
-`overseer alert --summary "…" --detail "…" --recommend "…"`,
-`progress emit --step "…" --detail "…" --blocker "…"`,
-`signal error --error "…"`, `anchor init --task "…"`,
-`consensus propose --summary "…"`, `consensus nack --reason "…"`,
-`brc resolve-obligation --note "…"`. In a `Bash` command string the
-shell interprets backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, and
-`&` — so prose that contains them (a markdown code span, a URL, a `<`
-comparison) is silently corrupted, and a backtick or `$(...)` span is
-*executed* as a command rather than stored. The slice-5 prose-arg
-channels (introduced in [#2908](https://github.com/jwbron/egg/issues/2908)
-slice-5) let you route the value as data: pass `--<arg>-file PATH` to
-read from a file, or `--<arg> -` to read from stdin. Mixing forms is
-rejected — exactly one source per argument. Example:
+**For free-text args that have a slice-5 prose-arg channel, route the value through `--<arg>-file PATH` or stdin (`--<arg> -`), not a bare `--<arg> "…"`.** In a `Bash` command string the shell interprets backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, and `&` — so prose that contains them (a markdown code span, a URL, a `<` comparison) is silently corrupted, and a backtick or `$(...)` span is *executed* as a command rather than stored.
+
+The slice-5 prose-arg channels (introduced in [#2908](https://github.com/jwbron/egg/issues/2908) slice-5) cover **only** these four args today: `--summary` (on `consensus propose`), `--reason` (on `consensus ack` / `consensus nack` / `consensus withdraw`), `--note` (on `brc resolve-obligation`), and `--files-reviewed` (on `consensus ack` / `consensus nack`, one path per line). Mixing forms is rejected — exactly one source per argument. Other prose-bearing flags (`--detail`, `--recommend`, `--error`, `--task`, `--pre-merge-condition`) do **not** have file/stdin channels yet; pass them as bare strings and avoid shell metacharacters in the value.
+
+Example:
 
 ```bash
 cat > /tmp/summary.md <<'EOF'
 Long-form proposal summary with `code spans`, $vars, and <comparators>.
 EOF
 egg-orch consensus propose --summary-file /tmp/summary.md \
-  --files-changed shared/foo.py shared/bar.py
+  --files-changed shared/foo.py shared/bar.py --push
 ```
 
 **Essential commands:**
@@ -56,9 +46,9 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 ## BRC consensus verbs
 
-- `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 …` — Producer broadcasts a proposal. Pushes committed work to origin via the gateway by default (pass `--no-push` if already pushed through another route).
-- `egg-orch consensus ack --producer-role <role>` — Reviewer ACKs a proposal. Add `--pre-merge-condition-file PATH` for a conditional ACK that surfaces a "Pre-merge Obligations" section on the auto-created PR ([Conditional ACK reference](../../../docs/reference/conditional-ack.md)).
-- `egg-orch consensus nack --producer-role <role> --reason-file PATH` — Reviewer NACKs with a blocker reason.
+- `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 … --push` — Producer broadcasts a proposal. `--push` is **opt-in** (default off); pass it on every pipeline-session proposal, because the gateway blocks plain `git push` for pipeline sessions and `--push` carries the `consensus_push` marker the gateway requires.
+- `egg-orch consensus ack <producer_role> --files-reviewed F1 F2 … --ack-version N` — Reviewer ACKs a proposal. `<producer_role>` is **positional** (not a `--producer-role` flag). Add `--pre-merge-condition "…"` for a conditional ACK that surfaces a "Pre-merge Obligations" section on the auto-created PR ([Conditional ACK reference](../../../docs/reference/conditional-ack.md)). `--pre-merge-condition` is inline-only; there is no `-file` variant yet.
+- `egg-orch consensus nack <producer_role> --reason-file PATH --files-reviewed F1 F2 … --nack-version N` — Reviewer NACKs with a blocker reason. `<producer_role>` is **positional**.
 - `egg-orch consensus confirmed` — Producer confirms after all reviewers ACK. Exit code 0 = transitioned to CONFIRMED; exit code 2 + JSON `status="pending_acks"` = rejected by the orchestrator (e.g. `producer_not_fully_acked`, `global_zero_proposal`, `stale_acks`) — read the message and take corrective action before retrying.
 - `egg-orch message heartbeat --state <WORKING|WAITING_ON_ROLE|WAITING_FOR_EVENT|PROPOSED|IDLE> [--waiting-on <peer>]` — Emit a structured HEARTBEAT to the dedicated `/heartbeat` endpoint.
 
@@ -74,10 +64,10 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 ## Progress + overseer
 
-- `egg-orch progress emit --step <text> --state <working|blocked|complete> [--detail-file PATH] [--blocker <id>]` — Emit a structured progress event.
-- `egg-orch signal error --error-file PATH [--recoverable]` — Signal a recoverable / unrecoverable error.
+- `egg-orch progress emit --step <text> --state <working|blocked|complete> [--detail <text>] [--blocker <id>]` — Emit a structured progress event. (No `-file` channel exists for `--detail` today; the slice-5 prose-arg work only covered `consensus propose / ack / nack / withdraw` and `brc resolve-obligation`.)
+- `egg-orch signal error --error <msg> [--recoverable]` — Signal a recoverable / unrecoverable error. (No `--error-file` channel today.)
 - `egg-orch signal heartbeat` — Send a coarse-grained heartbeat.
-- `egg-orch overseer alert --anomaly <type> --priority <low|medium|high> --summary-file PATH [--detail-file PATH] [--recommend-file PATH]` — Broadcast an `OVERSEER_ALERT` to all agents. **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `egg-contract add-decision`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
+- `egg-orch overseer alert --anomaly <type> --priority <low|medium|high> --summary <text> [--detail <text>] [--recommend <text>]` — Broadcast an `OVERSEER_ALERT` to all agents. (No `-file` channels on `--summary` / `--detail` / `--recommend` today.) **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `egg-contract add-decision`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
 - `egg-orch pipeline status` — Read structured pipeline status (agent matrix, BRC phase, blocked roles). Pipeline ID is resolved from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`.
 
 Full reference: [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)

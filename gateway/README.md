@@ -168,10 +168,9 @@ Fallback (no GATEWAY_URL, e.g. local dev):
 
 **Killswitch:** Set `PIPELINE_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). The legacy `CONCURRENT_PUSH_ENFORCEMENT=false` still works as an alias.
 
-**Error message:**
-- `Direct git push is blocked for pipeline sessions. Publish your artifact via \`egg-orch consensus propose --push\` (which pushes to origin and sends CONSENSUS_PROPOSE in one step).` (HTTP 403)
+**Error message:** HTTP 403 with text pointing the agent at the BRC-consensus push surface. The exact wording is set by `gateway/gateway.py` and may evolve with the agent CLI surface — the actionable target the gateway names is `egg-orch consensus propose --push`, which carries the `consensus_push` marker the gateway requires.
 
-*(The legacy error text named the now-retired `mcp__brc__propose` MCP tool; gateway code that still emits the legacy text will be updated in the same #2908 slice-6 change as the doc.)*
+*(Operator note: the gateway error string lives in `gateway/gateway.py` and is the source of truth for the wording an agent sees. The wording was historically `… via the mcp__brc__propose tool …` while the agent-side MCP surface existed; updating that string to reflect the [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 CLI-only surface is a coder-owned change in the same slice. This README intentionally describes the target rather than quoting a specific string so the doc does not drift against the gateway's live message.)*
 
 **Exempt scenarios:**
 - Infrastructure pushes (checkpoint branches, pipeline state branches) — exempted before this check via `is_infrastructure_push`
