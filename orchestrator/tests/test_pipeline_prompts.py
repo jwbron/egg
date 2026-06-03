@@ -5288,6 +5288,65 @@ class TestDualRoleExecutionOrdering:
         )
         assert banner_pos < reviewer_pos
 
+    def test_dual_role_banner_does_not_contradict_coder_owns_tests(self):
+        """The dual-role banner must NOT carry the pre-#2936 scaffold-first
+        directive that contradicts the coder-owns-tests producer
+        orientation.
+
+        Regression guard for the merge-resolution review on PR #2949:
+        a prior banner instructed the dual-role agent to "draft
+        scaffolding" while doing producer steps 1-3, while the
+        post-#2936 producer orientation tells the tester to "Orient
+        only until the coder proposes" and "do NOT write test files
+        before the coder's CONSENSUS_PROPOSE". The two directives
+        contradicted each other on the same prompt. The fix removes
+        "scaffold" from the banner and reframes step 1 so that the
+        WORK step is gated per the role-specific orientation, not
+        forced to come first.
+
+        This test scopes its assertions to the banner SUBSTRING
+        (between ``### Dual-Role Execution Order`` and
+        ``### Producer Lifecycle``) so a future banner-only edit can't
+        sneak the scaffold-first prose back in without tripping the
+        guard. ``test_tester_orientation_directs_review_and_harden_after_propose``
+        (above) covers ``_build_producer_orientation`` separately —
+        these two tests together pin both halves of the prompt that
+        the merge resolution accidentally desynced.
+        """
+        preamble = _build_brc_preamble("tester", "implement")
+        banner_start = preamble.index("### Dual-Role Execution Order")
+        banner_end = preamble.index("### Producer Lifecycle", banner_start)
+        banner = preamble[banner_start:banner_end]
+        lower = banner.lower()
+        # The scaffold-first directive must not appear in the banner.
+        # "scaffolding" / "draft scaffold" are the canonical phrasings
+        # of the pre-#2936 model; "scaffold" catches either.
+        assert "scaffold" not in lower, (
+            "Dual-role banner must not direct the tester to draft "
+            "scaffolding ahead of the coder's CONSENSUS_PROPOSE — "
+            "that contradicts the post-#2936 producer orientation."
+        )
+        # The banner must acknowledge that WORK may be gated on an
+        # upstream PROPOSE, NOT force "steps 1-3 come FIRST" which
+        # implies WORK runs immediately.
+        assert (
+            "gated on an upstream producer's `consensus_propose`" in lower
+            or "after the coder proposes" in lower
+            or "begins after the coder proposes" in lower
+        ), (
+            "Dual-role banner must acknowledge that the producer WORK "
+            "step may be gated on an upstream CONSENSUS_PROPOSE — the "
+            "post-#2936 tester model has the tester review-and-harden "
+            "the coder's tests AFTER the coder proposes, not in parallel."
+        )
+        # The banner must defer the gating decision to the role-
+        # specific orientation rather than hard-coding "WORK first".
+        assert "role-specific orientation" in lower, (
+            "Dual-role banner must defer the WORK-immediate-vs-gated "
+            "decision to the role-specific orientation; otherwise it "
+            "risks contradicting role-specific producer-orientation text."
+        )
+
     def test_dual_role_banner_absent_for_pure_producer(self):
         preamble = _build_brc_preamble("coder", "implement")
         assert "### Dual-Role Execution Order" not in preamble
