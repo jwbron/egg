@@ -285,6 +285,7 @@ shared/
 │   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern, BLOCKED_HINTS, derive_hint
 │   ├── matchers.py         # Canonical glob-pattern matcher (match_pattern) shared by all four enforcement layers
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
+│   ├── phase_patterns.py   # Phase-scoped file-write patterns (PHASE_FILE_PATTERNS, PhaseFilePattern, phase_file_verdict) — sandbox mirror of gateway/phase_filter.py
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
 ├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy

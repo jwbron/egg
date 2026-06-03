@@ -2652,6 +2652,49 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Compute gateway mode from pipeline config (not hardcoded "public")
     gateway_mode, _ = _compute_gateway_mode(pipeline)
 
+    # Resolve the per-agent worktree path and the default branch once,
+    # so the pipeline-level / root-slice / parent-complete branches of
+    # the slice-aware fallback below can substitute a concrete branch
+    # name when ``pipeline.base_branch`` is ``None`` (auto-detect).
+    # Without this, the spawner's ``EGG_BASE_BRANCH`` env-injection guard
+    # (``if base_branch:``) skips the export, the BRC event-pump's
+    # per-producer ``git log {sha}..HEAD --not origin/<base>`` delta
+    # falls back to ``origin/main`` in both consumers, and the diff
+    # errors out on every non-``main`` repo (#2967) — the exact failure
+    # mode the initial-spawn path was fixed for, surfacing on every
+    # health-monitor-triggered or operator-driven restart. The resolved
+    # value is also threaded into the prompt's ``base_branch=`` argument
+    # below so the prompt's diff base and the spawner's worktree base
+    # cannot diverge within the restart path.
+    #
+    # ``worktree_repo_path`` and the default-branch lookup can fail on a
+    # pipeline with no resolvable repo (e.g. ``pipeline.repo`` is ``None``
+    # or the worktree was pruned). Preserve pre-#2967 restart availability
+    # by catching and falling back to the raw ``pipeline.base_branch`` —
+    # restart was unconditional before this resolution was added, so
+    # failing the resolution must not regress that.
+    _restart_env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+    _restart_base_path = Path(_restart_env_path)
+    _restart_repo_name = (pipeline.repo or "").split("/")[-1]
+    worktree_repo_path: Path | None
+    try:
+        worktree_repo_path = resolve_worktree_repo_path(_restart_base_path, _restart_repo_name)
+    except Exception as _wt_err:
+        logger.warning(
+            "Could not resolve worktree repo path for restart base-branch "
+            "resolution; falling back to raw pipeline.base_branch",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(_wt_err),
+        )
+        worktree_repo_path = None
+    _resolved_base_branch_for_restart: str | None = pipeline.base_branch
+    if not _resolved_base_branch_for_restart and worktree_repo_path is not None:
+        try:
+            _resolved_base_branch_for_restart = get_default_branch(worktree_repo_path)
+        except Exception:
+            _resolved_base_branch_for_restart = None
+
     # Slice-aware restart branch (#2428). When the restart targets a
     # slice agent, the spawner must register the gateway session
     # against the slice integration branch (``<root>/<slice_id>``); the
@@ -2668,22 +2711,26 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # if the worktree is absent at restart time, forking from the
     # pipeline tip pulls sibling slices' commits into the rebuilt
     # worktree. The right base depends on context:
-    #   - Pipeline-level restart: ``pipeline.base_branch`` (matches
-    #     the rest of the codebase: every other call site uses
-    #     ``pipeline.base_branch`` for spawner ``base_branch``).
+    #   - Pipeline-level restart: ``_resolved_base_branch_for_restart``
+    #     (``pipeline.base_branch`` if explicit, else the worktree's
+    #     ``get_default_branch`` so the spawner exports a concrete
+    #     ``EGG_BASE_BRANCH`` on master-default repos — #2967 follow-up).
     #   - Slice restart with a parent in the contract's slice forest:
     #     the parent slice's integration branch
     #     (``<root>/<parent_slice_id>``), mirroring ``parent_branch``
     #     in :func:`_run_one_slice_inner`.
     #   - Root-slice restart, or slice restart when the contract
-    #     can't be loaded: ``pipeline.base_branch`` (fallback).
+    #     can't be loaded: ``_resolved_base_branch_for_restart`` (fallback,
+    #     same resolution as the pipeline-level case).
     #
     # Note: this intentionally diverges from the initial-spawn path at
-    # :func:`_run_concurrent_phase` (line ~12398), which always passes
-    # ``base_branch=pipeline.base_branch`` regardless of slice forest
-    # position. #2439 specifically asks for the parent-slice fork on
-    # the *restart* path so a worktree-absent restart of a child slice
-    # rebuilds atop its parent slice rather than re-forking from
+    # :func:`_run_concurrent_phase` for the parent-slice cases —
+    # ``_run_concurrent_phase`` now passes the resolved
+    # ``_resolved_base_branch`` (the same shape this path uses for
+    # pipeline-level / root-slice / parent-complete restarts), but #2439
+    # specifically asks for the parent-slice fork on the *restart* path
+    # so a worktree-absent restart of a child slice rebuilds atop its
+    # parent slice rather than re-forking from
     # ``pipeline.base_branch`` and losing the parent's commits. Don't
     # "fix" this asymmetry by aligning the two paths without first
     # re-reading #2439.
@@ -2711,11 +2758,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         if parent_slice_id is not None and parent_slice_complete:
             # #2470: parent slice's PR has plausibly been merged and its
             # branch deleted by GitHub auto-cleanup. Falling back to
-            # ``pipeline.base_branch`` is safe: ``complete`` means the
-            # parent's commits have been integrated upstream (either via
-            # PR merge or via the cascade), and prefer letting the
-            # restart proceed over wedging on a missing-branch fetch.
-            base_branch_for_restart = pipeline.base_branch
+            # ``_resolved_base_branch_for_restart`` is safe: ``complete``
+            # means the parent's commits have been integrated upstream
+            # (either via PR merge or via the cascade), and prefer
+            # letting the restart proceed over wedging on a missing-
+            # branch fetch. Resolved (rather than raw
+            # ``pipeline.base_branch``) so the spawner exports
+            # ``EGG_BASE_BRANCH`` on auto-detect repos (#2967 follow-up).
+            base_branch_for_restart = _resolved_base_branch_for_restart
         elif parent_slice_id is not None:
             if parent_branch_recorded:
                 # Prefer the literal branch the parent slice was
@@ -2748,10 +2798,18 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     )
                 base_branch_for_restart = f"{_issue_branch}/{parent_slice_id}"
         else:
-            base_branch_for_restart = pipeline.base_branch
+            # Root slice (no parent edge): same shape as the pipeline-level
+            # case below — resolved so a ``None`` ``pipeline.base_branch``
+            # still reaches the spawner as a concrete branch name
+            # (#2967 follow-up).
+            base_branch_for_restart = _resolved_base_branch_for_restart
     else:
         agent_branch = pipeline.branch
-        base_branch_for_restart = pipeline.base_branch
+        # Pipeline-level restart: resolved so the spawner exports
+        # ``EGG_BASE_BRANCH`` and the BRC delta works on auto-detect repos
+        # (master-default), matching the initial-spawn path's behavior at
+        # ``_run_concurrent_phase`` (#2967 follow-up).
+        base_branch_for_restart = _resolved_base_branch_for_restart
 
     # Reconstruct command and extra_env for concurrent agents.
     # In concurrent mode, agents need a consensus-wrapped prompt command
@@ -2812,18 +2870,20 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
             extra_env = executor.get_agent_env(role)
 
-            # Reconstruct the agent prompt and wrap it for consensus
+            # Reconstruct the agent prompt and wrap it for consensus.
+            # ``worktree_repo_path`` and ``_resolved_base_branch_for_restart``
+            # were already computed above the slice-aware fallback so the
+            # prompt's diff base, the spawner's ``base_branch`` argument
+            # (and thus the exported ``EGG_BASE_BRANCH``), and the worktree
+            # base cannot diverge within this restart path (#2967 follow-up).
+            # ``worktree_repo_path`` is ``None`` only when the hoisted
+            # resolution failed (logged above); skip prompt reconstruction
+            # in that case rather than passing ``"None"`` as ``repo_path``.
             try:
-                env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
-                base_path = Path(env_path)
-                repo_name = (pipeline.repo or "").split("/")[-1]
-                worktree_repo_path = resolve_worktree_repo_path(base_path, repo_name)
-                _resolved_base = None
-                try:
-                    _resolved_base = get_default_branch(worktree_repo_path)
-                except Exception:
-                    pass
-
+                if worktree_repo_path is None:
+                    raise RuntimeError(
+                        "worktree_repo_path unavailable; skipping prompt reconstruction"
+                    )
                 prompt_text = _build_agent_prompt(
                     role_value=agent_role,
                     phase=current_phase,
@@ -2833,7 +2893,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     issue_number=pipeline.issue_number,
                     repo=pipeline.repo,
                     branch=pipeline.branch,
-                    base_branch=_resolved_base,
+                    base_branch=_resolved_base_branch_for_restart,
                     repo_path=str(worktree_repo_path),
                     concurrent=True,
                     network_mode=gateway_mode,
@@ -7036,8 +7096,14 @@ def _sync_worktree_with_remote(
     compatibility with non-pipeline scripts.
 
     When local is ahead of remote:
-    - If the prior phase succeeded, push local commits to remote first,
-      then reset to origin (preserves completed work).
+    - If the prior phase succeeded, push local commits to remote first.
+      On a successful push, reset to origin (a no-op fast-forward that
+      keeps the worktree clean).  If the push FAILS, the local commits
+      are preserved as-is and the function returns without resetting —
+      ``remote_ahead == 0`` means origin holds nothing to incorporate, so
+      a ``reset --hard origin`` would only discard completed, committed
+      work (e.g. agent-registered HITL contract decisions) before the
+      phase_gate decision bridge could surface them (#2972).
     - If the prior phase failed or was killed, discard local commits and
       reset to remote (discards incomplete work).
 
@@ -7258,6 +7324,24 @@ def _sync_worktree_with_remote(
                 )
                 return WorktreeSyncOutcome(case="local_ahead_pushed")
             else:
+                # Push failed.  ``remote_ahead == 0`` in this branch, so
+                # origin holds nothing the worktree lacks — resetting to
+                # origin here would discard the completed, committed local
+                # work (e.g. the agent-registered HITL contract decisions
+                # the pre-sync ``_commit_statefiles_to_worktree`` just
+                # committed) for ZERO reconcile benefit, then advance
+                # silently.  That is exactly how #2972 dropped a refiner's
+                # ``register_open_question`` / ``request_feedback`` items
+                # before the phase_gate decision bridge could surface them:
+                # the prior code fell through to the Step-4 ``reset --hard``
+                # and returned ``reset_succeeded`` (``hard_reset_performed``
+                # False), so no operator signal fired.  Preserve the local
+                # commits instead — they remain in the worktree for
+                # downstream reads (the decision bridge, populator) and for
+                # the next push attempt.  The WARNING below is the loud
+                # breadcrumb that the tip is unpushed; unlike the divergence
+                # path (``remote_ahead > 0``) there is no remote work to
+                # rebase onto, so non-destructive preservation is correct.
                 logger.warning(
                     "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
@@ -7269,6 +7353,7 @@ def _sync_worktree_with_remote(
                     category=push_result.category,
                     error=push_result.detail,
                 )
+                return WorktreeSyncOutcome(case="local_ahead_push_failed")
         else:
             # Prior phase failed — incomplete local work will be discarded by
             # the step-4 reset. Emit a distinct case so operators can grep
@@ -7283,8 +7368,10 @@ def _sync_worktree_with_remote(
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
             )
-        # Fall through to reset (Step 4) — discards local work when prior phase
-        # failed, or recovers via reset after a push failure.
+        # Fall through to reset (Step 4) — discards incomplete local work
+        # from a failed/killed prior phase.  (The successful-phase
+        # push-failure case returns above without resetting so completed
+        # work is never silently dropped — #2972.)
 
     elif local_ahead > 0 and remote_ahead > 0:
         # True divergence.  Reconcile by rebasing local commits onto
@@ -17062,7 +17149,16 @@ def _run_concurrent_phase(
         phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
-        base_branch=pipeline.base_branch,
+        # Pass the *resolved* base branch (above) rather than the raw
+        # ``pipeline.base_branch`` so a ``None`` (auto-detect) base still
+        # reaches the spawner as a concrete branch name. The spawner exports
+        # it as ``EGG_BASE_BRANCH`` for the BRC event-pump's per-producer
+        # ``git log --not origin/<base>`` delta (#2967); without a concrete
+        # value the wrapper + composer fall back to ``origin/main`` and the
+        # delta errors out on every non-``main`` repo. Worktree creation is
+        # unaffected: the gateway resolves the same default branch when handed
+        # ``None``, so resolving one layer up here is equivalent.
+        base_branch=_resolved_base_branch,
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         slice_id=slice_id,
