@@ -73,8 +73,8 @@ Progress + overseer (iter-2 added the overseer surface):
 
 BRC introspection (#2908):
 
-- `mcp__brc__get_state` — Returns the full structured BRC consensus state as JSON.
-- `mcp__brc__list_blocking` — Returns the list of agent roles currently blocking consensus.
+- `mcp__brc__get_state` — Returns the full structured BRC consensus state as JSON. CLI alias: `egg-orch brc get-state` (slice-1 of #2908; registration still `cli_command=None` — see agent-tools.md).
+- `mcp__brc__list_blocking` — Returns the list of agent roles currently blocking consensus. CLI alias: `egg-orch brc list-blocking` (slice-1 of #2908; registration still `cli_command=None` — see agent-tools.md).
 - `mcp__brc__read_peer_artifact` — Reads `.egg-state/brc-history/<identifier>-<phase>.json` filtered by `peer_role` with `limit`/`cursor` pagination (default `limit=50`, max 500). CLI alias: `egg-orch brc read-peer-artifact` (slice-5 of #2908; registration still `cli_command=None` — see agent-tools.md).
 - `mcp__brc__resolve_obligation` — Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The orchestrator rejects self-resolution (`resolver_role == producer_role`), so the producer cannot drive their own resolution — typically the tester (or any non-producer satisfier) calls this after cherry-picking the conditioning commit. CLI alias: `egg-orch brc resolve-obligation` (slice-5 of #2908; registration still `cli_command=None` — see agent-tools.md).
 
