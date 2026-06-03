@@ -406,22 +406,25 @@ invoke_agent_for_event() {{
         # #2741 / slice-5 motivating concern; even though this argv is
         # composed entirely by the wrapper here, the stdin path keeps
         # the surface honest and matches the slice-5 prose-arg rule).
-        # ``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` / ``EGG_REPO_PATH`` /
-        # ``EGG_BRC_MEMORY`` are read by the script from env directly --
-        # the env-var prefix MUST attach to ``python3`` (RHS of the
-        # pipe), not ``printf`` (LHS); the earlier form attached only
-        # to ``printf`` and ``python3`` inherited from the parent
-        # shell, which works in production today but is misleading
-        # and breaks if a parent shell hasn't exported them. Capture
-        # stderr to a temp file so the cw_log fallback message can
-        # surface the first line of the failure (script-not-found vs
-        # schema-drift vs subprocess crash are otherwise
-        # indistinguishable in the log).
+        # All four env vars (``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` /
+        # ``EGG_REPO_PATH`` / ``EGG_BRC_MEMORY``) are read by the script
+        # from env directly. The prefix MUST attach to ``python3`` (RHS),
+        # not ``printf`` (LHS) -- the earlier form attached only to
+        # ``printf`` and ``python3`` inherited from the parent shell.
+        # ``EGG_REPO_PATH`` is re-exported explicitly here
+        # (reviewer_holistic v2 #2): the script falls back to
+        # ``os.getcwd()`` when unset, but propagating the
+        # orchestrator-set value keeps the wrapper symmetric and immune
+        # to an unset-in-parent edge case. Capture stderr to a temp
+        # file so the cw_log fallback surfaces the first line of the
+        # failure (script-not-found vs schema-drift vs crash otherwise
+        # indistinguishable).
         local err_tmp
         err_tmp=$(mktemp -t event-prompt-stderr.XXXXXX 2>/dev/null || echo "/tmp/event-prompt-stderr-$$.log")
         prompt=$(printf '%s' "$event_payload" \
             | EGG_AGENT_ROLE="$role" \
                 EGG_BASE_BRANCH="$base_branch" \
+                EGG_REPO_PATH="${{EGG_REPO_PATH:-$PWD}}" \
                 EGG_BRC_MEMORY="${{EGG_BRC_MEMORY:-full}}" \
                 python3 "$script_path" "$action" 2>"$err_tmp")
         prompt_rc=$?
