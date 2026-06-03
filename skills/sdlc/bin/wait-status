@@ -1,34 +1,328 @@
-#!/usr/bin/env bash
-# Host-side launcher for `egg-orch pipeline wait-status`. Lets the SDLC
-# skill drive its quiet-stretch monitoring loop without `make deps`-time
-# setup beyond the venv.
+#!/usr/bin/env python3
+# Self-contained host-side launcher for the SDLC skill's quiet-stretch
+# monitoring loop. Long-polls the orchestrator's
+# ``/api/v1/pipelines/<id>/status/wait`` route and emits JSON-lines on
+# stdout — one line per pipeline-relevant event — so the Monitor tool
+# wakes the LLM on every event.
 #
-# Defaults EGG_ORCHESTRATOR_URL to http://localhost:9849. That endpoint
-# is exposed by `hostPort: 9849` in
-# k8s/overlays/local/patches/orchestrator-volumes.yaml — keep both in
-# sync.
+# This script is **dependency-free**: pure Python stdlib, no virtualenv,
+# no ``PYTHONPATH``, and no egg checkout. The only requirement is a
+# reachable orchestrator. It is a faithful vendored copy of the
+# ``egg-orch pipeline wait-status`` code path in
+# ``sandbox/egg_lib/orch_cli.py``; a contract test
+# (``sandbox/tests/test_skill_wait_status_standalone.py``) pins this
+# copy's stdout JSON-lines and exit codes to that source so the two
+# can't drift.
 #
-# Issue: https://github.com/jwbron/egg/issues/2232
+# Configuration (env, both optional):
+#   EGG_ORCHESTRATOR_URL  base URL of the orchestrator
+#                         (default http://localhost:9849 — the host-side
+#                         hostPort binding from
+#                         k8s/overlays/local/patches/orchestrator-volumes.yaml).
+#                         NOTE: localhost is reachable from the host shell
+#                         but NOT from inside the Claude Code Bash sandbox;
+#                         disable the sandbox or point this at a
+#                         host-reachable address when driving from there.
+#   EGG_PIPELINE_ID       fallback pipeline id when none is passed as an arg.
+#
+# Exit codes (per docs/reference/agent-wait-patterns.md §7):
+#   0  terminal pipeline state (complete / failed / cancelled)
+#   1  --max-iterations cap hit (test harnesses only; loops forever otherwise)
+#   2  transient error budget exceeded after backoff (caller should retry)
+#   3  permanent error (4xx, malformed cursor, unknown pipeline; do not retry)
+#
+# Issues: https://github.com/jwbron/egg/issues/2211 (CLI),
+#         https://github.com/jwbron/egg/issues/2232 (launcher),
+#         https://github.com/jwbron/egg/issues/2971 (standalone / clone-free).
 
-set -euo pipefail
+from __future__ import annotations
 
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
-REPO_ROOT="$(cd -P "$SCRIPT_DIR/../../.." && pwd)"
+import argparse
+import json
+import os
+import re
+import sys
+import time
+from http.client import HTTPException
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import ProxyHandler, Request, build_opener
 
-VENV_PYTHON="$REPO_ROOT/.venv/bin/python"
-if [[ ! -x "$VENV_PYTHON" ]]; then
-    echo "wait-status: $VENV_PYTHON not found — run 'make deps' first" >&2
-    exit 3
-fi
+# Validation pattern for IDs used in URL path segments.
+_SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
-EGG_ORCH_SCRIPT="$REPO_ROOT/sandbox/bin/egg-orch"
-if [[ ! -e "$EGG_ORCH_SCRIPT" ]]; then
-    echo "wait-status: $EGG_ORCH_SCRIPT not found" >&2
-    exit 3
-fi
+# Terminal pipeline statuses / events that end the loop (issue #2211).
+_WAIT_STATUS_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled"})
+_WAIT_STATUS_TERMINAL_EVENTS = frozenset(
+    {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
+)
+# Map terminal ``status`` strings to the Path-A ``event_type`` they
+# correspond to (Path-B defense-in-depth, issue #2378).
+_WAIT_STATUS_TO_EVENT_TYPE = {
+    "complete": "pipeline.completed",
+    "failed": "pipeline.failed",
+    "cancelled": "pipeline.cancelled",
+}
 
-export PYTHONPATH="$REPO_ROOT/sandbox:$REPO_ROOT/shared${PYTHONPATH:+:$PYTHONPATH}"
-export EGG_ORCHESTRATOR_URL="${EGG_ORCHESTRATOR_URL:-http://localhost:9849}"
+# Bypass proxy for internal network requests.
+_opener = build_opener(ProxyHandler({}))
 
-exec "$VENV_PYTHON" "$EGG_ORCH_SCRIPT" pipeline wait-status "$@"
+
+class ApiError(Exception):
+    """Error from an API request."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.details = details
+
+
+def get_orchestrator_url() -> str:
+    """Base URL of the orchestrator.
+
+    Defaults to the host-side ``hostPort`` binding (localhost:9849); set
+    ``EGG_ORCHESTRATOR_URL`` to override (e.g. a port-forward or a remote
+    cluster).
+    """
+    url = os.environ.get("EGG_ORCHESTRATOR_URL")
+    if url:
+        return url.rstrip("/")
+    return "http://localhost:9849"
+
+
+def validate_id(value: str, name: str) -> str:
+    """Validate that an ID is safe for use in URL paths and URL-encode it."""
+    if not value:
+        print(f"Error: {name} cannot be empty", file=sys.stderr)
+        sys.exit(1)
+    if not _SAFE_ID_PATTERN.match(value):
+        print(
+            f"Error: Invalid {name} '{value}': must contain only "
+            "alphanumeric characters, hyphens, underscores, and dots",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return quote(value, safe="")
+
+
+def require_pipeline_id(args: argparse.Namespace) -> str:
+    """Get pipeline_id from args or environment, validate, and return URL-safe value."""
+    pid = getattr(args, "pipeline_id", None) or os.environ.get("EGG_PIPELINE_ID")
+    if not pid:
+        print(
+            "Error: pipeline_id required. Provide as argument or set EGG_PIPELINE_ID.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return validate_id(pid, "pipeline_id")
+
+
+def api_request(base_url: str, endpoint: str, timeout: int = 15) -> dict[str, Any]:
+    """GET an internal API endpoint and return the decoded JSON.
+
+    Raises:
+        ApiError: on any HTTP, URL, timeout, protocol, or socket error.
+                  ``status_code`` is set only for HTTP responses (used by
+                  the caller to split 4xx-permanent from transient).
+    """
+    url = f"{base_url}{endpoint}"
+    req_headers = {"Content-Type": "application/json"}
+    try:
+        request = Request(url, headers=req_headers, method="GET")
+        with _opener.open(request, timeout=timeout) as response:
+            result: dict[str, Any] = json.loads(response.read().decode())
+            return result
+    except HTTPError as e:
+        error_body = e.read().decode()
+        try:
+            error_data = json.loads(error_body)
+            raise ApiError(
+                error_data.get("message", str(e)),
+                status_code=e.code,
+                details=error_data.get("details"),
+            ) from e
+        except json.JSONDecodeError:
+            raise ApiError(f"{e}: {error_body}", status_code=e.code) from e
+    except URLError as e:
+        raise ApiError(f"Connection error: {e.reason}") from e
+    except TimeoutError as e:
+        raise ApiError(f"Request timed out: {url}: {e}") from e
+    except HTTPException as e:
+        # ``http.client.RemoteDisconnected`` / ``IncompleteRead`` — raised
+        # when the peer closes the connection mid-flight (e.g. orch pod
+        # restart during a long-poll). Not wrapped by urllib (issue #2412).
+        raise ApiError(f"HTTP protocol error: {url}: {e}") from e
+    except OSError as e:
+        # ``ConnectionResetError``, ``ConnectionRefusedError``, and other
+        # socket-level errors that bypass the ``URLError`` wrapper.
+        raise ApiError(f"Network error: {url}: {e}") from e
+
+
+def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
+    """Long-poll for pipeline events; emit JSON-lines (issue #2211).
+
+    Loops the orchestrator's ``/api/v1/pipelines/<id>/status/wait`` route,
+    threading the response cursor between calls. On Path-A (changed) emits
+    one JSON-line on stdout with the dashboard-relevant subset of the
+    envelope; on Path-B (no_change) loops silently. Exits per the §7
+    contract in ``docs/reference/agent-wait-patterns.md``: 0 terminal,
+    1 max-iter, 2 transient, 3 permanent.
+    """
+    pid = require_pipeline_id(args)
+    cursor = (getattr(args, "since", "") or "").strip()
+    inner_timeout = max(int(getattr(args, "inner_timeout", 25) or 25), 1)
+    max_iterations = getattr(args, "max_iterations", None)
+    if not isinstance(max_iterations, int) or max_iterations <= 0:
+        max_iterations = sys.maxsize
+
+    orchestrator_url = get_orchestrator_url()
+    backoff = 1.0
+    # Cumulative *backoff sleep* time across consecutive transient failures
+    # (NOT wall-clock). Bounds how long the loop backs off before giving up;
+    # the operator always retains the option to re-invoke after exit 2.
+    backoff_sleep_total = 0.0
+    backoff_sleep_budget = 60.0
+
+    for _ in range(max_iterations):
+        endpoint = f"/api/v1/pipelines/{pid}/status/wait?wait={inner_timeout}"
+        if cursor:
+            endpoint += f"&since={quote(cursor, safe='')}"
+
+        try:
+            result = api_request(orchestrator_url, endpoint, timeout=inner_timeout + 15)
+        except ApiError as err:
+            status = err.status_code or 0
+            if status and 400 <= status < 500:
+                # 4xx — permanent.
+                print(f"wait-status: {status} {err.message}", file=sys.stderr)
+                return 3
+            # 5xx, network errors, timeouts — transient.
+            backoff_sleep_total += backoff
+            if backoff_sleep_total > backoff_sleep_budget:
+                print(
+                    "wait-status: transient error budget exceeded "
+                    f"({err.message}). Is the orchestrator reachable at "
+                    f"{orchestrator_url}? (Set EGG_ORCHESTRATOR_URL, or note "
+                    "that localhost is not reachable from inside the Bash sandbox.)",
+                    file=sys.stderr,
+                )
+                return 2
+            time.sleep(min(backoff, 5.0))
+            backoff = min(backoff * 2, 5.0)
+            continue
+
+        # Successful call resets the backoff window.
+        backoff = 1.0
+        backoff_sleep_total = 0.0
+
+        envelope = result.get("data") if isinstance(result.get("data"), dict) else result
+        if not isinstance(envelope, dict):
+            print("wait-status: unexpected envelope shape", file=sys.stderr)
+            return 3
+
+        new_cursor = envelope.get("cursor")
+        if isinstance(new_cursor, str) and new_cursor:
+            cursor = new_cursor
+
+        if envelope.get("changed") is True:
+            line: dict[str, Any] = {
+                "trigger": envelope.get("trigger"),
+                "cursor": envelope.get("cursor"),
+                "current_phase": envelope.get("current_phase"),
+                "status": envelope.get("status"),
+            }
+            if "phase_elapsed_seconds" in envelope:
+                line["phase_elapsed_seconds"] = envelope["phase_elapsed_seconds"]
+            if envelope.get("trigger") == "event":
+                line["event_type"] = envelope.get("event_type")
+            elif envelope.get("trigger") == "message":
+                line["messages"] = envelope.get("messages")
+            if "concurrent" in envelope:
+                line["concurrent"] = envelope["concurrent"]
+            print(json.dumps(line), flush=True)
+
+            status_str = envelope.get("status")
+            event_type = envelope.get("event_type") or ""
+            if (
+                isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES
+            ) or event_type in _WAIT_STATUS_TERMINAL_EVENTS:
+                return 0
+        else:
+            # Path B (no_change): defense-in-depth for issue #2378. If any
+            # code path leaves us subscribed past a terminal state, the
+            # envelope's ``status`` field still carries the truth — emit a
+            # synthetic terminal line and exit 0 instead of looping silently.
+            status_str = envelope.get("status")
+            if isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES:
+                line = {
+                    "trigger": "synthetic-terminal",
+                    "cursor": envelope.get("cursor"),
+                    "current_phase": envelope.get("current_phase"),
+                    "status": status_str,
+                    "event_type": _WAIT_STATUS_TO_EVENT_TYPE[status_str],
+                }
+                print(json.dumps(line), flush=True)
+                return 0
+
+    return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="wait-status",
+        description=(
+            "Long-poll the orchestrator's /status/wait route, threading the "
+            "response cursor between calls. Emits one JSON line per "
+            "pipeline-relevant event (phase transition, terminal state, HITL "
+            "decision.created, OVERSEER_ALERT, consensus message) on stdout; "
+            "silent on no_change. Exits 0 on terminal pipeline state, 1 on "
+            "--max-iterations cap (test only), 2 on transient errors after the "
+            "backoff budget, 3 on permanent errors (4xx). Self-contained: "
+            "pure stdlib, no egg checkout required — only a reachable "
+            "orchestrator (EGG_ORCHESTRATOR_URL, default http://localhost:9849)."
+        ),
+    )
+    parser.add_argument("pipeline_id", nargs="?", help="Pipeline ID (or set EGG_PIPELINE_ID)")
+    parser.add_argument(
+        "--since",
+        default="",
+        help=(
+            "Opaque cursor from a prior wait-status JSON-line. Empty / absent "
+            "snaps to the tip of both event sources."
+        ),
+    )
+    parser.add_argument(
+        "--inner-timeout",
+        type=int,
+        default=25,
+        help=(
+            "Per-call server-side block timeout in seconds (default 25, "
+            "clamped server-side by GET_STATUS_MAX_WAIT)."
+        ),
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Safety cap on outer-loop iterations (test harnesses only). "
+            "Loops until terminal pipeline state by default."
+        ),
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return cmd_pipeline_wait_status(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
