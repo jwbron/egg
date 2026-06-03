@@ -1526,7 +1526,8 @@ still set `EGG_BRC_MEMORY=write-only` explicitly.
 
 #### 10.9.5 The server-side BRC preamble is collapsed; the wrapper owns the lifecycle now
 
-`_build_brc_preamble` at `orchestrator/routes/pipelines.py:12348` is
+`_build_brc_preamble` at `orchestrator/routes/pipelines.py:12180` (or
+look up by function name — the line drifts as the file edits) is
 **collapsed** in slice-3. The agent no longer has to be re-taught
 the lifecycle on every spawn — the wrapper bash now drives the
 sequencing deterministically (§10.1) and constructs the
@@ -1546,11 +1547,13 @@ exclusion are all removed from the prompt the agent sees.
 |------|-----|
 | Agent roster + reviewer/producer assignments | Per-event prompts assume the agent already knows who else is in the room. |
 | Dual-role ordering banner | Dual-role agents (e.g. `tester`) still receive both sides per invocation; the ordering invariant survives. |
-| Dual-mandate adversarial re-review banner (the "Your re-review has TWO equal-weight mandates …" block inside `_build_brc_preamble`; `pipelines.py:12849-12872` post-collapse — anchored on by risk_analyst R6) | This is review-correctness framing, not wait machinery; it survives the collapse. |
+| Dual-mandate adversarial re-review banner (the "Your re-review has TWO equal-weight mandates …" block inside `_build_brc_preamble`; `pipelines.py:12561-12573` post-collapse — anchored on by risk_analyst R6) | This is review-correctness framing, not wait machinery; it survives the collapse. |
 
 The three caller sites at `orchestrator/routes/pipelines.py:13659`,
 `:13692`, `:13720` (post-collapse positions per the slice-3 contract
-spec) are unchanged by the collapse — only the preamble text shrinks,
+spec; prefer the `_build_brc_preamble` function name as the
+navigation anchor since these line numbers drift with surrounding
+edits) are unchanged by the collapse — only the preamble text shrinks,
 the call sites are byte-identical. **The collapse runs unconditionally**
 at every agent spawn: the event-pump wrapper is now the only
 consensus-wrapper path (see

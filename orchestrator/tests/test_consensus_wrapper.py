@@ -1186,7 +1186,10 @@ class TestEventPumpInvokesComposer:
     The wrapper composes the per-event prompt by invoking
     ``orchestrator/routes/event_prompt.py`` via the script CLI, with
     env-var contract: ``EGG_AGENT_ROLE``, ``EGG_BASE_BRANCH``,
-    ``EGG_BRC_MEMORY`` (and ``EGG_REPO_PATH`` from the parent shell).
+    ``EGG_REPO_PATH``, ``EGG_BRC_MEMORY`` (all four explicitly
+    re-exported on the ``python3`` invocation per the
+    reviewer_holistic v2 follow-up so the script sees a deterministic
+    env regardless of which vars the parent shell happens to export).
     These tests fail if a future refactor drops the function, changes
     the script path, breaks the env-var pass-through, or removes the
     ``python3 "$script_path"`` call shape.
@@ -1229,10 +1232,18 @@ class TestEventPumpInvokesComposer:
         cmd = build_consensus_wrapped_command("hello")
         script = cmd[2]
         # The re-export line must be present so the env-var contract
-        # to ``event_prompt.py::_cli`` is locked in.
+        # to ``event_prompt.py::_cli`` is locked in. All four documented
+        # env vars (``EGG_AGENT_ROLE`` / ``EGG_BASE_BRANCH`` /
+        # ``EGG_REPO_PATH`` / ``EGG_BRC_MEMORY``) must be re-exported
+        # on the python3 invocation per the reviewer_holistic v2
+        # follow-up — the earlier shape relied on ``EGG_REPO_PATH``
+        # being exported by the parent shell, which works in
+        # production today but breaks symmetry with the in-source
+        # comment that lists all four as wrapper-supplied.
         assert "EGG_BRC_MEMORY=" in script
         assert "EGG_AGENT_ROLE=" in script
         assert "EGG_BASE_BRANCH=" in script
+        assert "EGG_REPO_PATH=" in script
 
     def test_flag_on_template_env_prefix_attaches_to_python3_not_printf(self, monkeypatch) -> None:
         """The env-var prefix must attach to ``python3`` (RHS of the
