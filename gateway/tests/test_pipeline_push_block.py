@@ -714,6 +714,48 @@ class TestSliceIntegrationBranchExemption:
                 f"got {response.status_code}: {response.data!r}"
             )
 
+    def test_synthetic_orchestrator_role_slice_branch_push_allowed(self, client):
+        """Orchestrator-role synthetic slice-integration push is allowed (#2919).
+
+        The stacked-PR reconciler's ``rebase_onto`` force-push and the
+        slice-loop's ``create_slice_integration_branch`` push now register
+        their synthetic sessions as ``agent_role="orchestrator"`` so the
+        audit log attributes orchestrator-driven git activity to the
+        orchestrator rather than a phantom coder.
+
+        The slice-integration exemption is keyed on the session's
+        ``synthetic`` flag plus the branch shape — NOT on the role — so
+        the attribution flip must not start 403'ing the push.  This
+        matters because the orchestrator role's file pattern is deny-all
+        (``ORCHESTRATOR_PATTERNS.allowed_patterns == []``); the exemption
+        sets ``is_infrastructure_push`` and short-circuits before the
+        role's file-pattern check would ever run, so the deny-all pattern
+        is never consulted on this path.
+        """
+        session = _make_session(
+            role="orchestrator",
+            synthetic=True,
+            assigned_branch="egg/issue-2919/slice-1",
+        )
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2919:refs/heads/egg/issue-2919/slice-1",
+            )
+            assert response.status_code == 200, (
+                f"Expected 200 for synthetic orchestrator-role slice "
+                f"integration push, got {response.status_code}: {response.data!r}"
+            )
+
     def test_synthetic_session_qualified_slice_branch_push_allowed(self, client):
         """Qualifier-suffixed branches (#2368 bonus) — ``egg/issue-N-v3/slice-M`` — pass."""
         session = _make_session(synthetic=True, assigned_branch="egg/issue-2261-v3/slice-7")
