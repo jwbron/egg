@@ -291,6 +291,14 @@ In private mode, the gateway must recognise the checkpoint repo as infrastructur
 
 If the gateway blocks access with "Cannot determine visibility", ensure `EGG_CHECKPOINT_REPO` is set to the checkpoint repo in `owner/repo` format.
 
+### External checkpoint repo write failures
+
+When using an external checkpoint repo with a source repo configured as `auth_mode: user` in `repositories.yaml`, the gateway authenticates checkpoint git operations (push, fetch, ls-remote) with a token scoped to the checkpoint repo rather than the source repo's PAT. This ensures pipelines on private customer repos can write checkpoints to the egg-owned store.
+
+**Requirement**: The checkpoint repo must be accessible by the GitHub App installation (`auth_mode: bot`, which is the default). If the checkpoint repo itself is configured `auth_mode: user`, that user PAT is used and it likely lacks write access to the store. To fix, either use the default `auth_mode: bot` for the checkpoint repo, or install the GitHub App on it.
+
+If checkpoint pushes are silently dropped, check gateway logs for `"Could not resolve a token scoped to the checkpoint repo"`.
+
 ### Finding unlabeled checkpoints
 
 Checkpoints from ad-hoc sessions (not part of a pipeline) won't match `--issue` or `--pipeline` filters. Use:
