@@ -2371,3 +2371,220 @@ class TestMissingBufferWarning:
             f"Expected warning about missing buffer, got warnings: "
             f"{[str(c) for c in mock_logger.warning.call_args_list]}"
         )
+
+
+class TestResolveRemoteToken:
+    """Unit tests for ``_resolve_remote_token`` (#2969).
+
+    The checkpoint push/fetch against an external store must authenticate as
+    the checkpoint repo's identity (the egg bot/App installation), not the
+    source repo's token — a private external source repo authenticates in
+    ``user`` mode with a PAT that has no access to the egg-owned store, so the
+    push is rejected with "Write access to repository not granted".
+    """
+
+    def test_uses_checkpoint_repo_token_when_set(self):
+        import checkpoint_handler
+
+        with patch(
+            "checkpoint_handler.get_token_for_repo",
+            return_value=("ckpt-bot-token", "bot", ""),
+        ) as mock_get:
+            token = checkpoint_handler._resolve_remote_token(
+                checkpoint_repo="jwbron/egg-checkpoints",
+                repo_path="/fake/repo",
+                github_token="source-user-token",
+            )
+
+        # Resolved the checkpoint repo's own token, NOT the source token.
+        assert token == "ckpt-bot-token"
+        mock_get.assert_called_once_with("jwbron/egg-checkpoints")
+
+    def test_falls_back_to_source_token_when_checkpoint_token_unavailable(self):
+        import checkpoint_handler
+
+        with patch(
+            "checkpoint_handler.get_token_for_repo",
+            return_value=(None, "bot", "GitHub token not available"),
+        ):
+            token = checkpoint_handler._resolve_remote_token(
+                checkpoint_repo="jwbron/egg-checkpoints",
+                repo_path="/fake/repo",
+                github_token="source-user-token",
+            )
+
+        # No dedicated token → fall back to the source token rather than None.
+        assert token == "source-user-token"
+
+    def test_same_repo_uses_source_token_without_lookup(self):
+        import checkpoint_handler
+
+        with patch("checkpoint_handler.get_token_for_repo") as mock_get:
+            token = checkpoint_handler._resolve_remote_token(
+                checkpoint_repo=None,
+                repo_path="/fake/repo",
+                github_token="source-bot-token",
+            )
+
+        # Same-repo storage: no external repo to scope a token to.
+        assert token == "source-bot-token"
+        mock_get.assert_not_called()
+
+
+class TestStoreUsesCheckpointRepoToken:
+    """``store_checkpoint_v2`` must push to the external store with the
+    checkpoint repo's token, not the source repo's (#2969)."""
+
+    def _make_checkpoint(self):
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        return CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+    def test_push_uses_checkpoint_repo_token_not_source(self):
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+        handler = checkpoint_handler.CheckpointHandler(github_token="source-user-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            # Non-empty stdout so _branch_exists() reports the branch exists,
+            # exercising the fetch + push path.
+            return MagicMock(returncode=0, stdout="deadbeefcafef00d", stderr="")
+
+        handler._run_git = track_run_git
+
+        with patch(
+            "checkpoint_handler.get_token_for_repo",
+            return_value=("ckpt-bot-token", "bot", ""),
+        ) as mock_get:
+            try:
+                handler.store_checkpoint_v2(
+                    self._make_checkpoint(),
+                    "/fake/repo",
+                    checkpoint_repo="jwbron/egg-checkpoints",
+                    github_token="source-user-token",
+                )
+            except Exception:
+                # The fake /fake/repo path may raise downstream of the push;
+                # we only assert on the captured git invocations.
+                pass
+
+        mock_get.assert_called_once_with("jwbron/egg-checkpoints")
+
+        # The push to the external store must carry the checkpoint repo's
+        # token, never the source-repo token (the #2969 bug).
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) >= 1, f"Expected a push call, got: {[c[1] for c in git_calls]}"
+        for _cwd, _args, kwargs in push_calls:
+            assert kwargs.get("github_token") == "ckpt-bot-token", (
+                f"push authenticated with the wrong token: {kwargs.get('github_token')!r}"
+            )
+
+        # And no remote op (anything carrying a github_token) should leak the
+        # source token to the external store.
+        remote_calls = [c for c in git_calls if "github_token" in c[2]]
+        assert remote_calls, "Expected at least one tokenized remote op"
+        for _cwd, args, kwargs in remote_calls:
+            assert kwargs["github_token"] != "source-user-token", (
+                f"source token leaked to external store on: {args}"
+            )
+
+
+class TestReadUsesCheckpointRepoToken:
+    """``fetch_and_read_index`` and ``ensure_ref`` must also read the external
+    store with the checkpoint repo's token (#2969).
+
+    The push fix is well-covered by ``TestStoreUsesCheckpointRepoToken``; the
+    read path uses the same ``_resolve_remote_token`` helper but its end-to-end
+    token wiring is not asserted elsewhere. A ``user``-mode source PAT cannot
+    read a private egg-owned store either, so reads from external repos must
+    authenticate with the checkpoint-scoped token at both the ``ls-remote``
+    (``_branch_exists``) and the ``fetch`` call sites.
+    """
+
+    def _capture_read_calls(self, method_name, checkpoint_repo, github_token):
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token=github_token)
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            # Non-empty stdout so _branch_exists() reports the branch exists,
+            # so the fetch path is exercised as well as the ls-remote.
+            return MagicMock(returncode=0, stdout="deadbeefcafef00d", stderr="")
+
+        handler._run_git = track_run_git
+
+        with patch(
+            "checkpoint_handler.get_token_for_repo",
+            return_value=("ckpt-bot-token", "bot", ""),
+        ) as mock_get:
+            try:
+                getattr(handler, method_name)(
+                    "/fake/repo",
+                    checkpoint_repo=checkpoint_repo,
+                    github_token=github_token,
+                )
+            except Exception:
+                pass
+
+        return git_calls, mock_get
+
+    def _assert_read_path_token(self, git_calls):
+        # ls-remote (issued by _branch_exists) must carry the checkpoint token.
+        ls_remote_calls = [c for c in git_calls if "ls-remote" in c[1]]
+        assert ls_remote_calls, f"Expected a ls-remote call, got: {[c[1] for c in git_calls]}"
+        for _cwd, _args, kwargs in ls_remote_calls:
+            assert kwargs.get("github_token") == "ckpt-bot-token", (
+                f"ls-remote authenticated with wrong token: {kwargs.get('github_token')!r}"
+            )
+
+        # fetch must carry the checkpoint token.
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert fetch_calls, f"Expected a fetch call, got: {[c[1] for c in git_calls]}"
+        for _cwd, _args, kwargs in fetch_calls:
+            assert kwargs.get("github_token") == "ckpt-bot-token", (
+                f"fetch authenticated with wrong token: {kwargs.get('github_token')!r}"
+            )
+
+        # No tokenized remote op should leak the source token to the store.
+        for _cwd, args, kwargs in git_calls:
+            if "github_token" in kwargs:
+                assert kwargs["github_token"] != "source-user-token", (
+                    f"source token leaked to external store on: {args}"
+                )
+
+    def test_fetch_and_read_index_uses_checkpoint_repo_token(self):
+        git_calls, mock_get = self._capture_read_calls(
+            "fetch_and_read_index",
+            checkpoint_repo="jwbron/egg-checkpoints",
+            github_token="source-user-token",
+        )
+        mock_get.assert_called_once_with("jwbron/egg-checkpoints")
+        self._assert_read_path_token(git_calls)
+
+    def test_ensure_ref_uses_checkpoint_repo_token(self):
+        git_calls, mock_get = self._capture_read_calls(
+            "ensure_ref",
+            checkpoint_repo="jwbron/egg-checkpoints",
+            github_token="source-user-token",
+        )
+        mock_get.assert_called_once_with("jwbron/egg-checkpoints")
+        self._assert_read_path_token(git_calls)
