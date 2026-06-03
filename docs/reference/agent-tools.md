@@ -111,8 +111,8 @@ that requires the handler docstring to explain why no CLI exists.
 | `mcp__brc__send_heartbeat` | Emit a structured `HEARTBEAT` (schema-validated, per-role deduped, rate-limited) to the dedicated `/heartbeat` endpoint. Use `state=WAITING_ON_ROLE` + `waiting_on=<peer>` while blocking on BRC. Valid states: `WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`. | `handlers.message.message_heartbeat` | `egg-orch message heartbeat` |
 
 > **Blocking waits use Bash, not MCP** (#2211). Long-poll waits don't fit the MCP transport — both transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), and every cap-elapsed return is a wasted LLM turn. Use `egg-orch message wait` / `egg-orch message wait-loop` (sandbox) and `egg-orch pipeline wait-status` (host) via Bash. The §1 idiom in `docs/reference/agent-wait-patterns.md` is the canonical shape.
-| `mcp__brc__read_peer_artifact` | Read entries from `.egg-state/brc-history/<pipeline_id>-<phase>.json` filtered by `peer_role`, with `limit`/`cursor` pagination (default `limit=50`). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (agents cannot pass an arbitrary id; path-traversal hardening). Returns `{items: [...], next_cursor: <str|None>, skipped_malformed: <int>}`. | `handlers.brc.read_peer_artifact` | — *(no CLI; reviewer-forensics helper that reads local files; operators inspect the files directly)* |
-| `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The matrix keeps the obligation text for audit, but `get_pre_merge_conditions` filters resolved entries — the PR body and HITL gate stop surfacing the obligation. The orchestrator persists a `CONSENSUS_OBLIGATION_RESOLVED` message so the resolution survives orchestrator restart, and rejects `resolver_role == producer_role` so a producer cannot self-resolve their own obligation. Resolution is per-version: any later ACK / NACK / invalidate on the same edge resets the resolved flag. | `handlers.brc.brc_resolve_obligation` | — *(no CLI; net-new in-cycle resolution capability — operators don't need a Bash entrypoint)* |
+| `mcp__brc__read_peer_artifact` | Read entries from `.egg-state/brc-history/<identifier>-<phase>.json` (and the per-slice partition `<identifier>-implement-<slice_id>.json` when `EGG_SLICE_ID` is set and `phase == "implement"`; the sibling `<identifier>-implement-unattributed.json` is merged in by default and disabled via `include_unattributed=False`). Optional filters: `peer_role` / `producer_role` (alias), `message_type` (str or list). `limit` / `cursor` pagination (default `limit=50`, max 500). The identifier is resolved server-side from `EGG_ISSUE_NUMBER` / `EGG_PIPELINE_ID` (agents cannot pass an arbitrary id; path-traversal hardening). Returns `{items: [...], next_cursor: <str|None>, total_available: <int>, skipped_malformed: <int>}`. | `handlers.brc.brc_read_peer_artifact` | `egg-orch brc read-peer-artifact` *(slice-5 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
+| `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The matrix keeps the obligation text for audit, but `get_pre_merge_conditions` filters resolved entries — the PR body and HITL gate stop surfacing the obligation. The orchestrator persists a `CONSENSUS_OBLIGATION_RESOLVED` message so the resolution survives orchestrator restart, and rejects `resolver_role == producer_role` so a producer cannot self-resolve their own obligation. Resolution is per-version: any later ACK / NACK / invalidate on the same edge resets the resolved flag. | `handlers.brc.brc_resolve_obligation` | `egg-orch brc resolve-obligation` *(slice-5 of #2908; thin wrapper, registration still `cli_command=None` — see callout below)* |
 
 #### `brc_propose` push behavior
 
@@ -263,13 +263,15 @@ verbs are:
 - `mcp__sdlc__check_hitl_answers` — no CLI; aggregates HITL state across phases.
 - `mcp__brc__get_state` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch brc get-state` (added in #2908 for the event-pump wrapper). Schema derives from `schemas.py`, not argparse.
 - `mcp__brc__list_blocking` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch brc list-blocking` (added in #2908).
-- `mcp__brc__read_peer_artifact` — no CLI; reviewer-forensics helper that reads local files; operators inspect the files directly.
-- `mcp__brc__resolve_obligation` — no CLI; net-new in-cycle conditional-ACK obligation-resolution capability (#2338) — producer/tester-driven via the MCP surface.
+- `mcp__brc__read_peer_artifact` — registration says no CLI; thin `egg-orch brc read-peer-artifact` wrapper added in slice-5 of #2908. Reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk — no HTTP / gateway.
+- `mcp__brc__resolve_obligation` — registration says no CLI; thin `egg-orch brc resolve-obligation` wrapper added in slice-5 of #2908. Net-new in-cycle conditional-ACK obligation-resolution capability (#2338); producer/tester-driven via the MCP surface and the wrapper.
 - `mcp__phase__get_context` — no CLI in MCP registry (`cli_command=None`); has a verb-level CLI alias `egg-orch phase get-context` (added in #2908 for the event-pump wrapper). Schema derives from `schemas.py`, not argparse.
 - `mcp__phase__get_assigned_tasks` — no CLI; filtered view over `egg-contract show`.
 - `mcp__task__mark_gap` — no CLI; tester→coder coverage-gap handoff is agent-to-agent.
 - `mcp__sdlc__check_file_restriction` — no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module (decision-13 rationale in `handlers/restrictions.py`).
 - `mcp__sdlc__report_impasse` — no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one (decision-13 rationale in `handlers/restrictions.py`).
+
+> **CLI surface added in #2908 (registration unchanged):** `mcp__brc__get_state`, `mcp__brc__list_blocking` (slice-1), `mcp__brc__read_peer_artifact`, and `mcp__brc__resolve_obligation` (slice-5) gained matching `egg-orch brc <verb>` subcommands so the event-pump consensus wrapper (#2908 slices 1-2) can drive them from bash without an LLM round-trip. The MCP-side `ToolRegistration` entries in `sandbox/egg_agent_tools/tools/brc.py` still carry `cli_command=None`, so the drift gate continues to treat these four as no-CLI tools and their JSON schemas continue to be hand-authored in `schemas.py` (the bullets above stay accurate from the registration / drift-gate perspective). Promoting the registrations to `cli_command=("egg-orch", "brc", "<verb>")` so the schemas auto-derive from the argparse parsers is a follow-up — until then, treat the CLI subcommands as thin shell wrappers over the same handlers, sharing the handler but not the schema source. A fifth net-new `brc next-action` subcommand has no MCP counterpart by design — the wrapper consumes the derivation directly. See [Orchestrator CLI — BRC verb-level operations](orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc).
 
 When adding a new `cli_command=None` verb, the handler docstring
 must explain the no-CLI rationale; CI fails otherwise.
@@ -300,15 +302,19 @@ and `sandbox/egg_lib/contract_cli.py::create_parser`) by
 `sandbox/egg_agent_tools/schemas.py::derive_schema_from_argparse`.
 Each tool may supply a per-tool override dict for cases where argparse
 help is insufficient (e.g. richer descriptions or tighter enum
-constraints). Tools with no MCP-registered CLI counterpart (`cli_command=None`) — `brc_get_state`,
-`brc_list_blocking`, `phase_get_context`, `phase_get_assigned_tasks`,
-`check_hitl_answers`, `brc_read_peer_artifact`, `task_mark_gap` —
-declare their JSON schema directly in `schemas.py` (or alongside the
-`@tool` definition). Note: `brc_get_state`, `brc_list_blocking`, and
-`phase_get_context` gained verb-level CLI aliases in #2908
-(`egg-orch brc get-state`, `egg-orch brc list-blocking`,
-`egg-orch phase get-context`) but remain `cli_command=None` in the
-registry — they still derive their MCP schema from `schemas.py`.
+constraints). Tools whose `ToolRegistration` declares `cli_command=None`
+— `phase_get_context`, `phase_get_assigned_tasks`, `check_hitl_answers`,
+`task_mark_gap`, and the four `mcp__brc__*` verbs covered above
+(`brc_get_state`, `brc_list_blocking`, `brc_read_peer_artifact`,
+`brc_resolve_obligation`) — declare their JSON schema directly in
+`schemas.py` (or alongside the `@tool` definition); the
+`derive_schema_from_argparse` path is skipped because the registration
+has no argparse subparser bound to it. The slice-1 / slice-5 of
+[#2908](https://github.com/jwbron/egg/issues/2908) `egg-orch brc <verb>`
+CLI wrappers, plus the `egg-orch phase get-context` wrapper, reuse the
+same handlers but do **not** flip the registrations off
+`cli_command=None`; promoting the registrations and auto-deriving
+schemas from the argparse parsers is a follow-up.
 
 Output: every tool returns the handler's dict response serialised as a
 JSON string per the

@@ -680,8 +680,13 @@ class TestSpawnUsesConsensusWrapper:
         assert command[0] == "bash"
         assert command[1] == "-c"
         assert "egg_agent" in command[2]
-        assert "RESTART_COUNT" in command[2]
-        assert "BRC Consensus Recovery" in command[2]
+        # Slice-4 (#2908) replaced the capped-restart wrapper with the
+        # event-pump template; check for its deterministic-loop markers
+        # instead of the deleted RESTART_COUNT / "BRC Consensus Recovery"
+        # strings.
+        assert "event-pump" in command[2]
+        assert "egg-orch brc get-state" in command[2]
+        assert "egg-orch brc next-action" in command[2]
 
 
 class TestNoImplicitReadyOnCleanExit:
@@ -698,15 +703,25 @@ class TestNoImplicitReadyOnCleanExit:
     # is now enforced by the BRC peer-consensus protocol, not an
     # orchestrator-side readiness evaluator.
 
-    def test_wrapper_contains_restart_logic(self):
-        """The consensus wrapper should restart agents, not auto-signal READY."""
+    def test_wrapper_drives_event_pump_loop(self):
+        """The wrapper should drive a BRC event-pump loop, not auto-signal READY.
+
+        Slice-4 (#2908) deleted the legacy capped-restart wrapper
+        (``RESTART_COUNT`` / "Restarting" / "BRC Consensus Recovery"
+        strings) in favour of the event-pump template, which invokes
+        the agent one-shot per actionable event driven by
+        ``egg-orch brc next-action`` rather than restarting after
+        each exit. The invariant the original test guarded
+        ("orchestrator must not fake consensus on behalf of agents")
+        is preserved: the event-pump never auto-signals READY either.
+        """
         from consensus_wrapper import build_consensus_wrapped_command
 
         cmd = build_consensus_wrapped_command("Do work")
         script = cmd[2]
-        # Must contain restart logic
-        assert "Restarting" in script
-        assert "RESTART_COUNT" in script
+        # Must drive a deterministic event-pump loop against the BRC bus
+        assert "event-pump" in script
+        assert "egg-orch brc next-action" in script
         # Must NOT contain auto-READY
         assert "Auto-signaling READY" not in script
 

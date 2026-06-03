@@ -460,3 +460,331 @@ class TestBrcParserRegistration:
             parser.parse_args(["brc", "list-blocking", "--help"])
         out = capsys.readouterr().out
         assert "list-blocking" in out or "block" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# brc resolve-obligation  (TASK-5-2, #2908 slice-5)
+# ---------------------------------------------------------------------------
+
+
+class TestBrcResolveObligation:
+    """``egg-orch brc resolve-obligation`` — CLI wrapper around
+    ``mcp__brc__resolve_obligation`` (#2338).
+
+    Slice-5 adds this CLI because slice-6 deletes the agent-side MCP
+    server: the wrapper bash must reach the obligation-resolution
+    signal without an MCP round-trip. The prose ``--note`` flows
+    through the same #2741 plumbing as the other reason / summary
+    args (argv / stdin sentinel / ``--note-file PATH``).
+    """
+
+    def _resolve_handler(self):
+        fn = getattr(orch_cli, "cmd_brc_resolve_obligation", None)
+        if fn is None:
+            raise AttributeError("Expected egg_lib.orch_cli to expose cmd_brc_resolve_obligation")
+        return fn
+
+    def _ns(self, **overrides):
+        defaults = {
+            "pipeline_id": None,
+            "role": None,
+            "reviewer_role": "reviewer_contract",
+            "producer_role": "coder",
+            "commit_sha": None,
+            "note": None,
+            "note_file": None,
+            "json": False,
+        }
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_happy_path_no_note(self, brc_env, capsys):
+        """Minimal ACK-equivalent: reviewer-role + producer-role only."""
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_resolve(req):
+            captured.update(req)
+            return {
+                "ok": True,
+                "role": "tester",
+                "reviewer_role": req["reviewer_role"],
+                "producer_role": req["producer_role"],
+                "signal": {"signal_id": "obl-1"},
+            }
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_resolve_obligation",
+            side_effect=fake_resolve,
+        ):
+            rc = handler(self._ns())
+        assert rc == 0
+        # Required fields threaded through.
+        assert captured["reviewer_role"] == "reviewer_contract"
+        assert captured["producer_role"] == "coder"
+        # Optional fields absent.
+        assert "commit_sha" not in captured
+        assert "note" not in captured
+
+    def test_commit_sha_threaded_when_set(self, brc_env):
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_resolve(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_resolve_obligation",
+            side_effect=fake_resolve,
+        ):
+            rc = handler(self._ns(commit_sha="abcd1234"))
+        assert rc == 0
+        assert captured["commit_sha"] == "abcd1234"
+
+    def test_note_via_file_round_trips(self, brc_env, tmp_path):
+        """``--note-file PATH`` delivers the file contents byte-equal."""
+        handler = self._resolve_handler()
+        note_path = tmp_path / "note.txt"
+        note_payload = "resolved by cherry-pick of $COMMIT; `git mv` done"
+        note_path.write_text(note_payload, encoding="utf-8")
+        captured = {}
+
+        def fake_resolve(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_resolve_obligation",
+            side_effect=fake_resolve,
+        ):
+            rc = handler(self._ns(note_file=str(note_path)))
+        assert rc == 0
+        assert captured["note"] == note_payload
+
+    def test_note_via_stdin_sentinel(self, brc_env, monkeypatch):
+        """``--note -`` reads the prose from stdin."""
+        import io
+
+        handler = self._resolve_handler()
+        payload = "multi\nline note with `backtick`"
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        captured = {}
+
+        def fake_resolve(req):
+            captured.update(req)
+            return {"ok": True, "signal": {}}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_resolve_obligation",
+            side_effect=fake_resolve,
+        ):
+            rc = handler(self._ns(note="-"))
+        assert rc == 0
+        assert captured["note"] == payload
+
+    def test_help_advertises_flags(self, brc_env, capsys):
+        parser = orch_cli.create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["brc", "resolve-obligation", "--help"])
+        out = capsys.readouterr().out
+        assert "--reviewer-role" in out
+        assert "--producer-role" in out
+        assert "--commit-sha" in out
+        assert "--note-file" in out
+
+    def test_subparser_registered_under_brc_parent(self, brc_env, capsys):
+        """The subcommand registers under the existing ``brc`` parent
+        next to ``next-action`` / ``get-state`` / ``list-blocking``."""
+        parser = orch_cli.create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "brc",
+                    "resolve-obligation",
+                    "--reviewer-role",
+                    "reviewer_contract",
+                    "--producer-role",
+                    "coder",
+                    "--help",
+                ]
+            )
+        out = capsys.readouterr().out
+        # Help text describes the subcommand semantics.
+        assert "resolve-obligation" in out or "obligation" in out
+
+
+# ---------------------------------------------------------------------------
+# brc read-peer-artifact  (TASK-5-3, #2908 slice-5)
+# ---------------------------------------------------------------------------
+
+
+class TestBrcReadPeerArtifact:
+    """``egg-orch brc read-peer-artifact`` — CLI wrapper around
+    ``mcp__brc__read_peer_artifact``.
+
+    The handler reads ``.egg-state/brc-history/`` files locally; the
+    CLI is a structural pass-through (argparse → handler-request dict
+    → stdout JSON) with pagination via ``--limit`` + opaque
+    ``--cursor`` round-trip.
+    """
+
+    def _resolve_handler(self):
+        fn = getattr(orch_cli, "cmd_brc_read_peer_artifact", None)
+        if fn is None:
+            raise AttributeError("Expected egg_lib.orch_cli to expose cmd_brc_read_peer_artifact")
+        return fn
+
+    def _ns(self, **overrides):
+        defaults = {
+            "pipeline_id": None,
+            "phase": "implement",
+            "peer_role": None,
+            "message_type": None,
+            "limit": None,
+            "cursor": None,
+            "include_unattributed": True,
+            "json": False,
+        }
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_happy_path_threads_phase(self, brc_env, capsys):
+        """``--phase implement`` is forwarded; output is structured
+        JSON regardless of ``--json`` (mirrors brc_get_state's CLI shape)."""
+        handler = self._resolve_handler()
+        captured = {}
+        response = {
+            "ok": True,
+            "phase": "implement",
+            "items": [{"from_role": "coder", "message_type": "CONSENSUS_PROPOSE"}],
+            "next_cursor": None,
+            "total_available": 1,
+            "skipped_malformed": 0,
+        }
+
+        def fake_read(req):
+            captured.update(req)
+            return response
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_read_peer_artifact",
+            side_effect=fake_read,
+        ):
+            rc = handler(self._ns())
+        assert rc == 0
+        assert captured["phase"] == "implement"
+        out = capsys.readouterr().out
+        decoded = json.loads(out)
+        assert decoded["phase"] == "implement"
+        assert decoded["items"][0]["from_role"] == "coder"
+
+    def test_peer_role_filter_forwarded(self, brc_env, capsys):
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_read(req):
+            captured.update(req)
+            return {"ok": True, "phase": "implement", "items": [], "next_cursor": None}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_read_peer_artifact",
+            side_effect=fake_read,
+        ):
+            rc = handler(self._ns(peer_role="reviewer_code"))
+        assert rc == 0
+        assert captured["peer_role"] == "reviewer_code"
+
+    def test_message_type_filter_is_list(self, brc_env, capsys):
+        """``--message-type`` is ``action="append"`` — repeated use
+        yields a list. Single use also yields a list; the handler
+        normalises both."""
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_read(req):
+            captured.update(req)
+            return {"ok": True, "phase": "implement", "items": [], "next_cursor": None}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_read_peer_artifact",
+            side_effect=fake_read,
+        ):
+            rc = handler(
+                self._ns(message_type=["CONSENSUS_PROPOSE", "CONSENSUS_ACK"]),
+            )
+        assert rc == 0
+        assert captured["message_type"] == ["CONSENSUS_PROPOSE", "CONSENSUS_ACK"]
+
+    def test_limit_and_cursor_round_trip(self, brc_env, capsys):
+        """Pagination: ``--limit`` + ``--cursor`` round-trip the opaque
+        token from one response to the next request."""
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_read(req):
+            captured.update(req)
+            return {
+                "ok": True,
+                "phase": "implement",
+                "items": [{"x": 1}],
+                "next_cursor": "OPAQUE_TOKEN_v2",
+                "total_available": 200,
+                "skipped_malformed": 0,
+            }
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_read_peer_artifact",
+            side_effect=fake_read,
+        ):
+            rc = handler(self._ns(limit=10, cursor="OPAQUE_TOKEN_v1"))
+        assert rc == 0
+        assert captured["limit"] == 10
+        assert captured["cursor"] == "OPAQUE_TOKEN_v1"
+        # next_cursor surfaces in stdout for the wrapper to read.
+        out = capsys.readouterr().out
+        decoded = json.loads(out)
+        assert decoded["next_cursor"] == "OPAQUE_TOKEN_v2"
+
+    def test_no_include_unattributed_flips_default(self, brc_env, capsys):
+        """``--no-include-unattributed`` sets include_unattributed=False."""
+        handler = self._resolve_handler()
+        captured = {}
+
+        def fake_read(req):
+            captured.update(req)
+            return {"ok": True, "phase": "implement", "items": [], "next_cursor": None}
+
+        with patch(
+            "egg_agent_tools.handlers.brc.brc_read_peer_artifact",
+            side_effect=fake_read,
+        ):
+            rc = handler(self._ns(include_unattributed=False))
+        assert rc == 0
+        assert captured["include_unattributed"] is False
+
+    def test_phase_choices_restricted(self, brc_env, capsys):
+        """argparse rejects unknown phases at parse time."""
+        parser = orch_cli.create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["brc", "read-peer-artifact", "--phase", "not-a-real-phase"],
+            )
+
+    def test_help_advertises_flags(self, brc_env, capsys):
+        parser = orch_cli.create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["brc", "read-peer-artifact", "--help"])
+        out = capsys.readouterr().out
+        assert "--phase" in out
+        assert "--peer-role" in out
+        assert "--message-type" in out
+        assert "--limit" in out
+        assert "--cursor" in out
+
+    def test_subparser_registered_under_brc_parent(self, brc_env, capsys):
+        parser = orch_cli.create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["brc", "read-peer-artifact", "--phase", "implement", "--help"])
+        out = capsys.readouterr().out
+        assert "read-peer-artifact" in out or "history" in out.lower()

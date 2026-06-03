@@ -879,8 +879,11 @@ def _cli(argv: list[str] | None = None) -> int:
       ``--not origin/<base>`` term of the git-log delta.
     * ``EGG_REPO_PATH`` (default cwd) — working directory for the
       git-log subprocess + base for the memory-file path resolution.
-    * ``EGG_BRC_MEMORY`` (default ``off``) — slice-1 reader gate;
-      ``full`` enables the read path, anything else skips it.
+    * ``EGG_BRC_MEMORY`` (default ``full`` since slice-4 task-4-1) —
+      slice-1 reader gate; ``full`` enables the read path. Set
+      ``write-only`` to keep the writer warm without reading the
+      excerpt, or ``off`` for the one-release rollback escape hatch
+      (no writes, no reads).
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -899,7 +902,11 @@ def _cli(argv: list[str] | None = None) -> int:
     role = (os.environ.get("EGG_AGENT_ROLE") or "").strip() or "unknown"
     base_branch = (os.environ.get("EGG_BASE_BRANCH") or "").strip() or "main"
     repo_path = Path(os.environ.get("EGG_REPO_PATH") or os.getcwd())
-    memory_mode = (os.environ.get("EGG_BRC_MEMORY") or "off").strip().lower()
+    # Slice-4 task-4-1 flipped the unset-env default from ``off`` to
+    # ``full`` so the event-pump composer reads the memory file by
+    # default. Operators can opt back into the slice-1 inert default
+    # for a one-release rollback window by setting ``EGG_BRC_MEMORY=off``.
+    memory_mode = (os.environ.get("EGG_BRC_MEMORY") or "full").strip().lower()
 
     # Event payload — JSON on stdin (preferred) or from --event-payload-file.
     if args.event_payload_file:

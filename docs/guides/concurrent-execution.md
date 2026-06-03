@@ -71,37 +71,33 @@ Each agent is registered in the peer consensus tracker before spawning begins.
 
 ## Consensus Wrapper
 
-> **Two emission paths from slice-2 of [#2908](https://github.com/jwbron/egg/issues/2908):** the section below describes the **legacy template** path emitted when `EGG_BRC_EVENT_PUMP` is unset or `false` — the production default until slice-4 flips it. The opt-in event-pump path replaces the model-driven restart loop with a deterministic wrapper-driven loop, moves the heartbeat and gateway-session keep-alive from `message_wait_loop` to wrapper-side subshells, and swaps the 3-restart FAIL cap for an idle/no-progress overseer-alert budget. See [Orchestrator Architecture — BRC Event-Pump Wrapper](../architecture/orchestrator.md#brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) and the wait-side companion in [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-event-pump-wrapper-slice-2-behind-egg_brc_event_pump) for the new path.
+> **[#2908](https://github.com/jwbron/egg/issues/2908) replaced the model-driven restart loop with a deterministic event-pump wrapper across slices 1–4.** The wrapper is now the sole loop driver — the agent is one-shot per actionable BRC event, the wrapper holds the wait between events, and heartbeats + gateway-session keep-alive ride on wrapper-side subshells rather than the in-pod `message_wait_loop`. The 3-restart `MAX_CONSENSUS_RESTARTS` FAIL cap was replaced by an idle/no-progress overseer-alert budget that never transitions the pipeline to FAILED. The legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE `consensus.reached` machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the `EGG_BRC_EVENT_PUMP=false` escape hatch were deleted in slice-4 — the supported regression path is `git revert` of the slice-4 / slice-3 / slice-2 / slice-1 merge commits in reverse-merge order (see [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan)). See [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) for the deterministic-loop semantics, the wait-filter construction, the wrapper-side heartbeat + keep-alive subshells, the idle-budget escalation table, and the rollback plan. The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
 
-All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with recovery instructions instead of silently marking it as ready.
+All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper is the deterministic BRC loop driver: it polls `egg-orch brc get-state` / `egg-orch brc next-action` for sequencing, blocks in `egg-orch message wait-loop` between actionable events, and invokes the agent one-shot per `INVOKE` event with a prompt composed by `compose_event_prompt` (slice-3).
 
 **How it works:**
 
-1. Claude runs inside the wrapper script with the original task prompt.
-2. If Claude exits non-zero, the wrapper first checks whether consensus is already complete or this agent is already confirmed (see step 6 for details on the confirmed check). If so, it exits cleanly — the non-zero exit is harmless. Otherwise, the wrapper classifies the exit code:
-   - **Transient crash** (exit codes 134/SIGABRT, 136/SIGFPE, 137/SIGKILL/OOM, 139/SIGSEGV, 255/Bun segfault): The wrapper logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."` and falls through to the restart loop (step 4) with exponential backoff. The initial backoff is 5 seconds, doubling after each crash restart up to a 30-second cap.
-   - **Non-transient failure** (all other non-zero codes, e.g., exit 1): The wrapper logs `"Agent failed (code $AGENT_EXIT). NOT restarting."` and exits immediately with the same code, triggering the orchestrator's agent failure path.
-3. If Claude exits cleanly (code 0), the wrapper checks whether this agent is already confirmed before restarting. It queries the pipeline status endpoint and checks the tracker's `confirmed` field for this agent. The wrapper falls back to checking the message bus directly for a prior `CONSENSUS_CONFIRMED` message from this agent's role in two scenarios: (a) the consensus tracker state is empty (e.g., because the orchestrator restarted and the in-memory tracker was not yet reconstructed), or (b) the tracker is populated but shows this agent as **not** confirmed — which can happen when a withdrawal/re-proposal cascade leaves the tracker with stale state that doesn't reflect the agent's actual `CONFIRMED` status. If a matching `CONSENSUS_CONFIRMED` message is found in the message bus, the agent is treated as already confirmed and enters the wait-for-consensus poll loop — no restart needed.
-4. If not already confirmed, the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
-5. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 3). After each restart, the wrapper checks if global consensus was reached (exit cleanly) or if this agent individually reached `CONFIRMED` state (enter the wait-for-consensus poll loop). This prevents a confirmed agent from consuming a restart slot while waiting for peers to finish. Each restart also publishes a medium-priority `OVERSEER_ALERT` (anomaly `agent-restart`) so the operator sees recovery attempts in real time (issue #2806).
-6. After exhausting all restarts, the wrapper performs a **final consensus check** before giving up. It polls the pipeline status endpoint for `is_complete`; if consensus has been reached (all agents confirmed), it logs "Consensus reached on final check" and exits with code 0 — avoiding a false failure. Only if consensus is genuinely incomplete does it exit with code 1. For **producer** roles, the orchestrator detects the non-clean exit, re-queries consensus once more (race-window guard for a producer that crashed in wrapper cleanup *after* reaching CONFIRMED), and only if consensus is still incomplete does it hard-fail the pipeline (Option A, issue #2806) with a high-priority `OVERSEER_ALERT` (anomaly `producer-permanent-death`); reviewer-only deaths still flow through the existing single-failure HITL path because peer-review redistribution can recover them.
+1. The wrapper starts two background subshells: a heartbeat emitter (every 30 s while a `wait-loop` is blocking) and the implicit gateway-session keep-alive that rides on every accepted heartbeat. Both surfaces moved here from the pre-#2908 agent-side `message_wait_loop` (see [Wrapper-side heartbeat (#2036)](../architecture/orchestrator.md#wrapper-side-heartbeat-2036-migration-completed-in-slice-4) and [Wrapper-side gateway-session keep-alive (#2451)](../architecture/orchestrator.md#wrapper-side-gateway-session-keep-alive-2451-migration-completed-in-slice-4)).
+2. The wrapper polls `egg-orch brc get-state --json`. If `role_complete` is true, it calls `egg-orch consensus confirmed` and exits with code 0.
+3. Otherwise it polls `egg-orch brc next-action --json`. The action is one of `WAIT` (block in `egg-orch message wait-loop` with a conditional filter — see [Wait-filter construction](../architecture/orchestrator.md#wait-filter-construction-pre-confirm-vs-post-confirm)) or `INVOKE` (spawn the agent with a one-shot event prompt).
+4. When the agent exits cleanly after an `INVOKE`, the wrapper loops back to step 2 — no restart, no recovery prompt. Clean exit between events is the expected steady state.
+5. If the agent exits with a transient-crash signal (134/SIGABRT, 136/SIGFPE, 137/SIGKILL/OOM, 139/SIGSEGV, 255/Bun segfault), the wrapper restarts the pod with exponential backoff (initial 5 s, doubling, capped at 30 s). These signals are infrastructure-level pod failures that the wrapper still distinguishes from clean event-pump exits via the surviving `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` classifiers.
+6. If the agent exits with a non-transient non-zero code, the wrapper exits with the same code, triggering the orchestrator's agent failure path. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` cap and the `_RECOVERY_SYSTEM_PROMPT` recovery-restart cycle no longer exist; the surviving liveness guarantee is the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes) which emits an `OVERSEER_ALERT` at threshold and `2 ×` threshold but never transitions the pipeline to FAILED.
 
-**Transient crash classification:** The `is_transient_crash()` shell function in the wrapper identifies exit codes caused by signal-based runtime crashes (segfaults, OOM kills, SIGABRT) and Bun's segfault exit code (255). These indicate infrastructure failures, not application-level errors, and are safe to retry. The worst case for treating exit code 255 as transient is one extra restart attempt if 255 was actually a permanent error. Transient crash restarts share the `MAX_CONSENSUS_RESTARTS` cap with clean-exit restarts.
+**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it dispatches the agent to handle each actionable event and lets the agent issue ACK / NACK / PROPOSE / CONFIRM verdicts itself. Sequencing is the wrapper's job; *judgment* (what to review, what to fix, when to re-propose) stays with the model.
 
-**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it restarts the agent so it can assess state and signal for itself.
-
-**Design intent — safety net, not primary mechanism:** The wrapper exists as a fallback for the edge case where an agent exits prematurely (e.g., context exhaustion). The intended lifecycle is for agents to run with enough turns to finish their work *and* complete the full BRC consensus protocol (including stay-alive polling while peers finish). The orchestrator detects consensus and sends SIGTERM to terminate containers — agents should exit because they are told to, not because they exhaust turns. The restart path is expensive (requires reloading context and re-evaluating BRC state) and should be rare.
+**Design intent — the wrapper is the loop, not a safety net.** Before #2908 the wrapper existed as a fallback that re-spawned the agent on premature exit (e.g., context exhaustion) and the agent was expected to hold a long-running BRC wait between events. After #2908 the wrapper *is* the BRC loop driver — clean per-event exits are the steady-state contract, not an edge case. The orchestrator detects consensus and sends SIGTERM to terminate containers when the role is complete; the agent only exits because it finished its event handler or because consensus closed. There is no expensive context-reload-on-restart path.
 
 **Configuration:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so agents can complete work and stay alive for the full BRC lifecycle) |
-| `max_restarts` | `3` | Maximum restart attempts (passed to `build_consensus_wrapped_command()`). Shared between clean-exit and transient-crash restarts. Bumped from 2 → 3 in issue #2806. |
-| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) to wait for global consensus when this agent has already reached `CONFIRMED` |
-| `TRANSIENT_RESTART_BACKOFF_INITIAL` | `5` | Initial backoff delay (seconds) before restarting after a transient crash. Doubles after each crash restart, capped at 30 s. Clean-exit restarts skip the backoff. |
+| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so per-event agent invocations have headroom; the wrapper-side loop never reaches this cap because per-event exits are short-lived). |
+| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) for the legacy "already-confirmed" guard preserved for race-window safety when the wrapper observes `role_complete` between polls. |
+| `TRANSIENT_RESTART_BACKOFF_INITIAL` | `5` | Initial backoff delay (seconds) before restarting after a transient infrastructure crash (134/136/137/139/255). Doubles after each crash restart, capped at 30 s. Clean per-event exits do not trigger backoff. |
 | `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) during which exit code 1 is classified as a transient startup failure and retried. Set to `0` to disable. |
-| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
+| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Idle / no-progress safety budget in minutes. Replaces the pre-#2908 3-restart FAIL cap; at threshold and `2 ×` threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`) without transitioning the pipeline to FAILED. |
+| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between heartbeat emissions and message polls. |
 
 ## Message Bus
 
@@ -611,20 +607,23 @@ The redacted message preserves enough information for the reviewer to know *who*
 
 > **Why redact instead of withhold?** Previously, the filter dropped `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't evaluated the producer. This created a deadlock: reviewers waiting for a PROPOSE message to discover proposals never received one, because the filter withheld it until they reviewed. Redaction preserves the notification while protecting independent evaluation.
 
-Use `egg-orch consensus` commands to participate in the BRC protocol:
+Use `egg-orch consensus` commands to participate in the BRC protocol. **For any flag carrying free-form prose** — `--summary` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed` on `ack` / `nack` — prefer the `--*-file PATH` or stdin sentinel (`-`) channel over the argv form. The argv form still works but now emits a deprecation warning; the file/stdin channels are mandatory in any wrapper bash that composes the CLI invocation, because shell metacharacters (`$VAR`, backticks, `;`, `&&`, embedded newlines) in the prose are otherwise reinterpreted by the shell before argparse sees them and silently corrupt the verdict. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and [Orchestrator CLI — Prose-bearing args](../reference/orchestrator-cli.md#prose-bearing-args-stdin-and---file-channels-2741) for the full channel table.
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
 # --summary must be ≥50 chars describing what was built, tested, and which contract tasks it satisfies.
 # Boilerplate like "looks good" or "approved" is rejected with HTTP 400.
 git add src/feature.py && git commit -m "Implement feature X"
+printf '%s\n' "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  > .egg-state/agent-outputs/coder-proposal.md
 egg-orch consensus propose --push \
-  --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --summary-file .egg-state/agent-outputs/coder-proposal.md \
   --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
   --tasks task-1-1 task-1-2 --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
 # --files-changed, --tests-run, --tasks are optional but recommended for traceability.
+# Argv `--summary "…"` still works but writes a deprecation warning to stderr — see #2741.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
@@ -632,30 +631,48 @@ git fetch origin && git merge origin/egg/feature-x --no-edit
 # Reviewer: ACK after reviewing
 # --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
 # Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry and invalid-signature handling. All branches covered by tests.
+# Prefer --reason-file (or `--reason -` with stdin) for multi-line prose containing
+# Markdown, backticks, $VAR, or embedded newlines — see #2741.
+cat > /tmp/reviewer-code-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry
+and invalid-signature handling. All branches covered by tests.
 ### Non-blocking
-- **src/feature.py:72** — Consider extracting token_from_header() for readability."
+- **src/feature.py:72** — Consider extracting token_from_header() for readability.
+EOF
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason-file /tmp/reviewer-code-ack.md --ack-version 1
 
-# Reviewer: conditional ACK — work approved but requires a human action before merge
+# Reviewer: conditional ACK — work approved but requires a human action before merge.
 # Use --pre-merge-condition when the work is correct but requires a merge-time action
 # that agents cannot perform (e.g. git mv, secret rotation, config flip in another repo).
 # The obligation is rendered as a "Pre-merge Obligations" section on the PR — do NOT use
 # this to smuggle blocking issues past the producer; NACK if the producer can fix it.
 # --pre-merge-condition is validated like --reason: boilerplate and short values are rejected with 400.
+# Author a distinct review-prose file for the conditional case so the verdict
+# narrative actually matches the obligation (don't re-use the unconditional file).
+cat > /tmp/reviewer-code-cond-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. JWT validation and
+session-management logic are correct end-to-end, and tests cover all branches.
+One file rename cannot be automated by the agent and must be performed by a human
+before merge — captured in --pre-merge-condition below.
+EOF
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Code is correct. One rename cannot be automated." \
+  --reason-file /tmp/reviewer-code-cond-ack.md --ack-version 1 \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
 
-# Reviewer: NACK with structured blocking/non-blocking sections
-egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
+# Reviewer: NACK with structured blocking/non-blocking sections — stdin sentinel form
+egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 1 \
+  --reason - <<'EOF'
 ### Blocking
-1. **src/feature.py:42** — Missing error handling for expired tokens; auth bypass possible. Fix: wrap in try/except and return 401.
+1. **src/feature.py:42** — Missing error handling for expired tokens;
+   auth bypass possible. Fix: wrap in try/except and return 401.
 ### Non-blocking
-- **src/feature.py:18** — Unused import \`datetime\`."
+- **src/feature.py:18** — Unused import `datetime`.
+EOF
 
 # Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
+printf '%s\n' "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py" \
+  | egg-orch consensus withdraw --reason -
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -663,7 +680,27 @@ egg-orch consensus confirmed
 
 # Check consensus status (scopes to $EGG_SLICE_ID automatically in implement phase)
 egg-orch consensus status
+
+# Resolve a reviewer's conditional-ACK obligation in-cycle (#2338).
+# Typically called by the tester after cherry-picking work the coder is gateway-blocked from.
+# --note is prose; pass via --note-file PATH or `--note -` with stdin for any
+# multi-line body, per the same prose-arg rule above.
+cat > /tmp/obligation-resolved.md <<'EOF'
+Cherry-picked the rename commit ($(git rev-parse HEAD)) onto the slice branch on
+the tester's behalf; the gateway accepts the legacy/auth.py → src/auth.py move
+under the tester's role-restriction set, so the original conditional-ACK
+obligation no longer needs to surface on the PR body or the HITL gate.
+EOF
+egg-orch brc resolve-obligation \
+  --reviewer-role reviewer_code \
+  --producer-role coder \
+  --commit-sha $(git rev-parse HEAD) \
+  --note-file /tmp/obligation-resolved.md
 ```
+
+#### `egg-orch brc` — the verb-level read/derive surface
+
+The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler, used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
 
 ### BRC History Persistence
 
@@ -842,7 +879,7 @@ The additional API call in step 5 is negligible — it only runs on the terminal
 
 ### Transient Crash Recovery
 
-Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper attempts to recover from transient runtime crashes (segfaults, OOM kills, SIGABRT). Exit codes 134, 136, 137, 139, and 255 are classified as transient and trigger a restart with exponential backoff (starting at 5 s, doubling up to 30 s). If the transient crash restart succeeds and the agent reaches `CONFIRMED`, the failure is fully recovered at the wrapper level — the orchestrator never sees a failure event. Only when the agent crashes again after exhausting `MAX_CONSENSUS_RESTARTS` does the failure propagate to the orchestrator. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#consensus-wrapper-transient-crash-recovery) for the full exit code classification.
+Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper attempts to recover from transient runtime crashes (segfaults, OOM kills, SIGABRT). Exit codes 134, 136, 137, 139, and 255 are classified as transient and trigger a restart with exponential backoff (starting at 5 s, doubling up to 30 s). If the transient-crash restart succeeds and the agent re-enters the wrapper's event-pump loop (resuming `egg-orch brc get-state` → `next-action`), the failure is fully recovered at the wrapper level — the orchestrator never sees a failure event. Repeated transient crashes inside the same wrapper run are bounded by the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes): the wrapper emits an `OVERSEER_ALERT` at threshold and at `2 ×` threshold but does **not** mark the pipeline FAILED. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` hard cap was deleted in slice-4 alongside the legacy template. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#consensus-wrapper-transient-crash-recovery) for the full exit code classification.
 
 ### Agent Failure During Consensus
 
