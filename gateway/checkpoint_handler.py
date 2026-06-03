@@ -385,6 +385,14 @@ def _resolve_remote_token(
     internal store (its ``auth_mode`` defaults to ``bot``), which does have
     access.
 
+    Deployment assumption: the checkpoint repo must be reachable by the egg
+    App installation (or, equivalently, by whatever identity backs the
+    repo's configured ``auth_mode`` in ``repositories.yaml``). If a
+    deployment ever configures the checkpoint repo with ``auth_mode=user``,
+    this helper will return that user PAT and the same scoping bug returns
+    — point ``checkpoint_repo`` at a store the App can write, or install
+    the App on that repo.
+
     Falls back to the source-repo token when no separate checkpoint repo is
     set (same-repo storage) or when a dedicated token cannot be resolved.
     """
