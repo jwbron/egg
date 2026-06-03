@@ -180,30 +180,27 @@ Agents that exit 1 after the startup window (i.e., after doing real work) are st
 
 All other non-zero exit codes (2, 3, 42, etc.) that are neither signal-transient nor exit 1 are treated as permanent failures with no restart.
 
-### Restart with Backoff
+### Crash Handling in the Event-Pump Wrapper
 
-When a transient crash or startup failure is detected, the wrapper:
+In the event-pump model (default since #2908 slice-4), the classifiers above
+are retained as named helpers in the wrapper bash template. A non-zero exit
+from the agent during a `propose|ack|nack` event invocation increments an
+internal consecutive-failure counter; the idle-budget escalation path
+(`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min) emits `OVERSEER_ALERT` when no
+actionable event arrives for the budget duration. The old `MAX_CONSENSUS_RESTARTS`
+restart cap and `_RECOVERY_SYSTEM_PROMPT` recovery loop were deleted in slice-4.
 
-1. Logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."`
-2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
-3. Restarts the agent via the same recovery loop used for clean-exit restarts (with BRC state, NACK feedback, and anchor state injected into the recovery system prompt)
-4. Doubles the backoff after each crash restart (capped at 30 seconds)
-5. Shares the `MAX_CONSENSUS_RESTARTS` (default: 3) cap with clean-exit restarts
+### Crash exit-code classification (current behaviour)
 
-Clean-exit restarts (exit code 0) do not incur any backoff delay.
+| Exit code | Classifier | Current event-pump handling |
+|-----------|------------|-----------------------------|
+| Segfault (exit 139/255) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| SDK buffer overflow (exit 255 + overflow marker) | `is_buffer_overflow` | Wrapper exits immediately; loop does not retry on next event |
+| OOM kill (exit 137) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| API/network error at startup (exit 1, age &lt; 30s) | `is_startup_failure` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| Application error (exit 1, age &ge; 30s) | *(none)* | Increments consecutive-failure counter; idle-budget escalation emits alert |
 
-### Before and After
-
-| Behavior | Before | After |
-|----------|--------|-------|
-| Segfault (exit 139/255) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
-| SDK buffer overflow (exit 255 + overflow marker) | Classified as transient, burns restart budget | Detected by `is_buffer_overflow()`, exits immediately without retrying |
-| OOM kill (exit 137) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
-| API/network error at startup (exit 1, age &lt; 30s) | `NOT restarting` — immediate failure | Classified as startup failure, restarted with backoff |
-| Application error (exit 1, age &ge; 30s) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
-| Pipeline impact | Single crash kills pipeline | Transient crashes recovered; pipeline continues |
-
-This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
+The exit-code classifiers were added in [issue #1512](https://github.com/jwbron/egg/issues/1512). In the capped-restart era they drove a restart-with-backoff path; since slice-4 (#2908) they are retained as named helpers but the event-pump's consecutive-failure counter + `EGG_BRC_IDLE_BUDGET_MIN` escalation is the primary operator-visible signal rather than per-crash branching.
 
 ## Agent-Level Restart
 
@@ -387,9 +384,9 @@ Operators replaying a recovery ref should fetch and cherry-pick promptly: a reco
 | Agent fails, error is retryable, retries remain | `AgentRetryManager`: retry with backoff |
 | Agent fails, error not retryable | Escalate to HITL (MANUAL policy) |
 | Agent fails, max retries exceeded | Escalate to HITL |
-| Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
-| Startup failure in consensus wrapper (exit 1 within 30s) | Restart with exponential backoff (treated as transient API/network error) |
-| Non-transient crash in consensus wrapper (exit 1 after 30s) | Immediate failure, no restart |
+| Transient crash in consensus wrapper (segfault, OOM) | Increments consecutive-failure counter; idle-budget escalation emits `OVERSEER_ALERT` — no restart cap |
+| Startup failure in consensus wrapper (exit 1 within 30s) | Increments consecutive-failure counter; classified as transient API/network error |
+| Non-transient crash in consensus wrapper (exit 1 after 30s) | Increments consecutive-failure counter; idle-budget handles escalation |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
 | Overseer detects restartable infra error (unresponsive, crashed, OOM, timeout, hung) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
 | Overseer detects non-restartable infra error (permission denied, EROFS, filesystem) | Escalate to HITL (bypasses restart) |
