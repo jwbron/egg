@@ -1,0 +1,61 @@
+{
+  "_meta": {
+    "schema_version": "1",
+    "captured_at": "2026-06-03T01:30:00+00:00",
+    "issue": 2908,
+    "slice": "slice-5",
+    "pipeline_id": "synthetic-placeholder",
+    "synthetic": true,
+    "synthetic_reason": "Placeholder committed at slice-5 close because the capture test integration_tests/test_mcp_baseline_capture.py requires a kubectl-backed k3s cluster which is unavailable in the agent sandbox. Regenerate before slice-6 TASK-6-6 compares MCP-vs-CLI latency: `pytest integration_tests/test_mcp_baseline_capture.py` on a host with kubectl + real LLM credentials wired through egg-litellm. The synthetic samples below let slice-6 author its comparison-test plumbing without blocking on a real capture.",
+    "egg_git_sha": ""
+  },
+  "samples": [
+    {
+      "role": "coder",
+      "event_type": "agent.completed",
+      "start_ts": "2026-06-03T01:30:00+00:00",
+      "end_ts": "2026-06-03T01:34:30+00:00",
+      "duration_seconds": 270.0,
+      "exit_code": 0
+    },
+    {
+      "role": "documenter",
+      "event_type": "agent.completed",
+      "start_ts": "2026-06-03T01:30:00+00:00",
+      "end_ts": "2026-06-03T01:32:00+00:00",
+      "duration_seconds": 120.0,
+      "exit_code": 0
+    },
+    {
+      "role": "tester",
+      "event_type": "agent.completed",
+      "start_ts": "2026-06-03T01:30:00+00:00",
+      "end_ts": "2026-06-03T01:33:30+00:00",
+      "duration_seconds": 210.0,
+      "exit_code": 0
+    },
+    {
+      "role": "reviewer_code",
+      "event_type": "agent.completed",
+      "start_ts": "2026-06-03T01:30:00+00:00",
+      "end_ts": "2026-06-03T01:32:30+00:00",
+      "duration_seconds": 150.0,
+      "exit_code": 0
+    },
+    {
+      "role": "reviewer_contract",
+      "event_type": "agent.completed",
+      "start_ts": "2026-06-03T01:30:00+00:00",
+      "end_ts": "2026-06-03T01:32:15+00:00",
+      "duration_seconds": 135.0,
+      "exit_code": 0
+    }
+  ],
+  "aggregate": {
+    "n": 5,
+    "p50_seconds": 150.0,
+    "p95_seconds": 270.0,
+    "max_seconds": 270.0,
+    "sum_seconds": 885.0
+  }
+}
