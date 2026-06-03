@@ -735,23 +735,31 @@ class TestSliceIntegrationBranchExemption:
         is never consulted on this path.
 
         To actually pin the exemption-precedence invariant — that the
-        ``is_infrastructure_push = True`` flip at
-        ``gateway.py:1349`` wins over the role-keyed restriction gate
-        at ``gateway.py:1610`` — the test overrides ``_push_context``'s
-        empty-diff default with a non-empty changed-file list and stubs
-        attribution to fail-closed (empty range with error).  Under
-        attribution_fallback every file is treated as own-authored, and
-        the real ``partition_files_by_role`` consulted at
-        ``gateway.py:1714`` returns the full diff in ``blocked_own``
-        because the orchestrator role's ``allowed_patterns == []``
-        deny-all rule rejects every path.  The only thing that makes
-        this push 200 instead of 403 is the synthetic+slice exemption
-        flipping ``is_infrastructure_push`` *before* the gate evaluates
-        its ``not is_infrastructure_push`` clause — so a regression
-        removing that flip for the orchestrator-role path would surface
-        here as a ``restricted_path_modified`` 403 (the same shape
+        ``is_infrastructure_push = True`` flip inside the
+        ``_SLICE_INTEGRATION_BRANCH_RE`` branch wins over the role-keyed
+        restriction gate (``if session_role and changed_files and not
+        is_infrastructure_push:``) — the test overrides
+        ``_push_context``'s empty-diff default with a non-empty
+        changed-file list and stubs attribution to fail-closed (empty
+        range with error).  Under ``attribution_fallback`` every file
+        is treated as own-authored, and the real
+        ``partition_files_by_role`` returns the full diff in
+        ``blocked_own`` because the orchestrator role's
+        ``allowed_patterns == []`` deny-all rule rejects every path.
+        The only thing that makes this push 200 instead of 403 is the
+        synthetic+slice exemption flipping ``is_infrastructure_push``
+        *before* the gate evaluates its ``not is_infrastructure_push``
+        clause — so a regression removing that flip for the
+        orchestrator-role path would surface here as a
+        ``restricted_path_modified`` 403 (the same shape
         ``test_coder_role_blocked_from_contracts`` asserts in
         ``test_push_error_enrichment.py``), not a silent 200.
+
+        Symbol references rather than line numbers are used throughout
+        because ``gateway.py`` is queued for decomposition in
+        ``#2261`` slice-14 (see ``gateway/CLAUDE.md`` Submodule seam
+        tables) — line numbers will rot, named symbols will move with
+        the code.
         """
         session = _make_session(
             role="orchestrator",
@@ -759,9 +767,11 @@ class TestSliceIntegrationBranchExemption:
             assigned_branch="egg/issue-2919/slice-1",
         )
         patches = _push_context(session)
-        # Force the role-keyed restriction gate at gateway.py:1610 to
-        # be reachable: it short-circuits on empty ``changed_files``,
-        # so without a non-empty diff the ``is_infrastructure_push``
+        # Force the role-keyed restriction gate (the
+        # ``if session_role and changed_files and not
+        # is_infrastructure_push:`` block in ``gateway.py``) to be
+        # reachable: it short-circuits on empty ``changed_files``, so
+        # without a non-empty diff the ``is_infrastructure_push``
         # clause is never load-bearing and the test would pass even
         # under a regression that removed the orchestrator-role flip.
         diff_files = ["orchestrator/synthetic_slice_push.py"]
@@ -778,12 +788,15 @@ class TestSliceIntegrationBranchExemption:
                 "get_changed_files_in_push",
                 return_value=(diff_files, None),
             ),
-            # Force ``attribution_fallback`` so every file in the diff is
-            # treated as own-authored and reaches ``partition_files_by_role``
-            # under the orchestrator role's deny-all pattern.  If the
-            # ``is_infrastructure_push`` short-circuit ever stopped firing
-            # for this path, that partition would reject every file and the
-            # gate would return 403, not 200.
+            # Force ``attribution_fallback`` (the
+            # ``bool(attributed_push.error or not attributed_push.commits)``
+            # gate) so every file in the diff is treated as own-authored
+            # and reaches ``partition_files_by_role`` under the
+            # orchestrator role's deny-all pattern.  If the
+            # ``is_infrastructure_push`` short-circuit inside the
+            # ``_SLICE_INTEGRATION_BRANCH_RE`` branch ever stopped
+            # firing for this path, that partition would reject every
+            # file and the gate would return 403, not 200.
             patch.object(
                 git_client,
                 "get_attributed_changed_files_in_push",
