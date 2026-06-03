@@ -194,6 +194,7 @@ try:
     )
     from ..kubernetes_client import (
         LABEL_PIPELINE_ID,
+        LABEL_SLICE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -248,6 +249,7 @@ except ImportError:
     )
     from kubernetes_client import (  # type: ignore
         LABEL_PIPELINE_ID,
+        LABEL_SLICE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -294,6 +296,7 @@ from lifecycle_auth import require_lifecycle_secret
 if TYPE_CHECKING:
     from egg_container import MountSpec
     from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+    from egg_contracts.models import Slice as ContractSlice
 
     try:
         from ..container_spawner import ContainerSpawner
@@ -1020,6 +1023,45 @@ def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> i
                 error=str(e),
             )
         return None
+
+
+def _slice_agents_alive(spawner: Any, pipeline_id: str, slice_id: str) -> bool:
+    """Check if any live agents exist for a slice (#2914).
+
+    Returns ``True`` if at least one pod labeled with the pipeline and
+    slice IDs is in a live state (Pending/Creating/Running). Returns
+    ``False`` if zero live pods or if the label query fails — the
+    conservative default forces re-spawn rather than risking a wedge.
+
+    Caller contract: callers must have already torn down stale cohorts
+    with foreground propagation (e.g. ``restart_phase`` step 4 calls
+    ``remove_agent_container(force=True)``). A pod whose Job is being
+    deleted but is still in its termination grace period still reports
+    ``phase=Running`` (``kubernetes_client.py`` maps Running → RUNNING
+    without a Terminating-specific status), so without foreground
+    teardown the helper can false-positive against terminating pods
+    and wedge again. The ``spawner`` is taken as a parameter (rather
+    than fetched via ``_get_spawner``) so tests can inject a stub
+    directly, paralleling how ``_classify_non_complete_slice``
+    receives ``gateway``.
+    """
+    try:
+        pods = spawner.backend.list_containers(
+            labels={
+                LABEL_PIPELINE_ID: pipeline_id,
+                LABEL_SLICE_ID: slice_id,
+            },
+        )
+        live_count = sum(1 for p in pods if p.status in _LIVE_POD_STATUSES)
+        return live_count > 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Slice liveness check failed; treating as not-alive to force re-spawn (#2914)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(e),
+        )
+        return False
 
 
 def _guard_live_pods_or_force(
@@ -10285,7 +10327,7 @@ def _resolve_slice_base_branch(
     pipeline_id: str,
     pipeline_branch: str,
     extant_branches: set[str] | None = None,
-    merge_base_lookup: Callable[[str, str], str | None] | None = None,
+    parent_branch_exists: Callable[[str], bool] | None = None,
 ) -> str:
     """Return the parent branch for a slice's integration branch (#2777, cq-9).
 
@@ -10300,34 +10342,40 @@ def _resolve_slice_base_branch(
        return it. This is the primary path post-slice-4 — slices
        created after the eager persist landed always go through
        this arm.
-    2. **Merge-base fallback (slice-4 TASK-4-3)**. For legacy /
-       orphaned slices whose ``parent_branch_at_creation`` is empty,
-       when a ``merge_base_lookup`` callback is provided, compute
-       the merge-base SHA of the slice's integration branch against
-       the dependency-derived parent. If the merge-base resolves
-       (slice has a valid fork point and ancestor exists), the
-       slice has real commits — fall through to the dependency-
-       derived parent below as the legacy-correct stack target.
-       If the merge-base does NOT resolve (no fork point — either
-       the integration branch never existed on origin, or its
-       parent has been deleted), fall back to ``pipeline_branch``.
-       The merge-base SHA is logged for audit but not returned as
-       the resolver's value: downstream consumers
-       (``create_slice_integration_branch``,
-       ``is_slice_branch_merged_into_parent``) take branch names
-       and resolve to SHA via ``get_remote_branch_sha`` on the
-       gateway side, so returning a SHA here would break the
-       ``refs/heads/<name>`` ls-remote step at
-       ``gateway_client.py:~2288``. The merge-base call's role
-       is to VALIDATE the legacy ancestor before returning the
-       branch name — a structural improvement over the
-       pre-TASK-4-3 path which blindly returned the derived
-       parent.
+    2. **Dependency-derived parent, gated on parent existence
+       (#2928)**. For a non-root slice whose
+       ``parent_branch_at_creation`` is empty (the normal first-run
+       case), the stack target is its dependency parent's
+       integration branch ``{issue_branch}/{dependencies[0]}``. When
+       a ``parent_branch_exists`` callback is provided, the resolver
+       probes whether that parent branch is still present on origin:
+
+       * parent branch **exists** → return the dependency-derived
+         parent. This is the correct target for both fresh slices
+         (whose own integration branch does not exist yet) and
+         legacy slices.
+       * parent branch **absent** → the parent slice's PR was merged
+         into ``work`` and its branch deleted by the cascade, so
+         ``work`` already contains the parent's commits. Fall back
+         to ``pipeline_branch``.
+       * probe **raises** → conservative default: assume the parent
+         exists and return the derived parent. Never silently swap a
+         real slice onto ``work`` because of a flaky gateway.
+
+       This replaces the pre-#2928 merge-base check, which probed the
+       *slice's own* integration branch for a fork point and routed a
+       ``None`` result (no fork point) to ``pipeline_branch``. That
+       conflated a FRESH slice (integration branch not yet created —
+       the common first-run case) with a genuinely orphaned slice,
+       silently mis-basing fresh slices onto ``work`` whenever
+       ``work`` had advanced ahead of the parent (the wedge in
+       #2928).
     3. **Final fallback** to ``pipeline_branch`` (``egg/<id>/work``)
        when (a) no eager-persisted parent, (b) the slice is a root
-       (no dependencies), OR (c) the merge-base lookup reports no
-       fork point. Root-targeted branches are never deleted by the
-       cascade so this is always a safe terminal candidate.
+       (no dependencies), OR (c) the slice's dependency parent branch
+       is absent from origin. Root-targeted branches are never
+       deleted by the cascade so this is always a safe terminal
+       candidate.
 
     **Orphan-reconciler mode (``extant_branches`` non-None)**: the
     stacked-PR reconciler at ``orchestrator/stacked_pr_reconciler.py``
@@ -10356,19 +10404,33 @@ def _resolve_slice_base_branch(
             this set and skips any that are absent. The reconciler
             uses this to escape from the deleted parent branch up the
             DAG until an extant ancestor is reached.
-        merge_base_lookup: Optional callback used by slice-4
-            TASK-4-3's merge-base fallback. When provided, the
-            resolver invokes ``merge_base_lookup(ref_a, ref_b)``
-            with the slice's integration branch and the derived
-            parent's ``refs/remotes/origin/<parent_branch>``-shaped
-            ref. A non-None SHA return validates the legacy
-            ancestor; a ``None`` return indicates no fork point
-            and routes to ``pipeline_branch``. The default
-            ``_run_one_slice_inner`` caller wires this against
-            ``spawner.gateway.merge_base``; the stacked-PR
-            reconciler leaves it ``None`` (it has already
+        parent_branch_exists: Optional callback (#2928) used to
+            decide whether a non-root slice's dependency parent
+            branch is still on origin. When provided, the resolver
+            invokes ``parent_branch_exists(parent_branch)`` with the
+            dependency-derived parent branch name. ``True`` returns
+            the derived parent; ``False`` routes to
+            ``pipeline_branch`` (parent merged + cascade-deleted); a
+            raised exception is treated conservatively as ``True``.
+            The default ``_run_one_slice_inner`` caller wires this
+            against ``spawner.gateway.ls_remote_branch_strict`` — the
+            strict variant is required so a gateway / network /
+            policy failure RAISES into this resolver's ``try/except``
+            instead of being collapsed to ``False`` (which would
+            silently route a real slice onto ``pipeline_branch`` on
+            any gateway flake — re-creating the #2928 wedge). The
+            stacked-PR reconciler leaves it ``None`` (it has already
             verified extant branches via the ``extant_branches``
             set).
+
+            Mutually exclusive with ``extant_branches`` in practice:
+            the production caller (``_run_one_slice_inner``) passes
+            only this gate, and the stacked-PR reconciler passes only
+            ``extant_branches``. If a future caller passed both, this
+            gate would short-circuit to ``pipeline_branch`` on a
+            ``False`` return BEFORE the ``extant_branches`` walk
+            could find an extant ancestor; callers that have already
+            built the extant set should leave this ``None``.
 
     Returns:
         The branch name to use as the slice integration branch's
@@ -10426,60 +10488,56 @@ def _resolve_slice_base_branch(
     # the existing ``f"{issue_branch}/{parent_slice_id}"`` convention
     # at the legacy slice-loop call site.
     issue_branch = _slice_namespace_root(pipeline_branch)
+    derived_parent = f"{issue_branch}/{parent_slice_id}"
 
-    # Slice-4 TASK-4-3: merge-base fallback for orphaned / legacy
-    # slices. When eager-persist did not land (``parent_recorded``
-    # empty above) AND a ``merge_base_lookup`` callback is provided,
-    # compute ``git merge-base <integration_branch> <derived_parent>``
-    # to validate the legacy ancestor. A non-None SHA confirms the
-    # slice has a real fork point — fall through to the
-    # dependency-derived parent below as the legacy-correct stack
-    # target. A None SHA means no fork point (the slice's branch
-    # never existed on origin, OR its parent has been deleted, OR
-    # the two refs share no common history). In that case fall
-    # back to ``pipeline_branch`` so downstream
-    # ``create_slice_integration_branch`` has a stable parent.
-    if merge_base_lookup is not None:
-        integration_branch = f"{issue_branch}/{slice_id}"
-        derived_parent_ref = f"refs/remotes/origin/{issue_branch}/{parent_slice_id}"
-        integration_ref = f"refs/remotes/origin/{integration_branch}"
+    # #2928: parent-existence gate. When eager-persist did not land
+    # (``parent_recorded`` empty above) AND a ``parent_branch_exists``
+    # callback is provided, decide between the dependency-derived
+    # parent and ``pipeline_branch`` by probing whether the parent
+    # slice's integration branch is still on origin — NOT by probing
+    # the slice's own branch for a fork point.
+    #
+    # The pre-#2928 implementation computed
+    # ``merge_base(integration_branch, derived_parent)`` and routed a
+    # ``None`` result to ``pipeline_branch``. That conflated a FRESH
+    # slice (its integration branch is created *after* this resolver
+    # runs, so it has no fork point on the first run — the common
+    # case) with a genuinely orphaned slice, silently mis-basing
+    # fresh slices onto ``work`` whenever ``work`` had advanced ahead
+    # of the parent (e.g. a stray contract-state commit on ``work``).
+    # The correct discriminator is parent-branch existence:
+    #
+    #   * parent exists  → stack on it (fresh OR legacy slice).
+    #   * parent absent  → the parent PR merged into ``work`` and its
+    #     branch was cascade-deleted, so ``work`` already contains the
+    #     parent's commits → ``pipeline_branch`` is the right base.
+    #   * probe raises    → conservative: assume the parent exists and
+    #     return the derived parent; never silently swap a real slice
+    #     onto ``work`` because the gateway was flaky.
+    if parent_branch_exists is not None:
         try:
-            mb_sha = merge_base_lookup(integration_ref, derived_parent_ref)
+            exists = parent_branch_exists(derived_parent)
         except Exception as probe_err:  # noqa: BLE001
-            # Probe failure (gateway down, transient HTTP, missing
-            # local odb). Conservative default: assume the slice
-            # has a fork point and fall through to the derived
-            # parent — never silently swap to ``pipeline_branch``
-            # if we can't confirm the slice is truly orphaned.
             logger.warning(
-                "merge_base_lookup probe raised; falling through "
-                "to dependency-derived parent (slice-4 TASK-4-3)",
+                "parent_branch_exists probe raised; assuming parent "
+                "exists and returning dependency-derived parent (#2928)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                integration_ref=integration_ref,
-                derived_parent_ref=derived_parent_ref,
+                derived_parent=derived_parent,
                 error=str(probe_err),
             )
-            mb_sha = "skipped"  # sentinel: treat as "has fork point"
-        if mb_sha is None:
-            logger.info(
-                "Slice has no merge-base with derived parent; falling back "
-                "to pipeline branch (slice-4 TASK-4-3)",
+            exists = True
+        if not exists:
+            logger.warning(
+                "Dependency-parent branch absent on origin; parent "
+                "appears merged into work — basing slice on pipeline "
+                "branch (#2928)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                integration_ref=integration_ref,
-                derived_parent_ref=derived_parent_ref,
+                derived_parent=derived_parent,
                 pipeline_branch=pipeline_branch,
             )
             return pipeline_branch
-        if mb_sha != "skipped":
-            logger.debug(
-                "Merge-base validated for legacy slice; using derived parent (slice-4 TASK-4-3)",
-                pipeline_id=pipeline_id,
-                slice_id=slice_id,
-                merge_base_sha=mb_sha,
-                derived_parent=f"{issue_branch}/{parent_slice_id}",
-            )
 
     # Default mode (no extant filter): return the immediate parent
     # branch synthesised from the slice DAG. This is the unchanged
@@ -15945,6 +16003,7 @@ def _run_implement_phase_slices(
     bootstrap_consensus_complete: list[str] = []
     bootstrap_blocked: list[str] = []
     bootstrap_corrupt: list[str] = []
+    bootstrap_reclassified_fresh: list[str] = []  # resume-but-dead → fresh (#2914)
     layer_b_marked_complete = set(bootstrap_merged)
     for s in layer_b_candidates:
         if s.id in layer_b_marked_complete:
@@ -15977,8 +16036,21 @@ def _run_implement_phase_slices(
             bootstrap_consensus_complete.append(s.id)
             continue
         if classification == "resume":
-            scheduler.mark_spawned(s.id)
-            bootstrap_resumed.append(s.id)
+            # Verify agents are actually live before marking as spawned (#2914).
+            # On restart_phase, agents were torn down but contract still shows
+            # IN_PROGRESS with commits — we must not mark_spawned when cohort
+            # is absent, or the pipeline wedges with no agents running.
+            if _slice_agents_alive(spawner, pipeline_id, s.id):
+                scheduler.mark_spawned(s.id)
+                bootstrap_resumed.append(s.id)
+            else:
+                logger.warning(
+                    "Layer-C resume classification but no live agents; "
+                    "treating as fresh to force re-spawn (#2914)",
+                    pipeline_id=pipeline_id,
+                    slice_id=s.id,
+                )
+                bootstrap_reclassified_fresh.append(s.id)
             continue
         if classification == "blocked":
             bootstrap_blocked.append(s.id)
@@ -15995,13 +16067,25 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
-    if bootstrap_resumed or bootstrap_consensus_complete or bootstrap_blocked or bootstrap_corrupt:
+    if (
+        bootstrap_resumed
+        or bootstrap_consensus_complete
+        or bootstrap_blocked
+        or bootstrap_corrupt
+        or bootstrap_reclassified_fresh
+    ):
         # NOTE: include ``bootstrap_blocked`` in the gate (reviewer_code
         # v3 NACK fix) — a bootstrap pass whose only Layer-C activity is
         # BLOCKED slices was previously suppressing the audit-trail line
         # entirely. Case-4 escalation still fires, but operators need
         # the structured "we saw a blocked slice" log to spot
         # pending-HITL backlogs without grepping for the side-effect.
+        #
+        # Also include ``bootstrap_reclassified_fresh`` (#2914) — resume-
+        # classified slices that were re-verified against k8s and found
+        # to have no live agents. Surfacing the reclassification here
+        # gives operators a structured audit trail for the
+        # ``restart_phase``-recovery path.
         logger.info(
             "Slice bootstrap reconciliation classified non-COMPLETE slices (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
@@ -16009,6 +16093,7 @@ def _run_implement_phase_slices(
             consensus_complete_unrecorded=bootstrap_consensus_complete,
             blocked=bootstrap_blocked,
             corrupt=bootstrap_corrupt,
+            reclassified_fresh=bootstrap_reclassified_fresh,
         )
     # Case 5 — escalate via HITL so the pipeline pauses until the
     # operator picks an option (reviewer_contract / reviewer_code v1
@@ -16138,68 +16223,39 @@ def _run_implement_phase_slices(
                 # ``pipeline_branch`` like every other root slice — the
                 # work-branch context PR's diff already encompasses the
                 # slice-1 integration branch via ancestry.
-                # Slice-4 TASK-4-3: wire a merge-base lookup callback
-                # so the resolver can validate the legacy ancestor
-                # when ``parent_branch_at_creation`` is empty. The
-                # callback FETCHES both refs first (reviewer_code v2
-                # blocker 5 — without the prior fetch, a transient
-                # local-odb-lag returns None and silently swaps the
-                # slice's stack target onto ``pipeline_branch``).
-                # ``fetch_branch`` is best-effort (returns False on
-                # gateway failure but does not raise); the merge-base
-                # call then operates on whatever the local odb has
-                # post-fetch. A non-None SHA confirms the slice has a
-                # real fork point; a None SHA (after the fetch
-                # succeeded) tells the resolver to fall back to
-                # ``pipeline_branch``. Repoless test scaffolds short-
-                # circuit before the fetch and return None directly
-                # (matches the Layer-C classifier's behaviour for
-                # ``pipeline_repo is None``).
-                def _probe_merge_base(ref_a: str, ref_b: str) -> str | None:
+                # #2928: wire a parent-branch-existence probe so the
+                # resolver can tell a FRESH non-root slice (whose
+                # dependency parent branch is still on origin → stack
+                # on it) apart from an orphaned one (parent merged
+                # into ``work`` and cascade-deleted → base on
+                # ``pipeline_branch``). This replaces the pre-#2928
+                # merge-base probe, which probed the slice's OWN
+                # integration branch — non-existent on a first run —
+                # and so mis-routed every fresh non-root slice onto
+                # ``work`` whenever ``work`` had advanced ahead of the
+                # parent. Repoless test scaffolds short-circuit to
+                # ``True`` (no origin to check; the derived parent is
+                # the correct DAG target), mirroring the resolver's
+                # conservative "assume parent exists" default.
+                #
+                # IMPORTANT: this wrapper calls the STRICT ls-remote
+                # variant (``ls_remote_branch_strict``) so a gateway /
+                # network / policy failure RAISES into the resolver's
+                # ``try/except`` instead of being collapsed to
+                # ``False``. The lenient ``ls_remote_branch`` /
+                # ``get_remote_branch_sha`` helpers swallow all
+                # exceptions and return ``False`` / ``None`` for both
+                # "branch absent" AND "gateway error" — using either
+                # here would silently route a real slice onto
+                # ``pipeline_branch`` on a flaky gateway, re-creating
+                # the #2928 wedge that this PR claims to fix.
+                def _probe_parent_branch_exists(parent_branch: str) -> bool:
                     if not pipeline.repo:
-                        return None
-                    # Best-effort fetch of both refs into the local
-                    # odb so ``git merge-base`` can find them. Each
-                    # fetch_branch call is wrapped in try/except so a
-                    # gateway error on one ref doesn't skip the
-                    # second; the merge-base call below tolerates a
-                    # missing ref via returncode 1 → None return.
-                    for _ref in (ref_a, ref_b):
-                        # Strip ``refs/remotes/origin/`` to derive the
-                        # branch name the fetch refspec wants; the
-                        # merge-base call uses the remote-tracking ref
-                        # (which the fetch populates), not the bare
-                        # branch name.
-                        _branch = _ref
-                        for _pfx in (
-                            "refs/remotes/origin/",
-                            "refs/heads/",
-                        ):
-                            if _branch.startswith(_pfx):
-                                _branch = _branch[len(_pfx) :]
-                                break
-                        try:
-                            spawner.gateway.fetch_branch(
-                                pipeline_id,
-                                str(worktree_repo_path),
-                                args=[f"+refs/heads/{_branch}:refs/remotes/origin/{_branch}"],
-                                mode=gateway_mode,  # type: ignore[arg-type]
-                            )
-                        except Exception as fetch_err:  # noqa: BLE001
-                            logger.debug(
-                                "Pre-merge-base fetch failed (best-effort); "
-                                "merge_base will proceed against the existing "
-                                "local odb (slice-4 TASK-4-3)",
-                                pipeline_id=pipeline_id,
-                                slice_id=slice_id,
-                                ref=_branch,
-                                error=str(fetch_err),
-                            )
-                    return spawner.gateway.merge_base(
+                        return True
+                    return spawner.gateway.ls_remote_branch_strict(
                         pipeline_id,
                         str(worktree_repo_path),
-                        ref_a,
-                        ref_b,
+                        f"refs/heads/{parent_branch}",
                         mode=gateway_mode,  # type: ignore[arg-type]
                     )
 
@@ -16208,7 +16264,7 @@ def _run_implement_phase_slices(
                     slice_id,
                     pipeline_id=pipeline_id,
                     pipeline_branch=pipeline_branch,
-                    merge_base_lookup=_probe_merge_base,
+                    parent_branch_exists=_probe_parent_branch_exists,
                 )
                 integration_branch = f"{issue_branch}/{slice_id}"
 
@@ -19603,6 +19659,103 @@ def _populate_contract_from_plan_safe(
         return PopulateResult(PopulateOutcome.UNEXPECTED_EXCEPTION)
 
 
+def _merge_preserved_slice_runtime(
+    new_slices: "list[ContractSlice]",  # noqa: UP037
+    old_slices: "list[ContractSlice]",  # noqa: UP037
+) -> None:
+    """Carry runtime slice/task state from ``old_slices`` onto ``new_slices`` in place.
+
+    ``_populate_contract_from_plan`` re-parses the plan markdown into a
+    fresh set of slices on every call — and its safety-net caller fires
+    on *every* ``start_phase=implement`` restart (deliberately outside
+    the ``contract_synced`` guard). The plan is the source of truth for
+    slice/task STRUCTURE (names, descriptions, dependencies, acceptance
+    criteria); it always parses back as ``PENDING`` with the runtime
+    bookkeeping fields unset. Blindly assigning ``contract.slices =
+    <freshly parsed>`` therefore wipes every slice the slice loop had
+    already advanced — resetting COMPLETE slices to PENDING and dropping
+    the ``parent_branch_at_creation`` / ``integration_base_sha`` a real
+    run stamped — so a restarted pipeline re-runs slice-1 forever and can
+    never reach slice-2 (#2908).
+
+    Mirroring the PR-metadata preservation a few lines down in the
+    caller, this merges by slice id (and by task id within a slice): the
+    plan supplies STRUCTURE while RUNTIME state survives a re-populate.
+    Unmatched ids (a re-plan that adds or removes slices/tasks) simply
+    keep the plan's fresh ``PENDING`` defaults.
+
+    Task-level runtime fields covered (each is durably written by a
+    runtime path that the plan parser cannot reconstruct):
+
+    - ``status``, ``commit``, ``checkpoint_id``, ``review_cycles``,
+      ``escalated``, ``gaps`` — slice-loop / reviewer / tester
+      bookkeeping.
+    - ``role`` + ``delegation_attempts`` — paired SYSTEM-owned
+      impasse-delegation state. ``impasse_routing.py`` flips
+      ``task.role`` to the suggested alternative and bumps
+      ``delegation_attempts`` in the same ``apply_mutation`` cycle
+      under ``Role.SYSTEM`` (only SYSTEM owns these two fields); the
+      slice-loop dispatcher then routes the task to the new role.
+      Preserving the counter without the role would re-spawn the
+      original producer on restart and trip ``DELEGATION_LIMIT`` on
+      the next impasse, escalating to HITL even though no delegation
+      visibly happened — so both fields must survive together.
+    - ``notes`` — APPLIER writes Won't-Do drain failure reasons here
+      (``pipelines.py`` Won't-Do path) and agents write implementation
+      narrative via ``mcp__task__update_notes`` / ``egg-contract
+      update-notes``; the plan parser always emits ``""``.
+    - ``jira_action_status`` — APPLIER advances ``pending`` →
+      ``in_flight`` → ``applied``/``failed`` (#1557 risk_analyst R7);
+      idempotency depends on ``applied`` surviving re-populate so the
+      next apply skips it instead of re-creating the Jira issue.
+    - ``jira_key`` — APPLIER writes the freshly-allocated key back after
+      a ``create`` action so re-runs skip the create; plan parser emits
+      ``None`` on ``create`` actions, so re-populate would otherwise
+      strand the applier into creating duplicate tickets.
+    """
+    old_by_id = {s.id: s for s in (old_slices or [])}
+    for new_slice in new_slices:
+        old_slice = old_by_id.get(new_slice.id)
+        if old_slice is None:
+            continue
+        # Slice-level runtime state stamped by ``_run_one_slice_inner``
+        # and the bootstrap reconciler — never re-derivable from the plan.
+        new_slice.status = old_slice.status
+        new_slice.parent_branch_at_creation = old_slice.parent_branch_at_creation
+        new_slice.integration_base_sha = old_slice.integration_base_sha
+        new_slice.commit = old_slice.commit
+        new_slice.review_cycles = old_slice.review_cycles
+        # Defensive copy so post-merge mutations of the discarded ``old``
+        # contract don't alias-leak into the live ``new`` contract.
+        new_slice.review_feedback = list(old_slice.review_feedback)
+        new_slice.escalated = old_slice.escalated
+        new_slice.escalation_reason = old_slice.escalation_reason
+        # Task-level runtime state: match by task id so a re-plan that
+        # adds/removes tasks still preserves completion of the survivors.
+        old_tasks_by_id = {t.id: t for t in old_slice.tasks}
+        for new_task in new_slice.tasks:
+            old_task = old_tasks_by_id.get(new_task.id)
+            if old_task is None:
+                continue
+            new_task.status = old_task.status
+            new_task.commit = old_task.commit
+            new_task.checkpoint_id = old_task.checkpoint_id
+            new_task.review_cycles = old_task.review_cycles
+            new_task.escalated = old_task.escalated
+            # Paired SYSTEM-owned impasse-delegation state — preserving
+            # the counter without the role would silently undo the
+            # delegation on restart (see docstring).
+            new_task.role = old_task.role
+            new_task.delegation_attempts = old_task.delegation_attempts
+            new_task.gaps = list(old_task.gaps)
+            # Runtime narrative + applier idempotency anchors. The
+            # plan parser cannot reconstruct any of these — see the
+            # docstring for the per-field invariants.
+            new_task.notes = old_task.notes
+            new_task.jira_action_status = old_task.jira_action_status
+            new_task.jira_key = old_task.jira_key
+
+
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
@@ -19763,6 +19916,11 @@ def _populate_contract_from_plan(
                 # ``plan_review_feedback`` stash above is the durable
                 # signal the reviewer prompt picks up either way.
                 raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
+            # Preserve runtime slice/task progress across re-populates so
+            # the safety-net populator (which fires on every
+            # ``start_phase=implement`` restart) cannot reset COMPLETE
+            # slices to PENDING and strand the pipeline on slice-1 (#2908).
+            _merge_preserved_slice_runtime(contract_slices, contract.slices)
             contract.slices = contract_slices
             changed = True
 
