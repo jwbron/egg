@@ -581,33 +581,45 @@ class PhaseFilter:
         """Get default phase-based file restrictions.
 
         These defaults define which files can be pushed during each phase:
-        - refine: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
-        - plan: Only .egg-state/ files (contracts, drafts, checkpoints, agent-outputs, reviews)
+        - refine: Only .egg-state/ files (drafts, checkpoints, agent-outputs, reviews)
+        - plan: Only .egg-state/ files (drafts, checkpoints, agent-outputs, reviews)
         - implement: Code only, not .egg-state/ (except checkpoints and agent-outputs)
         - pr: Everything
+
+        Contracts are deliberately NOT git-pushable by agents in any phase
+        (#2979). The orchestrator is the sole writer of
+        ``.egg-state/contracts/`` — agents mutate contracts through the
+        ``/api/v1/contract/mutate`` gateway route, which proxies to the
+        orchestrator's ``save_contract`` into the shared pipeline worktree,
+        and the orchestrator is the only process that commits/pushes those
+        files. Permitting agent git-pushes of contracts in refine/plan let a
+        broad ``git add`` land a stale contract snapshot on origin that then
+        conflicts with the orchestrator's authoritative contract commit at the
+        post-phase worktree sync. That divergence is what drove the
+        destructive ``git reset --hard`` reconcile #2979 removed; blocking the
+        push at the source keeps the conflicting path single-writer so the
+        sync rebase only ever replays disjoint paths and reconciles cleanly.
         """
         return {
             PipelinePhase.REFINE: PhaseFileRestriction(
                 allowed_patterns=[
-                    ".egg-state/contracts/*",
                     ".egg-state/drafts/*analysis*",
                     ".egg-state/checkpoints/*",
                     ".egg-state/agent-outputs/*",
                     ".egg-state/reviews/*",
                     ".egg-state/agent-anchors/*",
                 ],
-                description="Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, reviews, and agent anchors",
+                description="Refine phase can only push analysis drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git — #2979)",
             ),
             PipelinePhase.PLAN: PhaseFileRestriction(
                 allowed_patterns=[
-                    ".egg-state/contracts/*",
                     ".egg-state/drafts/*plan*",
                     ".egg-state/checkpoints/*",
                     ".egg-state/agent-outputs/*",
                     ".egg-state/reviews/*",
                     ".egg-state/agent-anchors/*",
                 ],
-                description="Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, reviews, and agent anchors",
+                description="Plan phase can only push plan drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git — #2979)",
             ),
             PipelinePhase.IMPLEMENT: PhaseFileRestriction(
                 blocked_patterns=[
