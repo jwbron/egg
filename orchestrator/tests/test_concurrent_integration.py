@@ -661,7 +661,16 @@ class TestSpawnUsesConsensusWrapper:
     """Tests that concurrent spawns use the consensus shell wrapper."""
 
     def test_spawn_agent_uses_wrapped_command(self):
-        """_spawn_agent should produce a bash -c wrapper, not raw claude args."""
+        """_spawn_agent should produce a bash -c wrapper, not raw claude args.
+
+        Updated by slice-4 tester hardening: the legacy
+        ``RESTART_COUNT`` / ``BRC Consensus Recovery`` markers that
+        this test originally pinned were deleted by task-4-2 along
+        with the entire legacy capped-restart template. The
+        replacement event-pump template emits ``egg-orch brc
+        next-action`` plus ``egg-orch message wait-loop`` as its
+        deterministic-loop markers; the asserts below pin those instead.
+        """
         from concurrent_executor import ConcurrentPhaseExecutor
         from models import AgentRole, ContainerInfo
 
@@ -680,8 +689,25 @@ class TestSpawnUsesConsensusWrapper:
         assert command[0] == "bash"
         assert command[1] == "-c"
         assert "egg_agent" in command[2]
-        assert "RESTART_COUNT" in command[2]
-        assert "BRC Consensus Recovery" in command[2]
+        # Post task-4-2 event-pump markers.
+        assert "brc next-action" in command[2], (
+            "wrapper must call `egg-orch brc next-action` per the "
+            "event-pump model (task-4-2 replaced the capped-restart "
+            "template that this test originally pinned)."
+        )
+        assert "egg-orch message wait-loop" in command[2], (
+            "wrapper must block on `egg-orch message wait-loop` for "
+            "the next actionable BRC event (event-pump model)."
+        )
+        # Legacy capped-restart markers MUST NOT appear.
+        assert "RESTART_COUNT" not in command[2], (
+            "task-4-2 deleted the legacy `RESTART_COUNT` machinery; "
+            "re-introduction would silently restart the agent."
+        )
+        assert "BRC Consensus Recovery" not in command[2], (
+            "task-4-2 deleted the legacy recovery system prompt; "
+            "re-introduction would attempt restart-time recovery."
+        )
 
 
 class TestNoImplicitReadyOnCleanExit:
@@ -698,17 +724,43 @@ class TestNoImplicitReadyOnCleanExit:
     # is now enforced by the BRC peer-consensus protocol, not an
     # orchestrator-side readiness evaluator.
 
-    def test_wrapper_contains_restart_logic(self):
-        """The consensus wrapper should restart agents, not auto-signal READY."""
+    def test_wrapper_owns_lifecycle_not_auto_ready(self):
+        """The consensus wrapper drives the agent lifecycle deterministically
+        — never auto-signals READY on the agent's behalf.
+
+        Renamed and updated by slice-4 tester hardening from
+        ``test_wrapper_contains_restart_logic``. Task-4-2 deleted the
+        legacy capped-restart template that emitted ``RESTART_COUNT``
+        and ``Restarting`` markers; the event-pump replacement drives
+        the agent one-shot per actionable BRC event via
+        ``brc next-action`` instead of looping with a restart cap.
+        The invariant the original test pinned (orchestrator does NOT
+        fake consensus on the agent's behalf) survives the change and
+        is now expressed as the absence of the auto-READY marker.
+        """
         from consensus_wrapper import build_consensus_wrapped_command
 
         cmd = build_consensus_wrapped_command("Do work")
         script = cmd[2]
-        # Must contain restart logic
-        assert "Restarting" in script
-        assert "RESTART_COUNT" in script
-        # Must NOT contain auto-READY
-        assert "Auto-signaling READY" not in script
+        # Event-pump lifecycle markers (replacing the deleted
+        # capped-restart markers).
+        assert "brc next-action" in script, (
+            "wrapper must call `egg-orch brc next-action` per the event-pump model."
+        )
+        assert "egg-orch message wait-loop" in script, (
+            "wrapper must block on `egg-orch message wait-loop` for the next actionable BRC event."
+        )
+        # Legacy capped-restart markers must NOT appear.
+        assert "Restarting" not in script, (
+            "task-4-2 deleted the capped-restart loop; the wrapper no "
+            "longer restarts the agent on a count basis."
+        )
+        assert "RESTART_COUNT" not in script
+        # Original invariant: must NOT contain auto-READY.
+        assert "Auto-signaling READY" not in script, (
+            "the orchestrator must not fake consensus on behalf of "
+            "agents — the wrapper drives the lifecycle deterministically."
+        )
 
 
 class TestConcurrentPhaseSkipsReviewerSpawn:
