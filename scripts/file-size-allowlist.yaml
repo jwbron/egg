@@ -68,3 +68,8 @@ files:
   # entry follows the same pattern as the other slice-15 targets.
   orchestrator/routes/phases.py:
     issue: "2261"
+  # #2908 slice-6: contract_cli.py grew as part of the MCP→CLI migration,
+  # adding CLI handler plumbing that pushed it past the 1500-line hard cap.
+  # Decompose in a follow-up PR tracked under #2908.
+  sandbox/egg_lib/contract_cli.py:
+    issue: "2908"
