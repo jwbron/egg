@@ -28,10 +28,11 @@ memory across invocations, so something else has to carry the reviewer's
 distilled understanding of the codebase, the change under review, and the
 verdicts already issued on each producer. That something is this file.
 
-Slice-1 lands the **writer** in `brc_ack` / `brc_nack` and gates everything
-behind `EGG_BRC_MEMORY` so production pipelines stay inert. The **reader**
-(`compose_event_prompt` consuming the per-producer `last_reviewed_commit_sha`
-to parameterise an adversarial git-log delta) lands in slice-3.
+Slice-1 lands the **writer** in `brc_ack` / `brc_nack` gated by `EGG_BRC_MEMORY`.
+The **reader** (`compose_event_prompt` consuming the per-producer
+`last_reviewed_commit_sha` to parameterise an adversarial git-log delta)
+lands in slice-3. Slice-4 flipped the default to `full` so both writer and
+reader are active in production.
 
 ## File path
 
@@ -133,12 +134,13 @@ The writer is gated by `EGG_BRC_MEMORY`, which takes one of three values:
 
 | Mode | Writes | Reads | Notes |
 |------|--------|-------|-------|
-| `off` | no | no | **Default.** Slice-1 ships inert in production. |
-| `write-only` | yes | no | Slice-1 rollout posture: handlers populate the file but no other code path reads it. The read path lands in slice-3. |
-| `full` | yes | yes | Slice-3+ end state: handlers populate the file and the event-pump consults it on re-entry. |
+| `full` | yes | yes | **Default since slice-4.** Handlers populate the file and the event-pump consults it on re-entry. |
+| `write-only` | yes | no | Slice-1/2/3 rollout posture: handlers populate the file but no other code path reads it. |
+| `off` | no | no | One-release rollback escape hatch; writes are no-ops. |
 
-The default of `off` ensures slice-1 produces no observable behavior change
-in production. Slice-4 is responsible for flipping the rollout dial.
+Slice-4 flipped the unset-env default from `off` to `full`. Operators that
+need to roll back the reader for one release can set `EGG_BRC_MEMORY=write-only`
+explicitly.
 
 ## Atomic-write contract
 
@@ -248,8 +250,8 @@ The acceptance set codified by slice-1 task-1-6:
   a partial state (asserted via fault injection in slice-1 tests).
 - Path constructor raises on empty `EGG_AGENT_ROLE` **before** creating any
   file or directory.
-- `EGG_BRC_MEMORY=off` produces no file (the default behavior in
-  production).
+- `EGG_BRC_MEMORY=off` produces no file (the one-release rollback escape
+  hatch; `full` is the production default since slice-4).
 - The `.egg-state/agent-outputs/<role>/` subdirectory is created if absent
   on first write.
 - Handler return values are unchanged for callers in every case.

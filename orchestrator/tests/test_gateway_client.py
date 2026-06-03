@@ -1752,7 +1752,7 @@ class TestCreateSlicePR:
 
 
 class TestLookupOpenPr:
-    """#2777 cq-8 / task-3-2: ``GatewayClient._lookup_open_pr`` is the
+    """#2777 cq-8 / task-3-2: ``GatewayClient.lookup_open_pr`` is the
     server-side idempotency primitive used by ``create_slice_pr``.
 
     The lookup runs on the **control-plane** route
@@ -1785,7 +1785,7 @@ class TestLookupOpenPr:
             patch.object(gateway_client, "register_session") as mock_register,
             patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
         ):
-            result = gateway_client._lookup_open_pr(
+            result = gateway_client.lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
                 head="egg/issue-42/slice-1",
@@ -1803,7 +1803,7 @@ class TestLookupOpenPr:
 
     def test_lookup_open_pr_returns_none_on_miss(self, gateway_client):
         """A ``null`` number (no PR matches the head + base filter) is the
-        canonical miss — ``_lookup_open_pr`` returns None so the caller
+        canonical miss — ``lookup_open_pr`` returns None so the caller
         falls through to ``gh pr create``."""
         from unittest.mock import patch
 
@@ -1811,7 +1811,7 @@ class TestLookupOpenPr:
             return {"success": True, "data": {"number": None}}
 
         with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
-            result = gateway_client._lookup_open_pr(
+            result = gateway_client.lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
                 head="egg/issue-42/slice-1",
@@ -1820,7 +1820,7 @@ class TestLookupOpenPr:
         assert result is None
 
     def test_lookup_open_pr_returns_none_on_missing_head_or_base(self, gateway_client):
-        """Defence-in-depth: ``_lookup_open_pr`` must NOT invoke the lookup
+        """Defence-in-depth: ``lookup_open_pr`` must NOT invoke the lookup
         with an empty ``head`` or ``base`` filter (would surface every open
         PR in the repo and the caller's ``if existing is not None`` would
         match the first one, spuriously treating an unrelated PR as the
@@ -1830,7 +1830,7 @@ class TestLookupOpenPr:
         with patch.object(gateway_client, "_make_request") as mock_request:
             # Empty head.
             assert (
-                gateway_client._lookup_open_pr(
+                gateway_client.lookup_open_pr(
                     pipeline_id="issue-42",
                     repo="owner/repo",
                     head="",
@@ -1840,7 +1840,7 @@ class TestLookupOpenPr:
             )
             # Empty base.
             assert (
-                gateway_client._lookup_open_pr(
+                gateway_client.lookup_open_pr(
                     pipeline_id="issue-42",
                     repo="owner/repo",
                     head="egg/issue-42/slice-1",
@@ -1860,7 +1860,7 @@ class TestLookupOpenPr:
             raise RuntimeError("gateway unreachable")
 
         with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
-            result = gateway_client._lookup_open_pr(
+            result = gateway_client.lookup_open_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
                 head="egg/issue-42/slice-1",
@@ -1871,9 +1871,12 @@ class TestLookupOpenPr:
 
 class TestListOpenPrs:
     """#2925: ``GatewayClient.list_open_prs`` lists the repo's open PRs for
-    the context-PR idempotency pre-flight and the stacked-PR reconciler.
+    the stacked-PR reconciler. (The context-PR opener migrated off this
+    helper onto :meth:`lookup_open_pr` in #2934 — the narrower server-side
+    ``gh pr list --head --base`` filter — so ``list_open_prs`` no longer
+    backs that idempotency pre-flight.)
 
-    Like :meth:`_lookup_open_pr`, the listing runs on the **control-plane**
+    Like :meth:`lookup_open_pr`, the listing runs on the **control-plane**
     route ``/api/v1/gh/list_open_prs`` with launcher auth — the orchestrator
     is the server that manages pipelines, not an agent, so it does not
     register a synthetic agent session or impersonate a role on the

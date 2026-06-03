@@ -108,7 +108,7 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus_wrapper.py    # Shell wrapper templates: legacy capped-restart path + event-pump path (EGG_BRC_EVENT_PUMP, default off) that replaces model-driven re-entry with a deterministic wrapper loop
+├── consensus_wrapper.py    # Shell wrapper template: deterministic event-pump loop (sole path since slice-4; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── events.py               # Event bus for pipeline events
