@@ -113,25 +113,23 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | `resolution_hint` | Human-readable guidance |
 | `detected_at` | Timestamp |
 
-## Consensus Wrapper: Transient Crash Recovery
+## Consensus Wrapper: Exit-Code Classifiers (Preserved Helpers)
 
 Source: `orchestrator/consensus_wrapper.py`
 
-In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues. The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades.
+In concurrent (BRC) mode, all agents are wrapped with a shell script. The wrapper bash template defines three exit-code classifier helpers (`is_buffer_overflow`, `is_transient_crash`, `is_startup_failure`) that were the dispatch surface in the pre-#2908 capped-restart era. **Since slice-4 (#2908) these helpers are defined but not invoked by the `propose|ack|nack` arm** — every non-zero agent exit goes through the uniform `AGENT_FAIL_STREAK++` + idle-budget path described in [Crash Handling in the Event-Pump Wrapper](#crash-handling-in-the-event-pump-wrapper) below. The subsections that follow describe the original design intent of each helper and the SDK-level mechanics they were built around; treat them as background context for the named helpers rather than as a description of live wrapper behaviour.
 
-### Buffer Overflow Detection
+The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades. (That fallback path is independent of the classifier helpers and is still live.)
 
-The `is_buffer_overflow()` function is checked **before** `is_transient_crash()`. It greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`) and, when found, exits the wrapper immediately without consuming any restart budget.
+### Buffer Overflow Detection (helper definition — currently inert)
 
-The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
+The `is_buffer_overflow()` function greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`). In the pre-#2908 capped-restart wrapper the marker triggered an immediate wrapper exit; in the post-slice-4 event-pump wrapper the helper is **defined but not called**, so the SDK 1 MiB JSON overflow exit takes the same `AGENT_FAIL_STREAK++` path as any other non-zero exit. The deterministic-failure framing below still applies — re-running the agent against the same oversized tool result reproduces the overflow each iteration — but the operator-visible escalation today is the idle-budget alert (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), not an immediate wrapper exit.
 
-```
-Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting.
-```
+The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying it inside the same wrapper run is therefore wasteful; the post-slice-4 wrapper does not yet branch on this case, so the overflow recurs on each iteration until the idle budget escalates.
 
 The agent output is captured by piping stdout and stderr through `tee` into a temporary log file (`AGENT_OUTPUT_LOG`, created via `mktemp`). This log is truncated at the start of each agent run so old crash signatures don't bleed into subsequent runs.
 
-> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. With the reader buffer raised (next section, [#2884](https://github.com/jwbron/egg/issues/2884)) this fail-fast is now a rare backstop — it fires only if a single stream message exceeds the generous raised buffer — not the common path it was when the cap was 1 MiB.
+> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, future classifier-gated fast-fail logic that relies on it would silently miss the marker. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. With the reader buffer raised (next section, [#2884](https://github.com/jwbron/egg/issues/2884)) the buffer overflow is now a rare backstop — it fires only if a single stream message exceeds the generous raised buffer — not the common path it was when the cap was 1 MiB.
 
 ### SDK Reader Buffer (the crash-prevention layer)
 
@@ -192,15 +190,19 @@ restart cap and `_RECOVERY_SYSTEM_PROMPT` recovery loop were deleted in slice-4.
 
 ### Crash exit-code classification (current behaviour)
 
-| Exit code | Classifier | Current event-pump handling |
-|-----------|------------|-----------------------------|
+All non-zero exits from a `propose|ack|nack` agent invocation are handled identically in the current event-pump wrapper: increment `AGENT_FAIL_STREAK`, sleep 1 s, and resume the loop. The classifiers listed below remain as named helpers in the wrapper bash template but are **not invoked** by the `propose|ack|nack` arm — they are kept against a future need (e.g. a classifier-gated fast-fail) but produce no per-exit-code branching today.
+
+| Exit code | Named helper (currently inert) | Current event-pump handling |
+|-----------|-------------------------------|-----------------------------|
 | Segfault (exit 139/255) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
-| SDK buffer overflow (exit 255 + overflow marker) | `is_buffer_overflow` | Wrapper exits immediately; loop does not retry on next event |
+| SDK buffer overflow (exit 255 + overflow marker) | `is_buffer_overflow` | Increments consecutive-failure counter; idle-budget escalation emits alert |
 | OOM kill (exit 137) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
 | API/network error at startup (exit 1, age &lt; 30s) | `is_startup_failure` | Increments consecutive-failure counter; idle-budget escalation emits alert |
 | Application error (exit 1, age &ge; 30s) | *(none)* | Increments consecutive-failure counter; idle-budget escalation emits alert |
 
-The exit-code classifiers were added in [issue #1512](https://github.com/jwbron/egg/issues/1512). In the capped-restart era they drove a restart-with-backoff path; since slice-4 (#2908) they are retained as named helpers but the event-pump's consecutive-failure counter + `EGG_BRC_IDLE_BUDGET_MIN` escalation is the primary operator-visible signal rather than per-crash branching.
+The exit-code classifiers were added in [issue #1512](https://github.com/jwbron/egg/issues/1512). In the capped-restart era they drove a restart-with-backoff path; since slice-4 (#2908) they are retained as named helpers but the event-pump's consecutive-failure counter + `EGG_BRC_IDLE_BUDGET_MIN` escalation is the primary (and currently sole) operator-visible signal — there is no per-exit-code branch on the `propose|ack|nack` path.
+
+**Buffer-overflow note:** the SDK 1 MiB JSON buffer overflow (exit 255 + overflow marker) is deterministic — re-running the same agent invocation against the same oversized tool result will reproduce the same overflow. Today the wrapper does not catch this case specially; the overflow recurs each iteration until `EGG_BRC_IDLE_BUDGET_MIN` (default 30 min) trips the operator alert. The classifier helper exists for a future fast-fail path but is not wired up yet — see the wrapper's L145–150 comment.
 
 ## Agent-Level Restart
 
@@ -385,7 +387,7 @@ Operators replaying a recovery ref should fetch and cherry-pick promptly: a reco
 | Agent fails, error not retryable | Escalate to HITL (MANUAL policy) |
 | Agent fails, max retries exceeded | Escalate to HITL |
 | Transient crash in consensus wrapper (segfault, OOM) | Increments consecutive-failure counter; idle-budget escalation emits `OVERSEER_ALERT` — no restart cap |
-| Startup failure in consensus wrapper (exit 1 within 30s) | Increments consecutive-failure counter; classified as transient API/network error |
+| Startup failure in consensus wrapper (exit 1 within 30s) | Increments consecutive-failure counter; idle-budget escalation emits `OVERSEER_ALERT` — same handling as all non-zero exits today |
 | Non-transient crash in consensus wrapper (exit 1 after 30s) | Increments consecutive-failure counter; idle-budget handles escalation |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
 | Overseer detects restartable infra error (unresponsive, crashed, OOM, timeout, hung) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
