@@ -277,7 +277,6 @@ Everything **inside** the request loop stays unchanged:
   compromised sandbox can still exfiltrate through search queries
   even when the upstream is self-hosted, so the strip stays
   defense-in-depth on all routes)
-- `_SSEAccumulator` parse and the per-session transcript capture
 - The pre-stream retry + mid-stream synthetic-error resilience
   loop from [#1907](https://github.com/jwbron/egg/issues/1907) (see [Credential Injection
   → Upstream Stream Resilience](credential-injection.md#upstream-stream-resilience))
@@ -482,10 +481,9 @@ Routing all Anthropic-served traffic through the gateway means it
 and every open→Anthropic fallback hop. So `config/litellm/cost_callback.py`
 only ever covers the **open-model slice** of the pipeline — Phase-0
 spend measurement must not assume it covers the whole pipeline. The
-gateway is the one universal seam (it already buffers per-session
-transcripts with token usage via `_capture_*`) and is the correct
-eventual home for whole-pipeline cost instrumentation. Cost
-instrumentation itself is out of scope for this change.
+gateway is the one universal seam and is the correct eventual home for
+whole-pipeline cost instrumentation. Cost instrumentation itself is
+out of scope for this change.
 
 ## Failure policy
 

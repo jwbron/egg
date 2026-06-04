@@ -1,6 +1,6 @@
 # Redaction Reference
 
-The redactor (`shared/egg_contracts/redactor.py`) scrubs sensitive data from checkpoint transcripts, tool call outputs, and command logs before they are stored in the `egg/checkpoints/v2` git branch.
+The redactor (`shared/egg_contracts/redactor.py`) scrubs sensitive data — credentials, tokens, secret-bearing environment variables, and sensitive file paths — from free text, structured data, and shell commands.
 
 ## What Is Redacted
 
@@ -96,24 +96,15 @@ When `redact_sensitive_paths=True` (default), file paths matching these patterns
 
 ## Security Model
 
-The redactor protects against credential leakage in checkpoint data stored in the git repository. The threat it addresses: an agent receives a credential (e.g., in a response body, error message, or environment) and that credential ends up in the checkpoint transcript, which is then committed to a branch that may be accessed by humans or other systems.
+The redactor protects against credential leakage when potentially sensitive content is persisted or surfaced to humans or other systems. The threat it addresses: a credential (e.g., in a response body, error message, or environment) ends up in serialized output that is then stored or displayed.
 
-The redactor is applied when writing checkpoint data to the `egg/checkpoints/v2` branch. It is a best-effort, defense-in-depth control — it does not prevent credentials from being used by the agent during its session, only from being persisted in the audit trail.
+It is a best-effort, defense-in-depth control — it does not prevent credentials from being used during a session, only from being persisted in plaintext.
 
 **Limitations:**
 - The redactor is conservative but not exhaustive. Custom credential formats or obfuscated secrets may not be caught.
 - Heuristic long-string detection may produce false positives (redacting non-sensitive long tokens) or false negatives (missing unusual formats).
 - The redactor operates on serialized text; structured data that looks like a token when serialized but isn't may be incorrectly redacted.
 
-## Accessing Unredacted Data
-
-Unredacted checkpoint data is not separately stored. The redaction is applied at write time; the only copy in the git repository is the redacted version.
-
-To access the original session context, you would need to re-run the session or reconstruct it from other sources. The agent's actual git commits and file changes in the worktree are not redacted.
-
-For audit purposes where unredacted transcripts are needed, the checkpoint capture process in the gateway would need to be modified to write an additional copy to a secure, access-controlled storage location. This is not currently implemented.
-
 ## Related Documentation
 
-- [Architecture Overview](../architecture/README.md) — Checkpoint system overview
-- [Checkpoint Access Guide](../guides/checkpoint-access.md) — Querying the checkpoint store
+- [Architecture Overview](../architecture/README.md) — Platform architecture

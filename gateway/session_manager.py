@@ -35,52 +35,6 @@ from egg_logging import get_logger
 logger = get_logger("gateway.session-manager")
 
 
-# Import transcript buffer cleanup (lazy to avoid circular imports)
-def _cleanup_transcript_buffer(container_id: str) -> None:
-    """Clean up transcript buffer for a container when session ends."""
-    try:
-        from transcript_buffer import cleanup_transcript_buffer  # type: ignore[import-untyped]
-
-        cleanup_transcript_buffer(container_id)
-        logger.debug("Transcript buffer cleaned up", container_id=container_id)
-    except ImportError:
-        # transcript_buffer may not be available in all contexts
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to clean up transcript buffer",
-            container_id=container_id,
-            error=str(e),
-        )
-
-
-def _resolve_stable_repo_path(repo_path: str) -> str:
-    """Resolve a worktree path to its parent repository path.
-
-    Worktree paths are ephemeral and may be deleted during container cleanup.
-    The main repository path is stable and safe for long-running git operations.
-    Returns repo_path unchanged if it is already a main repository.
-    """
-    git_entry = Path(repo_path) / ".git"
-    if not git_entry.is_file():
-        return repo_path  # Already a main repo (.git is a directory)
-    try:
-        content = git_entry.read_text().strip()
-        if not content.startswith("gitdir:"):
-            return repo_path
-        gitdir = Path(content.split("gitdir:", 1)[1].strip())
-        if not gitdir.is_absolute():
-            gitdir = (Path(repo_path) / gitdir).resolve()
-        # gitdir = /main/repo/.git/worktrees/<name>
-        # Walk up to find .git directory
-        for parent in [gitdir] + list(gitdir.parents):
-            if parent.name == ".git" and parent.parent.exists():
-                return str(parent.parent)
-    except Exception:
-        pass
-    return repo_path
-
-
 _captured_containers: set[str] = set()
 _captured_containers_lock = threading.Lock()
 
@@ -88,40 +42,35 @@ _captured_containers_lock = threading.Lock()
 def _capture_and_cleanup_session(
     session: Session,
     session_status: str,
-) -> threading.Event | None:
-    """Capture session-end checkpoint, then clean up transcript buffer.
+) -> None:
+    """Auto-commit any uncommitted agent work, then finalize the session.
 
-    Ensures the transcript buffer is preserved until checkpoint capture completes.
-    Falls back to immediate cleanup if checkpoint capture is unavailable.
+    Preserves the agent's WIP via ``auto_commit_worktree`` so it can be
+    recovered if the agent exits without committing (timeout, crash, or
+    oversight). Phase filtering ensures blocked files are restored, not
+    committed.
 
-    Uses a per-container deduplication guard to prevent multiple captures from
-    racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired,
-    prune_idle).
-
-    Returns:
-        The completion event from async checkpoint storage, or None if capture
-        was skipped/failed. Callers can wait on this event to coordinate
-        cleanup (e.g., worktree removal) with checkpoint storage.
+    Uses a per-container deduplication guard so racing cleanup paths
+    (delete_session, cleanup_orphaned_worktrees, prune_expired, prune_idle)
+    only auto-commit once per container.
     """
     # Synthetic sessions are orchestrator-internal helpers (ls-remote,
-    # failsafe-fetch). They run no agent, have no proxy buffer, and would
-    # only produce metadata-only checkpoints whose push fails noisily when
-    # the source repo is read-only (#2316). Skip them entirely.
+    # failsafe-fetch). They run no agent and have no WIP to preserve. Skip them.
     if session.synthetic:
-        return None
+        return
 
-    # Deduplicate: only capture once per container
+    # Deduplicate: only auto-commit once per container
     with _captured_containers_lock:
         if session.container_id in _captured_containers:
             logger.debug(
-                "Session-end checkpoint already captured, skipping",
+                "Session already finalized, skipping",
                 container_id=session.container_id,
                 session_status=session_status,
             )
-            return None
+            return
         _captured_containers.add(session.container_id)
 
-    # Auto-commit any uncommitted work before capturing the checkpoint.
+    # Auto-commit any uncommitted work before the session ends.
     # This preserves the agent's WIP so it can be recovered if the agent
     # exits without committing (e.g., timeout, crash, or oversight).
     # Phase filtering ensures blocked files are restored, not committed.
@@ -175,68 +124,17 @@ def _capture_and_cleanup_session(
                 error=str(e),
             )
 
-    completion_event = None
-    try:
-        from checkpoint_handler import (  # type: ignore[import-untyped]
-            SESSION_END_CAPTURE_TIMEOUT,
-            capture_session_end_checkpoint,
-        )
-        from egg_contracts.checkpoints import SessionStatus
+    logger.debug(
+        "Session finalized",
+        container_id=session.container_id,
+        session_status=session_status,
+    )
 
-        status = (
-            session_status
-            if isinstance(session_status, SessionStatus)
-            else SessionStatus(session_status)
-        )
-
-        # Resolve worktree path to stable main repo path.
-        # Worktree dirs are deleted during container cleanup; the main repo
-        # path survives and is safe for the async checkpoint store thread.
-        stable_repo_path = (
-            _resolve_stable_repo_path(session.last_repo_path)
-            if session.last_repo_path
-            else session.last_repo_path
-        )
-
-        _checkpoint, completion_event = capture_session_end_checkpoint(
-            session=session,
-            session_status=status,
-            repo_path=stable_repo_path,
-            checkpoint_repo=session.checkpoint_repo,
-        )
-
-        # Wait for async storage to complete before cleaning up the buffer
-        if completion_event is not None:
-            completed = completion_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
-            if not completed:
-                logger.warning(
-                    "Session-end checkpoint storage timed out, buffer cleanup proceeding",
-                    container_id=session.container_id,
-                    timeout_seconds=SESSION_END_CAPTURE_TIMEOUT,
-                )
-
-    except ImportError:
-        logger.debug(
-            "checkpoint_handler not available, skipping session-end checkpoint",
-            container_id=session.container_id,
-        )
-    except Exception as e:
-        logger.warning(
-            "Session-end checkpoint capture failed",
-            container_id=session.container_id,
-            error=str(e),
-        )
-    finally:
-        # Always clean up the buffer after checkpoint capture
-        _cleanup_transcript_buffer(session.container_id)
-
-        # Remove from dedup set to prevent unbounded growth.
-        # The session is fully processed (checkpoint captured, buffer cleaned up)
-        # and no future code path will call this for the same container.
-        with _captured_containers_lock:
-            _captured_containers.discard(session.container_id)
-
-    return completion_event
+    # Remove from the dedup set to prevent unbounded growth. The session is
+    # fully processed and no future code path will call this for the same
+    # container.
+    with _captured_containers_lock:
+        _captured_containers.discard(session.container_id)
 
 
 # Session configuration
@@ -314,17 +212,16 @@ class Session:
     agent_role: str | None = None  # Role set by workflow context
     agent_anchor_id: str | None = None  # Anchor ID for scoped anchor file writes
     phase: str | None = None  # SDLC pipeline phase for operation filtering
-    issue_number: int | None = None  # GitHub issue number for checkpoint linkage
-    pr_number: int | None = None  # GitHub PR number for checkpoint linkage
+    issue_number: int | None = None  # GitHub issue number for the session
+    pr_number: int | None = None  # GitHub PR number for the session
     pipeline_id: str | None = None  # Pipeline run ID for multi-agent correlation
-    checkpoint_repo: str | None = None  # External checkpoint repo (owner/repo)
     last_repo_path: str | None = None  # Last known repo path from git operations
     last_branch: str | None = None  # Last known branch from git push
     claude_code_version: str | None = None  # Claude Code version from container
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     jira_ticket: str | None = None  # Advisory Jira ticket key (issue #1556)
-    synthetic: bool = False  # Orchestrator-internal temp session — skip checkpoint capture
+    synthetic: bool = False  # Orchestrator-internal temp session — skip auto-commit
     # Per-session upstream routing (issue #2769). ``upstream`` chooses which
     # registered UpstreamRegistry entry serves /v1/messages traffic for this
     # session ("anthropic" — default — or "litellm"). ``upstream_model`` is the
@@ -366,8 +263,6 @@ class Session:
             result["pr_number"] = self.pr_number
         if self.pipeline_id is not None:
             result["pipeline_id"] = self.pipeline_id
-        if self.checkpoint_repo is not None:
-            result["checkpoint_repo"] = self.checkpoint_repo
         if self.last_repo_path is not None:
             result["last_repo_path"] = self.last_repo_path
         if self.last_branch is not None:
@@ -408,7 +303,6 @@ class Session:
             issue_number=data.get("issue_number"),
             pr_number=data.get("pr_number"),
             pipeline_id=data.get("pipeline_id"),
-            checkpoint_repo=data.get("checkpoint_repo"),
             last_repo_path=data.get("last_repo_path"),
             last_branch=data.get("last_branch"),
             claude_code_version=data.get("claude_code_version"),
@@ -587,10 +481,10 @@ class SessionManager:
             container_ip: Container's IP address (optional; for audit logging only)
             mode: Repository visibility mode (private or public)
             phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
-            issue_number: Optional GitHub issue number for checkpoint linkage
-            pr_number: Optional GitHub PR number for checkpoint linkage
+            issue_number: Optional GitHub issue number for the session
+            pr_number: Optional GitHub PR number for the session
             pipeline_id: Optional pipeline run ID for multi-agent correlation
-            agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
+            agent_role: Optional agent role (e.g., "coder", "tester")
             agent_anchor_id: Optional agent anchor ID for scoped anchor file writes
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
@@ -927,19 +821,18 @@ class SessionManager:
 
             return True
 
-    def delete_session(self, token: str) -> tuple[bool, threading.Event | None]:
+    def delete_session(self, token: str) -> bool:
         """
         Delete a session by token.
 
-        Captures a session-end checkpoint (COMPLETED) before cleaning up.
+        Auto-commits the agent's uncommitted work before cleaning up.
         Only the launcher (with launcher_secret) should call this.
 
         Args:
             token: The session token to delete
 
         Returns:
-            Tuple of (deleted, completion_event). completion_event can be
-            waited on to ensure checkpoint storage finishes before cleanup.
+            True if a session was found and deleted, else False.
         """
         token_hash = self._token_to_hash.get(token) or _hash_token(token)
         session = None
@@ -947,15 +840,14 @@ class SessionManager:
         with self._lock:
             session = self._sessions.get(token_hash)
             if not session:
-                return False, None
+                return False
 
             del self._sessions[token_hash]
             self._token_to_hash.pop(token, None)
             self._save_to_disk()
 
-        # Capture session-end checkpoint outside the lock to avoid
-        # blocking other session operations during the up-to-180s wait
-        completion_event = _capture_and_cleanup_session(session, "completed")
+        # Auto-commit WIP outside the lock to avoid blocking other session ops.
+        _capture_and_cleanup_session(session, "completed")
 
         logger.info(
             "Session deleted",
@@ -964,20 +856,19 @@ class SessionManager:
             container_id=session.container_id,
         )
 
-        return True, completion_event
+        return True
 
-    def delete_session_by_container(self, container_id: str) -> tuple[bool, threading.Event | None]:
+    def delete_session_by_container(self, container_id: str) -> bool:
         """
         Delete session by container ID.
 
-        Captures a session-end checkpoint (COMPLETED) before cleaning up.
+        Auto-commits the agent's uncommitted work before cleaning up.
 
         Args:
             container_id: Docker container ID
 
         Returns:
-            Tuple of (deleted, completion_event). completion_event can be
-            waited on to ensure checkpoint storage finishes before cleanup.
+            True if a session was found and deleted, else False.
         """
         session = None
         token_hash = None
@@ -996,9 +887,8 @@ class SessionManager:
                 self._save_to_disk()
 
         if session and token_hash:
-            # Capture session-end checkpoint outside the lock to avoid
-            # blocking other session operations during the up-to-180s wait
-            completion_event = _capture_and_cleanup_session(session, "completed")
+            # Auto-commit WIP outside the lock to avoid blocking other session ops.
+            _capture_and_cleanup_session(session, "completed")
 
             logger.info(
                 "Session deleted by container ID",
@@ -1006,9 +896,9 @@ class SessionManager:
                 session_token_hash=token_hash[:16],
                 container_id=container_id,
             )
-            return True, completion_event
+            return True
 
-        return False, None
+        return False
 
     def heartbeat_session_by_container(self, container_id: str) -> bool:
         """Refresh a session's ``last_seen`` (and TTL) by container ID.
@@ -1047,8 +937,7 @@ class SessionManager:
         """
         Remove all expired sessions.
 
-        Captures session-end checkpoints (EXPIRED) for each pruned session
-        before cleaning up transcript buffers.
+        Auto-commits each pruned session's uncommitted work before cleanup.
 
         Called periodically and on gateway startup.
 
@@ -1071,8 +960,7 @@ class SessionManager:
             if expired_sessions:
                 self._save_to_disk()
 
-        # Capture checkpoints concurrently to avoid blocking N×30s sequentially.
-        # Each capture waits up to 30s for async storage, so we use threads.
+        # Auto-commit concurrently to avoid blocking N×git-ops sequentially.
         if expired_sessions:
             threads = []
             for token_hash, session in expired_sessions:
@@ -1085,14 +973,14 @@ class SessionManager:
                 threads.append((t, token_hash, session))
 
             for t, token_hash, session in threads:
-                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                t.join(timeout=35)
                 if t.is_alive():
                     logger.warning(
-                        "Session expired, checkpoint capture still in progress",
+                        "Session expired, auto-commit still in progress",
                         event_type="session_expired",
                         session_token_hash=token_hash[:16],
                         container_id=session.container_id,
-                        capture_timed_out=True,
+                        auto_commit_timed_out=True,
                     )
                 else:
                     logger.info(
@@ -1147,7 +1035,7 @@ class SessionManager:
             if idle_sessions:
                 self._save_to_disk()
 
-        # Capture checkpoints concurrently; each capture can wait up to 30s.
+        # Auto-commit concurrently to avoid blocking N×git-ops sequentially.
         if idle_sessions:
             threads = []
             for token_hash, session in idle_sessions:
@@ -1160,14 +1048,14 @@ class SessionManager:
                 threads.append((t, token_hash, session))
 
             for t, token_hash, session in threads:
-                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                t.join(timeout=35)
                 if t.is_alive():
                     logger.warning(
-                        "Idle session pruned, checkpoint capture still in progress",
+                        "Idle session pruned, auto-commit still in progress",
                         event_type="session_idle_timeout",
                         session_token_hash=token_hash[:16],
                         container_id=session.container_id,
-                        capture_timed_out=True,
+                        auto_commit_timed_out=True,
                     )
                 else:
                     logger.info(

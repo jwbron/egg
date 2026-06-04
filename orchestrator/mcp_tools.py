@@ -74,8 +74,6 @@ _TOOL_NARROW_HINTS: dict[str, str] = {
         "this result is proportional to the running container count"
     ),
     "list_tasks": "use `limit` (and any status/phase filter) to page results",
-    "list_checkpoints": "use `limit` + `cursor` pagination or add filters",
-    "search_checkpoints": "use `limit` + `cursor` pagination or a narrower query",
     "list_agent_local_commits": "target a single agent/branch or use `limit`",
 }
 
@@ -450,86 +448,6 @@ PIPELINE_TOOLS = [
         },
     },
     # --- Gateway-backed tools ---
-    {
-        "name": "list_checkpoints",
-        "description": (
-            "List agent checkpoints (transcripts, tool calls, token usage). "
-            "Filter by issue, pipeline, agent_type, phase, or status."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "issue": {
-                    "type": "integer",
-                    "description": "Filter by GitHub issue number",
-                },
-                "pipeline": {
-                    "type": "string",
-                    "description": "Filter by pipeline ID",
-                },
-                "agent_type": {
-                    "type": "string",
-                    "description": "Filter by agent type (coder, tester, documenter, reviewer)",
-                },
-                "phase": {
-                    "type": "string",
-                    "description": "Filter by pipeline phase",
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Filter by session status",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum checkpoints to return",
-                    "default": 20,
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
-                },
-            },
-        },
-    },
-    {
-        "name": "search_checkpoints",
-        "description": (
-            "Search checkpoint metadata for matching text. Searches agent_type, "
-            "pipeline_phase, pipeline_id, branch, repo, and status fields. "
-            "Note: full-text transcript search is not supported — this searches metadata only."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "Text to search for in checkpoint metadata",
-                },
-                "issue": {
-                    "type": "integer",
-                    "description": "Filter by GitHub issue number",
-                },
-                "pipeline": {
-                    "type": "string",
-                    "description": "Filter by pipeline ID",
-                },
-                "agent_type": {
-                    "type": "string",
-                    "description": "Filter by agent type",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum checkpoints to search",
-                    "default": 10,
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
-                },
-            },
-            "required": ["text"],
-        },
-    },
     {
         "name": "get_contract",
         "description": (
@@ -1151,8 +1069,6 @@ class PipelineToolHandler:
             "get_consensus_status": self._handle_get_consensus_status,
             "get_phase": self._handle_get_phase,
             "get_pipeline_snapshot": self._handle_get_pipeline_snapshot,
-            "list_checkpoints": self._handle_list_checkpoints,
-            "search_checkpoints": self._handle_search_checkpoints,
             "get_contract": self._handle_get_contract,
             "validate_config": self._handle_validate_config,
             "restart_agent": self._handle_restart_agent,
@@ -2253,60 +2169,6 @@ class PipelineToolHandler:
         return snapshot
 
     # --- Gateway-backed tools ---
-
-    def _handle_list_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
-        """List checkpoints with optional filters."""
-        params = []
-        for key in ("issue", "pipeline", "agent_type", "phase", "status"):
-            if args.get(key) is not None:
-                params.append(f"{key}={quote(str(args[key]), safe='')}")
-        limit = args.get("limit", 20)
-        params.append(f"limit={limit}")
-        if args.get("repo"):
-            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
-
-        query = "&".join(params)
-        return self._make_gateway_request(f"/api/v1/checkpoints?{query}")
-
-    def _handle_search_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Search checkpoints by text in metadata/summaries."""
-        params = []
-        for key in ("issue", "pipeline", "agent_type"):
-            if args.get(key) is not None:
-                params.append(f"{key}={quote(str(args[key]), safe='')}")
-        limit = args.get("limit", 10)
-        params.append(f"limit={limit}")
-        if args.get("repo"):
-            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
-
-        query = "&".join(params)
-        result = self._make_gateway_request(f"/api/v1/checkpoints?{query}")
-
-        # Client-side text filter on checkpoint metadata
-        search_text = args["text"].lower()
-        checkpoints = result.get("data", {}).get("checkpoints", [])
-        filtered = []
-        for cp in checkpoints:
-            searchable = " ".join(
-                str(cp.get(f, ""))
-                for f in (
-                    "session_id",
-                    "agent_type",
-                    "pipeline_phase",
-                    "pipeline_id",
-                    "branch",
-                    "repo",
-                    "session_status",
-                )
-            ).lower()
-            if search_text in searchable:
-                filtered.append(cp)
-
-        return {
-            "checkpoints": filtered,
-            "total": len(filtered),
-            "note": "Searched checkpoint metadata only — full-text transcript search not supported via this tool",
-        }
 
     def _handle_get_contract(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get SDLC contract state.

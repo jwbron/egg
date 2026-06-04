@@ -33,7 +33,6 @@ Usage:
 
 import logging
 import os
-import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -382,34 +381,12 @@ except ImportError:
         ]
 
 
-def get_checkpoint_repo(repo: str) -> str | None:
-    """Get the checkpoint destination repo for a repository.
-
-    When set, checkpoints are pushed to a separate repository instead of the
-    same repo being worked on. This is useful for privacy, keeping checkpoint
-    data (session transcripts, tool calls) out of the source repo's history.
-
-    Args:
-        repo: Repository in "owner/repo" format
-
-    Returns:
-        Checkpoint repo in "owner/repo" format, or None to use the same repo.
-    """
-    return cast(str | None, get_repo_setting(repo, "checkpoint_repo", None))
-
-
-_checkpoint_repos_cache: tuple[float, frozenset[str]] | None = None
-_CHECKPOINT_REPOS_TTL = 60  # seconds
-
-
 def reload_config() -> None:
     """Clear all cached config state so the next access re-reads from disk.
 
     Called by the gateway's SIGHUP handler and /api/v1/config/reload endpoint
     to pick up changes to repositories.yaml without a restart.
     """
-    global _checkpoint_repos_cache
-    _checkpoint_repos_cache = None
     # Per-repo role patterns are cached inside egg_restrictions; clearing
     # that cache here keeps the SIGHUP path single-entry. Imported lazily
     # so this module doesn't pull egg_restrictions at every config load.
@@ -518,73 +495,6 @@ def get_repo_role_patterns(repo: str) -> dict[str, list[str]] | None:
             out[key] = cleaned
 
     return out or None
-
-
-def get_all_checkpoint_repos() -> frozenset[str]:
-    """Get the set of all configured checkpoint repositories.
-
-    Scans all repo_settings entries and collects every checkpoint_repo value.
-    Also includes the ``EGG_CHECKPOINT_REPO`` environment variable when set,
-    so checkpoint repos are recognised even without ``repositories.yaml``.
-    Used by the gateway to exempt checkpoint repos from private mode policy.
-
-    Results are cached for 60 seconds to avoid redundant config file I/O
-    on every git request.
-
-    Returns:
-        Frozenset of checkpoint repo names in "owner/repo" format, lowercased.
-        Returns empty frozenset if no checkpoint repos are configured.
-    """
-    global _checkpoint_repos_cache
-
-    now = time.monotonic()
-    if _checkpoint_repos_cache is not None:
-        cached_time, cached_result = _checkpoint_repos_cache
-        if now - cached_time < _CHECKPOINT_REPOS_TTL:
-            return cached_result
-
-    repos: set[str] = set()
-
-    # Include EGG_CHECKPOINT_REPO env var (always checked, even without
-    # repositories.yaml).  This is the primary mechanism for sandboxed
-    # containers that don't have access to the config file.
-    env_checkpoint_repo = os.environ.get("EGG_CHECKPOINT_REPO", "").strip().lower()
-    if env_checkpoint_repo:
-        repos.add(env_checkpoint_repo)
-
-    try:
-        config = _load_config()
-        repo_settings = config.get("repo_settings", {})
-        if isinstance(repo_settings, dict):
-            for settings in repo_settings.values():
-                if isinstance(settings, dict):
-                    checkpoint_repo = settings.get("checkpoint_repo")
-                    if checkpoint_repo and isinstance(checkpoint_repo, str):
-                        repos.add(checkpoint_repo.lower())
-    except Exception:
-        pass  # Config unavailable — rely on env var and session-level checks
-
-    result = frozenset(repos)
-    _checkpoint_repos_cache = (now, result)
-    return result
-
-
-def is_checkpoint_repo(owner: str, repo: str) -> bool:
-    """Check if a repository is configured as a checkpoint destination.
-
-    Args:
-        owner: Repository owner (e.g. "my-org")
-        repo: Repository name (e.g. "egg-checkpoints")
-
-    Returns:
-        True if owner/repo is a configured checkpoint_repo.
-        False on any config error (fail-closed).
-    """
-    try:
-        full_name = f"{owner}/{repo}".lower()
-        return full_name in get_all_checkpoint_repos()
-    except Exception:
-        return False
 
 
 def get_repo_build_commands(repo: str) -> dict[str, Any]:

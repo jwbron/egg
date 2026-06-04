@@ -348,8 +348,6 @@ def _routed(
         patch.object(
             gateway, "get_routing_policy_manager", return_value=_FakePolicyManager(policy)
         ),
-        patch.object(gateway, "_capture_streaming_response"),
-        patch.object(gateway, "_capture_non_streaming_response"),
     ):
         yield fake_anthropic, fake_litellm
 

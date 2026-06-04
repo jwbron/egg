@@ -1,10 +1,9 @@
 """Tests for MCP tool handlers.
 
-Tests cover the 10 new tools added for comprehensive platform interface:
+Tests cover the platform-interface MCP tools:
 - check_health, list_containers, get_container_logs, send_message,
   get_consensus_status, get_phase, get_pipeline_snapshot,
   get_contract (orchestrator-backed)
-- list_checkpoints, search_checkpoints (gateway-backed)
 """
 
 import asyncio
@@ -696,130 +695,6 @@ class TestGetPipelineSnapshot:
         assert "recent_messages" not in result
 
 
-class TestListCheckpoints:
-    def test_with_filters(self, handler):
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {
-                "success": True,
-                "data": {"checkpoints": [{"id": "ckpt-1"}]},
-            }
-            handler.handle_tool_call(
-                "list_checkpoints",
-                {"pipeline": "issue-42", "agent_type": "coder", "limit": 5},
-            )
-
-        call_url = mock_gw.call_args[0][0]
-        assert "pipeline=issue-42" in call_url
-        assert "agent_type=coder" in call_url
-        assert "limit=5" in call_url
-
-    def test_no_filters(self, handler):
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
-            handler.handle_tool_call("list_checkpoints", {})
-
-        call_url = mock_gw.call_args[0][0]
-        assert "limit=20" in call_url
-
-    def test_with_repo_param(self, handler):
-        """Verify repo is forwarded as source_repo query param (#1514)."""
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
-            handler.handle_tool_call(
-                "list_checkpoints",
-                {"repo": "owner/repo-checkpoints", "issue": 42},
-            )
-
-        call_url = mock_gw.call_args[0][0]
-        assert "source_repo=owner%2Frepo-checkpoints" in call_url
-        assert "issue=42" in call_url
-
-    def test_without_repo_param_no_source_repo(self, handler):
-        """Verify source_repo is not added when repo is not provided."""
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
-            handler.handle_tool_call("list_checkpoints", {"pipeline": "issue-42"})
-
-        call_url = mock_gw.call_args[0][0]
-        assert "source_repo" not in call_url
-
-
-class TestSearchCheckpoints:
-    def test_text_filtering(self, handler):
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {
-                "data": {
-                    "checkpoints": [
-                        {
-                            "session_id": "s1",
-                            "agent_type": "coder",
-                            "pipeline_phase": "implement",
-                            "pipeline_id": "issue-42",
-                            "branch": "egg/issue-42",
-                            "repo": "org/repo",
-                            "session_status": "completed",
-                        },
-                        {
-                            "session_id": "s2",
-                            "agent_type": "tester",
-                            "pipeline_phase": "implement",
-                            "pipeline_id": "issue-99",
-                            "branch": "egg/issue-99",
-                            "repo": "org/repo",
-                            "session_status": "failed",
-                        },
-                    ]
-                }
-            }
-            result = handler.handle_tool_call("search_checkpoints", {"text": "issue-42"})
-
-        assert result["total"] == 1
-        assert result["checkpoints"][0]["session_id"] == "s1"
-        assert "metadata only" in result["note"]
-
-    def test_case_insensitive(self, handler):
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {
-                "data": {
-                    "checkpoints": [
-                        {
-                            "session_id": "s1",
-                            "agent_type": "CODER",
-                            "pipeline_phase": "",
-                            "pipeline_id": "",
-                            "branch": "",
-                            "repo": "",
-                            "session_status": "",
-                        },
-                    ]
-                }
-            }
-            result = handler.handle_tool_call("search_checkpoints", {"text": "coder"})
-
-        assert result["total"] == 1
-
-    def test_with_repo_param(self, handler):
-        """Verify repo is forwarded as source_repo query param (#1514)."""
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"data": {"checkpoints": []}}
-            handler.handle_tool_call(
-                "search_checkpoints",
-                {"text": "coder", "repo": "owner/repo-checkpoints"},
-            )
-
-        call_url = mock_gw.call_args[0][0]
-        assert "source_repo=owner%2Frepo-checkpoints" in call_url
-
-    def test_without_repo_param_no_source_repo(self, handler):
-        """Verify source_repo is not added when repo is not provided."""
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"data": {"checkpoints": []}}
-            handler.handle_tool_call("search_checkpoints", {"text": "some-search"})
-
-        call_url = mock_gw.call_args[0][0]
-        assert "source_repo" not in call_url
-
-
 class TestGetContract:
     def test_with_issue_number_and_active_pipeline(self, handler):
         """issue_number resolves pipeline_id from active pipelines list."""
@@ -1074,8 +949,6 @@ class TestToolRouting:
             "get_consensus_status",
             "get_phase",
             "get_pipeline_snapshot",
-            "list_checkpoints",
-            "search_checkpoints",
             "get_contract",
             "validate_config",
             "restart_agent",
@@ -1102,18 +975,6 @@ class TestToolRouting:
         result = handler.handle_tool_call("nonexistent", {})
         assert "error" in result
         assert "Unknown tool" in result["error"]
-
-    def test_checkpoint_tools_have_repo_property(self):
-        """Verify list_checkpoints and search_checkpoints schemas include repo (#1514)."""
-        from mcp_tools import PIPELINE_TOOLS
-
-        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
-        for tool_name in ("list_checkpoints", "search_checkpoints"):
-            schema = tools_by_name[tool_name]["inputSchema"]
-            props = schema["properties"]
-            assert "repo" in props, f"{tool_name} schema missing 'repo' property"
-            assert props["repo"]["type"] == "string"
-            assert "owner/repo" in props["repo"]["description"]
 
 
 class TestStartPipeline:

@@ -25,9 +25,9 @@ from egg_tool_output import cap_text, spill_to_file
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 # Prefer the structured logger used by shared/egg_agent/client.py so
-# tracebacks land in the checkpoint-browser's structured-event view
-# alongside other agent events.  Fall back to stdlib logging when
-# egg_logging is unavailable (host-side tooling, unit tests).
+# tracebacks land in the structured-event log alongside other agent
+# events.  Fall back to stdlib logging when egg_logging is unavailable
+# (host-side tooling, unit tests).
 try:
     from egg_logging import get_logger
 
@@ -94,7 +94,7 @@ async def invoke_handler(
 
     Output is bounded before it crosses the Agent SDK's 1 MB JSON reader
     buffer (#2805). When ``spill`` is set (large, unpaginated content such
-    as a full checkpoint transcript), an oversized result is written to a
+    as a full file or log dump), an oversized result is written to a
     file the agent can re-``Read``/``grep`` and replaced with a small
     preview descriptor; otherwise it is truncated to a head-preview marker.
     """
@@ -106,7 +106,7 @@ async def invoke_handler(
         return _error_payload(exc)
     except Exception as exc:  # pragma: no cover - defensive
         # Log full traceback so operators can diagnose unknown faults
-        # from checkpoint logs; the structured tool-result only carries
+        # from the structured logs; the structured tool-result only carries
         # the message.
         _logger.exception(
             "Unhandled handler exception in %s: %s",

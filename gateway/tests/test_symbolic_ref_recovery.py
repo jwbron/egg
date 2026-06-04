@@ -48,7 +48,6 @@ def _make_session(assigned_branch, container_id="issue-2200-coder"):
     s.assigned_branch = assigned_branch
     s.pipeline_id = "issue-2200" if assigned_branch else None
     s.last_branch = assigned_branch
-    s.checkpoint_repo = None
     s.last_repo_path = None
     return s
 

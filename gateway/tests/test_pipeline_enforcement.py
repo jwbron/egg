@@ -40,7 +40,6 @@ def _make_session_with_branch(assigned_branch, phase=None, agent_role=None):
     mock_session.assigned_branch = assigned_branch
     mock_session.pipeline_id = "issue-42" if assigned_branch else None
     mock_session.last_branch = assigned_branch
-    mock_session.checkpoint_repo = None
     mock_session.last_repo_path = None
     return mock_session
 

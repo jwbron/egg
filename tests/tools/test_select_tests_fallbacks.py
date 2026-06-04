@@ -260,7 +260,7 @@ def test_static_path_triggers(path: str, expected: str) -> None:
 _GATEWAY_PROD_PATHS = [
     "gateway/policy.py",
     "gateway/auth.py",
-    "gateway/checkpoint_handler.py",
+    "gateway/session_manager.py",
     "gateway/worktree_manager.py",
 ]
 
@@ -334,7 +334,7 @@ def test_gateway_source_change_widens_if_gateway_gateway_becomes_seed(path: str)
             "gateway.gateway": {
                 "gateway.policy",
                 "gateway.auth",
-                "gateway.checkpoint_handler",
+                "gateway.session_manager",
                 "gateway.worktree_manager",
             }
         },

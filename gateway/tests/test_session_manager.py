@@ -18,7 +18,6 @@ from session_manager import (
     SessionManager,
     SessionValidationResult,
     _hash_token,
-    _resolve_stable_repo_path,
     get_session_manager,
 )
 
@@ -256,16 +255,15 @@ class TestSessionManager:
             container_ip="172.18.0.5",
             mode="private",
         )
-        deleted, _event = manager.delete_session(token)
+        deleted = manager.delete_session(token)
         assert deleted is True
         result = manager.validate_session(token)
         assert result.valid is False
 
     def test_delete_nonexistent_session(self, manager):
         """Test deleting a non-existent session."""
-        deleted, event = manager.delete_session("nonexistent-token")
+        deleted = manager.delete_session("nonexistent-token")
         assert deleted is False
-        assert event is None
 
     def test_get_session_by_container(self, manager):
         """Test finding session by container ID."""
@@ -758,7 +756,7 @@ class TestDeleteByContainer:
             mode="private",
         )
 
-        deleted, _event = manager.delete_session_by_container("test-container")
+        deleted = manager.delete_session_by_container("test-container")
         assert deleted is True
 
         # Session should no longer be findable
@@ -766,9 +764,8 @@ class TestDeleteByContainer:
 
     def test_delete_nonexistent_container(self, manager):
         """Delete returns False for non-existent container."""
-        deleted, event = manager.delete_session_by_container("nonexistent")
+        deleted = manager.delete_session_by_container("nonexistent")
         assert deleted is False
-        assert event is None
 
     def test_delete_clears_token_cache(self, manager):
         """Deleting by container should also clear the token lookup cache."""
@@ -1528,11 +1525,11 @@ class TestSessionBranchPropagation:
         assert result.session.last_branch == "egg/add-feature"
 
 
-class TestSessionCheckpointFields:
-    """Tests for Session checkpoint_repo and last_repo_path fields."""
+class TestSessionLastRepoPathField:
+    """Tests for the Session last_repo_path field and its serialization."""
 
-    def test_session_defaults_checkpoint_fields_none(self):
-        """checkpoint_repo and last_repo_path default to None."""
+    def test_session_defaults_last_repo_path_none(self):
+        """last_repo_path defaults to None."""
         now = datetime.now(UTC)
         session = Session(
             session_token="test-token",
@@ -1544,11 +1541,10 @@ class TestSessionCheckpointFields:
             last_seen=now,
             expires_at=now + timedelta(hours=24),
         )
-        assert session.checkpoint_repo is None
         assert session.last_repo_path is None
 
-    def test_session_with_checkpoint_fields(self):
-        """Session can be created with checkpoint_repo and last_repo_path."""
+    def test_session_with_last_repo_path(self):
+        """Session can be created with last_repo_path."""
         now = datetime.now(UTC)
         session = Session(
             session_token="test-token",
@@ -1559,14 +1555,12 @@ class TestSessionCheckpointFields:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=24),
-            checkpoint_repo="owner/repo-checkpoints",
             last_repo_path="/home/egg/repos/egg",
         )
-        assert session.checkpoint_repo == "owner/repo-checkpoints"
         assert session.last_repo_path == "/home/egg/repos/egg"
 
-    def test_to_dict_includes_checkpoint_fields(self):
-        """to_dict_for_persistence includes checkpoint fields when set."""
+    def test_roundtrip_with_last_repo_path(self):
+        """last_repo_path survives a serialization roundtrip."""
         now = datetime.now(UTC)
         session = Session(
             session_token="test-token",
@@ -1577,73 +1571,20 @@ class TestSessionCheckpointFields:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=24),
-            checkpoint_repo="owner/repo-checkpoints",
             last_repo_path="/home/egg/repos/egg",
         )
         d = session.to_dict_for_persistence()
-        assert d["checkpoint_repo"] == "owner/repo-checkpoints"
         assert d["last_repo_path"] == "/home/egg/repos/egg"
-
-    def test_to_dict_excludes_none_checkpoint_fields(self):
-        """to_dict_for_persistence excludes None checkpoint fields."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-        )
-        d = session.to_dict_for_persistence()
-        assert "checkpoint_repo" not in d
-        assert "last_repo_path" not in d
-
-    def test_roundtrip_with_checkpoint_fields(self):
-        """checkpoint_repo and last_repo_path survive serialization roundtrip."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-            checkpoint_repo="owner/repo-checkpoints",
-            last_repo_path="/home/egg/repos/egg",
-        )
-        d = session.to_dict_for_persistence()
         restored = Session.from_persistence(d)
-        assert restored.checkpoint_repo == "owner/repo-checkpoints"
         assert restored.last_repo_path == "/home/egg/repos/egg"
 
-    def test_backward_compatibility_without_checkpoint_fields(self):
-        """from_persistence handles sessions without checkpoint fields."""
-        now = datetime.now(UTC)
-        data = {
-            "session_token_hash": "abc123",
-            "container_id": "test-container",
-            "container_ip": "172.18.0.5",
-            "mode": "private",
-            "created_at": now.isoformat(),
-            "last_seen": now.isoformat(),
-            "expires_at": (now + timedelta(hours=24)).isoformat(),
-        }
-        session = Session.from_persistence(data)
-        assert session.checkpoint_repo is None
-        assert session.last_repo_path is None
 
-
-class TestSessionEndCheckpointCapture:
-    """Tests for session-end checkpoint capture during deletion/expiry."""
+class TestSessionEndCleanup:
+    """Tests for session-end auto-commit + cleanup during deletion/expiry."""
 
     @pytest.fixture(autouse=True)
     def clear_captured_containers(self):
-        """Clear the capture dedup set before each test."""
+        """Clear the dedup set before each test."""
         session_manager_module._captured_containers.clear()
 
     @pytest.fixture
@@ -1651,45 +1592,40 @@ class TestSessionEndCheckpointCapture:
         """Create a session manager with a temporary persistence file."""
         return SessionManager(persistence_file=tmp_path / "sessions.json")
 
-    def test_delete_session_by_token_captures_checkpoint(self, manager):
-        """delete_session(token) captures a session-end checkpoint."""
-        token, session = manager.register_session(
+    def test_delete_session_by_token_invokes_cleanup(self, manager):
+        """delete_session(token) runs the session-end cleanup hook."""
+        token, _session = manager.register_session(
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
         )
 
-        from unittest.mock import patch
-
-        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            deleted, _event = manager.delete_session(token)
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_cleanup:
+            deleted = manager.delete_session(token)
             assert deleted is True
-            mock_capture.assert_called_once()
-            args = mock_capture.call_args[0]
+            mock_cleanup.assert_called_once()
+            args = mock_cleanup.call_args[0]
             assert args[0].container_id == "test-container"
             assert args[1] == "completed"
 
-    def test_delete_session_by_container_captures_checkpoint(self, manager):
-        """delete_session_by_container captures a session-end checkpoint."""
-        _token, session = manager.register_session(
+    def test_delete_session_by_container_invokes_cleanup(self, manager):
+        """delete_session_by_container runs the session-end cleanup hook."""
+        manager.register_session(
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
         )
 
-        from unittest.mock import patch
-
-        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            deleted, _event = manager.delete_session_by_container("test-container")
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_cleanup:
+            deleted = manager.delete_session_by_container("test-container")
             assert deleted is True
-            mock_capture.assert_called_once()
-            args = mock_capture.call_args[0]
+            mock_cleanup.assert_called_once()
+            args = mock_cleanup.call_args[0]
             assert args[0].container_id == "test-container"
             assert args[1] == "completed"
 
-    def test_prune_captures_expired_checkpoints(self, manager):
-        """prune_expired_sessions captures checkpoints with EXPIRED status."""
-        # Create and expire sessions
+    def test_prune_invokes_cleanup_for_expired(self, manager):
+        """prune_expired_sessions runs cleanup with EXPIRED status."""
         for i in range(3):
             _token, session = manager.register_session(
                 container_id=f"expired-{i}",
@@ -1698,26 +1634,15 @@ class TestSessionEndCheckpointCapture:
             )
             session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
-        from unittest.mock import patch
-
-        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_cleanup:
             pruned = manager.prune_expired_sessions()
             assert pruned == 3
-            assert mock_capture.call_count == 3
-            # All calls should use "expired" status
-            for c in mock_capture.call_args_list:
+            assert mock_cleanup.call_count == 3
+            for c in mock_cleanup.call_args_list:
                 assert c[0][1] == "expired"
 
-    def test_synthetic_session_skips_checkpoint_capture(self):
-        """Synthetic temp sessions skip the session-end checkpoint path entirely.
-
-        Regression test for #2316: orchestrator-internal helpers (ls-remote,
-        failsafe-fetch) register synthetic sessions that have no proxy buffer
-        and would only produce metadata-only checkpoints whose push fails
-        noisily on read-only source repos.
-        """
-        from unittest.mock import patch
-
+    def test_synthetic_session_skips_cleanup(self):
+        """Synthetic temp sessions skip auto-commit entirely (#2316)."""
         from session_manager import _capture_and_cleanup_session
 
         now = datetime.now(UTC)
@@ -1733,297 +1658,70 @@ class TestSessionEndCheckpointCapture:
             synthetic=True,
         )
 
-        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as cleanup:
-            event = _capture_and_cleanup_session(session, "completed")
+        _capture_and_cleanup_session(session, "completed")
 
-        assert event is None
-        cleanup.assert_not_called()
+        # Synthetic sessions return early and are never added to the dedup set.
+        assert session.container_id not in session_manager_module._captured_containers
 
-    def test_delete_by_token_not_found_skips_capture(self, manager):
-        """delete_session with invalid token doesn't capture checkpoint."""
-        from unittest.mock import patch
-
-        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            deleted, event = manager.delete_session("nonexistent-token")
+    def test_delete_by_token_not_found_skips_cleanup(self, manager):
+        """delete_session with invalid token doesn't run cleanup."""
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_cleanup:
+            deleted = manager.delete_session("nonexistent-token")
             assert deleted is False
-            assert event is None
-            mock_capture.assert_not_called()
+            mock_cleanup.assert_not_called()
 
-    def test_delete_by_container_not_found_skips_capture(self, manager):
-        """delete_session_by_container with invalid container doesn't capture."""
-        from unittest.mock import patch
-
-        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            deleted, event = manager.delete_session_by_container("nonexistent")
+    def test_delete_by_container_not_found_skips_cleanup(self, manager):
+        """delete_session_by_container with invalid container doesn't run cleanup."""
+        with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_cleanup:
+            deleted = manager.delete_session_by_container("nonexistent")
             assert deleted is False
-            assert event is None
-            mock_capture.assert_not_called()
+            mock_cleanup.assert_not_called()
 
-    def test_capture_called_outside_lock(self, manager):
-        """Verify that checkpoint capture doesn't hold the session lock."""
-        token, session = manager.register_session(
+    def test_cleanup_called_outside_lock(self, manager):
+        """Session-end cleanup must not hold the session lock."""
+        manager.register_session(
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
         )
-
-        # Register another session to test lock contention
         token2, _ = manager.register_session(
             container_id="other-container",
             container_ip="172.18.0.6",
             mode="private",
         )
 
-        from unittest.mock import patch
-
-        def capture_mock(session_obj, status):
-            # While capture is running, other session operations should work
-            # If the lock were held, this would deadlock
+        def cleanup_mock(session_obj, status):
+            # If the lock were held during cleanup, this would deadlock.
             result = manager.validate_session(token2)
             assert result.valid
 
         with patch.object(
-            session_manager_module, "_capture_and_cleanup_session", side_effect=capture_mock
+            session_manager_module, "_capture_and_cleanup_session", side_effect=cleanup_mock
         ):
-            deleted, _event = manager.delete_session_by_container("test-container")
+            deleted = manager.delete_session_by_container("test-container")
             assert deleted is True
 
-    def test_capture_and_cleanup_handles_import_error(self):
-        """_capture_and_cleanup_session handles ImportError gracefully."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-        )
-
-        from unittest.mock import patch
-
-        from session_manager import _capture_and_cleanup_session
-
-        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
-            with patch.dict("sys.modules", {"checkpoint_handler": None}):
-                # Should not raise - just log and clean up
-                _capture_and_cleanup_session(session, "completed")
-            # Buffer cleanup should always happen
-            mock_cleanup.assert_called_once_with("test-container")
-
-    def test_capture_and_cleanup_handles_capture_failure(self):
-        """_capture_and_cleanup_session cleans up buffer even on failure."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-        )
-
-        from unittest.mock import patch
-
-        from session_manager import _capture_and_cleanup_session
-
-        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as mock_cleanup:
-            with patch(
-                "checkpoint_handler.capture_session_end_checkpoint",
-                side_effect=RuntimeError("capture failed"),
-            ):
-                # Should not raise
-                _capture_and_cleanup_session(session, "completed")
-            # Buffer cleanup should still happen
-            mock_cleanup.assert_called_once_with("test-container")
-
-    def test_capture_returns_completion_event(self):
-        """_capture_and_cleanup_session returns completion event from checkpoint capture."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container-event",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-            last_repo_path="/home/egg/repos/test-repo",
-        )
-
-        from session_manager import _capture_and_cleanup_session
-
-        mock_event = threading.Event()
-        mock_event.set()
-
-        with patch.object(session_manager_module, "_cleanup_transcript_buffer"):
-            with patch(
-                "checkpoint_handler.capture_session_end_checkpoint",
-                return_value=(None, mock_event),
-            ):
-                result = _capture_and_cleanup_session(session, "completed")
-                assert result is mock_event
-
-    def test_capture_resolves_worktree_path(self):
-        """_capture_and_cleanup_session resolves worktree path to stable repo path."""
-        now = datetime.now(UTC)
-        session = Session(
-            session_token="test-token",
-            session_token_hash=_hash_token("test-token"),
-            container_id="test-container-resolve",
-            container_ip="172.18.0.5",
-            mode="private",
-            created_at=now,
-            last_seen=now,
-            expires_at=now + timedelta(hours=24),
-            last_repo_path="/home/egg/.worktrees/container-123/myrepo",
-        )
-
-        from session_manager import _capture_and_cleanup_session
-
-        with patch.object(session_manager_module, "_cleanup_transcript_buffer"):
-            with patch(
-                "session_manager._resolve_stable_repo_path",
-                return_value="/home/egg/repos/myrepo",
-            ) as mock_resolve:
-                with patch(
-                    "checkpoint_handler.capture_session_end_checkpoint",
-                    return_value=(None, None),
-                ) as mock_capture:
-                    _capture_and_cleanup_session(session, "completed")
-                    mock_resolve.assert_called_once_with(
-                        "/home/egg/.worktrees/container-123/myrepo"
-                    )
-                    # Verify the resolved path was passed to capture
-                    call_kwargs = mock_capture.call_args[1]
-                    assert call_kwargs["repo_path"] == "/home/egg/repos/myrepo"
-
-    def test_delete_session_returns_event_tuple(self, manager):
-        """delete_session returns (bool, Event|None) tuple."""
+    def test_delete_session_returns_bool(self, manager):
+        """delete_session returns True on success, False when not found."""
         token, _session = manager.register_session(
-            container_id="test-container-tuple",
+            container_id="test-container-bool",
             container_ip="172.18.0.5",
             mode="private",
         )
+        with patch.object(session_manager_module, "_capture_and_cleanup_session"):
+            assert manager.delete_session(token) is True
+        assert manager.delete_session("nonexistent-token") is False
 
-        mock_event = threading.Event()
-        with patch.object(
-            session_manager_module,
-            "_capture_and_cleanup_session",
-            return_value=mock_event,
-        ):
-            result = manager.delete_session(token)
-            assert isinstance(result, tuple)
-            assert result[0] is True
-            assert result[1] is mock_event
-
-    def test_delete_session_not_found_returns_none_event(self, manager):
-        """delete_session returns (False, None) when not found."""
-        result = manager.delete_session("nonexistent-token")
-        assert result == (False, None)
-
-    def test_delete_by_container_returns_event_tuple(self, manager):
-        """delete_session_by_container returns (bool, Event|None) tuple."""
-        _token, _session = manager.register_session(
-            container_id="test-container-tuple2",
+    def test_delete_by_container_returns_bool(self, manager):
+        """delete_session_by_container returns True on success, False when not found."""
+        manager.register_session(
+            container_id="test-container-bool2",
             container_ip="172.18.0.5",
             mode="private",
         )
-
-        mock_event = threading.Event()
-        with patch.object(
-            session_manager_module,
-            "_capture_and_cleanup_session",
-            return_value=mock_event,
-        ):
-            result = manager.delete_session_by_container("test-container-tuple2")
-            assert isinstance(result, tuple)
-            assert result[0] is True
-            assert result[1] is mock_event
-
-    def test_delete_by_container_not_found_returns_none_event(self, manager):
-        """delete_session_by_container returns (False, None) when not found."""
-        result = manager.delete_session_by_container("nonexistent")
-        assert result == (False, None)
-
-
-class TestResolveStableRepoPath:
-    """Tests for _resolve_stable_repo_path helper."""
-
-    def test_main_repo_unchanged(self, tmp_path):
-        """Main repo path (with .git directory) is returned unchanged."""
-        repo = tmp_path / "myrepo"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        assert _resolve_stable_repo_path(str(repo)) == str(repo)
-
-    def test_worktree_resolved_to_main_repo(self, tmp_path):
-        """Worktree path is resolved to its parent main repo."""
-        # Set up a main repo with .git directory
-        main_repo = tmp_path / "main-repo"
-        main_repo.mkdir()
-        git_dir = main_repo / ".git"
-        git_dir.mkdir()
-        worktrees_dir = git_dir / "worktrees" / "my-worktree"
-        worktrees_dir.mkdir(parents=True)
-
-        # Set up a worktree with .git file pointing to main repo
-        worktree = tmp_path / "worktree-dir"
-        worktree.mkdir()
-        git_file = worktree / ".git"
-        git_file.write_text(f"gitdir: {worktrees_dir}\n")
-
-        result = _resolve_stable_repo_path(str(worktree))
-        assert result == str(main_repo)
-
-    def test_no_git_entry_returns_unchanged(self, tmp_path):
-        """Path without .git entry is returned unchanged."""
-        path = tmp_path / "no-git"
-        path.mkdir()
-        assert _resolve_stable_repo_path(str(path)) == str(path)
-
-    def test_git_file_without_gitdir_returns_unchanged(self, tmp_path):
-        """Git file without gitdir: prefix returns unchanged."""
-        path = tmp_path / "bad-git"
-        path.mkdir()
-        (path / ".git").write_text("something else\n")
-        assert _resolve_stable_repo_path(str(path)) == str(path)
-
-    def test_relative_gitdir_resolved(self, tmp_path):
-        """Relative gitdir paths are resolved correctly."""
-        main_repo = tmp_path / "main-repo"
-        main_repo.mkdir()
-        git_dir = main_repo / ".git"
-        git_dir.mkdir()
-        worktrees_dir = git_dir / "worktrees" / "wt"
-        worktrees_dir.mkdir(parents=True)
-
-        worktree = tmp_path / "worktree"
-        worktree.mkdir()
-        # Use relative path
-        import os
-
-        rel_path = os.path.relpath(worktrees_dir, worktree)
-        (worktree / ".git").write_text(f"gitdir: {rel_path}\n")
-
-        result = _resolve_stable_repo_path(str(worktree))
-        assert result == str(main_repo)
-
-    def test_exception_returns_unchanged(self, tmp_path):
-        """Exception during resolution returns original path unchanged."""
-        path = tmp_path / "error-case"
-        path.mkdir()
-        git_file = path / ".git"
-        git_file.write_text("gitdir: /nonexistent/path/that/will/fail\n")
-
-        # Should not raise, returns original path
-        result = _resolve_stable_repo_path(str(path))
-        assert result == str(path)
+        with patch.object(session_manager_module, "_capture_and_cleanup_session"):
+            assert manager.delete_session_by_container("test-container-bool2") is True
+        assert manager.delete_session_by_container("nonexistent") is False
 
 
 class TestPruneIdleSessions:
