@@ -148,8 +148,9 @@ _EXECUTE_SCHEMA: dict[str, Any] = {
 )
 async def confluence_page_get(args: dict[str, Any]) -> dict[str, Any]:
     # Wiki-heavy pages can cross 1 MB once `body.storage.value` plus
-    # expansions are inlined. Spill oversized payloads to a file the agent
-    # can Read/grep, matching the checkpoint_show precedent.
+    # expansions are inlined. Spill oversized payloads via the
+    # `spill=True` surface in ``tools/_common.py`` so the agent can
+    # Read/grep the full payload from disk.
     return await invoke_handler(handlers.confluence_page_get, args, spill=True)
 
 

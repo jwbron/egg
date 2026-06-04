@@ -154,8 +154,9 @@ _EXECUTE_SCHEMA: dict[str, Any] = {
 )
 async def jira_ticket_get(args: dict[str, Any]) -> dict[str, Any]:
     # A ticket with `expand=renderedBody,renderedFields` (the gateway default)
-    # can cross 1 MB on a long-running issue. Spill oversized payloads to a
-    # file the agent can Read/grep, matching the checkpoint_show precedent.
+    # can cross 1 MB on a long-running issue. Spill oversized payloads via
+    # the `spill=True` surface in ``tools/_common.py`` so the agent can
+    # Read/grep the full payload from disk.
     return await invoke_handler(handlers.jira_ticket_get, args, spill=True)
 
 

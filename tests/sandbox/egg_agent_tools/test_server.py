@@ -31,8 +31,9 @@ from egg_agent_tools import SYSTEM_PROMPT_NUDGE, TOOL_LIST, TOOL_NAMESPACES  # n
 from egg_agent_tools.server import _render_nudge  # noqa: E402
 from egg_agent_tools.tools import TOOL_REGISTRY  # noqa: E402
 
-# Iteration-1 verbs (18).  Kept in its own set for documentation so the
-# reader can see the #1917 additions clearly.
+# Iteration-1 verbs (16 — original 18 minus the 2 wait verbs removed
+# in #2211).  Kept in its own set for documentation so the reader can
+# see the #1917 additions clearly.
 _ITER1_TOOL_NAMES = {
     "mcp__sdlc__register_open_question",
     "mcp__sdlc__request_feedback",

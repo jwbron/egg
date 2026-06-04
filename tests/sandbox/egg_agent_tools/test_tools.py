@@ -151,7 +151,7 @@ class TestInvokeHandlerOutputCap:
         def handler(req):
             return {"ok": True, "transcript": "L" * (300 * 1024)}
 
-        resp = _run(invoke_handler(handler, {}, tool_name="checkpoint_show", spill=True))
+        resp = _run(invoke_handler(handler, {}, tool_name="confluence_page_get", spill=True))
         desc = json.loads(resp["content"][0]["text"])
         assert desc["_egg_output_spilled"] is True
         assert Path(desc["output_path"]).exists()
@@ -162,7 +162,7 @@ class TestInvokeHandlerOutputCap:
         def handler(req):
             return {"ok": True, "transcript": "short"}
 
-        resp = _run(invoke_handler(handler, {}, tool_name="checkpoint_show", spill=True))
+        resp = _run(invoke_handler(handler, {}, tool_name="confluence_page_get", spill=True))
         body = json.loads(resp["content"][0]["text"])
         assert body == {"ok": True, "transcript": "short"}
 
