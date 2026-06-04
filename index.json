@@ -541,10 +541,13 @@
       "ckpt-4d83507f53c5703c",
       "ckpt-873d5aaaf5009df6",
       "ckpt-5850ffb840f97d63",
-      "ckpt-485722c1988c53f8"
+      "ckpt-485722c1988c53f8",
+      "ckpt-ea6f98fa3944cf41"
     ]
   },
-  "by_commit": {},
+  "by_commit": {
+    "369c997b5477409d9d561a6aca68b711df39cc7a": "ckpt-ea6f98fa3944cf41"
+  },
   "by_issue": {},
   "by_phase": {},
   "by_pipeline": {
@@ -1120,7 +1123,8 @@
     "jwbron/egg": [
       "ckpt-485722c1988c53f8",
       "ckpt-9fe7296c97e9fd40",
-      "ckpt-0be31eadb60dac36"
+      "ckpt-0be31eadb60dac36",
+      "ckpt-ea6f98fa3944cf41"
     ]
   },
   "by_session": {
@@ -1135,6 +1139,9 @@
     ],
     "egg-exec-20260604-072837-3052": [
       "ckpt-0be31eadb60dac36"
+    ],
+    "egg-exec-20260604-073714-3007": [
+      "ckpt-ea6f98fa3944cf41"
     ],
     "issue-1028-branch-cleanup-egg-0fae3eaffd04493905af975a5fbf140456f455a249c72dde069eea923ae1a6b5-work": [
       "ckpt-c1a677e9ed66c97b"
@@ -2340,6 +2347,9 @@
     ]
   },
   "by_trigger": {
+    "commit": [
+      "ckpt-ea6f98fa3944cf41"
+    ],
     "session_end": [
       "ckpt-04bb218610264d80",
       "ckpt-c1a677e9ed66c97b",
@@ -13123,8 +13133,27 @@
       "tool_call_count": 75,
       "total_tokens": 145621,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": "egg/2993-remove-checkpoint-subsystem",
+      "commit_sha": "369c997b5477409d9d561a6aca68b711df39cc7a",
+      "created_at": "2026-06-04T07:39:59.537530Z",
+      "files_touched_count": 17,
+      "id": "ckpt-ea6f98fa3944cf41",
+      "issue_number": null,
+      "message_count": 360,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": "jwbron/egg",
+      "session_id": "egg-exec-20260604-073714-3007",
+      "session_status": null,
+      "tool_call_count": 33,
+      "total_tokens": 11443,
+      "trigger_type": "commit"
     }
   ],
-  "last_updated": "2026-06-04T07:36:10.800312Z",
+  "last_updated": "2026-06-04T07:40:01.136030Z",
   "schemaVersion": "2.0"
 }
