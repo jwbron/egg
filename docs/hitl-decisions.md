@@ -365,7 +365,7 @@ Some HITL decisions are created directly by the orchestrator — not by agents �
 
 ### Sync Divergence: Non-Destructive Reconcile (#2979)
 
-When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator pauses for a manual reconcile. This is **non-destructive**: the worktree is left at the local HEAD with all committed work intact (the autoresolve aborts back to clean state without modifying the working tree). The process, which happens inside `_sync_worktree_with_remote` and its callers in `_run_pipeline` or `populate_contract`, is:
+When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator pauses for a manual reconcile. This is **non-destructive**: the worktree is left at the local HEAD with all committed work intact (the autoresolve aborts back to clean state without modifying the working tree). Steps 1–3 happen inside `_sync_worktree_with_remote`; step 4 happens in one of two callers — `_sync_worktree_reconciling_divergence` (blocking, used by the `_run_pipeline` loop) or `_emit_divergence_reconcile_hitl` (non-blocking, used by the `populate_contract` route):
 
 1. Enumerates local-only commits present on the worktree but not on origin
 2. Creates a backup ref pinning the current local HEAD: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`, where `<unix-ts-ns>` is `time.time_ns()` — a 19-digit nanoseconds-since-epoch value, not conventional Unix seconds. To derive the wall-clock time: `date -d @$((<unix-ts-ns>/1000000000))`.
@@ -378,8 +378,10 @@ The pipeline stays paused (`pipeline.status=AWAITING_HUMAN` with a pending decis
 
 | Option | Effect |
 |--------|--------|
-| `Reconciled — resume` | Orchestrator re-runs the worktree sync and resumes the phase's post-processing from where it paused (no full phase re-run) |
+| `Reconciled — resume` | Orchestrator re-runs the worktree sync and resumes the phase's post-processing from where it paused (no full phase re-run). **Auto-resume only applies to the two `_run_pipeline` fire sites** (phase start, post-phase), which block on `wait_for_decision` inside `_sync_worktree_reconciling_divergence`. The `populate_contract` site uses the non-blocking `_emit_divergence_reconcile_hitl` and returns immediately — resolving `Reconciled — resume` there is inert; the operator must re-POST `populate_contract` against the reconciled worktree. |
 | `Abort pipeline` | Orchestrator marks the pipeline `FAILED`; the backup ref preserves commits for offline inspection |
+
+After 3 unresolved `Reconciled — resume` attempts the pipeline is marked `FAILED` with `reason="…the reconcile pause budget was exhausted"` (`_MAX_DIVERGENCE_RECONCILE_PAUSES = 3` in `pipelines.py`). The backup ref is preserved either way.
 
 **Recovery steps for operators:**
 
