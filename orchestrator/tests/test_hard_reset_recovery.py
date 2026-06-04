@@ -250,7 +250,11 @@ class TestEmitDivergenceReconcileHitl:
         persist_kwargs = mock_persist.call_args.kwargs
         assert persist_kwargs["options"] == _DIVERGENCE_RECONCILE_HITL_OPTIONS
         assert "refs/egg-backup/sync-recovery/pipe-1/9" in persist_kwargs["question"]
-        assert persist_kwargs.get("context") is None
+        # The persisted decision carries a stable string context so the
+        # non-blocking ``populate_contract`` route can dedupe on it
+        # (early-return 409 when a prior populate already paused the
+        # pipeline on a reconcile HITL the operator hasn't yet resolved).
+        assert persist_kwargs.get("context") == "divergence_reconcile_unacked"
         mock_report.assert_called_once()
         assert decision.id == "decision-1"
 
@@ -557,3 +561,124 @@ class TestPopulateContractDivergenceSurfacing:
         assert kwargs["phase"] == PipelinePhase.IMPLEMENT
         assert kwargs["backup_ref"] == "refs/egg-backup/sync-recovery/issue-2979/123"
         assert list(kwargs["local_only_commit_shas"]) == ["abc1234 add foo"]
+
+    def test_already_paused_returns_409_without_resyncing_or_re_emitting(self):
+        """A retry against a pipeline already paused on a reconcile HITL
+        early-returns 409 and references the existing decision rather
+        than re-running the sync and emitting a fresh HITL — keeps the
+        route idempotent under operator retries (e.g. /sdlc refresh
+        before resolving, automated retry loop) so ``pipeline.decisions``
+        does not accumulate duplicates (#2979 follow-up).
+        """
+        client = self._make_app_client()
+        pipeline = self._make_pipeline()
+        # Pre-pend a pending reconcile HITL with the canonical context.
+        decision = pipeline.add_decision(
+            question="prior reconcile question",
+            options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
+        )
+        decision.context = "divergence_reconcile_unacked"
+
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+
+        with (
+            patch(
+                "routes.phases.get_state_store_for_pipeline",
+                return_value=(mock_store, pipeline),
+            ),
+            patch(
+                "routes.resolve_worktree_path",
+                return_value=Path("/home/egg/.egg-worktrees/issue-2979/egg"),
+            ),
+            patch("routes.pipelines._sync_worktree_with_remote") as mock_sync,
+            patch("routes.pipelines._compute_gateway_mode", return_value=("public", None)),
+            patch("routes.pipelines._get_spawner", return_value=MagicMock()),
+            patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
+            patch("routes.pipelines._emit_divergence_reconcile_hitl") as mock_emit,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-2979/phase/populate-contract")
+
+        assert resp.status_code == 409
+        body = json.loads(resp.data)
+        assert body["success"] is False
+        assert body["reason"] == "divergence_reconcile_unacked"
+        assert body["details"]["already_paused"] is True
+        assert body["details"]["decision_id"] == decision.id
+
+        # Idempotence: re-running over an existing pending reconcile HITL
+        # must not re-run the sync, re-emit the HITL, or run the populator.
+        mock_sync.assert_not_called()
+        mock_emit.assert_not_called()
+        mock_populate.assert_not_called()
+
+
+class TestSyncWorktreeReconcilingDivergenceExceptionRevert:
+    """An unexpected exception between the AWAITING_HUMAN write and the
+    successful resume-write must revert the on-disk pipeline status back
+    to RUNNING before re-raising — otherwise the outer ``_run_pipeline``
+    ``try/except`` catches and moves on, leaving the pipeline pinned to
+    AWAITING_HUMAN with no waiter ever returning (#2979 follow-up).
+    """
+
+    def test_wait_for_decision_raise_reverts_awaiting_human_to_running(self):
+        outcome = WorktreeSyncOutcome(
+            case="divergence_unreconciled",
+            diverged_unreconciled=True,
+            backup_ref="refs/egg-backup/sync-recovery/p-1/9",
+            local_only_commit_shas=("abc1234 foo",),
+        )
+
+        saved_states: list[PipelineStatus] = []
+
+        def _save_pipeline(p):
+            saved_states.append(p.status)
+
+        pipeline = MagicMock()
+        pipeline.get_phase_execution.return_value = MagicMock()
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        store.save_pipeline.side_effect = _save_pipeline
+
+        dq = MagicMock()
+        dq.wait_for_decision.side_effect = RuntimeError("transient queue error")
+
+        with (
+            patch("routes.pipelines._sync_worktree_with_remote", return_value=outcome),
+            patch("routes.pipelines.get_decision_queue", return_value=dq),
+            patch("routes.pipelines.get_pipeline_state_lock"),
+            patch(
+                "routes.pipelines._persist_hitl_decision",
+                return_value=MagicMock(id="d1"),
+            ),
+            patch("routes.pipelines.report_pipeline_status"),
+            patch("routes.pipelines._emit_pipeline_event"),
+        ):
+            # Set the pipeline.status attribute so the revert's
+            # ``if pipeline.status == AWAITING_HUMAN`` check sees the
+            # paused state after the initial save.
+            pipeline.status = PipelineStatus.AWAITING_HUMAN
+            try:
+                _sync_worktree_reconciling_divergence(
+                    MagicMock(),
+                    "p-1",
+                    store,
+                    Path("/tmp/repo"),
+                    worktree_repo_path=Path("/tmp/wt"),
+                    phase=PipelinePhase.PLAN,
+                )
+            except RuntimeError as e:
+                assert str(e) == "transient queue error"
+            else:
+                raise AssertionError("expected RuntimeError to propagate")
+
+        # The first save persisted AWAITING_HUMAN.  The revert (triggered
+        # by the wait_for_decision exception) must have run a follow-up
+        # save flipping it back to RUNNING so the outer caller's
+        # try/except doesn't strand the pipeline on a never-acked HITL.
+        assert PipelineStatus.AWAITING_HUMAN in saved_states
+        assert PipelineStatus.RUNNING in saved_states
+        # Order matters: AWAITING_HUMAN must precede the revert RUNNING.
+        assert saved_states.index(PipelineStatus.AWAITING_HUMAN) < saved_states.index(
+            PipelineStatus.RUNNING
+        )

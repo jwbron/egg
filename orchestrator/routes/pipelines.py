@@ -14128,6 +14128,29 @@ _DIVERGENCE_RECONCILE_HITL_OPTIONS = [
     _DIVERGENCE_RECONCILE_ABORT,
 ]
 
+# Stable string discriminator set on persisted reconcile HITLs (#2979).  The
+# non-blocking ``populate_contract`` route uses this to dedupe: when an
+# operator re-POSTs against an already-paused pipeline (e.g. an automated
+# retry or a refresh through ``/sdlc`` before resolving the prior HITL), the
+# route surfaces the existing pending decision rather than appending a fresh
+# one.
+_DIVERGENCE_RECONCILE_HITL_CONTEXT = "divergence_reconcile_unacked"
+
+
+def _find_pending_divergence_reconcile_decision(pipeline: Pipeline):
+    """Return the oldest pending reconcile HITL on ``pipeline`` (or None).
+
+    Used by the non-blocking ``populate_contract`` route to dedupe re-POSTs
+    against a pipeline already paused on a reconcile HITL — without this,
+    every retry would append a fresh decision and bloat ``pipeline.decisions``
+    (the abort path still works on the most recent decision; this is a UX /
+    cleanliness fix, not a correctness fix).
+    """
+    for decision in pipeline.get_pending_decisions():
+        if decision.context == _DIVERGENCE_RECONCILE_HITL_CONTEXT:
+            return decision
+    return None
+
 
 def _divergence_reconcile_is_abort(resolution: str) -> bool:
     """True when a reconcile-HITL resolution selects abort (#2979).
@@ -14248,6 +14271,7 @@ def _emit_divergence_reconcile_hitl(
             ),
             options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
             phase=phase,
+            context=_DIVERGENCE_RECONCILE_HITL_CONTEXT,
         )
     report_pipeline_status(
         pipeline,
@@ -14405,6 +14429,7 @@ def _sync_worktree_reconciling_divergence(
                 ),
                 options=list(_DIVERGENCE_RECONCILE_HITL_OPTIONS),
                 phase=phase,
+                context=_DIVERGENCE_RECONCILE_HITL_CONTEXT,
             )
         if decision is None:
             # Could not persist the HITL — fail closed rather than spin on
@@ -14424,35 +14449,79 @@ def _sync_worktree_reconciling_divergence(
             local_only_commit_count=len(outcome.local_only_commit_shas),
             pause_attempt=pauses,
         )
-        report_pipeline_status(
-            pipeline,
-            event_type="decision.created",
-            message=f"Awaiting manual worktree reconcile for {phase_label} phase",
-        )
-        _emit_pipeline_event(pipeline, "decision.created")
 
-        dq.wait_for_decision(decision.id)
-
-        resolved = dq.get_decision(decision.id)
-        resolution = (resolved.resolution or "") if resolved is not None else ""
-        if _divergence_reconcile_is_abort(resolution):
-            logger.warning(
-                "worktree_divergence_reconcile_aborted_by_operator",
-                pipeline_id=pipeline_id,
-                phase=phase_label,
+        # Once AWAITING_HUMAN is persisted, an unexpected exception
+        # between here and the resume-write (e.g. a broadcast IO error,
+        # a decision-queue runtime error, a transient store failure on
+        # ``get_decision``) would leave the pipeline pinned to
+        # AWAITING_HUMAN on disk while ``_run_pipeline``'s outer
+        # ``try/except`` catches the error and moves on — stranding the
+        # operator with no waiter ever returning.  Guard the
+        # wait-and-resolve span: on unexpected error revert to RUNNING
+        # before re-raising so the caller still observes the failure
+        # but the pipeline is not left in an unrecoverable paused state.
+        # The abort path (operator chose ``Abort pipeline``) returns
+        # normally with ``aborted=True`` so the caller can flip to
+        # FAILED — that's not an exception and skips the revert.
+        try:
+            report_pipeline_status(
+                pipeline,
+                event_type="decision.created",
+                message=f"Awaiting manual worktree reconcile for {phase_label} phase",
             )
-            return outcome, True
+            _emit_pipeline_event(pipeline, "decision.created")
 
-        # Operator reconciled the worktree — return to RUNNING and re-run
-        # the sync.  If it still diverges, loop and re-pause (bounded).
-        with get_pipeline_state_lock(pipeline_id):
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.RUNNING
-            if phase is not None:
-                phase_execution = pipeline.get_phase_execution(phase)
-                if phase_execution is not None:
-                    phase_execution.status = PipelineStatus.RUNNING
-            store.save_pipeline(pipeline)
+            dq.wait_for_decision(decision.id)
+
+            resolved = dq.get_decision(decision.id)
+            resolution = (resolved.resolution or "") if resolved is not None else ""
+            if _divergence_reconcile_is_abort(resolution):
+                logger.warning(
+                    "worktree_divergence_reconcile_aborted_by_operator",
+                    pipeline_id=pipeline_id,
+                    phase=phase_label,
+                )
+                return outcome, True
+
+            # Operator reconciled the worktree — return to RUNNING and re-run
+            # the sync.  If it still diverges, loop and re-pause (bounded).
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+                pipeline.status = PipelineStatus.RUNNING
+                if phase is not None:
+                    phase_execution = pipeline.get_phase_execution(phase)
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.RUNNING
+                store.save_pipeline(pipeline)
+        except Exception:
+            # Best-effort revert: load fresh, flip AWAITING_HUMAN→RUNNING
+            # only if still pinned, then re-raise.  Swallow secondary
+            # errors from the revert itself — losing the revert is bad,
+            # but masking the original failure with a save error is
+            # worse.  The operator can still recover via the pending
+            # decision (the decision queue may have replayed it on
+            # restart) or via the backup ref.
+            try:
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    if pipeline.status == PipelineStatus.AWAITING_HUMAN:
+                        pipeline.status = PipelineStatus.RUNNING
+                    if phase is not None:
+                        phase_execution = pipeline.get_phase_execution(phase)
+                        if (
+                            phase_execution is not None
+                            and phase_execution.status == PipelineStatus.AWAITING_HUMAN
+                        ):
+                            phase_execution.status = PipelineStatus.RUNNING
+                    store.save_pipeline(pipeline)
+            except Exception:
+                logger.warning(
+                    "worktree_divergence_reconcile_revert_failed",
+                    pipeline_id=pipeline_id,
+                    phase=phase_label,
+                    exc_info=True,
+                )
+            raise
         logger.info(
             "worktree_divergence_reconcile_resume",
             pipeline_id=pipeline_id,
@@ -22201,11 +22270,16 @@ def _run_pipeline(
             # Sync worktree with remote before post-phase modifications
             # so that agent-pushed commits (including plan drafts) are
             # incorporated.  This must run BEFORE _populate_contract_from_plan
-            # and _sync_pipeline_decisions_to_contract — otherwise
-            # git reset --hard in _sync_worktree_with_remote would revert
-            # their on-disk modifications.  Running the sync first also
-            # ensures _populate_contract_from_plan can read agent-produced
-            # draft files that only exist on the remote.
+            # and _sync_pipeline_decisions_to_contract so the autoresolve
+            # rebase inside _sync_worktree_with_remote lands the remote
+            # state before the populate step reads ``.egg-state/`` —
+            # otherwise populate would read a stale local view and either
+            # produce an empty contract or overwrite agent-pushed drafts
+            # that only exist on origin.  (Before #2979 the helper also
+            # issued ``git reset --hard`` on a doubly-failed divergence,
+            # which would have reverted local on-disk modifications; that
+            # destructive path is gone, so the modern rationale is purely
+            # about the autoresolve rebase, not a hard reset.)
             post_phase_sync_outcome: WorktreeSyncOutcome | None = None
             post_phase_sync_aborted = False
             if pipeline.branch and worktree_repo_path != repo_path:

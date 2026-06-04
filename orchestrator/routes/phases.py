@@ -1311,11 +1311,42 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             _commit_statefiles_to_worktree,
             _compute_gateway_mode,
             _emit_divergence_reconcile_hitl,
+            _find_pending_divergence_reconcile_decision,
             _get_spawner,
             _pipeline_identifier,
             _populate_contract_from_plan,
             _sync_worktree_with_remote,
         )
+
+        # #2979 follow-up: if a prior populate_contract already paused the
+        # pipeline on a reconcile HITL and the operator has not yet
+        # resolved it, surface the existing decision instead of re-running
+        # the sync and appending a duplicate HITL.  Re-emit would still be
+        # correctness-safe (the abort path resolves the most recent
+        # decision), but each retry would bloat ``pipeline.decisions`` and
+        # confuse /sdlc.  Returning 409 here keeps the route idempotent
+        # under operator retries against an already-paused pipeline.
+        existing_reconcile_decision = _find_pending_divergence_reconcile_decision(pipeline)
+        if existing_reconcile_decision is not None:
+            logger.info(
+                "populate_contract: pipeline already paused on reconcile HITL; "
+                "skipping re-emit and returning 409",
+                pipeline_id=pipeline_id,
+                decision_id=existing_reconcile_decision.id,
+            )
+            return make_error_response(
+                "Pipeline is already paused on a worktree-reconcile HITL from a "
+                "prior populate_contract call. Reconcile the worktree, resolve "
+                "the existing decision (visible in /sdlc), and re-run "
+                "populate_contract.",
+                status_code=409,
+                reason="divergence_reconcile_unacked",
+                details={
+                    "diverged_unreconciled": True,
+                    "decision_id": existing_reconcile_decision.id,
+                    "already_paused": True,
+                },
+            )
 
         # #2792/#2979: reconcile the worktree before reading the draft so
         # a divergence here is surfaced the same way the phase-boundary
