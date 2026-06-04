@@ -457,8 +457,9 @@ If the state-store worktree is wedged (for example, after a state-volume reset t
    before every import — it reaps stale `egg-*:<tag>` docker images (keeping
    the current tag + `:latest`), prunes dangling images, and caps the BuildKit
    cache (default 20 GB, override with `EGG_DOCKER_CACHE_MAX` set to a docker
-   byte-size string like `30GB`). A successful deploy ALSO reaps older egg tags from containerd
-   via `scripts/reap-stale-egg-images.sh`, so both stores stay bounded.
+   byte-size string like `30GB`). A successful deploy ALSO reaps older egg tags
+   from containerd via `scripts/reap-stale-egg-images.sh`, so both stores stay
+   bounded.
 
 ### Claude binary not found
 
