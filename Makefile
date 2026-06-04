@@ -686,7 +686,11 @@ sudo-keepalive:
 # just `ctr images tag` the wanted tags off :latest instead of re-importing.
 # The :latest-present guard is load-bearing: if GC already evicted the image
 # we fall through to a real import. reap-stale-egg-images.sh deliberately
-# keeps :latest, so it stays a stable retag source across deploys.
+# keeps :latest, so it stays a stable retag source across deploys. The retag
+# path further assumes nothing else has re-pointed containerd's :latest to
+# non-egg content -- no tool in this repo does so, and an out-of-band retag
+# would only mismatch if :$(EGG_IMAGE_TAG) is also absent (the inner grep
+# guard skips when it is already present).
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
 	@set -euo pipefail; \
@@ -707,6 +711,7 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 				if ! grep -qx "docker.io/library/$$image:$$tag" <<<"$$present"; then \
 					echo "    tag docker.io/library/$$image:latest -> :$$tag"; \
 					sudo k3s ctr images tag "docker.io/library/$$image:latest" "docker.io/library/$$image:$$tag"; \
+					present="$$present"$$'\n'"docker.io/library/$$image:$$tag"; \
 				fi; \
 			done; \
 		else \
@@ -718,10 +723,11 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 				sudo k3s ctr images import "$$f"; \
 				rm -f "$$f"; \
 			done; \
-			printf '%s\n' "$$cur_id" > "$$marker"; \
+			printf '%s\n' "$$cur_id" > "$$marker.tmp" && mv -f "$$marker.tmp" "$$marker"; \
+			present=$$(sudo k3s ctr images list -q); \
 		fi; \
 		for tag in $$tags; do \
-			if ! sudo k3s ctr images list -q | grep -qx "docker.io/library/$$image:$$tag"; then \
+			if ! grep -qx "docker.io/library/$$image:$$tag" <<<"$$present"; then \
 				echo "ERROR: $$image:$$tag not present in k3s containerd after import/retag" >&2; \
 				exit 1; \
 			fi; \
