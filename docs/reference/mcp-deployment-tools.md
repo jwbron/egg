@@ -160,7 +160,7 @@ Every diagnostic skill calls this first — it bounds every subsequent check.
 
 ## `validate_deployment_manifests`
 
-Static kustomize-overlay checks against five warn-on rules that caught the
+Static kustomize-overlay checks against six warn-on rules that caught the
 concrete bugs in the #1692 validation pass.
 
 **HTTP route**: `POST /api/v1/deployment/validate-manifests`
@@ -206,6 +206,13 @@ resolved from the deployment context.
 4. `selector-label-mismatch` — a Service selector matches zero Pod labels.
 5. `env-var-collision` — two ConfigMaps / Secrets map the same env-var name
    into the same container with different values.
+6. `session-store-not-persistent` — a gateway deployment whose `worktrees`
+   volume survives pod recreation (non-emptyDir) but whose `egg-state` volume
+   (the gateway session store at `/home/egg/.egg-state`) is ephemeral
+   (`emptyDir` or absent, in which case it falls inside the `home` emptyDir).
+   This asymmetry causes startup worktree cleanup to see zero live sessions
+   after a pod recreation and delete every live pipeline's worktree (#3005).
+   Fires as `severity: "error"`.
 
 k3s-specific warnings (for example, `containerd image presence`) are
 **gated on the k3s-detection heuristic** from
