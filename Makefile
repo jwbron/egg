@@ -660,9 +660,9 @@ sudo-keepalive:
 		sudo -n -v 2>/dev/null; sleep 60; i=$$((i + 1)); \
 	done ) >/dev/null 2>&1 </dev/null &
 
-# Run this recipe under bash: the `${var//pat/repl}` parameter expansion and
-# `set -o pipefail` are bash builtins, both unsupported under dash (the default
-# /bin/sh on Debian/Ubuntu).
+# Run this recipe under bash: the `${var//pat/repl}` parameter expansion, the
+# `<<<` here-string, and `set -o pipefail` are bash builtins, all unsupported
+# under dash (the default /bin/sh on Debian/Ubuntu).
 #
 # Import via temp file rather than `docker save ... | sudo k3s ctr images
 # import -`. The stdin path silently drops the layer payload for some images
@@ -674,6 +674,23 @@ sudo-keepalive:
 # half-imported tag that surfaces hours later as ImagePullBackOff in
 # await-egg-deploy.sh. Tarballs go in /var/tmp (disk-backed) -- the sandbox
 # image is ~12 GB, so /tmp (tmpfs) would consume that much RAM.
+#
+# Skip-and-tag unchanged images (issue #2999 lever A). `docker save` +
+# `ctr import` of the ~12 GB egg-sandbox every redeploy is the dominant churn
+# that fragments btrfs and pushes the root fs into DiskPressure, after which
+# kubelet's image GC evicts the freshly-imported (not-yet-referenced) tags
+# mid-run and check-egg-images-present.sh fails. So per image we compare the
+# current docker image id against a marker of the last id we imported (under
+# ${XDG_CACHE_HOME:-$HOME/.cache}/egg/k3s-import-ids/<image>.id); when it is
+# unchanged AND containerd still holds docker.io/library/<image>:latest we
+# just `ctr images tag` the wanted tags off :latest instead of re-importing.
+# The :latest-present guard is load-bearing: if GC already evicted the image
+# we fall through to a real import. reap-stale-egg-images.sh deliberately
+# keeps :latest, so it stays a stable retag source across deploys. The retag
+# path further assumes nothing else has re-pointed containerd's :latest to
+# non-egg content -- no tool in this repo does so, and an out-of-band retag
+# would only mismatch if :$(EGG_IMAGE_TAG) is also absent (the inner grep
+# guard skips when it is already present).
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
 	@set -euo pipefail; \
@@ -681,16 +698,37 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 	trap 'rm -rf "$$tmp"' EXIT; \
 	tags="latest"; \
 	if [ "$(EGG_IMAGE_TAG)" != "latest" ]; then tags="$$tags $(EGG_IMAGE_TAG)"; fi; \
+	id_dir="$${XDG_CACHE_HOME:-$$HOME/.cache}/egg/k3s-import-ids"; \
+	mkdir -p "$$id_dir"; \
 	for image in egg-gateway egg-orchestrator egg-sandbox egg-litellm; do \
+		cur_id=$$(docker image inspect "$$image:$(EGG_IMAGE_TAG)" --format '{{.Id}}'); \
+		marker="$$id_dir/$$image.id"; \
+		prev_id=$$(cat "$$marker" 2>/dev/null || true); \
+		present=$$(sudo k3s ctr images list -q); \
+		if [ "$$cur_id" = "$$prev_id" ] && grep -qx "docker.io/library/$$image:latest" <<<"$$present"; then \
+			echo ">>> $$image unchanged ($$cur_id), :latest present in containerd; retagging instead of re-importing"; \
+			for tag in $$tags; do \
+				if ! grep -qx "docker.io/library/$$image:$$tag" <<<"$$present"; then \
+					echo "    tag docker.io/library/$$image:latest -> :$$tag"; \
+					sudo k3s ctr images tag "docker.io/library/$$image:latest" "docker.io/library/$$image:$$tag"; \
+					present="$$present"$$'\n'"docker.io/library/$$image:$$tag"; \
+				fi; \
+			done; \
+		else \
+			for tag in $$tags; do \
+				img="$$image:$$tag"; \
+				f="$$tmp/$${img//[:\/]/_}.tar"; \
+				echo ">>> importing $$img"; \
+				docker save "$$img" -o "$$f"; \
+				sudo k3s ctr images import "$$f"; \
+				rm -f "$$f"; \
+			done; \
+			printf '%s\n' "$$cur_id" > "$$marker.tmp" && mv -f "$$marker.tmp" "$$marker"; \
+			present=$$(sudo k3s ctr images list -q); \
+		fi; \
 		for tag in $$tags; do \
-			img="$$image:$$tag"; \
-			f="$$tmp/$${img//[:\/]/_}.tar"; \
-			echo ">>> importing $$img"; \
-			docker save "$$img" -o "$$f"; \
-			sudo k3s ctr images import "$$f"; \
-			rm -f "$$f"; \
-			if ! sudo k3s ctr images list -q | grep -qx "docker.io/library/$$img"; then \
-				echo "ERROR: $$img import returned 0 but tag is not present in k3s containerd" >&2; \
+			if ! grep -qx "docker.io/library/$$image:$$tag" <<<"$$present"; then \
+				echo "ERROR: $$image:$$tag not present in k3s containerd after import/retag" >&2; \
 				exit 1; \
 			fi; \
 		done; \
