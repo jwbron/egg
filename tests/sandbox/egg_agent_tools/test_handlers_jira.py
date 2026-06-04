@@ -123,17 +123,21 @@ class TestTicketCreate:
 
 
 class TestTicketEdit:
-    def test_notify_default_false(self):
+    def test_notify_default_true(self):
+        # MCP defaults notify_users=True to match the sandbox/scripts/jira
+        # wrapper's deliberate override of the gateway default — keeps
+        # planner-authored task text producing the same side effects
+        # regardless of which front-end the agent picks.
         with _patch_gateway() as gw:
             jira.jira_ticket_edit({"ticket": "ENG-1", "summary": "new"})
         body = gw.call_args.kwargs["body"]
-        assert body["notifyUsers"] is False
+        assert body["notifyUsers"] is True
         assert body["summary"] == "new"
 
-    def test_notify_true(self):
+    def test_notify_false(self):
         with _patch_gateway() as gw:
-            jira.jira_ticket_edit({"ticket": "ENG-1", "notify_users": True})
-        assert gw.call_args.kwargs["body"]["notifyUsers"] is True
+            jira.jira_ticket_edit({"ticket": "ENG-1", "notify_users": False})
+        assert gw.call_args.kwargs["body"]["notifyUsers"] is False
 
     def test_incremental_labels(self):
         with _patch_gateway() as gw:

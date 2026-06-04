@@ -104,7 +104,10 @@ _TICKET_EDIT_SCHEMA: dict[str, Any] = {
         "remove_labels": {**_LABELS, "description": "Labels to remove (incremental)."},
         "notify_users": {
             "type": "boolean",
-            "description": "Send Jira notifications (default false).",
+            "description": (
+                "Send Jira notifications (default true, matching the "
+                "sandbox/scripts/jira wrapper; pass false to suppress)."
+            ),
         },
     },
     "required": ["ticket"],
@@ -150,7 +153,10 @@ _EXECUTE_SCHEMA: dict[str, Any] = {
     _TICKET_GET_SCHEMA,
 )
 async def jira_ticket_get(args: dict[str, Any]) -> dict[str, Any]:
-    return await invoke_handler(handlers.jira_ticket_get, args)
+    # A ticket with `expand=renderedBody,renderedFields` (the gateway default)
+    # can cross 1 MB on a long-running issue. Spill oversized payloads to a
+    # file the agent can Read/grep, matching the checkpoint_show precedent.
+    return await invoke_handler(handlers.jira_ticket_get, args, spill=True)
 
 
 @tool(

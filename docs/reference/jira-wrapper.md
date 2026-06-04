@@ -459,7 +459,7 @@ jira link create \
 
 Mixing two body-source flags returns a non-zero exit with a usage error before the gateway is called. Likewise for `--labels` vs `--add-labels` / `--remove-labels` on `ticket edit`.
 
-**`notifyUsers` default differs between the wrapper and the HTTP route.** The HTTP route (`/api/v1/jira/ticket/edit`) defaults `notifyUsers=false` (decision-5 — quiet update). The `jira ticket edit` wrapper inverts that and defaults to `--notify` (sends `notifyUsers=true`) so the CLI matches Atlassian's UI behavior. Pass `--no-notify` to suppress notifications.
+**`notifyUsers` default differs between the front-end wrappers and the HTTP route.** The HTTP route (`/api/v1/jira/ticket/edit`) defaults `notifyUsers=false` (decision-5 — quiet update). The `jira ticket edit` bash wrapper and the `mcp__jira__ticket_edit` MCP tool both invert that and default to notify-on (sends `notifyUsers=true`) so the front-ends match Atlassian's UI behavior. Pass `--no-notify` (bash) or `notify_users=false` (MCP) to suppress notifications.
 
 `jira help` (and `jira --help`) lists all eight subcommands (`ticket get | comments | create | edit`, `ticket comment add`, `search`, `execute`, `link create`).
 

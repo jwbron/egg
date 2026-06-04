@@ -139,8 +139,11 @@ def jira_ticket_edit(req: dict[str, Any]) -> Any:
     Mirrors ``jira ticket edit`` → ``POST /api/v1/jira/ticket/edit``.
     ``labels`` (replace) is mutually exclusive with
     ``add_labels``/``remove_labels`` (incremental).  ``notify_users``
-    defaults to False to match the gateway default; set it True to send
-    Jira notifications.
+    defaults to True to match the ``sandbox/scripts/jira`` wrapper, which
+    deliberately overrides the gateway's notify-off default so that a
+    planner-authored task referring to either front-end produces the same
+    observable side effects; pass ``notify_users=False`` to suppress
+    notifications (mirrors the bash ``--no-notify`` flag).
     """
     body: dict[str, Any] = {"ticket": _require_str(req, "ticket", "ticket key")}
     if "summary" in req and req["summary"] is not None:
@@ -163,7 +166,7 @@ def jira_ticket_edit(req: dict[str, Any]) -> Any:
     if remove_labels is not None:
         body["removeLabels"] = remove_labels
 
-    body["notifyUsers"] = bool(req.get("notify_users", False))
+    body["notifyUsers"] = bool(req.get("notify_users", True))
     return gateway_data_request("/api/v1/jira/ticket/edit", body=body)
 
 
