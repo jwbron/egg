@@ -147,15 +147,28 @@ spec:
               mountPath: /shared/certs
             - name: home
               mountPath: /home/egg
-            - name: egg-state
-              mountPath: /home/egg/.egg-state
       volumes:
+        # The gateway session store lives under /home/egg/.egg-state
+        # (gateway/session_manager.py). It is intentionally NOT declared as a
+        # dedicated volume here: in the base it falls into the ``home`` emptyDir
+        # below (ephemeral, fine for a stateless base deploy).
+        #
+        # IMPORTANT (#3005): any overlay that makes worktrees host-backed
+        # (e.g. the local overlay's hostPath worktrees) MUST also host-back the
+        # session store on a volume with the SAME persistence lifetime — see
+        # k8s/overlays/local/patches/gateway-volumes.yaml. Otherwise a gateway
+        # *pod* recreation boots with the worktrees still on disk but an empty
+        # session store, so startup worktree cleanup derives active_containers=0
+        # (the #1874 session-anchor protection has nothing to protect) and
+        # deletes every live pipeline's worktree out from under its running
+        # phase agents, deadlocking consensus. An emptyDir session store paired
+        # with hostPath worktrees is the exact trap; the
+        # ``session-store-not-persistent`` rule in
+        # orchestrator/routes/deployment.py guards against reintroducing it.
         - name: secrets
           secret:
             secretName: gateway-secrets
         - name: shared-certs
           emptyDir: {}
         - name: home
-          emptyDir: {}
-        - name: egg-state
           emptyDir: {}

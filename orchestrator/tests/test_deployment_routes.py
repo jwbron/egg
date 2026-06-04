@@ -645,6 +645,76 @@ class TestValidateDeploymentDocsRules:
         errors = [w for w in warnings if w.get("severity") == "error"]
         assert errors == []
 
+    def _gateway_doc(self, *, worktrees_vol, egg_state_vol):
+        """Gateway Deployment fixture with explicit worktrees/egg-state volumes.
+
+        Shapes the #3005 trap: the session store (egg-state) and the worktrees
+        it protects must share a persistence class.
+        """
+        return {
+            "kind": "Deployment",
+            "metadata": {"name": "gateway"},
+            "spec": {
+                "template": {
+                    "metadata": {"labels": {"app": "gateway"}},
+                    "spec": {
+                        "containers": [{"name": "gw", "image": "egg-gateway:dev"}],
+                        "volumes": [worktrees_vol, egg_state_vol],
+                    },
+                }
+            },
+        }
+
+    def test_session_store_not_persistent_triggers_error(self):
+        """hostPath worktrees + emptyDir egg-state is the #3005 trap."""
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={"name": "worktrees", "hostPath": {"path": "/host/wt"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+        assert fired[0]["resource"] == "Deployment/gateway"
+        assert "#3005" in fired[0]["message"]
+
+    def test_session_store_persistent_is_clean(self):
+        """hostPath worktrees + hostPath egg-state — the fixed shape — is clean."""
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={"name": "worktrees", "hostPath": {"path": "/host/wt"}},
+                egg_state_vol={"name": "egg-state", "hostPath": {"path": "/host/state"}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert fired == []
+
+    def test_session_store_rule_silent_when_worktrees_not_host_backed(self):
+        """All-emptyDir base/cloud shape has no asymmetry to exploit, so silent.
+
+        Without a host-backed worktree that survives a pod recreation there is
+        nothing for an empty session store to wrongly orphan, so the rule must
+        not fire (avoids false positives on stateless base deploys).
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={"name": "worktrees", "emptyDir": {}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert fired == []
+
 
 # ---------------------------------------------------------------------------
 # prune_stale_worktrees

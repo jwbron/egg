@@ -625,7 +625,7 @@ def _deployment_volumes(doc: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> list[dict[str, Any]]:
-    """Apply the five warning rules from the #1759 validation session.
+    """Apply the warning rules from the #1759 validation session.
 
     Rules:
 
@@ -640,6 +640,9 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
     4. Service selector labels not matching deployment template labels.
     5. Env-var name collision: same name declared twice in a single
        container's ``env`` list.
+    6. Gateway session store not host-backed while worktrees are (#3005):
+       an emptyDir ``egg-state`` paired with hostPath ``worktrees`` lets a
+       gateway pod recreation wipe live pipeline worktrees.
     """
     warnings: list[dict[str, Any]] = []
 
@@ -774,6 +777,48 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
                         "more than once"
                     ),
                 )
+
+    # Rule 6: gateway session store must share the worktrees' persistence
+    # lifetime (#3005). When an overlay host-backs a gateway's worktrees
+    # (hostPath), the gateway session store — the ``egg-state`` volume mounted
+    # at /home/egg/.egg-state (gateway/session_manager.py) — MUST also be
+    # host-backed. The two are coupled: startup worktree cleanup
+    # (gateway/worktree_manager.py:cleanup_orphaned_worktrees) only protects a
+    # live pipeline's worktrees if it can see the owning sessions (the #1874
+    # session-anchor derivation). If the session store is an emptyDir while the
+    # worktrees survive on a hostPath, a gateway *pod* recreation boots with the
+    # worktrees still on disk but zero sessions, so cleanup runs with
+    # active_containers=0 and deletes every live worktree out from under its
+    # running phase agents, deadlocking BRC consensus. Self-gated on the
+    # gateway actually host-backing its worktrees so it stays silent on
+    # all-emptyDir base/cloud deploys (where nothing survives a pod recreation,
+    # so there is no asymmetry to exploit).
+    for dep in deployments:
+        name = dep.get("metadata", {}).get("name", "<unknown>")
+        if "gateway" not in name:
+            continue
+        vols = _deployment_volumes(dep)
+        worktrees_host_backed = any(
+            (v or {}).get("name") == "worktrees" and "hostPath" in (v or {}) for v in vols
+        )
+        if not worktrees_host_backed:
+            continue
+        session_store_host_backed = any(
+            (v or {}).get("name") == "egg-state" and "hostPath" in (v or {}) for v in vols
+        )
+        if not session_store_host_backed:
+            _warn(
+                warnings,
+                rule="session-store-not-persistent",
+                severity="error",
+                resource=f"Deployment/{name}",
+                message=(
+                    "gateway host-mounts its worktrees but its session store "
+                    "(egg-state volume, /home/egg/.egg-state) is not hostPath-backed; "
+                    "a gateway pod recreation will boot with an empty session store "
+                    "and delete live pipeline worktrees during startup cleanup (#3005)"
+                ),
+            )
 
     return warnings
 
