@@ -59,12 +59,9 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
 - **contract.md** - SDLC contract CLI commands
   - `egg-contract` command reference (show, complete-task, complete-phase, add-commit, update-notes, add-decision, add-feedback)
 
-- **checkpoint.md** - Checkpoint browser CLI commands
-  - `egg-checkpoint` command reference (list, show, browse, context)
-
 ### Agent MCP tools (default on)
 
-Sandbox agents see in-process Claude Agent SDK MCP tools for HITL / BRC / phase / progress / task / checkpoint operations on the same `tool_use` stream they already handle (on by default since #1942; set `EGG_MCP_TOOLS=false` on the pod env to opt out). Prefer these (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) over shelling out to `egg-contract` / `egg-orch` / `egg-checkpoint` via Bash. The shell CLIs remain available for human operators, tests, and recovery scripts. Full reference: `$EGG_REPO_PATH/docs/reference/agent-tools.md`.
+Sandbox agents see in-process Claude Agent SDK MCP tools for HITL / BRC / phase / progress / task operations on the same `tool_use` stream they already handle (on by default since #1942; set `EGG_MCP_TOOLS=false` on the pod env to opt out). Prefer these (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`) over shelling out to `egg-contract` / `egg-orch` via Bash. The shell CLIs remain available for human operators, tests, and recovery scripts. Full reference: `$EGG_REPO_PATH/docs/reference/agent-tools.md`.
 
 ### Recovery
 

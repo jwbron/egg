@@ -4341,7 +4341,14 @@ class TestSessionPhaseUpdate:
         assert "invalid" in data["message"].lower()
 
     def test_session_phase_update_success(self, client, launcher_auth_headers, tmp_path):
-        """Session phase update succeeds with valid parameters."""
+        """Session phase update succeeds with valid parameters.
+
+        Pre-#2777 slice-2 this used ``"pr"`` as the destination phase
+        (the legacy PR phase). The PR phase was deleted by cq-4 /
+        TASK-2-2; we drive the same code path with the surviving
+        ``IMPLEMENT`` value here (any valid post-slice-2 phase
+        works).
+        """
         from session_manager import SessionManager
 
         # Create a real session manager with temp file
@@ -4350,28 +4357,33 @@ class TestSessionPhaseUpdate:
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
-            phase="implement",
+            phase="plan",
         )
 
         with patch.object(gateway, "get_session_manager", return_value=manager):
             response = client.patch(
                 f"/api/v1/sessions/{token}/phase",
                 headers=launcher_auth_headers,
-                data=json.dumps({"phase": "pr"}),
+                data=json.dumps({"phase": "implement"}),
                 content_type="application/json",
             )
 
             assert response.status_code == 200
             data = json.loads(response.data)
             assert data["success"] is True
-            assert data["data"]["phase"] == "pr"
+            assert data["data"]["phase"] == "implement"
 
             # Verify session was updated
             session = manager.get_session(token)
-            assert session.phase == "pr"
+            assert session.phase == "implement"
 
     def test_session_phase_update_session_not_found(self, client, launcher_auth_headers):
-        """Session phase update returns 404 for unknown session."""
+        """Session phase update returns 404 for unknown session.
+
+        See ``test_session_phase_update_success`` for the post-#2777
+        slice-2 substitution of ``"implement"`` for the deleted
+        ``"pr"`` phase value.
+        """
         with patch.object(gateway, "get_session_manager") as mock_get_manager:
             mock_manager = MagicMock()
             mock_manager.update_phase.return_value = False
@@ -4380,7 +4392,7 @@ class TestSessionPhaseUpdate:
             response = client.patch(
                 "/api/v1/sessions/unknown-token/phase",
                 headers=launcher_auth_headers,
-                data=json.dumps({"phase": "pr"}),
+                data=json.dumps({"phase": "implement"}),
                 content_type="application/json",
             )
 
@@ -5505,7 +5517,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_cleans_up_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container cleans up worktrees for the container."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = (True, None)
+        mock_session_mgr.delete_session_by_container.return_value = True
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -5555,7 +5567,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_no_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container succeeds when no worktree dir exists."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = (True, None)
+        mock_session_mgr.delete_session_by_container.return_value = True
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -5580,7 +5592,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     ):
         """session_delete_by_container handles worktree removal failures gracefully."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = (True, None)
+        mock_session_mgr.delete_session_by_container.return_value = True
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -5646,7 +5658,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_not_found(self, client, launcher_auth_headers):
         """session_delete_by_container returns 404 when session not found."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = (False, None)
+        mock_session_mgr.delete_session_by_container.return_value = False
 
         with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
             response = client.delete(
@@ -6139,486 +6151,6 @@ class TestBranchIsolation:
             assert response.status_code == 500
             data = json.loads(response.data)
             assert "worktree not found" in data["message"].lower()
-
-
-class TestCheckpointRepoBypass:
-    """Tests for checkpoint repo exemption from private mode policy.
-
-    Checkpoint repos are infrastructure and should be accessible regardless
-    of session mode. When is_checkpoint_repo() returns True, the gateway
-    should skip the check_private_repo_access() call.
-    """
-
-    @pytest.fixture
-    def session_auth_headers(self):
-        """Session auth headers that do NOT patch check_private_repo_access.
-
-        Unlike the standard auth_headers fixture, this one leaves
-        check_private_repo_access unpatched so we can verify the
-        checkpoint repo bypass logic.
-        """
-        import sys
-
-        import auth
-
-        mock_session = MagicMock()
-        mock_session.mode = "public"
-        mock_session.container_id = "test-container"
-        mock_session.expires_at = None
-        mock_session.pipeline_id = None
-        mock_session.checkpoint_repo = None
-        mock_session.agent_role = None
-
-        mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        auth._session_manager = None
-        auth._rate_limiter = None
-        if "gateway.auth" in sys.modules:
-            sys.modules["gateway.auth"]._session_manager = None
-            sys.modules["gateway.auth"]._rate_limiter = None
-
-        current_session_manager = sys.modules.get("session_manager", session_manager)
-
-        with patch.object(
-            current_session_manager, "validate_session_for_request", return_value=mock_result
-        ):
-            yield {"Authorization": "Bearer test-session-token"}
-
-    def _mock_subprocess_for_remote(self, operation="fetch"):
-        """Return a subprocess side_effect that resolves remote URLs."""
-
-        def run_side_effect(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get("args", [])
-            result = MagicMock()
-            result.returncode = 0
-            result.stderr = ""
-
-            if "remote" in cmd and "get-url" in cmd:
-                result.stdout = "https://github.com/ckpt-owner/ckpt-repo.git\n"
-            elif operation in cmd:
-                result.stdout = ""
-            else:
-                result.stdout = ""
-            return result
-
-        return run_side_effect
-
-    def test_fetch_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
-        """Fetch on a checkpoint repo skips check_private_repo_access entirely."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=True),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-        ):
-            mock_run.side_effect = self._mock_subprocess_for_remote("fetch")
-
-            response = client.post(
-                "/api/v1/git/fetch",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_ls_remote_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
-        """ls-remote on a checkpoint repo skips check_private_repo_access."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=True),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-        ):
-            mock_run.side_effect = self._mock_subprocess_for_remote("ls-remote")
-
-            response = client.post(
-                "/api/v1/git/fetch",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                        "operation": "ls-remote",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_fetch_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
-        """Fetch on a non-checkpoint repo still calls check_private_repo_access."""
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True,
-            reason="Public repo allowed",
-            visibility="public",
-        )
-
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(
-                gateway, "check_private_repo_access", return_value=mock_policy_result
-            ) as mock_priv_check,
-        ):
-            mock_run.side_effect = self._mock_subprocess_for_remote("fetch")
-
-            response = client.post(
-                "/api/v1/git/fetch",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_called_once()
-
-    def test_push_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
-        """Push to a checkpoint repo skips check_private_repo_access."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=True),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-        ):
-
-            def run_side_effect(*args, **kwargs):
-                cmd = args[0] if args else kwargs.get("args", [])
-                result = MagicMock()
-                result.returncode = 0
-                result.stderr = ""
-                if "remote" in cmd and "get-url" in cmd:
-                    result.stdout = "https://github.com/ckpt-owner/ckpt-repo.git\n"
-                elif "push" in cmd:
-                    result.stdout = ""
-                else:
-                    result.stdout = ""
-                return result
-
-            mock_run.side_effect = run_side_effect
-
-            # Policy engine allows push
-            mock_engine = MagicMock()
-            mock_engine.check_branch_ownership.return_value = PolicyResult(
-                allowed=True, reason="allowed"
-            )
-            mock_policy.return_value = mock_engine
-
-            response = client.post(
-                "/api/v1/git/push",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                        "refspec": "egg/checkpoints/v2",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_push_checkpoint_branch_bypasses_private_mode(self, client, session_auth_headers):
-        """Push to egg/checkpoints/v2 branch skips check_private_repo_access even for non-checkpoint repos."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-        ):
-
-            def run_side_effect(*args, **kwargs):
-                cmd = args[0] if args else kwargs.get("args", [])
-                result = MagicMock()
-                result.returncode = 0
-                result.stderr = ""
-                if "remote" in cmd and "get-url" in cmd:
-                    result.stdout = "https://github.com/owner/repo.git\n"
-                elif "push" in cmd:
-                    result.stdout = ""
-                else:
-                    result.stdout = ""
-                return result
-
-            mock_run.side_effect = run_side_effect
-
-            mock_engine = MagicMock()
-            mock_engine.check_branch_ownership.return_value = PolicyResult(
-                allowed=True, reason="allowed"
-            )
-            mock_policy.return_value = mock_engine
-
-            response = client.post(
-                "/api/v1/git/push",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                        "refspec": "egg/checkpoints/v2",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_push_pipeline_state_branch_bypasses_private_mode(self, client, session_auth_headers):
-        """Push to egg/pipeline-state branch skips check_private_repo_access (infrastructure branch)."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-        ):
-
-            def run_side_effect(*args, **kwargs):
-                cmd = args[0] if args else kwargs.get("args", [])
-                result = MagicMock()
-                result.returncode = 0
-                result.stderr = ""
-                if "remote" in cmd and "get-url" in cmd:
-                    result.stdout = "https://github.com/owner/repo.git\n"
-                elif "push" in cmd:
-                    result.stdout = ""
-                else:
-                    result.stdout = ""
-                return result
-
-            mock_run.side_effect = run_side_effect
-
-            mock_engine = MagicMock()
-            mock_engine.check_branch_ownership.return_value = PolicyResult(
-                allowed=True, reason="allowed"
-            )
-            mock_policy.return_value = mock_engine
-
-            response = client.post(
-                "/api/v1/git/push",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                        "refspec": "egg/pipeline-state",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_push_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
-        """Push to a non-checkpoint repo still calls check_private_repo_access."""
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True,
-            reason="Public repo allowed",
-            visibility="public",
-        )
-
-        with (
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(
-                gateway, "check_private_repo_access", return_value=mock_policy_result
-            ) as mock_priv_check,
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-        ):
-
-            def run_side_effect(*args, **kwargs):
-                cmd = args[0] if args else kwargs.get("args", [])
-                result = MagicMock()
-                result.returncode = 0
-                result.stderr = ""
-                if "remote" in cmd and "get-url" in cmd:
-                    result.stdout = "https://github.com/owner/repo.git\n"
-                elif "push" in cmd:
-                    result.stdout = ""
-                else:
-                    result.stdout = ""
-                return result
-
-            mock_run.side_effect = run_side_effect
-
-            mock_engine = MagicMock()
-            mock_engine.check_branch_ownership.return_value = PolicyResult(
-                allowed=True, reason="allowed"
-            )
-            mock_policy.return_value = mock_engine
-
-            response = client.post(
-                "/api/v1/git/push",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                        "refspec": "egg/my-branch",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_called_once()
-
-    def test_gh_execute_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
-        """gh_execute on a checkpoint repo skips check_private_repo_access entirely."""
-        with (
-            patch.object(gateway, "get_github_client") as mock_gh,
-            patch.object(gateway, "is_checkpoint_repo", return_value=True),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-        ):
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.stdout = "checkpoint data"
-            mock_result.stderr = ""
-            mock_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "checkpoint data",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_result
-
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "args": ["api", "repos/ckpt-owner/ckpt-repo/git/refs"],
-                        "repo": "ckpt-owner/ckpt-repo",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
-
-    def test_gh_execute_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
-        """gh_execute on a non-checkpoint repo still calls check_private_repo_access."""
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True,
-            reason="Public repo allowed",
-            visibility="public",
-        )
-
-        with (
-            patch.object(gateway, "get_github_client") as mock_gh,
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(
-                gateway, "check_private_repo_access", return_value=mock_policy_result
-            ) as mock_priv_check,
-        ):
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.stdout = "PR #1"
-            mock_result.stderr = ""
-            mock_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "PR #1",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_result
-
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=session_auth_headers,
-                data=json.dumps(
-                    {
-                        "args": ["pr", "list"],
-                        "repo": "owner/repo",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_called_once()
-
-    def test_session_fallback_recognises_checkpoint_repo(self, client):
-        """_is_checkpoint_repo_for_request falls back to session.checkpoint_repo.
-
-        When is_checkpoint_repo() (config-based) returns False but the
-        session's checkpoint_repo matches, the request should still be
-        exempted from private mode policy.
-        """
-        import sys
-
-        import auth
-
-        mock_session = MagicMock()
-        mock_session.mode = "public"
-        mock_session.container_id = "test-container"
-        mock_session.expires_at = None
-        mock_session.pipeline_id = None
-        mock_session.checkpoint_repo = "ckpt-owner/ckpt-repo"
-
-        mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        auth._session_manager = None
-        auth._rate_limiter = None
-        if "gateway.auth" in sys.modules:
-            sys.modules["gateway.auth"]._session_manager = None
-            sys.modules["gateway.auth"]._rate_limiter = None
-
-        current_session_manager = sys.modules.get("session_manager", session_manager)
-
-        with (
-            patch.object(
-                current_session_manager,
-                "validate_session_for_request",
-                return_value=mock_result,
-            ),
-            patch("subprocess.run") as mock_run,
-            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
-            patch.object(gateway, "is_checkpoint_repo", return_value=False),
-            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
-        ):
-            mock_run.side_effect = self._mock_subprocess_for_remote("fetch")
-
-            response = client.post(
-                "/api/v1/git/fetch",
-                headers={"Authorization": "Bearer test-session-token"},
-                data=json.dumps(
-                    {
-                        "repo_path": "/home/egg/repos/test",
-                        "remote": "origin",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            mock_priv_check.assert_not_called()
 
 
 class TestCommentEditOwnership:

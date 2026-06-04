@@ -273,6 +273,36 @@ class TestGetPage:
         with pytest.raises(ConfluenceUpstreamError) as exc_info:
             client.get_page("12345")
         assert exc_info.value.status_code == 500
+        # ``location`` only carries a value for 3xx responses (see below).
+        assert exc_info.value.location is None
+
+    def test_3xx_captures_location_header(self, fake_creds: ConfluenceCredentials):
+        """3xx → ``ConfluenceUpstreamError(location=...)`` so the gateway
+        translator can surface the bounce target in the operator-facing
+        envelope without refetching. See #2970."""
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"Location": "/login"})
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(ConfluenceUpstreamError) as exc_info:
+            client.get_page("12345")
+        assert exc_info.value.status_code == 302
+        assert exc_info.value.location == "/login"
+
+    def test_3xx_without_location_header(self, fake_creds: ConfluenceCredentials):
+        """3xx with no ``Location`` header → ``location is None``. The
+        translator still emits the actionable message; the field is just
+        absent from the details."""
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(ConfluenceUpstreamError) as exc_info:
+            client.get_page("12345")
+        assert exc_info.value.status_code == 302
+        assert exc_info.value.location is None
 
     def test_expand_list_round_trips(self, fake_creds: ConfluenceCredentials):
         captured: list[httpx.Request] = []

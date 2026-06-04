@@ -545,6 +545,9 @@ class TestPipelineConfig:
         assert config.concurrent_phases == ["refine", "plan", "implement"]
         assert config.auto_repropose_debounce_seconds == 60
         assert config.max_auto_repropose == 5
+        # Unset by default → orchestrator falls back to the env var,
+        # whose default is a single slice at a time.
+        assert config.max_parallel_slices is None
 
     def test_custom_config(self):
         """Test custom configuration."""
@@ -552,6 +555,25 @@ class TestPipelineConfig:
             max_review_cycles=5,
         )
         assert config.max_review_cycles == 5
+
+    def test_max_parallel_slices_configurable_at_creation(self):
+        """The per-pipeline slice cap is set at pipeline creation."""
+        config = PipelineConfig(max_parallel_slices=3)
+        assert config.max_parallel_slices == 3
+
+    def test_max_parallel_slices_rejects_below_one(self):
+        """ge=1 — a zero/negative cap is invalid (clamp lives in the scheduler)."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PipelineConfig(max_parallel_slices=0)
+
+    def test_env_fallback_default_is_single_slice(self):
+        """When no per-pipeline value is set, the fallback default is 1 slice."""
+        from orchestrator.env_config import DEFAULT_MAX_PARALLEL_SLICES
+
+        assert DEFAULT_MAX_PARALLEL_SLICES == 1
 
 
 class TestResolveConsensusTimeoutMinutes:
@@ -1084,9 +1106,11 @@ class TestAgentRole:
         assert AgentRole.OVERSEER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
-        # Issue #1557: APPLIER asserted above next to the other execution
-        # roles (CODER / TESTER / DOCUMENTER); count assertion below
-        # pins the registry size including APPLIER.
+        # Registry-size pin. Count grew from the original 18 → 19 with
+        # APPLIER (#1557) → 20 with ORCHESTRATOR (#2893) → back to 19 when
+        # ORCHESTRATOR was removed (#2925: the orchestrator is the control
+        # plane, not an agent role). Bump this and add the matching
+        # `assert AgentRole.X in roles` above whenever a new role lands.
         assert len(roles) == 19
 
 
@@ -1163,7 +1187,8 @@ class TestPipelinePhase:
         assert phases[1] == PipelinePhase.PLAN
         assert phases[2] == PipelinePhase.APPLY
         assert phases[3] == PipelinePhase.IMPLEMENT
-        assert phases[4] == PipelinePhase.PR
+        # The PR phase was removed in #2777 (slice-2); IMPLEMENT is terminal.
+        assert PipelinePhase.IMPLEMENT == phases[-1]
 
     def test_apply_phase_exists(self):
         """Issue #1557: APPLY phase enum is present and round-trips."""

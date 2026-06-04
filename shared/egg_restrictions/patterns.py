@@ -183,22 +183,32 @@ DEFAULT_DOCS_GLOBS: list[str] = [
 
 def _build_coder_pattern(
     *,
-    tests_globs: list[str],
+    tests_globs: list[str],  # noqa: ARG001 — tests are now coder-writable (see docstring); kept for signature parity
     docs_globs: list[str],
 ) -> AgentFilePattern:
     """Build the coder role's file pattern.
 
     Coder owns every file that is NOT carved out by the blocklist (the
-    catch-all ``**`` allow). The per-repo knobs widen the test/docs
-    blocks so non-Python repos route those files to the appropriate
-    role.
+    catch-all ``**`` allow). The per-repo knobs widen the docs block so
+    non-Python repos route documentation to the documenter.
+
+    Tests are intentionally **coder-writable** and overlap the tester
+    scope: the coder authors and pushes its own tests alongside the
+    source, and the tester reviews-and-hardens them after the coder
+    proposes (see ``_build_tester_pattern`` and the implement-phase
+    notes in ``docs/reference/agent-roles.md``). This retires the #1901
+    "coder == strict complement of tester" invariant for the test scope
+    only — docs/markdown and ``.egg-state/`` stay carved out. The driver
+    was that the coder naturally writes tests, the gateway 403'd the push
+    (``restricted_path_modified``), and that work was either thrown away
+    or smuggled to the tester as a patch.
     """
     return AgentFilePattern(
         role=AgentRole.CODER,
         description=(
-            "everything except tester's test scope, documenter's "
-            "docs/markdown scope, and the pipeline-state .egg-state/ "
-            "directory (agent-outputs/ carved back)"
+            "everything except documenter's docs/markdown scope and the "
+            "pipeline-state .egg-state/ directory (agent-outputs/ carved "
+            "back); tests are coder-writable and overlap the tester"
         ),
         # Catch-all allow list — coder owns every file that is NOT carved out
         # by the blocklist below. This replaces the legacy extension-based
@@ -212,16 +222,17 @@ def _build_coder_pattern(
             ".egg-state/",
             # Documenter scope
             *docs_globs,
-            # Tester scope
-            *tests_globs,
+            # NOTE: tester's test scope is intentionally NOT blocked — the
+            # coder authors its own tests (overlap with the tester). See the
+            # docstring above.
             # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
             # branch-protection invariant. Agents that need to propose
             # `.github/` changes (CI workflow edits, CODEOWNERS rotation)
             # write the proposed end-state to top-level `.github-staging/`
             # mirroring the `.github/` structure; the prefix-match below
-            # leaves `.github-staging/` allowed via the `**` allowlist, and
-            # `_build_pr_body` auto-emits a manual step for the human
-            # reviewer to move the files into `.github/` before merge
+            # leaves `.github-staging/` allowed via the `**` allowlist.
+            # The agent flags the staged files in its PR body so the
+            # human reviewer moves them into `.github/` before merge
             # (issue #2508).
             ".github/",
         ],
@@ -262,6 +273,14 @@ def _build_tester_pattern(
     Tester writes test files only — source-code edits are the coder's
     or autofixer's job. Per-repo knobs change the test-file allowlist
     + the docs blocklist.
+
+    The test scope now **overlaps the coder** (the coder authors its own
+    tests; see ``_build_coder_pattern``). The tester's role on tests is
+    review-and-harden: after the coder proposes, it reviews the coder's
+    tests, adds coverage / adversarial cases, runs them, and ACK/NACKs.
+    Both roles being authorized on test paths means the gateway accepts
+    either one editing a test the other authored — no attribution
+    special-casing needed.
     """
     return AgentFilePattern(
         role=AgentRole.TESTER,

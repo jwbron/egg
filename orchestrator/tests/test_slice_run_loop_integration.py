@@ -50,7 +50,6 @@ sys.modules.setdefault("docker.types", MagicMock())
 
 from egg_contracts.models import (  # noqa: E402
     Contract,
-    DeferredAction,
     IssueInfo,
     PRMetadata,
     Slice,
@@ -356,9 +355,12 @@ class TestStartStackedPrReconciler:
         # actually retargets the PR on origin (without it the PR stays
         # orphaned on a deleted base).
         assert call_args.kwargs["pr_number"] == 4242
-        # agent_role is fixed to "coder" so the gateway accepts the
-        # request through the existing per-agent /git endpoint.
-        assert call_args.kwargs["agent_role"] == "coder"
+        # agent_role is "orchestrator" so the audit log attributes this
+        # orchestrator-driven heal (rebase + force-push + pr-edit) to the
+        # orchestrator rather than a phantom coder (#2919). The force-push
+        # rides the slice-integration exemption (synthetic session + branch
+        # shape), so the attribution flip does not change push acceptance.
+        assert call_args.kwargs["agent_role"] == "orchestrator"
 
     def test_rebase_onto_returns_false_on_gateway_exception(self) -> None:
         pipeline = _make_pipeline()
@@ -722,11 +724,9 @@ class TestRunImplementPhaseSlices:
         slice-3 is the unique slice no other slice depends on. All three
         slices receive ``program_title`` / ``program_description`` /
         ``program_test_plan`` / ``program_manual_steps`` from
-        ``contract.pr``. The terminal gets ``terminal_slice_id=None``
-        (signalling "this is the merge gate"); non-terminals get
-        ``terminal_slice_id="slice-3"`` so the gateway switches the
-        title shape to ``[<slice-id>] <program_title>`` and skips the
-        umbrella banner.
+        ``contract.pr``. (#2777 cq-6 deleted the umbrella terminal-slice
+        distinction — the ``terminal_slice_id`` kwarg is gone and every
+        slice carries the same program narrative.)
         """
         pipeline = _make_pipeline()
         root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
@@ -767,24 +767,14 @@ class TestRunImplementPhaseSlices:
         }
         assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
 
-        # Every slice — terminal and non-terminal — carries the program
-        # narrative. Title-shape disambiguation happens inside
-        # ``create_slice_pr`` based on ``terminal_slice_id``.
+        # Every slice carries the same program narrative (#2777 cq-6
+        # deleted the umbrella terminal-slice title disambiguation).
         for slice_id in ("slice-1", "slice-2", "slice-3"):
             kwargs = pr_calls_by_slice[slice_id]
             assert kwargs["program_title"] == "Decompose oversize files; ratchet allowlist"
             assert kwargs["program_description"].startswith("The lint added in #2250")
             assert "make lint" in kwargs["program_test_plan"]
             assert "seam tables" in kwargs["program_manual_steps"]
-
-        # The terminal slice gets terminal_slice_id=None (it IS the
-        # merge gate); non-terminals get the terminal id so the gateway
-        # selects the ``[<program-slug>][slice-N/M] <subject>`` shape
-        # for non-terminals and ``[<program-slug>][merge-gate]
-        # <program_title>`` for the terminal (#2745).
-        assert pr_calls_by_slice["slice-3"]["terminal_slice_id"] is None
-        for non_terminal_id in ("slice-1", "slice-2"):
-            assert pr_calls_by_slice[non_terminal_id]["terminal_slice_id"] == "slice-3"
 
         # #2745 wiring: ``slice_index`` / ``slice_count`` /
         # ``slice_files_affected`` / ``context_pr_number`` are threaded
@@ -805,83 +795,6 @@ class TestRunImplementPhaseSlices:
             # see ``context_pr_number=None`` (the #2744 regression
             # backstop path inside ``create_slice_pr``).
             assert kwargs["context_pr_number"] is None
-
-    def test_terminal_slice_pr_carries_program_deferred_actions(
-        self,
-    ) -> None:
-        """#2354: ``contract.pr.deferred_actions`` (conditional-ACK
-        obligations persisted by ``_persist_deferred_actions``) reach the
-        umbrella PR via the terminal slice only. Non-terminal slices
-        receive ``None`` so the obligations section appears exactly once
-        across the chain — same locality rule as the rest of
-        ``contract.pr.*`` (#2340 / #2351)."""
-        pipeline = _make_pipeline()
-        root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
-        middle = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
-        terminal = _make_slice("slice-3", deps=["slice-2"], tasks=[_make_task("task-3-1")])
-        contract = _make_contract(slices=[root, middle, terminal])
-        contract.pr = PRMetadata(
-            title="Decompose oversize files; ratchet allowlist",
-            description="Description.",
-            test_plan="Test plan.",
-            manual_steps="Manual steps.",
-            deferred_actions=[
-                DeferredAction(
-                    reviewer="coder",
-                    condition="git mv legacy/x new/x before merge",
-                ),
-                DeferredAction(
-                    reviewer="reviewer_contract",
-                    condition="verify make test-all green",
-                    resolved_in_diff="2c319626a",
-                ),
-            ],
-        )
-
-        with (
-            patch("egg_contracts.loader.load_contract", return_value=contract),
-            patch("egg_contracts.loader.save_contract"),
-            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
-            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
-            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
-        ):
-            mock_start_recon.return_value = (MagicMock(), threading.Event())
-            spawner = self._make_spawner()
-            exit_code, _ = _run_implement_phase_slices(
-                pipeline_id=pipeline.id,
-                pipeline=pipeline,
-                spawner=spawner,
-                repo_volumes={},
-                gateway_mode="public",
-                repos=["owner/repo"],
-                sandbox_env={},
-                store=MagicMock(),
-                certs_volume=None,
-                worktree_repo_path=Path("/tmp/x"),
-            )
-        assert exit_code == 0
-        pr_calls_by_slice = {
-            c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
-        }
-        terminal_kwargs = pr_calls_by_slice["slice-3"]
-        actions = terminal_kwargs["program_deferred_actions"]
-        assert actions is not None
-        assert len(actions) == 2
-        # The snapshot passes through ``_collect_pre_merge_obligations`` so
-        # the gateway receives the *normalized* shape (list of
-        # ``{reviewer, condition, resolved_in_diff}`` dicts) — same shape
-        # the legacy ``_auto_create_pr`` path uses, which lets the umbrella
-        # pick up the live peer_consensus tracker fallback when the
-        # contract list is empty (#2354 review item 2).
-        assert actions[0]["condition"].startswith("git mv legacy/x new/x")
-        assert actions[0]["reviewer"] == "coder"
-        assert actions[0]["resolved_in_diff"] == ""
-        assert actions[1]["resolved_in_diff"] == "2c319626a"
-        assert actions[1]["reviewer"] == "reviewer_contract"
-
-        for non_terminal_id in ("slice-1", "slice-2"):
-            kwargs = pr_calls_by_slice[non_terminal_id]
-            assert kwargs["program_deferred_actions"] is None
 
     def test_non_terminal_pointer_suppressed_when_contract_pr_missing(
         self,
@@ -927,16 +840,16 @@ class TestRunImplementPhaseSlices:
             c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
         }
         assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
-        # Every slice — terminal and non-terminal — gets None for the
-        # pointer when the umbrella has no program-level content.
+        # Every slice gets None program metadata when ``contract.pr`` has
+        # no program-level content. (#2777 cq-6 removed the umbrella
+        # ``program_deferred_actions`` / ``terminal_slice_id`` kwargs;
+        # pre-merge obligations now live on the up-front context PR.)
         for slice_id in ("slice-1", "slice-2", "slice-3"):
             kwargs = pr_calls_by_slice[slice_id]
             assert kwargs["program_title"] is None
             assert kwargs["program_description"] is None
             assert kwargs["program_test_plan"] is None
             assert kwargs["program_manual_steps"] is None
-            assert kwargs["program_deferred_actions"] is None
-            assert kwargs["terminal_slice_id"] is None
 
     def test_single_slice_path_skips_pr_when_repo_unset(self) -> None:
         """If pipeline.repo is empty the loop must not attempt create_slice_pr."""
@@ -967,6 +880,80 @@ class TestRunImplementPhaseSlices:
             )
         assert exit_code == 0
         spawner.gateway.create_slice_pr.assert_not_called()
+
+    def test_scheduler_receives_max_parallel_slices_from_pipeline_config(self) -> None:
+        """``PipelineConfig.max_parallel_slices`` reaches the
+        ``SliceScheduler`` constructor (#2904 review).
+
+        Regression guard: a refactor that dropped the kwarg in
+        ``SliceScheduler(contract)`` would silently revert to the
+        env-var default and no other test would catch it.
+
+        Uses ``SliceScheduler`` raising ``ValueError`` to short-circuit
+        the run loop right after the constructor call — the existing
+        forest-validation failure return path. We only need to observe
+        the call kwargs, not exercise the rest of the loop.
+        """
+        pipeline = _make_pipeline()
+        pipeline.config.max_parallel_slices = 3
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+
+        sched_mock = MagicMock(side_effect=ValueError("short-circuit"))
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("orchestrator.slice_scheduler.SliceScheduler", sched_mock),
+            patch("slice_scheduler.SliceScheduler", sched_mock),
+        ):
+            exit_code, logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        sched_mock.assert_called_once()
+        assert sched_mock.call_args.kwargs["max_parallel_slices"] == 3
+        # Forest-validation short-circuit path returns cleanly.
+        assert exit_code == 1
+        assert "slice scheduler validation failed" in logs
+
+    def test_scheduler_receives_none_when_pipeline_config_unset(self) -> None:
+        """Default-unset ``PipelineConfig.max_parallel_slices`` (the
+        common case) passes ``None`` to the scheduler so it falls back
+        to ``EGG_ORCH_MAX_PARALLEL_SLICES`` itself (#2904 review)."""
+        pipeline = _make_pipeline()
+        assert pipeline.config.max_parallel_slices is None
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+
+        sched_mock = MagicMock(side_effect=ValueError("short-circuit"))
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("orchestrator.slice_scheduler.SliceScheduler", sched_mock),
+            patch("slice_scheduler.SliceScheduler", sched_mock),
+        ):
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        sched_mock.assert_called_once()
+        assert sched_mock.call_args.kwargs["max_parallel_slices"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1303,6 +1290,114 @@ class TestSliceMergedDetection:
         # as not-merged → slice runs the regular path.
         assert mock_run_phase.call_count == 1
         spawner.gateway.create_slice_pr.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# #2914 — restart_phase resume guard: bootstrap must verify pods are alive
+# before mark_spawned, or the pipeline wedges with no agents running.
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapResumeAliveGuard:
+    """#2914 — Layer-C resume classification must re-verify against k8s.
+
+    The bootstrap classifier returns ``"resume"`` for IN_PROGRESS slices
+    with commits on the integration branch. Without the alive-guard,
+    that flips the scheduler slice to RUNNING via ``mark_spawned`` —
+    correct under normal restart, but wedging after ``restart_phase``
+    tore the container cohort down (contract still shows IN_PROGRESS +
+    commits but no pods exist). The guard re-queries the spawner; if
+    no live pods are found the slice is treated as fresh so the run
+    loop re-yields READY and respawns a new cohort.
+
+    These tests close the integration gap that
+    ``TestSliceAgentsAlive`` (unit) cannot — exercising the actual
+    call site at the Layer-C ``resume`` branch in
+    ``routes/pipelines.py:_run_implement_phase_slices`` end-to-end.
+    """
+
+    def _make_spawner(self, *, live_pods: list[Any]) -> MagicMock:
+        """Build a spawner whose backend.list_containers returns the
+        given pods and whose gateway probe reports the integration
+        branch has commits on origin (classifier → ``"resume"``)."""
+        spawner = MagicMock()
+        spawner.gateway = MagicMock()
+        spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
+        # Non-None SHA → classifier sees commits on origin → "resume".
+        spawner.gateway.get_remote_branch_sha.return_value = "deadbeef" * 5
+        backend = MagicMock()
+        backend.list_containers.return_value = live_pods
+        spawner.backend = backend
+        return spawner
+
+    @staticmethod
+    def _make_container_info(container_id: str, status: Any) -> Any:
+        from models import ContainerInfo
+
+        return ContainerInfo(
+            container_id=container_id,
+            container_name=f"egg-{container_id}",
+            status=status,
+        )
+
+    def test_resume_with_no_live_pods_respawns_fresh(self) -> None:
+        """Classifier → ``"resume"`` but ``list_containers`` returns []
+        → slice must run through the regular path (i.e.
+        ``_run_concurrent_phase`` IS called). Without the guard,
+        ``mark_spawned`` would have flipped the slice to RUNNING and
+        ``iter_ready`` would never re-yield it, leaving the pipeline
+        wedged."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice1.status = SliceStatus.IN_PROGRESS
+        contract = _make_contract(slices=[slice1])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+            # No tracker → classifier's consensus_complete=False
+            # branch → "resume".
+            patch(
+                "routes.pipelines._lookup_peer_consensus_tracker_or_none",
+                return_value=None,
+            ),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner(live_pods=[])
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # The fix: with no live pods, the slice must still spawn fresh.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-1"}, (
+            "resume-classified slice with no live pods must be respawned — "
+            "without the #2914 guard, mark_spawned would wedge the pipeline"
+        )
+        # Liveness probe must have actually fired for the slice (label
+        # selector includes the slice id, not just the pipeline).
+        list_calls = spawner.backend.list_containers.call_args_list
+        slice_labelled_calls = [
+            c for c in list_calls if c.kwargs.get("labels", {}).get("egg.slice.id") == "slice-1"
+        ]
+        assert slice_labelled_calls, (
+            "_slice_agents_alive must call list_containers with the slice label"
+        )
 
 
 # ---------------------------------------------------------------------------

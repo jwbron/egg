@@ -13,8 +13,9 @@ The scheduler is the orchestrator-side glue:
    slice IDs are the node keys; ``slice.dependencies`` are the edges).
 2. Computes execution waves (kahn-style) — every slice in a wave can
    run concurrently because its dependencies are satisfied.
-3. Caps wave concurrency at ``max_parallel_slices`` (config; default
-   2; env var ``EGG_ORCH_MAX_PARALLEL_SLICES``).
+3. Caps wave concurrency at ``max_parallel_slices`` (per-pipeline
+   ``PipelineConfig.max_parallel_slices``, else the
+   ``EGG_ORCH_MAX_PARALLEL_SLICES`` env var; default 1).
 4. Owns the two-tier ``max_cycles`` accounting (per-slice local cap
    default 3; pipeline-global cap default 10) — either trip
    escalates HITL.
@@ -150,6 +151,11 @@ class SliceScheduler:
         global_max_cycles: int | None = None,
         failure_grace_seconds: float | None = None,
         time_fn: Callable[[], float] = time.monotonic,
+        # TODO(#2199): wired-but-not-called. ``record_cycle`` (the sole
+        # invoker of ``self._hitl_escalator``) is unreached by the
+        # production slice run loop today — it is exercised only by
+        # unit tests. Kept on the surface so the per-slice MCP control
+        # work in #2199 can wire it in without re-introducing the API.
         hitl_escalator: Callable[[str, str], None] | None = None,
     ) -> None:
         # Resolve env-var defaults lazily so callers that pass
@@ -157,7 +163,7 @@ class SliceScheduler:
         # ``SliceScheduler(contract)`` picks up the operator's
         # ``EGG_ORCH_*`` overrides from ``orchestrator/env_config.py``.
         if max_parallel_slices is None:
-            max_parallel_slices = int(_resolve_default("get_max_parallel_slices", 2))
+            max_parallel_slices = int(_resolve_default("get_max_parallel_slices", 1))
         if local_max_cycles is None:
             local_max_cycles = int(_resolve_default("get_slice_local_max_cycles", 3))
         if global_max_cycles is None:
@@ -310,6 +316,15 @@ class SliceScheduler:
         would even trip the orchestrator's stuck-phase-transition
         timeout. (Concurrency reviewer's blocker #1 on v1; #2012
         precedent.)
+
+        .. note::
+
+           Reserved for per-slice MCP controls landing in #2199; not
+           wired into the production slice run loop today. Exercised
+           only by ``orchestrator/tests/test_slice_scheduler.py``.
+           Per #2777 cq-3 the surface is kept (rather than deleted)
+           so #2199's per-slice cycle accounting can pick it up
+           without re-introducing the public API.
         """
         escalation_args: tuple[str, str] | None = None
         tripped = False
@@ -373,7 +388,16 @@ class SliceScheduler:
             self._pending_cascades[slice_id] = runtime.cascade_due_at
 
     def cancel_cascade(self, slice_id: str) -> None:
-        """Cancel an armed cascade — usually after HITL resolves the failure."""
+        """Cancel an armed cascade — usually after HITL resolves the failure.
+
+        .. note::
+
+           Reserved for per-slice MCP controls landing in #2199; not
+           wired into the production slice run loop today. Exercised
+           only by ``orchestrator/tests/test_slice_scheduler.py``.
+           Per #2777 cq-3 the surface is kept so #2199's per-slice
+           cancel verb can pick it up without re-introducing the API.
+        """
         with self._lock:
             self._pending_cascades.pop(slice_id, None)
 
@@ -423,6 +447,14 @@ class SliceScheduler:
         for actually killing the containers and tracker — this just
         flips the runtime state so the next ``iter_ready`` skip the
         slice and ``respawn_slice`` knows where to pick up.
+
+        .. note::
+
+           Reserved for per-slice MCP controls landing in #2199; not
+           wired into the production slice run loop today. Exercised
+           only by ``orchestrator/tests/test_slice_scheduler.py``.
+           Per #2777 cq-3 the surface is kept so #2199's per-slice
+           teardown verb can pick it up without re-introducing the API.
         """
         with self._lock:
             runtime = self._runtimes.get(slice_id)
@@ -437,6 +469,14 @@ class SliceScheduler:
         Mirror of ``teardown_slice`` — the per-slice MCP follow-up
         will use this to ``restart_slice`` after teardown. Cycles are
         kept so the local cap still bounds repeated restarts.
+
+        .. note::
+
+           Reserved for per-slice MCP controls landing in #2199; not
+           wired into the production slice run loop today. Exercised
+           only by ``orchestrator/tests/test_slice_scheduler.py``.
+           Per #2777 cq-3 the surface is kept so #2199's per-slice
+           restart verb can pick it up without re-introducing the API.
         """
         with self._lock:
             runtime = self._runtimes.get(slice_id)

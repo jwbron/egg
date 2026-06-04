@@ -96,6 +96,12 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 
 **Agent-role restrictions reject on push.** As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway rejects any push whose diff modifies a path the pushing role cannot write. The handler attributes each commit in the unpushed range via the commit-authorship registry, partitions files into own-authored vs pulled-from-other-role, and checks the pushing role's write permissions against only the own-authored set. If any own-authored file is blocked, the push is rejected with `403 restricted_path_modified` carrying `role`, `blocked_paths`, `recommended_action`, and `doc_ref` — the agent's recovery is to drop the edits and re-propose with `--pre-merge-condition` per the conditional-ACK pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). The `EGG_AGENT_RESTRICTIONS_ENFORCE=false` kill switch falls back to warn-only plain push. Pulled cross-role commits never block the push; phase / contract / protected-file / branch-ownership / private-mode / pipeline-push checks keep their existing `403` behavior. This replaced the silent-strip auto-filter from [#1882](https://github.com/jwbron/egg/issues/1882), which produced destructive deletions on the shared branch with no actionable signal to the agent. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the historical design and the commit-authorship registry that still backs attribution.
 
+**Attribution survives a rebase ([#2932](https://github.com/jwbron/egg/issues/2932)).** The registry is keyed by commit SHA, so a producer running the documented recovery (`git rebase --onto` to drop offending commits) used to rewrite the SHAs of the *surviving* pulled commits — those new SHAs had no registry entry, fell through to fail-closed (own-authored), and the blocked set *grew* instead of shrinking. To fix this, the commit observer now records each commit's `git patch-id --stable` alongside its SHA at registration time (schema v2), and `get_attributed_changed_files_in_push` falls back to a **patch-id lookup** for any commit the SHA lookup misses: the patch-id is stable across the SHA rewrite, so the original author is recovered. This preserves [#2039](https://github.com/jwbron/egg/issues/2039)'s fail-closed intent — only a *byte-identical* diff matches (so there is nothing illicit to smuggle into a restricted path), an ambiguous patch-id (two roles, identical patch) resolves to `None`, and merge / empty / rename-only commits (which have no usable patch-id) stay fail-closed. Conflict-resolving rebases change the patch and therefore still fall back to the forward-merge recovery.
+
+**Infra commits never wedge a producer ([#2927](https://github.com/jwbron/egg/issues/2927)).** Commits created outside an agent session — the `egg-orchestrator` state-file committer, the salvage helper, and the auto-formatter (which runs in the orchestrator's pre-commit chain under the orchestrator's identity rather than a distinct git config) — never pass through the inline commit observer, so the authorship registry has no entry for them. Treating such unregistered commits as own-authored (the fail-closed default) wedged any producer whose shared slice branch merely *inherited* them: the push was rejected for files the producer never touched, and the in-session guardrails blocked every documented recovery. The attribution layer (`git_client.get_attributed_changed_files_in_push`) now recognises the trusted infra committer **emails** (`egg@localhost`, `egg@example.com`, `egg-salvage@localhost` — none of which an agent carries when `EGG_AGENT_ROLE` is set, since every agent commit then uses `{role}@egg.local`; the orchestrator-gateway pairing guarantees any session with an `agent_role` also has `EGG_AGENT_ROLE`) and tags those commits with the reserved `infra` role so they land in the pulled-from-other-role partition and never block. The recognition is intentionally email-allowlist-based: an operator who overrides `EGG_USER_GIT_EMAIL` only loses the exemption (the push fails closed as before), never gains a bypass. Committers outside the allowlist remain unregistered → own-authored → fail-closed. The infra-allowlist fallback runs *after* the [#2932](https://github.com/jwbron/egg/issues/2932) patch-id recovery, so a rebased *agent* commit is still attributed to its original role rather than being reclassified as infra.
+
+*Semantic note on salvage.* Because `egg-salvage@localhost` is on the allowlist, any files a salvage commit touches — including restricted paths the crashed agent had been editing in its working tree — are classified as `infra`/pulled and skip the restriction check on subsequent pushes from the recovered agent. This is consistent with the goal of not wedging recovery, but is a real semantic change vs. the prior "all unregistered → own-authored → fail-closed" rule: an agent that crashes with restricted edits in its working tree will have them captured-and-passed-through by salvage. The salvage commit message is grep-able, so a follow-up could add a stricter `*-salvage` allowlist that emits a warning when a salvage commit touches a restricted path.
+
 ### Branch Lock (Pipeline Sessions)
 
 Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching), `git switch`, and off-lineage `git reset` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
@@ -143,7 +149,7 @@ For every pipeline session, the gateway blocks direct `git push` operations. All
 
 **How it works:**
 - The gateway checks pipeline-push enforcement BEFORE push-target enforcement so a pipeline agent on a per-role work branch sees the actionable "use mcp__brc__propose" error first, instead of a misleading wrong-branch error from the target check
-- The check activates whenever the session has a `pipeline_id` and the push is not an infrastructure push (checkpoints, pipeline state). It no longer requires `EGG_CONCURRENT_MODE=true`
+- The check activates whenever the session has a `pipeline_id` and the push is not an infrastructure push (pipeline state). It no longer requires `EGG_CONCURRENT_MODE=true`
 - When `mcp__brc__propose` (or `egg-orch consensus propose --push`) runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 - Pushes without the `consensus_push` marker are rejected with HTTP 403
 
@@ -166,7 +172,7 @@ Fallback (no GATEWAY_URL, e.g. local dev):
 - `Direct git push is blocked for pipeline sessions. Publish your artifact via the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE in one step). Fallback CLI: \`egg-orch consensus propose --push\`.` (HTTP 403)
 
 **Exempt scenarios:**
-- Infrastructure pushes (checkpoint branches, pipeline state branches) — exempted before this check via `is_infrastructure_push`
+- Infrastructure pushes (pipeline state branches) — exempted before this check via `is_infrastructure_push`
 - Non-pipeline sessions (no `pipeline_id`) — interactive/local sessions are unaffected
 
 **Pipeline-aware push error messages:** When a push is rejected due to phase file restrictions (e.g., branch history contains files from prior phases), pipeline sessions receive a targeted error message directing the agent to signal the error via `egg-orch signal error` rather than attempting workarounds. Non-pipeline sessions continue to see the original generic hint about creating a clean branch.
@@ -401,33 +407,6 @@ GET /api/v1/repos/visibility
   Description: Get repository visibility information (public/private)
 ```
 
-### Checkpoint Operations
-
-The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository. The `repo_path` query parameter is inferred from the environment if omitted.
-
-**Inter-agent message capture:** When `EGG_CONCURRENT_MODE=true`, the checkpoint handler fetches inter-agent messages from the orchestrator message bus (`/api/v1/pipelines/{id}/messages`) during both commit-triggered and session-end checkpoint creation. Messages are stored in the checkpoint's `inter_agent_messages` field with direction (`sent`/`received`) relative to the checkpointed agent. This enables post-hoc analysis of agent collaboration patterns. See `checkpoint_handler.py:_fetch_inter_agent_messages()`.
-
-```
-GET /api/v1/checkpoints
-  Query: ?repo_path=<path>&issue=<n>&pr=<n>&branch=<name>&session=<id>
-         &trigger=<type>&status=<status>&agent_type=<type>&phase=<phase>
-         &pipeline=<id>&repo=<owner/repo>&limit=<n>
-  Policy: session_auth
-  Description: List checkpoint summaries with optional filters (default limit: 50)
-
-GET /api/v1/checkpoints/cost
-  Query: ?repo_path=<path>&pipeline=<id>&issue=<n>&pr=<n>&limit=<n>
-  Policy: session_auth
-  Description: Get cost breakdown (token usage and USD) for matching checkpoints (default limit: 500)
-  Response: {checkpoint_count, total_input_tokens, total_output_tokens, total_cost_usd, breakdown[]}
-
-GET /api/v1/checkpoints/<identifier>
-  Path: identifier (checkpoint ID or commit SHA)
-  Query: ?repo_path=<path>
-  Policy: session_auth
-  Description: Get full checkpoint details by ID (ckpt-...) or commit SHA
-```
-
 ### Git Execute
 
 ```
@@ -499,8 +478,6 @@ gateway/
 ├── agent_restrictions.py   # Agent role-based file access restrictions (patterns for all 15+ roles, plus partition_files_by_role helper for the push restricted-path check)
 ├── commit_observer.py      # Inline observer for /api/v1/git/execute — registers every new commit SHA with the orchestrator commit-authorship registry (#1882)
 ├── commit_registry_client.py  # Shared-secret HTTP client for the orchestrator /api/v1/commit-authorship/{register,lookup} routes
-├── checkpoint_handler.py   # Session checkpoint handling
-├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image
 ├── entrypoint.sh           # Gateway startup script
 ├── squid.conf              # Squid proxy config (private mode)
@@ -525,14 +502,11 @@ gateway/
 │   ├── test_phase_transition.py
 │   ├── test_phase_api.py
 │   ├── test_contract_api.py
-│   ├── test_checkpoint_handler.py
-│   ├── test_checkpoint_inter_agent.py  # Inter-agent message capture in concurrent mode
 │   ├── test_concurrency.py
 │   ├── test_config_validator.py
 │   ├── test_edge_cases.py
 │   ├── test_error_paths.py
 │   ├── test_fork_policy.py
-│   ├── test_transcript_buffer.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
 │   ├── test_pipeline_push_block.py  # Pipeline-push enforcement tests
@@ -547,7 +521,7 @@ The gateway picks up changes to `repositories.yaml` without a restart via two me
 
 **Directory mount (automatic):** The config directory is bind-mounted (not the individual file), so inode-replacing editors (vim, nano, VS Code) are reflected immediately. The next request that reads the config will see the updated content.
 
-**Explicit cache reload:** Some config values are cached in memory (bot identities, trusted users, checkpoint repos). To force an immediate reload:
+**Explicit cache reload:** Some config values are cached in memory (bot identities, trusted users). To force an immediate reload:
 
 ```bash
 # Via signal
@@ -572,7 +546,7 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 
 4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry. The gateway supports an optional reviewer token (separate GitHub App) for posting approve/request-changes reviews on bot-authored PRs—GitHub blocks self-approval, so a second identity is required for full review capabilities.
 
-5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic. Checkpoint operations (repositories configured via `checkpoint_repo` and pushes to the `egg/checkpoints/v2` branch) are exempt from private mode restrictions and always allowed.
+5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
 
 6. **Role-based contract mutations**: Contract field ownership is tied to roles (implementer, reviewer, human). Role is determined from workflow context via session metadata, not request body, preventing privilege escalation. The `egg_contracts` shared library provides Pydantic models and validation.
 

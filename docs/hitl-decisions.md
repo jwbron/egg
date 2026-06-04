@@ -363,39 +363,36 @@ Every auto-resolution prints a user-visible one-line note identifying the decisi
 
 Some HITL decisions are created directly by the orchestrator — not by agents — in response to internal recovery scenarios. These decisions appear in `/sdlc` and the decision queue the same way agent-created decisions do, but they surface pipeline-level recovery choices rather than design questions.
 
-### Sync Divergence: Hard-Reset Recovery (#2792)
+### Sync Divergence: Non-Destructive Reconcile (#2979)
 
-When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator automatically performs the following steps. Steps 1–3 happen inside `_sync_worktree_with_remote` (the destructive recovery helper); step 4 happens in the caller (`_fail_pipeline_and_emit_hard_reset_recovery`, invoked from `_run_pipeline` or `populate_contract`):
+When a pipeline branch's worktree diverges from its remote and the rebase autoresolve at a phase boundary cannot reconcile the divergence, the orchestrator pauses for a manual reconcile. This is **non-destructive**: the worktree is left at the local HEAD with all committed work intact (the autoresolve aborts back to clean state without modifying the working tree). Steps 1–3 happen inside `_sync_worktree_with_remote`; step 4 happens in one of two callers — `_sync_worktree_reconciling_divergence` (blocking, used by the `_run_pipeline` loop) or `_emit_divergence_reconcile_hitl` (non-blocking, used by the `populate_contract` route):
 
-1. Enumerates local-only commits that will be discarded
-2. Creates a backup ref: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`, where `<unix-ts-ns>` is `time.time_ns()` — a 19-digit nanoseconds-since-epoch value, not conventional Unix seconds. To derive the wall-clock time: `date -d @$((<unix-ts-ns>/1000000000))`.
-3. Hard-resets the worktree to the remote tip
-4. Pins the pipeline to `FAILED` and emits a HITL decision (context: `hard_reset_recovery:<phase>`)
+1. Enumerates local-only commits present on the worktree but not on origin
+2. Creates a backup ref pinning the current local HEAD: `refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`, where `<unix-ts-ns>` is `time.time_ns()` — a 19-digit nanoseconds-since-epoch value, not conventional Unix seconds. To derive the wall-clock time: `date -d @$((<unix-ts-ns>/1000000000))`.
+3. Leaves the worktree at its current local HEAD (nothing is discarded)
+4. Pins the pipeline to `AWAITING_HUMAN` (not `FAILED`) and emits a HITL decision (context: `divergence_reconcile_unacked`)
 
-The pipeline stays in a failed-pending-HITL state (`pipeline.status=FAILED` with a pending decision whose context is `hard_reset_recovery:<phase>`) until the operator resolves the decision.
+The pipeline stays paused (`pipeline.status=AWAITING_HUMAN` with a pending decision whose context is `divergence_reconcile_unacked`) until the operator reconciles the worktree and resolves the decision.
 
 **Options:**
 
 | Option | Effect |
 |--------|--------|
-| `Continue with post-reset state` | Orchestrator resets phase exec state and spawns a fresh pipeline run against the reconciled worktree |
-| `Abort pipeline` | Orchestrator marks the pipeline `CANCELLED` |
+| `Reconciled — resume` | Orchestrator re-runs the worktree sync and resumes the phase's post-processing from where it paused (no full phase re-run). **Auto-resume only applies to the two `_run_pipeline` fire sites** (phase start, post-phase), which block on `wait_for_decision` inside `_sync_worktree_reconciling_divergence`. The `populate_contract` site uses the non-blocking `_emit_divergence_reconcile_hitl` and returns immediately — resolving `Reconciled — resume` there is inert; the operator must re-POST `populate_contract` against the reconciled worktree. |
+| `Abort pipeline` | Orchestrator marks the pipeline `FAILED`; the backup ref preserves commits for offline inspection |
+
+After 3 unresolved `Reconciled — resume` attempts the pipeline is marked `FAILED` with `reason="…the reconcile pause budget was exhausted"` (`_MAX_DIVERGENCE_RECONCILE_PAUSES = 3` in `pipelines.py`). The backup ref is preserved either way.
 
 **Recovery steps for operators:**
 
 1. Open `/sdlc` and find the pending decision
-2. Inspect the backup ref to assess what was discarded — from the pipeline worktree on the orchestrator host, since `refs/egg-backup/*` is created via `git update-ref` in the orchestrator's per-pipeline worktree and is not pushed to upstream: `git log refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`
-3. Choose **Continue** if the discarded commits are recoverable from the backup or acceptable to lose; choose **Abort** to cancel and clean up manually
-4. After choosing **Continue**, the orchestrator auto-restarts the phase — no further manual action is needed
-
-**Doubly-failed case:** If both the rebase and the hard reset fail, the HITL options collapse to `["Abort pipeline"]` only. The pipeline branch is still divergent in this case; the operator must manually reconcile the worktree before retrying.
-
-> **Note:** Resolving this HITL via the API directly with an option not in the decision's options list (e.g., sending "Continue" on a doubly-failed decision that only offers "Abort") is rejected by the dispatch handler. The decision is marked resolved but no action runs; the pipeline remains stuck, and an `OVERSEER_ALERT` is broadcast.
+2. On the orchestrator host, navigate to the pipeline's worktree and manually reconcile the divergence — e.g. rebase the local commits onto `origin/<branch>` and resolve the conflict. The backup ref shows the local commits: `git log refs/egg-backup/sync-recovery/<pipeline-id>/<unix-ts-ns>`
+3. Choose **Reconciled — resume** once the worktree is reconciled; the orchestrator re-runs the sync and continues the phase. Choose **Abort** to fail the pipeline and clean up manually.
 
 This recovery fires at three sites:
 - **Phase start** — when the pre-phase rebase fails
 - **Post-phase** — when the post-phase sync fails
-- **`populate_contract`** — when the pre-populate sync fails. HTTP 409 with `reason="hard_reset_recovery_unacked"` on the successful-recovery branch, or `reason="sync_rebase_and_reset_failed"` on the doubly-failed branch.
+- **`populate_contract`** — when the pre-populate sync fails. HTTP 409 with `reason="divergence_reconcile_unacked"` (#2792, #2979). The route is idempotent: if a reconcile HITL is already pending from a prior call, it returns 409 immediately without emitting a duplicate decision.
 
 ## Related Files
 

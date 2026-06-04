@@ -113,25 +113,50 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | `resolution_hint` | Human-readable guidance |
 | `detected_at` | Timestamp |
 
-## Consensus Wrapper: Transient Crash Recovery
+## Consensus Wrapper: Exit-Code Classifiers (Preserved Helpers)
 
 Source: `orchestrator/consensus_wrapper.py`
 
-In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues. The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades.
+In concurrent (BRC) mode, all agents are wrapped with a shell script. The wrapper bash template defines three exit-code classifier helpers (`is_buffer_overflow`, `is_transient_crash`, `is_startup_failure`) that were the dispatch surface in the pre-#2908 capped-restart era. **Since slice-4 (#2908) these helpers are defined but not invoked by the `propose|ack|nack` arm** — every non-zero agent exit goes through the uniform `AGENT_FAIL_STREAK++` + idle-budget path described in [Crash Handling in the Event-Pump Wrapper](#crash-handling-in-the-event-pump-wrapper) below. The subsections that follow describe the original design intent of each helper and the SDK-level mechanics they were built around; treat them as background context for the named helpers rather than as a description of live wrapper behaviour.
 
-### Buffer Overflow Detection
+The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades. (That fallback path is independent of the classifier helpers and is still live.)
 
-The `is_buffer_overflow()` function is checked **before** `is_transient_crash()`. It greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`) and, when found, exits the wrapper immediately without consuming any restart budget.
+### Buffer Overflow Detection (helper definition — currently inert)
 
-The SDK has a 1 MB JSON message-reader buffer cap; a tool result that exceeds it kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying is therefore wasteful. The wrapper logs:
+The `is_buffer_overflow()` function greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`). In the pre-#2908 capped-restart wrapper the marker triggered an immediate wrapper exit; in the post-slice-4 event-pump wrapper the helper is **defined but not called**, so the SDK 1 MiB JSON overflow exit takes the same `AGENT_FAIL_STREAK++` path as any other non-zero exit. The deterministic-failure framing below still applies — re-running the agent against the same oversized tool result reproduces the overflow each iteration — but the operator-visible escalation today is the idle-budget alert (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), not an immediate wrapper exit.
 
-```
-Agent crashed on Claude Agent SDK buffer overflow (issue #2804). Deterministic failure; retry budget would be wasted. NOT restarting.
-```
+The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying it inside the same wrapper run is therefore wasteful; the post-slice-4 wrapper does not yet branch on this case, so the overflow recurs on each iteration until the idle budget escalates.
 
 The agent output is captured by piping stdout and stderr through `tee` into a temporary log file (`AGENT_OUTPUT_LOG`, created via `mktemp`). This log is truncated at the start of each agent run so old crash signatures don't bleed into subsequent runs.
 
-> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, the wrapper silently falls back to burning the transient-crash retry budget. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. The real fix is tool-layer truncation of oversized payloads ([#2805](https://github.com/jwbron/egg/issues/2805)); this is the fail-fast path until that lands.
+> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, future classifier-gated fast-fail logic that relies on it would silently miss the marker. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. With the reader buffer raised (next section, [#2884](https://github.com/jwbron/egg/issues/2884)) the buffer overflow is now a rare backstop — it fires only if a single stream message exceeds the generous raised buffer — not the common path it was when the cap was 1 MiB.
+
+### SDK Reader Buffer (the crash-prevention layer)
+
+Source: `_DEFAULT_SDK_MAX_BUFFER_BYTES` / `_sdk_max_buffer_bytes()` in `shared/egg_agent/client.py`, wired as `ClaudeAgentOptions.max_buffer_size`.
+
+This is what actually prevents the [#2804](https://github.com/jwbron/egg/issues/2804) crash. egg's Agent SDK reader decodes the CLI's stream-json output into a JSON buffer; a single message larger than `max_buffer_size` raises `CLIJSONDecodeError` and kills the agent (exit 255). The SDK default is 1 MiB.
+
+The crucial point ([#2884](https://github.com/jwbron/egg/issues/2884)): **the messages that overflow are not model-bound.** Claude Code attaches the **entire original file** to every `Edit`/`Write` result as transcript metadata (`toolUseResult.originalFile`) that the model never sees — only egg's reader decodes it. So a routine ~2 KB edit to the 1.1 MB, 25k-line `orchestrator/routes/pipelines.py` emits a >1 MB stream message and crashes the reader, even though the model's `tool_result` is just a bounded `cat -n` snippet. (The original #2884 framing guessed the *edit snippet* scaled with file size; the CLI's `fBB` snippet builder bounds it to `new_string` lines + 8, so the culprit is the result *envelope* metadata, not the snippet.)
+
+egg raises `max_buffer_size` to **32 MiB** (default; override with `EGG_SDK_MAX_BUFFER_BYTES`). This costs **no model context or tokens** — the oversized field never reaches the model, and egg logs at most `_MAX_TOOL_CONTENT_LOG_LEN` of any result — only transient reader memory for one message. It cannot let an oversized payload reach the model either: model-bound result sizes are bounded independently (the predictive caps below, the MCP `@tool` caps [#2805](https://github.com/jwbron/egg/issues/2805), and Claude Code's own Bash truncation). 32 MiB covers source files far larger than anything in this repo while still bounding a runaway/malformed stream; the fail-fast above is the clean backstop for anything beyond it.
+
+### Predictive Output Cap (PreToolUse)
+
+Source: `shared/egg_agent/tool_output_cap.py`, wired in `shared/egg_agent/client.py`.
+
+These caps are **model-context/cost discipline, not crash prevention** (the reader buffer above is the crash fix). What they bound is the volume a tool sends *to the model*: a whole-file `Read` returns the file's content to the model (the 1.1 MB `pipelines.py` ≈ ~275k tokens), and a whole-repo content `Grep` dumps every matching line — both wasteful. **Built-in** Claude Code tools (`Read`, `Grep`, `Bash`) run inside the CLI and can't be wrapped the way egg caps its own MCP `@tool` payloads ([#2805](https://github.com/jwbron/egg/issues/2805)), so [#2876](https://github.com/jwbron/egg/issues/2876) bounds them via a **PreToolUse** hook that fires *before* the tool runs and denies calls whose model-bound result is likely to be excessive, telling the agent how to narrow the call. (`Edit`/`Write` are deliberately *not* capped here: their model-bound result is the small snippet, and their crash vector was the reader-buffer metadata, fixed above — not anything a per-call cap could see.)
+
+Current heuristics — predictive, so expect some false positives/negatives:
+
+| Tool | Denied when | Deny reason points at |
+|------|-------------|------------------------|
+| `Read` (text) | Target file > `EGG_READ_CAP_BYTES` (default 256 KiB) **and** the read is unbounded — no `limit`, or a `limit` whose estimated payload (`limit` × ~128 B/line) still exceeds the cap | `offset` / `limit` to page through the file (with a suggested `limit` that fits the cap) |
+| `Read` (PDF) | Target PDF > `EGG_READ_CAP_BYTES` **and** no non-empty `pages` range — a `pages`-scoped read is bounded (the Read tool caps it at 20 pages), mirroring `limit` for text | `pages` to read a bounded page range (e.g. `pages='1-5'`) |
+| `Read` (image/notebook) | Target image/notebook > `EGG_READ_CAP_BYTES` (returned whole; `offset`/`limit`/`pages` don't bound it) | images: avoid reading whole, use Bash (`file`/`stat`) for metadata; notebooks: inspect cells with `jq` (e.g. `jq '.cells[].source'`) |
+| `Grep` | `output_mode=content`, no `head_limit`, **and** no `path`/`glob` scope (whole-repo content dump) | `head_limit`, a `path`/`glob` scope, or `output_mode=files_with_matches` |
+
+The hook is **always-on** (excess model-bound output is wasteful on every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold (a set-but-invalid value — non-integer or non-positive — is logged and ignored in favour of the default).
 
 ### Transient Exit Codes
 
@@ -153,30 +178,31 @@ Agents that exit 1 after the startup window (i.e., after doing real work) are st
 
 All other non-zero exit codes (2, 3, 42, etc.) that are neither signal-transient nor exit 1 are treated as permanent failures with no restart.
 
-### Restart with Backoff
+### Crash Handling in the Event-Pump Wrapper
 
-When a transient crash or startup failure is detected, the wrapper:
+In the event-pump model (default since #2908 slice-4), the classifiers above
+are retained as named helpers in the wrapper bash template. A non-zero exit
+from the agent during a `propose|ack|nack` event invocation increments an
+internal consecutive-failure counter; the idle-budget escalation path
+(`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min) emits `OVERSEER_ALERT` when no
+actionable event arrives for the budget duration. The old `MAX_CONSENSUS_RESTARTS`
+restart cap and `_RECOVERY_SYSTEM_PROMPT` recovery loop were deleted in slice-4.
 
-1. Logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."`
-2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
-3. Restarts the agent via the same recovery loop used for clean-exit restarts (with BRC state, NACK feedback, and anchor state injected into the recovery system prompt)
-4. Doubles the backoff after each crash restart (capped at 30 seconds)
-5. Shares the `MAX_CONSENSUS_RESTARTS` (default: 3) cap with clean-exit restarts
+### Crash exit-code classification (current behaviour)
 
-Clean-exit restarts (exit code 0) do not incur any backoff delay.
+All non-zero exits from a `propose|ack|nack` agent invocation are handled identically in the current event-pump wrapper: increment `AGENT_FAIL_STREAK`, sleep 1 s, and resume the loop. The classifiers listed below remain as named helpers in the wrapper bash template but are **not invoked** by the `propose|ack|nack` arm — they are kept against a future need (e.g. a classifier-gated fast-fail) but produce no per-exit-code branching today.
 
-### Before and After
+| Exit code | Named helper (currently inert) | Current event-pump handling |
+|-----------|-------------------------------|-----------------------------|
+| Segfault (exit 139/255) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| SDK buffer overflow (exit 255 + overflow marker) | `is_buffer_overflow` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| OOM kill (exit 137) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| API/network error at startup (exit 1, age &lt; 30s) | `is_startup_failure` | Increments consecutive-failure counter; idle-budget escalation emits alert |
+| Application error (exit 1, age &ge; 30s) | *(none)* | Increments consecutive-failure counter; idle-budget escalation emits alert |
 
-| Behavior | Before | After |
-|----------|--------|-------|
-| Segfault (exit 139/255) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
-| SDK buffer overflow (exit 255 + overflow marker) | Classified as transient, burns restart budget | Detected by `is_buffer_overflow()`, exits immediately without retrying |
-| OOM kill (exit 137) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
-| API/network error at startup (exit 1, age &lt; 30s) | `NOT restarting` — immediate failure | Classified as startup failure, restarted with backoff |
-| Application error (exit 1, age &ge; 30s) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
-| Pipeline impact | Single crash kills pipeline | Transient crashes recovered; pipeline continues |
+The exit-code classifiers were added in [issue #1512](https://github.com/jwbron/egg/issues/1512). In the capped-restart era they drove a restart-with-backoff path; since slice-4 (#2908) they are retained as named helpers but the event-pump's consecutive-failure counter + `EGG_BRC_IDLE_BUDGET_MIN` escalation is the primary (and currently sole) operator-visible signal — there is no per-exit-code branch on the `propose|ack|nack` path.
 
-This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
+**Buffer-overflow note:** the SDK 1 MiB JSON buffer overflow (exit 255 + overflow marker) is deterministic — re-running the same agent invocation against the same oversized tool result will reproduce the same overflow. Today the wrapper does not catch this case specially; the overflow recurs each iteration until `EGG_BRC_IDLE_BUDGET_MIN` (default 30 min) trips the operator alert. The classifier helper exists for a future fast-fail path but is not wired up yet — see the wrapper's L145–150 comment.
 
 ## Agent-Level Restart
 
@@ -191,7 +217,7 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 1. The restart count is incremented **before** the spawn attempt — a failed spawn still counts toward the per-agent restart limit, preventing infinite retry loops when Docker consistently fails (e.g., out of disk)
 2. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
-4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations. If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
+4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` withdraws any proposals, ACKs, or confirmations. (The legacy `ConsensusEvaluator` in `orchestrator/consensus.py` was deleted in [#2777](https://github.com/jwbron/egg/issues/2777); BRC's `PeerConsensusTracker` is the only consensus path in production.) If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
 5. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
 6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
 7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
@@ -241,11 +267,15 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 ### How It Works
 
 1. All running containers for the specified phase are stopped and removed
-2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations)
+2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations). In slice-aware mode the clear extends to every per-slice tracker: `restart_phase` loads the contract, iterates `contract.slices`, and calls `clear()` on each `get_peer_consensus_tracker(pipeline_id, slice_id=<slice>)` in addition to the pipeline-level key — without this, stale slice-scoped consensus state survives the restart and deadlocks the new run ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-1, bundles [#2409](https://github.com/jwbron/egg/issues/2409)). Contract-load failures preserve the historical pipeline-level-only behaviour rather than blocking the restart.
 3. The phase's review cycle counter in `PhaseExecution` is reset
 4. All prior phase artifacts and HITL decisions are preserved (e.g., refine output carries into a restarted plan phase)
 5. All commits on the branch are preserved — each respawned agent's worktree is recreated from the pipeline branch HEAD via the gateway's idempotent `create_worktrees` API, so all prior pushed commits are immediately available
 6. All agents for the phase are respawned from scratch
+
+**Resume-after-orchestrator-restart vs. operator-driven phase restart.** The clear above runs when an operator (or the overseer/HITL ladder) calls `restart_phase` to start the phase over. The orthogonal case — an orchestrator-pod recycle mid-phase that should **resume** the in-flight slice DAG rather than start it over — is handled by **Layer-C bootstrap reconciliation** on the next orchestrator startup. Layer C iterates non-`COMPLETE` slices, observes integration-branch commit counts and consensus tracker presence, and applies a 5-way classification: re-yield as `READY` (no commits yet), mark already-spawned (commits but no tracker), mark `COMPLETE` (commits + consensus reached but unrecorded), preserve `BLOCKED` (and escalate to HITL if no pending decision), or escalate corrupt state to HITL. Cases 4 and 5 create an unresolved `Decision` on the contract — silent classification error is worse than an operator pause. See [`Slice/phase restart hardening`](../architecture/orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409).
+
+Startup reconciliation also rebuilds per-slice consensus trackers ([#2409](https://github.com/jwbron/egg/issues/2409) closure): for each slice in `contract.slices`, `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=<slice>)` rebuilds the nested `{pipeline_id}/{slice_id}` tracker from the message store, so a recycled orchestrator pod no longer loses in-flight slice consensus.
 
 ### Triggering a Phase Restart
 
@@ -356,9 +386,9 @@ Operators replaying a recovery ref should fetch and cherry-pick promptly: a reco
 | Agent fails, error is retryable, retries remain | `AgentRetryManager`: retry with backoff |
 | Agent fails, error not retryable | Escalate to HITL (MANUAL policy) |
 | Agent fails, max retries exceeded | Escalate to HITL |
-| Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
-| Startup failure in consensus wrapper (exit 1 within 30s) | Restart with exponential backoff (treated as transient API/network error) |
-| Non-transient crash in consensus wrapper (exit 1 after 30s) | Immediate failure, no restart |
+| Transient crash in consensus wrapper (segfault, OOM) | Increments consecutive-failure counter; idle-budget escalation emits `OVERSEER_ALERT` — no restart cap |
+| Startup failure in consensus wrapper (exit 1 within 30s) | Increments consecutive-failure counter; idle-budget escalation emits `OVERSEER_ALERT` — same handling as all non-zero exits today |
+| Non-transient crash in consensus wrapper (exit 1 after 30s) | Increments consecutive-failure counter; idle-budget handles escalation |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
 | Overseer detects restartable infra error (unresponsive, crashed, OOM, timeout, hung) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
 | Overseer detects non-restartable infra error (permission denied, EROFS, filesystem) | Escalate to HITL (bypasses restart) |
@@ -435,8 +465,6 @@ if checkpoint.should_checkpoint:
 - `timestamp`, `job_start_time`
 - `elapsed_seconds`, `remaining_seconds`
 - `data` — caller-supplied state dict
-
-This is a state-save trigger utility, not the agent checkpoint system (which stores transcripts and tool calls in the `egg/checkpoints/v2` git branch).
 
 ## Related Documentation
 

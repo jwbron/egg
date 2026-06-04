@@ -24,6 +24,35 @@ Threading note: BRC's lock is an ``RLock`` so a deadlock between
 The tests still use a ``threading.Barrier`` to give the threads
 roughly-simultaneous entry — that maximises the chance of catching
 a non-serialised mutation if one is ever introduced.
+
+issue #2908 verification stance (slices 2-4)
+--------------------------------------------
+
+The event-pump wrapper template was introduced in slice-2 behind
+``EGG_BRC_EVENT_PUMP``; slice-4 task-4-1 flipped the unset-env default
+to ON, and slice-4 task-4-2 deleted the legacy capped-restart template
+and the env flag along with it. The wrapper template is now the only
+production path.
+
+This BRC concurrency regression suite drives the in-process
+``PeerConsensusTracker`` directly — it is orchestrator-side coverage
+and is unaffected by the wrapper changes. It is kept green as the
+slice-2 / slice-3 / slice-4 baseline "the orchestrator-side BRC
+state-machine still serialises concurrent proposers / reviewers
+correctly under the new event-pump model".
+
+No flag-on end-to-end test was added at the integration tier under
+slices 2-4. The rationale (preserved for slice-5 / slice-6
+follow-up): no in-process test double can drive a deployed agent pod
+end-to-end — the pod-injection ``ScriptedProvider`` avenue was ruled
+out per #2474 (see ``integration_tests/regression/conftest.py:45``).
+True end-to-end validation is deferred to issue #2585 (Claude-route
+E2E via the ``egg_stack`` real-pod fixture at
+``integration_tests/conftest.py:340``). Until then, the event-pump
+path is exercised exclusively by the unit-tier in
+``orchestrator/tests/test_consensus_wrapper.py`` (see
+``TestEventPumpTemplateSelection`` + sibling classes for the
+TASK-2-6 (i)..(ix) acceptance coverage).
 """
 
 from __future__ import annotations

@@ -109,7 +109,10 @@ class TestWaveDispatch:
 
     def test_root_runs_first_then_children_run_in_parallel(self) -> None:
         contract = _three_slice_forest()
-        scheduler = SliceScheduler(contract)
+        # Explicit ``max_parallel_slices=2`` so the parallel-spawn
+        # contract is exercised regardless of the default (lowered to
+        # 1 in #2904 for small/single-node hosts).
+        scheduler = SliceScheduler(contract, max_parallel_slices=2)
 
         # Wave 1: only the root is ready.
         wave1 = list(scheduler.iter_ready())

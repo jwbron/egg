@@ -63,7 +63,6 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 - `.egg/schemas/contract.schema.json` – Contract structure and role-based field ownership
 - `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
 - `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations and file restrictions per SDLC phase
-- `.egg/schemas/checkpoint.schema.json` – Agent checkpoint structure (session context, transcripts, tool calls)
 - `.egg/schemas/agent-anchor.schema.json` – Agent anchor structure for post-compaction state recovery
 
 **Role-based ownership**: Each contract field is owned by a specific role:
@@ -86,51 +85,6 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
 | `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |
 
-### Checkpoint System
-
-Checkpoints capture agent session context as first-class versioned data in Git. The v2 checkpoint system captures **all agent sessions** (not just commits) with rich multi-dimensional querying.
-
-**Triggers**: Checkpoints are captured on two events:
-- **Commit**: When agents push to remote (one checkpoint per push, regardless of commit count)
-- **Session-end**: When agent containers terminate (completed, expired, or failed)
-
-**Captured data**:
-- **Transcript**: Full conversation history with timestamps and message roles
-- **Tool calls**: All tool invocations with parameters, results, and durations
-- **Files touched**: All file operations (read, write, edit, glob, grep)
-- **Token usage**: Input/output tokens and estimated costs
-- **Session metadata**: Session ID, agent role, model, duration
-- **Workflow context**: Issue number, PR number, pipeline phase, agent type, session status
-
-Checkpoints are stored in the `egg/checkpoints/v2` branch with a multi-dimensional index supporting rich queries. This provides full traceability from requirements to implementation, including sessions that didn't produce commits.
-
-**Checkpoint CLI**
-
-Browse and query checkpoints via the `egg-checkpoint` CLI:
-
-| Command | Purpose |
-|---------|---------|
-| `egg-checkpoint list [filters] [--limit <n>]` | List checkpoints with metadata |
-| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details |
-| `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
-| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
-| `egg-checkpoint cost [filters]` | Show cost breakdown (token usage and USD) by phase and agent type |
-| `egg-checkpoint search --text <query> [filters]` | Search checkpoint transcripts for matching text |
-
-**Supported filters**:
-- `--branch <name>` — Filter by git branch
-- `--issue <n>` — Filter by issue number
-- `--pr <n>` — Filter by PR number
-- `--pipeline <id>` — Filter by pipeline run ID (for multi-agent workflows)
-- `--repo <owner/repo>` — Filter by source repository
-- `--session <id>` — Filter by session ID
-- `--trigger <commit|session_end>` — Filter by trigger type
-- `--status <completed|expired|failed>` — Filter by session status
-- `--agent-type <coder|tester|documenter|reviewer|unknown>` — Filter by agent type
-- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
-
-Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
-
 ### Plan Parser
 
 The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR metadata from plan documents using three extraction modes in priority order:
@@ -139,7 +93,7 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR me
 2. **YAML front matter** (legacy): A `---`-delimited YAML block at the document start. Supported for backwards compatibility.
 3. **Markdown regex** (fallback): Parses `[TASK-X-Y]` patterns from markdown. Fragile and may miss tasks if LLM output format drifts.
 
-The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`, `context_title`, `context_description`) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase; the `context_title` and `context_description` fields feed the dedicated context PR rather than the implementation PR.
+The parser also extracts optional PR metadata (`title`, `description`, `test_plan`, `manual_steps`) from the `pr:` field in the YAML data. If provided, this metadata is used when the context PR (`egg/<pipeline_id>/work → main`) is opened up-front at the plan→implement boundary. The legacy `context_title` / `context_description` keys were removed in schema v1.2 (#2777) along with `context_branch`; planners should use the standard `pr.title` / `pr.description` to frame the work→main context PR.
 
 **Role-aware task assignment**: Tasks can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent. The parser propagates this field through `ParsedTask` into the contract `Task` model. During the implement phase, `_build_role_context()` filters tasks by role so each agent only sees its assigned work. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for details.
 
@@ -192,6 +146,8 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - [Declarative Setup](declarative-setup.md) - Python-based setup
 - [Logging](logging.md) - Structured JSON logging
 - [Integration-Test Trust Boundary](integration-test-trust-boundary.md) - Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator), fixture tier table, and hard-NACK rules for plan-phase Primitive-Existence (§9) and Trust-Boundary (§10) audits
+- [BRC Memory Artifact](brc-memory.md) - Per-role-per-pipeline distilled memory file (`.egg-state/agent-outputs/<role>/brc-memory.md`) written by `brc_ack`/`brc_nack`; schema, three `EGG_BRC_MEMORY` modes, atomic-write contract, fail-closed path constructor, distill-on-write cap at 20, and the role-allowlist coverage that makes the path writable for every participant role ([#2908](https://github.com/jwbron/egg/issues/2908))
+- [BRC Consensus Wrapper](orchestrator.md#brc-consensus-wrapper) - Deterministic event-pump wrapper loop, wrapper-side heartbeat + gateway-session keep-alive subshells, the idle/no-progress safety budget that replaced the 3-restart FAIL cap, and the `git revert` rollback plan after slice-4 deleted the legacy capped-restart template (`_CONSENSUS_WRAPPER_TEMPLATE` / `_RECOVERY_SYSTEM_PROMPT` / SSE `consensus.reached` / `MAX_CONSENSUS_RESTARTS`) and the agent-side heartbeat path. Wait-side companion in [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model) ([#2908](https://github.com/jwbron/egg/issues/2908))
 
 ## Why Wrappers, Not MCP
 

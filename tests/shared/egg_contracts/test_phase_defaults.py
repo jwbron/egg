@@ -1,5 +1,18 @@
-"""Tests for egg_contracts.phase_defaults module."""
+"""Tests for egg_contracts.phase_defaults module.
 
+Slice-2 of issue #2777-replan deletes the ``PR`` pipeline phase entirely
+(``PipelinePhase.PR``, the ``_DEFAULT_PHASE_CONFIGS[PipelinePhase.PR]``
+row, the gateway-side state-machine entry, and the
+``IMPLEMENT → PR`` transition). Tests in this module assume the post-
+deletion shape:
+
+* ``IMPLEMENT`` is the terminal pipeline phase.
+* ``PipelinePhase`` enum does **not** contain a ``PR`` member.
+* ``get_default_phase_config(...)`` is undefined for the string ``"pr"``;
+  any attempt to look it up raises ``KeyError`` (default-deny).
+"""
+
+import pytest
 from egg_contracts import (
     CheckDefinition,
     Contract,
@@ -50,17 +63,67 @@ class TestGetDefaultPhaseConfig:
         assert "check-test" in check_ids
         assert "check-fixer" in check_ids
 
-    def test_pr_phase_defaults(self):
-        """Test default config for PR phase."""
-        config = get_default_phase_config(PipelinePhase.PR)
-        assert isinstance(config, PhaseConfig)
-        assert config.max_review_cycles == 3
-        assert config.human_review_mechanism == HumanReviewMechanism.PR_REVIEW
-        # PR phase has no default checks
-        assert config.checks == []
+    def test_pr_is_not_a_pipeline_phase(self):
+        """``PipelinePhase`` must not expose a ``PR`` member (#2777 slice-2).
+
+        Iterating ``PipelinePhase`` is the canonical way to discover all
+        valid phases throughout the codebase (state machines, default
+        registries, phase-permission tables). A stray ``PR`` member would
+        silently re-introduce the deleted phase into every consumer that
+        iterates the enum — including the ``test_all_phases_have_defaults``
+        and ``test_check_definitions_are_valid`` invariants below.
+        """
+        names = {member.name for member in PipelinePhase}
+        assert "PR" not in names, (
+            f"PipelinePhase.PR must be removed in slice-2 of #2777; found members={sorted(names)}"
+        )
+        values = {member.value for member in PipelinePhase}
+        assert "pr" not in values, (
+            "No PipelinePhase member may have value 'pr' after slice-2; "
+            f"found values={sorted(values)}"
+        )
+
+    def test_pr_phase_default_lookup_is_denied(self):
+        """Looking up defaults for the (removed) ``pr`` phase must fail.
+
+        After slice-2, ``_DEFAULT_PHASE_CONFIGS`` no longer contains a
+        ``PR`` row. The function is statically typed ``phase:
+        PipelinePhase`` but at runtime nothing prevents a string from
+        leaking in (e.g. a stale ``contract.json`` on disk, a planner
+        emitting ``"pr"``). The dict lookup must raise ``KeyError`` so the
+        bug surfaces loudly instead of silently returning a default.
+        """
+        # We can't construct ``PipelinePhase.PR`` because the member was
+        # removed — try the string form (the realistic regression path).
+        with pytest.raises(KeyError):
+            get_default_phase_config("pr")  # type: ignore[arg-type]
+
+    def test_implement_is_terminal(self):
+        """Slice-2 makes ``IMPLEMENT`` the terminal pipeline phase.
+
+        This was previously ``IMPLEMENT → PR``; the PR phase is gone, so
+        no member should follow ``IMPLEMENT`` in the canonical order. We
+        assert via the phase-graph table (the authoritative source) where
+        possible, but at minimum: there is no ``PR`` member to follow
+        ``IMPLEMENT``.
+        """
+        # Enum-level invariant — ``IMPLEMENT`` is the last declared member.
+        members = list(PipelinePhase)
+        assert PipelinePhase.IMPLEMENT in members
+        # All non-IMPLEMENT phases are upstream of IMPLEMENT (REFINE, PLAN,
+        # APPLY); no member exists that's downstream of IMPLEMENT.
+        downstream_candidates = {member for member in members if member.value == "pr"}
+        assert downstream_candidates == set(), (
+            "After slice-2, no PipelinePhase member may sit downstream of "
+            f"IMPLEMENT; found={downstream_candidates}"
+        )
 
     def test_all_phases_have_defaults(self):
-        """Test that all pipeline phases have default configs."""
+        """Test that all pipeline phases have default configs.
+
+        After slice-2 this loop intentionally covers REFINE, PLAN, APPLY,
+        and IMPLEMENT but NOT PR (the member is gone).
+        """
         for phase in PipelinePhase:
             config = get_default_phase_config(phase)
             assert isinstance(config, PhaseConfig)

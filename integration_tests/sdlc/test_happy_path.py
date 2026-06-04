@@ -2,10 +2,15 @@
 
 Tests the full pipeline success scenario where:
 1. Contract is created from issue
-2. Phases progress from refine → plan → implement → pr
+2. Phases progress from refine → plan → implement (terminal)
 3. Tasks are completed by implementer
 4. Tasks are approved by reviewer
 5. Pipeline completes successfully
+
+The legacy ``PR`` phase was hard-removed in #2777 (cq-4 / TASK-2-2);
+``IMPLEMENT`` is now terminal. The context PR opens up-front at the
+plan→implement boundary via ``_open_context_pr_at_implement_start``
+and slice PRs stack on it.
 """
 
 from pathlib import Path
@@ -162,8 +167,28 @@ class TestHappyPathContractLifecycle:
         assert result.contract is not None
         assert result.contract.current_phase == PipelinePhase.IMPLEMENT
 
-    def test_phase_progression_implement_to_pr(self, temp_repo, sample_contract):
-        """Phase can progress from implement to PR with reviewer approval."""
+    def test_implement_is_terminal_phase(self, temp_repo, sample_contract):
+        """Pipeline stays at IMPLEMENT after all tasks/phases complete.
+
+        Per #2777 cq-4 / TASK-2-2, IMPLEMENT is now terminal — there is
+        no subsequent ``PR`` phase to advance to. The reviewer marks
+        the implement phase complete (rather than progressing
+        ``current_phase``).
+
+        "Terminal" here is pinned in three independent ways:
+
+        1. The saved ``current_phase`` round-trips as ``IMPLEMENT`` (a
+           weak shape check that the contract loader didn't silently
+           rewrite the value).
+        2. ``PipelinePhase`` has no ``PR`` row (the deleted enum row
+           must not be resurrected via copy-paste from an old definition).
+        3. ``IMPLEMENT`` is the **last** member of ``PipelinePhase`` in
+           iteration order — this is what makes it the terminal phase
+           for advance_phase callers, which walk the enum order to find
+           the next phase. If a future contributor adds a successor row
+           after IMPLEMENT, this assertion trips and forces the new
+           "terminal" choice to be made explicitly.
+        """
         sample_contract.current_phase = PipelinePhase.IMPLEMENT
         # Mark all tasks complete first
         for phase in sample_contract.phases:
@@ -173,18 +198,20 @@ class TestHappyPathContractLifecycle:
         save_contract(sample_contract, temp_repo)
 
         contract = load_contract(133, temp_repo)
-        result = apply_mutation(
-            contract=contract,
-            role=Role.REVIEWER,
-            actor="egg-reviewer",
-            field_path="current_phase",
-            new_value=PipelinePhase.PR.value,
-            reason="All tasks complete, creating PR",
+        assert contract.current_phase == PipelinePhase.IMPLEMENT
+        assert not hasattr(PipelinePhase, "PR"), (
+            "PipelinePhase.PR was hard-removed in #2777 cq-4 / TASK-2-2; "
+            "the enum row must not be resurrected."
         )
-
-        assert result.success
-        assert result.contract is not None
-        assert result.contract.current_phase == PipelinePhase.PR
+        phase_members = list(PipelinePhase)
+        assert phase_members[-1] == PipelinePhase.IMPLEMENT, (
+            "IMPLEMENT must be the terminal (last) member of "
+            "PipelinePhase. Found order: "
+            f"{[p.value for p in phase_members]}. If a successor phase "
+            "was intentionally added, update advance_phase and the "
+            "post-consensus stall short-circuit to recognise it as the "
+            "new terminal."
+        )
 
 
 class TestHappyPathTaskExecution:
@@ -378,22 +405,13 @@ class TestHappyPathFullPipeline:
         assert result.success
         save_contract(result.contract, temp_repo)
 
-        # Step 9: Transition to PR phase
-        contract = load_contract(133, temp_repo)
-        result = apply_mutation(
-            contract=contract,
-            role=Role.REVIEWER,
-            actor="egg-reviewer",
-            field_path="current_phase",
-            new_value=PipelinePhase.PR.value,
-            reason="All phases complete, creating PR",
-        )
-        assert result.success
-        save_contract(result.contract, temp_repo)
-
-        # Verify final state
+        # Step 9: IMPLEMENT is now terminal per #2777 cq-4 / TASK-2-2.
+        # There is no PR phase to transition to — the context PR opens
+        # up-front at the plan→implement boundary via
+        # ``_open_context_pr_at_implement_start``, and IMPLEMENT
+        # completion is the pipeline-completion signal.
         final_contract = load_contract(133, temp_repo)
-        assert final_contract.current_phase == PipelinePhase.PR
+        assert final_contract.current_phase == PipelinePhase.IMPLEMENT
 
         # All tasks should be complete
         for phase in final_contract.phases:
@@ -403,7 +421,10 @@ class TestHappyPathFullPipeline:
                 assert task.commit is not None
 
         # Audit log should have all transitions
-        assert len(final_contract.audit_log) >= 9
+        # Audit log: removed the implement→PR transition step in #2777
+        # cq-4 / TASK-2-2 (IMPLEMENT is now terminal), so one fewer
+        # mutation lands in the log on the happy path.
+        assert len(final_contract.audit_log) >= 8
 
     def test_audit_log_tracks_all_changes(self, temp_repo, sample_contract):
         """Audit log properly tracks all mutations."""

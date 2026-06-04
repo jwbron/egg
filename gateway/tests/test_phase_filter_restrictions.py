@@ -206,15 +206,63 @@ class TestPhaseFilterDefaultPermissions:
         result = pf.check_phase_file_restrictions("refine", ["src/app.py"])
         assert result.allowed is False
 
-    def test_refine_allows_contracts(self):
+    def test_refine_blocks_contracts(self):
+        """Agents cannot git-push contracts in refine (#2979).
+
+        The orchestrator is the sole writer of ``.egg-state/contracts/``;
+        agents mutate them through the contract API, not git. Permitting
+        the push let a stale contract snapshot race the orchestrator's
+        authoritative commit and drive the destructive sync reset #2979
+        removed.
+        """
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions("refine", [".egg-state/contracts/123.json"])
-        assert result.allowed is True
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+
+    def test_plan_blocks_contracts(self):
+        """Agents cannot git-push contracts in plan either (#2979)."""
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("plan", [".egg-state/contracts/123.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+
+    def test_refine_draft_push_bundling_contract_is_rejected(self):
+        """A refine push mixing an allowed draft with a contract is denied (#2979).
+
+        Phase-restriction enforcement is atomic — one disallowed file
+        rejects the whole push. Agents push specific paths (``git add
+        <files>``, not ``git add -A``), so a draft push does not bundle a
+        contract in practice; if one ever does, the 403-with-hint is the
+        intended outcome, far preferable to the contract landing on origin
+        and triggering the destructive divergence reset.
+        """
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions(
+            "refine",
+            [".egg-state/drafts/644-analysis.md", ".egg-state/contracts/123.json"],
+        )
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+        assert ".egg-state/drafts/644-analysis.md" not in result.blocked_files
 
     def test_refine_allows_analysis_drafts(self):
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions("refine", [".egg-state/drafts/644-analysis.md"])
         assert result.allowed is True
+
+    def test_refine_blocks_plan_drafts(self):
+        # The inverse of the above and the crux of #2968: plan drafts are
+        # reserved to the plan phase, so refine rejects them even though
+        # every drafting role's pattern allows .egg-state/drafts/.
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("refine", [".egg-state/drafts/644-plan.md"])
+        assert result.allowed is False
+
+    def test_plan_blocks_analysis_drafts(self):
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("plan", [".egg-state/drafts/644-analysis.md"])
+        assert result.allowed is False
 
     def test_refine_allows_checkpoints(self):
         pf = PhaseFilter()
@@ -280,12 +328,25 @@ class TestPhaseFilterDefaultPermissions:
         )
         assert result.allowed is True
 
-    def test_pr_allows_everything(self):
+    def test_pr_phase_string_now_defaults_to_deny(self):
+        """``'pr'`` is no longer a valid phase (#2777 slice-2) — default-deny.
+
+        Pre-slice-2 the gateway had a ``PR`` row in the
+        ``PhaseFileRestriction`` table that allowed everything. Slice-2
+        deletes both the row and the ``PipelinePhase.PR`` enum member.
+        A caller still passing the literal string ``"pr"`` (a stale
+        contract on disk, a replayed request) must hit the
+        unknown-phase fail-closed path instead of being silently
+        allowed.
+        """
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions(
             "pr", ["src/app.py", ".egg-state/contracts/123.json"]
         )
-        assert result.allowed is True
+        assert result.allowed is False, (
+            "After slice-2 removes the PR phase, 'pr' must fail closed "
+            f"in check_phase_file_restrictions; got {result!r}"
+        )
 
     def test_unknown_phase_blocks_all(self):
         """Security: unknown phases should fail closed."""
@@ -327,9 +388,19 @@ class TestPhaseFilterOperationFiltering:
         result = filter_operation("implement", "git", "push origin egg/branch")
         assert result.allowed is True
 
-    def test_pr_create_allowed_during_pr(self):
-        result = filter_operation("pr", "gh", "pr create --title foo")
-        assert result.allowed is True
+    def test_pr_create_denied_for_dead_pr_phase_string(self):
+        """``filter_operation("pr", ...)`` raises ``ValueError`` on enum coercion.
+
+        Pre-slice-2 the ``PR`` phase was the one phase that allowed
+        ``gh pr create``. Slice-2 removes the phase enum entirely.
+        ``filter_operation`` coerces string phases to ``PipelinePhase``;
+        ``PipelinePhase("pr")`` is now a ``ValueError``, which is the
+        right fail-loud signal for a stale caller — quieter alternatives
+        (silently default-deny) would risk a later refactor wrapping
+        the coerce in try/except and re-granting the operation.
+        """
+        with pytest.raises(ValueError, match="not a valid PipelinePhase"):
+            filter_operation("pr", "gh", "pr create --title foo")
 
     def test_is_operation_blocked_convenience(self):
         assert is_operation_blocked("implement", "gh", "pr create --title x") is True
@@ -403,10 +474,19 @@ class TestCheckAgentRestrictions:
         fr = FileRestrictionResult.allow(result.message)
         assert isinstance(fr, FileRestrictionResult)
 
-    def test_coder_blocked_for_tests(self):
+    def test_coder_allowed_for_tests(self):
+        # Coder authors its own tests (intentional overlap with the tester).
         from agent_restrictions import validate_agent_push
 
         result = validate_agent_push("coder", ["tests/test_foo.py"])
+        assert result.allowed is True
+        assert result.role == "coder"
+
+    def test_coder_blocked_for_docs(self):
+        # docs/ is the documenter's scope — still blocked for the coder.
+        from agent_restrictions import validate_agent_push
+
+        result = validate_agent_push("coder", ["docs/guide.md"])
         assert result.allowed is False
         assert result.role == "coder"
 
@@ -478,11 +558,38 @@ class TestPhaseFilterExitRequirement:
 
     def test_implement_requires_reviewer(self):
         pf = PhaseFilter()
+        # IMPLEMENT remains the terminal reviewer-gated phase; reviewers
+        # exit IMPLEMENT to terminal-complete (no successor phase post-
+        # slice-2 of #2777).
         assert pf.get_exit_requirement(PipelinePhase.IMPLEMENT) == "reviewer"
 
-    def test_pr_requires_human(self):
+    def test_get_exit_requirement_for_pr_string_is_none(self):
+        """``get_exit_requirement`` must return ``None`` for the dead ``"pr"`` key.
+
+        ``PipelinePhase.PR`` was removed; callers reaching for the
+        legacy phase via its enum member can no longer compile. A stale
+        permissions lookup on the string ``"pr"`` (if the API surface
+        allows strings at all) must default-deny by returning ``None``,
+        consistent with the unknown-phase contract.
+        """
         pf = PhaseFilter()
-        assert pf.get_exit_requirement(PipelinePhase.PR) == "human"
+        # The function is typed PipelinePhase, but it's defensive about
+        # missing entries — passing the dead string via __getattr__ or
+        # the dict path should miss.
+        # We probe via the legitimate API: the PR enum member is gone,
+        # so we coerce a fake phase-like object that compares equal to
+        # the dead string. The function must miss the lookup.
+        try:
+            dead = PipelinePhase("pr")  # type: ignore[call-arg]
+        except ValueError:
+            # PipelinePhase("pr") raises ValueError after slice-2 —
+            # that's the strongest possible default-deny signal.
+            return
+        result = pf.get_exit_requirement(dead)
+        assert result is None, (
+            "After slice-2 deletes the PR row from the permissions "
+            f"table, get_exit_requirement must return None; got {result!r}"
+        )
 
     def test_unknown_phase_returns_none(self):
         pf = PhaseFilter()
@@ -639,3 +746,77 @@ class TestThreeRoleFileRestrictions:
     # gateway, so the coarse entry never matched a real session_role in
     # production. The block on ``.egg-state/contracts/`` is preserved
     # transitively via the fine-grained role tests above.
+
+
+class TestPhaseLayerSharedMirrorParity:
+    """#2968: the sandbox-side phase mirror (shared/egg_restrictions/
+    phase_patterns.py) must agree with the live gateway phase gate for
+    every phase. This is the drift guard that lets the phase-blind
+    check_file_restriction MCP tool trust its own can_write."""
+
+    @pytest.fixture(autouse=True)
+    def reset_filter(self):
+        reset_phase_filter()
+        yield
+        reset_phase_filter()
+
+    # Representative paths spanning every .egg-state/ subdir the configs key
+    # on, plus a code path and a traversal attempt.
+    _BATTERY = [
+        ".egg-state/drafts/p-analysis.md",
+        ".egg-state/drafts/p-plan.md",
+        ".egg-state/contracts/p.json",
+        ".egg-state/reviews/r.json",
+        ".egg-state/checkpoints/c.json",
+        ".egg-state/agent-outputs/o.json",
+        ".egg-state/agent-anchors/a.json",
+        ".egg-state/pipelines/p.json",
+        "src/app.py",
+        "docs/guide.md",
+        "../escape.txt",
+    ]
+
+    def test_shared_mirror_matches_gateway_for_every_phase(self):
+        from egg_restrictions.phase_patterns import phase_file_verdict
+
+        pf = PhaseFilter()  # loads the real .egg/phase-permissions.json
+        mismatches = []
+        for phase in PipelinePhase:
+            for path in self._BATTERY:
+                gateway_allowed = pf.check_phase_file_restrictions(phase, [path]).allowed
+                mirror_allowed = phase_file_verdict(phase.value, path)[0]
+                if gateway_allowed != mirror_allowed:
+                    mismatches.append(
+                        f"{phase.value}:{path} gateway={gateway_allowed} mirror={mirror_allowed}"
+                    )
+        assert not mismatches, (
+            "shared phase_patterns drifted from gateway/phase_filter.py — "
+            "update PHASE_FILE_PATTERNS to match the live config: " + "; ".join(mismatches)
+        )
+
+    # Off-enum strings: anything outside ``PipelinePhase``'s canonical
+    # lowercase set. In production the orchestrator always exports a
+    # canonical ``EGG_PHASE`` so this path only fires on a manual /
+    # test caller, but the gateway fails closed via the
+    # ``PipelinePhase(phase)`` coercion and the mirror has to match —
+    # otherwise a phase-blind caller could see ``can_write: true`` for a
+    # path the gateway will reject.
+    _OFF_ENUM_PHASES = ("IMPLEMENT", "unknown", "pr", "REFINE")
+
+    def test_shared_mirror_fails_closed_for_off_canonical_phase(self):
+        from egg_restrictions.phase_patterns import phase_file_verdict
+
+        pf = PhaseFilter()
+        for bad_phase in self._OFF_ENUM_PHASES:
+            for path in (".egg-state/drafts/p-plan.md", "src/app.py"):
+                gateway_allowed = pf.check_phase_file_restrictions(bad_phase, [path]).allowed
+                mirror_allowed = phase_file_verdict(bad_phase, path)[0]
+                assert gateway_allowed is False, (
+                    f"gateway should fail closed for off-enum phase "
+                    f"{bad_phase!r}, got allowed={gateway_allowed}"
+                )
+                assert mirror_allowed is False, (
+                    f"mirror should fail closed for off-enum phase "
+                    f"{bad_phase!r} to match the gateway, got "
+                    f"allowed={mirror_allowed}"
+                )

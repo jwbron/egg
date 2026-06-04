@@ -820,33 +820,15 @@ class TestDuplicatePhaseGatePrevention:
             assert "NACK" in question
 
 
-# ---------- Consensus wrapper tests ----------
-
-
-class TestConsensusWrapperNackFeedback:
-    """Consensus wrapper should include NACK feedback in recovery prompt."""
-
-    def test_wrapper_includes_nack_feedback_placeholder(self):
-        from consensus_wrapper import _RECOVERY_SYSTEM_PROMPT
-
-        assert "{nack_feedback}" in _RECOVERY_SYSTEM_PROMPT
-
-    def test_wrapper_recovery_prompt_mentions_nack_handling(self):
-        from consensus_wrapper import _RECOVERY_SYSTEM_PROMPT
-
-        assert "NACKs" in _RECOVERY_SYSTEM_PROMPT
-        assert "re-propose" in _RECOVERY_SYSTEM_PROMPT
-
-    def test_wrapper_script_calls_get_nack_feedback(self):
-        from consensus_wrapper import build_consensus_wrapped_command
-
-        cmd = build_consensus_wrapped_command("test prompt")
-        script = cmd[2]  # bash -c "script"
-        assert "get_nack_feedback" in script
-        assert "NACK_FEEDBACK" in script
-
-    def test_wrapper_script_has_nack_feedback_function(self):
-        from consensus_wrapper import _CONSENSUS_WRAPPER_TEMPLATE
-
-        assert "get_nack_feedback()" in _CONSENSUS_WRAPPER_TEMPLATE
-        assert "unresolved_nacks" in _CONSENSUS_WRAPPER_TEMPLATE
+# ---------- Consensus wrapper NACK-feedback tests (DELETED) ------------
+#
+# ``TestConsensusWrapperNackFeedback`` pinned the legacy
+# ``_RECOVERY_SYSTEM_PROMPT`` placeholder + ``get_nack_feedback`` bash
+# helper that recomposed reviewer NACKs into the agent's restart
+# system prompt. Slice-4 task-4-2 deleted both the recovery prompt
+# and the legacy template, so the surface this class targeted is
+# gone. The event-pump model surfaces NACK payloads via
+# ``orchestrator/routes/event_prompt.py:compose_event_prompt`` instead;
+# the equivalent tests live in
+# ``orchestrator/tests/test_compose_event_prompt.py``
+# (look for ``test_*_nack*``).

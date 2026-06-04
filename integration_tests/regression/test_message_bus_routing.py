@@ -1,24 +1,16 @@
 """Integration-tier regression tests for the inter-agent message store
 and event bus (issue #2640, split from #2474).
 
-PR #2621 / #2624 added ``context_pr.skipped`` / ``context_pr.failed``
-routing to the message store + event bus + ``/status/wait`` allowlists.
-That wiring is well-covered at the unit tier
-(``orchestrator/tests/test_context_pr_transition_paths.py``,
-``orchestrator/tests/test_pipelines_status_wait_route.py``); this
-module pins the end-to-end routing against the **live Flask blueprint
+This module pins end-to-end routing against the **live Flask blueprint
 and a real Redis-backed message store** (via ``fakeredis``) so a
 regression that breaks the route layer or the cross-backend contract
 surfaces in the integration tier.
 
 Coverage map (issue #2640 starting points + gap audit):
 
-1. ``context_pr.{skipped,failed}`` end-to-end routing — wrapper emit
-   reaches both message store and event bus on both backends, and
-   is observable through ``GET /api/v1/pipelines/<id>/messages``.
-2. ``/status/wait`` semantics for ``context_pr.*`` — long-poll wakes
-   on the event, on the message, and stays silent for non-allowlisted
-   types (PROGRESS, DECISION_RESOLVED).
+2. ``/status/wait`` allowlist invariant — the route stays silent for
+   non-allowlisted message types (PROGRESS) and non-allowlisted events
+   (DECISION_RESOLVED).
 3. Event ordering under concurrent producers — EventBus sequences
    are strictly increasing across threads; message store preserves
    per-pipeline append order on both backends.
@@ -31,10 +23,6 @@ Coverage map (issue #2640 starting points + gap audit):
    handlers subscribed after publish.
 7. Malformed-payload rejection — ``POST /messages`` 400s on shell-var
    ``to_role`` / ``from_role`` and on invalid HEARTBEAT metadata.
-8. Dedupe of repeated ``_maybe_open_base_pr_for_plan_to_implement``
-   invocations — single-threaded and **N-thread race** against the
-   ``_context_pr_events_emitted_lock`` so a concurrent transition
-   pair still collapses to one message + one event.
 9. Blocking ``get_messages(wait=N)`` semantics — wakes on
    ``add_message``, wakes on ``clear()`` (RISK-5 from #1897), and
    ``from_tip=True`` ignores pre-existing messages (#1925).
@@ -92,10 +80,7 @@ from redis_message_store import RedisMessageStore  # noqa: E402
 from routes import messages as messages_mod  # noqa: E402
 from routes import pipelines as pipelines_mod  # noqa: E402
 from routes.messages import messages_bp  # noqa: E402
-from routes.pipelines import (  # noqa: E402
-    _maybe_open_base_pr_for_plan_to_implement,
-    pipelines_bp,
-)
+from routes.pipelines import pipelines_bp  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -179,16 +164,6 @@ def isolated_event_bus(monkeypatch):
     return bus
 
 
-@pytest.fixture(autouse=True)
-def reset_context_pr_dedupe():
-    """The wrapper dedupes ``context_pr.*`` emissions via a module-level
-    set keyed on ``pipeline_id``. Clear it between tests so one test's
-    emit doesn't suppress another's."""
-    pipelines_mod._context_pr_events_emitted.clear()
-    yield
-    pipelines_mod._context_pr_events_emitted.clear()
-
-
 @pytest.fixture
 def fake_pipeline() -> Pipeline:
     """An ISSUE-mode pipeline with the minimum fields the wrapper reads."""
@@ -222,29 +197,6 @@ def resolve_pipeline_to(fake_pipeline):
         ),
     ):
         yield fake_pipeline
-
-
-def _make_contract_without_pr(*, raised: bool):
-    """Build a contract whose post-hook ``context_pr_number`` is ``None``
-    — the precondition for the wrapper's emit branch firing.
-    """
-    from egg_contracts.models import (
-        Contract,
-        IssueInfo,
-        PRMetadata,
-    )
-    from egg_contracts.models import (
-        PipelinePhase as ContractPhase,
-    )
-
-    return Contract(
-        issue=IssueInfo(number=2640, title="t", url=""),
-        pipeline_id=_PIPELINE_ID,
-        current_phase=ContractPhase.PLAN,
-        # Inner raised → there is a PRMetadata but no context_pr_number;
-        # silent skip → no PR metadata at all.
-        pr=PRMetadata(title="t") if raised else None,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -302,195 +254,14 @@ def _blocking_get_signal(backend):
 
 
 # ---------------------------------------------------------------------------
-# 1. context_pr.{skipped,failed} routing — message store + event bus
-# ---------------------------------------------------------------------------
-
-
-class TestContextPRRouting:
-    """The wrapper's three observability sinks (message store, event
-    bus, status-reporter) reach both backends end-to-end."""
-
-    def test_context_pr_failed_lands_in_message_store_and_event_bus(
-        self,
-        tmp_path,
-        fake_pipeline,
-        message_backend,
-        isolated_event_bus,
-    ):
-        contract = _make_contract_without_pr(raised=True)
-        received_events: list[Event] = []
-        isolated_event_bus.subscribe(EventType.CONTEXT_PR_FAILED, received_events.append)
-
-        with (
-            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-        ):
-            inner.side_effect = RuntimeError("gateway down")
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),  # spawner
-                tmp_path,
-                source="advance_phase_rest",
-            )
-
-        # Message store: exactly one CONTEXT_PR_FAILED entry, tagged
-        # with the source and the error.
-        msgs = message_backend.get_messages(_PIPELINE_ID)
-        failed = [m for m in msgs if m.message_type == "CONTEXT_PR_FAILED"]
-        assert len(failed) == 1, (
-            f"expected one CONTEXT_PR_FAILED message; got {[m.message_type for m in msgs]!r}"
-        )
-        assert failed[0].metadata.get("reason") == "raised"
-        assert "gateway down" in (failed[0].metadata.get("error") or "")
-
-        # Event bus: exactly one CONTEXT_PR_FAILED event with the
-        # pipeline_id, dispatched to the wildcard-equivalent typed
-        # subscriber.
-        assert len(received_events) == 1
-        assert received_events[0].event_type == EventType.CONTEXT_PR_FAILED
-        assert received_events[0].pipeline_id == _PIPELINE_ID
-
-    def test_context_pr_skipped_lands_in_message_store_and_event_bus(
-        self,
-        tmp_path,
-        fake_pipeline,
-        message_backend,
-        isolated_event_bus,
-    ):
-        contract = _make_contract_without_pr(raised=False)
-        received_events: list[Event] = []
-        isolated_event_bus.subscribe(EventType.CONTEXT_PR_SKIPPED, received_events.append)
-
-        with (
-            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-        ):
-            inner.return_value = None
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),
-                tmp_path,
-                source="hitl_resume",
-            )
-
-        msgs = message_backend.get_messages(_PIPELINE_ID)
-        skipped = [m for m in msgs if m.message_type == "CONTEXT_PR_SKIPPED"]
-        assert len(skipped) == 1
-        assert skipped[0].metadata.get("reason") == "skipped"
-        assert skipped[0].metadata.get("error") is None
-
-        assert len(received_events) == 1
-        assert received_events[0].event_type == EventType.CONTEXT_PR_SKIPPED
-
-    def test_emitted_message_is_visible_via_messages_route(
-        self,
-        tmp_path,
-        client,
-        resolve_pipeline_to,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """``GET /api/v1/pipelines/<id>/messages`` must surface the
-        wrapper's message-store entry — that's the operator-facing
-        contract behind ``recent_messages`` (#2611)."""
-        fake_pipeline = resolve_pipeline_to
-        contract = _make_contract_without_pr(raised=True)
-
-        with (
-            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-        ):
-            inner.side_effect = RuntimeError("gateway down")
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),
-                tmp_path,
-                source="advance_phase_rest",
-            )
-
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/messages")
-        assert resp.status_code == 200
-        body = json.loads(resp.data)
-        types = [m["message_type"] for m in body["data"]["messages"]]
-        assert "CONTEXT_PR_FAILED" in types
-
-
-# ---------------------------------------------------------------------------
-# 2. /status/wait semantics for context_pr.* (issue starting point 2)
+# 2. /status/wait allowlist invariant — non-allowlisted types stay silent
 # ---------------------------------------------------------------------------
 
 
 class TestStatusWaitContextPRSemantics:
-    """The ``/status/wait`` allowlists for ``context_pr.*`` (PR #2621 /
-    #2624) must unblock long-pollers via both the event bus and the
-    message store. Non-allowlisted types must NOT wake the route."""
-
-    def test_status_wait_wakes_on_context_pr_failed_event(
-        self,
-        client,
-        resolve_pipeline_to,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """A ``context_pr.failed`` event published mid-wait unblocks the
-        long-poll with ``trigger='event'``."""
-        with _route_subscription_signal(isolated_event_bus) as route_ready:
-
-            def _fire() -> None:
-                assert route_ready.wait(timeout=3), "route never subscribed"
-                isolated_event_bus.publish(
-                    Event(
-                        event_type=EventType.CONTEXT_PR_FAILED,
-                        pipeline_id=_PIPELINE_ID,
-                    )
-                )
-
-            threading.Thread(target=_fire, daemon=True).start()
-            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
-        envelope = json.loads(resp.data)["data"]
-        assert resp.status_code == 200
-        assert envelope["changed"] is True
-        assert envelope["trigger"] == "event"
-        assert envelope["event_type"] == "context_pr.failed"
-
-    def test_status_wait_wakes_on_context_pr_failed_message(
-        self,
-        client,
-        resolve_pipeline_to,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """A ``CONTEXT_PR_FAILED`` message in the store unblocks the
-        long-poll with ``trigger='message'`` — the second of the two
-        sinks PR #2621 wired.
-
-        Uses ``_blocking_get_signal`` rather than ``_route_subscription_signal``
-        because the route's message daemon snaps to the store tip via
-        ``get_messages(from_tip=True)`` AFTER ``event_bus.subscribe``
-        returns — injecting on the subscribe signal can land before the
-        daemon captures the tip, leaving the message on the wrong side
-        of the cursor and the wait blocking until timeout."""
-        with _blocking_get_signal(message_backend) as daemon_entered:
-
-            def _fire() -> None:
-                assert daemon_entered.wait(timeout=3), "daemon never entered blocking wait"
-                message_backend.add_message(
-                    Message(
-                        pipeline_id=_PIPELINE_ID,
-                        from_role="orchestrator",
-                        to_role="all",
-                        message_type="CONTEXT_PR_FAILED",
-                        subject="context_pr.failed (source=test)",
-                        body="hook raised",
-                    )
-                )
-
-            threading.Thread(target=_fire, daemon=True).start()
-            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
-        envelope = json.loads(resp.data)["data"]
-        assert resp.status_code == 200
-        assert envelope["changed"] is True
-        assert envelope["trigger"] == "message"
+    """The ``/status/wait`` allowlist must NOT wake the route for
+    non-allowlisted message types (PROGRESS) or non-allowlisted events
+    (DECISION_RESOLVED)."""
 
     def test_status_wait_ignores_non_allowlisted_message_type(
         self,
@@ -1165,131 +936,6 @@ class TestMalformedPayloadRejection:
 
 
 # ---------------------------------------------------------------------------
-# 8. Dedupe across repeated wrapper invocations (gap audit)
-# ---------------------------------------------------------------------------
-
-
-class TestDedupeAcrossWrapperInvocations:
-    """The wrapper can run multiple times for the same pipeline
-    (auto-advance + implement-entry backstop, HITL recovery + backstop).
-    The shared dedupe set must collapse the second emit to a no-op so
-    operators see exactly one message and one event per failure."""
-
-    def test_two_wrapper_calls_produce_one_message_and_one_event(
-        self,
-        tmp_path,
-        fake_pipeline,
-        message_backend,
-        isolated_event_bus,
-    ):
-        contract = _make_contract_without_pr(raised=True)
-        received_events: list[Event] = []
-        isolated_event_bus.subscribe(EventType.CONTEXT_PR_FAILED, received_events.append)
-
-        with (
-            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-        ):
-            inner.side_effect = RuntimeError("gateway down")
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),
-                tmp_path,
-                source="run_pipeline_autoadvance",
-            )
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),
-                tmp_path,
-                source="implement_entry_backstop",
-            )
-
-        failed_msgs = [
-            m
-            for m in message_backend.get_messages(_PIPELINE_ID)
-            if m.message_type == "CONTEXT_PR_FAILED"
-        ]
-        assert len(failed_msgs) == 1, (
-            f"dedupe broken — got {len(failed_msgs)} CONTEXT_PR_FAILED entries"
-        )
-        assert len(received_events) == 1
-
-    def test_concurrent_wrapper_invocations_dedupe_via_lock(
-        self,
-        tmp_path,
-        fake_pipeline,
-        message_backend,
-        isolated_event_bus,
-    ):
-        """N threads race the same pipeline through the wrapper. The
-        ``_context_pr_events_emitted_lock`` is the only thing preventing
-        a double-emit when two transition paths execute concurrently
-        (HITL recovery + implement-entry backstop in particular can
-        overlap on the orchestrator's worker pool). Pin the lock by
-        firing 16 threads at the wrapper and asserting exactly one
-        message + one event survive.
-
-        ``patch.object`` is not thread-safe — its ``__enter__`` /
-        ``__exit__`` snapshot the attribute on entry and restore on exit
-        with no synchronization, so 16 concurrent enters can interleave
-        unpatch order and leak a mock past the test boundary. Patch ONCE
-        at the outer scope and use ``threading.Barrier`` to release all
-        threads simultaneously, so contention happens inside the
-        wrapper rather than around the patch machinery."""
-        contract = _make_contract_without_pr(raised=True)
-        received_events: list[Event] = []
-        events_lock = threading.Lock()
-
-        def _collect(event: Event) -> None:
-            with events_lock:
-                received_events.append(event)
-
-        isolated_event_bus.subscribe(EventType.CONTEXT_PR_FAILED, _collect)
-
-        n = 16
-        # Barrier release: every thread parks at the barrier and is
-        # released when the Nth thread arrives, so contention on
-        # ``_context_pr_events_emitted_lock`` is maximal. Replaces the
-        # less-deterministic ``Event.wait`` start gate (which can wake
-        # threads sequentially) and removes the per-thread patch.object
-        # nesting that ``patch.object`` does not synchronize.
-        barrier = threading.Barrier(n)
-
-        def _race(source: str) -> None:
-            barrier.wait(timeout=5)
-            _maybe_open_base_pr_for_plan_to_implement(
-                fake_pipeline,
-                MagicMock(),
-                tmp_path,
-                source=source,
-            )
-
-        with (
-            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-        ):
-            inner.side_effect = RuntimeError("gateway down")
-            threads = [
-                threading.Thread(target=_race, args=(f"thread-{i}",), daemon=True) for i in range(n)
-            ]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join(timeout=10)
-
-        failed_msgs = [
-            m
-            for m in message_backend.get_messages(_PIPELINE_ID)
-            if m.message_type == "CONTEXT_PR_FAILED"
-        ]
-        assert len(failed_msgs) == 1, (
-            f"concurrent dedupe broken — got {len(failed_msgs)} "
-            f"CONTEXT_PR_FAILED entries from {n} racing threads"
-        )
-        assert len(received_events) == 1
-
-
-# ---------------------------------------------------------------------------
 # 9. Message store blocking semantics (gap audit)
 # ---------------------------------------------------------------------------
 
@@ -1902,7 +1548,7 @@ class TestEventBusSequenceMonotonicAcrossTypes:
             EventType.PHASE_STARTED,
             EventType.MESSAGE_SENT,
             EventType.DECISION_CREATED,
-            EventType.CONTEXT_PR_FAILED,
+            EventType.DECISION_RESOLVED,
             EventType.PHASE_COMPLETED,
         ]
         for t in types_in_order:

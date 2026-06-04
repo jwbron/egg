@@ -103,11 +103,10 @@ class TestGetConcurrentStatusUnit:
         """
         pipeline = _make_concurrent_pipeline()
 
-        # Patch both BRC tracker and legacy evaluator to simulate unavailability
-        with (
-            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
-            patch("consensus.get_consensus_evaluator", side_effect=ImportError("not available")),
-        ):
+        # Patch the BRC tracker to simulate unavailability. The legacy
+        # ``consensus`` evaluator fallback was removed in #2777 (slice-2),
+        # so the BRC tracker is now the only consensus source.
+        with patch("peer_consensus.get_peer_consensus_tracker", return_value=None):
             result = _get_concurrent_status(pipeline)
 
         assert "consensus" not in result
@@ -292,7 +291,6 @@ class TestGetConcurrentStatusSliceAware:
             patch(
                 "peer_consensus.reconstruct_tracker_from_messages", return_value=None
             ) as mock_recon,
-            patch("consensus.get_consensus_evaluator", side_effect=ImportError("n/a")),
         ):
             mock_store = MagicMock()
             mock_store.get_status.return_value = {"total": 0, "by_type": {}}
@@ -309,12 +307,13 @@ class TestGetConcurrentStatusSliceAware:
         _, recon_kwargs = mock_recon.call_args
         assert recon_kwargs.get("slice_id") is None
 
-    def test_slice_query_with_no_tracker_skips_legacy_evaluator(self):
+    def test_slice_query_with_no_tracker_reports_no_consensus(self):
         """A slice-scoped query with no BRC tracker reports no consensus.
 
-        It must not fall back to the legacy readiness evaluator — that
-        evaluator is pipeline-level only and would report sibling-slice
-        or stale pipeline-wide state.
+        There is no pipeline-level fallback: the legacy readiness
+        evaluator was removed in #2777 (slice-2), so a missing per-slice
+        tracker simply yields no consensus rather than leaking
+        sibling-slice or stale pipeline-wide state.
         """
         pipeline = _make_concurrent_pipeline(pipeline_id="issue-555")
 
@@ -323,7 +322,6 @@ class TestGetConcurrentStatusSliceAware:
             patch("message_store.get_message_store") as mock_get_store,
             patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
             patch("peer_consensus.reconstruct_tracker_from_messages", return_value=None),
-            patch("consensus.get_consensus_evaluator") as mock_evaluator,
         ):
             mock_store = MagicMock()
             mock_store.get_status.return_value = {"total": 0, "by_type": {}}
@@ -332,7 +330,6 @@ class TestGetConcurrentStatusSliceAware:
             result = _get_concurrent_status(pipeline, slice_id="slice-7")
 
         assert "consensus" not in result
-        mock_evaluator.assert_not_called()
 
 
 class TestPipelineStatusConcurrentEndpoint:
@@ -434,10 +431,7 @@ class TestPipelineStatusConcurrentEndpoint:
         mock_store = MagicMock()
         mock_resolve.return_value = (mock_store, pipeline)
 
-        with (
-            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
-            patch("consensus.get_consensus_evaluator", side_effect=ImportError("not available")),
-        ):
+        with patch("peer_consensus.get_peer_consensus_tracker", return_value=None):
             resp = client.get("/api/v1/pipelines/issue-999/status")
         data = json.loads(resp.data)
 
@@ -469,19 +463,25 @@ class TestPipelineStatusConcurrentEndpoint:
         assert resp.status_code == 400
 
 
-def _make_pipeline_with_pr_artifact(pr_url: str | None) -> Pipeline:
-    """Build a pipeline in the PR phase with optional ``pr_url`` artifact."""
+def _make_pipeline_with_pr_url(pr_url: str | None) -> Pipeline:
+    """Build a terminal-phase pipeline with an optional context-PR URL.
+
+    Under #2777 (slice-2) the PR phase was removed: the context PR opens
+    up-front and ``_open_context_pr_at_implement_start`` stamps the URL on
+    the pipeline record (``pipeline.pr_url`` / ``pipeline.pr_number``).
+    The status route's ``_get_pr_info`` reads those fields directly rather
+    than the old ``phases['pr'].artifacts['pr_url']`` location.
+    """
     pipeline = Pipeline(
         id="issue-1613",
         issue_number=1613,
         repo="owner/repo",
         branch="egg/issue-1613",
         status=PipelineStatus.COMPLETE,
-        current_phase=PipelinePhase.PR,
+        current_phase=PipelinePhase.IMPLEMENT,
     )
     if pr_url is not None:
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.PR)
-        phase_exec.artifacts = {"pr_url": pr_url}
+        pipeline.pr_url = pr_url
     return pipeline
 
 
@@ -490,9 +490,9 @@ class TestPipelineStatusPrInfo:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_pr_info_present_when_pr_phase_has_artifact(self, mock_resolve, mock_repo_path, client):
-        """pr_url and pr_number are included once the PR phase has created a PR."""
-        pipeline = _make_pipeline_with_pr_artifact("https://github.com/owner/repo/pull/1624")
+    def test_pr_info_present_when_pr_url_set(self, mock_resolve, mock_repo_path, client):
+        """pr_url and pr_number are included once the context PR has been opened."""
+        pipeline = _make_pipeline_with_pr_url("https://github.com/owner/repo/pull/1624")
         mock_resolve.return_value = (MagicMock(), pipeline)
 
         resp = client.get("/api/v1/pipelines/issue-1613/status")
@@ -504,8 +504,8 @@ class TestPipelineStatusPrInfo:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_pr_info_absent_when_no_pr_phase(self, mock_resolve, mock_repo_path, client):
-        """No pr_url/pr_number keys when the pipeline has not reached the PR phase."""
+    def test_pr_info_absent_when_no_pr_opened(self, mock_resolve, mock_repo_path, client):
+        """No pr_url/pr_number keys when the pipeline has not opened a context PR."""
         pipeline = Pipeline(
             id="issue-1613",
             issue_number=1613,
@@ -523,10 +523,12 @@ class TestPipelineStatusPrInfo:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_pr_info_absent_when_artifacts_empty(self, mock_resolve, mock_repo_path, client):
-        """Post-reset (request_changes / recovery) leaves artifacts empty; no stale URL leaks."""
-        pipeline = _make_pipeline_with_pr_artifact("https://github.com/owner/repo/pull/1624")
-        pipeline.get_phase_execution(PipelinePhase.PR).artifacts = {}
+    def test_pr_info_absent_when_pr_url_cleared(self, mock_resolve, mock_repo_path, client):
+        """Post-reset (request_changes / recovery) clears pr_url; no stale URL leaks."""
+        pipeline = _make_pipeline_with_pr_url("https://github.com/owner/repo/pull/1624")
+        # Simulate the reset that clears the recorded context PR.
+        pipeline.pr_url = None
+        pipeline.pr_number = None
         mock_resolve.return_value = (MagicMock(), pipeline)
 
         resp = client.get("/api/v1/pipelines/issue-1613/status")
@@ -540,19 +542,20 @@ class TestPipelineStatusPrInfo:
         self, mock_resolve, mock_repo_path, client
     ):
         """A URL without a /pull/N segment still surfaces pr_url; pr_number is omitted."""
-        pipeline = _make_pipeline_with_pr_artifact("not-a-valid-pr-url")
+        pipeline = _make_pipeline_with_pr_url("https://github.com/owner/repo/tree/main")
+        pipeline.pr_number = None
         mock_resolve.return_value = (MagicMock(), pipeline)
 
         resp = client.get("/api/v1/pipelines/issue-1613/status")
         data = json.loads(resp.data)["data"]
-        assert data["pr_url"] == "not-a-valid-pr-url"
+        assert data["pr_url"] == "https://github.com/owner/repo/tree/main"
         assert "pr_number" not in data
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
     def test_pr_info_works_with_enterprise_github_url(self, mock_resolve, mock_repo_path, client):
         """Enterprise GitHub URLs still match /pull/(\\d+) and yield a pr_number."""
-        pipeline = _make_pipeline_with_pr_artifact("https://github.acme.com/owner/repo/pull/42")
+        pipeline = _make_pipeline_with_pr_url("https://github.acme.com/owner/repo/pull/42")
         mock_resolve.return_value = (MagicMock(), pipeline)
 
         resp = client.get("/api/v1/pipelines/issue-1613/status")

@@ -71,7 +71,9 @@ class TestCompletePhaseEndpoint:
         assert data["success"] is True
         assert data["data"]["phase"] == "implement"
         assert data["data"]["current_phase"] == "implement"
-        assert data["data"]["next_phase"] == "pr"
+        # IMPLEMENT is the terminal phase after #2777 (slice-2) removed PR,
+        # so there is no suggested next phase.
+        assert data["data"]["next_phase"] is None
 
         phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         assert phase_exec.status == PipelineStatus.COMPLETE

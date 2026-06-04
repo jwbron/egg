@@ -293,6 +293,80 @@ class TestConsensusCompleteWithFailures:
         assert exit_code == 1, f"Expected exit code 1 (no consensus, has failures), got {exit_code}"
 
 
+class TestRunConcurrentPhaseResolvedBaseBranch:
+    """``_run_concurrent_phase`` threads the resolved base branch into the
+    spawner so the spawner can export ``EGG_BASE_BRANCH`` for the BRC
+    event-pump's per-producer ``git log {sha}..HEAD --not origin/<base>``
+    delta (#2967).
+
+    The unit-level tests in ``test_kubernetes_spawner.py`` cover the
+    spawner-side env injection given a literal ``base_branch=``; this
+    integration assertion covers the call chain: a pipeline with
+    ``base_branch=None`` exercises the
+    ``_resolved_base_branch = pipeline.base_branch or get_default_branch(...)``
+    ladder and the resolved value reaches
+    ``spawner.create_concurrent_spawn_fn`` instead of leaking ``None``
+    through to the spawner's env-injection guard.
+    """
+
+    @patch("routes.pipelines.get_default_branch", return_value="master")
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic", return_value=10.0)
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_none_base_branch_resolves_to_default_and_reaches_spawner(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+        mock_get_default,
+    ):
+        """``pipeline.base_branch=None`` triggers ``get_default_branch`` and
+        the result is forwarded as the spawner's ``base_branch`` kwarg."""
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+        # Defense: the fixture leaves base_branch unset so the auto-detect
+        # ladder fires; assert it explicitly so a fixture change doesn't
+        # silently turn this into a different test.
+        assert pipeline.base_branch is None
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": True,
+            "has_objections": False,
+            "blocking_agents": [],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-1495",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        # get_default_branch was called with the worktree path (auto-detect path).
+        mock_get_default.assert_called_once_with(_CALL_ARGS["worktree_repo_path"])
+        # The resolved branch flowed into the spawner's spawn-fn factory.
+        spawn_kwargs = mock_spawner.create_concurrent_spawn_fn.call_args.kwargs
+        assert spawn_kwargs.get("base_branch") == "master", (
+            "Expected the resolved default branch ('master') to flow into "
+            "create_concurrent_spawn_fn so the spawner can export "
+            "EGG_BASE_BRANCH for the BRC delta (#2967)."
+        )
+
+
 class TestConsensusCompleteUpdatesAgents:
     """When consensus is_complete=True, _update_agents_complete should mark
     all agents as COMPLETE regardless of container exit codes."""

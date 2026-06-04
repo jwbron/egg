@@ -58,13 +58,14 @@ kubectl get pods -n egg-system
 ```bash
 # What make k3s-setup does:
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
-scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
+scripts/install-cilium.sh          # downloads cilium-cli and runs `cilium install`
 # Waits for cluster to become ready
+scripts/install-metrics-server.sh  # deploys the hostNetwork metrics-server addon
 ```
 
 > **Why Cilium?** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies, which are required for agent network isolation. Cilium replaces Flannel and enforces the NetworkPolicies that prevent agents from reaching the internet directly. Calico filled this role until [#2703](https://github.com/jwbron/egg/issues/2703) — see that issue for the swap rationale.
 >
-> **Why `--disable=metrics-server`?** Under Cilium, the metrics-server pod cannot reach the kubelet on the node IP, so it never becomes Ready. The resulting perpetually-unavailable `v1beta1.metrics.k8s.io` APIService causes the namespace controller's discovery step to fail, which wedges all namespace deletion (namespaces become stuck in `Terminating` indefinitely). egg does not use metrics-server; disabling it avoids this hang with no functional loss.
+> **Why `--disable=metrics-server`?** This disables k3s's *bundled* metrics-server, which runs on the pod network and under Cilium cannot reach the kubelet on the node IP — it never becomes Ready, and the resulting perpetually-unavailable `v1beta1.metrics.k8s.io` APIService causes the namespace controller's discovery step to fail, wedging all namespace deletion (namespaces stuck in `Terminating` indefinitely). `scripts/install-metrics-server.sh` then deploys a **hostNetwork** variant ([`k8s/addons/metrics-server.yaml`](../../k8s/addons/metrics-server.yaml)) that shares the node's network namespace and reaches the kubelet exactly as the host does, so `kubectl top` works without re-triggering the wedge. (Prior to this, metrics-server was disabled outright in [#2703](https://github.com/jwbron/egg/issues/2703); it was believed unfixable under Cilium until the hostNetwork approach.)
 >
 > **Migrating from a pre-#2703 install:** in-place CNI swap on a live k3s cluster is not supported (host CNI binaries, conflists, CRDs, `tunl0`, and per-pod veth pairs persist after deleting the calico-node DaemonSet). Run `make k3s-teardown && make k3s-setup` for a clean install. `install-cilium.sh` will refuse if it detects leftover Calico state.
 >
@@ -126,8 +127,10 @@ make build
 |---------|-------------|
 | `make k3s-setup` | Install k3s + Cilium CNI (idempotent) |
 | `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
+| `make redeploy` | Rebuild images, import into k3s, and deploy in one step — use this after any commit, pull, rebase, or branch switch |
 | `make build` | Build images and import into k3s |
 | `make litellm-config` | Apply host-side LiteLLM `model_list` from `~/.config/egg/litellm-models.yaml`; no-op if absent |
+| `make routing-policy` | Hot-reload gateway routing policy from `~/.config/egg/routing-policy.yaml` without a pod rollout; no-op if absent |
 | `make k3s-teardown` | Remove k3s installation |
 
 #### `make deploy` details
@@ -139,6 +142,8 @@ make build
 
 **Prerequisite:** `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`).
 
+**Pre-flight image check:** Before applying any manifests, `make deploy` verifies that the egg images for the current `EGG_IMAGE_TAG` are already in k3s's containerd. If any image is missing — typically because a commit, pull, rebase, or branch switch changed the tag since the last build — `make deploy` aborts immediately with no cluster mutations and directs you to run `make redeploy` instead.
+
 `make deploy` also invokes `make litellm-config` automatically at the end, applying any
 host-side LiteLLM backend overlay from `~/.config/egg/litellm-models.yaml` (no-op if the file is absent).
 See the [Per-Agent Models guide](per-agent-models.md) for the overlay format.
@@ -146,6 +151,13 @@ See the [Per-Agent Models guide](per-agent-models.md) for the overlay format.
 If you invoke `make litellm-config` standalone before the cluster has been deployed, the target
 also short-circuits with a notice when the in-cluster `litellm-config` ConfigMap is not yet present —
 run `make deploy` first so the base ConfigMap exists, then re-run `make litellm-config` to overlay.
+
+`make deploy` also bundles `~/.config/egg/routing-policy.yaml` into `gateway-secrets` (via
+`make k3s-secrets`) if the file exists. Between deploys, `make routing-policy` hot-reloads the
+policy by re-creating `gateway-secrets` — no gateway pod rollout, no in-flight-turn loss. Copy
+`config/routing-policy.template.yaml` to `~/.config/egg/routing-policy.yaml` to get started.
+See [Upstream Routing](../architecture/upstream-routing.md#routing-policy--reactive-fallback-2987)
+for the policy schema and quota/5xx trigger defaults.
 
 **Override at deploy time:**
 
@@ -404,6 +416,40 @@ If the state-store worktree is wedged (for example, after a state-volume reset t
 > when to use which skill, evidence boundaries, and the redaction
 > guarantee. The manual steps below remain useful as a fallback when the
 > skills are unavailable.
+
+### `make redeploy` aborts: "images for tag 'X' are not in k3s"
+
+`check-egg-images-present.sh` failed the deploy because `egg-gateway:X` and/or
+`egg-orchestrator:X` are missing from k3s's containerd. There are two causes:
+
+1. **HEAD moved since your last build.** A bare `make deploy` after a
+   commit/pull/rebase/checkout references a tag that was never built+imported.
+   Fix: `make redeploy` (rebuild + re-import + deploy on the current tag).
+
+2. **kubelet image GC ate the freshly-imported images.** You *did* run
+   `make redeploy`, the import succeeded, but the images vanished before
+   `deploy` repointed the pods at the new tag. Until that repoint the new tag
+   is unreferenced, so under disk pressure — root filesystem over kubelet's
+   `imageGCHighThresholdPercent` (~85%) — kubelet image GC collects it. The
+   gateway/orchestrator images go first: they import before the ~12 GB sandbox
+   image, so by the time the long sandbox/litellm imports finish they're older
+   than `imageMinimumGCAge` (~2 min) and thus GC-eligible, while sandbox/litellm
+   are still inside the immunity window.
+
+   The disk hog lives in **k3s's containerd** (`/var/lib/rancher/k3s/agent/containerd`),
+   a *different* store from docker's — so `docker system prune` frees the wrong
+   space and the next redeploy's import spike re-crosses the threshold. Reclaim
+   containerd space, then redeploy (which re-imports everything):
+
+   ```bash
+   sudo k3s crictl rmi --prune   # safe immediately before a redeploy
+   df -h /                       # confirm well under 80%
+   make redeploy
+   ```
+
+   A successful deploy now reaps older egg tags from containerd automatically
+   (`scripts/reap-stale-egg-images.sh`), keeping it bounded to the current tag
+   so the threshold isn't crossed on subsequent redeploys.
 
 ### Claude binary not found
 

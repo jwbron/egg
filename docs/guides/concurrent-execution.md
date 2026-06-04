@@ -71,35 +71,32 @@ Each agent is registered in the peer consensus tracker before spawning begins.
 
 ## Consensus Wrapper
 
-All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with recovery instructions instead of silently marking it as ready.
+> **[#2908](https://github.com/jwbron/egg/issues/2908) replaced the model-driven restart loop with a deterministic event-pump wrapper across slices 1–4.** The wrapper is now the sole loop driver — the agent is one-shot per actionable BRC event, the wrapper holds the wait between events, and heartbeats + gateway-session keep-alive ride on wrapper-side subshells rather than the in-pod `message_wait_loop`. The 3-restart `MAX_CONSENSUS_RESTARTS` FAIL cap was replaced by an idle/no-progress overseer-alert budget that never transitions the pipeline to FAILED. The legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE `consensus.reached` machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the `EGG_BRC_EVENT_PUMP=false` escape hatch were deleted in slice-4 — the supported regression path is `git revert` of the slice-4 / slice-3 / slice-2 / slice-1 merge commits in reverse-merge order (see [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan)). See [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) for the deterministic-loop semantics, the wait-filter construction, the wrapper-side heartbeat + keep-alive subshells, the idle-budget escalation table, and the rollback plan. The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
+
+All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper is the deterministic BRC loop driver: it polls `egg-orch brc get-state` / `egg-orch brc next-action` for sequencing, blocks in `egg-orch message wait-loop` between actionable events, and invokes the agent one-shot per `INVOKE` event with a prompt composed by `compose_event_prompt` (slice-3).
 
 **How it works:**
 
-1. Claude runs inside the wrapper script with the original task prompt.
-2. If Claude exits non-zero, the wrapper first checks whether consensus is already complete or this agent is already confirmed (see step 6 for details on the confirmed check). If so, it exits cleanly — the non-zero exit is harmless. Otherwise, the wrapper classifies the exit code:
-   - **Transient crash** (exit codes 134/SIGABRT, 136/SIGFPE, 137/SIGKILL/OOM, 139/SIGSEGV, 255/Bun segfault): The wrapper logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."` and falls through to the restart loop (step 4) with exponential backoff. The initial backoff is 5 seconds, doubling after each crash restart up to a 30-second cap.
-   - **Non-transient failure** (all other non-zero codes, e.g., exit 1): The wrapper logs `"Agent failed (code $AGENT_EXIT). NOT restarting."` and exits immediately with the same code, triggering the orchestrator's agent failure path.
-3. If Claude exits cleanly (code 0), the wrapper checks whether this agent is already confirmed before restarting. It queries the pipeline status endpoint and checks the tracker's `confirmed` field for this agent. The wrapper falls back to checking the message bus directly for a prior `CONSENSUS_CONFIRMED` message from this agent's role in two scenarios: (a) the consensus tracker state is empty (e.g., because the orchestrator restarted and the in-memory tracker was not yet reconstructed), or (b) the tracker is populated but shows this agent as **not** confirmed — which can happen when a withdrawal/re-proposal cascade leaves the tracker with stale state that doesn't reflect the agent's actual `CONFIRMED` status. If a matching `CONSENSUS_CONFIRMED` message is found in the message bus, the agent is treated as already confirmed and enters the wait-for-consensus poll loop — no restart needed.
-4. If not already confirmed, the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
-5. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 3). After each restart, the wrapper checks if global consensus was reached (exit cleanly) or if this agent individually reached `CONFIRMED` state (enter the wait-for-consensus poll loop). This prevents a confirmed agent from consuming a restart slot while waiting for peers to finish. Each restart also publishes a medium-priority `OVERSEER_ALERT` (anomaly `agent-restart`) so the operator sees recovery attempts in real time (issue #2806).
-6. After exhausting all restarts, the wrapper performs a **final consensus check** before giving up. It polls the pipeline status endpoint for `is_complete`; if consensus has been reached (all agents confirmed), it logs "Consensus reached on final check" and exits with code 0 — avoiding a false failure. Only if consensus is genuinely incomplete does it exit with code 1. For **producer** roles, the orchestrator detects the non-clean exit, re-queries consensus once more (race-window guard for a producer that crashed in wrapper cleanup *after* reaching CONFIRMED), and only if consensus is still incomplete does it hard-fail the pipeline (Option A, issue #2806) with a high-priority `OVERSEER_ALERT` (anomaly `producer-permanent-death`); reviewer-only deaths still flow through the existing single-failure HITL path because peer-review redistribution can recover them.
+1. The wrapper starts two background subshells: a heartbeat emitter (every 30 s while a `wait-loop` is blocking) and the implicit gateway-session keep-alive that rides on every accepted heartbeat. Both surfaces moved here from the pre-#2908 agent-side `message_wait_loop` (see [Wrapper-side heartbeat (#2036)](../architecture/orchestrator.md#wrapper-side-heartbeat-2036-migration-completed-in-slice-4) and [Wrapper-side gateway-session keep-alive (#2451)](../architecture/orchestrator.md#wrapper-side-gateway-session-keep-alive-2451-migration-completed-in-slice-4)).
+2. The wrapper polls `egg-orch brc get-state --json`. If `role_complete` is true, it calls `egg-orch consensus confirmed` and exits with code 0.
+3. Otherwise it polls `egg-orch brc next-action --json`. The action is one of `WAIT` (block in `egg-orch message wait-loop` with a conditional filter — see [Wait-filter construction](../architecture/orchestrator.md#wait-filter-construction-pre-confirm-vs-post-confirm)) or `INVOKE` (spawn the agent with a one-shot event prompt).
+4. When the agent exits cleanly after an `INVOKE`, the wrapper loops back to step 2 — no restart, no recovery prompt. Clean exit between events is the expected steady state.
+5. If the agent exits non-zero (transient signal-class crash, exit 1, or anything else), the wrapper increments `AGENT_FAIL_STREAK`, sleeps 1 s, and resumes the loop — there is no per-crash restart, no exponential backoff, and no exit-code branching on the `propose|ack|nack` arm. The `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` helpers are still defined in the wrapper bash template but are **not invoked** today; they are retained as named placeholders against a possible future classifier-gated fast-fail path (see `orchestrator/consensus_wrapper.py` L145–150).
+6. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` cap and the `_RECOVERY_SYSTEM_PROMPT` recovery-restart cycle no longer exist. The wrapper does not propagate non-zero agent exits — they accrue against the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes), which is the sole operator-visible escalation surface. At threshold and `2 ×` threshold the wrapper emits an `OVERSEER_ALERT`; the pipeline is never transitioned to FAILED by this path.
 
-**Transient crash classification:** The `is_transient_crash()` shell function in the wrapper identifies exit codes caused by signal-based runtime crashes (segfaults, OOM kills, SIGABRT) and Bun's segfault exit code (255). These indicate infrastructure failures, not application-level errors, and are safe to retry. The worst case for treating exit code 255 as transient is one extra restart attempt if 255 was actually a permanent error. Transient crash restarts share the `MAX_CONSENSUS_RESTARTS` cap with clean-exit restarts.
+**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it dispatches the agent to handle each actionable event and lets the agent issue ACK / NACK / PROPOSE / CONFIRM verdicts itself. Sequencing is the wrapper's job; *judgment* (what to review, what to fix, when to re-propose) stays with the model.
 
-**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it restarts the agent so it can assess state and signal for itself.
-
-**Design intent — safety net, not primary mechanism:** The wrapper exists as a fallback for the edge case where an agent exits prematurely (e.g., context exhaustion). The intended lifecycle is for agents to run with enough turns to finish their work *and* complete the full BRC consensus protocol (including stay-alive polling while peers finish). The orchestrator detects consensus and sends SIGTERM to terminate containers — agents should exit because they are told to, not because they exhaust turns. The restart path is expensive (requires reloading context and re-evaluating BRC state) and should be rare.
+**Design intent — the wrapper is the loop, not a safety net.** Before #2908 the wrapper existed as a fallback that re-spawned the agent on premature exit (e.g., context exhaustion) and the agent was expected to hold a long-running BRC wait between events. After #2908 the wrapper *is* the BRC loop driver — clean per-event exits are the steady-state contract, not an edge case. The orchestrator detects consensus and sends SIGTERM to terminate containers when the role is complete; the agent only exits because it finished its event handler or because consensus closed. There is no expensive context-reload-on-restart path.
 
 **Configuration:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so agents can complete work and stay alive for the full BRC lifecycle) |
-| `max_restarts` | `3` | Maximum restart attempts (passed to `build_consensus_wrapped_command()`). Shared between clean-exit and transient-crash restarts. Bumped from 2 → 3 in issue #2806. |
-| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) to wait for global consensus when this agent has already reached `CONFIRMED` |
-| `TRANSIENT_RESTART_BACKOFF_INITIAL` | `5` | Initial backoff delay (seconds) before restarting after a transient crash. Doubles after each crash restart, capped at 30 s. Clean-exit restarts skip the backoff. |
-| `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) during which exit code 1 is classified as a transient startup failure and retried. Set to `0` to disable. |
-| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
+| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so per-event agent invocations have headroom; the wrapper-side loop never reaches this cap because per-event exits are short-lived). |
+| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) for the legacy "already-confirmed" guard preserved for race-window safety when the wrapper observes `role_complete` between polls. |
+| `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) preserved from the legacy `is_startup_failure` classifier. The helper is still defined but is not invoked by the post-slice-4 `propose|ack|nack` arm, so this knob has no runtime effect today; it is retained against a future classifier-gated fast-fail path. |
+| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Idle / no-progress safety budget in minutes. Replaces the pre-#2908 3-restart FAIL cap; at threshold and `2 ×` threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`) without transitioning the pipeline to FAILED. |
+| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between heartbeat emissions and message polls. |
 
 ## Message Bus
 
@@ -250,7 +247,7 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 
 | Type | Use when | Example |
 |------|----------|---------|
-| `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Coder can't push test files → HANDOFF to tester with file paths |
+| `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Tester can't push a `.github/` CI fix → HANDOFF to coder with the required end-state |
 | `STATUS` | Your current state affects a peer's decisions or timing | Documenter tells reviewer: "Docs not ready yet, reviewing coder output first" |
 | `PROGRESS` | You've completed a milestone that peers may be waiting on | Coder tells tester: "API endpoints committed and pushed" |
 | `HEARTBEAT` | You have a machine-actionable state transition to advertise (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — use `egg-orch message heartbeat --state ...` rather than `message send --type HEARTBEAT` so the dedicated endpoint's schema validation, dedup, and rate limiting apply. (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop` — don't emit it manually.) | Tester enters `WAITING_ON_ROLE` → `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder`. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type). |
@@ -261,37 +258,41 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 > - If you are a **producer** blocked on another producer (e.g. tester blocked on coder), use `HANDOFF` with a concrete request rather than a free-form question.
 > - If you need to advertise that you are waiting on a peer (so the overseer doesn't classify you as stalled), emit `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on <role>`.
 
-### Worked Example: Role-Boundary Handoff (Coder → Tester)
+### Worked Example: Role-Boundary Handoff (Tester → Coder)
 
-This example is based on a real coordination gap observed in the issue-1707 pipeline. The coder implemented both source code and tests, but couldn't push the test files because role boundaries restrict the coder to source files only. Without directed messaging, the coder embedded "tester agent should push those" in its proposal text — the tester eventually wrote the tests independently after ~10 minutes of unnecessary delay.
+The coder→tester test handoff that used to live here is gone: the coder now
+authors and **pushes its own tests** (the test scope is shared with the
+tester — see [Agent Roles: Implement Phase](../reference/agent-roles.md#implement-phase)).
+The earlier coordination gap (issue-1707: coder wrote tests it couldn't push,
+so the tester re-wrote them after ~10 minutes of delay) is eliminated
+structurally rather than papered over with a message.
 
-**With directed messaging**, the flow looks like this:
+The HANDOFF pattern still applies in the **reverse** direction, for a file
+type the tester genuinely can't push. While hardening the coder's tests, the
+tester finds a CI workflow needs a new step to run a regression — but the
+tester has no write access to `.github/`. It hands the required end-state to
+the coder, who stages it under `.github-staging/`:
 
 ```bash
-# 1. Coder finishes implementation and writes test scaffolding locally,
-#    but can't push test files (role boundary: coder → source files only).
-#    Coder sends a HANDOFF to tester with the test content:
-egg-orch message send --to tester --type HANDOFF \
-  --subject "Test files for new auth module" \
-  --body "I've written test scaffolding in tests/test_auth.py but can't push
-due to role boundaries. The tests cover: login flow, token refresh, and
-session expiry. Key test patterns:
-- test_login_success: POST /auth/login with valid creds → 200 + token
-- test_login_invalid: POST /auth/login with bad creds → 401
-- test_token_refresh: POST /auth/refresh with valid token → new token
-Please pull my latest commit (abc1234) and create the test file."
+# 1. Tester (hardening the coder's tests after the coder's propose) finds the
+#    CI workflow doesn't run the new regression suite. It can't push .github/,
+#    so it sends a HANDOFF to the coder with the required end-state:
+egg-orch message send --to coder --type HANDOFF \
+  --subject "CI needs a step for the new regression suite" \
+  --body "tests/test_auth_regression.py won't run in CI. The workflow needs a
+step invoking it. Please stage the end-state under .github-staging/workflows/
+ci.yml (add a 'pytest tests/test_auth_regression.py' step) and call the
+staged file out in your PR body so the human reviewer moves it into
+.github/ before merge."
 
-# 2. Tester receives the HANDOFF on its next poll cycle:
+# 2. Coder receives the HANDOFF on its next poll cycle:
 egg-orch message poll --wait 30
 
-# 3. Tester syncs the worktree to get the coder's latest source code:
-git fetch origin && git merge origin/egg/issue-1707 --no-edit
-
-# 4. Tester writes the tests based on the HANDOFF guidance,
-#    commits, and pushes (tester has write access to test files).
+# 3. Coder stages the workflow change under .github-staging/ and pushes it
+#    (coder owns everything except docs and .egg-state/).
 ```
 
-This eliminates the ~10 minute coordination delay — the tester receives an explicit, structured notification and knows exactly what to do.
+This keeps the role-boundary case the agents actually still hit unblocked, while the common coder/tester test exchange needs no coordination at all.
 
 ### Receiving and Acting on Directed Messages
 
@@ -526,7 +527,7 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 
 1. Agent calls `mcp__brc__propose(...)` (push defaults to true) — or runs `egg-orch consensus propose --push`
 2. Both surfaces delegate to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
-3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
+3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
 4. Pushes without the marker are rejected with HTTP 403 and the error points at `mcp__brc__propose`
 5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No pipeline-push enforcement exists in this path — the gateway is not running to enforce it
 
@@ -605,20 +606,23 @@ The redacted message preserves enough information for the reviewer to know *who*
 
 > **Why redact instead of withhold?** Previously, the filter dropped `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't evaluated the producer. This created a deadlock: reviewers waiting for a PROPOSE message to discover proposals never received one, because the filter withheld it until they reviewed. Redaction preserves the notification while protecting independent evaluation.
 
-Use `egg-orch consensus` commands to participate in the BRC protocol:
+Use `egg-orch consensus` commands to participate in the BRC protocol. **For any flag carrying free-form prose** — `--summary` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--files-reviewed` on `ack` / `nack` — prefer the `--*-file PATH` or stdin sentinel (`-`) channel over the argv form. The argv form still works but now emits a deprecation warning; the file/stdin channels are mandatory in any wrapper bash that composes the CLI invocation, because shell metacharacters (`$VAR`, backticks, `;`, `&&`, embedded newlines) in the prose are otherwise reinterpreted by the shell before argparse sees them and silently corrupt the verdict. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and [Orchestrator CLI — Prose-bearing args](../reference/orchestrator-cli.md#prose-bearing-args-stdin-and---file-channels-2741) for the full channel table.
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
 # --summary must be ≥50 chars describing what was built, tested, and which contract tasks it satisfies.
 # Boilerplate like "looks good" or "approved" is rejected with HTTP 400.
 git add src/feature.py && git commit -m "Implement feature X"
+printf '%s\n' "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  > .egg-state/agent-outputs/coder-proposal.md
 egg-orch consensus propose --push \
-  --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --summary-file .egg-state/agent-outputs/coder-proposal.md \
   --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
   --tasks task-1-1 task-1-2 --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
 # --files-changed, --tests-run, --tasks are optional but recommended for traceability.
+# Argv `--summary "…"` still works but writes a deprecation warning to stderr — see #2741.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
@@ -626,30 +630,48 @@ git fetch origin && git merge origin/egg/feature-x --no-edit
 # Reviewer: ACK after reviewing
 # --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
 # Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry and invalid-signature handling. All branches covered by tests.
+# Prefer --reason-file (or `--reason -` with stdin) for multi-line prose containing
+# Markdown, backticks, $VAR, or embedded newlines — see #2741.
+cat > /tmp/reviewer-code-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry
+and invalid-signature handling. All branches covered by tests.
 ### Non-blocking
-- **src/feature.py:72** — Consider extracting token_from_header() for readability."
+- **src/feature.py:72** — Consider extracting token_from_header() for readability.
+EOF
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason-file /tmp/reviewer-code-ack.md --ack-version 1
 
-# Reviewer: conditional ACK — work approved but requires a human action before merge
+# Reviewer: conditional ACK — work approved but requires a human action before merge.
 # Use --pre-merge-condition when the work is correct but requires a merge-time action
 # that agents cannot perform (e.g. git mv, secret rotation, config flip in another repo).
 # The obligation is rendered as a "Pre-merge Obligations" section on the PR — do NOT use
 # this to smuggle blocking issues past the producer; NACK if the producer can fix it.
 # --pre-merge-condition is validated like --reason: boilerplate and short values are rejected with 400.
+# Author a distinct review-prose file for the conditional case so the verdict
+# narrative actually matches the obligation (don't re-use the unconditional file).
+cat > /tmp/reviewer-code-cond-ack.md <<'EOF'
+Reviewed src/feature.py lines 10-85 and tests/test_feature.py. JWT validation and
+session-management logic are correct end-to-end, and tests cover all branches.
+One file rename cannot be automated by the agent and must be performed by a human
+before merge — captured in --pre-merge-condition below.
+EOF
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Code is correct. One rename cannot be automated." \
+  --reason-file /tmp/reviewer-code-cond-ack.md --ack-version 1 \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
 
-# Reviewer: NACK with structured blocking/non-blocking sections
-egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
+# Reviewer: NACK with structured blocking/non-blocking sections — stdin sentinel form
+egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 1 \
+  --reason - <<'EOF'
 ### Blocking
-1. **src/feature.py:42** — Missing error handling for expired tokens; auth bypass possible. Fix: wrap in try/except and return 401.
+1. **src/feature.py:42** — Missing error handling for expired tokens;
+   auth bypass possible. Fix: wrap in try/except and return 401.
 ### Non-blocking
-- **src/feature.py:18** — Unused import \`datetime\`."
+- **src/feature.py:18** — Unused import `datetime`.
+EOF
 
 # Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
+printf '%s\n' "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py" \
+  | egg-orch consensus withdraw --reason -
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -657,7 +679,27 @@ egg-orch consensus confirmed
 
 # Check consensus status (scopes to $EGG_SLICE_ID automatically in implement phase)
 egg-orch consensus status
+
+# Resolve a reviewer's conditional-ACK obligation in-cycle (#2338).
+# Typically called by the tester after cherry-picking work the coder is gateway-blocked from.
+# --note is prose; pass via --note-file PATH or `--note -` with stdin for any
+# multi-line body, per the same prose-arg rule above.
+cat > /tmp/obligation-resolved.md <<'EOF'
+Cherry-picked the rename commit ($(git rev-parse HEAD)) onto the slice branch on
+the tester's behalf; the gateway accepts the legacy/auth.py → src/auth.py move
+under the tester's role-restriction set, so the original conditional-ACK
+obligation no longer needs to surface on the PR body or the HITL gate.
+EOF
+egg-orch brc resolve-obligation \
+  --reviewer-role reviewer_code \
+  --producer-role coder \
+  --commit-sha $(git rev-parse HEAD) \
+  --note-file /tmp/obligation-resolved.md
 ```
+
+#### `egg-orch brc` — the verb-level read/derive surface
+
+The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler, used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
 
 ### BRC History Persistence
 
@@ -672,7 +714,7 @@ At each phase boundary, the orchestrator writes a **lossless** chronological log
 
 > **Note:** `BRC_HISTORY_TYPES` is a single unified frozenset containing all twelve message types listed above. There is no separate subset — the PR body links to the committed transcripts rather than computing inline tallies (see [#1828](https://github.com/jwbron/egg/issues/1828)). `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897); `HEARTBEAT` replaced it.
 
-**PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
+**Per-phase write is the only path:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. The legacy "PR-phase safety net" that re-wrote BRC history for all completed phases before opening the terminal PR was removed alongside the PR phase itself in [#2777](https://github.com/jwbron/egg/issues/2777); under the new topology the context PR opens up-front at the plan→implement boundary and there is no separate terminal stage to re-write from. If BRC history files are missing on the branch, diagnose the per-phase push directly via the worktree-state-synchronization push logs.
 
 **Diagnostic logging:** All functions in the BRC history persistence chain (`_write_brc_history`, `_commit_statefiles_to_worktree`, `_rewrite_brc_history_for_pr`) emit INFO-level logs at entry, exit, and each decision point (early returns, glob match counts, staged file counts, commit outcomes). This makes it possible to trace exactly which code path was taken when BRC history files are missing from a PR. See [PR-Phase State File Troubleshooting](sdlc-pipeline.md#pr-phase-state-file-troubleshooting) for a step-by-step diagnostic guide.
 
@@ -730,7 +772,7 @@ metadata:
 
 ### BRC History Link in PR Body
 
-When the orchestrator auto-creates the PR (during the PR phase), it includes a one-line pointer to the committed BRC history transcripts rather than inlining the full consensus discourse. The link line is built by `_build_brc_history_link_line`, which scans `.egg-state/brc-history/` for `{identifier}-<phase>.md` files and renders a sentence like:
+When the orchestrator auto-creates the context PR (up-front at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777)), it includes a one-line pointer to the committed BRC history transcripts rather than inlining the full consensus discourse. The link line is built by `_build_brc_history_link_line`, which scans `.egg-state/brc-history/` for `{identifier}-<phase>.md` files and renders a sentence like:
 
 > _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement`](./.egg-state/brc-history/42-implement.md)._
 
@@ -808,7 +850,7 @@ When a stall is detected, `ContainerMonitor` drives a two-track recovery:
 1. **Tracker reconstruction**: Attempts to rebuild the in-memory consensus tracker from message history so the polling loop can pick up completed consensus naturally.
 2. **Aggressive recovery**: If reconstruction fails, marks all running agents and the phase as `COMPLETE` directly, using optimistic locking to avoid conflicts with concurrent state writers.
 
-Startup reconciliation also handles this: when tracker reconstruction succeeds on orchestrator restart and `evaluate()` reports `is_complete: true`, agents and the phase are marked `COMPLETE` before normal pipeline polling resumes.
+Startup reconciliation also handles this: when tracker reconstruction succeeds on orchestrator restart and `evaluate()` reports `is_complete: true`, agents and the phase are marked `COMPLETE` before normal pipeline polling resumes. In slice-aware mode (issue mode with `contract.slices`), reconciliation iterates `contract.slices` and reconstructs each per-slice tracker by calling `reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=<slice>)` in addition to the pipeline-level call ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-5, closes [#2409](https://github.com/jwbron/egg/issues/2409)). Each tracker is registered under the runtime key `{pipeline_id}/{slice_id}` so a recycled orchestrator pod no longer loses in-flight slice consensus; cross-slice isolation is enforced by the strict-equality `_message_slice_id(m) == slice_id` filter in `reconstruct_tracker_from_messages` (not by the lenient store-level filter, which lets `metadata.slice_id is None` messages through for OVERSEER_ALERT fan-out).
 
 A complementary check, `IncompleteConsensusStallCheck`, handles the inverse scenario: consensus is **not yet complete** and the same blocking agents are not progressing (e.g., stuck in a heartbeat loop after a re-review cycle). After a 5-minute grace period, if the blocking set is unchanged for 10 consecutive `RUNTIME_TICK` events, the check reports `DEGRADED`. The overseer then sends targeted nudges and escalates to HITL if unresolved. See [Pipeline Health Monitoring](pipeline-health-monitoring.md#incomplete-consensus-stall-detection) for details.
 
@@ -836,7 +878,7 @@ The additional API call in step 5 is negligible — it only runs on the terminal
 
 ### Transient Crash Recovery
 
-Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper attempts to recover from transient runtime crashes (segfaults, OOM kills, SIGABRT). Exit codes 134, 136, 137, 139, and 255 are classified as transient and trigger a restart with exponential backoff (starting at 5 s, doubling up to 30 s). If the transient crash restart succeeds and the agent reaches `CONFIRMED`, the failure is fully recovered at the wrapper level — the orchestrator never sees a failure event. Only when the agent crashes again after exhausting `MAX_CONSENSUS_RESTARTS` does the failure propagate to the orchestrator. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#consensus-wrapper-transient-crash-recovery) for the full exit code classification.
+Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper absorbs non-zero agent exits at the wrapper level rather than propagating them. In the post-slice-4 event-pump arm there is **no per-crash restart and no exponential backoff** — every non-zero exit from a `propose|ack|nack` agent invocation is handled identically: `AGENT_FAIL_STREAK++`, `sleep 1 s`, resume the loop. Because the agent is one-shot per event, "resume the loop" means the wrapper polls `egg-orch brc next-action` again on the next iteration. If the next actionable event yields a successful invocation, the failure is fully absorbed at the wrapper level — the orchestrator never sees a failure event. Repeated failures inside the same wrapper run are bounded by the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes): the wrapper emits an `OVERSEER_ALERT` at threshold and at `2 ×` threshold but does **not** mark the pipeline FAILED. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` hard cap and the `TRANSIENT_RESTART_BACKOFF_INITIAL` backoff constant were deleted in slice-4 alongside the legacy template. The `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` helpers in `consensus_wrapper.py` remain defined but are not invoked by the post-slice-4 arm. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#crash-handling-in-the-event-pump-wrapper) for the full exit-code table.
 
 ### Agent Failure During Consensus
 
@@ -919,19 +961,23 @@ The implement phase opens a **stacked PR train** rather than a single PR
 against the pipeline base branch. Reviewers approaching any PR in the
 stack see the strategic context (analysis + plan + refine/plan BRC
 consensus) below them, and per-slice diffs that each carry their own
-implement-phase BRC history. The stack is introduced by
-[#2548](https://github.com/jwbron/egg/issues/2548); the structural
-goals are: (1) every PR that lands on `main` carries the consensus
-record that produced it; (2) reviewers no longer have to discover
+implement-phase BRC history. The stack was introduced by
+[#2548](https://github.com/jwbron/egg/issues/2548) (two-branch context
+topology) and collapsed to a single branch by
+[#2777](https://github.com/jwbron/egg/issues/2777). Structural goals:
+(1) every PR that lands on `main` carries the consensus record that
+produced it; (2) reviewers no longer have to discover
 `.egg-state/drafts/` and `.egg-state/brc-history/` on a side branch;
 (3) the change is a hard switchover with no backwards-compat shim.
 
-**Stack shape (top-down):**
+**Stack shape (top-down) after #2777:**
 
 ```
 {pipeline.base_branch}                   (e.g. main)
  ↑
-egg/<id>/context                         (Context PR — analysis + plan + refine/plan BRC)
+egg/<id>/work                            (Context PR — egg/<id>/work → main;
+                                         carries analysis + plan + BRC + program-level
+                                         framing, test plan, manual steps, pre-merge obligations)
  ↑
 egg/<id>/slice-1                         (Slice-1 PR — slice-1 code + slice-1 BRC)
  ↑
@@ -947,19 +993,36 @@ slice-1 retargets onto the base branch via the
 [stacked-PR rebase reconciler](../architecture/slice-dag.md#stacked-pr-rebase-reconciler);
 once slice-1 merges, slice-2 retargets, and so on through the chain.
 
-### Context PR is opened first
+### Context PR is opened up-front (#2777)
 
 After the plan phase completes and the plan_gate is approved, the
-orchestrator (not an agent) opens a doc-only **Context PR** before any
-slice spawns. The PR's purpose is to establish the program: reviewers
-approve the strategic direction (analysis + plan + the consensus that
-produced them) before any code lands.
+orchestrator (not an agent) opens the **Context PR** —
+`egg/<pipeline_id>/work → main` — **up-front, hard-required and
+idempotent**, before any slice spawns. The PR's purpose is to
+establish the program (analysis + plan + the consensus that produced
+them, plus the program-level test plan, manual steps and pre-merge
+obligations) so reviewers approaching any slice PR see the strategic
+direction below it.
+
+Under #2777 the legacy `egg/<id>/context` doc-only branch was deleted:
+the pipeline work branch is itself the context PR's head. The
+multi-step soft-fail open path was replaced by a single idempotent
+gateway call — `GatewayClient.lookup_open_pr("egg/<id>/work", base)`
+runs `gh pr list --head <branch> --base <base> --state open --json
+number` first; on hit, the existing PR number is reused, on miss
+`gh pr create` runs once. The legacy PR phase as a separate pipeline
+stage was deleted; the up-front open is hard-required so there is no
+silent-failure path the PR phase needed to back-stop.
 
 Mechanics:
 
-1. The orchestrator creates `egg/<id>/context` from the pipeline's
-   configured `base_branch` (NOT hardcoded to `main`).
-2. It commits the refine/plan artifacts to that branch:
+1. The orchestrator validates that the plan agent has produced the
+   artifacts the context PR references (analysis + plan drafts +
+   refine/plan BRC history + populated contract). Validation failure
+   refuses the plan→implement transition (no orphaned slices).
+2. The refine/plan artifacts are already on the work branch via the
+   post-phase pushes (see [SDLC Pipeline — Worktree State
+   Synchronization](sdlc-pipeline.md#worktree-state-synchronization)):
    - `.egg-state/drafts/<id>-analysis.md` (refine output)
    - `.egg-state/drafts/<id>-plan.md` (plan output, with full
      `yaml-tasks` block)
@@ -973,47 +1036,53 @@ Mechanics:
    - The contract JSON, resolved dynamically via `get_contract_path`
      so integer issue identifiers map to the canonical
      `.egg-state/contracts/issue-<N>.json` shape (with the legacy
-     bare `<N>.json` as a fallback). The contract is intentionally
-     omitted from the static glob list — see
-     `_STATIC_CONTEXT_PR_FILE_GLOBS` and
-     `_gather_context_pr_files` in `orchestrator/routes/pipelines.py`
-     (#2685).
+     bare `<N>.json` as a fallback).
 3. It opens the PR against the pipeline base branch using
-   `contract.pr.context_title` and `contract.pr.context_description`.
-   These are distinct from `contract.pr.title` / `pr.description`,
-   which are per-slice — letting the context PR carry program-level
-   framing (e.g. *"Strategic plan for #N"*) while slice PRs stay
-   focused on the slice's diff.
-4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator
-   opens it, humans review on the PR, and the pipeline does **not**
-   block on its merge before slicing begins. Slice-1 stacks on
-   `egg/<id>/context` immediately so the slice train can run in
+   `contract.pr.title` and `contract.pr.description` — the same fields
+   that already framed the implementation PR. The legacy v1.1
+   context-PR framing keys were hard-removed in schema v1.2 (#2777);
+   planners use the standard title and description. See the
+   [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)
+   for the exact field names and replacements.
+4. The PR is **doc-only auto-open**: the orchestrator opens it, humans
+   review on the PR, and the pipeline does **not** block on its merge
+   before slicing begins. Slice-1 stacks on `egg/<id>/work` (the
+   context PR's head) immediately so the slice train can run in
    parallel with reviewers approving the context.
 
-The context PR is recorded on the contract via four `pr.context_*`
-fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote
-on load):
+The context PR is recorded on the contract via the single remaining
+context-PR field on `PRMetadata` (schema v1.2, #2777):
 
 | Field | Description |
 |-------|-------------|
-| `pr.context_title` | Title for the context PR (program-level framing). Authored by the planner. |
-| `pr.context_description` | Body for the context PR. Authored by the planner. |
-| `pr.context_branch` | The branch name (`egg/<id>/context`) — populated by the orchestrator when it creates the branch. |
-| `pr.context_pr_number` | The GitHub PR number — populated by the orchestrator when the PR is opened. |
+| `pr.context_pr_number` | The GitHub PR number of the `egg/<id>/work → main` context PR — populated by the orchestrator when the PR is opened. |
+
+Three v1.1 framing fields were **hard-removed** in v1.2 (see the
+[v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
+The head branch is now always derivable as `egg/<pipeline_id>/work`,
+and the title/description live on the standard `pr.title` /
+`pr.description`.
 
 ### Slice-1 base resolution
 
-With the context PR landing first in the stack, **slice-1's
-`parent_branch` resolves to `egg/<id>/context`** rather than
-`egg/<id>/work`. Subsequent slices (slice-2, slice-3, …) stack onto
-the preceding slice's integration branch as before — the change only
-affects the root-of-stack pointer.
+Slice-1's `parent_branch` resolves to **`egg/<id>/work`** — the
+pipeline work branch is itself the context PR's head. Subsequent
+slices (slice-2, slice-3, …) stack onto the preceding slice's
+integration branch as before.
+
+> **Historical note (pre-#2777 two-branch topology):** under the v1.1
+> context-PR mechanism, slice-1's `parent_branch` resolved to
+> `egg/<id>/context` because the program-level content lived on a
+> separate doc-only branch. The `egg/<id>/context` branch is gone
+> under #2777; slice-1 now stacks directly on `egg/<id>/work`. The
+> stacked-PR reconciler was updated correspondingly to prefer the
+> work branch when retargeting orphaned slice-1 children.
 
 The stacked-PR reconciler's last-resort fallback (when a parent branch
 has been merged or deleted out from under an open child PR) prefers
-`egg/<id>/context` over the pipeline branch when retargeting orphaned
-slices. The context branch therefore acts as the canonical "program
-root" reference even after the work branch is gone.
+`egg/<id>/work` (the context PR's head) when retargeting orphaned
+slices. The work branch therefore acts as the canonical "program
+root" reference for the lifetime of the pipeline.
 
 ### Per-slice BRC history on each slice PR
 
@@ -1053,9 +1122,9 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 1. Agent finishes work, commits in its own worktree
 2. Agent pushes to the team's branch (pipeline branch for refine/plan, slice integration branch for implement) via the gateway
 3. If push is rejected (another agent pushed first) → `git pull --rebase` → retry push
-4. Rebase **cannot conflict** because agents have mutually exclusive file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
+4. Rebase rarely conflicts because agents have largely non-overlapping file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
 
-This works because role restrictions guarantee non-overlapping file sets (coder writes source code, tester writes tests, documenter writes docs). No overlapping writes means no merge conflicts.
+The documenter's docs/markdown scope is mutually exclusive from the others, so it never conflicts. The **coder and tester share the test scope** (the coder authors its tests; the tester reviews-and-hardens them), but the writes are serialized in time rather than concurrent: the tester does no test work until the coder's `CONSENSUS_PROPOSE`, so by the time it hardens a test the coder's version is already on the branch and `git pull --rebase` brings it in first. A genuine same-line conflict is possible but rare, and — by design (see the section intro) — surfaces explicitly at push time rather than silently.
 
 **What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all agents to share one working directory. Now each agent pod gets its own worktree, using the Job name as the key.
 
@@ -1172,6 +1241,6 @@ See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Standard wave-based execution
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details
-- [Checkpoint Access](checkpoint-access.md) — Cross-agent checkpoint queries
 - [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress
 - [Anchor Recovery Guide](anchor-recovery.md) — Agent post-compaction state recovery
+- [BRC Memory Artifact](../architecture/brc-memory.md) — Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack` so a future stateless event-pump handler can re-enter a review cycle with continuity ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1)

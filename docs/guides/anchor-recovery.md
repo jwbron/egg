@@ -152,7 +152,7 @@ The gateway enforces anchor file access:
 | Agent CONFIRMED (BRC) | `status` updated to `confirmed` |
 | Agent terminated (clean) | Retained in Redis + local file |
 | Agent terminated (crash) | Retained for recovery/debugging |
-| Pipeline complete | Archived to checkpoint, Redis keys cleared |
+| Pipeline complete | Redis keys cleared |
 | Pipeline failed | Retained for 7-day TTL |
 
 ## Troubleshooting

@@ -84,12 +84,12 @@ The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when t
 
 ### Worktree Sync
 
-Before each pipeline phase starts, the orchestrator syncs the agent worktree with the remote branch so downstream code (contract loading, draft reading) sees the full pipeline state. The sync behavior depends on the prior phase's outcome:
+Before each pipeline phase starts, and again at each phase boundary, the orchestrator syncs the agent worktree with the remote branch so downstream code (contract loading, draft reading) sees the full pipeline state. The sync is **non-destructive**: it never `git reset --hard` over a commit that isn't provably already on origin (#2979). The behavior depends on the local/remote relationship:
 
-- **Prior phase succeeded + local ahead of remote:** Local commits are pushed to remote before resetting, preserving completed work.
-- **Prior phase failed + local ahead of remote:** Local commits are discarded and the worktree is reset to remote, removing incomplete work.
-- **Local and remote diverged:** A fast-forward merge is attempted. If the merge fails, the orchestrator logs an error and leaves the worktree unchanged (may require manual intervention).
-- **Local behind or in-sync with remote:** Standard reset to remote tip.
+- **Prior phase succeeded + local ahead of remote:** Local commits are pushed to remote before resetting, preserving completed work. If the push fails, the local commits are left in place (no reset) so completed work is never dropped (#2972).
+- **Prior phase failed + local ahead of remote:** Incomplete local commits are discarded and the worktree is reset to remote.
+- **Local and remote diverged (ahead AND behind):** The orchestrator rebases the local commits onto `origin/<branch>` (reusing the gateway push-reject autoresolve, which auto-resolves conflicts under `.egg-state/agent-outputs/`). If the rebase can't reconcile the divergence, it aborts back to the clean local HEAD — the committed work stays intact — and the orchestrator **pauses the pipeline** (`AWAITING_HUMAN`, not `FAILED`) on a reconcile HITL, pinning the tip under a `refs/egg-backup/sync-recovery/<id>/<ts>` ref. Nothing is discarded. The operator reconciles the worktree manually and acks the HITL; the in-loop phase-boundary callers then re-run the sync and resume the phase's post-processing inline (no full re-run), while the `populate_contract` route returns HTTP 409 for the operator to re-run after reconciling. In normal operation this path is unreachable: agents cannot git-push `.egg-state/contracts/` (they mutate contracts through the contract API), so the orchestrator is the sole writer of the only non-`agent-outputs` path both sides touched and the rebase only ever replays disjoint paths.
+- **Local behind or in-sync with remote:** Standard reset to remote tip (origin is strictly ahead — nothing local to lose).
 
 ### HITL Decisions
 
@@ -259,7 +259,7 @@ orchestrator/
 ├── gateway_client.py       # Gateway API client for session management
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, checkpoints, contracts, etc.)
+├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, contracts, etc.)
 ├── events.py               # Event emission and tracking
 ├── health_monitor.py       # Deterministic tripwire processor (heartbeat, error repeat, stall detection)
 ├── progress_store.py       # In-memory structured progress event storage
@@ -310,7 +310,7 @@ orchestrator/
 
 ## MCP Server
 
-The orchestrator includes an MCP server (port 9850) that exposes pipeline management and checkpoint tools to Claude Code and other MCP clients via Streamable HTTP transport.
+The orchestrator includes an MCP server (port 9850) that exposes pipeline management tools to Claude Code and other MCP clients via Streamable HTTP transport.
 
 ### Gateway-Backed Tools
 
@@ -318,11 +318,7 @@ These tools require a `gateway_url` and authenticate via a gateway session. The 
 
 | Tool | Description |
 |------|-------------|
-| `list_checkpoints` | List agent checkpoints with filters (issue, pipeline, agent_type, phase, status, repo, limit) |
-| `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo, limit) |
 | `get_contract` | Get SDLC contract state by issue number or task ID |
-
-Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` format) to specify the checkpoint repository when checkpoints are stored separately (e.g., `owner/repo-checkpoints`). The value is forwarded as `source_repo` to the gateway.
 
 ### Orchestrator-Backed Tools
 

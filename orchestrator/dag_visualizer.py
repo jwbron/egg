@@ -45,12 +45,12 @@ ASCII_STATUS_SYMBOLS = {
     PipelineStatus.CANCELLED: "-",
 }
 
-# Phase order for linear DAG
+# Phase order for linear DAG. The legacy PR phase was removed in
+# #2777 (cq-4); IMPLEMENT is now terminal.
 PHASE_ORDER = [
     PipelinePhase.REFINE,
     PipelinePhase.PLAN,
     PipelinePhase.IMPLEMENT,
-    PipelinePhase.PR,
 ]
 
 # Phase display names
@@ -58,7 +58,6 @@ PHASE_NAMES = {
     PipelinePhase.REFINE: "Refine",
     PipelinePhase.PLAN: "Plan",
     PipelinePhase.IMPLEMENT: "Implement",
-    PipelinePhase.PR: "PR",
 }
 
 

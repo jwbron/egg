@@ -113,6 +113,7 @@ class TestAdvancePhasePersistsBrcHistory:
     clearing state (#1827).  Applies to both normal advances and
     ``force=true`` (the #1813 unstick path)."""
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.pipelines._persist_phase_brc_history")
@@ -125,6 +126,7 @@ class TestAdvancePhasePersistsBrcHistory:
         mock_persist,
         mock_get_lock,
         mock_thread_cls,
+        mock_open_ctx_pr,
         client,
     ):
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
@@ -134,6 +136,9 @@ class TestAdvancePhasePersistsBrcHistory:
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
         mock_thread_cls.return_value = MagicMock()
+        # #2777 (cq-4, TASK-1-2) — patch out the new context-PR opener;
+        # this test focuses on BRC history persistence, not opener behaviour.
+        mock_open_ctx_pr.return_value = 12345
 
         parent = MagicMock()
         parent.attach_mock(mock_persist, "persist")
@@ -154,6 +159,7 @@ class TestAdvancePhasePersistsBrcHistory:
         call_names = [c[0] for c in parent.mock_calls]
         assert call_names.index("persist") < call_names.index("clear")
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.pipelines._persist_phase_brc_history")
@@ -166,12 +172,18 @@ class TestAdvancePhasePersistsBrcHistory:
         mock_persist,
         mock_get_lock,
         mock_thread_cls,
+        mock_open_ctx_pr,
         client,
     ):
         """The #1813 unstick path (force=true) must also persist history.
 
         Without this, the plan phase's BRC transcript is silently dropped
         whenever a stuck pipeline is advanced with --force.
+
+        #2777 (cq-4, TASK-1-2) — the new opener fires on plan→implement
+        even with force=True (force only skips the plan-preflight
+        validator, not the opener); patched out so this test stays
+        focused on BRC-history persistence.
         """
         pipeline = _make_pipeline(
             phase=PipelinePhase.PLAN,
@@ -183,6 +195,7 @@ class TestAdvancePhasePersistsBrcHistory:
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
         mock_thread_cls.return_value = MagicMock()
+        mock_open_ctx_pr.return_value = 12345
 
         parent = MagicMock()
         parent.attach_mock(mock_persist, "persist")

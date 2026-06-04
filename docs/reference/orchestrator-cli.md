@@ -24,6 +24,10 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch phase advance [<id>]` | Advance to next phase |
 | `egg-orch phase start [<id>]` | Start current phase |
 | `egg-orch phase complete [<id>]` | Complete current phase |
+| `egg-orch phase get-context [<pipeline_id>] [--phase <p>] [--role <r>] [--no-artifacts]` | Bundle phase context — pipeline ID, phase, role, role-filtered task list, and prior-phase artifact paths (verb-level alias for `mcp__phase__get_context`; used by event-pump wrapper). Output is always JSON. |
+| `egg-orch brc next-action [<pipeline_id>] [--role <role>] [--slice-id <id>] [--json]` | Derive the next BRC action (`wait`/`propose`/`ack`/`nack`/`confirm`/`complete`) for a role from the orchestrator's `POST /consensus/next-action` route; used by the event-pump wrapper to drive agents one-shot per event. `nack` is reserved in the schema (`_VALID_ACTIONS`) for symmetry with the BRC verb set but is not emitted by the current slice-1 derivation logic. |
+| `egg-orch brc get-state [<pipeline_id>] [--slice-id <id>] [--verbose]` | Return the BRC consensus state as structured JSON (verb-level alias for `mcp__brc__get_state`; `--verbose` includes raw orchestrator payload under `raw`). Output is always JSON. |
+| `egg-orch brc list-blocking [<pipeline_id>] [--json]` | List roles currently blocking consensus, newline-delimited by default (verb-level alias for `mcp__brc__list_blocking`) |
 | `egg-orch decision list [<id>]` | List HITL decisions |
 | `egg-orch decision create [<id>] --question <text>` | Queue a decision |
 | `egg-orch decision resolve [<id>] <did> --resolution <text>` | Resolve a decision |
@@ -74,6 +78,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_AUTHORSHIP_REPO` | Override which repo the commit-authorship store uses in multi-repo deployments. Accepts an absolute path or a repo directory name relative to `EGG_REPO_PATH`. When unset, the store prefers a repo named `egg`; falls back to the first repo alphabetically. |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
+| `EGG_BRC_MEMORY` | BRC memory writer mode for reviewers. `full` (default since slice-4) — handlers write and the event-pump reads the file on re-entry; `write-only` — handlers populate the per-role memory file but the reader stays inert; `off` — writes are no-ops (one-release rollback escape hatch). See [BRC Memory Artifact](../architecture/brc-memory.md). |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
 | `EGG_MESSAGE_POLL_MAX_WAIT` | Server-side cap (seconds) on `message wait --timeout`. Default `60`, minimum `1`. Values `> 90` trigger a startup `warnings.warn` + WARNING log because the gateway's baked-in Squid `read_timeout` / `request_timeout` directives cap backend long-polls at ~60s — raising the cap above that requires a gateway image rebuild, not a ConfigMap edit. See [Agent Wait Patterns §6](agent-wait-patterns.md#6-egg_message_poll_max_wait--long-poll-cap-coupling). |
 | `EGG_SLICE_ID` | Set by `kubernetes_spawner` for every slice-scoped agent. When set, `message wait` / `message wait-loop` only match messages whose `metadata.slice_id` equals this value OR is null (pipeline-level passthrough — OVERSEER_ALERT and global phase signals continue to wake every waiter). Override with `--slice`. See [Agent Wait Patterns — Auto-scoping](agent-wait-patterns.md#auto-scoping-by-slice-and-producer-allowlist-2725). |
@@ -81,7 +86,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_ORCH_STATE_STORE_PROBE_INTERVAL` | Cadence (seconds) of the background state-store self-heal probe. Default `15`. Lowering tightens wedge-detection at the cost of more frequent `git` calls; raising it does the inverse. The staleness watchdog flips `/api/v1/ready` to 503 when cache age exceeds `interval × 2`, so this setting also controls the readiness-flap window. Values above ~30s can exceed the readinessProbe's boot tolerance (`initialDelaySeconds + periodSeconds × failureThreshold = 35s`). |
 | `EGG_ORCH_WAITRESS_THREADS` | Waitress WSGI thread pool size. Default `16`, minimum `4`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. Each blocking long-poll occupies one thread; size the pool above the concurrent-agent count plus short-request headroom. The `egg_inflight_long_polls` Prometheus gauge exposes saturation. See [Agent Wait Patterns §7](agent-wait-patterns.md#7-egg_orch_waitress_threads--thread-pool--long-poll-coupling). |
 | `EGG_HEARTBEAT_RATE_LIMIT` | Per-`(pipeline_id, agent_role)` `HEARTBEAT` rate cap (messages per minute). Default `20`. Exceeding returns HTTP 429 with a `Retry-After` header; the CLI surfaces 429 as exit 3 (permanent). See [Agent Wait Patterns §5](agent-wait-patterns.md#5-egg_heartbeat_rate_limit--per-role-heartbeat-cap). |
-| `EGG_ORCH_MAX_PARALLEL_SLICES` | Maximum number of implement-phase slices that may run concurrently within a **single pipeline** wave. Default `2`. Backed by `SliceScheduler.max_parallel_slices`; reduce when container or gateway resources are constrained. |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | Maximum number of implement-phase slices that may run concurrently within a **single pipeline** wave (fallback default). Default `1` — a single slice at a time. Backed by `SliceScheduler.max_parallel_slices`; raise when host resources allow. The per-pipeline `PipelineConfig.max_parallel_slices` field (set at pipeline creation) overrides this when non-null. |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | Orchestrator-process-wide cap on slices in flight across **all** running pipelines (#2241). Default `4` (each slice spawns ~8 containers; host saturates beyond this). Slices that exceed the cap stay READY and re-yield next 5 s poll tick — per-pipeline `iter_ready` accounting is unaffected. Per-process: HA replicas each maintain their own counter, they do not coordinate across processes. The current state is exposed at `/api/v1/pipelines/{id}` under `slice_admit: {cap, admitted, admitted_keys}`. |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | Per-slice BRC re-proposal ceiling before HITL escalation. Default `3`. Part of the two-tier cycle cap model (#2137 decision-9). *API live, not yet wired in the run loop — see [Slice-DAG Implement Phase](../architecture/slice-dag.md); #2199.* |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Pipeline-wide cap on the summed total of slice re-proposal cycles. Default `10`. Either the local or global cap tripping escalates to HITL. *API live, not yet wired in the run loop — see [Slice-DAG Implement Phase](../architecture/slice-dag.md); #2199.* |
@@ -203,6 +208,8 @@ egg-orch phase restart implement \
 ```
 
 Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch while preserving prior phase artifacts and branch commits. Before deleting worktrees, phase restart enumerates all per-agent worktrees from disk (including slice-scoped worktrees) and auto-salvages any committed-but-unpushed work to `egg/recovered/…` refs — the same salvage path as `cleanup_pipeline`.
+
+**Slice-aware tracker clearing ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-1, bundles [#2409](https://github.com/jwbron/egg/issues/2409)).** In slice-aware mode (issue mode with `contract.slices`) the implement phase registers each per-slice BRC tracker under the nested key `{pipeline_id}/{slice_id}`. Phase restart now iterates `contract.slices` and calls `clear()` on each per-slice tracker via `get_peer_consensus_tracker(pipeline_id, slice_id=<slice>)` in addition to clearing the pipeline-level tracker — without this, the restarted phase would see stale slice-scoped consensus state from the prior run and deadlock waiting on agents that have already been killed. Per-slice clearing is best-effort: if the contract cannot be loaded (e.g. its worktree was lost or never materialised) the restart preserves the historical pipeline-level-only behaviour rather than failing the operator's restart request. See [`Slice/phase restart hardening`](../architecture/orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) in the orchestrator architecture doc for the full mechanism, including the Layer-C bootstrap reconciliation that runs on next-startup recovery and the per-slice consensus tracker reconstruction that closes [#2409](https://github.com/jwbron/egg/issues/2409).
 
 > **Note:** CLI commands for restart are pending implementation. In the meantime, use the REST API directly or the MCP tools:
 > ```bash
@@ -437,6 +444,54 @@ egg-orch consensus status
 egg-orch consensus status --slice-id slice-7
 ```
 
+### Prose-bearing args: stdin and `--*-file` channels ([#2741](https://github.com/jwbron/egg/issues/2741))
+
+Every `consensus` flag that carries free-form prose (`--summary` and `--risk` on `propose`; `--reason` on `ack` / `nack` / `withdraw`; `--pre-merge-condition` on `ack`; `--files-reviewed` on `ack` / `nack`) accepts the payload through three interchangeable channels. `--pre-merge-condition-resolved-in-diff` carries a commit SHA (hex, validated downstream) and is therefore not exposed through these channels:
+
+| Channel | Flag form | When to use |
+|---------|-----------|-------------|
+| **argv** *(deprecated)* | `--summary "…"` / `--reason "…"` / `--risk "…"` / `--pre-merge-condition "…"` | Short, ASCII-only literals where you control the shell-quoting. The CLI emits a deprecation warning to stderr; the value is still accepted for now to keep older operator scripts working. |
+| **`--*-file PATH`** | `--summary-file ./summary.md` / `--reason-file ./reason.md` / `--risk-file ./risk.md` / `--pre-merge-condition-file ./obligation.md` / `--files-reviewed-file ./files.txt` | Prose authored by an agent or composed by a shell wrapper — the most common case in BRC. Read verbatim from disk; no shell parsing. `--files-reviewed-file` is one path per line (blank lines and lines beginning with `#` are stripped so callers can drop comments into a generated manifest). |
+| **stdin sentinel `-`** | `--summary -` / `--reason -` / `--risk -` / `--pre-merge-condition -` | One-shot piping (`printf '%s' "$body" \| egg-orch consensus ack --reason -`) without writing a temp file. The CLI consumes stdin to EOF. |
+
+```bash
+# --summary-file (propose) — multi-line prose authored by the agent
+egg-orch consensus propose --push \
+  --summary-file .egg-state/agent-outputs/coder-proposal.md \
+  --artifacts src/feature.py --files-changed src/feature.py \
+  --tests-run tests/test_feature.py --tasks task-1-1 task-1-2 \
+  --commit-sha $(git rev-parse HEAD)
+
+# --reason-file (ack / nack / withdraw) — full review prose read from a file
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
+  --ack-version 2
+
+# stdin sentinel — pipe a heredoc straight into --reason
+egg-orch consensus nack coder --files-reviewed src/feature.py --nack-version 2 \
+  --reason - <<'EOF'
+### Blocking
+1. **src/feature.py:42** — Missing error handling for expired tokens;
+   auth bypass possible. Fix: wrap in try/except and return 401.
+### Non-blocking
+- **src/feature.py:18** — Unused import `datetime`.
+EOF
+
+# --files-reviewed-file — one path per line; blank lines and "#" comments stripped
+cat > /tmp/files.txt <<'EOF'
+# review manifest for the v2 ACK
+src/feature.py
+tests/test_feature.py
+EOF
+egg-orch consensus ack coder --files-reviewed-file /tmp/files.txt \
+  --reason-file .egg-state/agent-outputs/reviewer-code-verdict.md \
+  --ack-version 2
+```
+
+**Why the three channels exist.** When an event-pump wrapper composes a CLI command in bash, prose like `$VAR`, backticks, `;`, `&&`, or embedded newlines in the payload can be reinterpreted by the shell before argparse ever sees them — the wrapper bash silently corrupts the review body. The `--*-file` and stdin paths bypass argv entirely so the prose round-trips byte-for-byte through the orchestrator. See [#2741](https://github.com/jwbron/egg/issues/2741) for the original shell-injection finding and slice-5 of #2908 for the structured channels that mitigate it.
+
+**Deprecation status of argv `--summary` / `--reason`.** The argv path still works, but each invocation now writes a deprecation warning to stderr. New wrappers and agent scripts should prefer `--*-file` or stdin; the argv form is retained only for legacy compatibility and is scheduled for removal in a follow-up cycle. The structured `--ack-version` / `--nack-version` integer flags, the boolean `--push`, and other non-prose args are not affected.
+
 **Exit-2 rejections (#2142):** `consensus propose` (re-propose), `consensus ack`, `consensus nack`, and `consensus confirmed` all return exit 2 with structured rejection details on the orchestrator-side concurrency-control paths. Producers see exit 2 + an `open_nacks_blocked` envelope on a re-propose attempt while ≥2 reviewers have NACKed the current version and the producer hasn't been informed of the full set yet — the response inlines every NACK so the producer can aggregate findings into one re-propose. Reviewers see exit 2 + a `stale_version` envelope when their ACK / NACK targets a superseded proposal — the response inlines the producer's current proposal snapshot so they can re-fetch and re-review without a separate status query. Both rejections are transient: act on the inlined details and retry. See [Concurrent Execution — BRC Protocol Flow](../guides/concurrent-execution.md#brc-protocol-flow) for the underlying race semantics.
 
 **Signal types for consensus:**
@@ -452,45 +507,102 @@ egg-orch consensus status --slice-id slice-7
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
-## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548))
+## BRC verb-level operations (`egg-orch brc`)
 
-Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2548) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+`egg-orch brc` is the verb-level surface used by the event-pump consensus wrapper (#2908 slice-2) and by agent scripts that need to drive BRC operations from bash without the MCP transport. Every subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler — the two surfaces share one handler function so they cannot drift (the `tests/tools/test_mcp_cli_drift.py` gate enforces it). Read-side / derive-side verbs live under `brc`; write-side verbs (propose / ack / nack / withdraw / confirmed) remain under `consensus` to preserve the existing CLI surface.
 
 ```bash
-# Inspect the contract's pr.context_* fields. The top-level --pipeline-id flag
-# goes BEFORE the subcommand; bare `egg-contract show` works when EGG_PIPELINE_ID
-# is exported.
-egg-contract --pipeline-id <pipeline-id> show
-# Look for: pr.context_title, pr.context_description, pr.context_branch, pr.context_pr_number
+# brc next-action — derive the next BRC action for a role from the orchestrator
+# Used by the consensus wrapper to decide whether to PROPOSE / ACK / NACK / CONFIRM
+# / WAIT / COMPLETE before invoking the agent. JSON shape:
+#   {action: "wait"|"propose"|"ack"|"nack"|"confirm"|"complete", event_payload?: {...}}
+# --role defaults to $EGG_AGENT_ROLE; --slice-id defaults to $EGG_SLICE_ID.
+egg-orch brc next-action --role coder --json
 
-# Pipeline status (current_phase / pending_decisions; does not include context-PR-specific fields)
+# brc get-state — verb-level alias for mcp__brc__get_state
+# JSON shape: {ok, slice_id, consensus: {agents, blocking_agents, is_complete}, raw?}
+# --verbose includes the full pipeline-status payload under the 'raw' key.
+egg-orch brc get-state
+egg-orch brc get-state --verbose
+
+# brc list-blocking — verb-level alias for mcp__brc__list_blocking
+# Default output is newline-delimited (one role per line) for shell-friendly consumption:
+#   while read role; do …; done < <(egg-orch brc list-blocking)
+# Exit code is 0 even when the list is empty.
+egg-orch brc list-blocking
+egg-orch brc list-blocking --json   # {"blocking_agents": [...]}
+
+# brc resolve-obligation — mark a reviewer's conditional-ACK obligation satisfied (#2338)
+# Typically called by the tester (or a producer that landed the conditioning work)
+# after cherry-picking a commit the gateway-blocked producer could not push themselves.
+# The matrix keeps the obligation text for audit but the PR body and HITL gate stop
+# surfacing it. The orchestrator rejects resolver_role == producer_role, so a producer
+# cannot self-resolve. Optional --note is prose; obey the prose-arg rule above and
+# pass it via --note-file PATH or stdin sentinel (- on --note) when it carries
+# shell metacharacters.
+egg-orch brc resolve-obligation \
+  --reviewer-role reviewer_code \
+  --producer-role coder \
+  --commit-sha $(git rev-parse HEAD) \
+  --note-file .egg-state/agent-outputs/obligation-resolved.md
+
+# brc read-peer-artifact — paginated read over .egg-state/brc-history/<id>-<phase>.json
+# files. Used by reviewers (and the prompt composer in slice-3) to reconstruct
+# peer-to-peer review history without hand-grepping JSON off disk. --phase is required;
+# --peer-role / --producer-role narrows by sender; --message-type can be repeated to
+# filter by CONSENSUS_* / STATUS / HANDOFF / etc. --limit defaults to 50, max 500;
+# --cursor is the opaque token returned by the previous call. Slice-scoped reads
+# (phase=implement + EGG_SLICE_ID set) merge in the per-pipeline unattributed file by
+# default; pass --no-include-unattributed to read only the per-slice file.
+egg-orch brc read-peer-artifact --phase implement --peer-role coder \
+  --message-type CONSENSUS_PROPOSE --message-type CONSENSUS_ACK --limit 100
+```
+
+| Subcommand | MCP counterpart | Purpose |
+|------------|-----------------|---------|
+| `brc next-action` | — *(new in slice-1 of #2908; no MCP counterpart — the wrapper bash needs the bare derivation, not an LLM round-trip)* | Derive the next BRC action for a role: `wait`, `propose`, `ack`, `nack`, `confirm`, or `complete`, plus the matching event payload. |
+| `brc get-state` | `mcp__brc__get_state` | Full BRC consensus state. `--verbose` includes the full pipeline-status payload. |
+| `brc list-blocking` | `mcp__brc__list_blocking` | Roles currently blocking consensus. Newline-delimited by default; `--json` returns the array. |
+| `brc resolve-obligation` | `mcp__brc__resolve_obligation` | Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338). |
+| `brc read-peer-artifact` | `mcp__brc__read_peer_artifact` | Paginated read over the local `.egg-state/brc-history/<id>-<phase>.json` log. |
+
+Four of the five subcommands — `next-action`, `get-state`, `list-blocking`, `resolve-obligation` — honour `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` and run against the gateway routes the MCP tools use. `brc read-peer-artifact` is the odd one out: it reads `.egg-state/brc-history/<identifier>-<phase>.json` files from local disk, with no HTTP transport. It consumes `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (to resolve the identifier) and `EGG_SLICE_ID` (to pick the per-slice partition for `phase == "implement"`) directly from the environment; `EGG_ORCHESTRATOR_URL` and `EGG_LIFECYCLE_SECRET` do not apply, so missing-secret failures against `read-peer-artifact` are misdiagnosed if you trace them through the HTTP layer. The `brc` surface is additive to the existing `consensus` surface — every prior subcommand under `consensus` keeps working unchanged; the split only reflects that `consensus` is verb-by-state-change (proposes / acks / withdraws) and `brc` is verb-by-read-or-derive (derive-next, list-blocking, read history, resolve obligation).
+
+## Context PR Surfaces ([#2777](https://github.com/jwbron/egg/issues/2777))
+
+Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open the **Context PR** — `egg/<pipeline_id>/work → main` — up-front at the plan→implement boundary, hard-required and idempotent (#2777). See [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2777) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+
+```bash
+# Inspect the contract's pr fields. The top-level --pipeline-id flag goes BEFORE
+# the subcommand; bare `egg-contract show` works when EGG_PIPELINE_ID is exported.
+egg-contract --pipeline-id <pipeline-id> show
+# Look for: pr.title, pr.description, pr.context_pr_number
+
+# Pipeline status (current_phase / pending_decisions)
 egg-orch pipeline status <pipeline-id>
 
 # Locate the open Context PR on GitHub once contract.pr.context_pr_number is set
 gh pr view <context_pr_number>
-gh pr list --head egg/<id>/context
+gh pr list --head egg/<pipeline-id>/work --base <base_branch> --state open
 ```
 
-The four `pr.context_*` fields are added in contract schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load). The planner authors `context_title` / `context_description` during the plan phase (before plan_gate); the orchestrator populates `context_branch` and `context_pr_number` after plan_gate approval, when it creates the branch and opens the PR:
+The contract's `PRMetadata` was simplified in schema v1.2 ([#2777](https://github.com/jwbron/egg/issues/2777)). Three redundant framing fields introduced in v1.1 (#2548) were **hard-removed** when the two-branch topology was collapsed onto a single work branch; see the [v1.1 → v1.2 schema migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777) for the exact field names and replacements. The surviving context-PR fields are:
 
-| Field | Author | Description |
-|-------|--------|-------------|
-| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
-| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
-| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates the branch. |
-| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+| Field | Schema | Author | Description |
+|-------|--------|--------|-------------|
+| `pr.title` | v1.0+ | Planner | Title for the Context PR (program-level framing). |
+| `pr.description` | v1.0+ | Planner | Body for the Context PR (program-level narrative). |
+| `pr.context_pr_number` | v1.1+ | Orchestrator | GitHub PR number of the `egg/<id>/work → main` Context PR — populated when the PR is opened. |
 
-The orchestrator manages the Context PR end-to-end (create branch, commit refine/plan artifacts + BRC history + agent transcripts, open PR via `GatewayClient.create_pr()` with `context_title` / `context_description`). There are no `egg-orch` verbs for opening or closing it manually.
+The orchestrator manages the Context PR end-to-end (open up-front at the plan→implement boundary, idempotently via `GatewayClient.lookup_open_pr` server-side filter + `GatewayClient.create_pr()`). There are no `egg-orch` verbs for opening or closing it manually.
 
-**Observability:** If the context PR hook runs but does not open a PR, the wrapper at `_maybe_open_base_pr_for_plan_to_implement` surfaces a `context_pr.failed` event (the inner hook raised) or `context_pr.skipped` event (the inner hook returned without raising, but the post-hook contract still records `contract.pr.context_pr_number = null`) on three sinks (#2611): the in-process `MessageStore` (so the event shows up as a `CONTEXT_PR_FAILED` / `CONTEXT_PR_SKIPPED` entry in `recent_messages` and `/pipelines/<id>/messages`), the `EventBus` (so `/status/wait` long-pollers wake — both event types are in `_STATUS_WAIT_EVENT_TYPES`, and the message types are in `_STATUS_WAIT_MESSAGE_TYPES`), and the legacy `StatusReporter` handler chain (no production handler is registered today, but the call is preserved for any future console/file handler). The emit branch is gated on `pipeline.repo` and `pipeline.base_branch` both being truthy; local-mode pipelines (no remote, no base branch) skip the hook silently and produce neither event (#2593).
+**Observability:** The context-PR open is wrapped in idempotency: `GatewayClient.lookup_open_pr(head, base)` is called with head `egg/<id>/work` and base the target branch, running a server-side `gh pr list --head … --base … --limit 1` pre-flight before any `gh pr create` call, so transient `gh pr create` failures that are retried after a partial success no longer cascade the pipeline to FAILED. This is the same control-plane primitive per-slice PR creation uses — [#2934](https://github.com/jwbron/egg/issues/2934) unified both PR-idempotency paths onto it (see the [orchestrator architecture doc](../architecture/orchestrator.md#context-pr-slice-aware-mode-2777)). If the open fails outright (idempotent pre-flight returns no existing PR *and* `gh pr create` itself fails), the pipeline is marked **FAILED** — there is no terminal back-stop because the PR phase as a separate pipeline stage was deleted in #2777.
 
-The wrapper also writes structured log lines on every invocation: `Context PR hook entered (#2548)` on entry, followed by either a short-circuit log line from the inner hook (e.g. `Context PR hook: pipeline has no remote repo, skipping`) or the wrapper's `Context PR hook raised at plan→implement transition (continuing) (#2548)` warning when the inner hook raised. The `context_pr.skipped` case corresponds to an inner contract-side short-circuit that did not raise — for example, no `pr` block on the contract, the post-hook contract reload failed, or a late `save_contract` failure swallowed the success after the gateway already opened the PR on GitHub. A missing `WORKTREE_BASE_DIR` volume mount is another `context_pr.skipped` trigger: the hook falls back to `/tmp` (gateway-rejected path), logs `Context PR hook: WORKTREE_BASE_DIR missing — falling back to system temp (likely a broken volume mount in production…) (#2684)` at WARNING level, and the gateway silently rejects the push (#2684).
-
-In any of these cases, check `contract.pr.context_pr_number` (via `egg-contract show`) and the remote PR list before concluding the PR is missing — that last short-circuit can leave a PR open on GitHub while the contract still records `null`. **Pipeline deletion does not clean up Context PRs:** `egg-orch pipeline delete <id>` only removes the pipeline tip branch (`egg/<id>/work`) and per-container worktree branches; the Context PR branch (`egg/<id>/context`) is a sibling of the pipeline tip — same convention as the slice integration branches `egg/<id>/slice-N` — and is **not** deleted (see `_cleanup_remote_branches` in `orchestrator/routes/pipelines.py`). To remove a Context PR opened by an unwanted run the operator must close the PR and delete the branch manually:
+**Pipeline deletion does not clean up Context PRs:** `egg-orch pipeline delete <id>` only removes the pipeline tip branch (`egg/<id>/work`) and per-container worktree branches. Under #2777 the work branch is itself the Context PR's head; closing the PR therefore happens whenever the branch is deleted. To remove an unwanted Context PR explicitly:
 
 ```bash
 gh pr close <context_pr_number>
-git push origin --delete egg/<pipeline-id>/context  # (gateway-mediated push)
+git push origin --delete egg/<pipeline-id>/work  # (gateway-mediated push)
 ```
 
 Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Non-slice runs continue to emit the single aggregate `<id>-implement.{md,json}` file. See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table. If the BRC history file is absent from a slice PR's diff, check orchestrator logs for `Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling back to system temp…` — this WARNING indicates the `/home/egg/.egg-worktrees` volume is not mounted on the orchestrator pod, causing the gateway to reject the push (#2684).
@@ -499,4 +611,3 @@ Per-slice implement-phase BRC history files written by the orchestrator (`.egg-s
 
 - `egg-contract` — SDLC contract operations (tasks, decisions, feedback)
 - `egg-pipeline-watch` — Live pipeline status polling
-- `egg-checkpoint` — Browse agent checkpoints

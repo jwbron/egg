@@ -28,8 +28,10 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import git_client
 import pytest
 import session_manager
+from git_client import AttributedPushRange
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
 from session_manager import SessionValidationResult
@@ -291,7 +293,7 @@ class TestPipelinePushBlock:
 
     def test_infrastructure_push_exempt(self, client):
         """Pushes to infrastructure branches bypass pipeline-push enforcement."""
-        from egg_config.constants import CHECKPOINT_BRANCH
+        from egg_config.constants import PIPELINE_STATE_BRANCH
 
         session = _make_session("coder")
         patches = _push_context(session)
@@ -311,7 +313,7 @@ class TestPipelinePushBlock:
             # infrastructure pushes may be rejected by other enforcement
             # layers (e.g., branch ownership). We only verify that the
             # pipeline-push check specifically does not block it.
-            response = _do_push(client, refspec=CHECKPOINT_BRANCH)
+            response = _do_push(client, refspec=PIPELINE_STATE_BRANCH)
             assert response.status_code != 403 or (
                 "pipeline sessions" not in json.loads(response.data)["message"].lower()
             ), "Infrastructure push should not be blocked by pipeline-push enforcement"
@@ -714,6 +716,102 @@ class TestSliceIntegrationBranchExemption:
                 f"got {response.status_code}: {response.data!r}"
             )
 
+    def test_synthetic_orchestrator_role_slice_branch_push_allowed(self, client):
+        """Orchestrator-role synthetic slice-integration push is allowed (#2919).
+
+        The stacked-PR reconciler's ``rebase_onto`` force-push and the
+        slice-loop's ``create_slice_integration_branch`` push now register
+        their synthetic sessions as ``agent_role="orchestrator"`` so the
+        audit log attributes orchestrator-driven git activity to the
+        orchestrator rather than a phantom coder.
+
+        The slice-integration exemption is keyed on the session's
+        ``synthetic`` flag plus the branch shape — NOT on the role — so
+        the attribution flip must not start 403'ing the push.  This
+        matters because the orchestrator role's file pattern is deny-all
+        (``ORCHESTRATOR_PATTERNS.allowed_patterns == []``); the exemption
+        sets ``is_infrastructure_push`` and short-circuits before the
+        role's file-pattern check would ever run, so the deny-all pattern
+        is never consulted on this path.
+
+        To actually pin the exemption-precedence invariant — that the
+        ``is_infrastructure_push = True`` flip inside the
+        ``_SLICE_INTEGRATION_BRANCH_RE`` branch wins over the role-keyed
+        restriction gate (``if session_role and changed_files and not
+        is_infrastructure_push:``) — the test overrides
+        ``_push_context``'s empty-diff default with a non-empty
+        changed-file list and stubs attribution to fail-closed (empty
+        range with error).  Under ``attribution_fallback`` every file
+        is treated as own-authored, and the real
+        ``partition_files_by_role`` returns the full diff in
+        ``blocked_own`` because the orchestrator role's
+        ``allowed_patterns == []`` deny-all rule rejects every path.
+        The only thing that makes this push 200 instead of 403 is the
+        synthetic+slice exemption flipping ``is_infrastructure_push``
+        *before* the gate evaluates its ``not is_infrastructure_push``
+        clause — so a regression removing that flip for the
+        orchestrator-role path would surface here as a
+        ``restricted_path_modified`` 403 (the same shape
+        ``test_coder_role_blocked_from_contracts`` asserts in
+        ``test_push_error_enrichment.py``), not a silent 200.
+
+        Symbol references rather than line numbers are used throughout
+        because ``gateway.py`` is queued for decomposition in
+        ``#2261`` slice-14 (see ``gateway/CLAUDE.md`` Submodule seam
+        tables) — line numbers will rot, named symbols will move with
+        the code.
+        """
+        session = _make_session(
+            role="orchestrator",
+            synthetic=True,
+            assigned_branch="egg/issue-2919/slice-1",
+        )
+        patches = _push_context(session)
+        # Force the role-keyed restriction gate (the
+        # ``if session_role and changed_files and not
+        # is_infrastructure_push:`` block in ``gateway.py``) to be
+        # reachable: it short-circuits on empty ``changed_files``, so
+        # without a non-empty diff the ``is_infrastructure_push``
+        # clause is never load-bearing and the test would pass even
+        # under a regression that removed the orchestrator-role flip.
+        diff_files = ["orchestrator/synthetic_slice_push.py"]
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patch.object(
+                gateway,
+                "get_changed_files_in_push",
+                return_value=(diff_files, None),
+            ),
+            # Force ``attribution_fallback`` (the
+            # ``bool(attributed_push.error or not attributed_push.commits)``
+            # gate) so every file in the diff is treated as own-authored
+            # and reaches ``partition_files_by_role`` under the
+            # orchestrator role's deny-all pattern.  If the
+            # ``is_infrastructure_push`` short-circuit inside the
+            # ``_SLICE_INTEGRATION_BRANCH_RE`` branch ever stopped
+            # firing for this path, that partition would reject every
+            # file and the gate would return 403, not 200.
+            patch.object(
+                git_client,
+                "get_attributed_changed_files_in_push",
+                return_value=AttributedPushRange(error="attribution unavailable in test"),
+            ),
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2919:refs/heads/egg/issue-2919/slice-1",
+            )
+            assert response.status_code == 200, (
+                f"Expected 200 for synthetic orchestrator-role slice "
+                f"integration push, got {response.status_code}: {response.data!r}"
+            )
+
     def test_synthetic_session_qualified_slice_branch_push_allowed(self, client):
         """Qualifier-suffixed branches (#2368 bonus) — ``egg/issue-N-v3/slice-M`` — pass."""
         session = _make_session(synthetic=True, assigned_branch="egg/issue-2261-v3/slice-7")
@@ -987,20 +1085,31 @@ class TestSliceIntegrationBranchExemption:
             assert ".egg-state/contracts/some.json" in (data.get("blocked_paths") or []), body
 
 
-class TestContextBranchExemption:
-    """Context-branch creation exemption (#2548).
+class TestContextBranchRejection:
+    """Context-branch (``egg/<id>/context``) pushes are blocked (#2777 slice-2).
 
-    Mirror of :class:`TestSliceIntegrationBranchExemption` but for the
-    new ``egg/<base>/context`` shape.  The orchestrator's
-    ``create_context_branch`` registers a synthetic, launcher-authed
-    session and pushes ``base:refs/heads/egg/<id>/context`` so the doc-
-    only context PR has a target branch before any agent runs.  That
-    push is orchestrator infrastructure and must bypass the #2028
-    pipeline-session block the same way slice integration pushes do.
+    Slice-2 of #2777 deletes the entire context-branch scaffold: the
+    orchestrator no longer creates ``egg/<id>/context``, the context PR
+    now lands on ``egg/<id>/work → main``, and the gateway-side
+    ``_CONTEXT_BRANCH_RE`` exemption is removed. The branch itself is
+    gone — but a misbehaving caller (a stale orchestrator binary, a
+    rogue agent, a test fixture) might still try to push to the legacy
+    name. The gateway MUST reject such pushes with a clear policy
+    violation rather than silently allowing them through.
+
+    The replacement here mirrors :class:`TestSliceIntegrationBranchExemption`
+    in shape — same fixture machinery, both synthetic and non-synthetic
+    sessions — but inverts the expected verdict: every context-branch
+    push is now blocked.
     """
 
-    def test_synthetic_session_context_branch_push_allowed(self, client):
-        """Synthetic-session push to ``egg/issue-N/context`` is allowed."""
+    def test_synthetic_session_context_branch_push_blocked(self, client):
+        """Even synthetic-session pushes to ``egg/issue-N/context`` are blocked.
+
+        Pre-slice-2 the synthetic flag carried a launcher-authed
+        exemption (#2548). With the exemption removed, no flag rescues
+        the push: the branch shape is illegal and must produce a 403.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2548",
@@ -1020,18 +1129,14 @@ class TestContextBranchExemption:
                 client,
                 refspec="main:refs/heads/egg/issue-2548/context",
             )
-            assert response.status_code == 200, (
-                f"Expected 200 for synthetic context branch push, "
-                f"got {response.status_code}: {response.data!r}"
+            assert response.status_code == 403, (
+                "Synthetic-session push to a context branch must be "
+                "rejected after slice-2 removes the exemption; got "
+                f"{response.status_code}: {response.data!r}"
             )
 
     def test_non_synthetic_session_context_branch_push_blocked(self, client):
-        """Agent (non-synthetic) push to a context branch is still blocked.
-
-        Same trust gate as the slice integration branch exemption — the
-        regex alone is never enough; the synthetic flag must be set, and
-        only the launcher can set it.
-        """
+        """Agent (non-synthetic) push to a context branch is also blocked."""
         session = _make_session(
             synthetic=False,
             pipeline_id="issue-2548",
@@ -1052,12 +1157,20 @@ class TestContextBranchExemption:
                 refspec="main:refs/heads/egg/issue-2548/context",
             )
             assert response.status_code == 403, (
-                "Non-synthetic session push to context branch must still "
-                "be blocked by pipeline-session enforcement"
+                "Non-synthetic session push to a context branch must "
+                "remain blocked; got "
+                f"{response.status_code}: {response.data!r}"
             )
 
-    def test_synthetic_session_qualified_context_branch_push_allowed(self, client):
-        """Qualifier-suffixed pipelines — ``egg/issue-N-v3/context`` — pass."""
+    def test_synthetic_session_qualified_context_branch_push_blocked(self, client):
+        """Qualifier-suffixed pipelines (``egg/issue-N-v3/context``) are also blocked.
+
+        The deleted ``_CONTEXT_BRANCH_RE`` accepted qualifier-suffixed
+        pipeline IDs (#2548 follow-up). Removal of the exemption means
+        these branches are no longer privileged either; the push falls
+        through to the standard pipeline-session enforcement and is
+        rejected.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2474-v2",
@@ -1077,38 +1190,23 @@ class TestContextBranchExemption:
                 client,
                 refspec="main:refs/heads/egg/issue-2474-v2/context",
             )
-            assert response.status_code == 200
-
-    def test_synthetic_session_context_multi_segment_blocked(self, client):
-        """Multi-segment shapes (``egg/foo/bar/context``) are not produced
-        by the orchestrator and the regex MUST reject them — same shape
-        constraint as the slice integration branch regex."""
-        session = _make_session(
-            synthetic=True,
-            pipeline_id="issue-2548",
-            assigned_branch="egg/foo/bar/context",
-        )
-        patches = _push_context(session)
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-        ):
-            response = _do_push(
-                client,
-                refspec="main:refs/heads/egg/foo/bar/context",
+            assert response.status_code == 403, (
+                "Qualifier-suffixed context branch must be rejected; "
+                f"got {response.status_code}: {response.data!r}"
             )
-            assert response.status_code == 403
 
-    def test_audit_event_records_context_branch_exempt_type(self, client):
-        """Context-branch pushes emit ``push_infrastructure_exempt`` with
-        ``exempt_type="context_branch"`` (distinct from
-        ``slice_integration_branch``) so SIEM filters keying on
-        ``exempt_type`` can tell them apart (#2548 review)."""
+    def test_context_branch_rejection_emits_no_context_exempt_audit_event(self, client):
+        """The audit log must NOT emit a context-branch exempt event.
+
+        Pre-slice-2 the gateway emitted
+        ``push_infrastructure_exempt`` with
+        ``exempt_type="context_branch"`` on every context-branch push.
+        Post-slice-2 that event type is dead — the exemption no longer
+        exists. A regression where the gateway still emits the event
+        (e.g. the regex was renamed instead of deleted) would be
+        invisible at the response layer but loud in audit-log
+        consumers; pin it here.
+        """
         session = _make_session(
             synthetic=True,
             pipeline_id="issue-2548",
@@ -1129,30 +1227,21 @@ class TestContextBranchExemption:
                     client,
                     refspec="main:refs/heads/egg/issue-2548/context",
                 )
-                assert response.status_code == 200
+                # Rejection, not allow.
+                assert response.status_code == 403
                 events = [
                     (call.args[0] if call.args else None, call.kwargs.get("details") or {})
                     for call in mock_audit.call_args_list
                 ]
-                # The orchestrator-specific audit event still fires for context pushes,
-                # carrying a context-branch reason in its details.
-                slice_events = [e for e in events if e[0] == "push_slice_integration_exempt"]
-                assert slice_events, (
-                    f"Expected push_slice_integration_exempt event, got: {[e[0] for e in events]}"
-                )
-                assert any("context branch" in (e[1].get("reason") or "") for e in slice_events), (
-                    "push_slice_integration_exempt detail must identify context-branch pushes"
-                )
-                # The generic infra exemption event MUST use the
-                # context_branch exempt_type — this is the regression
-                # the test pins.
-                infra_events = [
+                context_exempt = [
                     e
                     for e in events
                     if e[0] == "push_infrastructure_exempt"
                     and e[1].get("exempt_type") == "context_branch"
                 ]
-                assert infra_events, (
-                    "Expected push_infrastructure_exempt with exempt_type=context_branch; "
-                    f"got: {[(e[0], e[1].get('exempt_type')) for e in events]}"
+                assert context_exempt == [], (
+                    "After slice-2, the gateway must not emit any "
+                    "push_infrastructure_exempt event with "
+                    "exempt_type=context_branch; got: "
+                    f"{[(e[0], e[1].get('exempt_type')) for e in events]}"
                 )
