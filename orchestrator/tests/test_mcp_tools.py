@@ -940,6 +940,7 @@ class TestToolRouting:
             "submit_task",
             "get_status",
             "provide_input",
+            "answer_feedback",
             "list_tasks",
             "cancel_task",
             "check_health",
@@ -2942,3 +2943,61 @@ class TestToolOutputCap:
         handler._handle_list_containers = boom  # type: ignore[assignment]
         result = handler.handle_tool_call("list_containers", {})
         assert result == {"error": "kaboom"}
+
+
+class TestAnswerFeedback:
+    """answer_feedback MCP tool — answers contract-scoped feedback (#3007)."""
+
+    def test_routes_to_feedback_answer_endpoint(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {"feedback": {}}}
+            handler.handle_tool_call(
+                "answer_feedback",
+                {
+                    "task_id": "issue-42-v2",
+                    "answers": {"Q1": "Add retry logic", "Q2": "yes"},
+                },
+            )
+
+        mock_req.assert_called_once()
+        url = mock_req.call_args[0][0]
+        # task_id is URL-encoded into the path
+        assert url == "/api/v1/pipelines/issue-42-v2/feedback/answer"
+        assert mock_req.call_args[1]["method"] == "POST"
+        data = mock_req.call_args[1]["data"]
+        assert data["answers"] == {"Q1": "Add retry logic", "Q2": "yes"}
+        # No feedback_id supplied -> key omitted, not sent as None
+        assert "feedback_id" not in data
+
+    def test_forwards_optional_feedback_id(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call(
+                "answer_feedback",
+                {
+                    "task_id": "issue-7",
+                    "answers": {"Q1": "ship it"},
+                    "feedback_id": "feedback-1",
+                },
+            )
+
+        data = mock_req.call_args[1]["data"]
+        assert data["feedback_id"] == "feedback-1"
+
+    def test_task_id_is_url_encoded(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call(
+                "answer_feedback",
+                {"task_id": "weird/id", "answers": {"Q1": "x"}},
+            )
+
+        assert mock_req.call_args[0][0] == "/api/v1/pipelines/weird%2Fid/feedback/answer"
+
+    def test_registered_in_pipeline_tools_schema(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "answer_feedback")
+        required = tool["inputSchema"]["required"]
+        assert "task_id" in required
+        assert "answers" in required

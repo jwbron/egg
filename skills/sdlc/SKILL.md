@@ -3,7 +3,7 @@ name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
 argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
-allowed-tools: Monitor TaskStop Bash(${CLAUDE_SKILL_DIR}/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract
+allowed-tools: Monitor TaskStop Bash(${CLAUDE_SKILL_DIR}/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__answer_feedback mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract
 ---
 
 # SDLC Pipeline
@@ -468,7 +468,38 @@ Handle each response:
 - **Acknowledge** → Resume monitoring. Track acknowledged alerts to avoid re-prompting for the same alert.
 - **Cancel pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`.
 
+**Before offering the generic options above**, if the alert subject is `stuck-phase-transition` (or its body otherwise says a HITL gate is awaiting operator input / names an unanswered `feedback-N` / `Q<n>`), first check for **unanswered contract feedback** per [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback) below — that is usually the actionable resolution, and neither "Check agent logs" nor "Acknowledge" will clear it.
+
 **Deduplication** — Maintain a set of seen alert message `id` values (UUIDs from the `Message` model) across poll cycles. Only prompt the user for alerts not previously seen or acknowledged. Do not use subject strings for deduplication — distinct alerts may share the same anomaly type, role, and priority.
+
+### Answering pre-proposal contract feedback
+
+An agent can register an open-ended **feedback request** on the SDLC contract before it produces any draft — most commonly a refiner asking the operator to supply a goal/success criteria when the contract is empty (free-text / Confluence / no-issue submissions). This pre-proposal feedback is written to the contract as `feedback-N` and the agent then **blocks** waiting for the answer, so no phase_gate is ever reached.
+
+**This feedback does NOT appear in `pending_decisions`.** It only becomes an orchestrator decision *after* a phase_gate is approved (Wave 2 of [two-wave surfacing](#two-wave-surfacing)) — which never happens here because the agent is blocked before the gate. As a result:
+
+- It never shows up in a `get_status` snapshot's `pending_decisions`, so Phase 4's normal HITL flow won't surface it.
+- `provide_input(decision_id="feedback-N", ...)` returns **HTTP 404** — there is no such orchestrator decision.
+- The pipeline deadlocks; the overseer detects this and emits a `stuck-phase-transition` `OVERSEER_ALERT`.
+
+**Detection.** When a `stuck-phase-transition` alert fires (or whenever a pipeline sits blocked with an empty `pending_decisions`), call `get_contract(task_id)` and inspect the `feedback` field. If it is non-null with `submitted: false`, its `questions[]` are awaiting the operator.
+
+**Answer it via `answer_feedback`, NOT `provide_input`:**
+
+1. Display the questions to the user. Present them with `AskUserQuestion`, batching up to 4 per call (same as the `feedback` decision_type handler). For a refiner-on-empty-contract request, the user's answer is the task goal / constraints — give them an "Other" field to type it.
+2. Collect answers into a dict keyed by each question's `id` (e.g. `{"Q1": "Add retry logic to the API client", "Q2": "p99 < 200ms"}`).
+3. Call the `answer_feedback` MCP tool:
+
+   ```
+   Tool: answer_feedback
+   Arguments:
+     task_id: <task_id>
+     answers: {"Q1": "<answer>", "Q2": "<answer>"}
+     feedback_id: <contract feedback id, e.g. "feedback-1">   # optional staleness guard
+   ```
+
+   `answer_feedback` writes the answers into the contract and marks the feedback submitted, so the blocked agent unblocks on its next contract poll and proceeds to produce its proposal. A partial answer set is allowed — the feedback is still marked submitted, so don't leave a question blank unless the user intends to skip it.
+4. Resume monitoring (Phase 3). Re-arm the Monitor, stopping the prior one first per [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) — the agent producing its proposal will emit the next `phase.*` event.
 
 ### Host detector migration (issue #1962)
 
@@ -1047,6 +1078,7 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 | `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
 | `${CLAUDE_SKILL_DIR}/bin/wait-status` (via Monitor) | Long-poll for status changes; emits JSON-lines on stdout — Monitor surfaces each line as its own notification, so the LLM wakes on every event. Self-contained stdlib client (no egg checkout; only `EGG_ORCHESTRATOR_URL` needed). Replaces the prior `wait_for_status_change` MCP tool (#2211). Bash is a fallback only (events batch at exit). |
 | `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
+| `answer_feedback` | Answer pre-proposal contract feedback (`feedback-N`) that never enters the decision queue — see [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback). Use instead of `provide_input`, which 404s on it |
 | `list_tasks` | List tasks for a repository |
 | `cancel_task` | Cancel a running task |
 | `check_health` | Verify orchestrator + gateway health |

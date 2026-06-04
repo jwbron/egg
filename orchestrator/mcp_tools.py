@@ -1029,6 +1029,47 @@ PIPELINE_TOOLS = [
             },
         },
     },
+    {
+        "name": "answer_feedback",
+        "description": (
+            "Answer an open-ended feedback request an agent registered on the "
+            "SDLC contract. Pre-proposal feedback (e.g. a refiner asking for a "
+            "goal on an empty contract) lives on the contract as `feedback-N` "
+            "and is NOT an orchestrator decision, so `provide_input` returns "
+            "404 for it. Use this tool instead — "
+            "`get_contract(task_id).feedback` shows the pending questions. "
+            "Writing the answers marks the feedback submitted and unblocks the "
+            "waiting agent on its next contract poll. Operator-only "
+            "(lifecycle-secret guarded)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "answers": {
+                    "type": "object",
+                    "description": (
+                        "Map of feedback question id to answer text, e.g. "
+                        '{"Q1": "Add retry logic to the API client"}. Question '
+                        "ids come from `get_contract(task_id).feedback.questions`."
+                    ),
+                    "additionalProperties": {"type": "string"},
+                },
+                "feedback_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional feedback id (e.g. `feedback-1`) guarding "
+                        "against answering a stale request; when supplied it "
+                        "must match the contract's pending feedback."
+                    ),
+                },
+            },
+            "required": ["task_id", "answers"],
+        },
+    },
 ]
 
 
@@ -1060,6 +1101,7 @@ class PipelineToolHandler:
             "submit_task": self._handle_submit_task,
             "get_status": self._handle_get_status,
             "provide_input": self._handle_provide_input,
+            "answer_feedback": self._handle_answer_feedback,
             "list_tasks": self._handle_list_tasks,
             "cancel_task": self._handle_cancel_task,
             "check_health": self._handle_check_health,
@@ -1664,6 +1706,25 @@ class PipelineToolHandler:
             data=data,
         )
         return result
+
+    def _handle_answer_feedback(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Answer an agent-registered contract feedback request (#3007).
+
+        Routes to the pipeline-scoped ``/feedback/answer`` endpoint, which
+        writes the answers into the contract feedback so a refiner blocked
+        on pre-proposal feedback unblocks. Unlike ``provide_input``, this
+        resolves against the gateway-backed contract, not the orchestrator
+        decision queue.
+        """
+        task_id = quote(args["task_id"], safe="")
+        data: dict[str, Any] = {"answers": args["answers"]}
+        if args.get("feedback_id"):
+            data["feedback_id"] = args["feedback_id"]
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/feedback/answer",
+            method="POST",
+            data=data,
+        )
 
     def _handle_list_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
         """List pipelines."""
