@@ -121,25 +121,23 @@
   "phase_file_restrictions": {
     "refine": {
       "allowed_patterns": [
-        ".egg-state/contracts/*",
         ".egg-state/drafts/*analysis*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
         ".egg-state/reviews/*",
         ".egg-state/agent-anchors/*"
       ],
-      "description": "Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, reviews, and agent anchors"
+      "description": "Refine phase can only push analysis drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git - #2979)"
     },
     "plan": {
       "allowed_patterns": [
-        ".egg-state/contracts/*",
         ".egg-state/drafts/*plan*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
         ".egg-state/reviews/*",
         ".egg-state/agent-anchors/*"
       ],
-      "description": "Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, reviews, and agent anchors"
+      "description": "Plan phase can only push plan drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git - #2979)"
     },
     "implement": {
       "blocked_patterns": [

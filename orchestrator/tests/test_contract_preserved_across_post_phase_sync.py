@@ -438,7 +438,6 @@ def test_push_failure_preserves_committed_decisions_without_reset(
     spawner.gateway.push_worktree_branch.assert_called_once()
     # The committed decision survived — no destructive reset ran.
     assert outcome.case == "local_ahead_push_failed"
-    assert outcome.hard_reset_performed is False
     assert contract_path.read_text() == expected_body
     assert "decision-1" in contract_path.read_text()
     # HEAD is unchanged: the local-ahead commit was preserved, not reset.

@@ -453,25 +453,31 @@ class TestPostBrcBandSwallowsErrors:
         return inspect.getsource(pipelines._run_pipeline)
 
     def test_sync_worktree_with_remote_is_wrapped(self):
-        """``_sync_worktree_with_remote`` was unwrapped — a gateway HTTP
+        """The post-BRC worktree-sync call was unwrapped — a gateway HTTP
         error or git failure inside it propagated to the outer Exception
         handler and (when FAILED-marking also failed) stranded the pipeline.
+
+        #2979 routed the call through ``_sync_worktree_reconciling_divergence``
+        (a wrapper that adds the non-destructive pause/resume around
+        ``_sync_worktree_with_remote``); the structural try/except invariant
+        from #2219 still applies to the new call site.
         """
         source = self._run_pipeline_source()
         # The post-phase call site (after BRC return) must sit inside a
         # ``try`` whose ``except`` matches ``Exception`` so any failure
         # mode is swallowed with a warning rather than killing the thread.
         # Indentation-tolerant: ``\s+`` between ``try:`` and the call.
-        # Allow either the original direct call or the ``outcome = ...``
-        # capture introduced in #2792 (the call is the same; we only
-        # capture the return now so the hard-reset HITL can fire).
+        # Allow either a plain call, a single ``outcome = ...`` capture
+        # (the form used by #2792 around the old direct helper), or the
+        # tuple-unpack ``outcome, aborted = (...)`` form introduced in
+        # #2979 for the wrapping helper.
         assert re.search(
-            r"try:\s*\n\s*(?:\w[\w.\[\] |]*\s*=\s*)?_sync_worktree_with_remote\(",
+            r"try:\s*\n\s*(?:[\w,\s]*\s*=\s*\(?\s*\n?\s*)?_sync_worktree_reconciling_divergence\(",
             source,
         ), (
-            "_sync_worktree_with_remote(...) call after BRC return must be "
-            "wrapped in try/except so a sub-call failure can't strand the "
-            "pipeline (#2219)."
+            "_sync_worktree_reconciling_divergence(...) call after BRC "
+            "return must be wrapped in try/except so a sub-call failure "
+            "can't strand the pipeline (#2219, #2979)."
         )
 
     def test_commit_statefiles_handler_catches_broadly(self):

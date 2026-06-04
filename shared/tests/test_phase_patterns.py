@@ -25,11 +25,21 @@ class TestPhaseFileVerdict:
         assert allowed is True
         assert reason is None
 
-    def test_refine_allows_contracts(self):
-        assert phase_file_verdict("refine", self._CONTRACT)[0] is True
+    def test_refine_blocks_contracts(self):
+        # #2979: contracts mutate through the contract API, not git, so a
+        # refine-phase push of a contract file is rejected at the phase layer.
+        allowed, reason = phase_file_verdict("refine", self._CONTRACT)
+        assert allowed is False
+        assert reason and "does not match any allowed pattern" in reason
 
     def test_plan_allows_plan_draft(self):
         assert phase_file_verdict("plan", self._PLAN)[0] is True
+
+    def test_plan_blocks_contracts(self):
+        # #2979: same as refine — contracts are not in the plan whitelist.
+        allowed, reason = phase_file_verdict("plan", self._CONTRACT)
+        assert allowed is False
+        assert reason and "does not match any allowed pattern" in reason
 
     def test_plan_blocks_analysis_draft(self):
         # The inverse of refine: a plan-phase push of an analysis draft is

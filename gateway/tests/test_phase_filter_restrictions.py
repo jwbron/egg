@@ -206,10 +206,45 @@ class TestPhaseFilterDefaultPermissions:
         result = pf.check_phase_file_restrictions("refine", ["src/app.py"])
         assert result.allowed is False
 
-    def test_refine_allows_contracts(self):
+    def test_refine_blocks_contracts(self):
+        """Agents cannot git-push contracts in refine (#2979).
+
+        The orchestrator is the sole writer of ``.egg-state/contracts/``;
+        agents mutate them through the contract API, not git. Permitting
+        the push let a stale contract snapshot race the orchestrator's
+        authoritative commit and drive the destructive sync reset #2979
+        removed.
+        """
         pf = PhaseFilter()
         result = pf.check_phase_file_restrictions("refine", [".egg-state/contracts/123.json"])
-        assert result.allowed is True
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+
+    def test_plan_blocks_contracts(self):
+        """Agents cannot git-push contracts in plan either (#2979)."""
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions("plan", [".egg-state/contracts/123.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+
+    def test_refine_draft_push_bundling_contract_is_rejected(self):
+        """A refine push mixing an allowed draft with a contract is denied (#2979).
+
+        Phase-restriction enforcement is atomic — one disallowed file
+        rejects the whole push. Agents push specific paths (``git add
+        <files>``, not ``git add -A``), so a draft push does not bundle a
+        contract in practice; if one ever does, the 403-with-hint is the
+        intended outcome, far preferable to the contract landing on origin
+        and triggering the destructive divergence reset.
+        """
+        pf = PhaseFilter()
+        result = pf.check_phase_file_restrictions(
+            "refine",
+            [".egg-state/drafts/644-analysis.md", ".egg-state/contracts/123.json"],
+        )
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
+        assert ".egg-state/drafts/644-analysis.md" not in result.blocked_files
 
     def test_refine_allows_analysis_drafts(self):
         pf = PhaseFilter()

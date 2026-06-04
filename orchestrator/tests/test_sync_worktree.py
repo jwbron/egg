@@ -204,7 +204,6 @@ class TestSyncWorktreeWithRemote:
             assert reset_calls == []
             # Outcome reports the failed push without a destructive reset.
             assert outcome.case == "local_ahead_push_failed"
-            assert outcome.hard_reset_performed is False
 
     def test_diverged_attempts_rebase(self):
         """(f) diverged → calls the rebase helper (#2337)."""
@@ -236,8 +235,14 @@ class TestSyncWorktreeWithRemote:
             # No reset was attempted (rebase succeeded → early return)
             assert mock_run.call_count == 3
 
-    def test_diverged_rebase_fails_triggers_hard_reset_recovery(self):
-        """(g) diverged + rebase fails → backup ref + hard reset (#2792)."""
+    def test_diverged_rebase_fails_pauses_non_destructively(self):
+        """(g) diverged + rebase fails → backup ref, NO hard reset (#2979).
+
+        The rebase autoresolve aborts back to the clean local HEAD, so the
+        helper leaves the worktree there (committed work intact), pins a
+        backup ref as a stable operator handle, and reports
+        ``divergence_unreconciled`` — it does NOT ``git reset --hard``.
+        """
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -254,8 +259,6 @@ class TestSyncWorktreeWithRemote:
                 # _collect_local_only_commits: rev-list HEAD ^origin
                 _make_subprocess_result(stdout="abc1234 commit A\ndef5678 commit B\n"),
                 # _create_sync_recovery_backup_ref: update-ref
-                _make_subprocess_result(returncode=0),
-                # Hard reset to origin
                 _make_subprocess_result(returncode=0),
             ]
             mock_rebase.return_value = PushResult(
@@ -279,21 +282,23 @@ class TestSyncWorktreeWithRemote:
             assert (
                 divergence_rebase_failed_err.kwargs.get("category") == "reconcile_rebase_conflict"
             )
-            # The hard-reset recovery path fired and reconciled.
-            assert outcome.case == "divergence_recovered_via_reset"
-            assert outcome.hard_reset_performed is True
+            # Non-destructive: the worktree is left at local HEAD and the
+            # divergence is reported, not reset away.
+            assert outcome.case == "divergence_unreconciled"
+            assert outcome.diverged_unreconciled is True
             assert outcome.backup_ref is not None
             assert outcome.backup_ref.startswith("refs/egg-backup/sync-recovery/pipe-1/")
-            assert outcome.discarded_commit_shas == (
+            assert outcome.local_only_commit_shas == (
                 "abc1234 commit A",
                 "def5678 commit B",
             )
-            # 3 (head detect / rev-parse / rev-list-counts) + 3 (rev-list local-only,
-            # update-ref, reset) = 6 subprocess calls.
-            assert mock_run.call_count == 6
-            reset_call = mock_run.call_args_list[5]
-            assert "reset" in reset_call[0][0]
-            assert "--hard" in reset_call[0][0]
+            # 3 (head detect / rev-parse / rev-list-counts) + 2 (rev-list
+            # local-only, update-ref) = 5 subprocess calls. Crucially, NO
+            # reset call fired.
+            assert mock_run.call_count == 5
+            assert not any(
+                "reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list
+            )
 
     def test_successful_reset(self):
         """Happy path: fetch, detect branch, verify remote, reset."""
@@ -346,8 +351,13 @@ class TestSyncWorktreeWithRemote:
             # Should not raise
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
 
-    def test_diverged_rebase_failure_runs_hard_reset_even_on_timeout(self):
-        """Diverged + rebase timeout still triggers the hard-reset recovery (#2792)."""
+    def test_diverged_rebase_failure_is_non_destructive_with_empty_commit_list(self):
+        """Diverged + rebase fail + unenumerable commits → still no reset (#2979).
+
+        Even when the local-only commit enumeration comes back empty, the
+        helper reports ``divergence_unreconciled`` and never resets — the
+        committed work stays on the live HEAD.
+        """
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -362,8 +372,6 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0, stdout=""),
                 # backup-ref update-ref succeeds
                 _make_subprocess_result(returncode=0),
-                # Hard reset succeeds
-                _make_subprocess_result(returncode=0),
             ]
             mock_rebase.return_value = PushResult(
                 ok=False,
@@ -372,12 +380,20 @@ class TestSyncWorktreeWithRemote:
             )
             outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             mock_logger.error.assert_called()
-            assert outcome.hard_reset_performed is True
-            assert outcome.case == "divergence_recovered_via_reset"
-            assert mock_run.call_count == 6
+            assert outcome.diverged_unreconciled is True
+            assert outcome.case == "divergence_unreconciled"
+            # No reset call — 5 subprocess calls, none of them a hard reset.
+            assert mock_run.call_count == 5
+            assert not any(
+                "reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list
+            )
 
-    def test_rev_list_non_numeric_output_defaults_to_reset(self):
-        """Non-numeric rev-list output falls through to reset."""
+    def test_rev_list_non_numeric_output_bails_non_destructively(self):
+        """Non-numeric rev-list output bails without resetting (#2979).
+
+        The ahead/behind counts are unknown, so a Step-4 ``reset --hard``
+        could discard un-pushed local work — the helper bails instead.
+        """
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
             mock_run.side_effect = [
@@ -387,15 +403,14 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: unexpected output from rev-list
                 _make_subprocess_result(stdout="not-a-number\n"),
-                # Step 4: reset succeeds (falls through due to ValueError)
-                _make_subprocess_result(returncode=0),
             ]
-            # Should not raise, falls through to reset
-            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            # Should reach step 4 (reset)
-            assert mock_run.call_count == 4
-            reset_call = mock_run.call_args_list[3]
-            assert "reset" in reset_call[0][0]
+            outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            assert outcome.case == "rev_list_failed"
+            # Bails after the rev-list — no Step-4 reset.
+            assert mock_run.call_count == 3
+            assert not any(
+                "reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list
+            )
 
     def test_prior_phase_succeeded_defaults_to_true(self):
         """Default prior_phase_succeeded=True means local-ahead commits get pushed."""
@@ -417,8 +432,8 @@ class TestSyncWorktreeWithRemote:
             assert spawner.gateway.fetch_worktree_branch.call_count == 2
             assert mock_run.call_count == 3
 
-    def test_rev_list_check_fails_proceeds_to_reset(self):
-        """Rev-list check subprocess failure proceeds to reset."""
+    def test_rev_list_check_fails_bails_non_destructively(self):
+        """Rev-list check subprocess failure bails without resetting (#2979)."""
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
             mock_run.side_effect = [
@@ -428,14 +443,14 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: rev-list fails
                 _make_subprocess_result(returncode=1, stderr="error"),
-                # Step 4: reset succeeds
-                _make_subprocess_result(returncode=0),
             ]
-            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            # Should still reach reset (step 4)
-            assert mock_run.call_count == 4
-            reset_call = mock_run.call_args_list[3]
-            assert "reset" in reset_call[0][0]
+            outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            assert outcome.case == "rev_list_failed"
+            # Bails after the rev-list — no Step-4 reset.
+            assert mock_run.call_count == 3
+            assert not any(
+                "reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list
+            )
 
 
 def _outcome_cases(mock_logger: MagicMock) -> list[str]:
@@ -507,8 +522,8 @@ class TestSyncWorktreeOutcomeTaxonomy:
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
         assert _outcome_cases(mock_logger) == ["rev_parse_failed"]
 
-    def test_case_rev_list_failed_falls_through_to_reset(self):
-        """rev-list exception emits rev_list_failed, then step 4 emits reset_succeeded."""
+    def test_case_rev_list_failed_bails_non_destructively(self):
+        """rev-list exception emits rev_list_failed and bails — no reset (#2979)."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -519,14 +534,13 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(returncode=0),
                 # rev-list returns two non-numeric tokens → int() raises ValueError
                 _make_subprocess_result(stdout="foo\tbar\n"),
-                # Step 4: reset succeeds
-                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+        assert _outcome_cases(mock_logger) == ["rev_list_failed"]
+        assert not any("reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list)
 
-    def test_case_rev_list_failed_returncode_falls_through_to_reset(self):
-        """rev-list non-zero returncode emits rev_list_failed (no exception path)."""
+    def test_case_rev_list_failed_returncode_bails_non_destructively(self):
+        """rev-list non-zero returncode emits rev_list_failed and bails (no reset)."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -537,14 +551,14 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(returncode=0),
                 # rev-list exits non-zero — must still emit rev_list_failed
                 _make_subprocess_result(returncode=128, stderr="bad ref"),
-                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+        assert _outcome_cases(mock_logger) == ["rev_list_failed"]
+        assert not any("reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list)
         # The rev_list_failed log carries the rc field for non-exception failures.
         rev_list_call = next(
             c
-            for c in mock_logger.info.call_args_list
+            for c in mock_logger.warning.call_args_list
             if c.args
             and c.args[0] == "worktree_sync_outcome"
             and c.kwargs.get("case") == "rev_list_failed"
@@ -552,7 +566,7 @@ class TestSyncWorktreeOutcomeTaxonomy:
         assert rev_list_call.kwargs.get("rc") == 128
 
     def test_case_rev_list_failed_unparseable_output(self):
-        """rev-list returncode=0 but malformed output emits rev_list_failed."""
+        """rev-list returncode=0 but malformed output emits rev_list_failed and bails."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -563,10 +577,10 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(returncode=0),
                 # rev-list rc=0 but only one token — len(parts) != 2
                 _make_subprocess_result(stdout="42\n"),
-                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+        assert _outcome_cases(mock_logger) == ["rev_list_failed"]
+        assert not any("reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list)
 
     def test_case_already_in_sync(self):
         spawner = _make_spawner()
@@ -622,7 +636,6 @@ class TestSyncWorktreeOutcomeTaxonomy:
             )
         assert _outcome_cases(mock_logger) == ["local_ahead_push_failed"]
         assert outcome.case == "local_ahead_push_failed"
-        assert outcome.hard_reset_performed is False
         # No step-4 reset ran (only steps 2, 3, 3b).
         assert mock_run.call_count == 3
         # PushResult diagnostics are propagated into the structured log so
@@ -679,12 +692,13 @@ class TestSyncWorktreeOutcomeTaxonomy:
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
         assert _outcome_cases(mock_logger) == ["divergence_rebased"]
 
-    def test_case_diverged_rebase_failed_then_recovers_via_reset(self):
-        """Rebase failure now triggers hard-reset recovery (#2792).
+    def test_case_diverged_rebase_failed_pauses_non_destructively(self):
+        """Rebase failure now leaves the worktree intact and pauses (#2979).
 
         The original ``divergence_rebase_failed`` ERROR is still emitted
         so audit-log greps for that discriminator keep working, but the
-        terminal outcome is ``divergence_recovered_via_reset``.
+        terminal outcome is ``divergence_unreconciled`` (no hard reset) —
+        the committed work stays on the live HEAD.
         """
         spawner = _make_spawner()
         with (
@@ -700,8 +714,6 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(stdout="abc1234 foo\n"),
                 # _create_sync_recovery_backup_ref
                 _make_subprocess_result(returncode=0),
-                # Hard reset
-                _make_subprocess_result(returncode=0),
             ]
             mock_rebase.return_value = PushResult(
                 ok=False,
@@ -711,52 +723,17 @@ class TestSyncWorktreeOutcomeTaxonomy:
             outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
         assert _outcome_cases(mock_logger) == [
             "divergence_rebase_failed",
-            "divergence_recovered_via_reset",
+            "divergence_unreconciled",
         ]
-        assert outcome.hard_reset_performed is True
+        assert outcome.diverged_unreconciled is True
+        assert not any("reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list)
 
-    def test_case_diverged_rebase_and_reset_failed(self):
-        """Rebase fails AND the hard-reset fallback also fails → raises
-        ``SyncRebaseAndResetFailedError`` with the backup ref and the
-        discarded SHA list attached (#2792 review B5)."""
-        import pytest
-        from routes.pipelines import SyncRebaseAndResetFailedError
+    def test_case_diverged_backup_failure_still_non_destructive(self):
+        """Backup-ref write failure → still NO reset; ``backup_ref=None`` on outcome.
 
-        spawner = _make_spawner()
-        with (
-            patch("routes.pipelines.subprocess.run") as mock_run,
-            patch("routes.pipelines.logger") as mock_logger,
-            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
-        ):
-            mock_run.side_effect = [
-                _make_subprocess_result(stdout="egg/issue-42\n"),
-                _make_subprocess_result(returncode=0),
-                _make_subprocess_result(stdout="2\t3\n"),
-                # _collect_local_only_commits
-                _make_subprocess_result(stdout="abc1234 foo\n"),
-                # _create_sync_recovery_backup_ref
-                _make_subprocess_result(returncode=0),
-                # Hard reset fails
-                _make_subprocess_result(returncode=1, stderr="reset blew up"),
-            ]
-            mock_rebase.return_value = PushResult(
-                ok=False,
-                category="reconcile_rebase_conflict",
-                detail="conflict",
-            )
-            with pytest.raises(SyncRebaseAndResetFailedError) as exc_info:
-                _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == [
-            "divergence_rebase_failed",
-            "divergence_rebase_and_reset_failed",
-        ]
-        # Backup ref was written successfully even though the reset
-        # itself failed, so it's still surfaced for forensic use.
-        assert exc_info.value.backup_ref is not None
-        assert exc_info.value.discarded_commit_shas == ("abc1234 foo",)
-
-    def test_case_diverged_recovered_via_reset_with_backup_failure(self):
-        """Backup-ref write failure → reset still runs, ``backup_ref=None`` on outcome."""
+        The local-only SHAs are inlined into the WARN for the audit trail,
+        but the commits remain on the live HEAD either way (#2979).
+        """
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -772,8 +749,6 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 _make_subprocess_result(stdout="abc1234 foo\ndef5678 bar\n"),
                 # _create_sync_recovery_backup_ref fails (e.g. disk error)
                 _make_subprocess_result(returncode=1, stderr="ref write failed"),
-                # Hard reset still runs and succeeds
-                _make_subprocess_result(returncode=0),
             ]
             mock_rebase.return_value = PushResult(
                 ok=False,
@@ -781,21 +756,22 @@ class TestSyncWorktreeOutcomeTaxonomy:
                 detail="conflict",
             )
             outcome = _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        # Reset still ran; outcome flags hard_reset_performed but
-        # backup_ref is None and the SHA list is inlined into the WARN.
-        assert outcome.hard_reset_performed is True
+        # No reset ran; outcome reports divergence with backup_ref None and
+        # the SHA list inlined into the WARN.
+        assert outcome.diverged_unreconciled is True
         assert outcome.backup_ref is None
-        assert outcome.discarded_commit_shas == (
+        assert outcome.local_only_commit_shas == (
             "abc1234 foo",
             "def5678 bar",
         )
+        assert not any("reset" in c[0][0] and "--hard" in c[0][0] for c in mock_run.call_args_list)
         inlined = [
             c
             for c in mock_logger.warning.call_args_list
-            if c.args and "Sync-recovery hard reset proceeding without backup ref" in c.args[0]
+            if c.args and "Divergence-reconcile backup ref write failed" in c.args[0]
         ]
         assert inlined, "Expected the inlined-SHAs WARN when backup-ref write fails"
-        assert inlined[0].kwargs.get("discarded_commit_shas") == [
+        assert inlined[0].kwargs.get("local_only_commit_shas") == [
             "abc1234 foo",
             "def5678 bar",
         ]

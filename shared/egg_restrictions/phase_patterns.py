@@ -124,7 +124,6 @@ def _normalize_path(file_path: str) -> str:
 PHASE_FILE_PATTERNS: dict[str, PhaseFilePattern] = {
     "refine": PhaseFilePattern(
         allowed_patterns=(
-            ".egg-state/contracts/*",
             ".egg-state/drafts/*analysis*",
             ".egg-state/checkpoints/*",
             ".egg-state/agent-outputs/*",
@@ -132,13 +131,13 @@ PHASE_FILE_PATTERNS: dict[str, PhaseFilePattern] = {
             ".egg-state/agent-anchors/*",
         ),
         description=(
-            "Refine phase can only push contracts, analysis drafts, "
-            "checkpoints, agent outputs, reviews, and agent anchors"
+            "Refine phase can only push analysis drafts, checkpoints, "
+            "agent outputs, reviews, and agent anchors "
+            "(contracts go through the contract API, not git — #2979)"
         ),
     ),
     "plan": PhaseFilePattern(
         allowed_patterns=(
-            ".egg-state/contracts/*",
             ".egg-state/drafts/*plan*",
             ".egg-state/checkpoints/*",
             ".egg-state/agent-outputs/*",
@@ -146,8 +145,9 @@ PHASE_FILE_PATTERNS: dict[str, PhaseFilePattern] = {
             ".egg-state/agent-anchors/*",
         ),
         description=(
-            "Plan phase can only push contracts, plan drafts, checkpoints, "
-            "agent outputs, reviews, and agent anchors"
+            "Plan phase can only push plan drafts, checkpoints, "
+            "agent outputs, reviews, and agent anchors "
+            "(contracts go through the contract API, not git — #2979)"
         ),
     ),
     "implement": PhaseFilePattern(
