@@ -545,7 +545,8 @@
       "ckpt-5850ffb840f97d63",
       "ckpt-485722c1988c53f8",
       "ckpt-ea6f98fa3944cf41",
-      "ckpt-8c99f0a8413c4bb1"
+      "ckpt-8c99f0a8413c4bb1",
+      "ckpt-d6b8e7f16428109b"
     ]
   },
   "by_commit": {
@@ -1132,7 +1133,8 @@
       "ckpt-ea6f98fa3944cf41",
       "ckpt-8c99f0a8413c4bb1",
       "ckpt-3f5c3268fe283f33",
-      "ckpt-b482ce798698fbbd"
+      "ckpt-b482ce798698fbbd",
+      "ckpt-d6b8e7f16428109b"
     ]
   },
   "by_session": {
@@ -1157,6 +1159,9 @@
     ],
     "egg-exec-20260604-075342-3127": [
       "ckpt-3f5c3268fe283f33"
+    ],
+    "egg-exec-20260604-080409-2675": [
+      "ckpt-d6b8e7f16428109b"
     ],
     "issue-1028-branch-cleanup-egg-0fae3eaffd04493905af975a5fbf140456f455a249c72dde069eea923ae1a6b5-work": [
       "ckpt-c1a677e9ed66c97b"
@@ -2361,7 +2366,8 @@
       "ckpt-0be31eadb60dac36",
       "ckpt-8c99f0a8413c4bb1",
       "ckpt-3f5c3268fe283f33",
-      "ckpt-b482ce798698fbbd"
+      "ckpt-b482ce798698fbbd",
+      "ckpt-d6b8e7f16428109b"
     ]
   },
   "by_trigger": {
@@ -2910,7 +2916,8 @@
       "ckpt-0be31eadb60dac36",
       "ckpt-8c99f0a8413c4bb1",
       "ckpt-3f5c3268fe283f33",
-      "ckpt-b482ce798698fbbd"
+      "ckpt-b482ce798698fbbd",
+      "ckpt-d6b8e7f16428109b"
     ]
   },
   "checkpoints": [
@@ -13230,8 +13237,27 @@
       "tool_call_count": 43,
       "total_tokens": 17776,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-06-04T08:06:52.144120Z",
+      "files_touched_count": 1,
+      "id": "ckpt-d6b8e7f16428109b",
+      "issue_number": null,
+      "message_count": 357,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": "jwbron/egg",
+      "session_id": "egg-exec-20260604-080409-2675",
+      "session_status": "completed",
+      "tool_call_count": 40,
+      "total_tokens": 15438,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-06-04T07:57:51.709531Z",
+  "last_updated": "2026-06-04T08:06:53.011262Z",
   "schemaVersion": "2.0"
 }
