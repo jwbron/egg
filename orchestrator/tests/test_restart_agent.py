@@ -781,7 +781,7 @@ class TestRestartAgentBaseBranchResolution:
     @patch("routes.pipelines.get_default_branch")
     @patch("routes.pipelines.resolve_worktree_repo_path")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_resolves_base_branch_when_pipeline_base_is_none(
@@ -842,7 +842,7 @@ class TestRestartAgentBaseBranchResolution:
     @patch("routes.pipelines.get_default_branch")
     @patch("routes.pipelines.resolve_worktree_repo_path")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_preserves_explicit_pipeline_base_branch(
@@ -900,7 +900,7 @@ class TestRestartAgentBaseBranchResolution:
     @patch("routes.pipelines.get_default_branch")
     @patch("routes.pipelines.resolve_worktree_repo_path")
     @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines.get_kubernetes_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_tolerates_worktree_resolution_failure(

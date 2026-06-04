@@ -359,7 +359,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
         client = self._flask_client()
         with (
             patch("routes.pipelines.threading.Thread"),
-            patch("routes.pipelines.get_container_spawner", return_value=MagicMock()),
+            patch("routes.pipelines.get_kubernetes_spawner", return_value=MagicMock()),
             patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
             patch("routes.pipelines.get_repo_path", return_value="/repo"),
             patch("egg_contracts.loader.load_contract", return_value=contract),
@@ -433,7 +433,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
         client = self._flask_client()
         with (
             patch("routes.pipelines.threading.Thread"),
-            patch("routes.pipelines.get_container_spawner", return_value=MagicMock()),
+            patch("routes.pipelines.get_kubernetes_spawner", return_value=MagicMock()),
             patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
             patch("routes.pipelines.get_repo_path", return_value="/repo"),
             patch("egg_contracts.loader.load_contract", return_value=contract),
@@ -483,7 +483,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
         client = self._flask_client()
         with (
             patch("routes.pipelines.threading.Thread"),
-            patch("routes.pipelines.get_container_spawner", return_value=MagicMock()),
+            patch("routes.pipelines.get_kubernetes_spawner", return_value=MagicMock()),
             patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
             patch("routes.pipelines.get_repo_path", return_value="/repo"),
             patch("egg_contracts.loader.load_contract", return_value=contract),
@@ -516,7 +516,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
         client = self._flask_client()
         with (
             patch("routes.pipelines.threading.Thread"),
-            patch("routes.pipelines.get_container_spawner", return_value=MagicMock()),
+            patch("routes.pipelines.get_kubernetes_spawner", return_value=MagicMock()),
             patch("routes.pipelines._resolve_pipeline", return_value=(mock_store, pipeline)),
             patch("routes.pipelines.get_repo_path", return_value="/repo"),
             patch(
