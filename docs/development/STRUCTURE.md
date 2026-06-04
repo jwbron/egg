@@ -218,6 +218,19 @@ sandbox/
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
 │   └── git-credential-github-token
+├── egg_agent_tools/        # In-process SDK MCP server: 45 tools across 7 namespaces (sdlc, brc, phase, progress, task, confluence, jira)
+│   ├── server.py           # build_sandbox_mcp_server(): one SDK server per namespace; SYSTEM_PROMPT_NUDGE generated at import
+│   ├── schemas.py          # Tool JSON schemas + derive_schema_from_argparse (argparse → JSON Schema)
+│   ├── push.py             # Gateway push helper (mcp__brc__propose pre-step)
+│   ├── handlers/           # Handler functions called by @tool wrappers and CLIs (MCP↔CLI drift gate)
+│   │   ├── _gateway.py     # gateway_request + gateway_data_request helpers
+│   │   ├── confluence.py   # Confluence gateway-route handlers (page/space/search/execute; #2994)
+│   │   ├── jira.py         # Jira gateway-route handlers (ticket CRUD/search/links/execute; #2994)
+│   │   └── ...             # brc.py, sdlc.py, task.py, phase.py, progress.py, message.py, restrictions.py, brc_memory.py, errors.py
+│   └── tools/              # @tool wrappers — one module per namespace, each exports REGISTRATIONS
+│       ├── confluence.py   # mcp__confluence__* wrappers: 8 read-only gateway mirrors (#2994)
+│       ├── jira.py         # mcp__jira__* wrappers: 9 gateway mirrors (reads + 4 writes) (#2994)
+│       └── ...             # brc.py, sdlc.py, task.py, phase.py, progress.py, message.py, _common.py, _registry.py, _tool_compat.py
 ├── egg_lib/                # Container utility libraries
 │   ├── cli.py              # CLI command handling
 │   ├── config.py           # Configuration management
