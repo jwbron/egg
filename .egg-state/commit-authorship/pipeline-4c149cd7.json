@@ -16,6 +16,14 @@
       "repo": null,
       "role": "coder"
     },
+    "8b95e9e2490b1d6bd1f89831fe9206fe9e638252": {
+      "branch": "egg/pipeline-4c149cd7/slice-1",
+      "patch_id": "94b629f9b9d95ee8c998bb16350198087a0ecc25",
+      "pipeline_id": "pipeline-4c149cd7",
+      "registered_at": "2026-06-04T19:29:18.891037+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "da0a6aba21150d46cc3f982ba6fe559a062ee6d3": {
       "branch": "egg/pipeline-4c149cd7/slice-1",
       "patch_id": "5ab148391e080163ca35797b1b9926de7dd628ca",
