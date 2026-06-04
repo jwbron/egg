@@ -625,7 +625,7 @@ def _deployment_volumes(doc: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> list[dict[str, Any]]:
-    """Apply the five warning rules from the #1759 validation session.
+    """Apply the warning rules from the #1759 validation session.
 
     Rules:
 
@@ -640,6 +640,10 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
     4. Service selector labels not matching deployment template labels.
     5. Env-var name collision: same name declared twice in a single
        container's ``env`` list.
+    6. Gateway session store ephemeral while worktrees are persistent
+       (#3005): an ephemeral ``egg-state`` (emptyDir, or absent so it falls
+       inside the ``home`` emptyDir) paired with a persistent ``worktrees``
+       lets a gateway pod recreation wipe live pipeline worktrees.
     """
     warnings: list[dict[str, Any]] = []
 
@@ -774,6 +778,73 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
                         "more than once"
                     ),
                 )
+
+    # Rule 6: gateway session store must share the worktrees' persistence
+    # lifetime (#3005). When an overlay gives a gateway's worktrees a volume
+    # that survives pod recreation, the gateway session store — the
+    # ``egg-state`` volume mounted at /home/egg/.egg-state
+    # (gateway/session_manager.py) — MUST also survive. The two are coupled:
+    # startup worktree cleanup
+    # (gateway/worktree_manager.py:cleanup_orphaned_worktrees) only protects a
+    # live pipeline's worktrees if it can see the owning sessions (the #1874
+    # session-anchor derivation). If the session store is ephemeral
+    # (``emptyDir`` or absent — in which case /home/egg/.egg-state falls
+    # inside the ``home`` emptyDir) while the worktrees survive on a
+    # persistent volume, a gateway *pod* recreation boots with the worktrees
+    # still on disk but zero sessions, so cleanup runs with
+    # active_containers=0 and deletes every live worktree out from under its
+    # running phase agents, deadlocking BRC consensus. The rule is expressed
+    # against ``emptyDir`` (the ephemeral side) rather than ``hostPath`` (one
+    # specific persistent backing) so it generalizes to PVC / NFS / CSI
+    # backings a future cloud overlay might use — the real invariant is
+    # "session store has at least the same persistence class as worktrees,"
+    # not "both are hostPath." Self-gated on the worktrees actually being
+    # persistent so it stays silent on all-emptyDir base/cloud deploys (where
+    # nothing survives a pod recreation, so there is no asymmetry to exploit).
+    for dep in deployments:
+        name = dep.get("metadata", {}).get("name", "<unknown>")
+        # Match the gateway deployment by exact name or ``gateway-*`` prefix
+        # so the rule fires on canary / rollout variants but not on unrelated
+        # deployments that happen to contain ``gateway`` as a substring
+        # (e.g. a hypothetical ``litellm-gateway``).
+        if name != "gateway" and not name.startswith("gateway-"):
+            continue
+        vols = _deployment_volumes(dep)
+        worktrees_vol = next((v for v in vols if (v or {}).get("name") == "worktrees"), None)
+        # Worktrees survive a pod recreation only if declared AND not an
+        # emptyDir. Absence / emptyDir both count as ephemeral, so there is
+        # nothing for an empty session store to wrongly orphan — no asymmetry.
+        if worktrees_vol is None or "emptyDir" in worktrees_vol:
+            continue
+        egg_state_vol = next((v for v in vols if (v or {}).get("name") == "egg-state"), None)
+        # Session store is persistent iff declared AND not emptyDir.
+        egg_state_persistent = egg_state_vol is not None and "emptyDir" not in egg_state_vol
+        if egg_state_persistent:
+            continue
+        if egg_state_vol is None:
+            detail = (
+                "gateway worktrees survive pod recreation but no "
+                "``egg-state`` volume is declared, so /home/egg/.egg-state "
+                "falls inside the ``home`` emptyDir and the session store is "
+                "ephemeral"
+            )
+        else:
+            detail = (
+                "gateway worktrees survive pod recreation but its session "
+                "store (egg-state volume, /home/egg/.egg-state) is an "
+                "emptyDir and does not"
+            )
+        _warn(
+            warnings,
+            rule="session-store-not-persistent",
+            severity="error",
+            resource=f"Deployment/{name}",
+            message=(
+                f"{detail}; a gateway pod recreation will boot with an empty "
+                "session store and delete live pipeline worktrees during "
+                "startup cleanup (#3005)"
+            ),
+        )
 
     return warnings
 
