@@ -32,6 +32,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
     },
+    "54c476bcc1ec39e2a6324e98c0c329501a07f61d": {
+      "branch": "egg/pipeline-5d615b3e/slice-2",
+      "patch_id": "b39ba6188351ac96b963aea9c8aaca94cb7e5a80",
+      "pipeline_id": "pipeline-5d615b3e",
+      "registered_at": "2026-06-04T06:04:44.849602+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "6ad9ae1bfebe306046b6e047ccd81da47db029a7": {
       "branch": "egg/pipeline-5d615b3e/slice-1",
       "patch_id": "0dddef1f37a6bb0c99ba8442ddc2827abbb88f04",
