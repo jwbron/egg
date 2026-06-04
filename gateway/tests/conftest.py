@@ -183,6 +183,12 @@ anthropic_credentials = _load_module_with_replaced_imports(
     GATEWAY_DIR / "anthropic_credentials.py",
 )
 
+# routing_policy has no relative imports to other gateway modules
+routing_policy = _load_module_with_replaced_imports(
+    "routing_policy",
+    GATEWAY_DIR / "routing_policy.py",
+)
+
 # jira_credentials imports parse_env_file from anthropic_credentials
 jira_credentials = _load_module_with_replaced_imports(
     "jira_credentials",
@@ -354,6 +360,7 @@ gateway = _load_module_with_replaced_imports(
         "from .session_manager import": "from session_manager import",
         "from .rate_limiter import": "from rate_limiter import",
         "from .repo_visibility import": "from repo_visibility import",
+        "from .routing_policy import": "from routing_policy import",
         "from .worktree_manager import": "from worktree_manager import",
         "from .jira_client import": "from jira_client import",
         "from .jira_credentials import": "from jira_credentials import",

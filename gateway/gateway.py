@@ -55,7 +55,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 from flask import Flask, Response, g, has_request_context, jsonify, request, stream_with_context
@@ -193,6 +193,10 @@ try:
     )
     from .repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
     from .repo_visibility import get_repo_visibility
+    from .routing_policy import (
+        RouteHop,
+        get_routing_policy_manager,
+    )
     from .session_manager import (
         get_session_manager,
         validate_session_for_request,
@@ -345,6 +349,10 @@ except ImportError:
         parse_owner_repo,
     )
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
+    from routing_policy import (  # type: ignore[no-redef, import-untyped]
+        RouteHop,
+        get_routing_policy_manager,
+    )
     from session_manager import (  # type: ignore[no-redef, import-untyped]
         get_session_manager,
         validate_session_for_request,
@@ -9121,6 +9129,253 @@ def _inject_anthropic_credentials(
     return _inject_upstream_credentials(headers, upstream="anthropic")
 
 
+# =============================================================================
+# Routing policy — gateway-as-single-router (issue #2987)
+# =============================================================================
+# The gateway is the single LLM router. On top of the spawn-time per-agent
+# upstream selection (``session.upstream``), a hot-reloadable, model-keyed
+# routing policy adds a proactive ``switchover`` remap and a reactive
+# ``fallbacks`` chain. See gateway/routing_policy.py for the schema and the
+# fail-open posture. The helpers below resolve a request into an ordered
+# list of ``RouteHop``s and prepare a clean (client, headers, body) tuple
+# per hop — the credentials are rebuilt from scratch on every hop so a
+# fallback never carries the previous upstream's auth header (the bleed
+# fix: litellm's ``x-api-key`` and Anthropic-OAuth's ``Authorization`` are
+# different header names, so re-injecting into a dirty dict would otherwise
+# leak the stale key onto the next upstream).
+
+
+def _extract_wire_model(request_body: bytes) -> str | None:
+    """Return the request body's ``"model"`` field, or ``None`` on parse miss."""
+    try:
+        model = json.loads(request_body).get("model")
+    except json.JSONDecodeError, TypeError, AttributeError:
+        return None
+    return model if isinstance(model, str) else None
+
+
+def _rewrite_upstream_model(request_body: bytes, model: str) -> bytes:
+    """Set ``body["model"] = model`` and re-encode; original bytes on parse miss.
+
+    A narrowly-scoped reintroduction of the helper #2832 retired. #2832
+    removed the *unconditional* LiteLLM-path rewrite (Claude Code now sends
+    the wire model directly); this version fires ONLY when a routing-policy
+    hop names an explicit target model, so the no-policy path is
+    byte-identical — the body is never touched unless a switchover or
+    fallback hop specifies a ``model``.
+    """
+    try:
+        body = json.loads(request_body)
+    except json.JSONDecodeError, TypeError:
+        return request_body
+    if not isinstance(body, dict):
+        return request_body
+    body["model"] = model
+    return json.dumps(body).encode()
+
+
+def _resolve_route_chain(
+    session_upstream: str,
+    request_body: bytes,
+) -> tuple[list[RouteHop], Any]:
+    """Resolve a request into an ordered ``[RouteHop, ...]`` chain + triggers.
+
+    Hop 0 is the *initial* route: a proactive ``switchover`` remap for the
+    wire model if one is configured, else the spawn-time ``session_upstream``
+    (no model rewrite — byte-identical to today). Hops 1..N are the reactive
+    fallback chain for the wire model, in order. With an empty policy the
+    chain is a single hop on ``session_upstream`` and behavior is
+    byte-identical to the pre-#2987 path.
+    """
+    policy = get_routing_policy_manager().get_policy()
+    wire_model = _extract_wire_model(request_body)
+
+    switch = policy.switchover_for(wire_model)
+    initial = switch if switch is not None else RouteHop(upstream=session_upstream, model=None)
+    chain = [initial, *policy.fallback_chain_for(wire_model)]
+    return chain, policy.triggers
+
+
+class _PreparedHop(NamedTuple):
+    """A hop ready to send: resolved client, freshly-injected headers, body."""
+
+    client: Any
+    headers: dict[str, str]
+    body: bytes
+
+
+class _HopPrepError(Exception):
+    """Raised by ``_prepare_hop`` when a hop cannot be prepared.
+
+    Carries the ``(Response, status)`` tuple the proxy route should return if
+    this is the last hop (the caller advances to a fallback instead when one
+    exists). Modeling the failure as an exception — rather than an optional
+    field in the return tuple — lets the success path be a non-optional
+    ``_PreparedHop`` that type-checks cleanly at the call sites.
+    """
+
+    def __init__(self, response: tuple[Any, int]) -> None:
+        super().__init__("hop preparation failed")
+        self.response = response
+
+
+def _prepare_hop(
+    hop: RouteHop,
+    request_headers: Any,
+    request_body: bytes,
+) -> _PreparedHop:
+    """Build the (client, headers, body) for one hop.
+
+    Headers are rebuilt with ``_get_forwarded_headers`` from the *original*
+    request headers on every call, then this hop's credential is injected —
+    so a fallback hop never inherits the previous upstream's auth header.
+    Raises ``_HopPrepError`` (carrying the error response) on a credential or
+    unknown-upstream failure for this hop; the caller decides whether to
+    advance to a fallback or surface it.
+    """
+    headers = _get_forwarded_headers(request_headers)
+    headers, cred_error = _inject_upstream_credentials(headers, upstream=hop.upstream)
+    if cred_error:
+        raise _HopPrepError(cred_error)
+
+    if hop.upstream == "anthropic":
+        client = get_anthropic_client()
+    else:
+        try:
+            client, _ = get_upstream_registry().get(hop.upstream)
+        except UnknownUpstreamError:
+            logger.warning("Unknown upstream on routing hop, refusing", upstream=hop.upstream)
+            raise _HopPrepError(
+                (
+                    jsonify(
+                        {
+                            "error": {
+                                "type": "api_error",
+                                "message": f"Unknown upstream '{hop.upstream}'",
+                            }
+                        }
+                    ),
+                    502,
+                )
+            ) from None
+
+    body = _rewrite_upstream_model(request_body, hop.model) if hop.model else request_body
+    return _PreparedHop(client=client, headers=headers, body=body)
+
+
+def _classify_route_status(
+    status: int,
+    triggers: Any,
+    same_hop_attempts: int,
+    is_last_hop: bool,
+) -> str:
+    """Decide what to do with an upstream's status: retry the same hop,
+    advance to the next hop, or accept the response.
+
+    Same-hop retry takes precedence while the budget remains (so a code that
+    is in *both* ``retry_same_on`` and ``advance_on`` retries first, then
+    escalates). ``advance`` only fires when a fallback hop exists.
+    """
+    if status in triggers.retry_same_on and same_hop_attempts < triggers.retry_same_max:
+        return "retry_same"
+    if status in triggers.advance_on and not is_last_hop:
+        return "advance"
+    return "accept"
+
+
+# Transport-level errors that mean "this upstream did not produce a usable
+# HTTP response" — eligible for the same-hop retry (#1907) and, when a
+# fallback hop exists, for advancing the chain (#2987).
+_UPSTREAM_TRANSPORT_ERRORS = (
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.TimeoutException,
+)
+
+
+def _close_quietly(resp: Any) -> None:
+    """Close an httpx streaming response, swallowing errors.
+
+    Used to release a discarded upstream connection when the routing loop
+    retries the same hop or advances to a fallback — a streaming response we
+    are not going to forward must be closed or its connection leaks.
+    """
+    try:
+        resp.close()
+    except Exception:
+        pass
+
+
+def _send_and_prime(
+    client: Any,
+    headers: dict[str, str],
+    body: bytes,
+) -> tuple[Any, Any, bytes | None]:
+    """Send the upstream request and pre-fetch the first chunk.
+
+    Returns ``(upstream_response, iterator, first_chunk)`` where
+    ``first_chunk`` is ``None`` if the upstream returned an empty body.
+    Raises a transport error (``httpx.ReadError`` / ``RemoteProtocolError`` /
+    ``ConnectError`` / ``TimeoutException``) if the connection fails during
+    ``send()`` or the first ``iter_bytes()`` call — callers use that signal
+    to retry the same hop or advance to a fallback (issues #1907, #2987).
+    """
+    http_req = client.build_request("POST", "/v1/messages", headers=headers, content=body)
+    upstream_resp = client.send(http_req, stream=True)
+    try:
+        iterator = upstream_resp.iter_bytes()
+        try:
+            first = next(iterator)
+        except StopIteration:
+            first = None
+        return upstream_resp, iterator, first
+    except BaseException:
+        # Close the failed upstream so the caller's retry can open a fresh
+        # connection without leaking the old one. Broad catch ensures
+        # cleanup on *any* exception from iter_bytes() / next().
+        try:
+            upstream_resp.close()
+        except Exception:
+            pass
+        raise
+
+
+def _attempt_hop_streaming(
+    client: Any,
+    headers: dict[str, str],
+    body: bytes,
+    *,
+    container_id: str | None,
+) -> tuple[Any, Any, bytes | None]:
+    """One streaming hop with the #1907 pre-stream transport-reset retry.
+
+    Retries the *same* upstream once if the connection resets before any byte
+    is forwarded downstream, then raises on the second failure. The
+    cross-hop routing loop turns that raise into an advance-or-surface
+    decision (#2987).
+    """
+    for attempt in range(2):
+        try:
+            return _send_and_prime(client, headers, body)
+        except _UPSTREAM_TRANSPORT_ERRORS as reset_err:
+            if attempt == 0 and isinstance(reset_err, (httpx.ReadError, httpx.RemoteProtocolError)):
+                logger.warning(
+                    "Upstream connection reset before any byte was forwarded; "
+                    "retrying same upstream once",
+                    container_id=container_id,
+                    error=str(reset_err),
+                )
+                continue
+            # Connect/timeout failures (and the exhausted reset retry) are not
+            # retried in place — the routing loop advances to a fallback hop
+            # if one exists, else re-raises to the outer 502/504 handler.
+            raise
+    # Unreachable: ``range(2)`` always returns on success or raises on the
+    # second attempt. Present so the type checker sees no fall-through path.
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 # Tools blocked in private mode to prevent data exfiltration
 # These tools route through Anthropic's infrastructure, bypassing container network controls
 # See PR #686 security findings and PR #702 analysis
@@ -9290,125 +9545,121 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     # client probes /v1/messages without first registering a session.
     upstream_name = session.upstream if session else "anthropic"
 
-    # Build headers with injected auth — dispatches per-upstream so the
-    # LiteLLM master key is never paired with an Anthropic request and vice
-    # versa.
-    headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
-    if error:
-        return error
-
     request_body = request.get_data()
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
-    # Per #2832, Claude Code on the LiteLLM path now sends the upstream
-    # model name on the wire directly (via ANTHROPIC_CUSTOM_MODEL_OPTION,
-    # threaded through the agent's env at spawn time). The gateway no
-    # longer rewrites the body — both upstreams receive whatever
-    # ``"model"`` value the client sent.
+    # Per #2832, Claude Code on the LiteLLM path sends the upstream model
+    # name on the wire directly (via ANTHROPIC_CUSTOM_MODEL_OPTION). The
+    # gateway only rewrites ``"model"`` when a routing-policy hop names an
+    # explicit target (see ``_prepare_hop`` / ``_rewrite_upstream_model``).
     is_streaming = _is_streaming_request(request_body)
 
-    # Resolve the upstream httpx client per request. The Anthropic path
-    # keeps calling ``get_anthropic_client()`` so behavior — including
-    # existing test mocks patching that symbol — is byte-identical to
-    # today. Non-Anthropic upstreams (currently only ``"litellm"``) resolve
-    # through the registry, which is the swap-out seam (issue #2769
-    # feedback Q3).
-    if upstream_name == "anthropic":
-        client = get_anthropic_client()
-    else:
-        try:
-            client, _ = get_upstream_registry().get(upstream_name)
-        except UnknownUpstreamError:
-            logger.warning(
-                "Unknown upstream on session, refusing request",
-                upstream=upstream_name,
-            )
-            return jsonify(
-                {
-                    "error": {
-                        "type": "api_error",
-                        "message": f"Unknown upstream '{upstream_name}'",
-                    }
-                }
-            ), 502
+    # Resolve the routing chain (issue #2987). Hop 0 is the proactive
+    # ``switchover`` remap for this wire model, or — with no switchover entry
+    # — the spawn-time ``session.upstream``. Hops 1..N are the reactive
+    # ``fallbacks`` chain for the wire model. With an empty routing policy the
+    # chain is a single hop on ``session.upstream`` and every step below is
+    # byte-identical to the pre-#2987 path. ``triggers`` decides which status
+    # codes retry the same upstream vs advance to the next hop; credentials
+    # are rebuilt per hop inside ``_prepare_hop`` so a fallback never carries
+    # the previous upstream's auth header.
+    chain, triggers = _resolve_route_chain(upstream_name, request_body)
+    # The upstream actually serving the request, for error/log context. The
+    # outer ``except`` handlers below read this so a fallback hop's failure
+    # is attributed to the hop that failed, not hop 0.
+    serving_upstream = chain[0].upstream
 
     try:
         if is_streaming:
             # Stream SSE response using httpx's send() with stream=True
             # This gives us direct control over the response lifecycle.
             #
-            # Resilience strategy (see #1907):
+            # Resilience strategy (see #1907, extended for routing in #2987):
             #   (A) Pre-stream retry — if the upstream TCP connection resets
             #       before any byte has been yielded downstream, open a fresh
-            #       upstream connection and retry the request once. The
-            #       downstream SDK never sees the error. Covers
-            #       connection-pool staleness and very-early resets.
-            #   (B) Mid-stream synthetic error — if the reset happens after
-            #       bytes have already flowed, emit a well-formed SSE
-            #       ``event: error`` frame and close the downstream stream
-            #       cleanly. Lets the SDK fail gracefully instead of dying
-            #       on a truncated socket.
+            #       upstream connection and retry the same hop once
+            #       (``_attempt_hop_streaming``). The downstream SDK never
+            #       sees the error.
+            #   (B) Cross-hop fallback — if the primed upstream returns a
+            #       trigger status (quota / opt-in 5xx) or a transport
+            #       failure that survives (A), and a fallback hop exists,
+            #       advance to it. All of this happens in the *pre-stream*
+            #       window, before any byte is forwarded downstream.
+            #   (C) Mid-stream synthetic error — once bytes have flowed, a
+            #       reset can no longer fall back; emit a well-formed SSE
+            #       ``event: error`` frame and close cleanly so the SDK fails
+            #       gracefully instead of dying on a truncated socket.
             #
             # Full stream resumption is not attempted — Anthropic's API has
             # no resume tokens, and the partial generation on the wire is
             # orphaned on any mid-stream reset regardless.
-            def _send_and_prime() -> tuple[Any, Any, bytes | None]:
-                """Send upstream request and pre-fetch the first chunk.
-
-                Returns ``(upstream_response, iterator, first_chunk)`` where
-                ``first_chunk`` is ``None`` if upstream returned an empty
-                body. Raises ``httpx.ReadError`` or
-                ``httpx.RemoteProtocolError`` if the connection resets during
-                ``send()`` or the first ``iter_bytes()`` call — callers use
-                that signal to retry transparently.
-                """
-                http_req = client.build_request(
-                    "POST",
-                    "/v1/messages",
-                    headers=headers,
-                    content=request_body,
-                )
-                upstream_resp = client.send(http_req, stream=True)
-                try:
-                    iterator = upstream_resp.iter_bytes()
-                    try:
-                        first = next(iterator)
-                    except StopIteration:
-                        first = None
-                    return upstream_resp, iterator, first
-                except BaseException:
-                    # Close the failed upstream so the caller's retry can
-                    # open a fresh connection without leaking the old one.
-                    # Broad catch ensures cleanup on *any* exception from
-                    # iter_bytes() / next(), not just the two transport
-                    # errors we expect.
-                    try:
-                        upstream_resp.close()
-                    except Exception:
-                        pass
-                    raise
-
             upstream: Any = None
             primed_iterator: Any = None
             first_chunk: bytes | None = None
-            for attempt in range(2):
+            hop_idx = 0
+            same_hop_attempts = 0
+            while True:
+                hop = chain[hop_idx]
+                is_last_hop = hop_idx == len(chain) - 1
+                serving_upstream = hop.upstream
                 try:
-                    upstream, primed_iterator, first_chunk = _send_and_prime()
-                    break
-                except (httpx.ReadError, httpx.RemoteProtocolError) as reset_err:
-                    if attempt == 0:
-                        logger.warning(
-                            "Upstream Anthropic connection reset before any byte "
-                            "was forwarded; retrying once",
-                            container_id=container_id,
-                            error=str(reset_err),
-                        )
-                        continue
-                    # Retry exhausted — fall through to the outer
-                    # exception handler which returns a 502 to the caller.
-                    raise
+                    prepared = _prepare_hop(hop, request.headers, request_body)
+                except _HopPrepError as prep_err:
+                    if is_last_hop:
+                        return prep_err.response
+                    logger.warning(
+                        "Routing hop failed credential/upstream prep; advancing",
+                        upstream=hop.upstream,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                    )
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                try:
+                    upstream, primed_iterator, first_chunk = _attempt_hop_streaming(
+                        prepared.client, prepared.headers, prepared.body, container_id=container_id
+                    )
+                except _UPSTREAM_TRANSPORT_ERRORS as hop_err:
+                    if is_last_hop:
+                        # Last hop — surface via the outer 502/504 handlers,
+                        # preserving today's error contract.
+                        raise
+                    logger.warning(
+                        "Routing hop transport failure; advancing to fallback",
+                        upstream=hop.upstream,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                        error=str(hop_err),
+                    )
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+
+                decision = _classify_route_status(
+                    upstream.status_code, triggers, same_hop_attempts, is_last_hop
+                )
+                if decision == "retry_same":
+                    same_hop_attempts += 1
+                    logger.warning(
+                        "Upstream returned a retryable status; retrying same upstream",
+                        upstream=hop.upstream,
+                        status=upstream.status_code,
+                        attempt=same_hop_attempts,
+                    )
+                    _close_quietly(upstream)
+                    continue
+                if decision == "advance":
+                    logger.warning(
+                        "Upstream returned a fallback-trigger status; advancing",
+                        upstream=hop.upstream,
+                        status=upstream.status_code,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                    )
+                    _close_quietly(upstream)
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                break  # accept this hop's response
 
             response_headers = _filter_response_headers(upstream.headers)
             # Forward actual Content-Type from upstream (usually text/event-stream)
@@ -9425,8 +9676,8 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                     # instead of a truncated socket. The frame shape matches
                     # Anthropic's documented error event.
                     logger.warning(
-                        "Upstream Anthropic stream reset mid-response; "
-                        "emitting synthetic SSE error frame",
+                        "Upstream stream reset mid-response; emitting synthetic SSE error frame",
+                        upstream=serving_upstream,
                         container_id=container_id,
                         error=str(mid_err),
                     )
@@ -9453,12 +9704,47 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 content_type=content_type,
             )
         else:
-            # Non-streaming: simple request/response
-            response = client.post(
-                "/v1/messages",
-                headers=headers,
-                content=request_body,
-            )
+            # Non-streaming: walk the same routing chain without priming.
+            # Status-based retry/advance applies; a transport failure on a
+            # non-last hop advances (else surfaces via the outer handlers,
+            # preserving today's 502/504 contract).
+            response: Any = None
+            hop_idx = 0
+            same_hop_attempts = 0
+            while True:
+                hop = chain[hop_idx]
+                is_last_hop = hop_idx == len(chain) - 1
+                serving_upstream = hop.upstream
+                try:
+                    prepared = _prepare_hop(hop, request.headers, request_body)
+                except _HopPrepError as prep_err:
+                    if is_last_hop:
+                        return prep_err.response
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                try:
+                    response = prepared.client.post(
+                        "/v1/messages", headers=prepared.headers, content=prepared.body
+                    )
+                except _UPSTREAM_TRANSPORT_ERRORS:
+                    if is_last_hop:
+                        raise
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+
+                decision = _classify_route_status(
+                    response.status_code, triggers, same_hop_attempts, is_last_hop
+                )
+                if decision == "retry_same":
+                    same_hop_attempts += 1
+                    continue
+                if decision == "advance":
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                break  # accept
 
             return Response(
                 response.content,
@@ -9467,34 +9753,34 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             )
 
     except httpx.ConnectError as e:
-        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
+        logger.error("Upstream connection failed", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
+                    "message": f"Failed to connect to {serving_upstream} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
+        logger.error("Upstream request timed out", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream request timed out: {e}",
+                    "message": f"{serving_upstream} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Upstream proxy error", upstream=upstream_name)
+        logger.exception("Upstream proxy error", upstream=serving_upstream)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream proxy error: {e}",
+                    "message": f"{serving_upstream} upstream proxy error: {e}",
                 }
             }
         ), 502
@@ -9516,39 +9802,28 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         return lookup_error
     upstream_name = session.upstream if session else "anthropic"
 
-    headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
-    if error:
-        return error
-
-    if upstream_name == "anthropic":
-        client = get_anthropic_client()
-    else:
-        try:
-            client, _ = get_upstream_registry().get(upstream_name)
-        except UnknownUpstreamError:
-            logger.warning(
-                "Unknown upstream on session, refusing request",
-                upstream=upstream_name,
-            )
-            return jsonify(
-                {
-                    "error": {
-                        "type": "api_error",
-                        "message": f"Unknown upstream '{upstream_name}'",
-                    }
-                }
-            ), 502
-
-    # Per #2832, Claude Code sends the upstream model name on the wire
-    # directly for LiteLLM-routed agents — no body rewrite here either.
     count_tokens_body = request.get_data()
 
+    # Honor the proactive ``switchover`` remap so token-counting hits the
+    # same backend (and model) that messages will use (issue #2987). The
+    # reactive fallback chain is intentionally NOT walked here — token
+    # counting is an informational pre-flight, not load-bearing inference,
+    # so a quota miss surfaces rather than escalating. We take only hop 0 of
+    # the resolved chain; ``_prepare_hop`` rebuilds clean headers + applies
+    # the optional model rewrite for that hop.
+    chain, _triggers = _resolve_route_chain(upstream_name, count_tokens_body)
+    initial_hop = chain[0]
+    serving_upstream = initial_hop.upstream
     try:
-        response = client.post(
+        prepared = _prepare_hop(initial_hop, request.headers, count_tokens_body)
+    except _HopPrepError as prep_err:
+        return prep_err.response
+
+    try:
+        response = prepared.client.post(
             "/v1/messages/count_tokens",
-            headers=headers,
-            content=count_tokens_body,
+            headers=prepared.headers,
+            content=prepared.body,
         )
         return Response(
             response.content,
@@ -9557,34 +9832,34 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         )
 
     except httpx.ConnectError as e:
-        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
+        logger.error("Upstream connection failed", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
+                    "message": f"Failed to connect to {serving_upstream} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
+        logger.error("Upstream request timed out", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream request timed out: {e}",
+                    "message": f"{serving_upstream} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Upstream proxy error", upstream=upstream_name)
+        logger.exception("Upstream proxy error", upstream=serving_upstream)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream proxy error: {e}",
+                    "message": f"{serving_upstream} upstream proxy error: {e}",
                 }
             }
         ), 502
