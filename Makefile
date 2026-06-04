@@ -676,6 +676,18 @@ sudo-keepalive:
 # image is ~12 GB, so /tmp (tmpfs) would consume that much RAM.
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
+	@# Reclaim docker disk BEFORE the import. The loop below does, per image,
+	@# `docker save > /var/tmp/*.tar` + `ctr images import` -- briefly a second
+	@# AND third copy of the ~12 GB sandbox image on the shared root fs. If
+	@# docker's accumulated old tags + unbounded BuildKit cache already sit near
+	@# kubelet's image-GC high-water mark (~85%), that spike trips GC, which
+	@# evicts the freshly-imported, not-yet-referenced egg images mid-run and
+	@# aborts the deploy (see check-egg-images-present.sh). Bounding docker here,
+	@# keyed on the tag we are about to import, keeps the spike under the line.
+	@# Best-effort: a reclaim hiccup must not fail the import. Complements the
+	@# post-deploy reap-stale-egg-images.sh, which bounds the OTHER store (k3s
+	@# containerd); this one bounds docker.
+	@scripts/reclaim-docker-disk.sh "$(EGG_IMAGE_TAG)" || true
 	@set -euo pipefail; \
 	tmp=$$(mktemp -d -p /var/tmp egg-k3s-import.XXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
