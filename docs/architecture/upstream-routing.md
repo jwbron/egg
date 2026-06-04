@@ -352,22 +352,160 @@ Slice 2 originally set the body's `"model"` field via a gateway-side
 favour of the in-sandbox env-var registration described in the
 [Per-Agent Models guide](../guides/per-agent-models.md#compaction-math--custom-model-registration-2832).
 
+## Routing policy & reactive fallback (#2987)
+
+[#2987](https://github.com/jwbron/egg/issues/2987) makes the gateway
+the **single LLM router** for the cost-driven migration onto open
+models. The decision that shapes this section: route everything —
+including Anthropic and every open→Anthropic fallback hop — through
+the gateway's existing per-upstream registry, and reject the
+alternative of fronting Anthropic *through* LiteLLM. Putting Anthropic
+inside LiteLLM does not compose: LiteLLM's Anthropic provider wants
+`x-api-key`, while egg's Anthropic credential is OAuth-only
+(`Authorization: Bearer`), and LiteLLM's `forward_client_headers`
+would clobber OpenRouter's own `Authorization: Bearer`. The gateway
+sidesteps the collision because `_inject_upstream_credentials` already
+keeps Anthropic-OAuth (`Authorization`) and LiteLLM (`x-api-key`) on
+**different header names**.
+
+On top of the spawn-time per-agent selection (`session.upstream`), a
+**hot-reloadable, model-keyed routing policy** at
+`gateway/routing_policy.py` adds two levers:
+
+- **`switchover`** — *proactive* remap. Before the first send, a wire
+  model name (the request body's `"model"`) can be remapped to a
+  different upstream and/or model. The knob to globally re-route a
+  wire model without respawning agents.
+- **`fallbacks`** — *reactive* chain. When the primary upstream
+  returns a trigger status, the proxy advances through an ordered list
+  of fallback hops for that wire model.
+
+**Consolidation principle: fallback is a property of the model, not
+the pipeline.** The policy keys on the wire model, so an explicit
+per-pipeline `agent_models` override inherits the same fallback chain
+for free — no per-pipeline fallback is threaded through the session.
+Selection stays spawn-time `agent_models`; only the fallback chain (and
+the proactive `switchover`) is hot-reloadable. You cannot hot-swap a
+running agent's *primary* model mid-turn — that is baked into its env
+at spawn — but `switchover` re-routes a wire model on the next request.
+
+### What this is — and is not
+
+This is the **resilience substrate** for the migration, not the
+switchover mechanism itself. Per-role selection is the pre-existing
+spawn-time config (`agent_models` / `default_agent_model` → next
+spawn). Backend registration (the Fireworks/open `model_list` entries)
+still happens in `litellm-models.yaml` via `make litellm-config`. This
+change adds the Anthropic-as-fallback-target safety net plus hot
+iteration on the fallback/switchover policy.
+
+### The chain walker
+
+`proxy_anthropic_messages` resolves a request into an ordered
+`[RouteHop, ...]` chain (`_resolve_route_chain`): hop 0 is the
+`switchover` remap or the spawn-time `session.upstream`; hops 1..N are
+the `fallbacks` chain for the wire model. It then walks the chain in
+the **pre-stream window** (streaming) or per-response (non-streaming):
+
+- **Credentials are rebuilt per hop.** `_prepare_hop` calls
+  `_get_forwarded_headers(request.headers)` fresh and injects only that
+  hop's credential, every hop. This is load-bearing: because LiteLLM
+  uses `x-api-key` and Anthropic-OAuth uses `Authorization` —
+  *different* header names — re-injecting into a dict that already
+  carries the previous hop's credential would not overwrite it, and a
+  litellm→anthropic hop would carry a **stale LiteLLM master key** in
+  `x-api-key` alongside the real Anthropic `Authorization` to
+  `api.anthropic.com`. Rebuilding from the (already auth-stripped)
+  inbound headers makes the bleed structurally impossible.
+- **Model rewrite is scoped.** A hop that names a `model` rewrites the
+  body's `"model"` field via `_rewrite_upstream_model` — a
+  narrowly-scoped reintroduction of the helper [#2832](https://github.com/jwbron/egg/issues/2832)
+  retired. It fires **only** when a policy hop names a target, so the
+  no-policy path is byte-identical. A hop to `anthropic` MUST set
+  `model` to a real Claude id, else Anthropic 404s the open-model name.
+- **Triggers.** `_classify_route_status` decides per status code:
+  `advance_on` (default `{429}` — **quota only**) advances to the next
+  hop; `retry_same_on` (default `{500, 502, 503, 529}`,
+  `retry_same_max = 1`) retries the **same** upstream once, then
+  surfaces. Same-hop retry precedes advance, so a code in both sets
+  retries first. The quota-only default is deliberate: a transient 5xx
+  from a cheap open model must not silently escalate to (expensive)
+  Opus, and a genuinely buggy 500 must not be masked by a green Opus
+  response. Broader 5xx *escalation* is opt-in via `advance_on`.
+- **Transport failures** (`ConnectError` / `TimeoutException` /
+  `ReadError` / `RemoteProtocolError`) advance to a fallback hop if one
+  exists, else surface via the outer handlers — preserving today's 502
+  / 504 contract on the last hop. The #1907 same-hop reset retry is
+  preserved per hop.
+
+### Pre-stream-only — the quota-surface prerequisite
+
+The trigger fires only on the upstream's **pre-stream HTTP status**.
+If a provider surfaces quota as HTTP 200 followed by an in-band SSE
+error frame (rather than a pre-stream 429), the gateway streams it
+through and never falls back. **Before relying on fallback-on-quota,
+verify the real quota response of each provider** (Fireworks /
+OpenRouter / LiteLLM). This is the gate the whole "fallback on quota"
+promise rides on — see the open question in the [routing-policy
+template](../../config/routing-policy.template.yaml).
+
+### Context-window safety (policy-authoring constraint)
+
+The Claude Code compaction profile is fixed at spawn (the `[1m]` /
+`ANTHROPIC_CUSTOM_MODEL_OPTION` registration). A fallback/switchover
+target with a *smaller* real context window than the source can
+overflow mid-conversation: `1M → Opus` is safe; `1M → 256K` (Kimi) or
+`1M → 202K` (GLM) is risky. The gateway cannot know each model's
+window, so this is enforced only by policy authoring, not at runtime.
+
+### Hot-reload delivery
+
+The policy file rides the proven
+`~/.config/egg/` → `gateway-secrets` → `/secrets` mount. `make
+k3s-secrets` bundles `routing-policy.yaml` as a Secret key, and the
+gateway mounts the whole Secret at `/secrets` (no `subPath`), so
+kubelet propagates an updated file to the running pod **without a
+restart and without losing in-flight turns** — the gateway re-reads it
+via an mtime-invalidated cache (`RoutingPolicyManager`, mirroring
+`AnthropicCredentialsManager`). `make routing-policy` is the thin
+standalone wrapper (re-creates the Secret, no gateway rollout). It is
+config riding a Secret for the hot-reload mount, not a credential.
+This is a deliberately different cadence from adding a *backend*
+(`make litellm-config` → ConfigMap patch → LiteLLM pod rollout, which
+does bounce that pod): routing/fallback iteration is state-preserving;
+backend registration is not.
+
+### Cost-instrumentation consequence
+
+Routing all Anthropic-served traffic through the gateway means it
+**bypasses LiteLLM**: the discovery roles/overseer that stay on Opus,
+and every open→Anthropic fallback hop. So `config/litellm/cost_callback.py`
+only ever covers the **open-model slice** of the pipeline — Phase-0
+spend measurement must not assume it covers the whole pipeline. The
+gateway is the one universal seam (it already buffers per-session
+transcripts with token usage via `_capture_*`) and is the correct
+eventual home for whole-pipeline cost instrumentation. Cost
+instrumentation itself is out of scope for this change.
+
 ## Failure policy
 
-The HITL on `cq-8` settled this: when the LiteLLM proxy is
-unreachable or errors for a non-Claude agent, the gateway **fails
-closed** — a 502 surfaces to the agent, no fallback to Claude. The
-alternatives (transparent Claude fallback, HITL escalation) were
-declined: fallback produces a quietly-mixed transcript that erodes
-the cost goal motivating the work, and HITL escalation is a
-follow-up that can be layered on top of the fail-closed default if
-operators demand it.
+When the upstream is unreachable or errors and **no routing policy
+adds a fallback hop for the wire model**, the gateway **fails closed**
+— the 502 / 504 (or the upstream's own error status) surfaces to the
+agent, no implicit fallback to Claude. This preserves the original
+`cq-8` posture as the no-op default: with an empty routing policy the
+fail-closed behavior is byte-identical to before #2987. The
+alternatives `cq-8` declined (a *blanket* transparent Claude fallback,
+HITL escalation) stay declined; #2987 makes fallback an **explicit,
+per-wire-model, operator-authored** opt-in rather than an implicit
+default, so a quietly-mixed transcript only happens where an operator
+asked for it.
 
-This is the same policy the Claude path uses today on upstream
-errors. The existing `except httpx.ConnectError / TimeoutException /
+The existing `except httpx.ConnectError / TimeoutException /
 Exception` handlers in `proxy_anthropic_messages` and
-`proxy_count_tokens` cover the LiteLLM case verbatim — both
-upstreams produce the same 502 / 504 error contracts.
+`proxy_count_tokens` cover the last-hop case verbatim — both upstreams
+produce the same 502 / 504 error contracts, now attributed to the hop
+that actually failed.
 
 ## No-op-by-default invariant
 
@@ -415,6 +553,10 @@ The full set is at [`.egg-state/contracts/issue-2769.json`](../../.egg-state/con
 | File | Role in this seam |
 |------|-------------------|
 | `gateway/upstream_registry.py` *(new)* | `UpstreamRegistry`, `UnknownUpstreamError`, `get_upstream_registry()` — keyed (client, credential_resolver) lookup |
+| `gateway/routing_policy.py` *(new, #2987)* | `RoutingPolicy`, `RouteHop`, `TriggerConfig`, `RoutingPolicyManager` — mtime-cached, fail-open `switchover`/`fallbacks`/`triggers` policy keyed on the wire model |
+| `gateway/gateway.py` `proxy_anthropic_messages` *(#2987)* | Walks the resolved `RouteHop` chain (`_resolve_route_chain`); `_prepare_hop` rebuilds creds per hop (bleed fix); `_rewrite_upstream_model` scoped reintroduction; `_classify_route_status` triggers |
+| `config/routing-policy.template.yaml` *(new, #2987)* | Operator template for `~/.config/egg/routing-policy.yaml`; documents schema, trigger defaults, context-window constraint, and hot-reload delivery |
+| `Makefile` `routing-policy` *(new, #2987)* | Thin wrapper re-creating `gateway-secrets` to publish `routing-policy.yaml` (no gateway rollout) |
 | `gateway/anthropic_credentials.py` | LiteLLM credential resolver alongside `AnthropicCredentialsManager`; shared `parse_env_file` (`anthropic_credentials.py:52`) and mtime cache |
 | `gateway/gateway.py:9320` `get_anthropic_client` | Unchanged; registry holds this as the `"anthropic"` entry |
 | `gateway/gateway.py:9355` `_inject_anthropic_credentials` | Generalized to `_inject_upstream_credentials(headers, upstream)`; old symbol kept as back-compat alias |
