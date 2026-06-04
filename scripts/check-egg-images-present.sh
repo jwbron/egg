@@ -47,12 +47,17 @@ if [ "${#missing[@]}" -gt 0 ]; then
   echo "          before 'deploy' repointed the pods at the new tag -- they sit" >&2
   echo "          unreferenced until then, so under disk pressure (root fs over" >&2
   echo "          imageGCHighThresholdPercent, ~85%) they get collected mid-run." >&2
-  echo "          Fix: reclaim space in k3s's containerd -- NOT docker, a separate" >&2
-  echo "          store 'docker system prune' does not touch -- then redeploy, which" >&2
-  echo "          re-imports everything:" >&2
-  echo "              sudo k3s crictl rmi --prune   # safe immediately before redeploy" >&2
-  echo "          'df -h /' should sit well under 80% before the import. A green deploy" >&2
-  echo "          now reaps older egg tags automatically (reap-stale-egg-images.sh)." >&2
+  echo "          The disk hog is the DOCKER store (/var/lib/docker, tens of GB of" >&2
+  echo "          old egg tags + BuildKit cache), NOT k3s's containerd (~4 GB) --" >&2
+  echo "          'docker save' + 'ctr import' briefly hold the sandbox image in" >&2
+  echo "          BOTH stores plus a tar in /var/tmp on the same root fs." >&2
+  echo "          Fix: reclaim docker disk, then redeploy (which re-imports):" >&2
+  echo "              scripts/reclaim-docker-disk.sh \"\$(git describe --always --dirty)\"" >&2
+  echo "              df -h /                       # should sit well under 80%" >&2
+  echo "              make redeploy" >&2
+  echo "          k3s-import now runs reclaim-docker-disk.sh automatically before" >&2
+  echo "          every import; if the spike still trips GC, lower the BuildKit cache" >&2
+  echo "          cap with EGG_DOCKER_CACHE_MAX (default 20GB)." >&2
   exit 1
 fi
 

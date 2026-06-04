@@ -436,20 +436,29 @@ If the state-store worktree is wedged (for example, after a state-volume reset t
    than `imageMinimumGCAge` (~2 min) and thus GC-eligible, while sandbox/litellm
    are still inside the immunity window.
 
-   The disk hog lives in **k3s's containerd** (`/var/lib/rancher/k3s/agent/containerd`),
-   a *different* store from docker's — so `docker system prune` frees the wrong
-   space and the next redeploy's import spike re-crosses the threshold. Reclaim
-   containerd space, then redeploy (which re-imports everything):
+   The disk hog is the **docker store** (`/var/lib/docker`, typically tens of GB
+   of old `egg-*:<tag>` images plus an unbounded BuildKit cache), NOT k3s's
+   containerd (`/var/lib/rancher/k3s/agent/containerd`, typically a few GB).
+   They live on the same root filesystem, and `k3s-import` briefly holds the
+   ~12 GB sandbox image in BOTH stores plus a tar in `/var/tmp` — that spike
+   crosses the GC threshold. `sudo k3s crictl rmi --prune` only drains the
+   smaller containerd store, so the disk needle never moves and the symptom
+   recurs on the next redeploy.
+
+   Reclaim **docker** disk, then redeploy (which re-imports everything):
 
    ```bash
-   sudo k3s crictl rmi --prune   # safe immediately before a redeploy
+   scripts/reclaim-docker-disk.sh "$(git describe --always --dirty)"
    df -h /                       # confirm well under 80%
    make redeploy
    ```
 
-   A successful deploy now reaps older egg tags from containerd automatically
-   (`scripts/reap-stale-egg-images.sh`), keeping it bounded to the current tag
-   so the threshold isn't crossed on subsequent redeploys.
+   `make k3s-import` now runs `scripts/reclaim-docker-disk.sh` automatically
+   before every import — it reaps stale `egg-*:<tag>` docker images (keeping
+   the current tag + `:latest`), prunes dangling images, and caps the BuildKit
+   cache (default 20 GB, override with `EGG_DOCKER_CACHE_MAX` set to a docker
+   byte-size string like `30GB`). A successful deploy ALSO reaps older egg tags from containerd
+   via `scripts/reap-stale-egg-images.sh`, so both stores stay bounded.
 
 ### Claude binary not found
 

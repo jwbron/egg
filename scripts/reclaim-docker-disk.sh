@@ -100,15 +100,20 @@ else
 fi
 
 # Mop up untagged layers orphaned by rebuilds (an old image ID whose tag was
-# moved to a freshly-built image). No docker containers run on this host -- k3s
-# runs the pods -- so any dangling image is genuinely unreferenced.
+# moved to a freshly-built image). `docker image prune -f` is HOST-WIDE -- it
+# prunes any dangling image on this docker daemon, not just egg-* repos. That
+# is safe here only because no docker containers run on this host (k3s runs the
+# pods, see file header), so every dangling image is genuinely unreferenced. If
+# this script is ever reused on a workstation or any host with non-egg docker
+# workloads, narrow this to an egg-repo-scoped loop (e.g. iterate IMAGES and
+# run `docker image ls -qf dangling=true <repo>` per repo).
 if docker image prune -f >/dev/null 2>&1; then
   echo "==> docker reclaim: pruned dangling images."
 fi
 
-# Bound the BuildKit cache. --max-used-space (docker/buildx 23+) supersedes the
-# removed --keep-storage. Fall back to a plain dangling-cache prune on a docker
-# old enough to lack the flag.
+# Bound the BuildKit cache. --max-used-space (Buildx 0.17+, shipped with Docker
+# Engine 27.x and later) supersedes the now-deprecated --keep-storage. Fall
+# back to a plain dangling-cache prune on a docker old enough to lack it.
 if docker builder prune -f --max-used-space "$CACHE_MAX" >/dev/null 2>&1; then
   echo "==> docker reclaim: build cache capped at ${CACHE_MAX}."
 elif docker builder prune -f >/dev/null 2>&1; then
