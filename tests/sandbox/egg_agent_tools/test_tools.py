@@ -362,6 +362,44 @@ class TestBrcProposePushStep:
         assert "branch ownership check failed" in error_text
 
 
+class TestAtlassianWrappers:
+    """The #2994 ``mcp__confluence__*`` / ``mcp__jira__*`` wrappers route
+    through ``invoke_handler`` like every other tool: JSON-serialised
+    handler response on success, SDK-shaped is_error block on failure.
+    """
+
+    def test_confluence_space_list_wrapper_success(self):
+        with patch(
+            "egg_agent_tools.handlers.confluence.confluence_space_list",
+            return_value={"spaces": [{"key": "ENG"}]},
+        ):
+            wrapper = TOOL_REGISTRY["mcp__confluence__space_list"].sdk_tool
+            resp = _run(wrapper.handler({}))
+        body = json.loads(resp["content"][0]["text"])
+        assert body == {"spaces": [{"key": "ENG"}]}
+        assert "is_error" not in resp
+
+    def test_jira_ticket_get_wrapper_wraps_gateway_error(self):
+        with patch(
+            "egg_agent_tools.handlers.jira.jira_ticket_get",
+            side_effect=GatewayError("forbidden", status_code=403),
+        ):
+            wrapper = TOOL_REGISTRY["mcp__jira__ticket_get"].sdk_tool
+            resp = _run(wrapper.handler({"ticket": "ENG-1"}))
+        assert resp["is_error"] is True
+        assert "forbidden" in resp["content"][0]["text"]
+
+    def test_all_atlassian_tools_are_cli_less(self):
+        atlassian = [
+            name for name, reg in TOOL_REGISTRY.items() if reg.namespace in ("confluence", "jira")
+        ]
+        assert len(atlassian) == 17
+        for name in atlassian:
+            assert TOOL_REGISTRY[name].cli_command is None, (
+                f"{name} mirrors a bash wrapper, not an egg-* CLI; cli_command must be None"
+            )
+
+
 class TestMessagePrimitiveWrappers:
     """The remaining message-namespace MCP wrapper (``send_heartbeat``)
     returns JSON-serialised responses on success and SDK-shaped is_error

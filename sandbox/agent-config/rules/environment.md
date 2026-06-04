@@ -32,9 +32,11 @@ All git/gh operations routed through gateway. Key restrictions:
 
 If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:9848/api/v1/health`, verify branch is egg-owned.
 
-### Jira Wrapper (`jira`)
+### Jira (`mcp__jira__*` tools / `jira` wrapper)
 
-The `sandbox/scripts/jira` wrapper is the only way for the sandbox to reach Jira — it POSTs to the gateway's `/api/v1/jira/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Jira call returns 403 `private_mode_required` before any upstream request.
+The sandbox reaches Jira through the gateway's `/api/v1/jira/*` routes (`Authorization: Bearer $EGG_SESSION_TOKEN`; Atlassian credentials never enter the sandbox). **Private network mode only**: in public mode every Jira call returns 403 `private_mode_required` before any upstream request.
+
+**Reach for the `mcp__jira__*` MCP tools first** (`mcp__jira__ticket_get`, `mcp__jira__search`, `mcp__jira__ticket_comments`, `mcp__jira__ticket_create`, `mcp__jira__ticket_edit`, `mcp__jira__ticket_comment_add`, `mcp__jira__link_create`, `mcp__jira__ticket_remotelinks`, `mcp__jira__execute`). They appear in your tool manifest every turn (no need to recall this doc), take snake_case args (`ticket`, `jql`, `max_results`, `fields`, …), and hit the same gateway routes under the same policy. The `sandbox/scripts/jira` shell wrapper below remains available for ad-hoc debugging and is the source of truth for the verb/route surface (#2994).
 
 | Verb | Gateway route |
 |------|---------------|
@@ -75,9 +77,11 @@ jira search 'project = ENG OR project = SEC'
 
 **Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` (no exposed surface), path traversal (`..`), duplicate slashes, non-ASCII keys. The `/execute` passthrough is GET-only (`PUT` / `PATCH` return 403 there); the four write routes (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create`) use their own dedicated paths and are the only write surface. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, write verb body schemas, idempotency keys, and the `not_found` envelope.
 
-### Confluence Wrapper (`confluence`)
+### Confluence (`mcp__confluence__*` tools / `confluence` wrapper)
 
-The `sandbox/scripts/confluence` wrapper is the only way for the sandbox to reach Confluence — it POSTs to the gateway's `/api/v1/confluence/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Confluence call returns 403 `private_mode_required` before any upstream request.
+The sandbox reaches Confluence through the gateway's `/api/v1/confluence/*` routes (`Authorization: Bearer $EGG_SESSION_TOKEN`; Atlassian credentials never enter the sandbox). **Private network mode only**: in public mode every Confluence call returns 403 `private_mode_required` before any upstream request.
+
+**Reach for the `mcp__confluence__*` MCP tools first** (`mcp__confluence__page_get`, `mcp__confluence__search`, `mcp__confluence__space_list`, `mcp__confluence__space_pages`, `mcp__confluence__page_descendants`, `mcp__confluence__page_footer_comments`, `mcp__confluence__page_inline_comments`, `mcp__confluence__execute`). They appear in your tool manifest every turn, so **don't guess which spaces exist — call `mcp__confluence__space_list`**, which returns the allowlisted set (the failure #2994 fixes). They take snake_case args (`page_id`, `space_key`, `cql`, `body_format`, …) and hit the same gateway routes under the same policy. The `sandbox/scripts/confluence` shell wrapper below remains available for ad-hoc debugging and is the source of truth for the verb/route surface (#2994).
 
 | Verb | Gateway route |
 |------|---------------|

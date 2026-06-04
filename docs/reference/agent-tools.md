@@ -2,9 +2,10 @@
 
 > Sandbox agents can call pipeline lifecycle operations (BRC consensus,
 > HITL decisions, phase context, progress signals, task completion,
-> checkpoint browsing) through first-class MCP tools on the Claude
-> Agent SDK `tool_use` stream, instead of shelling out to
-> `egg-contract` / `egg-orch` / `egg-checkpoint` via `Bash`.
+> checkpoint browsing) plus the gateway's Confluence/Jira routes through
+> first-class MCP tools on the Claude Agent SDK `tool_use` stream,
+> instead of shelling out to `egg-contract` / `egg-orch` /
+> `egg-checkpoint` (or the `confluence` / `jira` wrappers) via `Bash`.
 
 The tools are exposed as an in-process SDK MCP server built with
 [`claude_agent_sdk.create_sdk_mcp_server`](https://github.com/anthropics/claude-agent-sdk-python)
@@ -19,13 +20,31 @@ iteration 2 (12 additional verbs covering the rest of the capability
 audit) is tracked in
 [#1917](https://github.com/jwbron/egg/issues/1917).
 
+The `mcp__confluence__*` / `mcp__jira__*` namespaces
+([#2994](https://github.com/jwbron/egg/issues/2994)) are a thin
+**presentation layer over the gateway's `/api/v1/{confluence,jira}/*`
+routes** — the same routes the `sandbox/scripts/{confluence,jira}` bash
+wrappers POST to. Their handlers carry **no Atlassian credentials** and
+add **no new capability**: every policy (space/project allowlist,
+read-only vs. the four Jira write routes, CQL/JQL scope extraction,
+response redaction, the `private_mode_required` gate) stays enforced at
+the gateway. They exist so the routes are visible in the agent's tool
+manifest every turn instead of being prose in `environment.md` the agent
+has to recall — the motivating discovery failure in
+[Khan/webapp#39894](https://github.com/Khan/webapp/pull/39894), where an
+agent saw no `mcp__confluence__*` in its manifest and *guessed* a space
+list rather than calling `confluence space list`. Naming matches the
+host MCP namespaces (which are deliberately **not** exposed to the
+sandbox), so planner-authored task text that references
+`mcp__confluence__*` resolves to the restricted sandbox tools.
+
 ## Flag — `EGG_MCP_TOOLS`
 
 The MCP tool surface is **on by default** since [#1942](https://github.com/jwbron/egg/issues/1942). The env var now acts as a kill-switch:
 
 | Flag | Effect |
 |------|--------|
-| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 31 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 48 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
 | `EGG_MCP_TOOLS=false` (or `0` / `no` / `off`) | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no `mcp_servers` registration, no prompt changes, no import cost. |
 
 Iteration 1 (#1765) shipped the flag default-off while the wire-up burned in.
@@ -39,9 +58,9 @@ Compose, or the `env` stanza on any submit-task payload. See
 (EGG_MCP_TOOLS flag)](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
 for the per-pipeline recipe.
 
-## Tool inventory (31 verbs)
+## Tool inventory (48 verbs)
 
-All 31 tools are registered as `@tool`-decorated wrappers in
+All 48 tools are registered as `@tool`-decorated wrappers in
 `sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name is the verb
 itself (e.g. `"propose"`, `"register_open_question"`).
 
@@ -50,8 +69,9 @@ itself (e.g. `"propose"`, `"register_open_question"`).
 The SDK renders an MCP tool in `tool_use` blocks as
 `mcp__<server_key>__<raw_tool_name>`. `build_sandbox_mcp_server`
 returns a `{namespace: server}` dict — one SDK MCP server per
-namespace, keyed by `sdlc`, `brc`, `phase`, `progress`, `task`, or
-`checkpoint` — and `shared/egg_agent/client.py::run_agent_async`
+namespace, keyed by `sdlc`, `brc`, `phase`, `progress`, `task`,
+`checkpoint`, `confluence`, or `jira` — and
+`shared/egg_agent/client.py::run_agent_async`
 merges that dict into `options.mcp_servers` unless `EGG_MCP_TOOLS` is
 explicitly falsy. With raw `@tool` names declared as plain verbs,
 Claude's composition naturally produces the semantic names in the
@@ -171,22 +191,63 @@ tracked for a follow-up. The handlers import three pure helpers from
 | `mcp__checkpoint__show` | Resolve a checkpoint id → dict. Raises `HandlerError` for an unknown id. | `handlers.checkpoint.checkpoint_show` | `egg-checkpoint show` |
 | `mcp__checkpoint__search` | Substring search over checkpoint metadata; returns `{items, next_cursor}` with `limit`/`cursor` pagination (default `limit=100`). | `handlers.checkpoint.checkpoint_search` | `egg-checkpoint search` |
 
-Total: **31 tools** across 6 namespaces (`sdlc`, `brc`, `phase`,
-`progress`, `task`, `checkpoint`) — 18 iter-1 + 12 iter-2 (#1917) = 30,
-then −2 in #2211 (`wait_for_event` + `wait_loop` removed; long-poll
-waits go through `egg-orch message wait` / `wait-loop` via Bash), then
-+1 in #2338 (`resolve_obligation`), then +2 in #2529
-(`check_file_restriction` + `report_impasse` — runtime escape
-hatch). Covers the BRC consensus loop,
-HITL (decisions + feedback + answers), phase context + completion,
+### `mcp__confluence__*` — Confluence reads (gateway-backed, #2994)
+
+Mirror of the `sandbox/scripts/confluence` bash wrapper, one verb per
+gateway route. **Read-only**, space-allowlisted, private-mode-gated —
+all enforced at the gateway. snake_case args translate to the gateway's
+camelCase body. No `egg-*` CLI counterpart (the analog is the bash
+wrapper), so every registration is `cli_command=None`.
+
+| Tool | Purpose | Handler | Gateway route |
+|------|---------|---------|---------------|
+| `mcp__confluence__page_get` | Fetch a page by numeric `page_id`. Optional `body_format` (`['storage']` default, `['atlas_doc_format']`, `['view']`) and `expand`. | `handlers.confluence.confluence_page_get` | `POST /api/v1/confluence/page/get` |
+| `mcp__confluence__page_descendants` | List a page's descendants. `depth` bounds the walk; `limit`+`cursor` paginate. | `handlers.confluence.confluence_page_descendants` | `POST /api/v1/confluence/page/descendants` |
+| `mcp__confluence__page_footer_comments` | Footer comments on a page; `include_replies` inlines threads. | `handlers.confluence.confluence_page_footer_comments` | `POST /api/v1/confluence/page/footer-comments` |
+| `mcp__confluence__page_inline_comments` | Inline comments on a page (gateway falls back to v1 if v2 404s). | `handlers.confluence.confluence_page_inline_comments` | `POST /api/v1/confluence/page/inline-comments` |
+| `mcp__confluence__space_pages` | List pages in an allowlisted space. | `handlers.confluence.confluence_space_pages` | `POST /api/v1/confluence/space/pages` |
+| `mcp__confluence__space_list` | List the spaces visible to the agent (filtered to the allowlist). **Use this to discover readable spaces — don't guess keys** (the #2994 motivating failure). | `handlers.confluence.confluence_space_list` | `POST /api/v1/confluence/space/list` |
+| `mcp__confluence__search` | CQL query. Must statically scope to allowlisted spaces (an `OR` over `space` is denied). | `handlers.confluence.confluence_search` | `POST /api/v1/confluence/search` |
+| `mcp__confluence__execute` | Raw read-only REST passthrough (GET-only; non-GET / denied paths → 403). | `handlers.confluence.confluence_execute` | `POST /api/v1/confluence/execute` |
+
+### `mcp__jira__*` — Jira reads + writes (gateway-backed, #2994)
+
+Mirror of the `sandbox/scripts/jira` bash wrapper, one verb per gateway
+route. Reads plus the four dedicated write routes (`ticket_create`,
+`ticket_edit`, `ticket_comment_add`, `link_create`); project-allowlisted
+and private-mode-gated at the gateway. The operator-only `transition`
+route is **not** mirrored (the bash wrapper doesn't surface it either).
+No `egg-*` CLI counterpart, so every registration is `cli_command=None`.
+
+| Tool | Purpose | Handler | Gateway route |
+|------|---------|---------|---------------|
+| `mcp__jira__ticket_get` | Fetch a ticket by key (e.g. `ENG-123`); optional `fields`. | `handlers.jira.jira_ticket_get` | `POST /api/v1/jira/ticket/get` |
+| `mcp__jira__ticket_comments` | Fetch a ticket's comments. | `handlers.jira.jira_ticket_comments` | `POST /api/v1/jira/ticket/comments` |
+| `mcp__jira__ticket_remotelinks` | Fetch a ticket's remote links (surfaces PRs humans opened against it). | `handlers.jira.jira_ticket_remotelinks` | `POST /api/v1/jira/ticket/remotelinks` |
+| `mcp__jira__search` | JQL search. Must statically scope to allowlisted projects (an `OR` over `project` is denied); `next_page_token` paginates. | `handlers.jira.jira_search` | `POST /api/v1/jira/search` |
+| `mcp__jira__ticket_create` | Create a ticket (`project`, `issue_type`, `summary` required). State-machine effect: **creates a new issue**. `idempotency_key` makes a retry safe. | `handlers.jira.jira_ticket_create` | `POST /api/v1/jira/ticket/create` |
+| `mcp__jira__ticket_edit` | Edit a ticket. `labels` (replace) is mutually exclusive with `add_labels`/`remove_labels` (incremental); `notify_users` defaults false. State-machine effect: **mutates issue fields in place**. | `handlers.jira.jira_ticket_edit` | `POST /api/v1/jira/ticket/edit` |
+| `mcp__jira__ticket_comment_add` | Add a comment (`idempotency_key` makes a retry safe). | `handlers.jira.jira_ticket_comment_add` | `POST /api/v1/jira/ticket/comment/add` |
+| `mcp__jira__link_create` | Link two tickets (`link_type`, `inward_issue`, `outward_issue`). State-machine effect: **creates an issue link**. | `handlers.jira.jira_link_create` | `POST /api/v1/jira/issue-link/create` |
+| `mcp__jira__execute` | Raw read-only REST passthrough (GET-only; non-GET / denied paths → 403). | `handlers.jira.jira_execute` | `POST /api/v1/jira/execute` |
+
+Total: **48 tools** across 8 namespaces (`sdlc`, `brc`, `phase`,
+`progress`, `task`, `checkpoint`, `confluence`, `jira`) — 18 iter-1 + 12
+iter-2 (#1917) = 30, then −2 in #2211 (`wait_for_event` + `wait_loop`
+removed; long-poll waits go through `egg-orch message wait` /
+`wait-loop` via Bash), then +1 in #2338 (`resolve_obligation`), then +2
+in #2529 (`check_file_restriction` + `report_impasse` — runtime escape
+hatch) = 31, then +17 in #2994 (8 `mcp__confluence__*` + 9
+`mcp__jira__*` gateway-route mirrors) = 48. Covers the BRC consensus
+loop, HITL (decisions + feedback + answers), phase context + completion,
 progress signals + overseer alerts + status queries, task completion
-+ commits + notes + coverage-gaps, and checkpoint browsing — every
-verb a pipeline agent issues on the hot path. The count (`31`) is
-asserted by
++ commits + notes + coverage-gaps, checkpoint browsing, and the
+Confluence/Jira gateway routes — every verb a pipeline agent issues on
+the hot path. The count (`48`) is asserted by
 `tests/sandbox/egg_agent_tools/test_server.py::TestToolRegistry::test_tool_count_registered`
 and the namespace set (`{sdlc, brc, phase, progress, task,
-checkpoint}`) by `TestToolRegistry::test_namespace_set_is_six` so the
-prose numbers in this doc cannot drift silently.
+checkpoint, confluence, jira}`) by `TestToolRegistry::test_namespace_set`
+so the prose numbers in this doc cannot drift silently.
 
 ## Conventions
 
@@ -270,6 +331,7 @@ verbs are:
 - `mcp__task__mark_gap` — no CLI; tester→coder coverage-gap handoff is agent-to-agent.
 - `mcp__sdlc__check_file_restriction` — no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module (decision-13 rationale in `handlers/restrictions.py`).
 - `mcp__sdlc__report_impasse` — no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one (decision-13 rationale in `handlers/restrictions.py`).
+- `mcp__confluence__*` / `mcp__jira__*` (17 verbs, #2994) — no CLI *in the drift-test sense*: their human-facing analog is the **bash** `sandbox/scripts/{confluence,jira}` wrapper, not a Python `egg-*` argparse tree the drift gate can walk, so the registrations set `cli_command=None` and each handler docstring carries the `"no CLI"` rationale. They are gateway-route mirrors (`handlers/{confluence,jira}.py` → `/api/v1/{confluence,jira}/*`); the gateway, not these handlers, holds credentials and enforces policy.
 
 > **CLI surface added in #2908 (registration unchanged):** `mcp__brc__get_state`, `mcp__brc__list_blocking` (slice-1), `mcp__brc__read_peer_artifact`, and `mcp__brc__resolve_obligation` (slice-5) gained matching `egg-orch brc <verb>` subcommands so the event-pump consensus wrapper (#2908 slices 1-2) can drive them from bash without an LLM round-trip. The MCP-side `ToolRegistration` entries in `sandbox/egg_agent_tools/tools/brc.py` still carry `cli_command=None`, so the drift gate continues to treat these four as no-CLI tools and their JSON schemas continue to be hand-authored in `schemas.py` (the bullets above stay accurate from the registration / drift-gate perspective). Promoting the registrations to `cli_command=("egg-orch", "brc", "<verb>")` so the schemas auto-derive from the argparse parsers is a follow-up — until then, treat the CLI subcommands as thin shell wrappers over the same handlers, sharing the handler but not the schema source. A fifth net-new `brc next-action` subcommand has no MCP counterpart by design — the wrapper consumes the derivation directly. See [Orchestrator CLI — BRC verb-level operations](orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc).
 
@@ -304,10 +366,12 @@ Each tool may supply a per-tool override dict for cases where argparse
 help is insufficient (e.g. richer descriptions or tighter enum
 constraints). Tools whose `ToolRegistration` declares `cli_command=None`
 — `phase_get_context`, `phase_get_assigned_tasks`, `check_hitl_answers`,
-`task_mark_gap`, and the four `mcp__brc__*` verbs covered above
+`task_mark_gap`, the four `mcp__brc__*` verbs covered above
 (`brc_get_state`, `brc_list_blocking`, `brc_read_peer_artifact`,
-`brc_resolve_obligation`) — declare their JSON schema directly in
-`schemas.py` (or alongside the `@tool` definition); the
+`brc_resolve_obligation`), and the 17 `mcp__confluence__*` /
+`mcp__jira__*` verbs (#2994) — declare their JSON schema directly in
+`schemas.py` (or, for the Atlassian verbs, inline alongside the `@tool`
+definition in `tools/{confluence,jira}.py`); the
 `derive_schema_from_argparse` path is skipped because the registration
 has no argparse subparser bound to it. The slice-1 / slice-5 of
 [#2908](https://github.com/jwbron/egg/issues/2908) `egg-orch brc <verb>`
@@ -340,10 +404,10 @@ namespace appears as `mcp__<ns>__` in the nudge, and
 `mcp__<ns>__` substring in the nudge corresponds to a registered
 namespace (extras in either direction fail CI). The companion
 `TestToolRegistry::test_tool_count_registered` and
-`test_namespace_set_is_six` pin `len(TOOL_REGISTRY) == 31` and
+`test_namespace_set` pin `len(TOOL_REGISTRY) == 48` and
 `set(TOOL_NAMESPACES.keys()) == {"sdlc", "brc", "phase", "progress",
-"task", "checkpoint"}` so a future iteration cannot drift the prose
-counts in this file silently.
+"task", "checkpoint", "confluence", "jira"}` so a future iteration
+cannot drift the prose counts in this file silently.
 
 **The source of truth is `sandbox/egg_agent_tools/server.py::_render_nudge()`.**
 This doc does NOT embed a copy of the rendered string — the template
@@ -361,9 +425,9 @@ keeps both sides honest.
 The nudge points agents at `mcp__<namespace>__*`, which is the
 literal name Claude sees in `tool_use` blocks — the per-namespace
 server split (one SDK MCP server per `sdlc` / `brc` / `phase` /
-`progress` / `task` / `checkpoint` key) makes the composed
-`mcp__<server_key>__<raw_name>` resolve directly to the semantic
-name the nudge advertises. No mental prefix-prepending required.
+`progress` / `task` / `checkpoint` / `confluence` / `jira` key) makes
+the composed `mcp__<server_key>__<raw_name>` resolve directly to the
+semantic name the nudge advertises. No mental prefix-prepending required.
 
 ## Architecture
 
@@ -502,7 +566,9 @@ complete shell CLI surface.
 - **`EGG_MCP_TOOLS` flag removal (decision-9 of #1917):** Kept for
   iter-2 burn-in; removal is a third follow-up.
 - **Timeouts:** The SDK's default 60 s MCP-tool timeout is sufficient
-  for all 31 verbs (none are long-running). Pagination (decision-12
+  for all 48 verbs (none are long-running; the `mcp__confluence__*` /
+  `mcp__jira__*` verbs are single gateway→Atlassian round-trips well
+  under the cap). Pagination (decision-12
   of #1917) keeps `read_peer_artifact` / `checkpoint_list` /
   `checkpoint_search` page sizes well under the limit. If a future
   tool needs to exceed 60 s, it must be restructured as a
@@ -527,10 +593,10 @@ SDK release notes rather than silently breaking every sandbox.
 
 | Test | Purpose |
 |------|---------|
-| `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). |
+| `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). Includes `test_handlers_confluence.py` / `test_handlers_jira.py` (#2994): snake→camel body translation, required-field validation, list/CSV normalisation, and the `gateway_data_request` unwrap. |
 | `tests/sandbox/egg_agent_tools/handlers/test_*.py` | Per-handler unit tests for the iter-2 verbs (`show_contract`, `add_commit`, `update_notes`, `complete_phase`, `verify_criterion`, `read_peer_artifact`, `overseer_alert`, `query_status`, `checkpoint`, `mark_gap`). |
 | `tests/sandbox/egg_agent_tools/test_tools.py` | `@tool` wrappers (JSON-serialised success; `is_error=True` structured block on handler exception). |
-| `tests/sandbox/egg_agent_tools/test_server.py` | `build_sandbox_mcp_server` registers all 31 tools; `SYSTEM_PROMPT_NUDGE` symmetric drift test; derived-count assertions (`len(TOOL_REGISTRY) == 31` and the 6-namespace set). |
+| `tests/sandbox/egg_agent_tools/test_server.py` | `build_sandbox_mcp_server` registers all 48 tools; `SYSTEM_PROMPT_NUDGE` symmetric drift test; derived-count assertions (`len(TOOL_REGISTRY) == 48` and the 8-namespace set). |
 | `tests/sandbox/egg_agent_tools/test_schemas.py` | `derive_schema_from_argparse` correctness + override merge. |
 | `tests/sandbox/egg_agent_tools/test_sdk_surface.py` | SDK import smoke (fails loud on incompatible SDK upgrade). |
 | `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` | Integration test: loads `TOOL_LIST` via `create_sdk_mcp_server`; asserts no registration errors and that completion/mutation verbs (`task_complete`, `phase__complete_phase`, `task__add_commit`, `sdlc__verify_criterion`) name the state-machine effect in their description. |
@@ -562,3 +628,8 @@ SDK release notes rather than silently breaking every sandbox.
   (12 additional verbs + rule-doc drift gate + decision-13 gate).
 - [#1955](https://github.com/jwbron/egg/issues/1955) — closed by
   iteration 2's `mcp__sdlc__show_contract` + state-machine writes.
+- [#2994](https://github.com/jwbron/egg/issues/2994) — the
+  `mcp__confluence__*` / `mcp__jira__*` gateway-route mirrors
+  (discoverability). See also
+  [Confluence Wrapper](confluence-wrapper.md) and
+  [Jira Wrapper](jira-wrapper.md) for the gateway-side policy surface.

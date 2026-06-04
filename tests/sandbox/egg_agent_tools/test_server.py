@@ -1,11 +1,13 @@
 """Tests for egg_agent_tools.server (factory + system prompt nudge).
 
 Covers:
-- build_sandbox_mcp_server registers the expected iteration-2 tools (29:
-  the 18 iteration-1 verbs plus the 12 iteration-2 additions landed in
-  #1917, minus 2 wait verbs removed in #2211, plus
-  ``mcp__brc__resolve_obligation`` added in #2338, across the sdlc,
-  brc, phase, progress, task, and checkpoint namespaces).
+- build_sandbox_mcp_server registers the expected tools (48: the 18
+  iteration-1 verbs plus the 12 iteration-2 additions landed in #1917,
+  minus 2 wait verbs removed in #2211, plus
+  ``mcp__brc__resolve_obligation`` added in #2338, plus
+  ``check_file_restriction`` / ``report_impasse`` in #2529, plus the 17
+  Atlassian-gateway verbs in #2994, across the sdlc, brc, phase,
+  progress, task, checkpoint, confluence, and jira namespaces).
 - SYSTEM_PROMPT_NUDGE stays <=200 words.
 - Symmetric drift test: every mcp__<namespace>__ substring in the nudge
   corresponds to a registered namespace, and every registered namespace
@@ -83,7 +85,36 @@ _POST_ITER2_TOOL_NAMES = {
     "mcp__sdlc__report_impasse",
 }
 
-EXPECTED_TOOL_NAMES = _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES | _POST_ITER2_TOOL_NAMES
+# #2994 — Atlassian gateway routes exposed as MCP servers for
+# discoverability.  Two net-new namespaces (``confluence``/``jira``)
+# mirroring the ``sandbox/scripts/{confluence,jira}`` bash wrappers
+# one-for-one; all gateway-backed, all ``cli_command=None`` (their CLI
+# analog is a bash wrapper, not an ``egg-*`` argparse tree).
+_ATLASSIAN_TOOL_NAMES = {
+    # confluence (8)
+    "mcp__confluence__page_get",
+    "mcp__confluence__page_descendants",
+    "mcp__confluence__page_footer_comments",
+    "mcp__confluence__page_inline_comments",
+    "mcp__confluence__space_pages",
+    "mcp__confluence__space_list",
+    "mcp__confluence__search",
+    "mcp__confluence__execute",
+    # jira (9)
+    "mcp__jira__ticket_get",
+    "mcp__jira__ticket_comments",
+    "mcp__jira__ticket_remotelinks",
+    "mcp__jira__search",
+    "mcp__jira__ticket_create",
+    "mcp__jira__ticket_edit",
+    "mcp__jira__ticket_comment_add",
+    "mcp__jira__link_create",
+    "mcp__jira__execute",
+}
+
+EXPECTED_TOOL_NAMES = (
+    _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES | _POST_ITER2_TOOL_NAMES | _ATLASSIAN_TOOL_NAMES
+)
 
 EXPECTED_NAMESPACES = {
     "sdlc",
@@ -92,6 +123,8 @@ EXPECTED_NAMESPACES = {
     "progress",
     "task",
     "checkpoint",
+    "confluence",
+    "jira",
 }
 
 
@@ -103,11 +136,13 @@ class TestToolRegistry:
         # blocking waits per the transport-mismatch carve-out) = 28,
         # then +1 in #2338 (``mcp__brc__resolve_obligation``) = 29,
         # then +2 in #2529 (``check_file_restriction`` +
-        # ``report_impasse`` — runtime escape hatch) = 31.
+        # ``report_impasse`` — runtime escape hatch) = 31,
+        # then +17 in #2994 (8 confluence + 9 jira Atlassian-gateway
+        # verbs) = 48.
         # Derived assertion: trips when a future iteration drifts the
         # count without updating the prose verb-counts in
         # docs/reference/agent-tools.md.
-        assert len(TOOL_LIST) == 31
+        assert len(TOOL_LIST) == 48
 
     def test_expected_names_present(self):
         names = set(TOOL_REGISTRY.keys())
@@ -119,9 +154,10 @@ class TestToolRegistry:
             flat.extend(tools)
         assert set(flat) == EXPECTED_TOOL_NAMES
 
-    def test_namespace_set_is_six(self):
-        # Derived assertion: exactly six namespaces.  Adds `checkpoint`
-        # alongside the iter-1 five (sdlc/brc/phase/progress/task).
+    def test_namespace_set(self):
+        # Derived assertion: exactly eight namespaces.  The iter-1 five
+        # (sdlc/brc/phase/progress/task), `checkpoint` (#1917), and the
+        # two Atlassian-gateway namespaces `confluence`/`jira` (#2994).
         assert set(TOOL_NAMESPACES.keys()) == EXPECTED_NAMESPACES
 
     def test_iter2_tools_land_in_correct_namespace(self):
