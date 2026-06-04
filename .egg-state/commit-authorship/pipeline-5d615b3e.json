@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "4bcf52f85b72d543c32171fdd83398ecc247d5d5": {
+      "branch": "egg/pipeline-5d615b3e/work",
+      "patch_id": "a43f8663bf3afd8714e0a2c0d5584f3fd0a2e8b7",
+      "pipeline_id": "pipeline-5d615b3e",
+      "registered_at": "2026-06-04T03:58:53.785836+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
