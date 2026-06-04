@@ -2,7 +2,8 @@
   "by_agent_type": {
     "reviewer": [
       "ckpt-9fe7296c97e9fd40",
-      "ckpt-0be31eadb60dac36"
+      "ckpt-0be31eadb60dac36",
+      "ckpt-3f5c3268fe283f33"
     ],
     "unknown": [
       "ckpt-04bb218610264d80",
@@ -1117,7 +1118,8 @@
   "by_pr": {
     "2995": [
       "ckpt-9fe7296c97e9fd40",
-      "ckpt-0be31eadb60dac36"
+      "ckpt-0be31eadb60dac36",
+      "ckpt-3f5c3268fe283f33"
     ]
   },
   "by_repo": {
@@ -1126,7 +1128,8 @@
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
       "ckpt-ea6f98fa3944cf41",
-      "ckpt-8c99f0a8413c4bb1"
+      "ckpt-8c99f0a8413c4bb1",
+      "ckpt-3f5c3268fe283f33"
     ]
   },
   "by_session": {
@@ -1145,6 +1148,9 @@
     "egg-exec-20260604-073714-3007": [
       "ckpt-ea6f98fa3944cf41",
       "ckpt-8c99f0a8413c4bb1"
+    ],
+    "egg-exec-20260604-075342-3127": [
+      "ckpt-3f5c3268fe283f33"
     ],
     "issue-1028-branch-cleanup-egg-0fae3eaffd04493905af975a5fbf140456f455a249c72dde069eea923ae1a6b5-work": [
       "ckpt-c1a677e9ed66c97b"
@@ -2347,7 +2353,8 @@
       "ckpt-485722c1988c53f8",
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
-      "ckpt-8c99f0a8413c4bb1"
+      "ckpt-8c99f0a8413c4bb1",
+      "ckpt-3f5c3268fe283f33"
     ]
   },
   "by_trigger": {
@@ -2894,7 +2901,8 @@
       "ckpt-485722c1988c53f8",
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
-      "ckpt-8c99f0a8413c4bb1"
+      "ckpt-8c99f0a8413c4bb1",
+      "ckpt-3f5c3268fe283f33"
     ]
   },
   "checkpoints": [
@@ -13176,8 +13184,27 @@
       "tool_call_count": 34,
       "total_tokens": 12866,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "reviewer",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-06-04T07:55:07.257054Z",
+      "files_touched_count": 1,
+      "id": "ckpt-3f5c3268fe283f33",
+      "issue_number": null,
+      "message_count": 175,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": 2995,
+      "repo": "jwbron/egg",
+      "session_id": "egg-exec-20260604-075342-3127",
+      "session_status": "completed",
+      "tool_call_count": 17,
+      "total_tokens": 5983,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-06-04T07:40:22.998823Z",
+  "last_updated": "2026-06-04T07:55:08.796922Z",
   "schemaVersion": "2.0"
 }
