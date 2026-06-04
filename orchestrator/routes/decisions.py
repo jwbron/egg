@@ -996,9 +996,14 @@ def answer_feedback(pipeline_id: str) -> tuple[Response, int]:
     raw_answers = data.get("answers")
     if not isinstance(raw_answers, dict) or not raw_answers:
         return make_error_response("Missing 'answers' (object mapping question id to answer text)")
-    answers = {str(k): str(v) for k, v in raw_answers.items()}
+    non_string = sorted(str(k) for k, v in raw_answers.items() if not isinstance(v, str))
+    if non_string:
+        return make_error_response(
+            "Answer values must be strings; non-string values for question id(s) "
+            f"{non_string}. To leave a question unanswered, omit its id from 'answers'.",
+        )
+    answers = {str(k): v for k, v in raw_answers.items()}
     requested_feedback_id = data.get("feedback_id")
-    repo_hint = data.get("repo")
 
     try:
         _store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -1016,17 +1021,32 @@ def answer_feedback(pipeline_id: str) -> tuple[Response, int]:
     # Lazy imports: ``contract_store`` and ``routes.pipelines`` pull in
     # heavy state-store / docker dependencies; importing them at module
     # top would couple decisions.py to initialisation order. Same pattern
-    # as contracts.py's ``_branch_read_contract``.
+    # as contracts.py's ``_branch_read_contract``. The ``egg_contracts``
+    # try/except mirrors the post-gate bridge in
+    # ``_queue_and_await_contract_decisions`` so grepping for
+    # ``egg_contracts`` ImportError handling finds both sites.
     import contract_store
-    from egg_contracts import (
-        ContractNotFoundError,
-        ContractValidationError,
-        load_contract,
-        save_contract,
-    )
+
+    try:
+        from egg_contracts import (
+            ContractNotFoundError,
+            ContractValidationError,
+            load_contract,
+            save_contract,
+        )
+    except ImportError as exc:
+        logger.error(
+            "egg_contracts not available; cannot answer contract feedback",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return make_error_response(
+            "Contract subsystem (egg_contracts) is not available on this host",
+            status_code=500,
+        )
     from routes.pipelines import _pipeline_identifier
 
-    worktree = contract_store.resolve_pipeline_worktree(pipeline_id, repo_hint)
+    worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
     if worktree is None:
         return make_error_response(
             f"Pipeline worktree not found for {pipeline_id}",

@@ -214,5 +214,57 @@ def test_requires_lifecycle_secret(client, tmp_path):
     assert resp.status_code == 401
 
 
+def test_non_string_answer_value_returns_400(client, tmp_path):
+    """JSON null / object / int answers are rejected, not coerced to ``str()``.
+
+    Without this, ``None`` would be written as the literal string ``"None"``
+    and ``{"x": 1}`` as its repr. The MCP schema declares answer values as
+    strings; raw HTTP callers must abide by the same contract.
+    """
+    from egg_contracts import load_contract
+
+    _write_contract(tmp_path)
+    store_patch, worktree_patch = _patch_resolution(tmp_path)
+
+    with store_patch, worktree_patch:
+        resp = _post(client, {"answers": {"Q1": None, "Q2": {"nested": True}}})
+
+    assert resp.status_code == 400
+    msg = resp.get_json()["message"]
+    assert "must be strings" in msg
+    assert "Q1" in msg and "Q2" in msg
+
+    # And nothing was written — the contract is untouched.
+    contract = load_contract(PIPELINE_ID, tmp_path)
+    assert contract.feedback.submitted is False
+    assert contract.feedback.get_question("Q1").answer is None
+    assert contract.feedback.get_question("Q2").answer is None
+
+
+def test_repo_field_in_body_is_ignored(client, tmp_path):
+    """A stray ``repo`` field in the body must not influence worktree resolution.
+
+    The MCP schema does not expose ``repo`` and the route now ignores it,
+    so ``resolve_pipeline_worktree`` is invoked with the pipeline id only.
+    """
+    _write_contract(tmp_path)
+    store_mock = MagicMock(repo_path=tmp_path)
+    pipeline_mock = MagicMock(issue_number=None)
+    resolve_mock = MagicMock(return_value=tmp_path)
+
+    with (
+        patch(
+            "routes.decisions.get_state_store_for_pipeline",
+            return_value=(store_mock, pipeline_mock),
+        ),
+        patch("contract_store.resolve_pipeline_worktree", resolve_mock),
+    ):
+        resp = _post(client, {"answers": {"Q1": "x"}, "repo": "should-be-ignored"})
+
+    assert resp.status_code == 200
+    # Single positional pipeline_id argument — no repo hint forwarded.
+    resolve_mock.assert_called_once_with(PIPELINE_ID)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
