@@ -645,21 +645,25 @@ class TestValidateDeploymentDocsRules:
         errors = [w for w in warnings if w.get("severity") == "error"]
         assert errors == []
 
-    def _gateway_doc(self, *, worktrees_vol, egg_state_vol):
-        """Gateway Deployment fixture with explicit worktrees/egg-state volumes.
+    def _gateway_doc(self, *, name="gateway", worktrees_vol, egg_state_vol):
+        """Gateway Deployment fixture with optional worktrees/egg-state volumes.
 
         Shapes the #3005 trap: the session store (egg-state) and the worktrees
-        it protects must share a persistence class.
+        it protects must share a persistence class. Pass ``None`` for either
+        volume to omit it (e.g. the post-fix base shape where ``egg-state`` is
+        not declared and /home/egg/.egg-state falls inside the ``home``
+        emptyDir).
         """
+        volumes = [v for v in (worktrees_vol, egg_state_vol) if v is not None]
         return {
             "kind": "Deployment",
-            "metadata": {"name": "gateway"},
+            "metadata": {"name": name},
             "spec": {
                 "template": {
                     "metadata": {"labels": {"app": "gateway"}},
                     "spec": {
                         "containers": [{"name": "gw", "image": "egg-gateway:dev"}],
-                        "volumes": [worktrees_vol, egg_state_vol],
+                        "volumes": volumes,
                     },
                 }
             },
@@ -681,6 +685,9 @@ class TestValidateDeploymentDocsRules:
         assert fired[0]["severity"] == "error"
         assert fired[0]["resource"] == "Deployment/gateway"
         assert "#3005" in fired[0]["message"]
+        # Wording should be specific to the emptyDir case (not the absent-volume
+        # case below) so the engineer reading the warning sees the actual shape.
+        assert "emptyDir" in fired[0]["message"]
 
     def test_session_store_persistent_is_clean(self):
         """hostPath worktrees + hostPath egg-state — the fixed shape — is clean."""
@@ -714,6 +721,132 @@ class TestValidateDeploymentDocsRules:
         warnings = _validate_deployment_docs(docs, is_k3s=True)
         fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
         assert fired == []
+
+    def test_session_store_rule_fires_when_egg_state_volume_absent(self):
+        """hostPath worktrees + NO egg-state volume is the realistic overlay slip.
+
+        The post-fix base declares no ``egg-state`` volume (it falls inside the
+        ``home`` emptyDir). An overlay author who adds the hostPath
+        ``worktrees`` volume but forgets to also add an ``egg-state`` hostPath
+        re-introduces the #3005 trap: worktrees survive a pod recreation but
+        the session store doesn't. The rule must fire on absence the same way
+        it fires on emptyDir, and the message must be specific enough that the
+        author understands /home/egg/.egg-state is landing inside the ``home``
+        emptyDir.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={"name": "worktrees", "hostPath": {"path": "/host/wt"}},
+                egg_state_vol=None,
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+        assert fired[0]["resource"] == "Deployment/gateway"
+        # Wording must reflect the absent-volume shape, not the emptyDir shape.
+        msg = fired[0]["message"]
+        assert "no ``egg-state`` volume is declared" in msg or "not declared" in msg
+        assert "``home`` emptyDir" in msg or "home" in msg
+
+    def test_session_store_rule_clean_when_both_pvc_backed(self):
+        """PVC worktrees + PVC egg-state is clean (rule generalizes beyond hostPath).
+
+        Locks in that the rule expresses "session store has at least the same
+        persistence class as worktrees" via emptyDir-checking, not via
+        hostPath-checking — so PVC / NFS / CSI futures work without a code
+        change. Both volumes survive pod recreation; no asymmetry; silent.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={
+                    "name": "worktrees",
+                    "persistentVolumeClaim": {"claimName": "wt-pvc"},
+                },
+                egg_state_vol={
+                    "name": "egg-state",
+                    "persistentVolumeClaim": {"claimName": "state-pvc"},
+                },
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert fired == []
+
+    def test_session_store_rule_fires_when_pvc_worktrees_emptydir_state(self):
+        """PVC worktrees + emptyDir egg-state is the hypothetical cloud-overlay trap.
+
+        Same #3005 failure mode as hostPath/emptyDir: worktrees survive a pod
+        recreation (PVC) but the session store doesn't (emptyDir). The rule
+        must fire here too — that's the whole point of expressing the check
+        against emptyDir rather than against the specific hostPath backing the
+        local overlay uses today.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                worktrees_vol={
+                    "name": "worktrees",
+                    "persistentVolumeClaim": {"claimName": "wt-pvc"},
+                },
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+
+    def test_session_store_rule_ignores_unrelated_substring_match(self):
+        """A ``litellm-gateway`` deployment is not the gateway and must not match.
+
+        The previous condition (``"gateway" not in name``) would fire on any
+        deployment whose name *contained* ``gateway``. Lock in the
+        exact-match-or-``gateway-*``-prefix scope so a hypothetical
+        ``litellm-gateway`` (or any other unrelated deployment) doesn't
+        inherit the gateway's session-store invariant.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        # litellm-gateway in the same shape that WOULD fire for the gateway
+        # deployment — but it's not the gateway, so the rule must stay silent.
+        docs = [
+            self._gateway_doc(
+                name="litellm-gateway",
+                worktrees_vol={"name": "worktrees", "hostPath": {"path": "/host/wt"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert fired == []
+
+    def test_session_store_rule_fires_on_gateway_dash_variant(self):
+        """A ``gateway-canary`` deployment IS a gateway variant and must match.
+
+        Counterpart to the litellm-gateway negative test: the exact-or-prefix
+        scope is ``gateway`` exactly or ``gateway-*``, so a canary / rollout
+        variant still inherits the invariant.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._gateway_doc(
+                name="gateway-canary",
+                worktrees_vol={"name": "worktrees", "hostPath": {"path": "/host/wt"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "session-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["resource"] == "Deployment/gateway-canary"
 
 
 # ---------------------------------------------------------------------------
