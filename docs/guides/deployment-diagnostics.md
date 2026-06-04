@@ -268,8 +268,8 @@ protected keys grows, the test grows with it.
 > **Note on reuse**: `orchestrator/redaction.py` is a *focused subset* of
 > the broader redaction surface documented in
 > [reference/redaction.md](../reference/redaction.md). The full redactor
-> (`shared/egg_contracts/redactor.py`) handles checkpoint transcripts and
-> structured dict traversal; the skill-local helpers handle log tails and
+> (`shared/egg_contracts/redactor.py`) handles structured dict traversal;
+> the skill-local helpers handle log tails and
 > env dicts. They share the same denylist patterns; when you extend one,
 > extend both.
 

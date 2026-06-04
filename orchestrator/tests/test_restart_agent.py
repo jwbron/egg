@@ -762,6 +762,202 @@ class TestRestartAgentEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Issue #2967 follow-up: restart path resolves ``pipeline.base_branch=None``
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentBaseBranchResolution:
+    """The restart path resolves the default branch when
+    ``pipeline.base_branch`` is ``None`` so the spawner receives a concrete
+    branch name. Without this, the spawner's ``EGG_BASE_BRANCH``
+    env-injection guard skips the export, the BRC event-pump's per-producer
+    ``git log {sha}..HEAD --not origin/<base>`` delta falls back to
+    ``origin/main`` in both consumers, and the diff errors out on every
+    non-``main`` repo (mirrors the initial-spawn fix at
+    ``test_kubernetes_spawner.py::test_spawn_with_base_branch_sets_egg_base_branch_env``).
+    """
+
+    @patch("routes.pipelines.get_default_branch")
+    @patch("routes.pipelines.resolve_worktree_repo_path")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_resolves_base_branch_when_pipeline_base_is_none(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_resolve_worktree,
+        mock_get_default,
+        client,
+    ):
+        """A ``None`` ``pipeline.base_branch`` resolves to ``get_default_branch``
+        and is forwarded as the spawner's ``base_branch`` argument."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        mock_resolve_worktree.return_value = Path("/repo/worktree")
+        mock_get_default.return_value = "master"
+
+        pipeline = _make_pipeline_with_running_agent()
+        assert pipeline.base_branch is None, (
+            "fixture must leave base_branch unset to exercise the auto-detect path"
+        )
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "auto-detect base branch"},
+        )
+
+        assert response.status_code == 200
+        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
+        assert restart_kwargs.get("base_branch") == "master", (
+            "Restart must thread the resolved default branch into the spawner's "
+            "base_branch kwarg so EGG_BASE_BRANCH is exported and the BRC delta "
+            "works on non-main repos (#2967 follow-up)."
+        )
+
+    @patch("routes.pipelines.get_default_branch")
+    @patch("routes.pipelines.resolve_worktree_repo_path")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_preserves_explicit_pipeline_base_branch(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_resolve_worktree,
+        mock_get_default,
+        client,
+    ):
+        """An explicit ``pipeline.base_branch`` is forwarded unchanged — the
+        ``get_default_branch`` fallback only fires when it's ``None``."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        mock_resolve_worktree.return_value = Path("/repo/worktree")
+        # If this fires, the explicit ``base_branch`` was wrongly discarded.
+        mock_get_default.side_effect = AssertionError(
+            "get_default_branch must not fire when pipeline.base_branch is set"
+        )
+
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.base_branch = "jwbron-claude-md"
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "explicit base branch"},
+        )
+
+        assert response.status_code == 200
+        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
+        assert restart_kwargs.get("base_branch") == "jwbron-claude-md"
+
+    @patch("routes.pipelines.get_default_branch")
+    @patch("routes.pipelines.resolve_worktree_repo_path")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_tolerates_worktree_resolution_failure(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_resolve_worktree,
+        mock_get_default,
+        client,
+    ):
+        """If the worktree path cannot be resolved (e.g. pruned), the restart
+        still proceeds with the raw ``pipeline.base_branch`` — preserving
+        pre-#2967 restart availability rather than blocking on resolution."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        mock_resolve_worktree.side_effect = RuntimeError("worktree pruned")
+
+        pipeline = _make_pipeline_with_running_agent()
+        # Leave base_branch=None so the resolution would normally fire.
+        assert pipeline.base_branch is None
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "worktree pruned"},
+        )
+
+        assert response.status_code == 200
+        # get_default_branch must not be called when worktree resolution fails.
+        mock_get_default.assert_not_called()
+        # Restart still happens with the raw (None) pipeline.base_branch.
+        restart_kwargs = mock_spawner.restart_agent_container.call_args.kwargs
+        assert restart_kwargs.get("base_branch") is None
+
+
+# ---------------------------------------------------------------------------
 # Issue #2410: slice_id forwarding through the operator restart route
 # ---------------------------------------------------------------------------
 
@@ -2393,19 +2589,17 @@ class TestConsensusResetOrdering:
         mock_spawner.restart_agent_container.side_effect = KubernetesSpawnError("Docker error")
         mock_spawner_fn.return_value = mock_spawner
 
-        # Mock the consensus modules via sys.modules so the inline imports
-        # inside the route handler resolve correctly (no create=True needed).
+        # Mock the peer-consensus tracker via sys.modules so the inline
+        # import inside the route handler resolves correctly (no create=True
+        # needed). The legacy ``consensus`` evaluator reset was removed in
+        # #2777 (slice-2).
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
 
         with patch.dict(
             "sys.modules",
             {
                 "peer_consensus": MagicMock(
                     get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                ),
-                "consensus": MagicMock(
-                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
                 ),
             },
         ):
@@ -2418,7 +2612,6 @@ class TestConsensusResetOrdering:
 
             # Consensus should NOT have been reset since spawn failed
             mock_tracker.remove_agent.assert_not_called()
-            mock_evaluator.remove_agent.assert_not_called()
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_kubernetes_spawner")
@@ -2452,18 +2645,17 @@ class TestConsensusResetOrdering:
         mock_spawner.get_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
-        # Patch the consensus imports inside the route handler
+        # Patch the peer-consensus tracker import inside the route handler.
+        # The legacy ``consensus`` evaluator reset was removed in #2777
+        # (slice-2 deleted ``orchestrator/consensus.py``); only the
+        # peer-consensus (BRC) tracker is reset on restart now.
         mock_tracker = MagicMock()
-        mock_evaluator = MagicMock()
 
         with patch.dict(
             "sys.modules",
             {
                 "peer_consensus": MagicMock(
                     get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
-                ),
-                "consensus": MagicMock(
-                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
                 ),
             },
         ):
@@ -2476,7 +2668,6 @@ class TestConsensusResetOrdering:
 
             # Consensus should have been reset after successful spawn
             mock_tracker.remove_agent.assert_called_once_with("coder")
-            mock_evaluator.remove_agent.assert_called_once_with("issue-100", "coder")
 
 
 @pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")

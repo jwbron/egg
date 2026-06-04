@@ -40,7 +40,6 @@ Usage:
 """
 
 import argparse
-import codecs
 import functools
 import json
 import os
@@ -56,7 +55,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 from flask import Flask, Response, g, has_request_context, jsonify, request, stream_with_context
@@ -88,12 +87,6 @@ try:
     from .anthropic_credentials import (
         get_credentials_manager,
         get_litellm_credentials_manager,
-    )
-    from .checkpoint_handler import (
-        _get_checkpoint_repo_for_path,
-        capture_and_store_checkpoint,
-        capture_and_store_checkpoints_for_push,
-        get_checkpoint_handler,
     )
     from .confluence_client import (
         DEFAULT_LIMIT as CONFLUENCE_DEFAULT_LIMIT,
@@ -198,13 +191,16 @@ try:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from .repo_parser import parse_owner_repo
+    from .repo_parser import OWNER_REPO_PATTERN, parse_owner_repo
     from .repo_visibility import get_repo_visibility
+    from .routing_policy import (
+        RouteHop,
+        get_routing_policy_manager,
+    )
     from .session_manager import (
         get_session_manager,
         validate_session_for_request,
     )
-    from .transcript_buffer import get_transcript_buffer
     from .upstream_registry import (
         UnknownUpstreamError,
         get_upstream_registry,
@@ -225,12 +221,6 @@ except ImportError:
     from anthropic_credentials import (  # type: ignore[no-redef]
         get_credentials_manager,
         get_litellm_credentials_manager,
-    )
-    from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
-        _get_checkpoint_repo_for_path,
-        capture_and_store_checkpoint,
-        capture_and_store_checkpoints_for_push,
-        get_checkpoint_handler,
     )
     from git_client import (  # type: ignore[no-redef, import-untyped]
         GIT_ALLOWED_COMMANDS,
@@ -354,13 +344,19 @@ except ImportError:
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-untyped]
+    from repo_parser import (  # type: ignore[no-redef, import-untyped]
+        OWNER_REPO_PATTERN,
+        parse_owner_repo,
+    )
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
+    from routing_policy import (  # type: ignore[no-redef, import-untyped]
+        RouteHop,
+        get_routing_policy_manager,
+    )
     from session_manager import (  # type: ignore[no-redef, import-untyped]
         get_session_manager,
         validate_session_for_request,
     )
-    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-untyped]
     from upstream_registry import (  # type: ignore[no-redef, import-untyped]
         UnknownUpstreamError,
         get_upstream_registry,
@@ -379,7 +375,7 @@ except ImportError:
 _config_path = Path(__file__).parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
-from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
+from repo_config import get_auth_mode
 
 logger = get_logger("gateway")
 
@@ -475,34 +471,6 @@ def _detached_head_hint(
         f"branch '{assigned}'. To set the branch to this commit, run:\n"
         f"  git update-ref refs/heads/{assigned} HEAD\n"
     )
-
-
-def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
-    """Check if a repository is a checkpoint repo, using all available signals.
-
-    Extends ``is_checkpoint_repo()`` (config-based) with session-level
-    context.  The session's ``checkpoint_repo`` field is set during session
-    creation and on git push, so it captures repos that may not appear in
-    ``repositories.yaml`` (e.g. when the config file is absent in sandboxes
-    but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
-
-    Args:
-        owner: Repository owner (e.g. "my-org")
-        repo: Repository name (e.g. "checkpoints")
-
-    Returns:
-        True if the repo is a known checkpoint destination.
-    """
-    if is_checkpoint_repo(owner, repo):
-        return True
-    try:
-        session = getattr(g, "session", None)
-        if session and session.checkpoint_repo:
-            return bool(f"{owner}/{repo}".lower() == session.checkpoint_repo.lower())
-    except RuntimeError:
-        # Outside Flask request context — fall through
-        pass
-    return False
 
 
 app = Flask(__name__)
@@ -1102,15 +1070,11 @@ def config_reload() -> Response:
 # secret gates ``/api/v1/sessions/create``), so this exemption is not reachable
 # from a sandboxed agent's session token.
 _SLICE_INTEGRATION_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\d+$")
-# Context-branch shape for the synthetic-session exemption (#2548).
-# Matches ``egg/<base>/context`` — the doc-only branch that carries
-# refine/plan analysis docs and BRC consensus history so the strategic
-# narrative reaches ``main``.  The orchestrator creates this branch via the
-# same synthetic-session push path as slice integration branches; the
-# pipeline-session push block from #2028 must therefore exempt it the same
-# way.  Same trust model as ``_SLICE_INTEGRATION_BRANCH_RE``: only
-# launcher-gated synthetic sessions can ever opt into the exemption.
-_CONTEXT_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/context$")
+# NOTE: ``_CONTEXT_BRANCH_RE`` (the synthetic-session exemption for
+# ``egg/<base>/context`` from #2548) was removed in #2777 (cq-2 / cq-4).
+# The dedicated context branch is gone; the context PR now opens on
+# ``egg/<id>/work → main`` directly and that branch already lives on
+# the pipeline-session push-allow list.
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
@@ -1316,11 +1280,10 @@ def git_push() -> tuple[Response, int] | Response:
         )
 
     # Infrastructure branch bypass: pushes to infrastructure branches always succeed
-    # regardless of session mode or phase (checkpoints and pipeline state can be
-    # written at any time).
-    from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+    # regardless of session mode or phase (pipeline state can be written at any time).
+    from egg_config.constants import PIPELINE_STATE_BRANCH
 
-    INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
+    INFRASTRUCTURE_BRANCHES = {PIPELINE_STATE_BRANCH}
     is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
 
     # Slice integration-branch creation (#2368): the orchestrator pre-creates
@@ -1332,24 +1295,12 @@ def git_push() -> tuple[Response, int] | Response:
     # ``/api/v1/sessions/create`` endpoint is gated by ``require_launcher_auth``),
     # so a sandboxed agent's session token cannot reach this branch.
     #
-    # Context-branch creation (#2548) follows the same pattern: the
-    # orchestrator creates ``egg/<base>/context`` from the pipeline's base
-    # branch via a synthetic-session push and then commits the refine/plan
-    # artifacts onto it.  Both shapes share the exemption — the synthetic-
-    # session check below is the load-bearing trust gate; the regex match
-    # only narrows which branches the exemption covers.
-    # ``is_slice_integration_push`` is a legacy variable name kept for the
-    # downstream audit-trail filter at the second event below; it now
-    # covers both slice-integration AND context-branch synthetic pushes.
-    # The branch-shape distinction is captured by ``is_context_push`` so
-    # the second exemption event below can emit a precise ``exempt_type``
-    # ("context_branch" vs "slice_integration_branch") and SIEM pipelines
-    # keying on ``exempt_type`` can tell them apart (#2548 review).
+    # The legacy ``egg/<base>/context`` context-branch exemption (#2548) was
+    # removed in #2777 (cq-2 / cq-4): the dedicated context branch is gone
+    # and the context PR now opens on ``egg/<id>/work → main`` directly,
+    # which is already covered by the pipeline-session push-allow list.
     is_slice_integration_push = False
-    is_context_push = False
-    if not is_infrastructure_push and (
-        _SLICE_INTEGRATION_BRANCH_RE.match(branch) or _CONTEXT_BRANCH_RE.match(branch)
-    ):
+    if not is_infrastructure_push and _SLICE_INTEGRATION_BRANCH_RE.match(branch):
         # ``Session.synthetic`` is a ``bool`` (default ``False``); only an
         # orchestrator-issued session can carry ``synthetic=True`` because
         # ``/api/v1/sessions/create`` is gated on the launcher secret.  Use
@@ -1360,7 +1311,6 @@ def git_push() -> tuple[Response, int] | Response:
         if hasattr(g, "session") and getattr(g.session, "synthetic", False) is True:
             is_slice_integration_push = True
             is_infrastructure_push = True
-            is_context_push = bool(_CONTEXT_BRANCH_RE.match(branch))
             audit_log(
                 "push_slice_integration_exempt",
                 "git_push",
@@ -1371,10 +1321,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "refspec": refspec,
                     "branch": branch,
                     "reason": (
-                        "Synthetic-session context branch push — "
-                        "orchestrator infrastructure (#2548)"
-                        if is_context_push
-                        else "Synthetic-session slice integration branch push — "
+                        "Synthetic-session slice integration branch push — "
                         "orchestrator infrastructure (#2368)"
                     ),
                 },
@@ -1383,19 +1330,10 @@ def git_push() -> tuple[Response, int] | Response:
     repo_info = parse_owner_repo(repo)
     if repo_info:
         # Infrastructure operations — always accessible regardless of
-        # session mode. This covers dedicated checkpoint repos and
-        # infrastructure branch pushes (checkpoints, pipeline state).
-        is_ckpt_repo = _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo)
-        if is_infrastructure_push or is_ckpt_repo:
-            if is_ckpt_repo:
-                exempt_type = "checkpoint_repo"
-            elif is_context_push:
-                # Distinct ``exempt_type`` for context-branch pushes so
-                # SIEM pipelines that filter by the generic
-                # ``push_infrastructure_exempt`` event can tell them
-                # apart from slice-integration pushes (#2548 review).
-                exempt_type = "context_branch"
-            elif is_slice_integration_push:
+        # session mode. This covers infrastructure branch pushes
+        # (pipeline state) and synthetic slice-integration pushes.
+        if is_infrastructure_push:
+            if is_slice_integration_push:
                 exempt_type = "slice_integration_branch"
             else:
                 exempt_type = "infrastructure_branch"
@@ -1453,7 +1391,7 @@ def git_push() -> tuple[Response, int] | Response:
     # bare, mis-targeted, or correctly-targeted — is rejected with a single
     # unambiguous error pointing at the right tool, instead of the three-layer
     # error cascade that previously sent agents refspec-hunting (#2028).
-    # Infrastructure pushes (checkpoint branches, etc.) are exempt.
+    # Infrastructure pushes (pipeline-state branch, etc.) are exempt.
     if not is_infrastructure_push:
         # Killswitch: PIPELINE_PUSH_ENFORCEMENT=false (legacy alias:
         # CONCURRENT_PUSH_ENFORCEMENT=false) disables the block.
@@ -1559,12 +1497,12 @@ def git_push() -> tuple[Response, int] | Response:
     # consistent and lets the fail-closed branch run even if neither
     # session has a role (the phase check still runs in that case).
     #
-    # Infrastructure pushes (checkpoint branches, pipeline-state, and synthetic-
-    # session slice integration-branch creation pushes; see is_infrastructure_push
-    # above) are exempt for two distinct reasons:
-    #   1. ``egg/checkpoints/v2`` and ``egg/pipeline-state`` are orphan/disjoint-
-    #      history branches written by orchestrator infrastructure, not agent
-    #      BRC pushes, so role-based file restrictions don't conceptually apply.
+    # Infrastructure pushes (pipeline-state and synthetic-session slice
+    # integration-branch creation pushes; see is_infrastructure_push above)
+    # are exempt for two distinct reasons:
+    #   1. ``egg/pipeline-state`` is an orphan/disjoint-history branch written
+    #      by orchestrator infrastructure, not agent BRC pushes, so role-based
+    #      file restrictions don't conceptually apply.
     #   2. Synthetic-session slice integration-branch creation pushes (#2368)
     #      diff against `main` because the target ref doesn't exist yet, which
     #      would otherwise pull in every file modified on the parent branch's
@@ -1889,8 +1827,6 @@ def git_push() -> tuple[Response, int] | Response:
     # - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
     # - implement: Can push code but not .egg-state/ (except checkpoints)
     # - pr: Can push everything
-    #
-    # Checkpoint branch pushes always bypass this check (see is_infrastructure_push above).
     if session_phase and not is_infrastructure_push:
         # Get the list of files being pushed (reuse if already fetched for role check)
         if changed_files is None:
@@ -2011,36 +1947,6 @@ def git_push() -> tuple[Response, int] | Response:
     if auth_mode == "user":
         logger.debug("User mode push", repo=repo)
 
-    # Get the remote ref SHA before push (for per-push checkpoint creation)
-    # This allows us to identify the range of commits being pushed
-    old_ref_sha: str | None = None
-    try:
-        # Use ls-remote to get the current remote ref
-        ls_remote_result = subprocess.run(
-            git_cmd("ls-remote", push_target, f"refs/heads/{branch}"),
-            cwd=exec_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if ls_remote_result.returncode == 0 and ls_remote_result.stdout.strip():
-            # Output format: "<sha>\trefs/heads/<branch>"
-            old_ref_sha = ls_remote_result.stdout.strip().split()[0]
-            logger.debug(
-                "Got remote ref before push",
-                branch=branch,
-                old_ref_sha=old_ref_sha[:7] if old_ref_sha else None,
-            )
-        else:
-            # Branch doesn't exist on remote (new branch push)
-            old_ref_sha = "0" * 40
-            logger.debug("Branch does not exist on remote (new branch)", branch=branch)
-    except Exception as e:
-        # If we can't get the old ref, we'll fall back to single-commit checkpoint
-        logger.debug("Could not get remote ref before push", error=str(e))
-        old_ref_sha = None
-
     # Create credential helper and execute push
     credential_helper_path = None
     try:
@@ -2069,62 +1975,12 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-            # Capture per-push checkpoint after successful push (async, non-blocking)
-            # Get the HEAD commit SHA (new_sha) from the worktree
-            try:
-                head_result = subprocess.run(
-                    git_cmd("rev-parse", "HEAD"),
-                    cwd=exec_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-                new_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
-
-                if new_sha:
-                    # Get session from request context
-                    session = getattr(g, "session", None)
-
-                    # Look up checkpoint repo config (may be a separate repo)
-                    ckpt_repo = get_checkpoint_repo(repo) if repo else None
-
-                    # Store on session for session-end checkpoint use
-                    if session is not None:
-                        session.checkpoint_repo = ckpt_repo  # None clears previous value
-                        session.last_repo_path = exec_path
-                        session.last_branch = branch
-
-                    if old_ref_sha:
-                        # Create single checkpoint for the push tip
-                        capture_and_store_checkpoints_for_push(
-                            repo_path=exec_path,
-                            new_sha=new_sha,
-                            branch=branch,
-                            session=session,
-                            github_token=token_str,
-                            async_store=True,  # Don't block push response
-                            checkpoint_repo=ckpt_repo,
-                        )
-                    else:
-                        # Fallback: couldn't get old ref, create single checkpoint
-                        capture_and_store_checkpoint(
-                            repo_path=exec_path,
-                            commit_sha=new_sha,
-                            branch=branch,
-                            session=session,
-                            push_sha=new_sha,
-                            github_token=token_str,
-                            async_store=True,
-                            checkpoint_repo=ckpt_repo,
-                        )
-            except Exception as checkpoint_err:
-                # Checkpoint failure should never block push success
-                logger.warning(
-                    "Checkpoint capture failed (non-blocking)",
-                    error=str(checkpoint_err),
-                    branch=branch,
-                )
+            # Update session bookkeeping after a successful push so other
+            # request handlers can resolve the session's current worktree.
+            session = getattr(g, "session", None)
+            if session is not None:
+                session.last_repo_path = exec_path
+                session.last_branch = branch
 
             success_payload: dict[str, Any] = {
                 "repo": repo,
@@ -2770,9 +2626,7 @@ def git_execute() -> tuple[Response, int] | Response:
     if _session_for_observer is not None:
         _observer_role = getattr(_session_for_observer, "agent_role", None)
         _observer_pipeline_id = getattr(_session_for_observer, "pipeline_id", None)
-        _observer_repo = getattr(_session_for_observer, "repo", None) or getattr(
-            _session_for_observer, "checkpoint_repo", None
-        )
+        _observer_repo = getattr(_session_for_observer, "repo", None)
         _observer_branch = getattr(_session_for_observer, "assigned_branch", None) or getattr(
             _session_for_observer, "branch", None
         )
@@ -3001,41 +2855,29 @@ def git_fetch() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        # Checkpoint repos are infrastructure — always accessible regardless of session mode
-        if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
+        priv_result = check_private_repo_access(
+            operation=operation,
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=False,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
             audit_log(
-                f"{operation}_checkpoint_repo_exempt",
+                f"{operation}_denied_private_mode",
                 f"git_{operation}",
-                success=True,
+                success=False,
                 details={
                     "repo": repo,
-                    "reason": "Checkpoint repo exempt from private mode policy",
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
                 },
             )
-        else:
-            priv_result = check_private_repo_access(
-                operation=operation,
-                owner=repo_info.owner,
-                repo=repo_info.repo,
-                for_write=False,
-                session_mode=session_mode,
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
             )
-            if not priv_result.allowed:
-                audit_log(
-                    f"{operation}_denied_private_mode",
-                    f"git_{operation}",
-                    success=False,
-                    details={
-                        "repo": repo,
-                        "reason": priv_result.reason,
-                        "visibility": priv_result.visibility,
-                    },
-                )
-                return make_error(
-                    priv_result.reason,
-                    status_code=403,
-                    details=priv_result.to_dict(),
-                )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)
@@ -3121,466 +2963,6 @@ def git_fetch() -> tuple[Response, int] | Response:
         return make_error(f"{operation.capitalize()} failed: {e}", status_code=500)
     finally:
         cleanup_credential_helper(credential_helper_path)
-
-
-# ---------------------------------------------------------------------------
-# Checkpoint read endpoints
-# ---------------------------------------------------------------------------
-
-
-def _int_param(name: str) -> int | None:
-    """Parse an optional integer query parameter from the current request."""
-    val = request.args.get(name)
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except ValueError, TypeError:
-        return None
-
-
-@app.route("/api/v1/checkpoints", methods=["GET"])
-@require_session_auth
-def checkpoint_list() -> tuple[Response, int] | Response:
-    """
-    List checkpoint summaries with optional filters.
-
-    Query params:
-        repo_path: Repository path (required if not inferable)
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-        issue: Filter by issue number
-        pr: Filter by PR number
-        branch: Filter by branch name
-        session: Filter by session ID
-        trigger: Filter by trigger type
-        status: Filter by session status
-        agent_type: Filter by agent type
-        phase: Filter by pipeline phase
-        pipeline: Filter by pipeline ID
-        repo: Filter by source repository (owner/repo)
-        limit: Maximum results (default 50)
-    """
-    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
-
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint index fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoints", status_code=500)
-
-    if not index:
-        return make_success("No checkpoints found", {"checkpoints": []})
-
-    # Build filters from query params
-    filters: dict[str, Any] = {}
-
-    if request.args.get("issue"):
-        filters["issue_number"] = _int_param("issue")
-    if request.args.get("pr"):
-        filters["pr_number"] = _int_param("pr")
-    if request.args.get("branch"):
-        filters["branch"] = request.args["branch"]
-    if request.args.get("session"):
-        filters["session_id"] = request.args["session"]
-    if request.args.get("trigger"):
-        filters["trigger_type"] = request.args["trigger"]
-    if request.args.get("status"):
-        filters["session_status"] = request.args["status"]
-    if request.args.get("agent_type"):
-        filters["agent_type"] = request.args["agent_type"]
-    if request.args.get("phase"):
-        filters["pipeline_phase"] = request.args["phase"]
-    if request.args.get("pipeline"):
-        filters["pipeline_id"] = request.args["pipeline"]
-    if request.args.get("repo"):
-        filters["repo"] = request.args["repo"]
-
-    limit = _int_param("limit")
-    filters["limit"] = limit if limit is not None else 50
-
-    summaries = filter_checkpoints_v2(index, **filters)
-    data = [s.model_dump(mode="json") for s in summaries]
-
-    return make_success("OK", {"checkpoints": data})
-
-
-@app.route("/api/v1/checkpoints/cost", methods=["GET"])
-@require_session_auth
-def checkpoint_cost() -> tuple[Response, int] | Response:
-    """
-    Get cost breakdown for matching checkpoints.
-
-    Query params:
-        repo_path: Repository path
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-        pipeline: Filter by pipeline ID
-        issue: Filter by issue number
-        pr: Filter by PR number
-        limit: Maximum checkpoints to load (default 500)
-    """
-    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
-    from egg_contracts.usage import TokenCounts
-
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    # fetch_and_read_index does ls-remote + fetch + read index in one pass.
-    # We then call ensure_ref to get a ref for read_checkpoint calls below.
-    # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
-    # (branch already up-to-date), so only the ls-remote is repeated.
-    try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint index fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not index:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    try:
-        ref = handler.ensure_ref(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint ref resolution failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not ref:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    filters: dict[str, Any] = {}
-    if request.args.get("pipeline"):
-        filters["pipeline_id"] = request.args["pipeline"]
-    if request.args.get("issue"):
-        filters["issue_number"] = _int_param("issue")
-    if request.args.get("pr"):
-        filters["pr_number"] = _int_param("pr")
-    limit = _int_param("limit")
-    filters["limit"] = limit if limit is not None else 500
-
-    summaries = filter_checkpoints_v2(index, **filters)
-    if not summaries:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    rows: list[dict[str, Any]] = []
-    for s in summaries:
-        checkpoint = handler.read_checkpoint(repo_path, s.id, ref)
-        if not checkpoint or not checkpoint.token_usage:
-            continue
-
-        tu = checkpoint.token_usage
-        model = checkpoint.session.model if checkpoint.session else None
-        tokens = TokenCounts(
-            input_tokens=tu.input_tokens,
-            output_tokens=tu.output_tokens,
-            cache_read_tokens=tu.cache_read_tokens,
-            cache_creation_tokens=tu.cache_creation_tokens,
-        )
-        cost = float(tokens.calculate_cost(model=model))
-        phase = checkpoint.pipeline_phase or "(none)"
-        agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
-        rows.append(
-            {
-                "phase": phase,
-                "agent": agent,
-                "input_tokens": tu.input_tokens,
-                "output_tokens": tu.output_tokens,
-                "cost": cost,
-            }
-        )
-
-    if not rows:
-        return make_success(
-            "No cost data",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    agg: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in rows:
-        key = (row["phase"], row["agent"])
-        if key not in agg:
-            agg[key] = {"input": 0, "output": 0, "cost": 0.0, "count": 0}
-        agg[key]["input"] += row["input_tokens"]
-        agg[key]["output"] += row["output_tokens"]
-        agg[key]["cost"] += row["cost"]
-        agg[key]["count"] += 1
-
-    return make_success(
-        "OK",
-        {
-            "checkpoint_count": len(rows),
-            "total_input_tokens": sum(v["input"] for v in agg.values()),
-            "total_output_tokens": sum(v["output"] for v in agg.values()),
-            "total_cost_usd": round(sum(v["cost"] for v in agg.values()), 4),
-            "breakdown": [
-                {
-                    "phase": k[0],
-                    "agent": k[1],
-                    "input_tokens": v["input"],
-                    "output_tokens": v["output"],
-                    "cost_usd": round(v["cost"], 4),
-                    "checkpoint_count": v["count"],
-                }
-                for k, v in sorted(agg.items())
-            ],
-        },
-    )
-
-
-@app.route("/api/v1/checkpoints/<identifier>", methods=["GET"])
-@require_session_auth
-def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
-    """
-    Get a full checkpoint by ID or commit SHA.
-
-    Path params:
-        identifier: Checkpoint ID (ckpt-...) or commit SHA
-
-    Query params:
-        repo_path: Repository path
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-    """
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    try:
-        ref = handler.ensure_ref(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint ref fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not ref:
-        return make_error("Checkpoint branch not found", status_code=404)
-
-    checkpoint_id: str | None = identifier
-    if not identifier.startswith("ckpt-"):
-        # Look up by commit SHA
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-        if index:
-            checkpoint_id = index.get_by_commit(identifier)
-        if not checkpoint_id:
-            return make_error(f"Checkpoint not found: {identifier}", status_code=404)
-
-    assert checkpoint_id is not None
-    checkpoint = handler.read_checkpoint(repo_path, checkpoint_id, ref)
-    if not checkpoint:
-        return make_error(f"Checkpoint not found: {identifier}", status_code=404)
-
-    return make_success("OK", {"checkpoint": checkpoint.model_dump(mode="json")})
-
-
-def _resolve_checkpoint_repo(repo_path: str) -> str | None:
-    """Resolve checkpoint_repo from query param or auto-detection.
-
-    Resolution order:
-    1. Explicit ``checkpoint_repo`` query parameter (owner/repo format).
-    2. Auto-detection from ``repo_path`` (git remote → config lookup).
-    3. ``source_repo`` query parameter looked up in config. This is the
-       fallback for sandbox containers where ``repositories.yaml`` is not
-       available and the sandbox repo path may not exist on the gateway.
-    """
-    explicit = request.args.get("checkpoint_repo")
-    if explicit:
-        # Basic validation: must look like "owner/repo"
-        if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", explicit):
-            return explicit
-        logger.warning(
-            "Invalid checkpoint_repo format, falling back to auto-detection",
-            checkpoint_repo=explicit,
-        )
-
-    # Try path-based auto-detection (works when repo_path is a local git repo)
-    result = _get_checkpoint_repo_for_path(repo_path)
-    if result:
-        return result
-
-    # Fallback: use source_repo query param for config lookup.
-    # The sandbox CLI sends this when it can determine the source repo
-    # from git remote but cannot resolve checkpoint_repo locally
-    # (repositories.yaml is only mounted on the gateway).
-    source_repo = request.args.get("source_repo")
-    if source_repo and re.match(
-        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
-    ):
-        try:
-            from config.repo_config import get_checkpoint_repo
-
-            cp_repo = get_checkpoint_repo(source_repo)
-            if cp_repo:
-                logger.debug(
-                    "Resolved checkpoint_repo from source_repo param",
-                    source_repo=source_repo,
-                    checkpoint_repo=cp_repo,
-                )
-                return cp_repo
-        except Exception as e:
-            logger.debug(
-                "Config lookup for source_repo failed",
-                source_repo=source_repo,
-                error=str(e),
-            )
-
-    return None
-
-
-def _resolve_checkpoint_token(repo_path: str) -> str | None:
-    """Resolve a GitHub token for checkpoint fetch operations.
-
-    Tries ``_resolve_github_token`` (which reads the git remote from
-    ``repo_path``).  When that fails — typically because ``repo_path``
-    is the scratch repo with no remotes — falls back to resolving a
-    token via the ``source_repo`` query parameter.
-    """
-    from checkpoint_handler import _resolve_github_token
-
-    token: str | None = _resolve_github_token(repo_path)
-    if token:
-        return token
-
-    source_repo = request.args.get("source_repo")
-    if source_repo and re.match(
-        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
-    ):
-        token_str, _auth_mode, _error = get_token_for_repo(source_repo)
-        if token_str:
-            return token_str
-
-    return None
-
-
-_CHECKPOINT_SCRATCH_DIR = "/home/egg/.egg-worktrees/.checkpoint-scratch"
-
-_checkpoint_scratch_lock = threading.Lock()
-
-
-def _ensure_checkpoint_scratch_repo() -> str | None:
-    """Create or return a bare git repo for checkpoint fetch operations.
-
-    When the sandbox's repo path doesn't exist on the gateway filesystem,
-    we still need a valid git directory as cwd for ``git fetch`` and
-    ``git ls-remote`` commands.  This creates a minimal bare repo that
-    serves as that working directory.
-
-    Returns:
-        Path to the scratch repo, or None on failure.
-    """
-    if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
-        return _CHECKPOINT_SCRATCH_DIR
-    with _checkpoint_scratch_lock:
-        # Re-check after acquiring lock to avoid duplicate init
-        if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
-            return _CHECKPOINT_SCRATCH_DIR
-        try:
-            os.makedirs(_CHECKPOINT_SCRATCH_DIR, exist_ok=True)
-            subprocess.run(
-                ["git", "init", "--bare", _CHECKPOINT_SCRATCH_DIR],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True,
-            )
-            logger.debug("Created checkpoint scratch repo", path=_CHECKPOINT_SCRATCH_DIR)
-            return _CHECKPOINT_SCRATCH_DIR
-        except Exception as e:
-            logger.warning("Failed to create checkpoint scratch repo", error=str(e))
-            return None
-
-
-def _resolve_repo_path_for_checkpoints() -> str | None:
-    """Resolve repository path for checkpoint read operations.
-
-    Tries query param, then session's last_repo_path, then EGG_REPO_PATH,
-    then a checkpoint scratch repo.  The scratch repo fallback handles
-    sandbox → gateway requests where the sandbox's filesystem is not
-    mounted on the gateway container.
-    """
-    # Explicit query param — if provided AND exists locally, use it.
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        path_valid, _err = validate_repo_path(repo_path)
-        if path_valid and os.path.isdir(repo_path):
-            return repo_path
-        # Path is valid format but doesn't exist on this container.
-        # This is expected when the CLI runs in a sandbox whose filesystem
-        # is not mounted on the gateway.  Fall through to other sources
-        # instead of returning None.
-        if not path_valid:
-            return None
-
-    # Session's last known repo path (set during push operations)
-    session = getattr(g, "session", None)
-    if session and getattr(session, "last_repo_path", None):
-        if os.path.isdir(session.last_repo_path):
-            return str(session.last_repo_path)
-
-    # Environment variable
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path and os.path.isdir(env_path):
-        return env_path
-
-    # Last resort: create a bare scratch repo for checkpoint fetching.
-    # This allows the gateway to serve checkpoint queries even without
-    # a local copy of the source repo.
-    return _ensure_checkpoint_scratch_repo()
 
 
 def _apply_pr_labels(
@@ -3769,10 +3151,10 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     if policy_result.details and policy_result.details.get("force_draft"):
         draft = True
 
-    # Inject machine-parseable pipeline metadata as an HTML comment.
-    # Note: _build_pr_body (in the orchestrator) also adds a human-readable
-    # "## Pipeline Context" section. The two formats are intentionally
-    # complementary — visible for humans, hidden comment for tooling.
+    # Inject machine-parseable pipeline metadata as an HTML comment so
+    # downstream tooling (status reporters, audit scrapers) can recover
+    # the pipeline_id / agent_role / issue from the PR body without
+    # round-tripping through the orchestrator state store.
     session = getattr(g, "session", None)
     session_pipeline_id = getattr(session, "pipeline_id", None) if session else None
     if session_pipeline_id:
@@ -4709,43 +4091,31 @@ def gh_execute() -> tuple[Response, int] | Response:
     if repo:
         repo_info = parse_owner_repo(repo)
         if repo_info:
-            # Checkpoint repos are infrastructure — always accessible
-            if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
+            priv_result = check_private_repo_access(
+                operation="gh_execute",
+                owner=repo_info.owner,
+                repo=repo_info.repo,
+                for_write=False,  # Assume read for generic gh execute
+                session_mode=session_mode,
+            )
+            if not priv_result.allowed:
                 audit_log(
-                    "gh_execute_checkpoint_repo_exempt",
+                    "gh_execute_denied_private_mode",
                     "gh_execute",
-                    success=True,
+                    success=False,
                     details={
                         "repo": repo,
-                        "reason": "Checkpoint repo exempt from private mode policy",
+                        "command_args": args[:3] if len(args) > 3 else args,
+                        "reason": priv_result.reason,
+                        "visibility": priv_result.visibility,
+                        "auth_mode": auth_mode,
                     },
                 )
-            else:
-                priv_result = check_private_repo_access(
-                    operation="gh_execute",
-                    owner=repo_info.owner,
-                    repo=repo_info.repo,
-                    for_write=False,  # Assume read for generic gh execute
-                    session_mode=session_mode,
+                return make_error(
+                    priv_result.reason,
+                    status_code=403,
+                    details=priv_result.to_dict(),
                 )
-                if not priv_result.allowed:
-                    audit_log(
-                        "gh_execute_denied_private_mode",
-                        "gh_execute",
-                        success=False,
-                        details={
-                            "repo": repo,
-                            "command_args": args[:3] if len(args) > 3 else args,
-                            "reason": priv_result.reason,
-                            "visibility": priv_result.visibility,
-                            "auth_mode": auth_mode,
-                        },
-                    )
-                    return make_error(
-                        priv_result.reason,
-                        status_code=403,
-                        details=priv_result.to_dict(),
-                    )
 
     # Use reviewer token for PR reviews when available. This allows the
     # reviewer bot (a separate GitHub App) to post approve/request-changes
@@ -4898,6 +4268,234 @@ def gh_execute() -> tuple[Response, int] | Response:
             status_code=500,
             details=result.to_dict(),
         )
+
+
+@app.route("/api/v1/gh/find_open_pr", methods=["POST"])
+@require_launcher_auth
+def gh_find_open_pr() -> tuple[Response, int] | Response:
+    """Control-plane idempotency lookup: return the open ``head → base`` PR number.
+
+    This is an **orchestrator-only** route, gated by ``@require_launcher_auth``
+    rather than ``@require_session_auth``: the caller is the control plane
+    (the orchestrator holds the launcher secret), not a sandboxed agent. It
+    exists so the orchestrator's slice-PR idempotency pre-flight (#2777 cq-8)
+    does not have to register a synthetic *agent* session and impersonate a
+    role on ``/api/v1/gh/execute`` — the conflation that #2893 papered over by
+    adding a bogus ``AgentRole.ORCHESTRATOR``. The orchestrator is not an
+    agent role; it is the server that manages pipelines, so it authenticates
+    as the control plane and uses a purpose-built read-only endpoint.
+
+    Unlike ``/api/v1/gh/execute`` (arbitrary allowlisted argv), this route
+    accepts only ``repo``/``head``/``base`` and constructs the fixed
+    read-only argv server-side, so there is no general gh-command surface on
+    the launcher-auth path.
+
+    Request body:
+        {"repo": "owner/name", "head": "<branch>", "base": "<branch>"}
+
+    Returns:
+        ``{"number": <int>}`` on hit, ``{"number": null}`` on miss. The GH
+        API documents at most one open PR per (head, base) tuple, so the
+        lookup is ``--limit 1``.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    # Validate and bind stripped values in one pass so mypy sees ``repo``
+    # / ``head`` / ``base`` as ``str`` (not the ``Any`` returned by
+    # ``data.get(...)``) below.
+    fields: dict[str, str] = {}
+    for name, value in (
+        ("repo", data.get("repo")),
+        ("head", data.get("head")),
+        ("base", data.get("base")),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            return make_error(f"Missing or invalid {name}: must be a non-empty string")
+        fields[name] = value.strip()
+    repo, head, base = fields["repo"], fields["head"], fields["base"]
+
+    # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
+    # also accepts full GitHub URLs); the docstring and the validation
+    # error below both promise the literal ``owner/name`` shape, so we
+    # match against the pattern directly rather than the URL-permissive
+    # helper.
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    args = [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--head",
+        head,
+        "--base",
+        base,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        # ``gh`` should not print credentials to stderr, but truncate
+        # defensively so we never page a giant stderr blob into the
+        # audit log.
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_find_open_pr_failed",
+            "gh_find_open_pr",
+            success=False,
+            details={"repo": repo, "head": head, "base": base, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    number: int | None = None
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            items = json.loads(stdout)
+        except ValueError, TypeError:
+            items = None
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("number") is not None:
+                    try:
+                        number = int(item["number"])
+                    except TypeError, ValueError:
+                        number = None
+                    break
+
+    audit_log(
+        "gh_find_open_pr",
+        "gh_find_open_pr",
+        success=True,
+        details={"repo": repo, "head": head, "base": base, "number": number},
+    )
+    return make_success("Open PR lookup complete", {"number": number})
+
+
+@app.route("/api/v1/gh/list_open_prs", methods=["POST"])
+@require_launcher_auth
+def gh_list_open_prs() -> tuple[Response, int] | Response:
+    """Control-plane listing: return the repo's open PRs (number/head/base).
+
+    Like ``/api/v1/gh/find_open_pr``, this is an **orchestrator-only**
+    route gated by ``@require_launcher_auth`` rather than
+    ``@require_session_auth``: the caller is the control plane (the
+    orchestrator holds the launcher secret), not a sandboxed agent. It
+    exists so the orchestrator's context-PR idempotency pre-flight
+    (``_open_context_pr_at_implement_start``) and stacked-PR reconciler
+    do not have to register a synthetic *agent* session and impersonate a
+    role on ``/api/v1/gh/execute`` — the conflation #2910 papered over by
+    adding a bogus ``AgentRole.ORCHESTRATOR`` (removed in #2925). The
+    orchestrator is not an agent role; it is the server that manages
+    pipelines, so it authenticates as the control plane and uses a
+    purpose-built read-only endpoint.
+
+    Unlike ``/api/v1/gh/execute`` (arbitrary allowlisted argv), this route
+    accepts only ``repo``/``limit`` and constructs the fixed read-only
+    argv server-side, so there is no general gh-command surface on the
+    launcher-auth path.
+
+    Request body:
+        {"repo": "owner/name", "limit": <int 1..1000, optional, default 200>}
+
+    Returns:
+        ``{"prs": [{"number": int, "headRefName": str, "baseRefName": str}, ...]}``.
+        The caller (``GatewayClient.list_open_prs``) normalises this into
+        the ``number``/``head_ref``/``base_ref`` shape its consumers expect.
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+    # ``request.get_json()`` returns whatever JSON parses — a launcher
+    # caller could legitimately post an array or scalar. Reject anything
+    # other than an object up front so ``data.get(...)`` below cannot
+    # raise ``AttributeError`` → 500.
+    if not isinstance(data, dict):
+        return make_error("Invalid body: must be a JSON object")
+
+    repo = data.get("repo")
+    if not isinstance(repo, str) or not repo.strip():
+        return make_error("Missing or invalid repo: must be a non-empty string")
+    repo = repo.strip()
+
+    # ``OWNER_REPO_PATTERN`` is stricter than ``parse_owner_repo`` (which
+    # also accepts full GitHub URLs); the docstring promises the literal
+    # ``owner/name`` shape, so we match against the pattern directly.
+    if OWNER_REPO_PATTERN.match(repo) is None:
+        return make_error("Invalid repo: must be 'owner/name'")
+
+    # ``bool`` is a subclass of ``int``; reject it explicitly so ``True``
+    # cannot slip through as ``limit=1``.
+    limit = data.get("limit", 200)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        return make_error("Invalid limit: must be an integer in [1, 1000]")
+
+    args = [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--limit",
+        str(limit),
+        "--json",
+        "number,headRefName,baseRefName",
+    ]
+
+    auth_mode = get_auth_mode(repo)
+    github = get_github_client(mode=auth_mode)
+    result = github.execute(args, timeout=60, mode=auth_mode)
+
+    if not result.success:
+        # ``gh`` should not print credentials to stderr, but truncate
+        # defensively so we never page a giant stderr blob into the
+        # audit log.
+        stderr_excerpt = (result.stderr or "")[:500]
+        audit_log(
+            "gh_list_open_prs_failed",
+            "gh_list_open_prs",
+            success=False,
+            details={"repo": repo, "limit": limit, "stderr": stderr_excerpt},
+        )
+        return make_error(
+            f"Command failed: {result.stderr}",
+            status_code=500,
+            details=result.to_dict(),
+        )
+
+    prs: list[dict[str, Any]] = []
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        try:
+            items = json.loads(stdout)
+        except ValueError, TypeError:
+            items = None
+        if isinstance(items, list):
+            prs = [item for item in items if isinstance(item, dict)]
+
+    audit_log(
+        "gh_list_open_prs",
+        "gh_list_open_prs",
+        success=True,
+        details={"repo": repo, "limit": limit, "count": len(prs)},
+    )
+    return make_success("Open PR list complete", {"prs": prs})
 
 
 # =============================================================================
@@ -6707,6 +6305,36 @@ def _confluence_error_from_upstream(exc: ConfluenceUpstreamError) -> tuple[Respo
     redactor only runs on 2xx bodies, so we apply it here too before the
     upstream body crosses the gateway/sandbox boundary.
     """
+    if 300 <= exc.status_code < 400:
+        # A 3xx is never a valid read response from the Atlassian REST API —
+        # it's the signature of an unauthenticated/misrouted request being
+        # bounced to the login page. The usual cause is a missing/invalid
+        # gateway Atlassian token or a wrong base URL (e.g. ATLASSIAN_BASE_URL
+        # set to a page browser URL, or CONFLUENCE_BASE_URL missing the
+        # ``/wiki`` suffix). Surface that pointedly instead of an opaque 502 so
+        # operators don't have to reverse-engineer the redirect. Still 502
+        # (bad upstream response), distinct from the 503 "creds absent" path.
+        message = (
+            f"Confluence upstream returned {exc.status_code} (redirect) — the "
+            "gateway received a login redirect instead of a REST response. "
+            "This usually means the gateway's Atlassian credentials are "
+            "missing/invalid or the base URL is wrong (e.g. ATLASSIAN_BASE_URL "
+            "must be the bare tenant origin, or CONFLUENCE_BASE_URL must include "
+            "the /wiki suffix)."
+        )
+        details: dict[str, Any] = {
+            "upstream_status": exc.status_code,
+            "upstream_body": _redact_upstream_error_body(exc.body),
+            "path": exc.path,
+            "likely_cause": "missing_or_invalid_atlassian_credentials_or_base_url",
+        }
+        # Surface the upstream ``Location`` when present so the operator can
+        # confirm the bounce target (typically ``/login`` or the tenant root)
+        # without reproducing.
+        if exc.location:
+            message += f" Upstream redirected to: {exc.location}"
+            details["upstream_location"] = exc.location
+        return make_error(message, status_code=502, details=details)
     if 400 <= exc.status_code < 500:
         status = exc.status_code
     else:
@@ -8801,8 +8429,7 @@ def session_create() -> tuple[Response, int] | Response:
     # Step 3: Create worktrees for filtered repos
     worktrees = {}
     worktree_errors = []
-    first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
-    first_repo: str | None = None  # First filtered repo in "owner/repo" format
+    first_worktree_path: str | None = None  # Gateway-side path for the session's repo context
 
     # Only initialise the worktree manager when there are repos to process.
     # Local-mode sessions (no repos) skip worktree creation entirely, so
@@ -8855,10 +8482,9 @@ def session_create() -> tuple[Response, int] | Response:
                     gid=gid,
                     assigned_branch=branch,
                 )
-            # Capture the first worktree's gateway-side path for checkpoint context
+            # Capture the first worktree's gateway-side path for the session's repo context
             if first_worktree_path is None:
                 first_worktree_path = str(info.worktree_path)
-                first_repo = repo
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
         except ValueError as e:
@@ -8896,19 +8522,12 @@ def session_create() -> tuple[Response, int] | Response:
         upstream_model=upstream_model,
     )
 
-    # Pre-populate checkpoint context so non-pushing sessions (reviewers,
-    # architects, etc.) have a repo_path and checkpoint_repo for session-end
-    # checkpoint storage. These fields are also set on git push, but pipeline
-    # agents that never push would otherwise have None values.
+    # Pre-populate the session's repo path so non-pushing sessions (reviewers,
+    # architects, etc.) can resolve their worktree before any git push. This is
+    # also set on git push, but pipeline agents that never push would otherwise
+    # have a None value.
     if first_worktree_path is not None:
         _session.last_repo_path = first_worktree_path
-    if first_repo is not None:
-        # Note: for local-only repos, first_repo is a bare name (e.g. "my-repo")
-        # rather than "owner/repo" format. get_checkpoint_repo() won't match it
-        # in repo_settings, so checkpoint_repo will be None. This is acceptable:
-        # local-only repos have no GitHub remote and aren't expected to produce
-        # checkpoints.
-        _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     # Use the shared pipeline branch for push enforcement.
     # session_manager already sets assigned_branch from the `branch`
@@ -9006,14 +8625,14 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     container_id = session.container_id if session else None
 
     # Delete the session
-    deleted, _checkpoint_event = session_manager.delete_session(session_token)
+    deleted = session_manager.delete_session(session_token)
 
     if not deleted:
         return make_error("Session not found", status_code=404)
 
-    # _capture_and_cleanup_session (called inside delete_session) already
-    # waits for checkpoint storage to complete before returning, so the
-    # worktree is safe to remove at this point — no second wait needed.
+    # _capture_and_cleanup_session (called inside delete_session) auto-commits
+    # the agent's WIP synchronously before returning, so the worktree is safe
+    # to remove at this point.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = (
@@ -9048,14 +8667,14 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     Auth: Bearer {launcher_secret}
     """
     session_manager = get_session_manager()
-    deleted, _checkpoint_event = session_manager.delete_session_by_container(container_id)
+    deleted = session_manager.delete_session_by_container(container_id)
 
     if not deleted:
         return make_error("Session not found for container", status_code=404)
 
     # _capture_and_cleanup_session (called inside delete_session_by_container)
-    # already waits for checkpoint storage to complete before returning, so
-    # the worktree is safe to remove at this point — no second wait needed.
+    # auto-commits the agent's WIP synchronously before returning, so the
+    # worktree is safe to remove at this point.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = _cleanup_container_worktrees(container_id)
@@ -9510,14 +9129,257 @@ def _inject_anthropic_credentials(
     return _inject_upstream_credentials(headers, upstream="anthropic")
 
 
+# =============================================================================
+# Routing policy — gateway-as-single-router (issue #2987)
+# =============================================================================
+# The gateway is the single LLM router. On top of the spawn-time per-agent
+# upstream selection (``session.upstream``), a hot-reloadable, model-keyed
+# routing policy adds a proactive ``switchover`` remap and a reactive
+# ``fallbacks`` chain. See gateway/routing_policy.py for the schema and the
+# fail-open posture. The helpers below resolve a request into an ordered
+# list of ``RouteHop``s and prepare a clean (client, headers, body) tuple
+# per hop — the credentials are rebuilt from scratch on every hop so a
+# fallback never carries the previous upstream's auth header (the bleed
+# fix: litellm's ``x-api-key`` and Anthropic-OAuth's ``Authorization`` are
+# different header names, so re-injecting into a dirty dict would otherwise
+# leak the stale key onto the next upstream).
+
+
+def _extract_wire_model(request_body: bytes) -> str | None:
+    """Return the request body's ``"model"`` field, or ``None`` on parse miss."""
+    try:
+        model = json.loads(request_body).get("model")
+    except json.JSONDecodeError, TypeError, AttributeError:
+        return None
+    return model if isinstance(model, str) else None
+
+
+def _rewrite_upstream_model(request_body: bytes, model: str) -> bytes:
+    """Set ``body["model"] = model`` and re-encode; original bytes on parse miss.
+
+    A narrowly-scoped reintroduction of the helper #2832 retired. #2832
+    removed the *unconditional* LiteLLM-path rewrite (Claude Code now sends
+    the wire model directly); this version fires ONLY when a routing-policy
+    hop names an explicit target model, so the no-policy path is
+    byte-identical — the body is never touched unless a switchover or
+    fallback hop specifies a ``model``.
+    """
+    try:
+        body = json.loads(request_body)
+    except json.JSONDecodeError, TypeError:
+        return request_body
+    if not isinstance(body, dict):
+        return request_body
+    body["model"] = model
+    return json.dumps(body).encode()
+
+
+def _resolve_route_chain(
+    session_upstream: str,
+    request_body: bytes,
+) -> tuple[list[RouteHop], Any]:
+    """Resolve a request into an ordered ``[RouteHop, ...]`` chain + triggers.
+
+    Hop 0 is the *initial* route: a proactive ``switchover`` remap for the
+    wire model if one is configured, else the spawn-time ``session_upstream``
+    (no model rewrite — byte-identical to today). Hops 1..N are the reactive
+    fallback chain for the wire model, in order. With an empty policy the
+    chain is a single hop on ``session_upstream`` and behavior is
+    byte-identical to the pre-#2987 path.
+    """
+    policy = get_routing_policy_manager().get_policy()
+    wire_model = _extract_wire_model(request_body)
+
+    switch = policy.switchover_for(wire_model)
+    initial = switch if switch is not None else RouteHop(upstream=session_upstream, model=None)
+    chain = [initial, *policy.fallback_chain_for(wire_model)]
+    return chain, policy.triggers
+
+
+class _PreparedHop(NamedTuple):
+    """A hop ready to send: resolved client, freshly-injected headers, body."""
+
+    client: Any
+    headers: dict[str, str]
+    body: bytes
+
+
+class _HopPrepError(Exception):
+    """Raised by ``_prepare_hop`` when a hop cannot be prepared.
+
+    Carries the ``(Response, status)`` tuple the proxy route should return if
+    this is the last hop (the caller advances to a fallback instead when one
+    exists). Modeling the failure as an exception — rather than an optional
+    field in the return tuple — lets the success path be a non-optional
+    ``_PreparedHop`` that type-checks cleanly at the call sites.
+    """
+
+    def __init__(self, response: tuple[Any, int]) -> None:
+        super().__init__("hop preparation failed")
+        self.response = response
+
+
+def _prepare_hop(
+    hop: RouteHop,
+    request_headers: Any,
+    request_body: bytes,
+) -> _PreparedHop:
+    """Build the (client, headers, body) for one hop.
+
+    Headers are rebuilt with ``_get_forwarded_headers`` from the *original*
+    request headers on every call, then this hop's credential is injected —
+    so a fallback hop never inherits the previous upstream's auth header.
+    Raises ``_HopPrepError`` (carrying the error response) on a credential or
+    unknown-upstream failure for this hop; the caller decides whether to
+    advance to a fallback or surface it.
+    """
+    headers = _get_forwarded_headers(request_headers)
+    headers, cred_error = _inject_upstream_credentials(headers, upstream=hop.upstream)
+    if cred_error:
+        raise _HopPrepError(cred_error)
+
+    if hop.upstream == "anthropic":
+        client = get_anthropic_client()
+    else:
+        try:
+            client, _ = get_upstream_registry().get(hop.upstream)
+        except UnknownUpstreamError:
+            logger.warning("Unknown upstream on routing hop, refusing", upstream=hop.upstream)
+            raise _HopPrepError(
+                (
+                    jsonify(
+                        {
+                            "error": {
+                                "type": "api_error",
+                                "message": f"Unknown upstream '{hop.upstream}'",
+                            }
+                        }
+                    ),
+                    502,
+                )
+            ) from None
+
+    body = _rewrite_upstream_model(request_body, hop.model) if hop.model else request_body
+    return _PreparedHop(client=client, headers=headers, body=body)
+
+
+def _classify_route_status(
+    status: int,
+    triggers: Any,
+    same_hop_attempts: int,
+    is_last_hop: bool,
+) -> str:
+    """Decide what to do with an upstream's status: retry the same hop,
+    advance to the next hop, or accept the response.
+
+    Same-hop retry takes precedence while the budget remains (so a code that
+    is in *both* ``retry_same_on`` and ``advance_on`` retries first, then
+    escalates). ``advance`` only fires when a fallback hop exists.
+    """
+    if status in triggers.retry_same_on and same_hop_attempts < triggers.retry_same_max:
+        return "retry_same"
+    if status in triggers.advance_on and not is_last_hop:
+        return "advance"
+    return "accept"
+
+
+# Transport-level errors that mean "this upstream did not produce a usable
+# HTTP response" — eligible for the same-hop retry (#1907) and, when a
+# fallback hop exists, for advancing the chain (#2987).
+_UPSTREAM_TRANSPORT_ERRORS = (
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.TimeoutException,
+)
+
+
+def _close_quietly(resp: Any) -> None:
+    """Close an httpx streaming response, swallowing errors.
+
+    Used to release a discarded upstream connection when the routing loop
+    retries the same hop or advances to a fallback — a streaming response we
+    are not going to forward must be closed or its connection leaks.
+    """
+    try:
+        resp.close()
+    except Exception:
+        pass
+
+
+def _send_and_prime(
+    client: Any,
+    headers: dict[str, str],
+    body: bytes,
+) -> tuple[Any, Any, bytes | None]:
+    """Send the upstream request and pre-fetch the first chunk.
+
+    Returns ``(upstream_response, iterator, first_chunk)`` where
+    ``first_chunk`` is ``None`` if the upstream returned an empty body.
+    Raises a transport error (``httpx.ReadError`` / ``RemoteProtocolError`` /
+    ``ConnectError`` / ``TimeoutException``) if the connection fails during
+    ``send()`` or the first ``iter_bytes()`` call — callers use that signal
+    to retry the same hop or advance to a fallback (issues #1907, #2987).
+    """
+    http_req = client.build_request("POST", "/v1/messages", headers=headers, content=body)
+    upstream_resp = client.send(http_req, stream=True)
+    try:
+        iterator = upstream_resp.iter_bytes()
+        try:
+            first = next(iterator)
+        except StopIteration:
+            first = None
+        return upstream_resp, iterator, first
+    except BaseException:
+        # Close the failed upstream so the caller's retry can open a fresh
+        # connection without leaking the old one. Broad catch ensures
+        # cleanup on *any* exception from iter_bytes() / next().
+        try:
+            upstream_resp.close()
+        except Exception:
+            pass
+        raise
+
+
+def _attempt_hop_streaming(
+    client: Any,
+    headers: dict[str, str],
+    body: bytes,
+    *,
+    container_id: str | None,
+) -> tuple[Any, Any, bytes | None]:
+    """One streaming hop with the #1907 pre-stream transport-reset retry.
+
+    Retries the *same* upstream once if the connection resets before any byte
+    is forwarded downstream, then raises on the second failure. The
+    cross-hop routing loop turns that raise into an advance-or-surface
+    decision (#2987).
+    """
+    for attempt in range(2):
+        try:
+            return _send_and_prime(client, headers, body)
+        except _UPSTREAM_TRANSPORT_ERRORS as reset_err:
+            if attempt == 0 and isinstance(reset_err, (httpx.ReadError, httpx.RemoteProtocolError)):
+                logger.warning(
+                    "Upstream connection reset before any byte was forwarded; "
+                    "retrying same upstream once",
+                    container_id=container_id,
+                    error=str(reset_err),
+                )
+                continue
+            # Connect/timeout failures (and the exhausted reset retry) are not
+            # retried in place — the routing loop advances to a fallback hop
+            # if one exists, else re-raises to the outer 502/504 handler.
+            raise
+    # Unreachable: ``range(2)`` always returns on success or raises on the
+    # second attempt. Present so the type checker sees no fall-through path.
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 # Tools blocked in private mode to prevent data exfiltration
 # These tools route through Anthropic's infrastructure, bypassing container network controls
 # See PR #686 security findings and PR #702 analysis
 BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"}
-
-# Maximum size (in characters) for preserving raw tool input when JSON parsing fails.
-# Used for debugging incomplete streaming responses without bloating the buffer.
-RAW_INPUT_TRUNCATE_SIZE = 1000
 
 
 def _resolve_proxy_session(
@@ -9658,287 +9520,10 @@ def _is_streaming_request(request_body: bytes) -> bool:
         return False
 
 
-def _capture_non_streaming_response(
-    container_id: str,
-    request_json: dict[str, Any],
-    response_body: bytes,
-    start_time: float,
-    status_code: int = 200,
-) -> None:
-    """
-    Capture a non-streaming API response to the transcript buffer.
-
-    Args:
-        container_id: Container ID for buffer lookup
-        request_json: Parsed request body
-        response_body: Raw response bytes
-        start_time: Request start time for duration calculation
-        status_code: HTTP status code of the response
-    """
-    duration_ms = (time.time() - start_time) * 1000
-
-    try:
-        response_json = json.loads(response_body)
-    except json.JSONDecodeError, TypeError:
-        # For non-JSON responses (error pages, malformed responses), capture basic info
-        # This is important for debugging failed API calls
-        if status_code >= 400:
-            response_json = {
-                "error": {
-                    "type": "api_error",
-                    "status_code": status_code,
-                    "message": response_body.decode("utf-8", errors="replace")[:500],
-                }
-            }
-        else:
-            logger.debug("Could not parse response body for transcript capture")
-            return
-
-    try:
-        buffer = get_transcript_buffer(container_id)
-        # Check if this is an error response
-        error_info = response_json.get("error")
-        if error_info:
-            # Capture error as content block for visibility
-            buffer.write_api_turn(
-                request_body=request_json,
-                response_content=[{"type": "error", "error": error_info}],
-                response_usage=response_json.get("usage"),
-                response_model=response_json.get("model"),
-                stop_reason="error",
-                duration_ms=duration_ms,
-                streaming=False,
-            )
-        else:
-            buffer.write_api_turn(
-                request_body=request_json,
-                response_content=response_json.get("content"),
-                response_usage=response_json.get("usage"),
-                response_model=response_json.get("model"),
-                stop_reason=response_json.get("stop_reason"),
-                duration_ms=duration_ms,
-                streaming=False,
-            )
-    except Exception as e:
-        logger.warning(
-            "Failed to capture non-streaming response to transcript buffer",
-            container_id=container_id,
-            error=str(e),
-        )
-
-
-SSEResult = tuple[
-    list[dict[str, Any]] | None,
-    dict[str, Any] | None,
-    str | None,
-    str | None,
-]
-
-
-class _SSEAccumulator:
-    """Parse Anthropic SSE streaming responses incrementally.
-
-    Accepts bytes chunks via ``feed()``. Holds only parsed state plus a small
-    partial-line buffer — never the raw response bytes. Call ``result()`` once
-    at end of stream to get ``(content, usage, model, stop_reason)``.
-
-    Why: the previous implementation did ``b"".join(chunks).decode().split("\\n")``
-    at end-of-stream, peaking at ~3× the full response size per concurrent
-    request. At ~15 concurrent streams that's hundreds of MB of transient
-    allocation that the pod's 1Gi cgroup couldn't absorb (see #1885).
-    """
-
-    def __init__(self) -> None:
-        # errors="replace" matches the prior decode() behavior.
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self._line_buf = ""
-        self._content_by_index: dict[int, dict[str, Any]] = {}
-        # Error events produce extra content blocks ordered before indexed
-        # blocks (preserves the pre-refactor ordering).
-        self._error_blocks: list[dict[str, Any]] = []
-        self._usage: dict[str, Any] | None = None
-        self._model: str | None = None
-        self._stop_reason: str | None = None
-        self._finalized = False
-
-    def feed(self, chunk: bytes) -> None:
-        """Decode ``chunk`` and process any complete lines it completes."""
-        if self._finalized or not chunk:
-            return
-        text = self._decoder.decode(chunk)
-        if not text:
-            return
-        if "\n" not in text:
-            self._line_buf += text
-            return
-        combined = self._line_buf + text
-        parts = combined.split("\n")
-        # parts[-1] is either "" (chunk ended on a newline) or the new partial line.
-        self._line_buf = parts[-1]
-        for line in parts[:-1]:
-            self._process_line(line)
-
-    def result(self) -> SSEResult:
-        """Flush any trailing partial line and return the parsed result."""
-        if not self._finalized:
-            tail = self._decoder.decode(b"", final=True)
-            if tail:
-                self._line_buf += tail
-            if self._line_buf:
-                self._process_line(self._line_buf)
-                self._line_buf = ""
-            self._finalized = True
-
-        content_blocks: list[dict[str, Any]] = list(self._error_blocks)
-        for index in sorted(self._content_by_index.keys()):
-            block = self._content_by_index[index]
-            if block.get("type") == "tool_use" and "partial_input" in block:
-                partial_input = block.pop("partial_input")
-                try:
-                    block["input"] = json.loads(partial_input)
-                except json.JSONDecodeError:
-                    logger.debug(
-                        "Failed to parse tool_use input JSON",
-                        tool_id=block.get("id"),
-                    )
-                    block["input"] = {}
-                    block["input_parse_error"] = True
-                    block["raw_partial_input"] = (
-                        partial_input[:RAW_INPUT_TRUNCATE_SIZE]
-                        if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
-                        else partial_input
-                    )
-            content_blocks.append(block)
-
-        return content_blocks or None, self._usage, self._model, self._stop_reason
-
-    def _process_line(self, line: str) -> None:
-        line = line.strip()
-        if not line.startswith("data: "):
-            return
-        data_str = line[6:]
-        if data_str == "[DONE]":
-            return
-        try:
-            event = json.loads(data_str)
-        except json.JSONDecodeError:
-            return
-        self._process_event(event)
-
-    def _process_event(self, event: dict[str, Any]) -> None:
-        event_type = event.get("type")
-
-        if event_type == "message_start":
-            message = event.get("message", {})
-            self._model = message.get("model")
-            message_usage = message.get("usage", {})
-            if message_usage:
-                if self._usage is None:
-                    self._usage = {}
-                # input_tokens / cache_* come from message_start, not message_delta.
-                if "input_tokens" in message_usage:
-                    self._usage["input_tokens"] = message_usage["input_tokens"]
-                if "cache_read_input_tokens" in message_usage:
-                    self._usage["cache_read_input_tokens"] = message_usage[
-                        "cache_read_input_tokens"
-                    ]
-                if "cache_creation_input_tokens" in message_usage:
-                    self._usage["cache_creation_input_tokens"] = message_usage[
-                        "cache_creation_input_tokens"
-                    ]
-
-        elif event_type == "error":
-            error_info = event.get("error", {})
-            self._error_blocks.append({"type": "error", "error": error_info})
-            self._stop_reason = "error"
-
-        elif event_type == "content_block_start":
-            index = event.get("index", 0)
-            content_block = event.get("content_block", {})
-            self._content_by_index[index] = content_block.copy()
-
-        elif event_type == "content_block_delta":
-            index = event.get("index", 0)
-            delta = event.get("delta", {})
-            delta_type = delta.get("type")
-            if index not in self._content_by_index:
-                self._content_by_index[index] = {
-                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
-                }
-            block = self._content_by_index[index]
-            if delta_type == "text_delta":
-                text = delta.get("text", "")
-                block["text"] = block.get("text", "") + text
-            elif delta_type == "input_json_delta":
-                partial_json = delta.get("partial_json", "")
-                block["partial_input"] = block.get("partial_input", "") + partial_json
-
-        elif event_type == "message_delta":
-            delta = event.get("delta", {})
-            self._stop_reason = delta.get("stop_reason")
-            event_usage = event.get("usage")
-            if event_usage:
-                if self._usage is None:
-                    self._usage = {}
-                # message_delta contains output_tokens.
-                self._usage.update(event_usage)
-
-
-def _capture_streaming_response(
-    container_id: str,
-    request_json: dict[str, Any],
-    result: SSEResult,
-    start_time: float,
-) -> None:
-    """
-    Capture a streaming API response to the transcript buffer.
-
-    Args:
-        container_id: Container ID for buffer lookup
-        request_json: Parsed request body
-        result: Parsed SSE result tuple from ``_SSEAccumulator.result()``
-        start_time: Request start time for duration calculation
-    """
-    duration_ms = (time.time() - start_time) * 1000
-    response_content, response_usage, response_model, stop_reason = result
-
-    try:
-        buffer = get_transcript_buffer(container_id)
-        buffer.write_api_turn(
-            request_body=request_json,
-            response_content=response_content,
-            response_usage=response_usage,
-            response_model=response_model,
-            stop_reason=stop_reason,
-            duration_ms=duration_ms,
-            streaming=True,
-        )
-    except Exception as e:
-        logger.warning(
-            "Failed to capture streaming response to transcript buffer",
-            container_id=container_id,
-            error=str(e),
-        )
-
-
-def _parse_sse_response(chunks: list[bytes]) -> SSEResult:
-    """
-    Parse SSE response chunks and return ``(content, usage, model, stop_reason)``.
-
-    Thin wrapper over ``_SSEAccumulator`` retained for test coverage. Production
-    streaming capture feeds the accumulator directly so it never holds the
-    chunks list in memory — see ``proxy_anthropic_messages``.
-    """
-    acc = _SSEAccumulator()
-    for chunk in chunks:
-        acc.feed(chunk)
-    return acc.result()
-
-
 @app.route("/v1/messages", methods=["POST"])
 def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
-    Proxy messages API with credential injection, streaming support, and transcript capture.
+    Proxy messages API with credential injection and streaming support.
 
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     API traffic through the gateway for credential injection.
@@ -9948,12 +9533,8 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     session token in ``sk-ant-oat01-PROXY-INJECTED-egg-session-<token>``
     so Claude Code's local format check passes; the gateway extracts
     the token and looks the session up. Non-agent probes (no
-    placeholder) keep the legacy IP-keyed compat path. API
-    request/response pairs are captured to a per-session buffer for
-    checkpoint creation.
+    placeholder) keep the legacy IP-keyed compat path.
     """
-    start_time = time.time()
-
     session, lookup_error = _resolve_proxy_session(request.headers, request.remote_addr)
     if lookup_error:
         return lookup_error
@@ -9964,219 +9545,157 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     # client probes /v1/messages without first registering a session.
     upstream_name = session.upstream if session else "anthropic"
 
-    # Build headers with injected auth — dispatches per-upstream so the
-    # LiteLLM master key is never paired with an Anthropic request and vice
-    # versa.
-    headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
-    if error:
-        return error
-
     request_body = request.get_data()
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
-    # Per #2832, Claude Code on the LiteLLM path now sends the upstream
-    # model name on the wire directly (via ANTHROPIC_CUSTOM_MODEL_OPTION,
-    # threaded through the agent's env at spawn time). The gateway no
-    # longer rewrites the body — both upstreams receive whatever
-    # ``"model"`` value the client sent.
+    # Per #2832, Claude Code on the LiteLLM path sends the upstream model
+    # name on the wire directly (via ANTHROPIC_CUSTOM_MODEL_OPTION). The
+    # gateway only rewrites ``"model"`` when a routing-policy hop names an
+    # explicit target (see ``_prepare_hop`` / ``_rewrite_upstream_model``).
     is_streaming = _is_streaming_request(request_body)
 
-    # Parse request body for transcript capture
-    try:
-        request_json = json.loads(request_body)
-    except json.JSONDecodeError, TypeError:
-        request_json = {}
-
-    # Resolve the upstream httpx client per request. The Anthropic path
-    # keeps calling ``get_anthropic_client()`` so behavior — including
-    # existing test mocks patching that symbol — is byte-identical to
-    # today. Non-Anthropic upstreams (currently only ``"litellm"``) resolve
-    # through the registry, which is the swap-out seam (issue #2769
-    # feedback Q3).
-    if upstream_name == "anthropic":
-        client = get_anthropic_client()
-    else:
-        try:
-            client, _ = get_upstream_registry().get(upstream_name)
-        except UnknownUpstreamError:
-            logger.warning(
-                "Unknown upstream on session, refusing request",
-                upstream=upstream_name,
-            )
-            return jsonify(
-                {
-                    "error": {
-                        "type": "api_error",
-                        "message": f"Unknown upstream '{upstream_name}'",
-                    }
-                }
-            ), 502
+    # Resolve the routing chain (issue #2987). Hop 0 is the proactive
+    # ``switchover`` remap for this wire model, or — with no switchover entry
+    # — the spawn-time ``session.upstream``. Hops 1..N are the reactive
+    # ``fallbacks`` chain for the wire model. With an empty routing policy the
+    # chain is a single hop on ``session.upstream`` and every step below is
+    # byte-identical to the pre-#2987 path. ``triggers`` decides which status
+    # codes retry the same upstream vs advance to the next hop; credentials
+    # are rebuilt per hop inside ``_prepare_hop`` so a fallback never carries
+    # the previous upstream's auth header.
+    chain, triggers = _resolve_route_chain(upstream_name, request_body)
+    # The upstream actually serving the request, for error/log context. The
+    # outer ``except`` handlers below read this so a fallback hop's failure
+    # is attributed to the hop that failed, not hop 0.
+    serving_upstream = chain[0].upstream
 
     try:
         if is_streaming:
             # Stream SSE response using httpx's send() with stream=True
             # This gives us direct control over the response lifecycle.
             #
-            # Resilience strategy (see #1907):
+            # Resilience strategy (see #1907, extended for routing in #2987):
             #   (A) Pre-stream retry — if the upstream TCP connection resets
             #       before any byte has been yielded downstream, open a fresh
-            #       upstream connection and retry the request once. The
-            #       downstream SDK never sees the error. Covers
-            #       connection-pool staleness and very-early resets.
-            #   (B) Mid-stream synthetic error — if the reset happens after
-            #       bytes have already flowed, emit a well-formed SSE
-            #       ``event: error`` frame and close the downstream stream
-            #       cleanly. Lets the SDK fail gracefully instead of dying
-            #       on a truncated socket.
+            #       upstream connection and retry the same hop once
+            #       (``_attempt_hop_streaming``). The downstream SDK never
+            #       sees the error.
+            #   (B) Cross-hop fallback — if the primed upstream returns a
+            #       trigger status (quota / opt-in 5xx) or a transport
+            #       failure that survives (A), and a fallback hop exists,
+            #       advance to it. All of this happens in the *pre-stream*
+            #       window, before any byte is forwarded downstream.
+            #   (C) Mid-stream synthetic error — once bytes have flowed, a
+            #       reset can no longer fall back; emit a well-formed SSE
+            #       ``event: error`` frame and close cleanly so the SDK fails
+            #       gracefully instead of dying on a truncated socket.
             #
             # Full stream resumption is not attempted — Anthropic's API has
             # no resume tokens, and the partial generation on the wire is
             # orphaned on any mid-stream reset regardless.
-            def _send_and_prime() -> tuple[Any, Any, bytes | None]:
-                """Send upstream request and pre-fetch the first chunk.
-
-                Returns ``(upstream_response, iterator, first_chunk)`` where
-                ``first_chunk`` is ``None`` if upstream returned an empty
-                body. Raises ``httpx.ReadError`` or
-                ``httpx.RemoteProtocolError`` if the connection resets during
-                ``send()`` or the first ``iter_bytes()`` call — callers use
-                that signal to retry transparently.
-                """
-                http_req = client.build_request(
-                    "POST",
-                    "/v1/messages",
-                    headers=headers,
-                    content=request_body,
-                )
-                upstream_resp = client.send(http_req, stream=True)
-                try:
-                    iterator = upstream_resp.iter_bytes()
-                    try:
-                        first = next(iterator)
-                    except StopIteration:
-                        first = None
-                    return upstream_resp, iterator, first
-                except BaseException:
-                    # Close the failed upstream so the caller's retry can
-                    # open a fresh connection without leaking the old one.
-                    # Broad catch ensures cleanup on *any* exception from
-                    # iter_bytes() / next(), not just the two transport
-                    # errors we expect.
-                    try:
-                        upstream_resp.close()
-                    except Exception:
-                        pass
-                    raise
-
             upstream: Any = None
             primed_iterator: Any = None
             first_chunk: bytes | None = None
-            for attempt in range(2):
+            hop_idx = 0
+            same_hop_attempts = 0
+            while True:
+                hop = chain[hop_idx]
+                is_last_hop = hop_idx == len(chain) - 1
+                serving_upstream = hop.upstream
                 try:
-                    upstream, primed_iterator, first_chunk = _send_and_prime()
-                    break
-                except (httpx.ReadError, httpx.RemoteProtocolError) as reset_err:
-                    if attempt == 0:
-                        logger.warning(
-                            "Upstream Anthropic connection reset before any byte "
-                            "was forwarded; retrying once",
-                            container_id=container_id,
-                            error=str(reset_err),
-                        )
-                        continue
-                    # Retry exhausted — fall through to the outer
-                    # exception handler which returns a 502 to the caller.
-                    raise
+                    prepared = _prepare_hop(hop, request.headers, request_body)
+                except _HopPrepError as prep_err:
+                    if is_last_hop:
+                        return prep_err.response
+                    logger.warning(
+                        "Routing hop failed credential/upstream prep; advancing",
+                        upstream=hop.upstream,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                    )
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                try:
+                    upstream, primed_iterator, first_chunk = _attempt_hop_streaming(
+                        prepared.client, prepared.headers, prepared.body, container_id=container_id
+                    )
+                except _UPSTREAM_TRANSPORT_ERRORS as hop_err:
+                    if is_last_hop:
+                        # Last hop — surface via the outer 502/504 handlers,
+                        # preserving today's error contract.
+                        raise
+                    logger.warning(
+                        "Routing hop transport failure; advancing to fallback",
+                        upstream=hop.upstream,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                        error=str(hop_err),
+                    )
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+
+                decision = _classify_route_status(
+                    upstream.status_code, triggers, same_hop_attempts, is_last_hop
+                )
+                if decision == "retry_same":
+                    same_hop_attempts += 1
+                    logger.warning(
+                        "Upstream returned a retryable status; retrying same upstream",
+                        upstream=hop.upstream,
+                        status=upstream.status_code,
+                        attempt=same_hop_attempts,
+                    )
+                    _close_quietly(upstream)
+                    continue
+                if decision == "advance":
+                    logger.warning(
+                        "Upstream returned a fallback-trigger status; advancing",
+                        upstream=hop.upstream,
+                        status=upstream.status_code,
+                        next_upstream=chain[hop_idx + 1].upstream,
+                    )
+                    _close_quietly(upstream)
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                break  # accept this hop's response
 
             response_headers = _filter_response_headers(upstream.headers)
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
-            # Parse the SSE stream incrementally into a small accumulator so
-            # per-request peak memory is O(parsed content), not O(response × 3)
-            # as the prior b"".join(chunks).decode().split("\n") pattern was.
-            # Under concurrent pipeline load that triple allocation was the
-            # gateway's memory high-water mark — see #1885.
-            #
-            # MAX_CAPTURE_SIZE is still enforced as a defensive cap so a
-            # pathologically large upstream response can't drive the
-            # accumulator unbounded, but the raw bytes are never buffered.
-            MAX_CAPTURE_SIZE = 10 * 1024 * 1024  # 10MB
-            accumulator: _SSEAccumulator | None = _SSEAccumulator() if container_id else None
-            bytes_seen = 0
-            capture_truncated = False
-
-            def _consume_chunk(chunk: bytes) -> None:
-                """Feed a chunk into the capture accumulator if under budget."""
-                nonlocal bytes_seen, capture_truncated
-                if accumulator is not None and not capture_truncated:
-                    if bytes_seen + len(chunk) <= MAX_CAPTURE_SIZE:
-                        accumulator.feed(chunk)
-                        bytes_seen += len(chunk)
-                    else:
-                        capture_truncated = True
-                        logger.debug(
-                            "Streaming capture truncated due to size limit",
-                            container_id=container_id,
-                            size_limit=MAX_CAPTURE_SIZE,
-                        )
-
             def generate() -> Any:
                 try:
-                    try:
-                        if first_chunk is not None:
-                            _consume_chunk(first_chunk)
-                            yield first_chunk
-                        for chunk in primed_iterator:
-                            _consume_chunk(chunk)
-                            yield chunk
-                    except (httpx.ReadError, httpx.RemoteProtocolError) as mid_err:
-                        # Mid-stream reset: emit a synthetic SSE `error`
-                        # frame so the downstream SDK treats this as a
-                        # clean API error instead of a truncated socket.
-                        # The frame shape matches Anthropic's documented
-                        # error event and is parsed by ``_SSEAccumulator``
-                        # so operators still see the failed turn in the
-                        # captured transcript.
-                        logger.warning(
-                            "Upstream Anthropic stream reset mid-response; "
-                            "emitting synthetic SSE error frame",
-                            container_id=container_id,
-                            bytes_seen=bytes_seen,
-                            error=str(mid_err),
-                        )
-                        error_payload = {
-                            "type": "error",
-                            "error": {
-                                "type": "api_error",
-                                "message": "upstream connection reset",
-                            },
-                        }
-                        error_frame = (
-                            b"event: error\ndata: "
-                            + json.dumps(error_payload).encode("utf-8")
-                            + b"\n\n"
-                        )
-                        _consume_chunk(error_frame)
-                        yield error_frame
+                    if first_chunk is not None:
+                        yield first_chunk
+                    yield from primed_iterator
+                except (httpx.ReadError, httpx.RemoteProtocolError) as mid_err:
+                    # Mid-stream reset: emit a synthetic SSE `error` frame so
+                    # the downstream SDK treats this as a clean API error
+                    # instead of a truncated socket. The frame shape matches
+                    # Anthropic's documented error event.
+                    logger.warning(
+                        "Upstream stream reset mid-response; emitting synthetic SSE error frame",
+                        upstream=serving_upstream,
+                        container_id=container_id,
+                        error=str(mid_err),
+                    )
+                    error_payload = {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": "upstream connection reset",
+                        },
+                    }
+                    error_frame = (
+                        b"event: error\ndata: "
+                        + json.dumps(error_payload).encode("utf-8")
+                        + b"\n\n"
+                    )
+                    yield error_frame
                 finally:
                     upstream.close()
-                    if accumulator is not None and container_id:
-                        try:
-                            _capture_streaming_response(
-                                container_id=container_id,
-                                request_json=request_json,
-                                result=accumulator.result(),
-                                start_time=start_time,
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to capture streaming response to transcript",
-                                container_id=container_id,
-                                error=str(e),
-                            )
 
             return Response(
                 stream_with_context(generate()),
@@ -10185,22 +9704,47 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 content_type=content_type,
             )
         else:
-            # Non-streaming: simple request/response
-            response = client.post(
-                "/v1/messages",
-                headers=headers,
-                content=request_body,
-            )
+            # Non-streaming: walk the same routing chain without priming.
+            # Status-based retry/advance applies; a transport failure on a
+            # non-last hop advances (else surfaces via the outer handlers,
+            # preserving today's 502/504 contract).
+            response: Any = None
+            hop_idx = 0
+            same_hop_attempts = 0
+            while True:
+                hop = chain[hop_idx]
+                is_last_hop = hop_idx == len(chain) - 1
+                serving_upstream = hop.upstream
+                try:
+                    prepared = _prepare_hop(hop, request.headers, request_body)
+                except _HopPrepError as prep_err:
+                    if is_last_hop:
+                        return prep_err.response
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                try:
+                    response = prepared.client.post(
+                        "/v1/messages", headers=prepared.headers, content=prepared.body
+                    )
+                except _UPSTREAM_TRANSPORT_ERRORS:
+                    if is_last_hop:
+                        raise
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
 
-            # Capture to transcript buffer
-            if container_id:
-                _capture_non_streaming_response(
-                    container_id=container_id,
-                    request_json=request_json,
-                    response_body=response.content,
-                    start_time=start_time,
-                    status_code=response.status_code,
+                decision = _classify_route_status(
+                    response.status_code, triggers, same_hop_attempts, is_last_hop
                 )
+                if decision == "retry_same":
+                    same_hop_attempts += 1
+                    continue
+                if decision == "advance":
+                    hop_idx += 1
+                    same_hop_attempts = 0
+                    continue
+                break  # accept
 
             return Response(
                 response.content,
@@ -10209,34 +9753,34 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             )
 
     except httpx.ConnectError as e:
-        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
+        logger.error("Upstream connection failed", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
+                    "message": f"Failed to connect to {serving_upstream} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
+        logger.error("Upstream request timed out", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream request timed out: {e}",
+                    "message": f"{serving_upstream} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Upstream proxy error", upstream=upstream_name)
+        logger.exception("Upstream proxy error", upstream=serving_upstream)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream proxy error: {e}",
+                    "message": f"{serving_upstream} upstream proxy error: {e}",
                 }
             }
         ), 502
@@ -10258,39 +9802,28 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         return lookup_error
     upstream_name = session.upstream if session else "anthropic"
 
-    headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
-    if error:
-        return error
-
-    if upstream_name == "anthropic":
-        client = get_anthropic_client()
-    else:
-        try:
-            client, _ = get_upstream_registry().get(upstream_name)
-        except UnknownUpstreamError:
-            logger.warning(
-                "Unknown upstream on session, refusing request",
-                upstream=upstream_name,
-            )
-            return jsonify(
-                {
-                    "error": {
-                        "type": "api_error",
-                        "message": f"Unknown upstream '{upstream_name}'",
-                    }
-                }
-            ), 502
-
-    # Per #2832, Claude Code sends the upstream model name on the wire
-    # directly for LiteLLM-routed agents — no body rewrite here either.
     count_tokens_body = request.get_data()
 
+    # Honor the proactive ``switchover`` remap so token-counting hits the
+    # same backend (and model) that messages will use (issue #2987). The
+    # reactive fallback chain is intentionally NOT walked here — token
+    # counting is an informational pre-flight, not load-bearing inference,
+    # so a quota miss surfaces rather than escalating. We take only hop 0 of
+    # the resolved chain; ``_prepare_hop`` rebuilds clean headers + applies
+    # the optional model rewrite for that hop.
+    chain, _triggers = _resolve_route_chain(upstream_name, count_tokens_body)
+    initial_hop = chain[0]
+    serving_upstream = initial_hop.upstream
     try:
-        response = client.post(
+        prepared = _prepare_hop(initial_hop, request.headers, count_tokens_body)
+    except _HopPrepError as prep_err:
+        return prep_err.response
+
+    try:
+        response = prepared.client.post(
             "/v1/messages/count_tokens",
-            headers=headers,
-            content=count_tokens_body,
+            headers=prepared.headers,
+            content=prepared.body,
         )
         return Response(
             response.content,
@@ -10299,34 +9832,34 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         )
 
     except httpx.ConnectError as e:
-        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
+        logger.error("Upstream connection failed", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
+                    "message": f"Failed to connect to {serving_upstream} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
+        logger.error("Upstream request timed out", upstream=serving_upstream, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream request timed out: {e}",
+                    "message": f"{serving_upstream} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Upstream proxy error", upstream=upstream_name)
+        logger.exception("Upstream proxy error", upstream=serving_upstream)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"{upstream_name} upstream proxy error: {e}",
+                    "message": f"{serving_upstream} upstream proxy error: {e}",
                 }
             }
         ), 502
@@ -10563,25 +10096,6 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
-
-    # Check for active sessions with missing transcript buffers.
-    # Buffers are now persisted, but may still be missing if the session hasn't
-    # made any API calls yet or the buffer was cleaned up prematurely.
-    try:
-        from egg_contracts.transcript_extractor import get_proxy_buffer_path
-
-        for session_info in session_manager.list_sessions():
-            cid = session_info.get("container_id")
-            if cid:
-                bp = get_proxy_buffer_path(cid)
-                if not bp.exists():
-                    logger.warning(
-                        "Active session has no transcript buffer — may not have been created yet or was cleaned up prematurely",
-                        container_id=cid,
-                        buffer_path=str(bp),
-                    )
-    except Exception as e:
-        logger.warning("Startup transcript buffer check failed", error=str(e))
 
     # Also check Docker directly as safety net — sessions may be
     # pruned but containers still running.

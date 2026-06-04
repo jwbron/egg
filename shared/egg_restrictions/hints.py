@@ -44,15 +44,15 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
         ".github/",
         # Issue #2508: producer roles cannot push to `.github/` directly,
         # but they CAN stage proposed changes under top-level
-        # `.github-staging/` mirroring the `.github/` structure. The PR
-        # builder auto-emits a manual step asking the human reviewer to
-        # move the staged files into `.github/` before merge. Point
+        # `.github-staging/` mirroring the `.github/` structure. Point
         # agents at the staging path so a 403 here becomes a
-        # self-correcting nudge rather than a dead-end.
+        # self-correcting nudge rather than a dead-end. The agent must
+        # call the staged files out in its PR body so the human reviewer
+        # moves them into `.github/` before merge.
         "Stage your proposed change at `.github-staging/<same path>` "
-        "instead — the PR builder will surface a manual step asking "
-        "the human reviewer to move the staged files into `.github/` "
-        "before merge. See issue #2508.",
+        "instead, and call the staged files out in your PR body so the "
+        "human reviewer moves them into `.github/` before merge. See "
+        "issue #2508.",
     ),
     (
         "docs/",

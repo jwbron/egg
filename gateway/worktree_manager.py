@@ -1466,12 +1466,12 @@ class WorktreeManager:
         Called on gateway startup and periodically to clean up orphaned worktrees
         from crashed containers.
 
-        For orphaned containers with active sessions, captures a session-end
-        checkpoint with FAILED status before cleaning up transcript buffers.
+        For orphaned containers with active sessions, auto-commits the agent's
+        uncommitted work before cleaning up.
 
         Args:
             active_containers: Set of currently active container IDs
-            session_manager: Optional SessionManager for session-end checkpoints
+            session_manager: Optional SessionManager for session auto-commit on cleanup
 
         Returns:
             Number of worktrees removed
@@ -1507,22 +1507,19 @@ class WorktreeManager:
                 container_id=container_id,
             )
 
-            # Capture session-end checkpoint for crashed container.
-            # Wait for checkpoint storage to complete before removing
-            # worktrees — the checkpoint thread uses the repo dir as cwd.
+            # Auto-commit the crashed container's uncommitted work before
+            # removing worktrees — auto-commit runs synchronously and uses the
+            # repo dir as cwd, so it must finish before the dir is deleted.
             if session_manager is not None:
                 try:
                     session = session_manager.get_session_by_container(container_id)
                     if session:
-                        from checkpoint_handler import SESSION_END_CAPTURE_TIMEOUT  # type: ignore[import-untyped]  # noqa: I001
                         from session_manager import _capture_and_cleanup_session  # type: ignore[import-untyped]  # noqa: I001
 
-                        checkpoint_event = _capture_and_cleanup_session(session, "failed")
-                        if checkpoint_event is not None:
-                            checkpoint_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+                        _capture_and_cleanup_session(session, "failed")
                 except Exception as e:
                     logger.warning(
-                        "Failed to capture checkpoint for orphaned container",
+                        "Failed to auto-commit orphaned container",
                         container_id=container_id,
                         error=str(e),
                     )
@@ -2049,7 +2046,7 @@ def startup_cleanup(
             preserved. Pass an empty set when no containers are active. When
             None, falls back to querying Docker (which may not be available
             inside the gateway container).
-        session_manager: Optional SessionManager for session-end checkpoints
+        session_manager: Optional SessionManager for session auto-commit on cleanup
 
     Returns:
         Number of orphaned worktrees removed

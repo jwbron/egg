@@ -555,7 +555,14 @@ class TestConcurrentPromptLifecycle:
     """Tests for consensus lifecycle preamble in agent prompts."""
 
     def test_concurrent_prompt_includes_lifecycle_preamble(self):
-        """When concurrent=True, prompt includes consensus protocol section."""
+        """When concurrent=True, prompt includes consensus protocol section.
+
+        Slice-3 (#2908 TASK-3-3) collapsed the lifecycle preamble: the
+        legacy ``STAY ALIVE`` / ``FAILED your role`` framing was deleted
+        in favour of the event-pump event-handler contract. The
+        replacement assertions pin the new shape so a future regression
+        that re-introduces the wait-loop guidance trips this test.
+        """
         from routes.pipelines import _build_agent_prompt
 
         prompt = _build_agent_prompt(
@@ -566,8 +573,12 @@ class TestConcurrentPromptLifecycle:
             concurrent=True,
         )
         assert "BRC Consensus Protocol" in prompt
-        assert "STAY ALIVE" in prompt
-        assert "FAILED your role" in prompt
+        # Event-handler contract (slice-3 replacement for STAY ALIVE):
+        assert "Event-handler contract (#2908)" in prompt
+        assert "event-pump wrapper drives your lifecycle" in prompt
+        # Legacy framing is gone:
+        assert "STAY ALIVE" not in prompt
+        assert "FAILED your role" not in prompt
 
     def test_non_concurrent_prompt_omits_lifecycle_preamble(self):
         """When concurrent=False (default), prompt has no consensus section."""
@@ -622,31 +633,15 @@ class TestConcurrentPromptLifecycle:
         assert "for i in" in low, "Producer stay-alive must call out the for-loop anti-pattern"
         assert "sleep" in low, "Producer stay-alive must call out the sleep anti-pattern"
 
-    def test_reviewer_stay_alive_uses_canonical_for_list(self):
-        """Reviewer stay-alive prompt pins the reviewer-specific
-        canonical --for list documented in agent-wait-patterns.md §1:
-        CONSENSUS_PROPOSE + CONSENSUS_RE_REVIEW + CONSENSUS_CONFIRMED +
-        OVERSEER_ALERT.
-
-        Reviewers need CONSENSUS_PROPOSE (producers re-proposing after
-        a NACK) in addition to the producer-triple — without it they
-        miss the most important event for their role.
-        """
-        from routes.pipelines import _build_agent_prompt
-
-        prompt = _build_agent_prompt(
-            role_value="reviewer_code",
-            phase="implement",
-            pipeline_id="issue-123",
-            pipeline_mode="issue",
-            concurrent=True,
-        )
-        assert "egg-orch message wait-loop" in prompt
-        # Reviewer-specific canonical --for list.
-        assert "--for CONSENSUS_PROPOSE" in prompt
-        assert "--for CONSENSUS_RE_REVIEW" in prompt
-        assert "--for CONSENSUS_CONFIRMED" in prompt
-        assert "--for OVERSEER_ALERT" in prompt
+    # NOTE: ``test_reviewer_stay_alive_uses_canonical_for_list`` (the
+    # reviewer-specific ``--for`` allowlist pinned to
+    # agent-wait-patterns.md §1) was deleted by slice-3 task-3-3 of
+    # #2908 — the reviewer STAY ALIVE step itself is gone. The
+    # event-pump wrapper now owns the wait/heartbeat and re-invokes the
+    # reviewer per actionable BRC event, so the in-prompt wait-loop
+    # incantation (and its allowlist) is no longer surfaced. The
+    # equivalent failure mode (a reviewer missing CONSENSUS_PROPOSE
+    # wakes) is now an event-pump regression, not a preamble one.
 
     def test_non_concurrent_phase_completion_says_exit(self):
         """Non-concurrent prompts should tell agents to exit normally."""
@@ -685,8 +680,13 @@ class TestSpawnUsesConsensusWrapper:
         assert command[0] == "bash"
         assert command[1] == "-c"
         assert "egg_agent" in command[2]
-        assert "RESTART_COUNT" in command[2]
-        assert "BRC Consensus Recovery" in command[2]
+        # Slice-4 (#2908) replaced the capped-restart wrapper with the
+        # event-pump template; check for its deterministic-loop markers
+        # instead of the deleted RESTART_COUNT / "BRC Consensus Recovery"
+        # strings.
+        assert "event-pump" in command[2]
+        assert "egg-orch brc get-state" in command[2]
+        assert "egg-orch brc next-action" in command[2]
 
 
 class TestNoImplicitReadyOnCleanExit:
@@ -696,47 +696,32 @@ class TestNoImplicitReadyOnCleanExit:
     must not fake consensus on behalf of agents.
     """
 
-    def test_clean_exit_does_not_register_ready(self):
-        """Container exiting with code 0 should NOT auto-register as READY."""
-        from consensus import ReadinessState, get_consensus_evaluator
+    # NOTE: the former ``test_clean_exit_does_not_register_ready`` exercised
+    # the legacy ``consensus`` readiness evaluator (``get_consensus_evaluator``
+    # / ``register_agent`` / ``evaluate`` / ``update_readiness``) that #2777
+    # (slice-2) deleted. The "orchestrator must not fake consensus" invariant
+    # is now enforced by the BRC peer-consensus protocol, not an
+    # orchestrator-side readiness evaluator.
 
-        evaluator = get_consensus_evaluator()
-        pipeline_id = "test-no-implicit-ready"
+    def test_wrapper_drives_event_pump_loop(self):
+        """The wrapper should drive a BRC event-pump loop, not auto-signal READY.
 
-        # Register an agent as WORKING
-        evaluator.register_agent(pipeline_id, "tester")
-        state = evaluator.evaluate(pipeline_id)
-        assert not state["is_complete"]
-        assert "tester" in state["blocking_agents"]
-
-        # The orchestrator should NOT auto-register READY on clean exit.
-        # The agent must remain blocking until it explicitly signals.
-        state = evaluator.evaluate(pipeline_id)
-        assert not state["is_complete"]
-        assert "tester" in state["blocking_agents"]
-
-        # Only explicit READY from the agent should complete consensus
-        evaluator.update_readiness(
-            pipeline_id,
-            "tester",
-            ReadinessState.READY,
-            reason="Agent explicitly signaled READY",
-        )
-        state = evaluator.evaluate(pipeline_id)
-        assert state["is_complete"]
-
-        # Cleanup
-        evaluator.clear(pipeline_id)
-
-    def test_wrapper_contains_restart_logic(self):
-        """The consensus wrapper should restart agents, not auto-signal READY."""
+        Slice-4 (#2908) deleted the legacy capped-restart wrapper
+        (``RESTART_COUNT`` / "Restarting" / "BRC Consensus Recovery"
+        strings) in favour of the event-pump template, which invokes
+        the agent one-shot per actionable event driven by
+        ``egg-orch brc next-action`` rather than restarting after
+        each exit. The invariant the original test guarded
+        ("orchestrator must not fake consensus on behalf of agents")
+        is preserved: the event-pump never auto-signals READY either.
+        """
         from consensus_wrapper import build_consensus_wrapped_command
 
         cmd = build_consensus_wrapped_command("Do work")
         script = cmd[2]
-        # Must contain restart logic
-        assert "Restarting" in script
-        assert "RESTART_COUNT" in script
+        # Must drive a deterministic event-pump loop against the BRC bus
+        assert "event-pump" in script
+        assert "egg-orch brc next-action" in script
         # Must NOT contain auto-READY
         assert "Auto-signaling READY" not in script
 
@@ -1018,22 +1003,16 @@ class TestConsensusConfirmedDedupRegression:
         import tempfile
         from unittest.mock import MagicMock
 
-        from consensus import ReadinessState, get_consensus_evaluator
         from message_store import get_message_store
 
         pipeline_id = "issue-task-8-2"
         agent_role = "coder"
         N = 10
 
-        # Seed the evaluator so the confirmed handler has state to work with.
-        evaluator = get_consensus_evaluator()
-        evaluator.register_agent(pipeline_id, agent_role)
-        evaluator.update_readiness(
-            pipeline_id,
-            agent_role,
-            ReadinessState.READY,
-            reason="setup",
-        )
+        # The dedup is enforced by the CONSENSUS_CONFIRMED signal handler
+        # against the BRC peer-consensus tracker (mocked below) and the
+        # message store. The legacy ``consensus`` evaluator seeding was
+        # removed in #2777 (slice-2 deleted ``orchestrator/consensus.py``).
 
         client = deduce_app.test_client()
 
@@ -1084,9 +1063,6 @@ class TestConsensusConfirmedDedupRegression:
             for m in messages
             if m.from_role == agent_role and str(m.message_type) == "CONSENSUS_CONFIRMED"
         ]
-
-        # Cleanup
-        evaluator.clear(pipeline_id)
 
         assert len(confirmed_from_role) == 1, (
             f"N={N} consensus_confirmed calls produced "

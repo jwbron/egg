@@ -49,6 +49,34 @@ try:
 except ImportError:
     _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
+try:
+    from egg_tool_output import cap_result_dict
+except ImportError:  # pragma: no cover - shared path always present in prod
+
+    def cap_result_dict(result, **_kwargs):  # type: ignore[no-redef]
+        return result
+
+
+# Per-tool "how to narrow this call" hints, surfaced in the truncation
+# marker when a result exceeds the tool-output cap (#2805). These tools'
+# output scales with cluster/repo state rather than the caller's params, so
+# they are the at-risk set; anything not listed gets a generic hint and, in
+# practice, never trips the cap because its output is bounded by design.
+_TOOL_NARROW_HINTS: dict[str, str] = {
+    "get_service_logs": (
+        "lower `lines` or set a smaller `since_seconds` window, or fetch a single service at a time"
+    ),
+    "get_container_logs": (
+        "lower `lines` or set a smaller `since_seconds` window, or target a single container"
+    ),
+    "list_containers": (
+        "request a single pipeline/phase if the API supports it; otherwise "
+        "this result is proportional to the running container count"
+    ),
+    "list_tasks": "use `limit` (and any status/phase filter) to page results",
+    "list_agent_local_commits": "target a single agent/branch or use `limit`",
+}
+
 
 logger = get_logger("orchestrator.mcp_tools")
 
@@ -421,86 +449,6 @@ PIPELINE_TOOLS = [
     },
     # --- Gateway-backed tools ---
     {
-        "name": "list_checkpoints",
-        "description": (
-            "List agent checkpoints (transcripts, tool calls, token usage). "
-            "Filter by issue, pipeline, agent_type, phase, or status."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "issue": {
-                    "type": "integer",
-                    "description": "Filter by GitHub issue number",
-                },
-                "pipeline": {
-                    "type": "string",
-                    "description": "Filter by pipeline ID",
-                },
-                "agent_type": {
-                    "type": "string",
-                    "description": "Filter by agent type (coder, tester, documenter, reviewer)",
-                },
-                "phase": {
-                    "type": "string",
-                    "description": "Filter by pipeline phase",
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Filter by session status",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum checkpoints to return",
-                    "default": 20,
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
-                },
-            },
-        },
-    },
-    {
-        "name": "search_checkpoints",
-        "description": (
-            "Search checkpoint metadata for matching text. Searches agent_type, "
-            "pipeline_phase, pipeline_id, branch, repo, and status fields. "
-            "Note: full-text transcript search is not supported — this searches metadata only."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "Text to search for in checkpoint metadata",
-                },
-                "issue": {
-                    "type": "integer",
-                    "description": "Filter by GitHub issue number",
-                },
-                "pipeline": {
-                    "type": "string",
-                    "description": "Filter by pipeline ID",
-                },
-                "agent_type": {
-                    "type": "string",
-                    "description": "Filter by agent type",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum checkpoints to search",
-                    "default": 10,
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
-                },
-            },
-            "required": ["text"],
-        },
-    },
-    {
         "name": "get_contract",
         "description": (
             "Get the SDLC contract state for a pipeline. Provide either "
@@ -725,7 +673,7 @@ PIPELINE_TOOLS = [
                 },
                 "target_phase": {
                     "type": "string",
-                    "description": "Target phase to advance to (e.g. 'plan', 'implement', 'pr')",
+                    "description": "Target phase to advance to (e.g. 'plan', 'implement'). The legacy 'pr' phase was removed in #2777; IMPLEMENT is now terminal.",
                 },
                 "force": {
                     "type": "boolean",
@@ -1121,8 +1069,6 @@ class PipelineToolHandler:
             "get_consensus_status": self._handle_get_consensus_status,
             "get_phase": self._handle_get_phase,
             "get_pipeline_snapshot": self._handle_get_pipeline_snapshot,
-            "list_checkpoints": self._handle_list_checkpoints,
-            "search_checkpoints": self._handle_search_checkpoints,
             "get_contract": self._handle_get_contract,
             "validate_config": self._handle_validate_config,
             "restart_agent": self._handle_restart_agent,
@@ -1147,10 +1093,24 @@ class PipelineToolHandler:
             return {"error": f"Unknown tool: {tool_name}"}
 
         try:
-            return handler(arguments)
+            result = handler(arguments)
         except Exception as e:
             logger.error("Tool call failed", tool=tool_name, error=str(e))
             return {"error": str(e)}
+        # Bound the result before mcp_server.py serializes it across the
+        # operator's Agent SDK 1 MB reader buffer (#2805). Oversized output
+        # is replaced with a head-preview marker naming how to narrow the
+        # call; bounded tools never trip this. ``indent=2`` matches
+        # mcp_server.py's ``json.dumps(result, indent=2)`` so the cap is
+        # measured against the real on-wire size, not compact JSON.
+        if isinstance(result, dict):
+            return cap_result_dict(
+                result,
+                tool=tool_name,
+                narrow_hint=_TOOL_NARROW_HINTS.get(tool_name),
+                indent=2,
+            )
+        return result
 
     def _make_request(
         self,
@@ -1399,18 +1359,17 @@ class PipelineToolHandler:
         pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
         pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
 
-        # Extract PR info from the PR phase artifacts (#1625). The PR phase
-        # writes the URL to ``phases["pr"].artifacts["pr_url"]`` after
-        # auto-creating the PR, so monitoring clients can pick it up here
-        # without a separate ``gh pr list`` call.
-        phases = pipeline_data.get("phases", {})
-        pr_url: str | None = None
-        pr_number: int | None = None
-        pr_artifacts = (phases.get("pr") or {}).get("artifacts") or {}
-        raw_pr_url = pr_artifacts.get("pr_url")
-        if raw_pr_url:
-            pr_url = raw_pr_url
-            match = re.search(r"/pull/(\d+)", raw_pr_url)
+        # Extract PR info from the pipeline's top-level ``pr_url`` /
+        # ``pr_number`` fields (#1625, #2777 cq-4). The PR phase was
+        # removed; the context PR opens up-front via
+        # ``_open_context_pr_at_implement_start`` which persists the URL
+        # and number directly on the pipeline record so monitoring
+        # clients can pick them up without a separate ``gh pr list``.
+        pr_url = pipeline_data.get("pr_url")
+        raw_pr_number = pipeline_data.get("pr_number")
+        pr_number: int | None = int(raw_pr_number) if isinstance(raw_pr_number, int) else None
+        if pr_url and pr_number is None:
+            match = re.search(r"/pull/(\d+)", pr_url)
             if match:
                 pr_number = int(match.group(1))
 
@@ -1432,7 +1391,12 @@ class PipelineToolHandler:
             "pipeline": pipeline_info,
         }
 
-        # Extract agent info from phases
+        # Extract agent info from phases. ``phases`` was previously
+        # also used for PR-info extraction above, but that lookup was
+        # rewired in #2777 to read ``pipeline_data["pr_url"]`` /
+        # ``pipeline_data["pr_number"]`` directly. The per-phase agent
+        # iteration below still needs the phases map, so bind it here.
+        phases = pipeline_data.get("phases") or {}
         current_phase_key = pipeline_data.get("current_phase", "")
         phase_data = phases.get(current_phase_key, {})
         agents = phase_data.get("agents", [])
@@ -2205,60 +2169,6 @@ class PipelineToolHandler:
         return snapshot
 
     # --- Gateway-backed tools ---
-
-    def _handle_list_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
-        """List checkpoints with optional filters."""
-        params = []
-        for key in ("issue", "pipeline", "agent_type", "phase", "status"):
-            if args.get(key) is not None:
-                params.append(f"{key}={quote(str(args[key]), safe='')}")
-        limit = args.get("limit", 20)
-        params.append(f"limit={limit}")
-        if args.get("repo"):
-            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
-
-        query = "&".join(params)
-        return self._make_gateway_request(f"/api/v1/checkpoints?{query}")
-
-    def _handle_search_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Search checkpoints by text in metadata/summaries."""
-        params = []
-        for key in ("issue", "pipeline", "agent_type"):
-            if args.get(key) is not None:
-                params.append(f"{key}={quote(str(args[key]), safe='')}")
-        limit = args.get("limit", 10)
-        params.append(f"limit={limit}")
-        if args.get("repo"):
-            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
-
-        query = "&".join(params)
-        result = self._make_gateway_request(f"/api/v1/checkpoints?{query}")
-
-        # Client-side text filter on checkpoint metadata
-        search_text = args["text"].lower()
-        checkpoints = result.get("data", {}).get("checkpoints", [])
-        filtered = []
-        for cp in checkpoints:
-            searchable = " ".join(
-                str(cp.get(f, ""))
-                for f in (
-                    "session_id",
-                    "agent_type",
-                    "pipeline_phase",
-                    "pipeline_id",
-                    "branch",
-                    "repo",
-                    "session_status",
-                )
-            ).lower()
-            if search_text in searchable:
-                filtered.append(cp)
-
-        return {
-            "checkpoints": filtered,
-            "total": len(filtered),
-            "note": "Searched checkpoint metadata only — full-text transcript search not supported via this tool",
-        }
 
     def _handle_get_contract(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get SDLC contract state.

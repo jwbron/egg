@@ -67,6 +67,11 @@ _TRANSIENT_JITTER = 0.2
 
 _REBASE_REF_RE = re.compile(r"^[A-Za-z0-9._/+-][A-Za-z0-9._/+-]*$")
 
+# Slice-4 TASK-4-3: full 40-char hex SHA — ``git merge-base`` always
+# returns the full SHA on success. Used by :meth:`GatewayClient.merge_base`
+# to reject truncated / noisy stdout (reviewer_code v2 non-blocking).
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
 
 def _build_rebase_onto_args(
     branch: str, new_base: str, old_base: str
@@ -249,18 +254,16 @@ def _format_position_marker(
     slice_id: str,
     slice_index: int | None,
     slice_count: int | None,
-    is_terminal_slice: bool,
 ) -> str:
-    """Return ``slice-N/M`` (or ``merge-gate`` for the terminal slice).
+    """Return ``slice-N/M`` (or ``slice_id`` when index/count aren't supplied).
 
-    Falls back to ``slice_id`` when index / count aren't supplied (older
-    callers / tests). Terminal gets the ``merge-gate`` marker so its
-    title is still distinguishable from a hypothetical sibling program
-    PR (the original #2745 complaint about the terminal title being
-    indistinguishable from any program-level PR).
+    Pre-#2777 cq-6 the terminal slice received a dedicated ``merge-gate``
+    marker so its title was distinguishable from a hypothetical sibling
+    program-level rollup PR. Under cq-4 the merge gate moved to the
+    up-front context PR (``egg/<id>/work → main``), so every slice PR
+    — including the last-to-merge slice — uses the uniform
+    ``slice-N/M`` shape; the ``[merge-gate]`` marker is gone.
     """
-    if is_terminal_slice:
-        return "merge-gate"
     if slice_index is not None and slice_count is not None and slice_count >= 1:
         return f"slice-{slice_index}/{slice_count}"
     return slice_id
@@ -305,23 +308,6 @@ def _first_sentence(text: str, max_len: int = 120) -> str:
     if len(sentence) > max_len:
         sentence = sentence[: max_len - 3].rstrip() + "..."
     return sentence
-
-
-def _render_pre_merge_obligations(
-    program_deferred_actions: list[dict[str, str]],
-) -> str:
-    """Thin wrapper around ``pr_obligations.render_obligations_section_from_normalized``.
-
-    Kept here so the import is resolved lazily once and the umbrella
-    rendering path stays at parity with the legacy
-    ``_auto_create_pr`` path."""
-    try:
-        from pr_obligations import render_obligations_section_from_normalized
-    except ImportError:
-        from orchestrator.pr_obligations import (  # type: ignore[no-redef]
-            render_obligations_section_from_normalized,
-        )
-    return render_obligations_section_from_normalized(program_deferred_actions)
 
 
 def _append_task_bullets(
@@ -388,7 +374,6 @@ def _format_stack_block(
     slice_count: int | None,
     base_branch: str,
     context_pr_number: int | None,
-    is_terminal_slice: bool,
 ) -> list[str]:
     r"""Render the ``## Stack`` footer with base PR + position pointers.
 
@@ -399,16 +384,17 @@ def _format_stack_block(
     A ``Parent PR:`` line would also be useful here, but slice PR numbers
     aren't persisted on the contract yet, so the parent PR # isn't
     available at slice-PR-creation time. Tracked separately.
+
+    Pre-#2777 cq-6 the terminal slice received a distinct
+    ``merge-gate (slice N of M)`` position; under cq-4 the merge gate is
+    the up-front context PR (``egg/<id>/work → main``), so all slices
+    use the uniform ``slice N of M`` shape.
     """
     lines: list[str] = ["## Stack", ""]
     if slice_index is not None and slice_count is not None and slice_count >= 1:
-        position = (
-            f"merge-gate (slice {slice_index} of {slice_count})"
-            if is_terminal_slice
-            else f"slice {slice_index} of {slice_count}"
-        )
+        position = f"slice {slice_index} of {slice_count}"
     else:
-        position = "merge-gate" if is_terminal_slice else slice_id
+        position = slice_id
     lines.append(f"- Position: {position} in pipeline `{pipeline_id}`")
     if context_pr_number is not None and context_pr_number >= 1:
         lines.append(f"- Base PR: #{context_pr_number}")
@@ -541,10 +527,21 @@ class GatewayClient:
         except HTTPError as e:
             try:
                 error_data = json.loads(e.read().decode())
+                # ``make_error`` on the gateway side puts error details
+                # under ``"data"`` (via ``make_response(success=False,
+                # ..., data=details, ...)``). Read ``"data"`` first and
+                # fall back to ``"details"`` for callers / routes that
+                # emit the key directly (e.g. ``mode_gate`` private-mode
+                # 403). Without this fallback, the downstream
+                # ``exc.details`` is always ``None`` for /api/v1/git/execute
+                # failures and the ``returncode != 1`` warning gate in
+                # ``merge_base`` / ``_sha_is_ancestor`` fires noisily on
+                # every legitimate exit-1 (no common ancestor / not-an-
+                # ancestor) case. Reviewer feedback on PR #2895.
                 raise GatewayError(
                     error_data.get("message", str(e)),
                     status_code=e.code,
-                    details=error_data.get("details"),
+                    details=error_data.get("data") or error_data.get("details"),
                 )
             except json.JSONDecodeError:
                 raise GatewayError(str(e), status_code=e.code) from e
@@ -1537,8 +1534,19 @@ class GatewayClient:
     ) -> str | None:
         """Create a pull request via the gateway using a temporary session.
 
-        Registers a temp session with phase="pr" (so the gateway allows the
-        operation), creates the PR, then cleans up the session.
+        Registers a synthetic temp session WITHOUT a phase value (#2777
+        TASK-2-2): the gateway's gh_pr_create handler treats a
+        ``session_phase`` of ``None`` as the explicit-opt-out path and
+        skips phase-filter consultation entirely ("No phase set - allow
+        by default for backward compatibility" branch at
+        ``gateway/gateway.py:3685``). Prior to #2777 the carve-out used
+        ``phase="pr"`` paired with the now-removed ``PipelinePhase.PR``
+        enum row; that coupling was deleted lock-step so the orchestrator
+        no longer has any pipeline-graph reference to a PR phase.
+        The synthetic-session trust gate (``synthetic=True`` is only
+        settable by the launcher-authenticated ``register_session``
+        path) is unchanged and remains the load-bearing protection
+        against a sandboxed agent reaching this surface.
 
         Args:
             pipeline_id: Pipeline ID (used as container_id for the temp session)
@@ -1569,7 +1577,10 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
-                phase="pr",
+                # phase=None (#2777 TASK-2-2): the synthetic-session
+                # carve-out for gh_pr_create no longer goes through
+                # PipelinePhase.PR — the gateway treats a phase-less
+                # synthetic session as explicit opt-out. See docstring.
                 repos=[repo],
                 issue_number=issue_number,
                 agent_role=agent_role,
@@ -1637,169 +1648,80 @@ class GatewayClient:
         program_description: str | None = None,
         program_test_plan: str | None = None,
         program_manual_steps: str | None = None,
-        program_deferred_actions: list[dict[str, str]] | None = None,
-        terminal_slice_id: str | None = None,
         slice_index: int | None = None,
         slice_count: int | None = None,
         slice_files_affected: list[str] | None = None,
         context_pr_number: int | None = None,
     ) -> str | None:
-        """Open a PR for one slice in a stacked-PR chain (#2745).
+        """Open a PR for one slice in a stacked-PR chain.
 
         Slice PRs are scoped to their own slice: subject + files
         affected + full task descriptions with acceptance criteria.
         Strategic context (analysis doc, plan doc, refine/plan BRC
-        history) lives on the base/context PR opened by #2548, which
-        slice PRs link to via ``context_pr_number``. The terminal
-        slice keeps the umbrella treatment (program-level test plan /
-        manual steps + pre-merge obligations) because it is the merge
-        gate — those are execution-time concerns, not strategic-direction
-        artifacts.
+        history) AND execution-time concerns (test plan, manual steps,
+        pre-merge obligations) all live on the up-front context PR
+        opened by :func:`_open_context_pr_at_implement_start`
+        (``egg/<id>/work → main``, #2777 cq-4). Slice PRs link to it
+        via ``context_pr_number`` and otherwise stay focused on the
+        slice's own diff.
 
-        * **Title.** ``[<program-slug>][slice-N/M] <slice subject>`` for
-          non-terminal slices; ``[<program-slug>][merge-gate] <program_title>``
-          for the terminal slice. ``<program-slug>`` is derived from
-          ``pipeline_id`` (``issue-<N>`` collapsed to ``issue-<N>``;
-          ``pipeline-<hash>`` truncated). When ``program_title`` is empty
-          (older contracts / planner skipped the field), titles fall back
-          to the deterministic ``{slice_id}: {slice_name}`` form (#2539).
-        * **Body (non-terminal).** Optional 1-line program blurb →
+        Pre-#2777 cq-6 the terminal slice carried a program-level
+        rollup body (test plan / manual steps / pre-merge obligations
+        + a ``[merge-gate]`` title marker). That treatment is gone —
+        the merge gate is now the up-front context PR, not the last
+        slice in the stack — so every slice PR uses the same uniform
+        shape based only on whether the context PR exists.
+
+        * **Title.** ``[<program-slug>][slice-N/M] <slice subject>``.
+          ``<program-slug>`` is derived from ``pipeline_id``
+          (``issue-<N>`` collapsed to ``issue-<N>``; ``pipeline-<hash>``
+          truncated). When ``program_title`` is empty (older contracts
+          / planner skipped the field), titles fall back to the
+          deterministic ``{slice_id}: {slice_name}`` form (#2539).
+        * **Body (with context PR).** Optional 1-line program blurb →
           ``**Base PR:** #<context_pr_number>`` → ``## This slice``
           (subject, files affected, full task descriptions + acceptance
           criteria) → ``## Stack`` (base PR, position).
-        * **Body (terminal — umbrella).** Umbrella banner → program
-          description → pre-merge obligations → ``## This slice`` →
-          ``## Test Plan`` → ``## Manual Steps`` → ``## Stack``. The
-          umbrella rollup stays here because the base/context PR is a
-          *strategic-direction* surface (analysis + plan + BRC history,
-          per #2548), not a merge-the-whole-stack rollup. Execution-time
-          concerns (test plan, manual steps, obligations) live on the
-          merge gate.
+        * **Body (no context PR — UX backstop).** Inline program
+          narrative (description + test plan + manual steps) so the
+          slice PR is still reviewable as a standalone diff against
+          ``/work``. NOTE: under cq-4 the context PR is hard-required
+          and this branch should be unreachable in production; it
+          stays as defence-in-depth so the slice PR body still renders
+          something useful if the new opener somehow failed to persist
+          ``context_pr_number``. The stack is structurally unmergeable
+          in that state — fixing the body here is not a fix for the
+          missing-context-PR structural break.
 
-        ``program_deferred_actions`` is terminal-only by convention
-        (the merge gate is the last-to-merge PR in the stack); each
-        non-terminal body branch (``program_title is None`` umbrella
-        fallback, lean, inline-fallback) asserts ``program_deferred_actions
-        is None`` so a mis-routed obligations payload fails fast instead
-        of being silently dropped (#2354 review nit, #2746 review
-        item 1). The whitespace-only ``program_title`` case is
-        intentionally not covered — that's a ``PRMetadata`` data bug,
-        not a slice-routing error.
-
-        When ``context_pr_number is None`` (covers the #2744 regression
-        where the base/context PR is silently not opened) the
-        non-terminal body falls back to the pre-#2745 shape — inline
-        program description + test plan + manual steps — so slice PRs
-        stay reviewable as standalone diffs against ``/work``. This is a
-        **UX backstop**, not a structural fix: the stack is still
-        unmergeable in that state because no PR exists for
-        ``/work → main``.
+        Idempotency (#2777 cq-8 / task-3-2). Before invoking
+        ``gh pr create``, an existing open PR with the same head +
+        base is looked up via :meth:`lookup_open_pr`; on hit the
+        existing PR URL is returned and ``gh pr create`` is skipped.
+        This prevents a transient ``gh pr create`` failure that
+        partially succeeded (PR created, network blip on response)
+        from cascading the slice to FAILED on retry.
         """
         has_program_title = bool(program_title and program_title.strip())
-        # ``pipelines.py`` sets ``terminal_slice_id`` only for
-        # non-terminal slices that point at an existing umbrella. So
-        # ``terminal_slice_id is None`` combined with a populated
-        # ``program_title`` identifies the terminal slice (or a
-        # single-slice pipeline, which is also terminal).
-        is_terminal_slice = has_program_title and terminal_slice_id is None
         has_base_pr = context_pr_number is not None and context_pr_number >= 1
 
-        # Pre-merge obligations belong only on the merge-gate (terminal
-        # slice). The assertions live inside each non-terminal body
-        # branch below — not at the top — because a whitespace-only
-        # ``program_title`` (which ``PRMetadata.title`` allows under its
-        # ``min_length=1`` validator) flows into the deterministic
-        # else-branch and is a different bug (PRMetadata data
-        # validation), not a slice-routing error (#2354 review
-        # observation B). The branch-local assertions cover the lean /
-        # inline non-terminal paths that #2746 review item 1 flagged.
-
         program_slug = _derive_program_slug(pipeline_id)
-        position_marker = _format_position_marker(
-            slice_id, slice_index, slice_count, is_terminal_slice
-        )
+        position_marker = _format_position_marker(slice_id, slice_index, slice_count)
 
         if has_program_title:
             assert program_title is not None  # implied by has_program_title
-            program_title_clean = program_title.strip()
-            if is_terminal_slice:
-                subject = program_title_clean
-            else:
-                subject = (slice_name or slice_id).strip() or slice_id
+            subject = (slice_name or slice_id).strip() or slice_id
             title = _format_slice_title(program_slug, position_marker, subject)
         else:
-            # Defensive: obligations belong only on the umbrella. Failing
-            # fast here catches a caller wiring ``program_deferred_actions``
-            # through to a non-terminal slice (#2354 review nit) instead
-            # of silently dropping it.
-            #
-            # Guarded on ``program_title is None`` rather than
-            # ``has_program_title`` so a whitespace-only ``program_title``
-            # (which ``PRMetadata.title`` allows under its current
-            # ``min_length=1`` validator) doesn't masquerade as a slice
-            # routing error here — that's a different bug and should
-            # surface as such, not as a spurious AssertionError on the
-            # umbrella PR creation path (#2354 review observation B).
-            if program_title is None:
-                assert program_deferred_actions is None, (
-                    "program_deferred_actions must be None on non-terminal slices; "
-                    "obligations belong on the umbrella PR only"
-                )
             title = f"{slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 
         body_lines: list[str] = []
 
-        if has_program_title and is_terminal_slice:
-            # Terminal slice — the merge-gate umbrella. Carries the
-            # program-level test plan / manual steps / obligations so
-            # the PR that people actually click "Merge" on has the
-            # execution-time concerns visible.
-            body_lines.append(
-                f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
-            )
-            body_lines.append(
-                "> Roll-up of the slice-PR chain; this PR is the merge gate "
-                "for the program. Pre-merge obligations (when present) live here."
-            )
-            body_lines.append("")
-            if program_description and program_description.strip():
-                body_lines.append(program_description.strip())
-                body_lines.append("")
-            # Render Pre-merge Obligations / Resolved-within-PR right
-            # after the program description so the merge-blocking
-            # banner stays high in the body — the original visibility
-            # intent from #2354 (banner must be visible without
-            # scrolling past plan/steps). Same placement as the legacy
-            # ``_auto_create_pr`` path.
-            if program_deferred_actions:
-                obligations_section = _render_pre_merge_obligations(program_deferred_actions)
-                if obligations_section:
-                    body_lines.append(obligations_section)
-                    body_lines.append("")
-            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-            if program_test_plan and program_test_plan.strip():
-                body_lines.append("## Test Plan")
-                body_lines.append("")
-                body_lines.append(program_test_plan.strip())
-                body_lines.append("")
-            if program_manual_steps and program_manual_steps.strip():
-                body_lines.append("## Manual Steps")
-                body_lines.append("")
-                body_lines.append(program_manual_steps.strip())
-                body_lines.append("")
-        elif has_program_title and not is_terminal_slice and has_base_pr:
-            # Non-terminal slice with a base/context PR opened: lean
-            # body. Defer the strategic narrative to the base PR.
-            #
-            # Pre-merge obligations belong on the merge-gate only — fail
-            # fast here so the lean branch doesn't silently drop them
-            # (#2746 review item 1).
-            assert program_deferred_actions is None, (
-                "program_deferred_actions must be None on non-terminal slices; "
-                "obligations belong on the umbrella PR only"
-            )
+        if has_program_title and has_base_pr:
+            # Lean body: defer the strategic narrative AND execution-time
+            # concerns (test plan / manual steps / obligations) to the
+            # context PR opened by ``_open_context_pr_at_implement_start``.
             blurb = _first_sentence(program_description) if program_description else ""
             if blurb:
                 body_lines.append(blurb)
@@ -1807,21 +1729,13 @@ class GatewayClient:
             body_lines.append(f"**Base PR:** #{context_pr_number}")
             body_lines.append("")
             _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
-        elif has_program_title and not is_terminal_slice and not has_base_pr:
-            # UX backstop for the #2744 regression: no base PR exists,
-            # so inline the program narrative so the slice PR is still
-            # reviewable as a standalone diff against ``/work``. NOTE:
-            # the stack is still unmergeable in this state — fixing the
-            # body here does not fix the missing-base-PR structural
-            # break.
-            #
-            # Pre-merge obligations belong on the merge-gate only — fail
-            # fast here so the inline-fallback branch doesn't silently
-            # drop them (#2746 review item 1).
-            assert program_deferred_actions is None, (
-                "program_deferred_actions must be None on non-terminal slices; "
-                "obligations belong on the umbrella PR only"
-            )
+        elif has_program_title and not has_base_pr:
+            # UX backstop: ``context_pr_number`` is missing (under cq-4
+            # this should be unreachable since the new opener is
+            # hard-required). Inline the program narrative so the slice
+            # PR remains reviewable as a standalone diff against
+            # ``/work``. The stack is structurally unmergeable in this
+            # state — fixing the body here is a UX backstop, not a fix.
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
@@ -1854,10 +1768,38 @@ class GatewayClient:
             slice_count=slice_count,
             base_branch=base,
             context_pr_number=context_pr_number,
-            is_terminal_slice=is_terminal_slice,
         )
         body_lines.extend(stack_lines)
         body = "\n".join(body_lines)
+
+        # Idempotency pre-flight (#2777 cq-8 / task-3-2): if an open PR
+        # already exists for this head + base, return its URL instead of
+        # invoking ``gh pr create``. Prevents a partial-success retry
+        # (PR created server-side, transport blip on the response) from
+        # cascading the slice to FAILED on the next tick.
+        if repo:
+            # Idempotency lookup runs on the control-plane route
+            # (``/api/v1/gh/find_open_pr``, launcher auth) — the
+            # orchestrator is the control plane, not an agent, so the
+            # caller's ``agent_role`` is irrelevant here (#2893 follow-up).
+            existing_pr_number = self.lookup_open_pr(
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=head,
+                base=base,
+            )
+            if existing_pr_number is not None:
+                existing_url = f"https://github.com/{repo}/pull/{existing_pr_number}"
+                logger.info(
+                    "Slice PR already exists; returning existing PR (idempotent path)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    head=head,
+                    base=base,
+                    pr_number=existing_pr_number,
+                    pr_url=existing_url,
+                )
+                return existing_url
 
         return self.create_pr(
             pipeline_id=pipeline_id,
@@ -2116,6 +2058,114 @@ class GatewayClient:
                 )
             return False
 
+    def merge_base(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref_a: str,
+        ref_b: str,
+        *,
+        bearer_token: str | None = None,
+        mode: Literal["public", "private"] = "public",
+    ) -> str | None:
+        """Return the merge-base SHA of ``ref_a`` and ``ref_b`` (or None).
+
+        Runs ``git merge-base ref_a ref_b`` through
+        ``/api/v1/git/execute`` and parses the stdout SHA from the
+        gateway response. Both refs must already be locally reachable
+        in the worktree's odb — the caller is responsible for any
+        prior fetches.
+
+        Returns ``None`` when:
+
+        * Either ref does not exist locally (``git merge-base``
+          exits non-zero with returncode 1).
+        * The two refs share no common ancestor (also returncode 1).
+        * The gateway request itself fails (network, missing object,
+          policy denial).
+
+        Auth: ``/api/v1/git/execute`` is ``@require_session_auth``;
+        when ``bearer_token`` is ``None`` we self-bootstrap a
+        short-lived synthetic launcher-authenticated session (same
+        pattern as :meth:`fetch_branch`, :meth:`ls_remote_branch`,
+        :meth:`get_remote_branch_sha`) and tear it down in a
+        ``finally``. Callers that already hold a session for the
+        ambient slice/pipeline pass their token through ``bearer_token``
+        to avoid a redundant register/delete round-trip.
+
+        General ancestry/fork-point primitive. (Slice-4 TASK-4-3
+        once wired this into ``_resolve_slice_base_branch`` to
+        validate a slice's fork point, but #2928 replaced that with a
+        parent-branch-existence probe — probing the slice's own
+        not-yet-created integration branch mis-based fresh slices. The
+        method is retained as a general gateway utility.)
+        """
+        if not ref_a or not ref_b:
+            return None
+        owns_session = bearer_token is None
+        session_token: str | None = bearer_token
+        try:
+            if owns_session:
+                # Mirror fetch_branch / ls_remote_branch — register a
+                # synthetic launcher-authenticated session so the
+                # ``@require_session_auth`` endpoint accepts the call.
+                # Without this self-bootstrap the merge-base probe is
+                # a silent no-op (401 → GatewayError with returncode
+                # None → return None → resolver mis-routes to
+                # pipeline_branch).
+                temp_container_id = f"{pipeline_id}-merge-base-probe"
+                session = self.register_session(
+                    container_id=temp_container_id,
+                    container_ip=self.self_ip,
+                    mode=mode,
+                    pipeline_id=pipeline_id,
+                    synthetic=True,
+                )
+                session_token = session.session_token
+
+            try:
+                result = self._make_request(
+                    "/api/v1/git/execute",
+                    method="POST",
+                    data={
+                        "repo_path": repo_path,
+                        "operation": "merge-base",
+                        "args": [ref_a, ref_b],
+                    },
+                    bearer_token=session_token,
+                )
+            except GatewayError as exc:
+                details = exc.details or {}
+                returncode = details.get("returncode")
+                if returncode != 1:
+                    logger.warning(
+                        "merge-base failed unexpectedly",
+                        pipeline_id=pipeline_id,
+                        ref_a=ref_a,
+                        ref_b=ref_b,
+                        returncode=returncode,
+                        error=str(exc),
+                    )
+                return None
+            stdout = (result or {}).get("data", {}).get("stdout", "")
+            if not stdout:
+                return None
+            sha = stdout.strip().split("\n", 1)[0].strip()
+            # Strict 40-char hex SHA shape check — the gateway returns
+            # the raw ``git merge-base`` output, which is always a full
+            # 40-char SHA on success. Anything shorter / longer / non-hex
+            # is treated as "no fork point" rather than risking a
+            # malformed value being passed downstream.
+            if not _FULL_SHA_RE.fullmatch(sha):
+                return None
+            return sha
+        finally:
+            if owns_session and session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def is_slice_branch_merged_into_parent(
         self,
         pipeline_id: str,
@@ -2273,6 +2323,7 @@ class GatewayClient:
         *,
         integration_branch: str,
         parent_branch: str,
+        integration_base_sha: str | None = None,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
     ) -> bool:
@@ -2297,6 +2348,17 @@ class GatewayClient:
         ``gateway/gateway.py``.  The branch itself still passes the
         normal ``egg/`` prefix branch-ownership check, so no
         orchestrator-role push surface is introduced.
+
+        ``integration_base_sha`` is the fork base recorded at the
+        slice's creation (#2871). When supplied it unlocks the #2947
+        resume-in-place path below: a crash / ``restart_phase`` that
+        lands while the slice already has committed work *and* the
+        parent advanced additively is recognised as a resumable branch
+        (rather than non-fast-forward-rejected) by checking that the
+        recorded base is still an ancestor of both the existing tip and
+        the advanced parent. ``None`` (slices provisioned before #2871,
+        or whose base was never recorded) degrades to the prior
+        behaviour — the rejection surfaces.
 
         Returns ``True`` on success, ``False`` on any error (the
         caller logs and surfaces a clear error to the run loop).
@@ -2432,6 +2494,88 @@ class GatewayClient:
                         existing_sha=existing_sha,
                     )
                     return True
+                # #2947 — crash / restart mid-slice resume-in-place. The
+                # existing tip is NOT a descendant of the (advanced)
+                # parent, so the #2512 fast-path above did not fire — but
+                # that does not necessarily mean diverged/unknown history.
+                # When a host crash or ``restart_phase`` lands while the
+                # slice already has its own committed work AND the parent
+                # moved forward *additively* (no history rewrite), the
+                # slice is a legitimate, resumable branch that simply has
+                # not picked up the parent's new commits yet. The #2914
+                # "treat as fresh to force re-spawn" path then routes it
+                # back through here, and a plain
+                # ``parent_sha:refs/heads/<int>`` push would be
+                # non-fast-forward — failing the slice and cascading the
+                # whole phase (the exact 2026-06-02 issue-2908-impl2
+                # slice-3 incident).
+                #
+                # We can recognise this case precisely using the fork
+                # base recorded at creation (#2871): if the slice's own
+                # recorded base is a *strict* ancestor of the existing tip
+                # (the branch genuinely carries this slice's commits built
+                # on its base) AND that base is also an ancestor of the
+                # advanced parent (the parent moved forward without
+                # rewriting the base out of its history), then the slice
+                # and the parent differ only by additive commits on each
+                # side of a shared base. Preserve the branch as-is and
+                # short-circuit success: the cohort re-spawns onto the
+                # existing tip, and the parent's new commits reconcile at
+                # slice-PR / merge time exactly as they would for a slice
+                # whose parent advanced while it was running normally. We
+                # never reset or force-push, so no committed work is
+                # destroyed.
+                #
+                # Gating on the slice's *own* recorded base (not a generic
+                # merge-base of the two tips) is what keeps this safe: a
+                # genuinely unrelated stale branch would not descend from
+                # this slice's recorded base, so it still falls through to
+                # the push and surfaces the rejection (preserving the
+                # #2512/#2549 "don't silently overwrite unknown work"
+                # instinct). A true history rewrite of the parent (rebase)
+                # drops the base out of the parent's ancestry, so the
+                # second check fails and we likewise fall through — that
+                # harder class is deliberately left to the operator. The
+                # ``existing_sha != integration_base_sha`` guard keeps an
+                # *un-started* branch still sitting at its base on the
+                # fast-forward push path (advancing it to the new parent
+                # tip) rather than pinning it to the stale base.
+                # ``existing_sha`` and ``integration_base_sha`` both
+                # originate from ``get_remote_branch_sha`` (full 40-char
+                # SHAs), so an exact compare is correct (same invariant as
+                # the #2871 un-started-branch guard in
+                # ``is_slice_branch_merged_into_parent``).
+                if (
+                    integration_base_sha
+                    and existing_sha != integration_base_sha
+                    and self._sha_is_ancestor(
+                        pipeline_id,
+                        repo_path,
+                        integration_base_sha,
+                        existing_sha,
+                        bearer_token=session_token,
+                    )
+                    and self._sha_is_ancestor(
+                        pipeline_id,
+                        repo_path,
+                        integration_base_sha,
+                        parent_sha,
+                        bearer_token=session_token,
+                    )
+                ):
+                    logger.info(
+                        "Slice integration branch carries its own commits "
+                        "and the parent advanced additively since creation "
+                        "— preserving the branch and resuming in place "
+                        "(#2947 crash/restart recovery)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        parent_branch=parent_branch,
+                        parent_sha=parent_sha,
+                        existing_sha=existing_sha,
+                        integration_base_sha=integration_base_sha,
+                    )
+                    return True
                 # Could not verify ancestry: parent_sha is either not
                 # reachable from the existing tip (genuinely diverged
                 # history) or the merge-base call itself failed
@@ -2495,206 +2639,6 @@ class GatewayClient:
                     pass
 
     # ------------------------------------------------------------
-    # #2548 — context-branch creation
-    # ------------------------------------------------------------
-
-    def create_context_branch(
-        self,
-        pipeline_id: str,
-        repo_path: str,
-        *,
-        base_branch: str,
-        agent_role: str = "coder",
-        mode: Literal["public", "private"] = "public",
-    ) -> bool:
-        """Create the doc-only context branch on origin from ``base_branch``.
-
-        Pushes ``<base_sha>:refs/heads/egg/<pipeline_id>/context`` via a
-        synthetic, launcher-authenticated session through
-        ``/api/v1/git/push``.  The base SHA is resolved by querying origin
-        directly (``git ls-remote``), mirroring
-        :meth:`create_slice_integration_branch` so we never depend on
-        local ref-name resolution in the orchestrator's per-pipeline
-        worktree (which is checked out on ``<branch>/work`` and does NOT
-        carry a local ref matching the configured ``base_branch``).
-
-        The gateway treats this push as orchestrator infrastructure: the
-        synthetic flag (only settable by ``/api/v1/sessions/create``,
-        which is gated on the launcher secret) combined with the context
-        branch name ``egg/<pipeline_id>/context`` short-circuits the
-        pipeline-session push block from #2028 — see the
-        ``_CONTEXT_BRANCH_RE`` exemption in ``gateway/gateway.py``.  The
-        branch itself still passes the normal ``egg/`` prefix branch-
-        ownership check, so no orchestrator-role push surface is
-        introduced.
-
-        Idempotency semantics (per #2548 task-1-1):
-
-        * Branch absent on origin → push from ``base_sha`` and return
-          ``True``.
-        * Branch already exists at exactly ``base_sha`` → return ``True``
-          without re-pushing.
-        * Branch exists at a different SHA → raise
-          :class:`GatewayError` so the caller surfaces a clear conflict
-          rather than silently overwriting commits already on the
-          context branch (e.g. from a prior partial run).  This is the
-          critical difference from
-          :meth:`create_slice_integration_branch`, which short-circuits
-          on descended-from-base tips because per-role agent commits
-          legitimately accumulate there; the context branch is owned
-          end-to-end by the orchestrator and any divergence is a bug,
-          not work-in-progress to preserve.
-
-        Args:
-            pipeline_id: Pipeline ID; the branch shape is
-                ``egg/<pipeline_id>/context``.
-            repo_path: Path the gateway will ``cd`` into for the push.
-            base_branch: Pipeline base branch (e.g. ``"main"``,
-                ``"develop"``).  NOT hardcoded — honors whatever the
-                pipeline was configured with.
-            agent_role: Forwarded to the synthetic session metadata for
-                audit logging; the gateway does not require any specific
-                role for the synthetic-session exemption.
-            mode: Network mode (``"public"`` / ``"private"``) for the
-                synthetic session.
-
-        Returns ``True`` on success (branch created or already at the
-        right SHA).  Raises :class:`GatewayError` if the branch exists
-        at a different SHA, or if the base ref cannot be resolved on
-        origin (caller surfaces the cause).  Other gateway / network
-        errors are logged and re-raised so the caller can decide
-        whether to abort or continue.
-        """
-        if not pipeline_id or not base_branch:
-            raise ValueError("create_context_branch requires both pipeline_id and base_branch")
-
-        context_branch = f"egg/{pipeline_id}/context"
-
-        # One synthetic session shared across fetch, ls-remote, and push
-        # (mirrors create_slice_integration_branch's #2398 refactor).
-        temp_container_id = f"{pipeline_id}-context-branch"
-        base_sha: str | None = None
-        session_token: str | None = None
-        try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                agent_role=agent_role,
-                branch=context_branch,
-                synthetic=True,
-            )
-            session_token = session.session_token
-
-            # Refresh the local remote-tracking ref so the base's commit
-            # object is available for the push below.  ``git push
-            # <sha>:refs/heads/...`` requires the source object to be
-            # locally reachable; the fetch makes that true even when the
-            # worktree was just created and has never seen this ref.
-            # Best-effort: a transient fetch failure is not fatal — the
-            # base object may already be local from a prior step, so we
-            # still attempt the ls-remote / push.
-            self.fetch_branch(
-                pipeline_id,
-                repo_path,
-                args=[f"+refs/heads/{base_branch}:refs/remotes/origin/{base_branch}"],
-                mode=mode,
-                bearer_token=session_token,
-            )
-
-            # Resolve the base to a SHA on origin.  Failing fast here
-            # produces a clear "base not found" error instead of git's
-            # confusing ``src refspec X does not match any``.
-            base_sha = self.get_remote_branch_sha(
-                pipeline_id,
-                repo_path,
-                f"refs/heads/{base_branch}",
-                mode=mode,
-                bearer_token=session_token,
-            )
-            if not base_sha:
-                raise GatewayError(
-                    f"Base branch '{base_branch}' not found on origin; "
-                    f"cannot create context branch '{context_branch}'",
-                )
-
-            # Idempotency check: if context branch already exists at
-            # exactly base_sha, short-circuit success (no-op).  If it
-            # exists at a different SHA, raise — see semantics above.
-            existing_sha = self.get_remote_branch_sha(
-                pipeline_id,
-                repo_path,
-                f"refs/heads/{context_branch}",
-                mode=mode,
-                bearer_token=session_token,
-            )
-            if existing_sha is not None:
-                if existing_sha == base_sha:
-                    logger.info(
-                        "Context branch already exists at base SHA — idempotent no-op",
-                        pipeline_id=pipeline_id,
-                        context_branch=context_branch,
-                        base_branch=base_branch,
-                        base_sha=base_sha,
-                    )
-                    return True
-                raise ContextBranchDiverged(
-                    (
-                        f"Context branch '{context_branch}' already exists at "
-                        f"{existing_sha} but base '{base_branch}' resolves to "
-                        f"{base_sha}; refusing to overwrite — caller must "
-                        "investigate divergence (#2548)"
-                    ),
-                    context_branch=context_branch,
-                    existing_sha=existing_sha,
-                    base_branch=base_branch,
-                    base_sha=base_sha,
-                )
-
-            refspec = f"{base_sha}:refs/heads/{context_branch}"
-            self._make_request(
-                "/api/v1/git/push",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "refspec": refspec,
-                },
-                bearer_token=session_token,
-            )
-            logger.info(
-                "Created context branch",
-                pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                base_branch=base_branch,
-                base_sha=base_sha,
-            )
-            return True
-        except GatewayError:
-            # Re-raise GatewayError unchanged so the caller can introspect
-            # the cause (missing base, divergent existing tip, push
-            # rejection, transport failure).  Cleanup happens in the
-            # ``finally`` clause.
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to create context branch",
-                pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                base_branch=base_branch,
-                base_sha=base_sha,
-                error=str(exc),
-            )
-            raise
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
-
-    # ------------------------------------------------------------
     # #2137 — stacked-PR reconciler list helpers (TASK-5-3)
     # ------------------------------------------------------------
 
@@ -2703,67 +2647,40 @@ class GatewayClient:
         pipeline_id: str,
         repo: str,
         *,
-        agent_role: str = "coder",
-        mode: Literal["public", "private"] = "public",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        """List open PRs in ``repo`` via the existing per-agent ``gh pr list`` allowlist.
+        """List open PRs in ``repo`` via the orchestrator-only control-plane route.
 
-        Returns a list of PR dicts with at least ``number``,
-        ``head_ref``, ``base_ref`` shaped to match
-        :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s
-        contract. The transport is the standard
-        ``/api/v1/gh/execute`` route — ``pr list`` is on the
-        ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
-        (gateway/github_client.py) so no privileged endpoint is introduced
-        (decision-15).
+        Returns a list of PR dicts with ``number``, ``head_ref``,
+        ``base_ref`` shaped to match
+        :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s contract.
 
-        On any error (gateway 4xx/5xx, JSON parse failure) the
-        function logs and returns an empty list — the reconciler
-        treats this as "see no orphans this tick" which is safe.
+        Calls ``/api/v1/gh/list_open_prs`` with launcher auth (the control
+        plane holds the launcher secret), not a synthetic agent session.
+        The gateway runs ``gh pr list --repo <repo> --state open --limit
+        <N> --json number,headRefName,baseRefName`` server-side. This is
+        the seam #2922 established for :meth:`lookup_open_pr`; #2925
+        completes the migration so the orchestrator is never modelled as an
+        ``AgentRole`` — it authenticates as the control plane, not as an
+        agent.
+
+        On any error (gateway 4xx/5xx, JSON parse failure) the function
+        logs and returns an empty list — the context-PR opener and the
+        stacked-PR reconciler treat this as "no existing PR / see no
+        orphans this tick", which is safe (the opener falls through to
+        ``gh pr create``).
         """
         if not repo:
             return []
-        temp_container_id = f"{pipeline_id}-stacked-pr-list"
-        session_token: str | None = None
         try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                agent_role=agent_role,
-                synthetic=True,
-            )
-            session_token = session.session_token
-
-            args = [
-                "pr",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "open",
-                "--limit",
-                str(int(limit)),
-                "--json",
-                "number,headRefName,baseRefName",
-            ]
             result = self._make_request(
-                "/api/v1/gh/execute",
+                "/api/v1/gh/list_open_prs",
                 method="POST",
-                data={"args": args, "repo": repo},
-                bearer_token=session_token,
+                data={"repo": repo, "limit": int(limit)},
+                use_launcher_auth=True,
             )
-            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
-            try:
-                items = json.loads(stdout) if stdout.strip() else []
-            except ValueError, TypeError:
-                logger.debug(
-                    "list_open_prs: gh stdout not JSON",
-                    pipeline_id=pipeline_id,
-                    repo=repo,
-                )
+            items = (result.get("data", {}) or {}).get("prs", []) or []
+            if not isinstance(items, list):
                 return []
 
             normalised: list[dict[str, Any]] = []
@@ -2775,9 +2692,13 @@ class GatewayClient:
                 base_ref = item.get("baseRefName") or item.get("base_ref") or ""
                 if number is None or not head_ref:
                     continue
+                try:
+                    number_int = int(number)
+                except TypeError, ValueError:
+                    continue
                 normalised.append(
                     {
-                        "number": int(number),
+                        "number": number_int,
                         "head_ref": str(head_ref),
                         "base_ref": str(base_ref),
                     }
@@ -2791,12 +2712,72 @@ class GatewayClient:
                 error=str(exc),
             )
             return []
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
+
+    def lookup_open_pr(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        head: str,
+        base: str,
+    ) -> int | None:
+        """Server-side idempotency check: return the open ``head → base`` PR number, or None.
+
+        Calls the orchestrator-only control-plane route
+        ``/api/v1/gh/find_open_pr`` with launcher auth. The gateway runs
+        ``gh pr list --head <head> --base <base> --state open --json
+        number`` server-side and returns the single matching PR number.
+
+        Used by :meth:`create_slice_pr` to skip ``gh pr create`` when a
+        slice PR with the same head + base is already open (#2777 cq-8
+        / task-3-2 idempotency pre-flight).
+
+        The orchestrator authenticates here as the **control plane** (the
+        launcher secret), not as an agent. This is the seam #2893 should
+        have used: the orchestrator is the server that manages pipelines,
+        not an ``AgentRole``, so it does not register a synthetic agent
+        session or impersonate a role on the per-agent ``/api/v1/gh/execute``
+        surface.
+
+        Returns:
+            The integer PR number on hit, ``None`` on miss OR on any
+            transport / parse error. The caller falls through to
+            ``gh pr create`` either way — a transient lookup failure
+            must not block PR creation.
+        """
+        if not repo:
+            return None
+        if not head or not base:
+            # Defensive: never invoke ``gh pr list`` with an empty
+            # filter (would return every open PR in the repo and a
+            # caller-side ``if existing is not None`` would match the
+            # first one, spuriously treating an unrelated PR as the
+            # slice PR's idempotent hit).
+            return None
+        try:
+            result = self._make_request(
+                "/api/v1/gh/find_open_pr",
+                method="POST",
+                data={"repo": repo, "head": head, "base": base},
+                use_launcher_auth=True,
+            )
+            number = (result.get("data", {}) or {}).get("number")
+            if number is None:
+                return None
+            try:
+                return int(number)
+            except TypeError, ValueError:
+                return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "lookup_open_pr: gateway request failed (treating as miss)",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=head,
+                base=base,
+                error=str(exc),
+            )
+            return None
 
     def list_remote_branches(
         self,
@@ -3079,24 +3060,23 @@ class GatewayClient:
                 except Exception:
                     pass
 
-    def ls_remote_branch(
+    def _ls_remote_branch_impl(
         self,
         pipeline_id: str,
         repo_path: str,
         ref: str,
-        mode: Literal["public", "private"] = "public",
+        mode: Literal["public", "private"],
+        container_id_suffix: str,
     ) -> bool:
-        """Check if a remote branch exists using ls-remote.
+        """Shared implementation of the ls-remote branch-existence probe.
 
-        Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
-            repo_path: Path to the repo directory
-            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
-
-        Returns:
-            True if the remote branch exists, False otherwise
+        Raises on any gateway / network / policy failure — including a
+        ``{"success": false, ...}`` envelope returned at HTTP 200. Public
+        wrappers apply their respective error policies at the outer
+        layer: :meth:`ls_remote_branch` swallows and returns ``False``;
+        :meth:`ls_remote_branch_strict` propagates.
         """
-        temp_container_id = f"{pipeline_id}-state-ls-remote"
+        temp_container_id = f"{pipeline_id}-{container_id_suffix}"
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -3123,9 +3103,57 @@ class GatewayClient:
                 bearer_token=session_token,
             )
 
+            # A {"success": false, ...} envelope returned at HTTP 200 is
+            # a gateway-side failure surfaced via the envelope rather
+            # than the status code. Without this guard the strict
+            # variant would silently collapse such a response to "branch
+            # absent", contradicting its propagate-any-failure contract.
+            if not result.get("success", True):
+                raise GatewayError(
+                    result.get("message", "ls-remote envelope reported success=false")
+                )
+
             # ls-remote returns output in data.stdout; non-empty means branch exists
             stdout = result.get("data", {}).get("stdout", "")
             return bool(stdout.strip())
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def ls_remote_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Check if a remote branch exists using ls-remote.
+
+        Lenient variant: collapses gateway / network / policy failures
+        to ``False``. Callers that need to distinguish "branch absent
+        on origin" from "probe could not be performed" — notably the
+        ``_resolve_slice_base_branch`` parent-existence gate (#2928) —
+        must use :meth:`ls_remote_branch_strict` instead.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the repo directory
+            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
+
+        Returns:
+            True if the remote branch exists, False otherwise (or on error).
+        """
+        try:
+            return self._ls_remote_branch_impl(
+                pipeline_id=pipeline_id,
+                repo_path=repo_path,
+                ref=ref,
+                mode=mode,
+                container_id_suffix="state-ls-remote",
+            )
         except Exception as e:
             logger.warning(
                 "ls-remote check failed",
@@ -3134,12 +3162,34 @@ class GatewayClient:
                 error=str(e),
             )
             return False
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
+
+    def ls_remote_branch_strict(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Check if a remote branch exists using ls-remote.
+
+        Strict variant of :meth:`ls_remote_branch`: a gateway / network
+        / policy failure RAISES rather than collapsing to ``False``.
+        Use this when the caller needs to distinguish "branch absent
+        on origin" from "probe could not be performed" — for example,
+        ``_resolve_slice_base_branch`` (#2928) routes a confirmed
+        absent parent onto ``pipeline_branch`` but treats a raised
+        probe as "assume parent exists" so a flaky gateway never
+        silently swaps a real slice onto ``work``. The lenient
+        :meth:`ls_remote_branch` collapses those two outcomes and is
+        unsafe for that gate.
+        """
+        return self._ls_remote_branch_impl(
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            ref=ref,
+            mode=mode,
+            container_id_suffix="state-ls-remote-strict",
+        )
 
     def get_remote_branch_sha(
         self,
@@ -3663,36 +3713,6 @@ class GatewayConnectionError(GatewayError):
     through :meth:`GatewayClient._retry_transient`, which retries only on
     this subclass.
     """
-
-
-class ContextBranchDiverged(GatewayError):
-    """Raised by :meth:`GatewayClient.create_context_branch` when
-    ``egg/<pipeline_id>/context`` already exists on origin at a SHA
-    that does not match the resolved base.
-
-    Subclasses :class:`GatewayError` so callers that broadly catch
-    ``GatewayError`` continue to fail-soft. Callers that want to treat
-    this case as "our own prior tick already pushed the artifact
-    commit" (after authoritatively checking GitHub state for an open
-    PR on the head branch) can catch this subclass specifically and
-    fall through to the artifact-push + create_pr flow — the push is
-    idempotent (fast-forward / no-op) over the prior tick's commit.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        context_branch: str,
-        existing_sha: str,
-        base_branch: str,
-        base_sha: str,
-    ):
-        super().__init__(message)
-        self.context_branch = context_branch
-        self.existing_sha = existing_sha
-        self.base_branch = base_branch
-        self.base_sha = base_sha
 
 
 # Singleton client instance

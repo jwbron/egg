@@ -101,19 +101,3 @@ Generate repository documentation to onboard agents.
 | `egg-onboarding-docs <name>` | Generate onboarding docs (`<name>` is a directory under `~/repos/`) |
 | `egg-onboarding-docs --dry-run <name>` | Survey and report without creating files or a PR |
 | `egg-onboarding-docs --scope <pattern> <name>` | Limit documentation to files matching the pattern |
-
-## egg-checkpoint
-
-Query agent session checkpoints across multi-agent pipelines.
-
-| Command | Description |
-|---------|-------------|
-| `egg-checkpoint list [filters]` | List checkpoints with multi-dimensional filtering |
-| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details (transcript, tool calls, files touched) |
-| `egg-checkpoint browse --issue <n>` | Filter checkpoints by issue number |
-| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
-| `egg-checkpoint cost [filters]` | Show cost breakdown (token usage and USD) by phase and agent type |
-
-**Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
-
-See the [Checkpoint Access Guide](../docs/guides/checkpoint-access.md) for detailed usage examples.

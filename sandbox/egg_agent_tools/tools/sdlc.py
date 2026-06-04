@@ -119,9 +119,11 @@ _CHECK_FILE_RESTRICTION_SCHEMA: dict[str, Any] = {
                 {"type": "array", "items": {"type": "string"}, "minItems": 1},
             ],
             "description": (
-                "Path (or list of paths) to check against the role's "
-                "file-write restrictions in shared/egg_restrictions/"
-                "patterns.py."
+                "Path (or list of paths) to check against BOTH gateway push "
+                "gates: the role layer (shared/egg_restrictions/patterns.py) "
+                "AND the phase layer (gateway/phase_filter.py, configured by "
+                ".egg/phase-permissions.json and mirrored in shared/"
+                "egg_restrictions/phase_patterns.py)."
             ),
         },
         "role": {
@@ -129,6 +131,16 @@ _CHECK_FILE_RESTRICTION_SCHEMA: dict[str, Any] = {
             "description": (
                 "Role to check (defaults to EGG_AGENT_ROLE). Typically "
                 "left unset so the agent checks itself."
+            ),
+        },
+        "phase": {
+            "type": "string",
+            "description": (
+                "Pipeline phase to evaluate the phase-layer gate against "
+                "(defaults to EGG_PHASE). Leave unset to check your own "
+                "phase. The phase gate can block a path your role pattern "
+                "allows (e.g. refine cannot push *-plan.md); pass a phase "
+                "explicitly to ask 'would this be writable in phase X?'."
             ),
         },
     },
@@ -245,12 +257,21 @@ async def verify_criterion(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "check_file_restriction",
-    "Check whether the named role can write the named path(s) per "
-    "shared/egg_restrictions/patterns.py. Read-only; no gateway round-trip. "
-    "Use this BEFORE exploring a file you suspect is outside your role's "
-    "boundary so you can hand off cleanly instead of building a workaround. "
-    "Returns can_write + alternative_role (the role that *can* write the "
-    "path, when exactly one producer role covers it).",
+    "Check whether the named role can write the named path(s) in the current "
+    "phase. Read-only; no gateway round-trip. can_write reflects BOTH gateway "
+    "push gates: the role layer (shared/egg_restrictions/patterns.py) AND the "
+    "phase layer (gateway/phase_filter.py) — so it predicts push acceptance. "
+    "Use this BEFORE exploring a file you suspect is outside your boundary so "
+    "you can hand off or defer cleanly instead of building a workaround. "
+    "Returns can_write plus split verdicts (role_can_write, phase_allows, "
+    "blocked_by) and alternative_role (set only for role-layer blocks, when "
+    "exactly one producer role covers the path). A phase-layer block is a real "
+    "gateway block, not a false claim — defer the write to the owning phase. "
+    "When reviewing another agent's proposal, pass `role` and `phase` "
+    "explicitly (e.g. role='coder', phase='implement') — the defaults read "
+    "EGG_AGENT_ROLE/EGG_PHASE, which give you the verdict for *your own* role/"
+    "phase, not the producer's. Without explicit args a reviewer's check will "
+    "diverge from what the gateway would have done to the producer.",
     _CHECK_FILE_RESTRICTION_SCHEMA,
 )
 async def check_file_restriction(args: dict[str, Any]) -> dict[str, Any]:

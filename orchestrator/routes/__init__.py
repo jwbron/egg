@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from flask import abort, request
+from flask import abort, has_request_context, request
 
 if TYPE_CHECKING:
     from models import Pipeline
@@ -40,18 +40,32 @@ def get_repo_path() -> Path:
     subdirectory using the ``repo`` field from the request body
     (e.g. ``owner/name`` -> ``/home/egg/repos/name``).
 
+    Safe to call outside a Flask HTTP request context (#2903): the
+    request-based resolution is skipped and EGG_REPO_PATH / CWD fallback
+    kicks in.  This matters for background-thread call sites like the
+    context-PR opener that run from the ``_run_pipeline`` driver thread.
+
     Returns:
         Path to the repository
     """
-    # Check request args first
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        return Path(repo_path)
+    # Gate every ``request`` access on ``has_request_context()`` so the
+    # function stays usable from driver threads (#2903).  Flask's public
+    # API documents the intent more clearly than ``bool(request)`` +
+    # ``except RuntimeError``.
+    in_request = has_request_context()
+    data: dict = {}
 
-    # Check JSON body
-    data = request.get_json(silent=True) or {}
-    if data.get("repo_path"):
-        return Path(data["repo_path"])
+    # Check request args first (only when in HTTP request context)
+    if in_request:
+        repo_path = request.args.get("repo_path")
+        if repo_path:
+            return Path(repo_path)
+
+        # Check JSON body — assigned here so the multi-repo branch below
+        # can read ``data`` without a second guard.
+        data = request.get_json(silent=True) or {}
+        if data.get("repo_path"):
+            return Path(data["repo_path"])
 
     # Check environment
     env_path = os.environ.get("EGG_REPO_PATH")
@@ -60,7 +74,7 @@ def get_repo_path() -> Path:
         # EGG_REPO_PATH may be a parent dir containing repo subdirectories.
         # If it's not itself a git repo, resolve using the repo name from
         # the request body (e.g. "owner/name" -> base / "name").
-        if not (base / ".git").exists():
+        if not (base / ".git").exists() and in_request:
             repo = data.get("repo", "") or request.args.get("repo", "")
             if repo:
                 repo_name = repo.split("/")[-1]
@@ -163,7 +177,9 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
     return base_path
 
 
-def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipeline"]:  # noqa: UP037
+def get_state_store_for_pipeline(
+    pipeline_id: str, repo_path: Path | None = None
+) -> tuple["StateStore", "Pipeline"]:  # noqa: UP037
     """Get state store and pipeline, resolving multi-repo paths automatically.
 
     This is the preferred way for routes to load a pipeline.  It handles
@@ -173,6 +189,9 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
 
     Args:
         pipeline_id: Pipeline ID to look up
+        repo_path: Optional explicit repo path.  When provided, skips
+            the Flask-request-dependent ``get_repo_path()`` call so the
+            function works from background threads (#2903).
 
     Returns:
         (StateStore, Pipeline) tuple
@@ -197,7 +216,7 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
     # ``PipelineNotFoundError`` and mask the real cause.
     validate_pipeline_id(pipeline_id)
 
-    base_path = get_repo_path()
+    base_path = repo_path if repo_path is not None else get_repo_path()
 
     # Fast path: base_path is itself a git repo
     if (base_path / ".git").exists():

@@ -92,7 +92,7 @@ class TestRoundTrip:
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"
         assert shard.exists()
         data = json.loads(shard.read_text())
-        assert data["version"] == 1
+        assert data["version"] == 2
         assert _VALID_SHA in data["entries"]
         assert data["entries"][_VALID_SHA]["role"] == "coder"
         assert data["entries"][_VALID_SHA]["pipeline_id"] == "issue-1882"
@@ -938,3 +938,85 @@ class TestGetStoreUsesGetStateStore:
             "path that the rest of the orchestrator uses; otherwise both "
             "sides race over the egg/pipeline-state branch."
         )
+
+
+# ---------------------------------------------------------------------------
+# patch-id attribution (#2932)
+# ---------------------------------------------------------------------------
+
+
+_PATCH_A = "1" * 40
+_PATCH_B = "2" * 40
+
+
+class TestPatchIdAttribution:
+    """``patch_id`` is recorded on register and recoverable by content.
+
+    This is the seam that lets attribution survive a ``git rebase`` that
+    rewrites SHAs: the rewritten commit keeps its patch-id even though the
+    SHA changed, so ``lookup_bulk_by_patch_id`` can still recover the
+    original author.
+    """
+
+    def test_register_persists_patch_id(self, store: CommitAuthorshipStore, worktree: Path):
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        shard = json.loads((worktree / SUBSTORE_DIR / "issue-1.json").read_text())
+        assert shard["version"] == 2
+        assert shard["entries"][_VALID_SHA]["patch_id"] == _PATCH_A
+
+    def test_lookup_by_patch_id_returns_role(self, store: CommitAuthorshipStore):
+        store.register(_VALID_SHA, "reviewer", "issue-1", patch_id=_PATCH_A)
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "reviewer"}
+
+    def test_lookup_by_patch_id_spans_shards(self, store: CommitAuthorshipStore):
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        store.register(_OTHER_SHA, "reviewer", "issue-2", patch_id=_PATCH_B)
+        assert store.lookup_bulk_by_patch_id([_PATCH_A, _PATCH_B]) == {
+            _PATCH_A: "coder",
+            _PATCH_B: "reviewer",
+        }
+
+    def test_unregistered_patch_id_is_none(self, store: CommitAuthorshipStore):
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: None}
+
+    def test_ambiguous_patch_id_fails_closed(self, store: CommitAuthorshipStore):
+        # Two roles produced an identical patch (same patch-id, different
+        # SHAs) → ambiguous → None, never guess.
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        store.register(_OTHER_SHA, "reviewer", "issue-1", patch_id=_PATCH_A)
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: None}
+
+    def test_same_role_two_shas_same_patch_id_resolves(self, store: CommitAuthorshipStore):
+        # The original commit and its rebased copy (same role, same patch)
+        # → still a single distinct role → resolves.
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        store.register(_OTHER_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: "coder"}
+
+    def test_lookup_by_patch_id_dedupes_and_skips_invalid(self, store: CommitAuthorshipStore):
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=_PATCH_A)
+        assert store.lookup_bulk_by_patch_id([_PATCH_A, _PATCH_A, "not-hex!", ""]) == {
+            _PATCH_A: "coder"
+        }
+
+    def test_empty_input_returns_empty(self, store: CommitAuthorshipStore):
+        assert store.lookup_bulk_by_patch_id([]) == {}
+
+    def test_register_without_patch_id_is_invisible_to_patch_lookup(
+        self, store: CommitAuthorshipStore
+    ):
+        # Legacy/observer-couldn't-compute case: no patch_id recorded, so
+        # the commit doesn't participate in content-based recovery.
+        store.register(_VALID_SHA, "coder", "issue-1")
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: None}
+
+    def test_invalid_patch_id_on_register_raises(self, store: CommitAuthorshipStore):
+        with pytest.raises(CommitAuthorshipStoreError):
+            store.register(_VALID_SHA, "coder", "issue-1", patch_id="nothex!!")
+
+    def test_non_string_patch_id_is_dropped(self, store: CommitAuthorshipStore):
+        # Defensive: a non-string patch_id (e.g. from a malformed HTTP
+        # payload) is treated as absent rather than crashing the store.
+        store.register(_VALID_SHA, "coder", "issue-1", patch_id=12345)  # type: ignore[arg-type]
+        assert store.lookup(_VALID_SHA) == "coder"
+        assert store.lookup_bulk_by_patch_id([_PATCH_A]) == {_PATCH_A: None}

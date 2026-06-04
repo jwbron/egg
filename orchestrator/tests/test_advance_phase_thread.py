@@ -99,14 +99,23 @@ def client(app):
 class TestAdvancePhaseLaunchesThread:
     """Tests that advance_phase spawns a _run_pipeline background thread (#1672)."""
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_advance_phase_launches_thread(self, mock_get_store, mock_get_lock, mock_spawn, client):
+    def test_advance_phase_launches_thread(
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
+    ):
         """advance_phase must launch a _run_pipeline thread after state update.
 
         This is the root cause of #1672: without a thread, the new phase
         never gets processed.
+
+        #2777 (cq-4, TASK-1-2) — the plan→implement branch now invokes
+        ``_open_context_pr_at_implement_start`` as a hard-required
+        step.  This test patches it out: the focus here is the thread
+        launch, not the context-PR opener (which has its own tests in
+        slice-3 / TASK-3-8).
         """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
 
@@ -115,6 +124,7 @@ class TestAdvancePhaseLaunchesThread:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
+        mock_open_ctx_pr.return_value = 12345  # PR number — value irrelevant for this test
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
@@ -137,7 +147,7 @@ class TestAdvancePhaseLaunchesThread:
     ):
         """force=true advance must also launch a thread."""
         pipeline = _make_pipeline(
-            phase=PipelinePhase.IMPLEMENT,
+            phase=PipelinePhase.PLAN,
             phase_status=PipelineStatus.RUNNING,
         )
 
@@ -149,17 +159,25 @@ class TestAdvancePhaseLaunchesThread:
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
-            json={"target_phase": "pr", "force": True},
+            json={"target_phase": "implement", "force": True},
         )
 
         assert response.status_code == 200
         mock_spawn.assert_called_once()
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_advance_phase_bumps_run_epoch(self, mock_get_store, mock_get_lock, mock_spawn, client):
-        """advance_phase must bump run_epoch so stale threads exit."""
+    def test_advance_phase_bumps_run_epoch(
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
+    ):
+        """advance_phase must bump run_epoch so stale threads exit.
+
+        #2777 (cq-4, TASK-1-2) — the plan→implement branch invokes the
+        new hard-required context-PR opener; patched out here because
+        this test focuses on the run_epoch bump.
+        """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         original_epoch = pipeline.run_epoch
         original_created_at = pipeline.created_at
@@ -169,6 +187,7 @@ class TestAdvancePhaseLaunchesThread:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = (mock_store, pipeline)
         mock_get_lock.return_value = MagicMock()
+        mock_open_ctx_pr.return_value = 12345
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
@@ -186,13 +205,18 @@ class TestAdvancePhaseLaunchesThread:
         # created_at must NOT change
         assert pipeline.created_at == original_created_at
 
+    @patch("routes.pipelines._open_context_pr_at_implement_start")
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_advance_phase_acquires_state_lock(
-        self, mock_get_store, mock_get_lock, mock_spawn, client
+        self, mock_get_store, mock_get_lock, mock_spawn, mock_open_ctx_pr, client
     ):
-        """advance_phase must acquire the pipeline state lock for atomicity."""
+        """advance_phase must acquire the pipeline state lock for atomicity.
+
+        #2777 (cq-4, TASK-1-2) — context-PR opener patched out; this
+        test focuses on the state-lock acquisition.
+        """
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
 
         mock_store = MagicMock()
@@ -202,6 +226,7 @@ class TestAdvancePhaseLaunchesThread:
 
         mock_lock = MagicMock()
         mock_get_lock.return_value = mock_lock
+        mock_open_ctx_pr.return_value = 12345
 
         response = client.post(
             "/api/v1/pipelines/issue-300/phase",
@@ -428,25 +453,31 @@ class TestPostBrcBandSwallowsErrors:
         return inspect.getsource(pipelines._run_pipeline)
 
     def test_sync_worktree_with_remote_is_wrapped(self):
-        """``_sync_worktree_with_remote`` was unwrapped — a gateway HTTP
+        """The post-BRC worktree-sync call was unwrapped — a gateway HTTP
         error or git failure inside it propagated to the outer Exception
         handler and (when FAILED-marking also failed) stranded the pipeline.
+
+        #2979 routed the call through ``_sync_worktree_reconciling_divergence``
+        (a wrapper that adds the non-destructive pause/resume around
+        ``_sync_worktree_with_remote``); the structural try/except invariant
+        from #2219 still applies to the new call site.
         """
         source = self._run_pipeline_source()
         # The post-phase call site (after BRC return) must sit inside a
         # ``try`` whose ``except`` matches ``Exception`` so any failure
         # mode is swallowed with a warning rather than killing the thread.
         # Indentation-tolerant: ``\s+`` between ``try:`` and the call.
-        # Allow either the original direct call or the ``outcome = ...``
-        # capture introduced in #2792 (the call is the same; we only
-        # capture the return now so the hard-reset HITL can fire).
+        # Allow either a plain call, a single ``outcome = ...`` capture
+        # (the form used by #2792 around the old direct helper), or the
+        # tuple-unpack ``outcome, aborted = (...)`` form introduced in
+        # #2979 for the wrapping helper.
         assert re.search(
-            r"try:\s*\n\s*(?:\w[\w.\[\] |]*\s*=\s*)?_sync_worktree_with_remote\(",
+            r"try:\s*\n\s*(?:[\w,\s]*\s*=\s*\(?\s*\n?\s*)?_sync_worktree_reconciling_divergence\(",
             source,
         ), (
-            "_sync_worktree_with_remote(...) call after BRC return must be "
-            "wrapped in try/except so a sub-call failure can't strand the "
-            "pipeline (#2219)."
+            "_sync_worktree_reconciling_divergence(...) call after BRC "
+            "return must be wrapped in try/except so a sub-call failure "
+            "can't strand the pipeline (#2219, #2979)."
         )
 
     def test_commit_statefiles_handler_catches_broadly(self):
@@ -459,12 +490,14 @@ class TestPostBrcBandSwallowsErrors:
         # the broader handler.  Find every call to the helper and assert
         # the immediately-following ``except`` clause is ``Exception``.
         call_sites = list(re.finditer(r"_commit_statefiles_to_worktree\(", source))
-        # Five known call sites in ``_run_pipeline``: initial statefile
-        # commit, pre-PR commit, pre-sync commit (#2488), post-phase
-        # commit, post-HITL-resolution commit.  Pin the count so a future
-        # move/delete is caught rather than silently degrading coverage.
-        assert len(call_sites) == 5, (
-            f"Expected 5 _commit_statefiles_to_worktree call sites in "
+        # Four known call sites in ``_run_pipeline``: initial statefile
+        # commit, pre-sync commit (#2488), post-phase commit, and
+        # post-HITL-resolution commit.  The former pre-PR commit was
+        # removed in #2777 (slice-2) along with the PR phase.  Pin the
+        # count so a future move/delete is caught rather than silently
+        # degrading coverage.
+        assert len(call_sites) == 4, (
+            f"Expected 4 _commit_statefiles_to_worktree call sites in "
             f"_run_pipeline, found {len(call_sites)}.  If a call was "
             f"intentionally added/removed, update this count and the "
             f"comment above."

@@ -47,7 +47,7 @@ The pipeline enforces role-based field ownership in contracts:
 | **Reviewer** | `status`, `review_feedback`, `current_phase` | `commit`, task definitions |
 | **Human** | All fields | — |
 
-Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on draft PRs created during the implement phase.
+Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on the context PR opened by the orchestrator at the plan→implement boundary.
 
 ### 4. Human-in-the-Loop at Critical Points
 
@@ -62,24 +62,24 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │                           SDLC PIPELINE                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
-│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
-│  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │ ╎                │                  │                  │       │
-│        ▼ ╎                ▼                  ▼                  ▼       │
-│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐        ┌─────────┐  │
-│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │        │  HUMAN  │  │
-│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │        │  MERGE  │  │
-│   └────┬────┘ ╎      └────┬────┘        └─────────┘        └─────────┘  │
-│        │      ╎           │                                             │
-│        ▼      ╎           ▼                                             │
-│   ┌─────────┐ ╎      ┌─────────┐                                        │
-│   │ HITL    │ ╎      │ HITL    │                                        │
-│   │ Approve │ ╎      │ Approve │                                        │
-│   └─────────┘ ╎      └─────────┘                                        │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
+│  │   REFINE    │───▶│    PLAN     │───▶│         IMPLEMENT           │  │
+│  │  (cycles)   │    │  (cycles)   │    │  (cycles; context PR opened │  │
+│  └─────────────┘    └─────────────┘    │   at phase start)           │  │
+│        │ ╎                │            └─────────────────────────────┘  │
+│        ▼ ╎                ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ REVIEW  │ ╎      │ REVIEW  │        │ REVIEW  │                     │
+│   │ (auto)  │ ╎      │ (auto)  │        │ (auto)  │                     │
+│   └────┬────┘ ╎      └────┬────┘        └─────────┘                     │
+│        │      ╎           │                  │                          │
+│        ▼      ╎           ▼                  ▼                          │
+│   ┌─────────┐ ╎      ┌─────────┐        ┌─────────┐                     │
+│   │ HITL    │ ╎      │ HITL    │        │  HUMAN  │                     │
+│   │ Approve │ ╎      │ Approve │        │  MERGE  │                     │
+│   └─────────┘ ╎      └─────────┘        └─────────┘                     │
 │               ╎                                                         │
-│                                                                        │
+│                                                                         │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -122,14 +122,14 @@ Returns the current pipeline status for polling-based monitoring.
 }
 ```
 
-Once a pull request is created during the PR phase, two additional fields appear in `data`:
+Once the context PR is opened (up-front at the plan→implement boundary; see [#2777](https://github.com/jwbron/egg/issues/2777)), two additional fields appear in `data`:
 
-- `pr_url` — full GitHub URL of the created PR (e.g. `"https://github.com/owner/repo/pull/42"`)
+- `pr_url` — full GitHub URL of the context PR (e.g. `"https://github.com/owner/repo/pull/42"`)
 - `pr_number` — integer PR number parsed from the URL (e.g. `42`); omitted if the URL has an unexpected shape
 
 This avoids a separate `gh pr list` call by monitoring clients.
 
-> **Pipeline record fields (issue #1911).** The auto-PR path also writes `pipeline.pr_number` and (best-effort) `pipeline.pr_head_sha` onto the pipeline record itself, not only the `pr_url` phase artifact. Consumers that load the pipeline via `get_pipeline_snapshot` / the pipeline JSON can rely on `pipeline.pr_number` directly — the overseer's `post-consensus-push-stall` detector uses this as one of the three signals that the post-consensus transition succeeded. `pipeline.pr_head_sha` is populated when `gh pr view` returns a valid hex SHA; if the `gh` call fails or propagation is still in flight, the field is left `None` and the PR phase still succeeds.
+> **Pipeline record fields (issue #1911).** The auto-PR path also writes `pipeline.pr_url` and `pipeline.pr_number` onto the pipeline record itself via `_persist_context_pr_number` (see [Pipeline state writeback after auto-PR creation](../architecture/orchestrator.md#pipeline-state-writeback-after-auto-pr-creation)). Consumers that load the pipeline via `get_pipeline_snapshot` / the pipeline JSON can rely on `pipeline.pr_number` directly — the overseer's `post-consensus-push-stall` detector uses this as one of the two conditions that the post-consensus transition succeeded (the other is `pipeline.current_phase != "implement"`). The `pipeline.pr_head_sha` field on the model is no longer populated — its sole writer (`_finalize_pr_phase_failed`) was deleted alongside the PR phase in [#2777](https://github.com/jwbron/egg/issues/2777); the column is retained only for backwards-compatible deserialisation of older state files.
 
 When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
@@ -205,14 +205,13 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
     "current_phase": "implement",
     "visualization": {
       "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running (2 cycles completed)            │\n    │   ✓ coder  ▶ reviewer│\n    │   [last cycle: 5m0s | total: 15m0s]│\n    ╚══════════════════════╝",
-      "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
+      "compact": "✓Refine → ✓Plan → [▶Implement]",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
       "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
       "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
-      "implement": {"status": "running", "review_cycles": 2, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
-      "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
+      "implement": {"status": "running", "review_cycles": 2, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]}
     },
     "pending_decisions": 0,
     "updated_at": "2026-02-12T10:30:00Z"
@@ -250,8 +249,7 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 |-------|---------|-------------------|---------------|
 | **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
-| **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract complete-task/complete-phase` | All checks pass (CI + PR review) |
-| **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
+| **Implement** | Execute tasks with CI and review feedback; context PR opened automatically at phase start | `git push`, `egg-contract complete-task/complete-phase` | All checks pass + human merge (terminal phase) |
 
 ### Multi-Reviewer Architecture
 
@@ -294,7 +292,7 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 2 per pipeline; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
+The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped per-pipeline by `PipelineConfig.max_parallel_slices` when set at pipeline creation, else by the `EGG_ORCH_MAX_PARALLEL_SLICES` env var; default 1 — a single slice at a time — raise on hosts with capacity; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
 
 Within each slice, concurrent BRC execution runs: specialized agents run simultaneously and coordinate via the message bus.
 
@@ -417,9 +415,10 @@ Each phase has a defined set of permitted operations. The gateway blocks all oth
 5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
 
 **Phase restrictions:**
-- **Refine/Plan phases**: `git push` restricted to `.egg-state/` files; cannot `gh pr create`—prevents source code changes before plan approval
-- **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
-- **PR phase**: PR is auto-created by the orchestrator from contract metadata and git log (no agent spawned). Human must merge.
+- **Refine/Plan phases**: `git push` restricted to `.egg-state/` files; cannot `gh pr create`—prevents source code changes before plan approval. The context PR (`egg/<id>/work → main`) is opened up-front by the orchestrator at the plan→implement boundary, hard-required and idempotent (#2777); no agent ever calls `gh pr create` for it.
+- **Implement phase**: Can `git push` to the branch; per-slice PRs are opened automatically by `create_slice_pr` (also idempotent — `gh pr list --head ... --base ... --state open` pre-flight, #2777). Humans merge the slice PRs to land work.
+
+The terminal "PR phase" as a separate pipeline stage was **deleted** in [#2777](https://github.com/jwbron/egg/issues/2777). The context PR open is hard-required up-front, so there is no silent-failure path the PR phase needed to back-stop.
 
 This structural enforcement prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
 
@@ -433,7 +432,7 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
 | `.egg-state/drafts/` | Draft analysis and plan documents (preserved on PR branch for review) | Feature branches only |
-| `.egg-state/brc-history/` | Per-phase BRC consensus message logs — `.md` (human-readable with YAML metadata) and `.json` (machine-readable) per phase (re-written in PR phase as safety net) | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs — `.md` (human-readable with YAML metadata) and `.json` (machine-readable) per phase (committed by each phase as it completes) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -444,7 +443,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "issue": {
     "number": 123,
     "title": "Add feature X",
@@ -483,12 +482,19 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 }
 ```
 
-> **Schema 1.1 (#2548)**: The default `schemaVersion` is now `"1.1"`, which
-> additively introduces four optional `pr.context_*` fields
-> (`context_title`, `context_description`, `context_branch`,
-> `context_pr_number`). Pre-1.1 contract JSON loads cleanly — a Pydantic
-> `model_validator` silently promotes `"1.0"` to `"1.1"` on load and the
-> bumped value is persisted on the next save.
+> **Schema 1.2 (#2777)**: The default `schemaVersion` is now `"1.2"`. The
+> redundant `pr.context_branch`, `pr.context_title`, and
+> `pr.context_description` fields introduced in v1.1 (#2548) were
+> **hard-removed**; under the new topology the context PR is
+> `egg/<pipeline_id>/work → main`, so the head branch is derivable and
+> the program-level title and description reuse the standard
+> `pr.title` / `pr.description`. The only remaining context-PR field is
+> `pr.context_pr_number`. Pre-1.2 contracts on disk load cleanly — a
+> Pydantic `model_validator(mode="wrap")`
+> (`Contract._migrate_schema_version_to_1_2`) strips the three removed
+> keys before constructing `PRMetadata` and bumps `schemaVersion` to
+> `"1.2"`; the new value is persisted on the next save (see the
+> [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
 
 ### Role-Based Field Ownership
 
@@ -538,20 +544,19 @@ The SDLC pipeline automatically merges the latest main branch into the issue bra
    - Pulls the resolved changes and continues
    - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
 
-This ensures agents always work with the latest codebase and conflicts are resolved before work begins, not at PR finalization time.
+This ensures agents always work with the latest codebase and conflicts are resolved before work begins.
 
 ### Implement and PR-Based Review
 
 The implement phase uses PR-based automated code review:
 
-1. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
-2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
-3. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
+1. **Context PR opened** — At phase start, the orchestrator opens the context PR (`egg/<pipeline_id>/work → main`) with the plan metadata; no agent is spawned for this step
+2. **Main branch merge** — Before starting work, merges latest main into the issue branch (see above)
+3. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
 4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the context PR
 6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
-7. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
-8. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
+7. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
 
 This approach provides:
 - Line-level code review comments visible to humans
@@ -567,9 +572,8 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 1. The contract JSON in `.egg-state/contracts/`
 2. Git commits on the feature branch
 3. GitHub issue/PR comments and reviews
-4. Checkpoints from prior agent sessions (via `egg-checkpoint`)
 
-This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context. Agents also receive checkpoint discovery hints in their prompts, enabling them to review prior sessions for richer context than handoff data alone.
+This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
 
 ### Role-Specific Prompt Context
 
@@ -579,7 +583,6 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Execution roles** (tester, documenter) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
-- Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
 - Role-filtered tasks: only the tasks assigned to their role via the `task.role` field (unassigned tasks default to coder)
 
@@ -599,8 +602,8 @@ Agents are organized into five categories (execution, analysis, review, utility,
 
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
-| **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
+| **Coder** | Execution | Implements code changes and authors its own tests | All files except docs, `.egg-state/`, `.github/` (blocklist-complement; tests are coder-writable and overlap the tester — see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
+| **Tester** | Execution | Reviews-and-hardens the coder's tests, adds missing regression and adversarial coverage, runs linters, NACKs with a failing test when a bug is found | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
 | **Documenter** | Execution | Updates documentation | Documentation and markdown only: `docs/`, `**/*.md`, `**/README.md` (see [Agent Roles Reference](../reference/agent-roles.md#documenter)) |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
@@ -751,8 +754,9 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
-3. **Before PR creation** — Pushes BRC history re-writes and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
-4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
+3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
+
+The legacy "before PR creation" push point and its associated PR-phase troubleshooting were removed in [#2777](https://github.com/jwbron/egg/issues/2777) along with the PR phase itself; the context PR is now opened up-front at the plan→implement boundary, so there is no separate terminal push step to back-stop.
 
 All pushes use `GatewayClient.push_worktree_branch()`, which authenticates directly with the launcher secret (orchestrator-trusted) rather than registering a temporary session token. This bypasses the agent-targeted pipeline-push enforcement so the orchestrator's programmatic pushes are never blocked by #2028-style pipeline-session guards. On non-fast-forward rejection, it automatically performs a `git fetch` + `git rebase` in the worktree and retries the push once before giving up. The call returns a `PushResult` dataclass (truthy on success) whose `category` and `detail` fields describe the underlying git error — so contract-init failures surface an operator-actionable message like `"non_fast_forward: ! [rejected] ... (fetch first)"` instead of the historical opaque `"push_worktree_branch returned False"`.
 
@@ -862,9 +866,11 @@ The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
 4. Validates the contract against the JSON schema
 5. Commits the updated contract to the feature branch
 
-This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped. For manual recovery via `advance_phase`, the populate step is also run automatically when transitioning out of the plan phase, so `contract.pr` is populated even when a force-advance bypasses the normal phase completion path.
+This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped, and auto-populates the contract at implement start if it is still empty (zero slices) — for example, when `start_phase=implement` is used and the contract was not pre-seeded (#2915). Push failure during this auto-populate is non-fatal: the contract is committed locally and agents proceed. For manual recovery via `advance_phase`, the populate step is also run automatically when transitioning out of the plan phase, so `contract.pr` is populated even when a force-advance bypasses the normal phase completion path.
 
-The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation. If neither the contract nor the plan draft on disk contains a `pr.title`, the PR falls through to a stub (issue title or pipeline ID) and is opened as a **draft** with a warning banner listing parse failures so reviewers can diagnose and repair before merging.
+**Plan pre-flight validation at plan→implement** (#2777): when `advance_phase` transitions from plan to implement (without `force=true`), the orchestrator runs a structural pre-flight check on the plan draft *before* the populate step. The check verifies that the plan contains a parseable `yaml-tasks` block, non-empty `pr.title` / `pr.description` / `pr.test_plan` fields, and a present `pr.manual_steps` key (an empty string is allowed — the contract default — but the key must exist in the YAML). If any field is missing the call returns **422** with `reason: preflight_invalid_plan` and a `missing_fields` list naming each absent field — so the operator sees the full set of issues in one response rather than discovering them one at a time. Passing `force=true` bypasses the pre-flight validator (useful when a plan draft is unrecoverable and the operator needs to unstick the pipeline manually). Infra failures (dependency import errors, worktree probe / draft-read `OSError`s) surface as **500** with `reason: preflight_unavailable` so the operator retries rather than mistaking infra trouble for a passing check; if the draft path is undeclared or the draft file is absent on disk, the validator skips silently and lets the populate step handle the gap.
+
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to open the context PR at the plan→implement boundary. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation. The pre-flight validator above is the structural gate that ensures `contract.pr.title` is populated on the normal path. If the opener is reached with a missing or empty title — reachable when the validator silently skips (no plan draft on disk) *and* the plan-exit populate step fails to write `contract.pr`, or via `force=true` which bypasses both the validator and the canonical opener call — it raises `ContextPrCreationError(reason="missing_pr_metadata")`. On the canonical `advance_phase` path the orchestrator returns **HTTP 422** with `reason: context_pr_open_failed` and the pipeline remains in its prior phase (`PLAN`); on the runner-side soft-fail backstops the raise is logged and execution continues without a context PR, leaving the slice stack stranded on `egg/<pipeline_id>/work` with no integrating context PR. There is no stub-title fall-through on any path.
 
 ## Phase Checks
 
@@ -956,14 +962,11 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - Test check (required)
 - Auto-fixer (optional)
 
-**PR phase:**
-- No checks
-- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a one-line pointer to the committed per-phase BRC history transcripts is included in the PR body (linked from `.egg-state/brc-history/`). See [Concurrent Execution — BRC History Link in PR Body](concurrent-execution.md#brc-history-link-in-pr-body) for details.
-- **Agent-outputs cleanup**: At PR-phase entry, the orchestrator removes `.egg-state/agent-outputs/` from the branch via `_cleanup_agent_outputs_for_pr()`. These files are ephemeral coder→tester handoff artifacts (e.g., `coder-test-changes.patch`) that the tester has already consumed. Leaving them causes merge conflicts in concurrent pipelines and pollutes the PR diff. Cleanup is best-effort — failures are logged but do not block PR creation.
-- **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
-- **Pre-PR-open rebase** (#2224): Immediately before calling `gh pr create`, the orchestrator rebases the pipeline branch against the current `origin/<base_branch>` via `_refresh_pipeline_branch_against_current_base()`. Phase-start rebases (`_rebase_pipeline_branch_onto_base`) only run once per phase iteration; if `base_branch` advances *during* the PR phase, the pipeline branch ends up behind. This step closes that gap so the PR opens with a clean linear diff. The operation is best-effort — on any failure (rebase conflict, push rejection, transient gateway error) the PR still opens against the un-rebased tip and the divergence is visible to the human reviewer. Only the pipeline branch is ever written to; `base_branch` is read-only here.
-- **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713). The PR phase used to remove these files to keep diffs focused; that behavior was reverted because the audit value outweighs the diff noise.
-- If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
+**Context PR (opened at implement-phase start, #2777):**
+- The terminal "PR phase" was **deleted** as a separate pipeline stage; `IMPLEMENT` is now terminal. The context PR (`egg/<pipeline_id>/work → main`) is opened by the orchestrator at the plan→implement boundary via `_open_context_pr_at_implement_start` — no separate phase or agent is spawned for this. The open is hard-required and idempotent (`GatewayClient.lookup_open_pr` pre-flight with a server-side `gh pr list --head … --base … --limit 1` filter). Per-slice PRs are opened inline by `create_slice_pr`, which uses the same `GatewayClient.lookup_open_pr` primitive (#2777 cq-8 / #2934 unified both PR-idempotency paths onto it).
+- The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a one-line pointer to the committed per-phase BRC history transcripts is included in the PR body (linked from `.egg-state/brc-history/`). See [Concurrent Execution — BRC History Link in PR Body](concurrent-execution.md#brc-history-link-in-pr-body) for details.
+- **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (#1713).
+- If the up-front context-PR open fails (after the idempotent pre-flight returns no existing PR and `gh pr create` itself fails), the pipeline is marked **FAILED** immediately — there is no terminal back-stop because the open is hard-required up-front.
 
 ### Customizing Phase Checks
 
@@ -1305,6 +1308,7 @@ per-phase overrides unless that uniform behaviour is intended.
 | `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
+| `max_parallel_slices` | int \| null | `null` (effective `1` from env) | Per-pipeline cap on concurrent implement-phase slices in a wave. Each slice spawns ~8 containers; raise on hosts with capacity. When `null`, falls back to `EGG_ORCH_MAX_PARALLEL_SLICES` (default 1). |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int \| null | `null` | Global consensus timeout. When set, applies to every phase. When `null` (the default), each phase falls back to the calibrated per-phase default below. |
 | `consensus_timeout_minutes_refine` | int \| null | `null` (effective `30`) | Per-phase consensus timeout for refine. Wins over the legacy global. |
@@ -1347,7 +1351,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 |------|---------|---------|
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
-| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
+| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Implementation + tests are in — tester should review and harden the tests" |
 | `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop`) | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
@@ -1360,7 +1364,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
 
 # Send a role-boundary handoff
-egg-orch message send --to tester --type HANDOFF --subject "Test files ready" --body "See commit abc1234"
+egg-orch message send --to tester --type HANDOFF --subject "Implementation + tests in" --body "See commit abc1234 — review and harden the tests"
 
 # Poll for new messages
 egg-orch message poll [--since msg-abc123] [--limit 50]
@@ -1382,7 +1386,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
 5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
    - The `/sdlc` skill surfaces the alert (Check agent logs / Acknowledge / Cancel pipeline)
    - The orchestrator continues polling for consensus under the post-timeout budget; operators can intervene with `cancel_task`, `restart_phase`, or `provide_input`
-6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 3). Each restart publishes a medium-priority `OVERSEER_ALERT` (anomaly `agent-restart`) so the operator sees recovery attempts in real time. After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1. For **producer** roles this triggers a hard-fail: the orchestrator re-queries consensus once (race-window guard), and if consensus is still incomplete it transitions the pipeline to FAILED and emits a high-priority `OVERSEER_ALERT` (anomaly `producer-permanent-death`); use `restart_phase` to resume or `cancel_task` to abort. For **reviewer** roles the existing single-agent failure path applies (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
+6. The consensus wrapper drives the agent lifecycle as a deterministic event-pump: it invokes the agent one-shot per actionable BRC event (`propose|ack|nack`) and blocks between events on `egg-orch message wait-loop`. If no actionable event arrives within the idle budget (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), the wrapper emits an `OVERSEER_ALERT` (anomaly `stuck-phase-transition`) and keeps blocking — it never exits with code 1 on idle alone. The old capped-restart model (`MAX_CONSENSUS_RESTARTS`, recovery system prompt) was deleted in slice-4 (#2908). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
 7. **Consensus gates phase advancement unconditionally.** When all containers have exited — whether with failures or cleanly — the orchestrator performs a final consensus recheck before returning success. If BRC consensus is incomplete, the phase fails (exit code 1) regardless of individual container exit codes. This prevents a PR from being opened when agents exit code 0 without completing the full BRC lifecycle. See [Concurrent Execution: All-Container-Exit Consensus Recovery](concurrent-execution.md#all-container-exit-consensus-recovery).
 
 **Readiness states**:
@@ -1417,11 +1421,13 @@ commit messages (and, where the reviewer pass surfaces an ambiguity, by addressi
 the `NACK` rationale on re-propose). Signals `READY` after all implementation tasks
 are committed.
 
-**Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
-code is ready. Raises ambiguities through the review cycle — either via `NACK`
-rationale when reviewing the coder, or by emitting a `HEARTBEAT` with
-`state=WAITING_ON_ROLE --waiting-on coder` so the overseer can see the block.
-Signals `READY` after tests pass.
+**Tester**: Orients from the plan but does not write tests early — the coder
+authors its own tests. Waits for the coder's `CONSENSUS_PROPOSE`, then reviews
+and **hardens** the coder's tests (adds regression + adversarial cases), runs
+them, and reports back with an ACK/NACK. Raises ambiguities through the review
+cycle — either via `NACK` rationale when reviewing the coder, or by emitting a
+`HEARTBEAT` with `state=WAITING_ON_ROLE --waiting-on coder` so the overseer can
+see the block. Signals `READY` after tests pass.
 
 **Documenter**: Starts documentation based on the plan. Refines as implementation
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
@@ -1494,12 +1500,6 @@ Response includes a `concurrent` section:
 }
 ```
 
-Inter-agent message history is also captured in agent checkpoints and visible via:
-
-```bash
-egg-checkpoint show ckpt-<id>
-```
-
 ### Troubleshooting
 
 **Agent not receiving messages**: Check that the agent is polling with the correct
@@ -1531,7 +1531,7 @@ HITL decision is created. Consider adding role-based file restrictions to minimi
 
 **Default: on since [#1942](https://github.com/jwbron/egg/issues/1942)** — set `EGG_MCP_TOOLS=false` per pipeline to opt out.
 
-Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion, checkpoint browsing) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` / `egg-checkpoint` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 29-verb inventory across 6 namespaces (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`), schemas, and architecture.
+Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full inventory across 5 namespaces (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
 
 **Opt out per-pipeline.** Iteration 1 (#1765) shipped this default-off; #1942 flipped the default after the wire-up stabilised. Set `EGG_MCP_TOOLS` to a falsy value (`false`, `0`, `no`, `off`) on your sandbox pod env to disable:
 
@@ -1546,7 +1546,7 @@ Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions
 
 Or export it in a local-quickstart shell before running `egg-sdlc`. When the flag is opted out, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
 
-Iteration 2 (#1917) shipped peer-read, checkpoint, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
+Iteration 2 (#1917) shipped peer-read, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
 
 ## Pipeline Health Monitoring
 
@@ -1606,53 +1606,48 @@ Note: `update-notes` writes to a task's `notes` field, not `contract.decisions`,
 
 For pre-plan phase gates (refine→plan), there are no contract tasks yet to attach notes to. In that case, prepend the resolution context directly to the next phase's draft once it materialises (e.g., `.egg-state/drafts/<issue>-plan.md`) so the planner picks it up.
 
-### PR-Phase State File Troubleshooting
+### Context-PR / Slice-PR State File Troubleshooting
 
-The PR phase runs three operations before creating the PR: agent-outputs cleanup, BRC history re-write, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
+The PR phase as a separate pipeline stage was **deleted** in [#2777](https://github.com/jwbron/egg/issues/2777). BRC history, drafts and other `.egg-state/` artifacts now reach the context PR (`egg/<id>/work → main`) through the post-phase push points described in [Worktree State Synchronization](#worktree-state-synchronization) — one push at the end of each completed phase. There is no longer a separate "before PR creation" rewrite/push step. The per-phase write path itself (`_write_brc_history` → `_commit_statefiles_to_worktree` → `push_worktree_branch`) is unchanged; only the PR-phase wrapper that used to re-invoke it as a safety net is gone.
+
+Before opening the context PR at the plan→implement boundary, the orchestrator runs BRC history writing and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
-Look for these log entries in chronological order:
+Look for these log entries in chronological order at each phase boundary (`refine` → `plan` → `implement` slice-N):
 
-1. `_rewrite_brc_history_for_pr: entering` — Confirms the function was called. Includes `total_phases`, `completed_phase_count`, and `completed_phases` list. If this log is missing, the PR-phase handler did not reach the call site (check for exceptions earlier in `_run_pipeline`).
-2. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored.
-3. Early-return paths (one of):
+1. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored before reaching the BRC-history write site.
+2. Early-return paths (one of):
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
    - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
    - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`, `HEARTBEAT`) for the specified phase. Includes `total_messages` count. `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897).
-4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
-5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
-6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
+3. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 1, an early-return was taken (check step 2).
+4. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 3 above).
+5. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
    - `_commit_statefiles_to_worktree: staged changes detected — committing` — Changes were staged successfully and a commit is being created.
-7. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
-8. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
+6. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the post-phase push failed (see "Push failed" below).
 
-**Draft files present in PR** (`.egg-state/drafts/{id}-*.md`): This is the expected state. Draft files are deliberately preserved on the PR branch as artifacts of the pipeline's reasoning (see #1713). Earlier pipeline versions removed them via `_cleanup_drafts_for_pr()`; that helper has been removed.
+**Push failed**: If the commit logs show success but files are missing from the PR diff, the post-phase push failed:
 
-**Both issues — state file commits not reaching the PR**:
+1. `Push attempt failed — caller may retry via reconcile` (INFO) followed by `Push rejected — attempting fetch+rebase+retry to reconcile divergence` (WARNING) — Initial push was rejected; `GatewayClient` is attempting a fetch+rebase reconcile and a second push automatically.
+2. `Push reconcile: rebase succeeded but autostash pop produced conflicts` (ERROR) — The rebase itself succeeded, but the post-rebase autostash pop hit a merge conflict (`reconcile_autostash_pop_conflict`). The autostash entry is preserved in `git stash list` on the orchestrator worktree for manual recovery. The conflicting paths are listed in the log's `conflicting_paths` field.
+3. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
-If the commit logs show success but files are missing/present in the PR diff, the push failed:
-
-1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
-2. `Push attempt failed — caller may retry via reconcile` (INFO) followed by `Push rejected — attempting fetch+rebase+retry to reconcile divergence` (WARNING) — Initial push was rejected; `GatewayClient` is attempting a fetch+rebase reconcile and a second push automatically.
-3. `Push reconcile: rebase succeeded but autostash pop produced conflicts` (ERROR) — The rebase itself succeeded, but the post-rebase autostash pop hit a merge conflict (`reconcile_autostash_pop_conflict`). The autostash entry is preserved in `git stash list` on the orchestrator worktree for manual recovery. The conflicting paths are listed in the log's `conflicting_paths` field.
-4. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The reconcile+retry also failed. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
-5. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
-6. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
+**Draft files present in PR** (`.egg-state/drafts/{id}-*.md`): This is the expected state. Draft files are deliberately preserved on the PR branch as artifacts of the pipeline's reasoning (see #1713).
 
 **Quick diagnostic checklist**:
 
 ```bash
 # Check if BRC history files exist on the remote branch
-git show origin/egg/issue-<N>:.egg-state/brc-history/ 2>&1
+git show origin/egg/issue-<N>/work:.egg-state/brc-history/ 2>&1
 
 # Check that draft files are present on the remote branch (they should be — see #1713)
-git show origin/egg/issue-<N>:.egg-state/drafts/ 2>&1
+git show origin/egg/issue-<N>/work:.egg-state/drafts/ 2>&1
 
-# Search orchestrator logs for the pipeline's PR-phase activity
+# Search orchestrator logs for the per-phase BRC-history + push activity
 # (adjust log source for your deployment)
-grep -E "(rewrite_brc_history|commit_statefiles|PR-phase push|Push attempt failed|Push rejected|Push reconcile)" /path/to/orchestrator.log | grep "<pipeline-id>"
+grep -E "(_write_brc_history|_commit_statefiles_to_worktree|push_worktree_branch|Push attempt failed|Push rejected|Push reconcile)" /path/to/orchestrator.log | grep "<pipeline-id>"
 ```
 
 ---

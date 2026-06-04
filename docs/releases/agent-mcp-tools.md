@@ -100,8 +100,8 @@ test-collection time rather than silently breaking every sandbox.
   The tool surface is now on by default; `EGG_MCP_TOOLS=false` is the
   rollback switch. A later follow-up will remove the flag entirely.
 - **Iteration 2 verbs — [#1917](https://github.com/jwbron/egg/issues/1917):**
-  Roughly 15 additional verbs surfaced in the capability audit (peer,
-  checkpoint, anchor, overseer, task-gap) are tracked there.
+  Additional verbs surfaced in the capability audit (peer,
+  anchor, overseer, task-gap) are tracked there.
 
 ## References
 

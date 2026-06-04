@@ -261,7 +261,7 @@ Each agent works on its own isolated worktree with its own staging area. This ap
 
 **Pipeline-session push enforcement:** For all pipeline sessions (refine/plan/implement), the gateway blocks direct `git push` — all pushes must go through `mcp__brc__propose` (which pushes to origin and sends CONSENSUS_PROPOSE in one step; push is on by default). The fallback CLI is `egg-orch consensus propose --push`. This structurally enforces the "all changes must be reviewed" invariant rather than relying on agent compliance. See [Gateway README — Pipeline Push Enforcement](../../gateway/README.md#pipeline-push-enforcement-brc-sessions) for details.
 
-**Worktree-aware APIs:** All gateway APIs that access the filesystem use `map_container_path_to_worktree()` to resolve container repo paths to worktree paths. This includes git operations, contract operations (`egg-contract show`, `add-commit`, `add-decision`, etc.), and checkpoint operations. The mapping is transparent to agents --- they use their normal repo path and the gateway resolves it to the correct worktree.
+**Worktree-aware APIs:** All gateway APIs that access the filesystem use `map_container_path_to_worktree()` to resolve container repo paths to worktree paths. This includes git operations and contract operations (`egg-contract show`, `add-commit`, `add-decision`, etc.). The mapping is transparent to agents --- they use their normal repo path and the gateway resolves it to the correct worktree.
 
 **Per-agent git identity:** Each agent commits with a role-scoped author (e.g., `egg (coder) <coder@egg.local>`) for auditability. Combined with per-agent worktrees, this provides structural commit attribution without requiring post-hoc analysis.
 
@@ -329,11 +329,9 @@ Each operation has an explicit allowlist of permitted flags. Unknown flags are r
 **Defense-in-depth**: The gateway and orchestrator universally disable all git hooks when executing git commands on user repositories via `core.hooksPath=/dev/null`. This prevents hook-based attacks where malicious repositories execute arbitrary code in the trusted gateway/orchestrator environment.
 
 **Implementation**:
-- **Gateway checkpoint handler** (`gateway/checkpoint_handler.py`): All git commands include `-c core.hooksPath=/dev/null`
 - **Orchestrator state store** (`orchestrator/state_store.py`): All git commands include `-c core.hooksPath=/dev/null`
-- **Usage CLI** (`shared/egg_contracts/usage_cli.py`): All git commands include `-c core.hooksPath=/dev/null`
 
-**Rationale**: Pre-commit hooks, commit-msg hooks, and other git hooks can execute arbitrary code when git commands are run. Even though hooks shouldn't affect the checkpoint branch or internal state branches, allowing them to execute in the gateway or orchestrator would violate the security boundary - user repository code must never run in trusted contexts.
+**Rationale**: Pre-commit hooks, commit-msg hooks, and other git hooks can execute arbitrary code when git commands are run. Even though hooks shouldn't affect internal state branches, allowing them to execute in the gateway or orchestrator would violate the security boundary - user repository code must never run in trusted contexts.
 
 **Additional hardening**: The `--no-verify` flag is also blocked in the agent-facing API as an additional safeguard, though hooks are already disabled globally.
 

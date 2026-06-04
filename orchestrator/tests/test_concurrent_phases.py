@@ -44,9 +44,11 @@ class TestIsConcurrentExecution:
     """Test is_concurrent_execution with concurrent_phases."""
 
     def test_global_flag_overrides_phases(self):
-        """concurrent_execution=True enables BRC for any phase."""
+        """concurrent_execution=True enables BRC for any phase, including
+        phase strings not present in ``concurrent_phases`` (defaults to
+        ``["refine", "plan", "implement"]``)."""
         pipeline = _make_pipeline(concurrent_execution=True)
-        assert is_concurrent_execution(pipeline, phase="pr") is True
+        assert is_concurrent_execution(pipeline, phase="unknown") is True
 
     def test_global_flag_off_no_phase_returns_false(self):
         """With global flag off and no phase, returns False."""
@@ -64,10 +66,6 @@ class TestIsConcurrentExecution:
     def test_default_phases_enable_implement(self):
         pipeline = _make_pipeline()
         assert is_concurrent_execution(pipeline, phase="implement") is True
-
-    def test_default_phases_exclude_pr(self):
-        pipeline = _make_pipeline()
-        assert is_concurrent_execution(pipeline, phase="pr") is False
 
     def test_custom_phases(self):
         pipeline = _make_pipeline(concurrent_phases=["refine"])

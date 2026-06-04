@@ -436,8 +436,6 @@ Phase 2 Network Lockdown and Private Repo Mode are **independent but complementa
 | Phase 2 + Private Repo Mode | Anthropic + GitHub only | Private repos only |
 | Neither (supervised) | Full internet | All repos |
 
-**Checkpoint repository exemption:** Repositories configured as checkpoint destinations and checkpoint branch operations (`egg/checkpoints/v2`) are always accessible regardless of private mode settings. The gateway treats checkpoint operations as infrastructure.
-
 **Recommendation for autonomous operation:** Enable both Phase 2 and Private Repo Mode for unsupervised `--dangerously-skip-permissions` sessions.
 
 ### Pre-installed Dependencies

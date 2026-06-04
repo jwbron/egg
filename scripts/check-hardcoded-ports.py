@@ -63,7 +63,6 @@ ALLOWLIST_PATHS = [
     "tests/egg_config/test_configs.py",
     "tests/shared/egg_container/test_build_cmd.py",
     "tests/shared/egg_container/test_config_builder.py",
-    "tests/shared/egg_contracts/test_checkpoint_cli_http.py",
     # Integration tests that need hardcoded values
     "integration_tests/test_network_isolation.py",
     "integration_tests/test_network_security.py",

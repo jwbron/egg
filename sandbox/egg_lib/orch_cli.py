@@ -759,6 +759,207 @@ def _render_handler_error(err: Any) -> int:
     return int(getattr(err, "exit_code", 1))
 
 
+# Valid phase names for ``brc read-peer-artifact --phase`` (#2908
+# slice-5). Mirrors ``_VALID_PHASES`` in ``handlers/brc.py``; kept as a
+# tuple here so the argparse ``choices=`` directive can introspect the
+# allowed values without importing the handler package at parser-build
+# time (the handler import is deferred to cmd-execution time).
+_VALID_BRC_HISTORY_PHASES: tuple[str, ...] = ("refine", "plan", "implement", "pr")
+
+
+# ---------------------------------------------------------------------------
+# Prose-arg plumbing (#2741, #2908 slice-5)
+# ---------------------------------------------------------------------------
+#
+# Several BRC verbs accept free-form prose arguments — ``--summary``
+# (consensus propose), ``--reason`` (consensus ack/nack/withdraw,
+# brc resolve-obligation), ``--note`` (brc resolve-obligation). When
+# the orchestrator's event-pump wrapper composes a CLI invocation
+# from bash, argv-only prose flows through ``bash -c`` and is
+# corrupted by shell metacharacters (``$VAR``, backticks, ``;``,
+# ``&&``, embedded newlines) — the failure mode #2741 mitigated for
+# one verb at a time. Slice-5 generalises the fix: every prose-bearing
+# arg now offers a paired ``--FOO-file PATH`` flag and accepts the
+# stdin sentinel ``-`` as the argv value. Argv prose still works for
+# humans and during transition, but emits a deprecation warning.
+#
+# ``--files-reviewed-file PATH`` carries an array, one path per line
+# per architect v2 §verification_strategy.slice_5. The first delivery
+# channel that wins (in order: file, stdin sentinel, argv) provides
+# the value; passing two non-empty channels is a hard error so the
+# caller can fix its composition site rather than silently dropping
+# one channel.
+
+
+class _ProseArgError(Exception):
+    """Raised by the prose-arg helpers on a CLI-level validation failure.
+
+    The cmd_* functions catch this and convert it to a ``return 2``
+    (the established pattern for argument-validation failures in
+    orch_cli.py — see ``cmd_consensus_ack``'s
+    ``--pre-merge-condition-resolved-in-diff`` guard). Going through
+    a custom exception (rather than ``sys.exit(2)`` inside the
+    helper) keeps the helpers testable in isolation and lets cmd_*
+    surface the rc=2 the same way it surfaces other validation
+    failures.
+
+    The error message has already been emitted to stderr by the
+    helper before the exception is raised; cmd_* only needs to
+    convert the exception to ``return 2``.
+    """
+
+
+def _emit_argv_prose_deprecation(arg_name: str, *, suggested_file_flag: str) -> None:
+    """Warn that argv prose is corruption-prone; suggest stdin/file form.
+
+    Emitted on stderr exactly once per invocation per offending arg.
+    Goes through ``warnings.warn(DeprecationWarning)`` so test harnesses
+    can flip ``-W error`` to fail any regression that silently re-adopts
+    argv prose under the wrapper bash.
+    """
+    import warnings
+
+    warnings.warn(
+        (
+            f"{arg_name}: argv prose flows through ``bash -c`` and is corrupted "
+            f"by shell metacharacters (#2741). Prefer {suggested_file_flag} or "
+            f"pipe the prose via stdin: ``{arg_name} -``."
+        ),
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+
+def _resolve_prose_arg(
+    *,
+    argv_value: str | None,
+    file_path: str | None,
+    arg_name: str,
+    file_flag: str,
+    required: bool = True,
+) -> str:
+    """Resolve a prose argument from argv, stdin sentinel, or file.
+
+    Resolution order — exactly one channel must win:
+
+    1. ``file_path`` is set → read UTF-8 contents of the file. Empty
+       file is allowed (the orchestrator may accept an empty reason
+       even when one is "required" at the CLI; the handler-layer
+       check is the source of truth).
+    2. ``argv_value == "-"`` → read UTF-8 contents from stdin.
+    3. ``argv_value`` is a non-empty string → use it verbatim, emit
+       deprecation warning recommending the file or stdin channel.
+
+    Passing **both** ``argv_value`` (non-empty / non-sentinel) **and**
+    ``file_path`` is a hard error — surfaces composition-site bugs
+    instead of silently dropping one input. Stdin sentinel ``-`` plus
+    ``--FOO-file PATH`` is also rejected for the same reason.
+    """
+    argv_set = argv_value is not None and argv_value != ""
+    file_set = file_path is not None and file_path != ""
+    stdin_set = argv_value == "-"
+
+    if file_set and stdin_set:
+        print(
+            f"Error: {arg_name} - and {file_flag} are mutually exclusive; "
+            f"use exactly one delivery channel.",
+            file=sys.stderr,
+        )
+        raise _ProseArgError
+    if file_set and argv_set and not stdin_set:
+        print(
+            f"Error: {arg_name} and {file_flag} are mutually exclusive; "
+            f"use exactly one delivery channel.",
+            file=sys.stderr,
+        )
+        raise _ProseArgError
+
+    if file_set:
+        assert file_path is not None
+        try:
+            with open(file_path, encoding="utf-8") as fh:
+                return fh.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            # ``UnicodeDecodeError`` is a ``ValueError`` subclass, NOT
+            # an ``OSError``, so it slips through a bare ``except
+            # OSError`` and lands as a raw traceback on stderr. In the
+            # event-pump wrapper context this slice hardens, an
+            # operator that points ``--reason-file`` at binary garbage
+            # / a BOM-prefixed file / a mixed-encoding diff deserves
+            # the same actionable rc=2 + clear stderr message they
+            # get for a missing-file path (tester NACK v1).
+            print(f"Error: failed to read {file_flag}={file_path}: {exc}", file=sys.stderr)
+            raise _ProseArgError from exc
+
+    if stdin_set:
+        return sys.stdin.read()
+
+    if argv_set:
+        _emit_argv_prose_deprecation(arg_name, suggested_file_flag=file_flag)
+        return argv_value  # type: ignore[return-value]
+
+    if required:
+        print(
+            f"Error: {arg_name} is required (pass {arg_name} VALUE, "
+            f"{arg_name} - for stdin, or {file_flag} PATH).",
+            file=sys.stderr,
+        )
+        raise _ProseArgError
+    return ""
+
+
+def _resolve_files_reviewed_arg(
+    *,
+    argv_value: list[str] | None,
+    file_path: str | None,
+) -> list[str]:
+    """Resolve --files-reviewed (argv list) or --files-reviewed-file (one path per line).
+
+    One-path-per-line semantics per architect v2 §verification_strategy.slice_5.
+    Blank lines and lines beginning with ``#`` are stripped (so callers can
+    drop comments into a generated review-manifest file). Returns the
+    parsed list; passing both channels is a hard error.
+    """
+    argv_set = argv_value is not None and len(argv_value) > 0
+    file_set = file_path is not None and file_path != ""
+
+    if file_set and argv_set:
+        print(
+            "Error: --files-reviewed and --files-reviewed-file are mutually "
+            "exclusive; use exactly one delivery channel.",
+            file=sys.stderr,
+        )
+        raise _ProseArgError
+
+    if file_set:
+        assert file_path is not None
+        try:
+            with open(file_path, encoding="utf-8") as fh:
+                raw_lines = fh.read().splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            # See ``_resolve_prose_arg`` for the rationale —
+            # ``UnicodeDecodeError`` is a ``ValueError`` subclass and
+            # is not caught by a bare ``except OSError``. Treat
+            # non-UTF-8 manifests as a clean rc=2 error rather than a
+            # raw traceback (tester NACK v1).
+            print(
+                f"Error: failed to read --files-reviewed-file={file_path}: {exc}",
+                file=sys.stderr,
+            )
+            raise _ProseArgError from exc
+        items: list[str] = []
+        for line in raw_lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            items.append(stripped)
+        return items
+
+    if argv_set:
+        return list(argv_value or [])
+    return []
+
+
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
     pid = require_pipeline_id(args)
@@ -2568,12 +2769,35 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         if commit_sha:
             req["commit_sha"] = commit_sha
     else:
+        # Resolve --summary from argv / stdin sentinel / --summary-file.
+        # The prose payload is not required at the CLI surface here
+        # because the handler ultimately validates it (an empty summary
+        # is rejected downstream with a clearer error); leaving the
+        # CLI permissive keeps the orchestrator the single source of
+        # truth on summary-length policy. (#2741, #2908 slice-5.)
+        try:
+            summary_text = _resolve_prose_arg(
+                argv_value=getattr(args, "summary", None),
+                file_path=getattr(args, "summary_file", None),
+                arg_name="--summary",
+                file_flag="--summary-file",
+                required=False,
+            )
+            risk_text = _resolve_prose_arg(
+                argv_value=getattr(args, "risk", None),
+                file_path=getattr(args, "risk_file", None),
+                arg_name="--risk",
+                file_flag="--risk-file",
+                required=False,
+            )
+        except _ProseArgError:
+            return 2
         req = {
             "pipeline_id": pid,
             "role": role,
-            "summary": getattr(args, "summary", "") or "",
+            "summary": summary_text,
             "artifacts": list(getattr(args, "artifacts", []) or []),
-            "risk_considered": getattr(args, "risk", "") or "",
+            "risk_considered": risk_text,
             "files_changed": list(getattr(args, "files_changed", []) or []),
             "tests_run": list(getattr(args, "tests_run", []) or []),
             "tasks": list(getattr(args, "tasks", []) or []),
@@ -2640,10 +2864,36 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    pre_merge_condition = getattr(args, "pre_merge_condition", "") or ""
     pre_merge_condition_resolved_in_diff = (
         getattr(args, "pre_merge_condition_resolved_in_diff", "") or ""
     )
+    # Resolve prose --reason from argv / stdin sentinel / --reason-file,
+    # --pre-merge-condition from argv / stdin sentinel / file, and
+    # --files-reviewed from argv list / --files-reviewed-file (one path
+    # per line). The handler-layer still enforces non-empty reason, so
+    # leaving the CLI surface permissive here keeps a single source of
+    # truth (#2741, #2908 slice-5).
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+        pre_merge_condition = _resolve_prose_arg(
+            argv_value=getattr(args, "pre_merge_condition", None) or None,
+            file_path=getattr(args, "pre_merge_condition_file", None),
+            arg_name="--pre-merge-condition",
+            file_flag="--pre-merge-condition-file",
+            required=False,
+        )
+        files_reviewed = _resolve_files_reviewed_arg(
+            argv_value=getattr(args, "files_reviewed", None),
+            file_path=getattr(args, "files_reviewed_file", None),
+        )
+    except _ProseArgError:
+        return 2
     if pre_merge_condition_resolved_in_diff and not pre_merge_condition:
         print(
             "error: --pre-merge-condition-resolved-in-diff requires "
@@ -2652,12 +2902,18 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if not files_reviewed:
+        print(
+            "Error: --files-reviewed (or --files-reviewed-file) is required.",
+            file=sys.stderr,
+        )
+        return 2
     req = {
         "pipeline_id": pid,
         "role": role,
         "producer_role": args.producer_role,
-        "reason": args.reason,
-        "files_reviewed": list(args.files_reviewed or []),
+        "reason": reason_text,
+        "files_reviewed": files_reviewed,
         "pre_merge_condition": pre_merge_condition,
         "pre_merge_condition_resolved_in_diff": pre_merge_condition_resolved_in_diff,
         "ack_version": args.ack_version,
@@ -2699,12 +2955,32 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
     role = _require_role(args)
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+        files_reviewed = _resolve_files_reviewed_arg(
+            argv_value=getattr(args, "files_reviewed", None),
+            file_path=getattr(args, "files_reviewed_file", None),
+        )
+    except _ProseArgError:
+        return 2
+    if not files_reviewed:
+        print(
+            "Error: --files-reviewed (or --files-reviewed-file) is required.",
+            file=sys.stderr,
+        )
+        return 2
     req = {
         "pipeline_id": pid,
         "role": role,
         "producer_role": args.producer_role,
-        "reason": args.reason,
-        "files_reviewed": list(args.files_reviewed or []),
+        "reason": reason_text,
+        "files_reviewed": files_reviewed,
         "nack_version": args.nack_version,
     }
     try:
@@ -2719,7 +2995,7 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
     if args.json:
         print_json(resp.get("signal", {}))
         return 0
-    print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
+    print(f"NACK sent by {role} for {args.producer_role}: {reason_text}")
     return 0
 
 
@@ -2728,10 +3004,21 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     role = _require_role(args)
 
+    try:
+        reason_text = _resolve_prose_arg(
+            argv_value=getattr(args, "reason", None),
+            file_path=getattr(args, "reason_file", None),
+            arg_name="--reason",
+            file_flag="--reason-file",
+            required=True,
+        )
+    except _ProseArgError:
+        return 2
+
     data: dict[str, Any] = {
         "signal_type": "consensus_withdraw",
         "agent_role": role,
-        "reason": args.reason,
+        "reason": reason_text,
     }
     slice_id = resolve_slice_id()
     if slice_id:
@@ -2744,7 +3031,7 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        print(f"Proposal withdrawn by {role}: {args.reason}")
+        print(f"Proposal withdrawn by {role}: {reason_text}")
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
@@ -2868,6 +3155,286 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
                 sha = cond.get("resolved_in_diff", "")
                 print(f"  {reviewer} → {producer}: {text} [resolved in {sha}]")
 
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# BRC verb-level subcommands (#2908 slice-1)
+#
+# These wrap the existing handler-layer surface
+# (``sandbox/egg_agent_tools/handlers/brc.py``) and the new orchestrator
+# next-action route in shell-friendly CLI form. The event-pump wrapper
+# (#2908 slice-2) drives ``egg-orch brc get-state`` /
+# ``egg-orch brc next-action`` / ``egg-orch brc list-blocking`` from
+# bash; surfacing them under their own ``brc`` parent (rather than
+# under ``consensus``) matches the MCP-tool naming so the wrapper bash
+# can call the CLI form directly without remembering a different verb
+# mapping.
+# ---------------------------------------------------------------------------
+
+
+def cmd_brc_next_action(args: argparse.Namespace) -> int:
+    """Derive the next BRC action for a role from the orchestrator.
+
+    Calls the new ``POST /api/v1/pipelines/{pid}/consensus/next-action``
+    route (#2908 slice-1, ``orchestrator/routes/consensus.py``). The
+    route inspects the in-memory consensus tracker (with replay
+    fallback) and returns one of::
+
+        {"action": "wait" | "propose" | "ack" | "nack" | "confirm" | "complete",
+         "event_payload": {...optional...}, "reason": "..."}
+
+    Used by the event-pump wrapper to decide whether to invoke the
+    agent (propose / review / confirm) or block on the message bus
+    (wait).
+    """
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print(
+            "Error: --role required or set EGG_AGENT_ROLE",
+            file=sys.stderr,
+        )
+        return 1
+
+    data: dict[str, Any] = {"role": role}
+    slice_id = getattr(args, "slice_id", None) or resolve_slice_id()
+    if slice_id:
+        data["slice_id"] = slice_id
+
+    result = orch_request(
+        f"/api/v1/pipelines/{pid}/consensus/next-action",
+        method="POST",
+        data=data,
+    )
+
+    if args.json:
+        # Drop the ``success`` envelope so jq-driven wrapper bash gets
+        # the action payload directly; preserve everything else.
+        body = {k: v for k, v in result.items() if k != "success"}
+        print_json(body)
+        return 0
+
+    action = result.get("action", "unknown")
+    reason = result.get("reason", "")
+    print(f"Next action for {role}: {action}")
+    if reason:
+        print(f"  Reason: {reason}")
+    event_payload = result.get("event_payload") or {}
+    if event_payload:
+        print("  Event payload:")
+        for k, v in event_payload.items():
+            print(f"    {k}: {v}")
+    return 0
+
+
+def cmd_brc_get_state(args: argparse.Namespace) -> int:
+    """Return the BRC consensus state as structured JSON.
+
+    Verb-level alias for ``mcp__brc__get_state``. The MCP-tool surface
+    exposed shape ``{ok, slice_id, consensus, is_complete,
+    blocking_agents, raw?}``; we mirror that exact shape so the
+    event-pump wrapper (#2908 slice-2) can call the CLI form
+    interchangeably with the MCP form.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    pid = require_pipeline_id(args)
+    req: dict[str, Any] = {"pipeline_id": pid}
+    slice_id = getattr(args, "slice_id", None) or resolve_slice_id()
+    if slice_id:
+        req["slice_id"] = slice_id
+    if getattr(args, "verbose", False):
+        req["verbose"] = True
+
+    try:
+        resp = _handlers.brc_get_state(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    # Always JSON — the handler's response is the only useful payload.
+    # ``--verbose`` flips ``raw`` on as documented in the MCP-tool
+    # description.
+    print_json(resp)
+    return 0
+
+
+def cmd_brc_list_blocking(args: argparse.Namespace) -> int:
+    """List agent roles currently blocking consensus.
+
+    Verb-level CLI wrapper around ``mcp__brc__list_blocking``. Default
+    output is one role per line for shell-friendly consumption
+    (``while read role; do …; done``); ``--json`` returns the
+    ``{blocking_agents: [...]}`` array. Exit code 0 even when the
+    list is empty so the wrapper bash can call this unconditionally
+    in the event-pump loop.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    pid = require_pipeline_id(args)
+    try:
+        resp = _handlers.brc_list_blocking({"pipeline_id": pid})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    blocking = list(resp.get("blocking_agents", []) or [])
+    if args.json:
+        print_json({"blocking_agents": blocking})
+        return 0
+
+    for role in blocking:
+        print(role)
+    return 0
+
+
+def cmd_brc_resolve_obligation(args: argparse.Namespace) -> int:
+    """Mark a reviewer's conditional-ACK obligation satisfied in-cycle (#2338).
+
+    Verb-level CLI wrapper around ``mcp__brc__resolve_obligation``. The
+    write-side BRC verbs (propose / ack / nack / withdraw / confirmed)
+    live under ``consensus``; the read/derive verbs and the
+    obligation-management verbs live under ``brc``. Slice-5 adds this
+    CLI because slice-6 deletes the agent-side MCP server — the
+    wrapper bash must reach this signal without an MCP round-trip.
+
+    Args mirror the handler request: ``--reviewer-role`` and
+    ``--producer-role`` are required; ``--commit-sha`` and ``--note``
+    are optional. Prose ``--note`` is loaded via the shared #2741
+    prose-arg plumbing (argv / stdin sentinel / ``--note-file PATH``).
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+    reviewer_role = args.reviewer_role
+    producer_role = args.producer_role
+    commit_sha = getattr(args, "commit_sha", None) or None
+    # --note is optional, so don't fail if neither channel is set.
+    try:
+        note_text = _resolve_prose_arg(
+            argv_value=getattr(args, "note", None),
+            file_path=getattr(args, "note_file", None),
+            arg_name="--note",
+            file_flag="--note-file",
+            required=False,
+        )
+    except _ProseArgError:
+        return 2
+
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "reviewer_role": reviewer_role,
+        "producer_role": producer_role,
+    }
+    if commit_sha:
+        req["commit_sha"] = commit_sha
+    if note_text:
+        req["note"] = note_text
+
+    try:
+        resp = _handlers.brc_resolve_obligation(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    if args.json:
+        print_json(resp.get("signal", resp))
+        return 0
+    print(
+        f"Obligation resolved by {role}: reviewer={reviewer_role} "
+        f"producer={producer_role}" + (f" (commit={commit_sha})" if commit_sha else "")
+    )
+    return 0
+
+
+def cmd_brc_read_peer_artifact(args: argparse.Namespace) -> int:
+    """Read consensus history for a peer from the local brc-history log.
+
+    Verb-level CLI wrapper around ``mcp__brc__read_peer_artifact``. The
+    handler reads ``.egg-state/brc-history/<identifier>-<phase>.json``
+    (and the per-slice partition for ``phase == "implement"`` when
+    ``EGG_SLICE_ID`` is set). Output is always JSON; pagination uses an
+    opaque ``next_cursor`` token round-tripped via ``--cursor``.
+
+    Slice-5 adds this CLI because slice-6 deletes the MCP server —
+    reviewers in the event-pump model invoke ``egg-orch brc
+    read-peer-artifact`` from bash to inspect a peer's prior history
+    without leaving the wrapper loop.
+
+    Caller-supplied ``--pipeline-id`` / repo-path values are ignored
+    by the handler (the identifier is resolved server-side from
+    ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` for cross-pipeline-read
+    hardening; risk_analyst R2). The CLI surface preserves a
+    positional ``pipeline_id`` only for argparse-shape consistency
+    with the other ``brc`` subcommands.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    req: dict[str, Any] = {
+        "phase": args.phase,
+        "include_unattributed": getattr(args, "include_unattributed", True),
+    }
+    if getattr(args, "peer_role", None):
+        req["peer_role"] = args.peer_role
+    if getattr(args, "message_type", None):
+        # argparse with ``action="append"`` gives us a list when used
+        # repeatedly. Single-value calls still produce a list, which
+        # the handler accepts (it normalises both shapes; see
+        # ``handlers/brc.py`` brc_read_peer_artifact docstring).
+        req["message_type"] = list(args.message_type)
+    if getattr(args, "limit", None) is not None:
+        req["limit"] = args.limit
+    if getattr(args, "cursor", None):
+        req["cursor"] = args.cursor
+
+    try:
+        resp = _handlers.brc_read_peer_artifact(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    # Stdout JSON regardless of --json: the response is structured and
+    # the only useful surface (mirrors brc_get_state's CLI shape).
+    print_json(resp)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Phase verb-level subcommands (#2908 slice-1)
+# ---------------------------------------------------------------------------
+
+
+def cmd_phase_get_context(args: argparse.Namespace) -> int:
+    """Bundle phase context (pipeline_id, phase, role, tasks, artifacts).
+
+    Verb-level alias for ``mcp__phase__get_context``. Returns the same
+    JSON shape the MCP tool produces so wrapper bash can call this
+    interchangeably. Defaults pull from ``$EGG_PIPELINE_ID`` /
+    ``$EGG_AGENT_ROLE`` / ``$EGG_PHASE`` env vars.
+    """
+    from egg_agent_tools.handlers import phase as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    req: dict[str, Any] = {}
+    pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if pid:
+        req["pipeline_id"] = validate_id(pid, "pipeline_id")
+    if getattr(args, "phase", None):
+        req["phase"] = args.phase
+    if getattr(args, "role", None):
+        req["role"] = args.role
+    if getattr(args, "no_artifacts", False):
+        req["include_artifacts"] = False
+
+    try:
+        resp = _handlers.phase_get_context(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
+
+    print_json(resp)
     return 0
 
 
@@ -3482,9 +4049,45 @@ def create_parser() -> argparse.ArgumentParser:
     cons_propose.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_propose.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
     cons_propose.add_argument("--file", help="JSON file with proposal payload")
-    cons_propose.add_argument("--summary", help="Proposal summary")
+    cons_propose.add_argument(
+        "--summary",
+        help=(
+            "Proposal summary. Pass ``--summary -`` to read from stdin, or "
+            "use ``--summary-file PATH`` for a file source (recommended when "
+            "the prose contains shell metacharacters — argv prose flows "
+            "through ``bash -c`` and is corrupted by ``$VAR`` / backticks / "
+            "``;`` / ``&&`` / embedded newlines; #2741, #2908 slice-5)."
+        ),
+    )
+    cons_propose.add_argument(
+        "--summary-file",
+        dest="summary_file",
+        help=(
+            "Path to a file containing the proposal summary (#2741 "
+            "shell-metachar-safe alternative to ``--summary``). "
+            "Mutually exclusive with non-sentinel ``--summary``."
+        ),
+    )
     cons_propose.add_argument("--artifacts", nargs="*", help="Artifact paths")
-    cons_propose.add_argument("--risk", help="Risk considerations")
+    cons_propose.add_argument(
+        "--risk",
+        help=(
+            "Risk considerations. Pass ``--risk -`` to read from stdin, or "
+            "use ``--risk-file PATH`` for a file source (recommended when the "
+            "prose contains shell metacharacters — argv prose flows through "
+            "``bash -c`` and is corrupted by ``$VAR`` / backticks / ``;`` / "
+            "``&&`` / embedded newlines; #2741, #2908 slice-5)."
+        ),
+    )
+    cons_propose.add_argument(
+        "--risk-file",
+        dest="risk_file",
+        help=(
+            "Path to a file containing risk considerations (#2741 "
+            "shell-metachar-safe alternative to ``--risk``). Mutually "
+            "exclusive with non-sentinel ``--risk``."
+        ),
+    )
     cons_propose.add_argument(
         "--commit-sha",
         default=None,
@@ -3517,13 +4120,40 @@ def create_parser() -> argparse.ArgumentParser:
     cons_ack.add_argument(
         "--files-reviewed",
         nargs="+",
-        required=True,
-        help="Artifact references (files, commits) reviewed",
+        help=(
+            "Artifact references (files, commits) reviewed. Required unless "
+            "``--files-reviewed-file PATH`` is given (one path per line)."
+        ),
+    )
+    cons_ack.add_argument(
+        "--files-reviewed-file",
+        dest="files_reviewed_file",
+        help=(
+            "Path to a file listing artifact references reviewed (one path "
+            "per line; blank lines and ``#`` comments stripped). Mutually "
+            "exclusive with ``--files-reviewed`` (#2741, #2908 slice-5)."
+        ),
     )
     cons_ack.add_argument(
         "--reason",
-        required=True,
-        help="Substantive rationale: what was read, what was checked, why the verdict follows",
+        help=(
+            "Substantive rationale: what was read, what was checked, why "
+            "the verdict follows. Pass ``--reason -`` to read from stdin, "
+            "or use ``--reason-file PATH`` for a file source (recommended "
+            "when the prose contains shell metacharacters — argv prose flows "
+            "through ``bash -c`` and is corrupted by ``$VAR`` / backticks / "
+            "``;`` / ``&&`` / embedded newlines; #2741, #2908 slice-5). "
+            "Required unless ``--reason-file PATH`` is given."
+        ),
+    )
+    cons_ack.add_argument(
+        "--reason-file",
+        dest="reason_file",
+        help=(
+            "Path to a file containing the ACK reason (#2741 shell-metachar-"
+            "safe alternative to ``--reason``). Mutually exclusive with "
+            "non-sentinel ``--reason``."
+        ),
     )
     cons_ack.add_argument(
         "--ack-version",
@@ -3546,7 +4176,22 @@ def create_parser() -> argparse.ArgumentParser:
             "Optional: mark this as a conditional ACK (#1998). The work is "
             "approved but the named action must be performed by a human "
             "before merging (e.g. 'git mv old/path new/path'). Surfaces as "
-            "a Pre-merge Obligations section on the auto-created PR."
+            "a Pre-merge Obligations section on the auto-created PR. "
+            "Pass ``--pre-merge-condition -`` to read from stdin, or use "
+            "``--pre-merge-condition-file PATH`` for a file source "
+            "(recommended when the prose contains shell metacharacters — "
+            "obligation strings frequently quote shell commands; #2741, "
+            "#2908 slice-5)."
+        ),
+    )
+    cons_ack.add_argument(
+        "--pre-merge-condition-file",
+        dest="pre_merge_condition_file",
+        help=(
+            "Path to a file containing the pre-merge obligation prose "
+            "(#2741 shell-metachar-safe alternative to "
+            "``--pre-merge-condition``). Mutually exclusive with non-sentinel "
+            "``--pre-merge-condition``."
         ),
     )
     cons_ack.add_argument(
@@ -3570,12 +4215,42 @@ def create_parser() -> argparse.ArgumentParser:
     cons_nack.add_argument("producer_role", help="Producer role to NACK")
     cons_nack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_nack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
-    cons_nack.add_argument("--reason", required=True, help="Reason for NACK")
+    cons_nack.add_argument(
+        "--reason",
+        help=(
+            "Reason for NACK. Pass ``--reason -`` to read from stdin, or "
+            "use ``--reason-file PATH`` for a file source (recommended when "
+            "the prose contains shell metacharacters — argv prose flows "
+            "through ``bash -c`` and is corrupted by ``$VAR`` / backticks / "
+            "``;`` / ``&&`` / embedded newlines; #2741, #2908 slice-5). "
+            "Required unless ``--reason-file PATH`` is given."
+        ),
+    )
+    cons_nack.add_argument(
+        "--reason-file",
+        dest="reason_file",
+        help=(
+            "Path to a file containing the NACK reason (#2741 shell-metachar-"
+            "safe alternative to ``--reason``). Mutually exclusive with "
+            "non-sentinel ``--reason``."
+        ),
+    )
     cons_nack.add_argument(
         "--files-reviewed",
         nargs="+",
-        required=True,
-        help="Artifact references (files, commits) reviewed",
+        help=(
+            "Artifact references (files, commits) reviewed. Required unless "
+            "``--files-reviewed-file PATH`` is given (one path per line)."
+        ),
+    )
+    cons_nack.add_argument(
+        "--files-reviewed-file",
+        dest="files_reviewed_file",
+        help=(
+            "Path to a file listing artifact references reviewed (one path "
+            "per line; blank lines and ``#`` comments stripped). Mutually "
+            "exclusive with ``--files-reviewed`` (#2741, #2908 slice-5)."
+        ),
     )
     cons_nack.add_argument(
         "--nack-version",
@@ -3597,7 +4272,26 @@ def create_parser() -> argparse.ArgumentParser:
     cons_withdraw = consensus_sub.add_parser("withdraw", help="Withdraw proposal")
     cons_withdraw.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_withdraw.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
-    cons_withdraw.add_argument("--reason", required=True, help="Reason for withdrawal")
+    cons_withdraw.add_argument(
+        "--reason",
+        help=(
+            "Reason for withdrawal. Pass ``--reason -`` to read from stdin, "
+            "or use ``--reason-file PATH`` for a file source (recommended "
+            "when the prose contains shell metacharacters — argv prose flows "
+            "through ``bash -c`` and is corrupted by ``$VAR`` / backticks / "
+            "``;`` / ``&&`` / embedded newlines; #2741, #2908 slice-5). "
+            "Required unless ``--reason-file PATH`` is given."
+        ),
+    )
+    cons_withdraw.add_argument(
+        "--reason-file",
+        dest="reason_file",
+        help=(
+            "Path to a file containing the withdrawal reason (#2741 shell-"
+            "metachar-safe alternative to ``--reason``). Mutually exclusive "
+            "with non-sentinel ``--reason``."
+        ),
+    )
     _add_json_flag(cons_withdraw)
     cons_withdraw.set_defaults(func=cmd_consensus_withdraw)
 
@@ -3624,6 +4318,209 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(cons_status)
     cons_status.set_defaults(func=cmd_consensus_status)
+
+    # -- brc (verb-level BRC operations) --
+    #
+    # ``brc`` is the verb-level surface used by the event-pump wrapper
+    # (#2908 slice-2). It collects the read/derive verbs the wrapper
+    # invokes from bash — ``next-action``, ``get-state``,
+    # ``list-blocking`` (and in slice-5, ``resolve-obligation`` /
+    # ``read-peer-artifact``). The write-side BRC verbs (propose, ack,
+    # nack, withdraw, confirmed) remain under ``consensus`` to
+    # preserve the existing CLI surface; documenters note the
+    # cross-reference in ``docs/reference/agent-tools.md``.
+    brc_parser = subparsers.add_parser("brc", help="BRC verb-level operations")
+    brc_sub = brc_parser.add_subparsers(dest="brc_command")
+
+    # brc next-action
+    brc_next = brc_sub.add_parser(
+        "next-action",
+        help="Derive the next BRC action for a role from the orchestrator",
+    )
+    brc_next.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_next.add_argument(
+        "--role",
+        default=None,
+        help=(
+            "Role to derive the next action for (defaults to "
+            "$EGG_AGENT_ROLE). The wrapper passes the role of the "
+            "agent it is about to invoke."
+        ),
+    )
+    brc_next.add_argument(
+        "--slice-id",
+        dest="slice_id",
+        default=None,
+        help=("Slice to scope the derivation to (e.g. 'slice-7'). Defaults to $EGG_SLICE_ID."),
+    )
+    _add_json_flag(brc_next)
+    brc_next.set_defaults(func=cmd_brc_next_action)
+
+    # brc get-state
+    brc_state = brc_sub.add_parser(
+        "get-state",
+        help=("Return the BRC consensus state (verb-level alias for mcp__brc__get_state)"),
+    )
+    brc_state.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_state.add_argument(
+        "--slice-id",
+        dest="slice_id",
+        default=None,
+        help="Slice to scope the state to. Defaults to $EGG_SLICE_ID.",
+    )
+    brc_state.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Include the full orchestrator status payload under "
+            "the 'raw' key — matches the MCP-tool 'verbose' flag."
+        ),
+    )
+    brc_state.set_defaults(func=cmd_brc_get_state)
+
+    # brc list-blocking
+    brc_blocking = brc_sub.add_parser(
+        "list-blocking",
+        help=(
+            "List roles currently blocking consensus (verb-level "
+            "alias for mcp__brc__list_blocking). Newline-delimited "
+            "by default; --json returns the array."
+        ),
+    )
+    brc_blocking.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(brc_blocking)
+    brc_blocking.set_defaults(func=cmd_brc_list_blocking)
+
+    # brc resolve-obligation (#2908 slice-5, TASK-5-2)
+    brc_resolve = brc_sub.add_parser(
+        "resolve-obligation",
+        help=(
+            "Mark a reviewer's conditional-ACK obligation satisfied in-cycle "
+            "(verb-level alias for mcp__brc__resolve_obligation, #2338). "
+            "Use after committing the conditioning work to drop the "
+            "obligation from the PR body and HITL gate."
+        ),
+    )
+    brc_resolve.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_resolve.add_argument(
+        "--role",
+        help=(
+            "Resolver role (defaults to $EGG_AGENT_ROLE). Producers cannot "
+            "self-resolve their own obligations — the orchestrator rejects "
+            "resolver_role == producer_role."
+        ),
+    )
+    brc_resolve.add_argument(
+        "--reviewer-role",
+        dest="reviewer_role",
+        required=True,
+        help=(
+            "Reviewer whose conditional-ACK obligation you are marking "
+            "resolved (e.g. ``reviewer_contract``)."
+        ),
+    )
+    brc_resolve.add_argument(
+        "--producer-role",
+        dest="producer_role",
+        required=True,
+        help=(
+            "Producer the conditional-ACK was attached to (the role on the "
+            "other side of the review edge — e.g. ``coder``)."
+        ),
+    )
+    brc_resolve.add_argument(
+        "--commit-sha",
+        dest="commit_sha",
+        default=None,
+        help=(
+            "Optional commit SHA that satisfies the obligation. Recorded "
+            "for audit; the orchestrator does not re-verify the commit's "
+            "contents against the obligation text."
+        ),
+    )
+    brc_resolve.add_argument(
+        "--note",
+        help=(
+            "Optional free-form note explaining how the obligation was "
+            "satisfied. Surfaces in the audit log alongside the resolver "
+            "role and commit SHA. Pass ``--note -`` to read from stdin, "
+            "or use ``--note-file PATH`` for a file source (recommended "
+            "when the prose contains shell metacharacters; #2741)."
+        ),
+    )
+    brc_resolve.add_argument(
+        "--note-file",
+        dest="note_file",
+        help=(
+            "Path to a file containing the resolution note (#2741 shell-"
+            "metachar-safe alternative to ``--note``). Mutually exclusive "
+            "with non-sentinel ``--note``."
+        ),
+    )
+    _add_json_flag(brc_resolve)
+    brc_resolve.set_defaults(func=cmd_brc_resolve_obligation)
+
+    # brc read-peer-artifact (#2908 slice-5, TASK-5-3)
+    brc_read = brc_sub.add_parser(
+        "read-peer-artifact",
+        help=(
+            "Read BRC consensus history for a peer (verb-level alias for "
+            "mcp__brc__read_peer_artifact). Stdout JSON; pagination via "
+            "--limit + opaque --cursor token."
+        ),
+    )
+    brc_read.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    brc_read.add_argument(
+        "--phase",
+        required=True,
+        choices=list(_VALID_BRC_HISTORY_PHASES),
+        help="Phase whose BRC history to read.",
+    )
+    brc_read.add_argument(
+        "--peer-role",
+        dest="peer_role",
+        help=(
+            "Optional: filter records to those whose ``from_role`` matches. "
+            "Must match ``[a-z0-9_-]``."
+        ),
+    )
+    brc_read.add_argument(
+        "--message-type",
+        dest="message_type",
+        action="append",
+        help=(
+            "Optional message_type filter (repeatable). Accepts one of: "
+            "CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, "
+            "CONSENSUS_WITHDRAW, CONSENSUS_CONFIRMED, CONSENSUS_RE_REVIEW, "
+            "CONSENSUS_OBLIGATION_RESOLVED, STATUS, HANDOFF, AGENT_FAILED, "
+            "NUDGE, OVERSEER_ALERT, HEARTBEAT."
+        ),
+    )
+    brc_read.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum items per page (default 50, max 500).",
+    )
+    brc_read.add_argument(
+        "--cursor",
+        help="Opaque pagination token returned by a prior call.",
+    )
+    brc_read.add_argument(
+        "--no-include-unattributed",
+        dest="include_unattributed",
+        action="store_false",
+        default=True,
+        help=(
+            "When reading a slice-scoped implement transcript "
+            "(EGG_SLICE_ID set + phase=implement), do NOT merge records "
+            "from the sibling ``<identifier>-implement-unattributed.json``. "
+            "By default cross-cutting messages without slice scope are "
+            "included."
+        ),
+    )
+    _add_json_flag(brc_read)
+    brc_read.set_defaults(func=cmd_brc_read_peer_artifact)
 
     # -- phase --
     phase_parser = subparsers.add_parser("phase", help="Phase operations")
@@ -3660,6 +4557,37 @@ def create_parser() -> argparse.ArgumentParser:
     ph_complete.add_argument("--reason", help="Completion reason")
     _add_json_flag(ph_complete)
     ph_complete.set_defaults(func=cmd_phase_complete)
+
+    # phase get-context (verb-level alias for mcp__phase__get_context)
+    #
+    # The event-pump wrapper (#2908 slice-2) calls this when it needs
+    # the bundled phase context (pipeline_id, phase, role, assigned
+    # tasks, prior-phase artifact paths) before invoking the agent.
+    ph_ctx = phase_sub.add_parser(
+        "get-context",
+        help=("Bundle the caller's phase context (verb-level alias for mcp__phase__get_context)"),
+    )
+    ph_ctx.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    ph_ctx.add_argument(
+        "--phase",
+        default=None,
+        help="Phase override. Defaults to $EGG_PHASE.",
+    )
+    ph_ctx.add_argument(
+        "--role",
+        default=None,
+        help="Role override. Defaults to $EGG_AGENT_ROLE.",
+    )
+    ph_ctx.add_argument(
+        "--no-artifacts",
+        dest="no_artifacts",
+        action="store_true",
+        help=(
+            "Skip the best-effort prior-phase artifact scan "
+            "(matches the MCP-tool ``include_artifacts=false`` flag)"
+        ),
+    )
+    ph_ctx.set_defaults(func=cmd_phase_get_context)
 
     # -- decision --
     decision_parser = subparsers.add_parser("decision", help="Decision queue operations")

@@ -74,14 +74,6 @@ pr:
   manual_steps: |
     Pre-merge: [any required steps before merging, e.g. migrations, config changes]
     Post-merge: [any required steps after merging, e.g. deployments]
-  # Optional context-PR framing (#2548); omit to reuse pr.title / pr.description.
-  # context_title: |-
-  #   Strategic plan for #<issue> — refine/plan analysis + BRC history
-  # context_description: |-
-  #   Carries the refine analysis, the plan, the BRC consensus
-  #   history that approved each, and the agent transcripts —
-  #   so reviewers approaching the slice stack can see the strategic
-  #   narrative on a PR that targets the configured base branch.
 slices:
   - id: 1
     name: |-
@@ -137,22 +129,16 @@ slices:
 > the task's files — see [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment)
 > for the file-to-role mapping. Tasks without a `role` default to the coder.
 
-> **Context-PR framing (#2548)**: `pr.context_title` and `pr.context_description`
-> are *optional* keys planners may emit to give the dedicated context PR a
-> different framing from the slice PRs (e.g. "Strategic plan for #N" vs the
-> slice's "Implement …"). When omitted the orchestrator falls back to
-> `pr.title` / `pr.description`. Two sibling fields — `pr.context_branch` and
-> `pr.context_pr_number` — exist on the contract but are populated by the
-> orchestrator after the context branch is created and the context PR is
-> opened; planners must NOT emit them.
->
-> **As of slice-1 (#2548 part 1)**, only the schema fields and this
-> planner-prompt guidance are wired. The orchestrator branch-creation
-> and PR-opening hooks land in #2548 slices 3-4 — until those slices
-> merge, any `context_title` / `context_description` a planner emits
-> flows through the parser into `PRMetadata` but nothing acts on it
-> yet, so emitting them now is forward-compatibly safe but does not
-> change the rendered PR.
+> **Context-PR framing (#2777)**: There is no longer a separate
+> `pr.context_title` / `pr.context_description` pair. The context PR is
+> `egg/<pipeline_id>/work → main`, opened up-front at the plan→implement
+> boundary (hard-required, idempotent), and uses the standard `pr.title`
+> / `pr.description` fields above for its title and body. The legacy
+> v1.1 `pr.context_title`, `pr.context_description`, and
+> `pr.context_branch` keys were **hard-removed** in schema v1.2 (#2777);
+> emitting them is a parse error. The only orchestrator-populated
+> context-PR field is `pr.context_pr_number` (the GitHub PR number of
+> the work→main PR) — planners must NOT emit it.
 
 > **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
 > (canonical, post-#2137) or `phases:` (legacy alias) at the top of the

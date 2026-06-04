@@ -58,7 +58,7 @@ contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
 # Upstream orchestrator that owns contract state. The default matches the
 # orchestrator Service name used elsewhere in the gateway
-# (``checkpoint_handler.py``).
+# (``commit_registry_client.py``).
 _DEFAULT_ORCHESTRATOR_URL = "http://egg-orchestrator:9849"
 
 # Default timeout for orchestrator calls. Kept tight (mutations are

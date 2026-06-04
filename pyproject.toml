@@ -175,9 +175,6 @@ omit = [
     # CLI entry points — thin wrappers that require full system integration
     "sandbox/egg_lib/orch_cli.py",
     "sandbox/egg_lib/sdlc_cli.py",
-    "sandbox/egg_lib/checkpoint_cli.py",
-    "shared/egg_contracts/usage_cli.py",
-    "shared/egg_contracts/checkpoint_cli.py",
     # Scripts that run outside the test harness
     "gateway/parse-git-mounts.py",
 ]

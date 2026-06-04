@@ -78,7 +78,7 @@ kubectl get pods -n egg-system  # verify pods are running
 egg --public            # start sandbox session
 ```
 
-`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment.
+`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag are not yet in k3s, directing you to run `make redeploy` instead.
 
 ## 4. Using the SDLC pipeline
 
@@ -95,9 +95,9 @@ With no arguments, this starts a **prompt-driven pipeline**. The agent will:
 1. Ask what you want to build
 2. Ask 1-2 clarifying questions
 3. Create a pipeline in the orchestrator
-4. Run through refine → plan → implement → PR phases
+4. Run through refine → plan → implement phases (the context PR opens up-front at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777))
 
-During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats — no agent is spawned.
+During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. At the plan→implement boundary, the orchestrator auto-creates the context PR (`egg/<id>/work → main`) using metadata from the plan, commit log, and diff stats — no agent is spawned and the open is idempotent (`GatewayClient.lookup_open_pr` pre-flight with a server-side head+base filter). The legacy terminal "PR phase" as a separate pipeline stage was deleted in #2777.
 
 **Pipeline phases:**
 
@@ -105,8 +105,7 @@ During refine and plan phases, the gateway restricts pushes to state files and b
 |-------|-------------|
 | **Refine** | Agent analyzes requirements from your prompt |
 | **Plan** | Agent creates an implementation plan |
-| **Implement** | Agent writes code locally |
-| **PR** | Orchestrator auto-creates a draft PR (terminal phase) |
+| **Implement** | Orchestrator opens the context PR up-front (idempotent), then agents write code locally and per-slice PRs are opened inline by `create_slice_pr` |
 
 ### Option B: Issue pipeline (GitHub-driven)
 
@@ -126,8 +125,7 @@ This creates an issue-driven pipeline with full GitHub integration. The `-r/--re
 |-------|-------------|-------------------|
 | **Refine** | Agent analyzes the issue, produces a requirements document | Review analysis, approve via checkbox comment on the issue |
 | **Plan** | Agent creates an implementation plan with tasks | Review plan, approve via checkbox comment |
-| **Implement** | Agent writes code, pushes to `egg/issue-<N>` branch, opens a draft PR | Review code feedback cycles automatically; CI runs |
-| **PR** | PR is marked ready for review | You review and merge via GitHub UI |
+| **Implement** | Orchestrator opens the context PR (`egg/issue-<N>/work → main`) up-front at the plan→implement boundary; agents write code; per-slice PRs are opened inline. Once consensus closes, the PR is marked ready for review. | Review code feedback cycles automatically; CI runs; you review and merge via GitHub UI |
 
 ### Monitor progress
 
@@ -159,11 +157,11 @@ Here's what the issue pipeline creates and when:
 | **Feature branch** | Implement phase | `egg/issue-<N>` — pushed to your repo |
 | **Draft PR** | Implement phase | Links to the issue, contains all implementation commits |
 | **PR review comments** | Implement phase | Automated code review feedback (line-level) |
-| **PR ready for review** | PR phase | Draft flag removed when all checks pass |
+| **PR ready for review** | After implement consensus | Draft flag removed when all checks pass |
 
 **Nothing is merged automatically.** The gateway enforces merge blocking — only humans can merge PRs via the GitHub UI.
 
-Prompt-driven pipelines create PRs during the PR phase but do not interact with GitHub issues. The orchestrator auto-creates the PR via `GatewayClient.create_pr()` — no agent is spawned during the PR phase.
+Prompt-driven pipelines open the context PR up-front at the plan→implement boundary (idempotent, via `GatewayClient.lookup_open_pr` server-side filter + `GatewayClient.create_pr()`) but do not interact with GitHub issues. No agent is spawned for PR creation, and the legacy terminal "PR phase" was deleted in [#2777](https://github.com/jwbron/egg/issues/2777).
 
 The pipeline stores its internal state in `.egg-state/` on the feature branch (not on main). This includes the contract JSON, draft documents, and review verdicts.
 
@@ -177,13 +175,13 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 bin/egg-deploy up          # apply k8s manifests, wait for readiness
 bin/egg-deploy status      # health + endpoint summary
 bin/egg-deploy down        # tear down the deployment
-make build && make k3s-import && make deploy  # rebuild images and redeploy after code changes
+make redeploy              # rebuild images, import into k3s, and redeploy after code changes
 make k3s-teardown          # remove k3s and all deployed resources
 ```
 
 ## Troubleshooting
 
-**Claude binary not found**: If a sandbox job exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image: `make build && make k3s-import && make deploy`. (The legacy `egg --reset` flag was removed in #1762.)
+**Claude binary not found**: If a sandbox job exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image: `make redeploy`. (The legacy `egg --reset` flag was removed in #1762.)
 
 **Gateway or orchestrator not starting**: Check pod status with `kubectl get pods -n egg-system` and logs with `kubectl logs -n egg-system deploy/gateway` or `kubectl logs -n egg-system deploy/orchestrator`.
 

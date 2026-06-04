@@ -67,21 +67,21 @@ class TestArchitectureOrchestratorContextFields:
     def text(self) -> str:
         return _read(ARCHITECTURE_ORCHESTRATOR)
 
-    def test_mentions_pr_context_branch(self, text: str) -> None:
-        assert "pr.context_branch" in text, (
-            "task-1-1: docs/architecture/orchestrator.md must reference "
-            "`pr.context_branch` (the new contract field). Without this, "
-            "readers hitting the architecture doc cannot map the runtime "
-            "context branch to a contract field. See issue #2548."
-        )
+    # NOTE: `pr.context_branch` mention assertion deleted in #2777 slice-2
+    # (task-2-10). The ``pr.context_branch`` contract field was removed by
+    # slice-2 task-2-4 (cq-2 hard-remove); the docs must no longer
+    # reference it. The replacement regression test (asserting the
+    # deleted-field mentions are *absent* from the architecture doc) lives
+    # in :class:`TestArchitectureOrchestratorNoDeletedFieldMentions`
+    # below.
 
     def test_mentions_pr_context_pr_number(self, text: str) -> None:
         assert "pr.context_pr_number" in text, (
             "task-1-1: docs/architecture/orchestrator.md must reference "
-            "`pr.context_pr_number` (the new contract field). Without this, "
-            "readers cannot trace the PR number that the orchestrator "
-            "stamps back onto the contract after opening the context PR. "
-            "See issue #2548."
+            "`pr.context_pr_number` (the surviving context-PR contract "
+            "field — kept post-#2777 slice-2). Without this, readers "
+            "cannot trace the PR number that the orchestrator stamps back "
+            "onto the contract after opening the context PR. See #2548."
         )
 
     def test_references_per_slice_brc_filename_pattern(self, text: str) -> None:
@@ -103,6 +103,107 @@ class TestArchitectureOrchestratorContextFields:
             "task-1-1: docs/architecture/orchestrator.md must "
             "cross-reference issue #2548 so the rationale is one click "
             "away. The contract task description requires this cross-ref."
+        )
+
+
+# Deleted PRMetadata field names (#2777 slice-2 task-2-4). The
+# orchestrator and CLI docs MUST stop referencing these once the
+# accompanying documenter task (slice-3 task-3-12) lands; the
+# regression classes below pin that requirement.
+_DELETED_PR_METADATA_FIELDS: tuple[str, ...] = (
+    "pr.context_branch",
+    "pr.context_title",
+    "pr.context_description",
+)
+
+
+class TestArchitectureOrchestratorNoDeletedFieldMentions:
+    """``docs/architecture/orchestrator.md`` must not reference the three
+    ``PRMetadata`` fields deleted by #2777 slice-2.
+
+    The mentions get removed by slice-3 task-3-12 (the documenter pass
+    that updates docs for the context-PR topology collapse). Until that
+    task lands, these checks ``xfail`` (``strict=False``) — they flip
+    to ``XPASS`` once the docs are updated, and CI keeps passing in
+    both modes.
+    """
+
+    @pytest.fixture(scope="class")
+    def text(self) -> str:
+        return _read(ARCHITECTURE_ORCHESTRATOR)
+
+    @pytest.mark.xfail(
+        strict=False,
+        reason=(
+            "Docs cleanup for the deleted PRMetadata fields is owned by "
+            "#2777 slice-3 task-3-12 (documenter). This test exists in "
+            "slice-2 so the regression test 'docs must not mention "
+            "deleted fields' is committed atomically with the schema "
+            "deletion. It flips to XPASS automatically when slice-3 "
+            "lands."
+        ),
+    )
+    @pytest.mark.parametrize("deleted_field", _DELETED_PR_METADATA_FIELDS)
+    def test_no_mention_of_deleted_field(self, text: str, deleted_field: str) -> None:
+        assert deleted_field not in text, (
+            f"docs/architecture/orchestrator.md still references the "
+            f"deleted PRMetadata field {deleted_field!r}. #2777 slice-2 "
+            f"task-2-4 removed this field from the schema; the "
+            f"accompanying doc update is owned by slice-3 task-3-12. "
+            f"Update the doc to drop the field reference."
+        )
+
+
+class TestReferenceOrchestratorCliNoDeletedFieldMentions:
+    """``docs/reference/orchestrator-cli.md`` must not reference the three
+    deleted PRMetadata fields. Symmetric with the architecture-doc test
+    above; both flip from XFAIL to XPASS when slice-3 task-3-12 lands.
+    """
+
+    @pytest.fixture(scope="class")
+    def text(self) -> str:
+        return _read(REFERENCE_ORCHESTRATOR_CLI)
+
+    @pytest.mark.xfail(
+        strict=False,
+        reason=(
+            "Docs cleanup tracked in #2777 slice-3 task-3-12. "
+            "See TestArchitectureOrchestratorNoDeletedFieldMentions."
+        ),
+    )
+    @pytest.mark.parametrize("deleted_field", _DELETED_PR_METADATA_FIELDS)
+    def test_no_mention_of_deleted_field(self, text: str, deleted_field: str) -> None:
+        assert deleted_field not in text, (
+            f"docs/reference/orchestrator-cli.md still references the "
+            f"deleted PRMetadata field {deleted_field!r}. #2777 slice-2 "
+            f"task-2-4 removed this field; the doc update is owned by "
+            f"slice-3 task-3-12."
+        )
+
+
+class TestConcurrentExecutionNoDeletedFieldMentions:
+    """``docs/guides/concurrent-execution.md`` must not reference the three
+    deleted PRMetadata fields. Same XFAIL → XPASS pattern as siblings.
+    """
+
+    @pytest.fixture(scope="class")
+    def text(self) -> str:
+        return _read(GUIDES_CONCURRENT_EXECUTION)
+
+    @pytest.mark.xfail(
+        strict=False,
+        reason=(
+            "Docs cleanup tracked in #2777 slice-3 task-3-12. "
+            "See TestArchitectureOrchestratorNoDeletedFieldMentions."
+        ),
+    )
+    @pytest.mark.parametrize("deleted_field", _DELETED_PR_METADATA_FIELDS)
+    def test_no_mention_of_deleted_field(self, text: str, deleted_field: str) -> None:
+        assert deleted_field not in text, (
+            f"docs/guides/concurrent-execution.md still references the "
+            f"deleted PRMetadata field {deleted_field!r}. #2777 slice-2 "
+            f"task-2-4 removed this field; the doc update is owned by "
+            f"slice-3 task-3-12."
         )
 
 
@@ -149,18 +250,16 @@ class TestReferenceOrchestratorCliContextFields:
     def text(self) -> str:
         return _read(REFERENCE_ORCHESTRATOR_CLI)
 
-    def test_mentions_pr_context_branch_or_context_pr_number(self, text: str) -> None:
-        # The CLI doc may surface only one of the two fields directly
-        # (e.g. status-output context branch column); we require at
-        # least one literal mention so readers can land on the contract
-        # field from the CLI surface.
-        has_branch = "pr.context_branch" in text or "context_branch" in text
+    def test_mentions_pr_context_pr_number(self, text: str) -> None:
+        # ``pr.context_branch`` was deleted by #2777 slice-2 task-2-4.
+        # Only ``pr.context_pr_number`` survives, and the CLI doc must
+        # still surface it so CLI users can locate the open context PR
+        # via ``gh pr view``.
         has_pr_num = "pr.context_pr_number" in text or "context_pr_number" in text
-        assert has_branch or has_pr_num, (
-            "task-1-1: docs/reference/orchestrator-cli.md must reference "
-            "at least one of `pr.context_branch` or "
-            "`pr.context_pr_number` so CLI users can trace the surfaces "
-            "back to the contract. See issue #2548."
+        assert has_pr_num, (
+            "docs/reference/orchestrator-cli.md must reference "
+            "`pr.context_pr_number` so CLI users can trace the surviving "
+            "context-PR contract field. See #2548 and #2777 slice-2."
         )
 
     def test_cross_references_issue_2548(self, text: str) -> None:

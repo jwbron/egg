@@ -351,7 +351,7 @@ class TestPulledCommitsDoNotTrigger403:
                     _FAKE_SHA,
                     [
                         "docs/architecture/orchestrator.md",
-                        "gateway/checkpoint_handler.py",
+                        "gateway/session_manager.py",
                     ],
                     "architect",
                 ),
@@ -369,7 +369,7 @@ class TestPulledCommitsDoNotTrigger403:
             attributed,
             [
                 "docs/architecture/orchestrator.md",
-                "gateway/checkpoint_handler.py",
+                "gateway/session_manager.py",
                 ".egg-state/agent-outputs/2474-risk_analyst-output.json",
             ],
         )

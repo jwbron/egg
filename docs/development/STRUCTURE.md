@@ -37,7 +37,7 @@ egg/
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`); `prepare-sandbox-build-context.py` populates `repo-deps/` from `repositories.yaml` for `make build` | CI / local |
+| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement); `prepare-sandbox-build-context.py` populates `repo-deps/` from `repositories.yaml` for `make build` | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
@@ -59,7 +59,7 @@ gateway/
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
 ├── agent_restrictions.py   # Agent role-based file access enforcement
 ├── commit_observer.py      # Gateway-inline commit observer: registers new SHAs with the authorship registry after each git-execute call
-├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk)
+├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk + lookup_patch_ids for SHA-rewrite recovery)
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
@@ -71,8 +71,6 @@ gateway/
 ├── jira_policy.py          # Project allowlist loader for config/context-filters.yaml (jira.projects)
 ├── jira_search.py          # Conservative static JQL project-scope extractor (deny-on-ambiguity)
 ├── mode_gate.py            # @require_private_mode decorator (fails closed in public mode)
-├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
-├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management (branch lock, worktree cleanup)
 ├── post_agent_commit.py    # Post-agent exit handling (HITL recovery for uncommitted work)
@@ -108,8 +106,7 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus.py            # Legacy READY-tallying consensus (deprecated, kept for transition)
-├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
+├── consensus_wrapper.py    # Shell wrapper template: deterministic event-pump loop (sole path since slice-4; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── events.py               # Event bus for pipeline events
@@ -119,9 +116,9 @@ orchestrator/
 ├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
 ├── progress_store.py       # In-memory structured progress event store with configurable retention
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
-├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by legacy single-PR and slice-DAG umbrella PR paths)
+├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by single-PR and slice-DAG context-PR paths — the legacy terminal-slice umbrella treatment was removed in #2777)
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health, deployment
+├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, contracts, health, deployment
 ├── redaction.py            # Secret redaction helpers for operator-facing diagnostic output (env vars, Bearer JWTs, API key shapes)
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
@@ -217,7 +214,6 @@ sandbox/
 │   ├── git
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
-│   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
@@ -236,7 +232,6 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI implementation
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI implementation
@@ -269,7 +264,8 @@ shared/
 │   ├── client.py           # run_agent(), run_agent_async()
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
-│   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
+│   ├── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
+│   └── tool_output_cap.py  # Predictive PreToolUse cap for built-in CC tools (Read/Grep): denies calls whose model-bound result is likely to be excessive (cost/context discipline, NOT the buffer-crash fix — that's the raised reader buffer in client.py, #2884); tunable via EGG_TOOL_OUTPUT_CAP / EGG_READ_CAP_BYTES (#2876)
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
@@ -284,13 +280,14 @@ shared/
 │   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern, BLOCKED_HINTS, derive_hint
 │   ├── matchers.py         # Canonical glob-pattern matcher (match_pattern) shared by all four enforcement layers
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
+│   ├── phase_patterns.py   # Phase-scoped file-write patterns (PHASE_FILE_PATTERNS, PhaseFilePattern, phase_file_verdict) — sandbox mirror of gateway/phase_filter.py
 │   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 │   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
 ├── egg_session_placeholder/ # Session-token placeholder codec for the gateway's /v1/messages proxy
 │   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
@@ -299,11 +296,7 @@ shared/
 │   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
-│   ├── checkpoints.py      # Checkpoint data models
-│   ├── checkpoint_loader.py # Checkpoint storage and retrieval
-│   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse, context, cost, search)
-│   ├── transcript_extractor.py # API transcript extraction
-│   └── redactor.py         # Sensitive data redaction for checkpoints
+│   └── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
 ├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
@@ -318,6 +311,7 @@ shared/
 │   ├── __init__.py         # Public API: HealthTracker
 │   └── tracker.py          # Thread-safe healthy/unhealthy transition recorder with snapshot()
 ├── egg_logging/            # Structured logging
+├── egg_tool_output.py      # Tool-output size caps for egg-owned MCP tools — truncation + spill-to-file helpers shared by orchestrator MCP server and sandbox @tool wrappers (EGG_TOOL_OUTPUT_CAP_BYTES, #2805)
 ├── egg_overseer/           # Shared overseer library (advisor, issue filing, priority, scrubbing, state)
 │   ├── __init__.py         # Package docstring only — import from submodules (e.g. `from egg_overseer.advisor import consult_advisor`)
 │   ├── advisor.py          # Opus advisor wrapper — consult_advisor(), AdvisorVerdict (decision: alert|file_issue|watch)
@@ -377,8 +371,7 @@ tests/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
-│       ├── test_redactor.py       # Redactor tests for sensitive data masking
-│       └── test_transcript_extractor.py # Transcript extraction tests
+│       └── test_redactor.py       # Redactor tests for sensitive data masking
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification

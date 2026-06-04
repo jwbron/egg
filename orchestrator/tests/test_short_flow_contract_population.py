@@ -159,10 +159,10 @@ class TestPopulateContractFromPlan:
 
         Regression for the slice-1 review in PR #2555: the populator
         rebuilds ``contract.pr`` wholesale from the plan, and a prior
-        version preserved ``context_branch`` / ``context_pr_number``
-        but silently wiped ``deferred_actions`` — the merge-blocking
-        Pre-merge Obligations handoff written by the conditional-ACK
-        gate at ``decisions.py:complete_phase``. The
+        version preserved the legacy context-framing fields plus
+        ``context_pr_number`` but silently wiped ``deferred_actions`` —
+        the merge-blocking Pre-merge Obligations handoff written by the
+        conditional-ACK gate at ``decisions.py:complete_phase``. The
         ``start_phase=implement`` re-entry path can hit this populator
         after ``deferred_actions`` is already populated; losing it
         erases the only durable handoff for git-mv / migration /
@@ -170,10 +170,17 @@ class TestPopulateContractFromPlan:
 
         Setup: create a contract, populate ``contract.pr`` once from
         the plan, then mutate ``contract.pr.deferred_actions`` and
-        ``contract.pr.context_branch`` / ``context_pr_number`` to
-        simulate runtime-populated state, save, and re-run the
-        populator. Assert the runtime fields survive while the
-        planner-emitted fields are refreshed from the plan.
+        ``contract.pr.context_pr_number`` to simulate runtime-populated
+        state, save, and re-run the populator. Assert the runtime fields
+        survive while the planner-emitted fields are refreshed from the
+        plan.
+
+        The legacy context-framing fields were dropped from
+        ``PRMetadata`` in #2777 cq-4 / TASK-2-2 — the new topology uses
+        ``egg/<id>/work → main`` as the context PR head rather than a
+        dedicated ``egg/<id>/context`` branch — so ``context_pr_number``
+        is the sole survivor of that group that needs the preservation
+        guarantee.
         """
         from egg_contracts.loader import create_contract, load_contract, save_contract
         from egg_contracts.models import DeferredAction
@@ -193,7 +200,7 @@ class TestPopulateContractFromPlan:
         # Simulate runtime-populated state: a conditional-ACK gate
         # resolved at ``complete_phase`` and stamped a deferred action,
         # plus the orchestrator opened the context PR and stamped the
-        # branch / PR-number.
+        # PR-number.
         contract = load_contract(pipeline_id, tmp_path)
         assert contract.pr is not None
         contract.pr.deferred_actions = [
@@ -203,14 +210,13 @@ class TestPopulateContractFromPlan:
                 resolved_in_diff="",
             )
         ]
-        contract.pr.context_branch = "egg/pipeline-deferred-preserve/context"
         contract.pr.context_pr_number = 7777
         save_contract(contract, tmp_path)
 
         # Re-run the populator (e.g. start_phase=implement re-entry).
         _populate_contract_from_plan(tmp_path, pipeline_id, "local")
 
-        # All three runtime-populated fields must survive the re-build.
+        # Runtime-populated fields must survive the re-build.
         contract_after = load_contract(pipeline_id, tmp_path)
         assert contract_after.pr is not None
         assert len(contract_after.pr.deferred_actions) == 1
@@ -218,10 +224,196 @@ class TestPopulateContractFromPlan:
             contract_after.pr.deferred_actions[0].condition == "must rename foo → bar before merge"
         )
         assert contract_after.pr.deferred_actions[0].reviewer == "reviewer_code"
-        assert contract_after.pr.context_branch == "egg/pipeline-deferred-preserve/context"
         assert contract_after.pr.context_pr_number == 7777
         # And the planner-emitted fields are still refreshed from the plan.
         assert contract_after.pr.title == "Add retry logic to API client"
+
+    def test_populate_contract_from_plan_preserves_slice_and_task_runtime(self, tmp_path: Path):
+        """A re-populate must preserve runtime slice/task progress (#2908).
+
+        The safety-net populator fires on every ``start_phase=implement``
+        restart and rebuilds ``contract.slices`` wholesale from the plan
+        (every slice/task parses back as PENDING). A prior version blindly
+        assigned the freshly parsed slices, resetting COMPLETE slices to
+        PENDING and dropping the ``parent_branch_at_creation`` /
+        ``integration_base_sha`` a real slice run stamped — so a restarted
+        pipeline re-ran slice-1 forever and could never reach slice-2. The
+        populator now merges by slice id / task id: STRUCTURE comes from
+        the plan, RUNTIME state survives the re-build.
+
+        This test stamps every preserved field on the slice and the task
+        to a distinctive value, so a future field-list typo in the merge
+        helper regresses one of the asserts here instead of silently
+        wiping runtime state.
+        """
+        from datetime import UTC, datetime
+
+        from egg_contracts.loader import create_contract, load_contract, save_contract
+        from egg_contracts.models import ReviewFeedback, SliceStatus, TaskGap, TaskStatus
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-slice-runtime-preserve"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        # First populate — establishes slice-1 with task-1-1/task-1-2.
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # Stamp every preserved runtime field with a distinctive value
+        # so the assert block below pins each one independently.
+        contract = load_contract(pipeline_id, tmp_path)
+        sl = contract.slices[0]
+        assert sl.id == "slice-1"
+        # Slice-level fields the merge helper claims to preserve.
+        sl.status = SliceStatus.COMPLETE
+        sl.parent_branch_at_creation = "egg/issue-2908/work"
+        sl.integration_base_sha = "0" * 40
+        sl.commit = "a" * 40
+        sl.review_cycles = 2
+        sl.review_feedback = [
+            ReviewFeedback(
+                timestamp=datetime(2026, 1, 15, 12, 0, tzinfo=UTC),
+                task_id="task-1-1",
+                feedback="needs-changes-on-first-pass",
+                status=TaskStatus.INCOMPLETE,
+            ),
+        ]
+        sl.escalated = True
+        sl.escalation_reason = "max-cycles-exceeded"
+        # Task-level fields the merge helper claims to preserve.
+        t = sl.tasks[0]
+        t.status = TaskStatus.COMPLETE
+        t.commit = "1" * 40
+        t.checkpoint_id = "ckpt-deadbeef"
+        t.review_cycles = 3
+        t.escalated = True
+        # Paired SYSTEM-owned impasse-delegation state. ``SAMPLE_PLAN``
+        # doesn't specify a ``role:`` for task-1-1, so the plan parser
+        # emits ``role=None`` (the slice-loop dispatcher at
+        # ``pipelines.py:6045-6052`` consumes ``None`` as coder for
+        # filtering); a successful delegation would flip the durable
+        # value to ``"tester"`` and bump the counter — both must
+        # survive a re-populate together or the slice-loop dispatcher
+        # will re-spawn the original producer on restart.
+        t.role = "tester"
+        t.delegation_attempts = 1
+        t.gaps = [
+            TaskGap(
+                id="gap-1",
+                from_role="tester",
+                to_role="coder",
+                description="missing edge case for empty input",
+            ),
+        ]
+        # Runtime narrative + applier idempotency anchors (blocking
+        # items 1-3 from the #2923 review).
+        t.notes = "wontdo drain failed: gateway 502 on first apply"
+        t.jira_action_status = "applied"
+        t.jira_key = "ENG-7421"
+        save_contract(contract, tmp_path)
+
+        # Re-run the populator (start_phase=implement restart re-entry).
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        after = load_contract(pipeline_id, tmp_path)
+        sl_after = after.slices[0]
+        # Slice-level preservation — one assert per preserved field.
+        assert sl_after.status == SliceStatus.COMPLETE
+        assert sl_after.parent_branch_at_creation == "egg/issue-2908/work"
+        assert sl_after.integration_base_sha == "0" * 40
+        assert sl_after.commit == "a" * 40
+        assert sl_after.review_cycles == 2
+        assert len(sl_after.review_feedback) == 1
+        assert sl_after.review_feedback[0].feedback == "needs-changes-on-first-pass"
+        assert sl_after.escalated is True
+        assert sl_after.escalation_reason == "max-cycles-exceeded"
+        # Task-level preservation — one assert per preserved field.
+        t_after = sl_after.tasks[0]
+        assert t_after.status == TaskStatus.COMPLETE
+        assert t_after.commit == "1" * 40
+        assert t_after.checkpoint_id == "ckpt-deadbeef"
+        assert t_after.review_cycles == 3
+        assert t_after.escalated is True
+        # Paired SYSTEM-owned impasse-delegation state survives together.
+        assert t_after.role == "tester"
+        assert t_after.delegation_attempts == 1
+        assert len(t_after.gaps) == 1
+        assert t_after.gaps[0].id == "gap-1"
+        # Notes + applier anchors — the #2923 blocking-item additions.
+        assert t_after.notes == "wontdo drain failed: gateway 502 on first apply"
+        assert t_after.jira_action_status == "applied"
+        assert t_after.jira_key == "ENG-7421"
+        # The untouched task keeps the plan's fresh PENDING default.
+        assert sl_after.tasks[1].status == TaskStatus.PENDING
+        # And STRUCTURE is still refreshed from the plan.
+        assert sl_after.tasks[0].id == "task-1-1"
+        assert "retry_with_backoff" in sl_after.tasks[0].description
+
+    def test_populate_contract_from_plan_handles_unmatched_slices(self, tmp_path: Path):
+        """Unmatched slice ids (re-plan adds/removes a slice) keep plan defaults.
+
+        Documents the merge helper's behaviour on the unmatched-slice
+        case alongside the matched-slice case covered above:
+
+        - A slice present in the OLD contract but absent from the new
+          plan (re-plan dropped it) simply doesn't appear post-merge.
+        - A slice present in the new plan but absent from the OLD
+          contract (re-plan added it) keeps the plan's fresh PENDING
+          defaults — the merge helper does not invent runtime state.
+
+        The current ``SAMPLE_PLAN`` emits a single slice, so we simulate
+        the dropped-slice case by stamping a fake old slice that the new
+        parse will not produce, and the added-slice case by relying on
+        the empty initial contract → populated post-plan slice path.
+        """
+        from egg_contracts.loader import create_contract, load_contract, save_contract
+        from egg_contracts.models import Slice, SliceStatus
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-slice-runtime-unmatched"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        # Inject an "orphan" slice into the OLD contract — the new
+        # plan parse won't reproduce it, so the merge helper must
+        # tolerate the unmatched-old-id case and drop it cleanly.
+        contract = load_contract(pipeline_id, tmp_path)
+        contract.slices = [
+            Slice(
+                id="slice-99",
+                name="Orphan slice",
+                tasks=[],
+                status=SliceStatus.COMPLETE,
+            ),
+        ]
+        save_contract(contract, tmp_path)
+
+        # Populate now sees a fresh plan with slice-1 and an OLD
+        # contract that contains only slice-99 — the unmatched-new-id
+        # case (slice-1 has no OLD twin) and the unmatched-old-id case
+        # (slice-99 has no NEW twin) both fire.
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        after = load_contract(pipeline_id, tmp_path)
+        slice_ids = [s.id for s in after.slices]
+        # The orphan OLD slice does not survive — the plan is the
+        # structural source of truth.
+        assert "slice-99" not in slice_ids
+        # The new slice exists with the plan's fresh PENDING default —
+        # the helper does not invent runtime state for a slice it
+        # never saw in the old contract.
+        assert "slice-1" in slice_ids
+        sl_new = after.get_slice("slice-1")
+        assert sl_new is not None
+        assert sl_new.status == SliceStatus.PENDING
+        assert sl_new.parent_branch_at_creation is None
+        assert sl_new.integration_base_sha is None
 
 
 class TestEnsureStatefilesRestoresPRMetadata:
@@ -235,8 +427,18 @@ class TestEnsureStatefilesRestoresPRMetadata:
     """
 
     def test_restored_contract_has_pr_metadata(self, tmp_path: Path):
-        """After _ensure_statefiles_on_branch, _build_pr_body uses plan PR metadata."""
-        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+        """After _ensure_statefiles_on_branch, the restored contract carries
+        the plan-derived PR metadata.
+
+        The legacy ``_build_pr_body`` helper (#1432 verification vehicle)
+        was removed in #2777 cq-4 / TASK-2-2 alongside the PR phase. The
+        contract.pr fields are now consumed up-front by
+        ``_open_context_pr_at_implement_start`` (TASK-1-2); we verify
+        ``_ensure_statefiles_on_branch`` populates them by reading the
+        contract directly via the public loader.
+        """
+        from egg_contracts.loader import load_contract
+        from routes.pipelines import _ensure_statefiles_on_branch
 
         pipeline_id = "pipeline-short-restore"
 
@@ -260,17 +462,20 @@ class TestEnsureStatefilesRestoresPRMetadata:
 
         assert result is True
 
-        # Now verify _build_pr_body picks up the PR metadata
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-
-        assert title == "Add retry logic to API client"
-        assert "exponential backoff" in body
+        # Verify the restored contract carries the plan-derived PR metadata.
+        # No issue_number set, so the canonical key is the pipeline_id itself.
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+        assert "exponential backoff" in (contract.pr.description or "")
 
     def test_restored_contract_with_issue_number_has_pr_metadata(self, tmp_path: Path):
         """Same as above but with issue_number-based contract identifier."""
-        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+        from egg_contracts.loader import load_contract
+        from routes.pipelines import _ensure_statefiles_on_branch
 
         issue_number = 99
+        pipeline_id = "pipeline-issue-99"
 
         # Write the plan draft using issue_number-based name
         drafts_dir = tmp_path / ".egg-state" / "drafts"
@@ -278,7 +483,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         (drafts_dir / f"{issue_number}-plan.md").write_text(SAMPLE_PLAN)
 
         pipeline = MagicMock()
-        pipeline.id = "pipeline-issue-99"
+        pipeline.id = pipeline_id
         pipeline.issue_number = issue_number
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
@@ -291,10 +496,14 @@ class TestEnsureStatefilesRestoresPRMetadata:
 
         assert result is True
 
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-
-        assert title == "Add retry logic to API client"
-        assert "exponential backoff" in body
+        # ``_pipeline_identifier`` keys by ``pipeline_id`` when it does
+        # not start with ``issue-<N>-`` (here it is ``pipeline-issue-99``,
+        # which has the ``pipeline-`` prefix), so the contract lands at
+        # ``pipeline-issue-99.json`` rather than ``issue-99.json``.
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+        assert "exponential backoff" in (contract.pr.description or "")
 
 
 class TestEnsureStatefilesRestoresDraftFromRemote:
@@ -310,7 +519,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
 
     def test_restores_plan_draft_from_remote(self, tmp_path: Path):
         """Plan draft is fetched from origin/{branch} when missing locally."""
-        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+        from egg_contracts.loader import load_contract
+        from routes.pipelines import _ensure_statefiles_on_branch
 
         pipeline_id = "pipeline-short-remote"
 
@@ -356,10 +566,13 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.exists()
         assert plan_path.read_text() == SAMPLE_PLAN
 
-        # Verify contract has PR metadata from the restored plan
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-        assert title == "Add retry logic to API client"
-        assert "exponential backoff" in body
+        # Verify contract has PR metadata from the restored plan.
+        # ``_build_pr_body`` was removed in #2777 cq-4 / TASK-2-2; read the
+        # contract directly via the public loader instead.
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+        assert "exponential backoff" in (contract.pr.description or "")
 
     def test_no_branch_skips_remote_restoration(self, tmp_path: Path):
         """When pipeline has no branch, draft restoration from remote is skipped."""
@@ -423,7 +636,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
 
     def test_restores_plan_draft_with_issue_number(self, tmp_path: Path):
         """Plan draft is restored using issue_number-based path when set."""
-        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+        from egg_contracts.loader import load_contract
+        from routes.pipelines import _ensure_statefiles_on_branch
 
         pipeline_id = "pipeline-issue-remote"
         issue_number = 42
@@ -466,10 +680,17 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.exists()
         assert plan_path.read_text() == SAMPLE_PLAN
 
-        # Verify contract has PR metadata from the restored plan
-        title, body, _ = _build_pr_body(pipeline, tmp_path)
-        assert title == "Add retry logic to API client"
-        assert "exponential backoff" in body
+        # Verify contract has PR metadata from the restored plan.
+        # ``_build_pr_body`` was removed in #2777 cq-4 / TASK-2-2; read the
+        # contract directly via the public loader instead.
+        # ``_pipeline_identifier`` keys by ``pipeline_id`` when it does
+        # not start with ``issue-<N>-``; ``pipeline-issue-remote`` has
+        # the ``pipeline-`` prefix so the contract lands at
+        # ``pipeline-issue-remote.json`` rather than ``issue-42.json``.
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+        assert "exponential backoff" in (contract.pr.description or "")
 
 
 class TestMCPToolForwarding:
@@ -727,11 +948,15 @@ class TestStartPhaseImplementContractPopulation:
         assert contract.current_phase == PipelinePhase.REFINE
 
     def test_current_phase_does_not_demote(self, tmp_path: Path):
-        """Forward-only guard: a respawn of _run_pipeline (e.g. when a
-        ``start_phase=implement`` pipeline progresses to the PR phase and
-        re-enters the safety-net) must not demote the contract.  If the
-        contract has already advanced to PR, passing IMPLEMENT must be a
-        no-op.
+        """Forward-only guard: a respawn of _run_pipeline must not demote
+        the contract's ``current_phase``.
+
+        The original test used ``PipelinePhase.PR`` (the legacy terminal
+        phase) as the "advanced" state and verified IMPLEMENT did not
+        overwrite it. ``PR`` was hard-removed in #2777 cq-4 / TASK-2-2;
+        ``IMPLEMENT`` is now terminal. The forward-only guard still
+        applies — pinned here by asserting that ``PLAN`` cannot demote
+        ``IMPLEMENT``.
         """
         from egg_contracts.loader import create_contract, load_contract, save_contract
         from egg_contracts.models import PipelinePhase
@@ -741,7 +966,7 @@ class TestStartPhaseImplementContractPopulation:
 
         create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
         contract = load_contract(pipeline_id, tmp_path)
-        contract.current_phase = PipelinePhase.PR
+        contract.current_phase = PipelinePhase.IMPLEMENT
         save_contract(contract, tmp_path)
 
         draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
@@ -753,12 +978,12 @@ class TestStartPhaseImplementContractPopulation:
             tmp_path,
             pipeline_id,
             "local",
-            current_phase=PipelinePhase.IMPLEMENT,
+            current_phase=PipelinePhase.PLAN,
         )
 
         contract = load_contract(pipeline_id, tmp_path)
-        # PR was preserved — IMPLEMENT did not silently demote it.
-        assert contract.current_phase == PipelinePhase.PR
+        # IMPLEMENT was preserved — PLAN did not silently demote it.
+        assert contract.current_phase == PipelinePhase.IMPLEMENT
 
     def test_current_phase_advance_appends_audit_entry(self, tmp_path: Path):
         """Operators inspecting the contract audit log to debug a phase

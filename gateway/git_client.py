@@ -338,6 +338,23 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "-s",
         ],
     },
+    # ``--patch`` (``-p``) and ``--not`` power the canonical BRC re-review
+    # delta command documented in REVIEWER-SYNC.md:110 and emitted by
+    # ``_build_review_prompt()`` in ``orchestrator/routes/pipelines.py``
+    # (``git log <sha>..HEAD --not origin/<base> -p``). Both are read-only.
+    # ``--not`` mirrors the ``^ref`` exclude syntax the revision-range parser
+    # already accepts (see ``agent_salvage.py`` ``_resolve_anchor`` /
+    # ``list_unpushed_commits``). Without these, reviewers on the LiteLLM
+    # route burn their turn budget retrying and exit without a v2+ verdict
+    # (#2905).
+    #
+    # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are accepted as
+    # aliases for ``--max-count=N`` via special cases in ``validate_git_args``
+    # (search for "issue #2480"). We don't put ``-n`` in the ``log`` entry of
+    # ``FLAG_NORMALIZATION`` because its value is a separate argument, which
+    # the per-flag normalizer can't see. Both special cases also apply to the
+    # ``reflog`` allowlist below — reflog is internally a log walker and
+    # shares the same ``--max-count`` semantics for both forms.
     "log": {
         "allowed_flags": [
             "--oneline",
@@ -355,14 +372,8 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
-            # accepted as aliases for ``--max-count=N`` via special cases in
-            # ``validate_git_args`` (search for "issue #2480"). We don't put
-            # ``-n`` in the log entry of FLAG_NORMALIZATION because its value
-            # is a separate argument, which the per-flag normalizer can't see.
-            # Both special cases also apply to the ``reflog`` allowlist below —
-            # reflog is internally a log walker and shares the same
-            # ``--max-count`` semantics for both forms.
+            "--patch",
+            "--not",
             "--since",
             "--until",
             "--author",
@@ -992,9 +1003,11 @@ FLAG_NORMALIZATION = {
     "worktree": {"-v": "--verbose"},
     "ls-remote": {"-q": "--quiet"},
     "update-index": {"-q": "--quiet"},
+    # log: -p normalizes to --patch so the BRC re-review delta command
+    # (`git log <sha>..HEAD --not origin/<base> -p`) matches the allowlist. #2905
+    "log": {"-p": "--patch"},
     # Subcommands with no short-flag normalization needed (included for completeness):
     "status": {},
-    "log": {},
     "diff": {},
     "show": {},
     "rev-parse": {},
@@ -1715,6 +1728,94 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
     return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
+def _patch_ids_for_commits(repo_path: str, shas: list[str]) -> dict[str, str | None]:
+    """Bulk ``git patch-id --stable`` for ``shas`` via the gateway's hardened argv.
+
+    Push-time recovery helper for #2932: a rebase rewrites SHAs but the
+    patch-id is content-stable, so the original author is recoverable.
+    Delegates to ``commit_observer.patch_ids_for_commits`` (registration
+    side) so the two sides share one implementation; we just inject the
+    gateway's ``git_cmd`` argv builder so the safe-directory / hooks-path
+    / gc settings still apply.
+
+    Returns a dict keyed by every input SHA — string when git emitted a
+    patch-id, ``None`` for merge / empty / rename-only commits or any git
+    failure (the commit then stays fail-closed in the caller).
+    """
+    try:
+        from .commit_observer import patch_ids_for_commits
+    except ImportError:
+        from commit_observer import (  # type: ignore[no-redef,import-untyped]
+            patch_ids_for_commits,
+        )
+    return patch_ids_for_commits(repo_path, shas, git_cmd=git_cmd)
+
+
+# Reserved attribution role for commits created by egg infrastructure
+# (the orchestrator state-file committer, the salvage helper, and the
+# auto-formatter — which rides on the orchestrator's identity rather than
+# a distinct git config) rather than by an agent session.  It is deliberately
+# a string no agent role can ever equal, so the push handler classifies these
+# commits as pulled-from-other-role (never own-authored) and never blocks a
+# producer for files an infra commit touched.  See #2927.
+INFRA_ATTRIBUTION_ROLE = "infra"
+
+# Committer emails used exclusively by egg infrastructure.  An *agent* commit
+# carries ``{role}@egg.local`` only when ``EGG_AGENT_ROLE`` is set in the
+# sandbox (see sandbox/entrypoint.py); a role-less sandbox would fall back to
+# ``egg@localhost`` and collide with this allowlist.  The invariant that keeps
+# the exemption safe is the **orchestrator-gateway pairing**: the orchestrator
+# always injects ``EGG_AGENT_ROLE`` *and* opens the gateway session with
+# matching ``agent_role`` metadata.  The push handler's restriction check at
+# gateway.py only fires when the session's ``agent_role`` is set, so any path
+# that wired up an agent session without ``EGG_AGENT_ROLE`` would also skip
+# the restriction logic entirely.  An operator who overrides the gateway's
+# ``EGG_USER_GIT_EMAIL`` only loses the exemption (the push fails closed as
+# before) — never gains a bypass, so the allowlist is the safe failure
+# direction.  Sources:
+#   - egg@localhost          orchestrator/entrypoint.sh (also used by the
+#                            auto-formatter, which runs in the orchestrator's
+#                            pre-commit chain rather than under a distinct
+#                            identity)
+#   - egg@example.com        gateway/entrypoint.sh default
+#   - egg-salvage@localhost  orchestrator/agent_salvage.py
+INFRA_COMMITTER_EMAILS: frozenset[str] = frozenset(
+    {
+        "egg@localhost",
+        "egg@example.com",
+        "egg-salvage@localhost",
+    }
+)
+
+
+def _committer_email_for_commit(repo_path: str, sha: str) -> str | None:
+    """Return the committer email for ``sha`` (lower-cased) or ``None``.
+
+    Used to recognise infra-authored commits the authorship registry never
+    saw.  Reads the *committer* (not author) identity because rebases and
+    cherry-picks preserve the original author while the committer reflects
+    who actually produced the SHA on this branch.  Any failure returns
+    ``None`` so the caller falls back to fail-closed (own-authored).
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            git_cmd("show", "-s", "--format=%ce", sha),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    email = (result.stdout or "").strip().lower()
+    return email or None
+
+
 def get_attributed_changed_files_in_push(
     repo_path: str,
     remote: str,
@@ -1838,6 +1939,80 @@ def get_attributed_changed_files_in_push(
                 received=len(received_shas),
                 missing=len(requested_shas - received_shas),
             )
+
+    # #2932: rescue commits whose SHA the registry never saw because a
+    # rebase rewrote them.  The patch-id is stable across the SHA rewrite,
+    # so for any commit still unattributed we compute its patch-id and ask
+    # the registry which role authored a commit with that patch-id.  Only a
+    # byte-identical diff matches, and an ambiguous patch-id resolves to
+    # ``None`` (registry-side), so this preserves #2039's fail-closed
+    # intent: it can only recover an attribution, never fabricate a bypass.
+    if commits and registry_client is not None:
+        lookup_patch_ids = getattr(registry_client, "lookup_patch_ids", None)
+        if callable(lookup_patch_ids):
+            unattributed = [sha for sha in commits if attribution.get(sha) is None]
+            sha_to_patch: dict[str, str] = {}
+            if unattributed:
+                # One batched ``git log --no-walk -p | git patch-id`` rather
+                # than N pairs of subprocess spawns — a recovery rebase that
+                # touches dozens of commits stays linear in git, not in
+                # Python process overhead.
+                for sha, pid in _patch_ids_for_commits(repo_path, unattributed).items():
+                    if pid:
+                        sha_to_patch[sha] = pid
+            if sha_to_patch:
+                try:
+                    patch_attr = dict(lookup_patch_ids(sorted(set(sha_to_patch.values()))))
+                except Exception:
+                    logger.warning(
+                        "commit_authorship_patch_lookup_exception",
+                        repo_path=repo_path,
+                        branch=branch,
+                        exc_info=True,
+                    )
+                    patch_attr = {}
+                recovered: list[str] = []
+                for sha, pid in sha_to_patch.items():
+                    role = patch_attr.get(pid)
+                    if role:
+                        attribution[sha] = role
+                        recovered.append(sha)
+                if recovered:
+                    logger.info(
+                        "commit_authorship_patch_id_recovery",
+                        repo_path=repo_path,
+                        branch=branch,
+                        session_role=session_role,
+                        recovered=len(recovered),
+                        shas=recovered,
+                    )
+
+    # #2927: rescue commits the registry never saw because they were created
+    # by egg infrastructure (orchestrator state-file commits, auto-formatter,
+    # salvage) outside any agent session.  Without this, such commits stay
+    # ``None`` and the push handler treats them as own-authored (fail-closed),
+    # wedging a producer whose branch merely inherited them.  We only relax
+    # for committers in the trusted infra allowlist; unknown unregistered
+    # authors remain ``None`` and continue to fail closed.  Runs after the
+    # #2932 patch-id rescue so a rebased *agent* commit is still attributed
+    # to its original role rather than being reclassified as infra.
+    infra_exempted: list[str] = []
+    for sha in commits:
+        if attribution.get(sha) is not None:
+            continue
+        email = _committer_email_for_commit(repo_path, sha)
+        if email is not None and email in INFRA_COMMITTER_EMAILS:
+            attribution[sha] = INFRA_ATTRIBUTION_ROLE
+            infra_exempted.append(sha)
+    if infra_exempted:
+        logger.info(
+            "commit_authorship_infra_exemption",
+            repo_path=repo_path,
+            branch=branch,
+            session_role=session_role,
+            exempted=len(infra_exempted),
+            shas=infra_exempted,
+        )
 
     for f in files:
         f.authored_by = attribution.get(f.commit_sha)

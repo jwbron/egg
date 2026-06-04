@@ -167,6 +167,14 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # cause the agent to sleep through legitimate ACK/NACK/PROPOSE
         # events without surfacing the misconfiguration.
         "EGG_WAIT_PRODUCER_ALLOWLIST",
+        # Base branch for the BRC event-pump git-log delta (#2967). The
+        # spawner derives this from the same resolved base branch used to
+        # create the worktree and to build the agent prompt's diff commands,
+        # so it must stay consistent across all three. An ``extra_env``
+        # override could otherwise point the ``--not origin/<base>`` delta at
+        # a different branch than the worktree was based on, silently
+        # corrupting the re-review scope.
+        "EGG_BASE_BRANCH",
         # Same single-source-of-truth shape (#2428). The agent's
         # ``egg-orch push`` retargets the refspec to ``HEAD:$EGG_BRANCH``
         # (sandbox/egg_lib/cli_push.py); the gateway's session-scoped
@@ -923,6 +931,21 @@ class KubernetesSpawner:
             # are also derived from this same ``slice_id`` parameter.
             if slice_id is not None:
                 environment["EGG_SLICE_ID"] = slice_id
+
+            # Base branch for the BRC event-pump's per-producer
+            # ``git log {sha}..HEAD --not origin/<base> -p`` delta (#2967).
+            # Both consumers — the consensus wrapper and the event-prompt
+            # composer — read ``EGG_BASE_BRANCH`` and default to ``main`` when
+            # it's unset; nothing exported it before, so the delta errored on
+            # every non-``main`` repo and reviewers silently lost the slice-3
+            # diff. The caller (``_run_concurrent_phase``) hands us the
+            # already-resolved branch (explicit base, else the repo's detected
+            # default), so this is the single source of truth. Protected below
+            # so an ``extra_env`` override can't desync it from the worktree
+            # base. Left unset when unresolved (None) so the consumers' own
+            # documented ``main`` default still applies rather than an empty.
+            if base_branch:
+                environment["EGG_BASE_BRANCH"] = base_branch
 
             # #2725: pre-resolve the producer allowlist for this role +
             # phase so the wait-loop CLI auto-applies it. The allowlist

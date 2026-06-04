@@ -6,6 +6,7 @@ from egg_contracts.plan_parser import (
     ParsedTask,
     ParseResult,
     ParseWarning,
+    PlanPreflightError,
     _normalize_optional_string,
     extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
@@ -15,6 +16,7 @@ from egg_contracts.plan_parser import (
     parse_tasks_from_markdown,
     parse_tasks_from_yaml,
     parse_yaml_code_fence,
+    validate_plan_preflight,
 )
 
 
@@ -2311,3 +2313,215 @@ phases:
         assert not any(
             "Invalid YAML in yaml-tasks code fence" in w.message for w in result.warnings
         )
+
+
+class TestValidatePlanPreflight:
+    """AC-1a plan-phase pre-flight validator (#2777).
+
+    Covers the happy path plus each required rejection branch. Each
+    rejection adds one entry to ``PlanPreflightError.missing_fields``
+    and the validator surfaces ALL missing fields in a single raise so
+    operators see the full picture in one NACK message.
+    """
+
+    HAPPY_PLAN = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: Add feature X
+  description: |
+    Adds X to Y.
+  test_plan: |
+    - Automated: pytest
+  manual_steps: ""
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+
+    def test_happy_path_returns_none(self):
+        """Well-formed plan with all required fields validates silently."""
+        assert validate_plan_preflight(self.HAPPY_PLAN) is None
+
+    def test_missing_yaml_tasks_block_raises(self):
+        """No ``# yaml-tasks`` fence at all → ``yaml-tasks`` rejection."""
+        content = """# Plan
+
+Just markdown prose with no structured appendix.
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        # All four PR fields are also missing — the validator surfaces
+        # everything in one pass.
+        assert "yaml-tasks" in exc_info.value.missing_fields
+        assert exc_info.value.missing_fields[0] == "yaml-tasks"
+
+    def test_missing_pr_title_raises(self):
+        """``pr.title`` absent or whitespace-only → ``pr.title`` rejection."""
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  description: |
+    Body.
+  test_plan: |
+    - Automated: pytest
+  manual_steps: ""
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        assert "pr.title" in exc_info.value.missing_fields
+
+    def test_missing_pr_description_raises(self):
+        """``pr.description`` absent → ``pr.description`` rejection."""
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: Add feature X
+  test_plan: |
+    - Automated: pytest
+  manual_steps: ""
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        assert "pr.description" in exc_info.value.missing_fields
+
+    def test_missing_pr_test_plan_raises(self):
+        """``pr.test_plan`` absent → ``pr.test_plan`` rejection."""
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: Add feature X
+  description: |
+    Body.
+  manual_steps: ""
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        assert "pr.test_plan" in exc_info.value.missing_fields
+
+    def test_missing_pr_manual_steps_key_raises(self):
+        """``pr.manual_steps`` key absent → ``pr.manual_steps`` rejection.
+
+        Empty string IS allowed (contract default), so the validator
+        inspects ``raw_yaml`` directly rather than the normalised
+        ``pr_manual_steps`` value — only a missing key fails.
+        """
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: Add feature X
+  description: |
+    Body.
+  test_plan: |
+    - Automated: pytest
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        assert "pr.manual_steps" in exc_info.value.missing_fields
+
+    def test_empty_pr_manual_steps_value_is_allowed(self):
+        """``pr.manual_steps: ""`` is the contract default and accepted."""
+        # Already covered by the happy-path fixture; this asserts the
+        # explicit-empty-string spelling does not regress.
+        assert validate_plan_preflight(self.HAPPY_PLAN) is None
+
+    def test_malformed_yaml_raises_yaml_tasks(self):
+        """Unparseable yaml-tasks fence → ``yaml-tasks`` rejection.
+
+        The validator treats every ``parse_plan`` failure mode (parse
+        error, no phases) identically as a missing ``yaml-tasks``
+        block; downstream callers cannot recover either way.
+        """
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+phases:
+  - this: is: invalid: yaml: [
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        assert "yaml-tasks" in exc_info.value.missing_fields
+
+    def test_empty_content_raises_yaml_tasks(self):
+        """Empty ``content`` surfaces as ``yaml-tasks`` (per docstring)."""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight("")
+        assert "yaml-tasks" in exc_info.value.missing_fields
+
+    def test_all_pr_fields_missing_reported_together(self):
+        """Validator surfaces ALL missing fields in one raise, not the first."""
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr: {}
+phases:
+  - id: 1
+    name: Setup
+    goal: Initialize
+    tasks:
+      - id: TASK-1-1
+        description: Create schema
+        acceptance: Schema validates
+```
+"""
+        with pytest.raises(PlanPreflightError) as exc_info:
+            validate_plan_preflight(content)
+        missing = exc_info.value.missing_fields
+        assert "pr.title" in missing
+        assert "pr.description" in missing
+        assert "pr.test_plan" in missing
+        assert "pr.manual_steps" in missing

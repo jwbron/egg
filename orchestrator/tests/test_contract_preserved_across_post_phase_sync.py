@@ -8,24 +8,35 @@ contract file in the *shared* pipeline worktree at
 on disk.
 
 At phase end, the orchestrator runs ``_sync_worktree_with_remote`` to
-incorporate agent-pushed drafts/code from origin.  Two paths through that
-helper run ``git reset --hard origin/<branch>`` and so will discard
-uncommitted working-tree changes:
+incorporate agent-pushed drafts/code from origin.  Historically two
+paths through that helper ran ``git reset --hard origin/<branch>`` and
+so discarded the agent's contract writes:
 
 * ``local_ahead == 0 and remote_ahead > 0`` (local-behind) — falls
-  through to the step-4 reset.
+  through to the step-4 reset.  **Fixed by #2488**: committing
+  ``.egg-state/`` ahead of the sync turns this into a "diverged"
+  (``local_ahead > 0 and remote_ahead > 0``) state, which the helper
+  resolves via rebase rather than reset — preserving the change in the
+  canonical way.
 * ``local_ahead > 0 and remote_ahead == 0`` plus ``prior_phase_succeeded``
-  with a failed push — also falls through to the step-4 reset.
+  with a failed push — fell through to the step-4 reset even though the
+  contract decisions were already committed, silently discarding
+  completed work for zero reconcile benefit (origin had nothing the
+  worktree lacked).  This is what dropped a refiner's registered
+  decisions in ``pipeline-8cf1f000`` before the bridge could surface
+  them.  **Fixed by #2972**: the helper now returns without resetting on
+  a failed push when ``remote_ahead == 0``, preserving the committed
+  local commits in place.
 
 Without intervention, the agent's contract decisions are wiped on those
 paths before the bridge (``_queue_and_await_contract_decisions``) has a
 chance to surface them.
 
-The fix: commit ``.egg-state/`` ahead of the sync so the agent's contract
-writes become part of the local branch tip and survive any subsequent
-reset/rebase.  The pre-sync commit also turns a "local-behind" state
-into a "diverged" state, which the helper resolves via rebase rather
-than reset — preserving the change in the canonical way.
+The #2488 fix is to commit ``.egg-state/`` ahead of the sync so the
+agent's contract writes become part of the local branch tip and survive
+any subsequent reset/rebase.  The #2972 fix complements it by keeping
+the helper from resetting that committed tip away when the post-phase
+push fails and there is no remote work to reconcile against.
 
 These tests use real git plumbing (no subprocess mocks) so the
 commit/sync interaction is verified against ground truth.  Test 1
@@ -220,6 +231,45 @@ def _make_gateway_stub_with_real_git(worktree: Path) -> MagicMock:
     return spawner
 
 
+def _make_gateway_stub_with_failing_push(worktree: Path) -> MagicMock:  # noqa: ARG001
+    """``spawner`` mock with a real fetch but a push that always fails.
+
+    Mirrors the ``pipeline-8cf1f000`` condition where the gateway's push
+    reconcile could not authenticate (``could not read Username for
+    'https://github.com'``) and returned a failed ``PushResult`` — so the
+    local-ahead, ``remote_ahead == 0`` branch must not reset committed
+    work away (#2972).
+    """
+    spawner = MagicMock()
+
+    def real_fetch(pipeline_id: str, repo_path: str, mode: str) -> bool:  # noqa: ARG001
+        result = subprocess.run(
+            ["git", "-C", repo_path, "fetch", "origin"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        return result.returncode == 0
+
+    def failing_push(
+        pipeline_id: str,  # noqa: ARG001
+        repo_path: str,  # noqa: ARG001
+        branch: str,  # noqa: ARG001
+        mode: str,  # noqa: ARG001
+        base_branch: str | None = None,  # noqa: ARG001
+    ) -> PushResult:
+        return PushResult(
+            ok=False,
+            category="reconcile_fetch_failed",
+            detail="fatal: could not read Username for 'https://github.com'",
+        )
+
+    spawner.gateway.fetch_worktree_branch.side_effect = real_fetch
+    spawner.gateway.push_worktree_branch.side_effect = failing_push
+    return spawner
+
+
 def test_uncommitted_contract_decisions_lost_when_sync_resets_without_pre_commit(
     tmp_path: Path,
 ) -> None:
@@ -338,3 +388,58 @@ def test_real_sync_helper_loses_decisions_without_pre_sync_commit(
         "local-behind path resets to origin and discards the agent's "
         "uncommitted contract decision — the bug fixed in #2488."
     )
+
+
+def test_push_failure_preserves_committed_decisions_without_reset(
+    tmp_path: Path,
+) -> None:
+    """Regression for #2972: a failed post-phase push must not reset away
+    committed contract decisions when ``remote_ahead == 0``.
+
+    Reproduces the ``pipeline-8cf1f000`` refine boundary: the agent's
+    decision is committed by the pre-sync ``_commit_statefiles_to_worktree``
+    (#2488), so the worktree is ``local_ahead == 1``.  No agent draft
+    advances origin, so ``remote_ahead == 0``.  The gateway push then
+    fails (credential error).  Previously the helper fell through to
+    ``git reset --hard origin/<branch>`` and silently discarded the
+    decision commit (``reset_succeeded``, ``hard_reset_performed`` False),
+    leaving the decision bridge nothing to surface.  The fix returns
+    ``local_ahead_push_failed`` without resetting, so the decision
+    survives in the worktree for the bridge.
+    """
+    worktree, _remote, branch, identifier = _setup_repo_with_remote(tmp_path)
+    # Deliberately do NOT push an agent draft to origin: origin stays at
+    # the bootstrap contract so the worktree is local-ahead / remote==0.
+
+    contract_path = _agent_writes_decision_to_contract(worktree, identifier)
+    expected_body = contract_path.read_text()
+
+    # Pre-sync commit (the #2488 step) — captures the decision into the tip.
+    _commit_statefiles_to_worktree(
+        worktree,
+        "Persist agent statefile writes before refine sync",
+        pipeline_identifier=42,
+        pipeline_id=identifier,
+    )
+    head_before = _git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
+
+    spawner = _make_gateway_stub_with_failing_push(worktree)
+    outcome = _sync_worktree_with_remote(
+        spawner,
+        identifier,
+        worktree,
+        prior_phase_succeeded=True,
+        gateway_mode="public",
+        base_branch="main",
+        pipeline_branch=branch,
+    )
+
+    # The push was attempted and failed.
+    spawner.gateway.push_worktree_branch.assert_called_once()
+    # The committed decision survived — no destructive reset ran.
+    assert outcome.case == "local_ahead_push_failed"
+    assert contract_path.read_text() == expected_body
+    assert "decision-1" in contract_path.read_text()
+    # HEAD is unchanged: the local-ahead commit was preserved, not reset.
+    head_after = _git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
+    assert head_after == head_before

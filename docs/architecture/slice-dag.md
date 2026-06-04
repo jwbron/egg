@@ -75,7 +75,7 @@ pass either.
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
 | `serialized_chain_order` | `list[str]` | `[]` | Architect-emitted ordering for would-be multi-parent slices (#2809). When the architect identifies a slice that would naturally have >1 parents, it serialises the upstream cluster into a chain and records the chosen order on the downstream slice. |
-| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. |
+| `parent_branch_at_creation` | `str \| None` | `None` | Git branch the slice's integration branch was forked off when its worktree was provisioned. Eager-persisted under the per-pipeline state lock in the same contract write that flips `SliceStatus.PENDING → IN_PROGRESS` ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-2, cq-9), so Layer-C bootstrap reconciliation has a single signal that distinguishes a fresh slice from an interrupted one and the value is durable across orchestrator restarts. Read by the stacked-PR reconciler when the parent's branch has been deleted by a merge so it can compute the correct rebase target. Empty on legacy/orphaned slices that pre-date the eager-persist contract — in that case `_resolve_slice_base_branch` falls back to a merge-base probe (TASK-4-3) against the dependency-derived parent before routing onto `pipeline_branch`. |
 | `integration_base_sha` | `str \| None` | `None` | Origin SHA the slice's integration branch was forked at when first created (#2871). Recorded once, right after branch creation and before any agent is spawned, so the tip still equals this SHA. Lets `is_slice_branch_merged_into_parent` distinguish an *empty, un-started* branch (tip still equals this SHA → trivially an ancestor of any advanced parent, but not merged work) from a *genuinely merged* one (tip has moved past this SHA). Slices provisioned before this field existed fall back to the prior ancestor-only check. |
 
 ## Plan Parser & Forest Validation
@@ -396,8 +396,12 @@ shape:
        `iter_ready` already enforces, so the executor's concurrency
        cap and `EGG_ORCH_MAX_PARALLEL_SLICES` agree.
     3. Each worker thread runs `_run_one_slice(slice_id, parent_id)`:
-       persists `Slice.parent_branch_at_creation` to the contract,
-       creates the integration branch via the gateway, calls
+       persists `Slice.parent_branch_at_creation` AND flips
+       `SliceStatus.PENDING → IN_PROGRESS` in the same contract write
+       under the per-pipeline state lock ([#2777](https://github.com/jwbron/egg/issues/2777)
+       slice-4 TASK-4-2, cq-9 — gives Layer-C bootstrap a single
+       signal that distinguishes a fresh slice from an interrupted
+       one), creates the integration branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
        agent team, awaits BRC consensus, and on consensus reach calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
@@ -412,6 +416,8 @@ shape:
    a terminal state).
 5. **Tear down** the reconciler thread and aggregate per-slice exit
    codes into the run-loop's return value.
+
+The run loop runs a **bootstrap reconciliation pass** before the first wave begins. Layer A reconciles slices the contract already marks `COMPLETE`; Layer B reconciles the open-PR side. Layer C ([#2777](https://github.com/jwbron/egg/issues/2777) slice-4 TASK-4-4, bundles [#2409](https://github.com/jwbron/egg/issues/2409)) reconciles non-`COMPLETE` slices that did real work before an orchestrator-pod recycle interrupted the prior run. The Layer-C classifier (`_classify_non_complete_slice`) reads `SliceStatus`, queries the gateway for the integration branch's origin commit count, and looks up the slice's consensus tracker, then applies a 5-way decision: (1) `IN_PROGRESS` with no commits → no-op (scheduler re-yields `READY`); (2) `IN_PROGRESS` + commits + no consensus → mark spawned; (3) `IN_PROGRESS` + commits + consensus reached → mark `COMPLETE`; (4) `BLOCKED` without a pending HITL → escalate to HITL; (5) corrupt / unclassifiable → escalate to HITL. Cases 4/5 create unresolved `Decision` objects on the contract via `_escalate_layer_c_hitl` rather than silently re-yielding `READY` (silent classification error is worse than an operator pause). The classifier's gateway-probe failure default is "fresh, re-yield `READY`" — the safer direction for the scheduler — which is deliberately the opposite of `_resolve_slice_base_branch`'s probe-failure default ("derived parent" — the safer direction for the next push). See [`Slice/phase restart hardening`](orchestrator.md#slicephase-restart-hardening-2777-slice-4-bundles-2409) for the full restart-hardening picture, including the slice-aware `restart_phase` clear and the per-slice consensus tracker reconstruction at startup.
 
 Per-slice agent teams are spawned via the existing
 `ConcurrentPhaseExecutor` machinery with `slice_id` plumbed through:
@@ -443,41 +449,38 @@ slice_count=None, slice_files_affected=None, context_pr_number=None, ...)`
 opens one PR per slice (#2745). Slice PRs are scoped to their own slice:
 the body shows the slice subject, files affected, and full task
 descriptions with acceptance criteria. Strategic context (analysis doc,
-plan doc, refine/plan BRC history) lives on the base/context PR opened
-by #2548, which slice PRs link to via `context_pr_number`. The terminal
-slice keeps the umbrella treatment (program-level test plan, manual
-steps, pre-merge obligations) because it is the merge gate.
+plan doc, refine/plan BRC history) lives on the **context PR** —
+`egg/<pipeline_id>/work → main`, opened up-front at the plan→implement
+boundary (#2777) — which slice PRs link to via `context_pr_number`.
+Program-level test plan, manual steps, and pre-merge obligations now
+live on that context PR (no longer on a "terminal slice umbrella"), so
+every slice PR is purely slice-scoped.
 
 - **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
   chars (titles longer than that get truncated to `title[:67] + "..."`).
   `program-slug` is derived from `pipeline_id`: `issue-<N>` pipelines
   collapse to `issue-<N>` (version suffix dropped); `pipeline-<hash>`
-  pipelines keep a truncated prefix. `position` is `slice-N/M` for
-  non-terminal slices (1-based index over total declared slice count)
-  and `merge-gate` for the terminal slice. `subject` is `slice_name`
-  for non-terminals and `program_title` for the terminal. When the
-  70-char cap fires, the slug + position marker are preserved and the
-  `subject` is what gets truncated first — on hash-id pipelines the
-  slug + position eat ~20–30 chars, so subjects on long-named slices
-  can lose their tail (see `_derive_program_slug` for the budget). When
-  `program_title` is empty (older contracts / planner skipped the
-  field), every slice falls back to the deterministic
-  `{slice_id}: {slice_name}` form (#2539).
-- **Body (non-terminal, `context_pr_number` present).** Optional
+  pipelines keep a truncated prefix. `position` is `slice-N/M` and
+  `subject` is the slice name; the legacy `merge-gate` marker and the
+  program-title fallback on the terminal slice were removed alongside
+  the umbrella banner (#2777). When `program_title` is empty (older
+  contracts / planner skipped the field), every slice falls back to
+  the deterministic `{slice_id}: {slice_name}` form (#2539).
+- **Body (slice-scoped, `context_pr_number` present).** Optional
   1-line program blurb (first sentence of `program_description`) →
   `**Base PR:** #<context_pr_number>` → `## This slice` (slice name,
   files affected, full task descriptions + acceptance criteria) →
-  `## Stack` (position, base PR, base branch).
-- **Body (terminal — merge gate).** `> Program-level umbrella PR …`
-  banner → `program_description` → `## ⚠️ Pre-merge Obligations` /
-  `## ✅ Resolved within this PR` (when `program_deferred_actions`
-  is non-empty, rendered by `orchestrator/pr_obligations.py`) →
-  `## This slice` → `## Test Plan` → `## Manual Steps` → `## Stack`.
-- **Body (non-terminal, no `context_pr_number` — UX backstop).**
-  Falls back to inlining the full program narrative so the slice PR
-  remains reviewable as a standalone diff against `/work`. The stack
-  is still unmergeable in this state (no base PR for `work → main`);
-  the fallback is a presentational fix only.
+  `## Stack` (position, base PR, base branch). Program-level test
+  plan, manual steps and pre-merge obligations live on the up-front
+  context PR (#2777), not on any slice PR.
+- **Body (slice-scoped, no `context_pr_number` — should not occur
+  under #2777).** Because the context PR is opened up-front,
+  hard-required and idempotent at the plan→implement boundary, every
+  slice PR sees a populated `context_pr_number`. The legacy "inline
+  program narrative" backstop body was removed in #2777; if
+  `context_pr_number` is unexpectedly missing, the slice PR opens
+  without the `**Base PR:**` line and the stack is non-mergeable until
+  the operator reconciles the missing context PR.
 
 The `## Stack` block is the human-facing footer, but `_format_stack_block`
 also appends a legacy plain-text line (``Slice <slice-id> of pipeline
@@ -496,41 +499,37 @@ asserts `program_deferred_actions is None` so a mis-routed obligations
 payload fails fast instead of being silently dropped (#2354 / #2746).
 
 The implement-phase run loop (`_run_implement_phase_slices` in
-`orchestrator/routes/pipelines.py`) selects the terminal slice and
-threads the kwargs:
+`orchestrator/routes/pipelines.py`) threads the kwargs uniformly across
+every slice (no terminal-slice selection under #2777):
 
-1. Compute `depended_on = {dep for slice in contract.slices for dep in slice.dependencies}`.
-2. `terminal_ids = [s.id for s in contract.slices if s.id not in depended_on]`.
-3. `chosen_terminal = terminal_ids[-1]` (last in declared order — see
-   the multi-terminal forest note below).
-4. For **every** slice: compute 1-based `slice_index` (position in
+1. For **every** slice: compute 1-based `slice_index` (position in
    `contract.slices`) and total `slice_count`; collect
    `slice_files_affected` as the union of `task.files_affected` across
    the slice's tasks; pass `context_pr_number` from
-   `program_pr.context_pr_number` (the base/context PR opened by
-   #2548, or `None` if that PR was not opened).
-5. For the terminal slice: pass `program_deferred_actions` (collected
-   via `_collect_pre_merge_obligations`); set `terminal_slice_id=None`.
-6. For non-terminal slices: `program_deferred_actions=None`; set
-   `terminal_slice_id=chosen_terminal` **only if**
-   `contract.pr.title` is non-empty (suppressed for older contracts
-   without a program block).
+   `program_pr.context_pr_number` (the up-front context PR opened by
+   #2777 at the plan→implement boundary).
+2. `program_deferred_actions` is **always `None`** on slice PRs —
+   pre-merge obligations live on the context PR (#2777), not on any
+   slice PR.
+3. `terminal_slice_id` is no longer threaded; the legacy "merge-gate"
+   marker was removed alongside the umbrella banner.
 
 ### Multi-terminal-forest pointer caveat
 
 The slice DAG is a forest (≤1 DAG parent per slice — see
 [Forest Validation](#plan-parser--forest-validation)) and a
 multi-tree forest can have multiple terminal slices, one per tree.
-The current behaviour picks `terminal_ids[-1]` (last declared) as
-`chosen_terminal` — that's the slice that gets the `merge-gate`
-position marker and the umbrella banner; the per-merge obligations
-section also lives on exactly that PR. Other terminal leaves in
-non-chosen trees are treated as non-terminals: they receive a
-`slice-N/M` position marker and skip the umbrella banner and
-obligations section. The choice is deliberate (arbitrary but stable,
-deterministic across parallel slice runs); operators reviewing a
-multi-tree pipeline should not be surprised that the merge-gate PR
-sits in `chosen_terminal`'s subtree.
+Under #2777 the program-level test plan, manual steps and pre-merge
+obligations live on the context PR (`egg/<pipeline_id>/work → main`),
+not on any slice PR, so there is no longer a "chosen terminal" / merge
+gate selection step. The implement-phase run loop passes
+`context_pr_number` to every slice and `program_deferred_actions`
+remains `None` on every slice PR (the obligations section is rendered
+into the context PR body, not into a terminal slice). The
+multi-terminal-forest pointer ambiguity that motivated the prior
+`terminal_ids[-1]` selection is therefore moot — operators reviewing a
+multi-tree pipeline see slice PRs that all link to the same context PR
+as their merge gate.
 
 ## Stacked-PR rebase reconciler
 
@@ -575,11 +574,15 @@ GitHub API so unit tests can substitute deterministic fakes. In
 production the run loop binds them to live gateway helpers — the
 reconciler is fully functional, not a no-op:
 
-- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which runs
-  `gh pr list --json number,headRefName,baseRefName,state` through the
-  existing per-agent `gh` allowlist. JSON parsing failures degrade to
-  an empty list (logged warning) so a transient `gh` flake does not
-  cause the reconciler to misclassify orphans.
+- **`list_open_prs`** → `GatewayClient.list_open_prs(...)`, which calls the
+  orchestrator-only control-plane route `/api/v1/gh/list_open_prs` with
+  launcher auth (not a synthetic agent session — [#2925](https://github.com/jwbron/egg/issues/2925)). The gateway constructs a
+  fixed read-only argv server-side — `gh pr list --repo <r> --state open
+  --limit <N> --json number,headRefName,baseRefName` — and returns
+  `{"prs": [...]}`. The `--state open --limit <N>` qualifiers are what
+  keep this route narrow rather than a general `gh` shell. JSON parsing
+  failures degrade to an empty list (logged warning) so a transient `gh`
+  flake does not cause the reconciler to misclassify orphans.
 - **`list_remote_branches`** → `GatewayClient.list_remote_branches(...)`,
   which runs `git ls-remote --heads origin` through the existing
   per-agent `ls-remote` allowlist (`operation="ls-remote"`). The
@@ -613,10 +616,13 @@ reconciler is fully functional, not a no-op:
   gateway unavailable) return `False` and the reconciler counts them
   as `rebases_failed`.
 
-**No new privileged orchestrator-role endpoint is introduced** for any
-of the three callables (refine-phase decision-15) — every gateway call
-flows through the same per-agent allowlists the slice's regular agent
-team uses.
+`list_remote_branches` and `rebase_onto` flow through the existing
+per-agent allowlists. `list_open_prs` uses the dedicated control-plane
+route `/api/v1/gh/list_open_prs` with launcher auth rather than a
+synthetic agent session (refine-phase decision-15 intent preserved: no
+general-purpose privileged gh-command surface is introduced — the route
+accepts only `repo`/`limit` and constructs the fixed read-only argv
+server-side).
 
 ## Architect, planner & plan-reviewer prompt updates
 
@@ -686,7 +692,7 @@ on parse failure.
 
 | Env var | Type | Default | Controls |
 |---------|------|---------|----------|
-| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 2 | **Per-pipeline** wave slice spawn concurrency cap. Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 1 | **Per-pipeline** wave slice spawn concurrency cap (fallback default). Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. Overridden per-pipeline by `PipelineConfig.max_parallel_slices` (set at pipeline creation), which takes precedence when non-null. |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | int | 4 | **Process-wide** slice cap across ALL running pipelines (#2241 gap 1). Enforced by `orchestrator.global_slice_admit.try_admit()` in the run loop; deferred slices stay READY and re-yield next tick. |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | int | 3 | Per-slice BRC re-proposal ceiling before HITL escalation. *Currently inert — #2199 wires the trip flag through the BRC re-proposal loop.* |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
@@ -738,8 +744,10 @@ during refine. The most consequential are referenced inline above:
   trade-off accepted).
 - **decision-14** — BRC tracker keying: hybrid (`pipeline_id` for
   cross-slice telemetry, nested `pipeline_id/slice_id` for `CONSENSUS_*`).
-- **decision-15** — no privileged orchestrator merge endpoint; reconciler
-  authenticates as the existing low-privilege agent identity.
+- **decision-15** — no general-purpose privileged gh-command surface;
+  reconciler reads via narrow read-only routes (per-agent allowlists for
+  `ls-remote`/rebase; control-plane fixed-argv `/api/v1/gh/list_open_prs`
+  with launcher auth, post [#2925](https://github.com/jwbron/egg/issues/2925)).
 - **decision-16** — stacked-PR rebase: GitHub auto-retarget primary path,
   reconciler safety net.
 - **decision-17** — auto-serialization for would-be multi-parent slices:

@@ -116,56 +116,28 @@
         }
       ],
       "exit_requires": "reviewer"
-    },
-    "pr": {
-      "allowed_operations": [
-        {
-          "type": "gh",
-          "pattern": "pr create*",
-          "description": "Create pull requests"
-        },
-        {
-          "type": "gh",
-          "pattern": "pr edit *",
-          "description": "Edit pull requests"
-        },
-        {
-          "type": "git",
-          "pattern": "push *",
-          "description": "Push code to remote"
-        },
-        {
-          "type": "egg-contract",
-          "pattern": "show *",
-          "description": "View contract state"
-        }
-      ],
-      "blocked_operations": [],
-      "exit_requires": "human"
     }
   },
   "phase_file_restrictions": {
     "refine": {
       "allowed_patterns": [
-        ".egg-state/contracts/*",
         ".egg-state/drafts/*analysis*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
         ".egg-state/reviews/*",
         ".egg-state/agent-anchors/*"
       ],
-      "description": "Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, reviews, and agent anchors"
+      "description": "Refine phase can only push analysis drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git - #2979)"
     },
     "plan": {
       "allowed_patterns": [
-        ".egg-state/contracts/*",
         ".egg-state/drafts/*plan*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
         ".egg-state/reviews/*",
         ".egg-state/agent-anchors/*"
       ],
-      "description": "Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, reviews, and agent anchors"
+      "description": "Plan phase can only push plan drafts, checkpoints, agent outputs, reviews, and agent anchors (contracts go through the contract API, not git - #2979)"
     },
     "implement": {
       "blocked_patterns": [
@@ -175,10 +147,6 @@
         ".egg-state/reviews/*"
       ],
       "description": "Implement phase can push code but not .egg-state files (except checkpoints)"
-    },
-    "pr": {
-      "allowed_patterns": ["*"],
-      "description": "PR phase can push everything"
     }
   }
 }

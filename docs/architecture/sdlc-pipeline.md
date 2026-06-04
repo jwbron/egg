@@ -9,7 +9,7 @@ For operational details, CLI commands, and triggering instructions, see the [SDL
 **The core guarantee**: An agent cannot bypass verification gates or self-approve its own work. All state transitions are enforced structurally through role-based mutations and gateway policy enforcement.
 
 **Key properties:**
-- **Phased execution**: Work progresses through defined phases (refine → plan → implement → pr)
+- **Phased execution**: Work progresses through defined phases (refine → plan → implement); implement is terminal — the context PR opens at the plan→implement boundary
 - **Role-based control**: Implementer, Reviewer, and Human roles have distinct permissions
 - **Human-in-the-loop**: Critical transitions pause for human approval
 - **Audit trail**: All mutations are logged for accountability
@@ -39,12 +39,13 @@ This architecture implements **structural enforcement**: the agent physically ca
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                            SDLC Pipeline                                │
 │                                                                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
-│  │   Refine    │───▶│    Plan     │───▶│  Implement  │───▶│    PR    │  │
-│  │  (Human)    │    │  (Human)    │    │ (Reviewer)  │    │ (Human)  │  │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
-│        │                  │                  │                  │       │
-│        ▼                  ▼                  ▼                  ▼       │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
+│  │   Refine    │───▶│    Plan     │───▶│         Implement           │  │
+│  │  (Human)    │    │  (Human)    │    │  (Reviewer; context PR      │  │
+│  └─────────────┘    └─────────────┘    │   opened at phase start)    │  │
+│                                        └─────────────────────────────┘  │
+│        │                  │                  │                          │
+│        ▼                  ▼                  ▼                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                    Contract State                               │    │
 │  │  .egg-state/contracts/{identifier}.json                         │    │
@@ -65,8 +66,7 @@ This architecture implements **structural enforcement**: the agent physically ca
 |-------|---------|---------------|
 | **refine** | Problem analysis and requirements gathering | Human approval |
 | **plan** | Implementation planning with task breakdown | Human approval |
-| **implement** | Task execution and code changes | All checks pass (CI + PR review) |
-| **pr** | Pull request creation and merge | Human merge |
+| **implement** | Task execution and code changes; context PR opened automatically at phase start | All checks pass + human merge (terminal phase) |
 
 ### Role Permissions
 
@@ -83,7 +83,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "issue": { "number": 133, "title": "...", "url": "..." },
   "current_phase": "implement",
   "slices": [{
@@ -118,46 +118,69 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 > **Schema 1.1 (#2548)**: `schemaVersion` was bumped from `1.0` to `1.1`
 > to track the addition of four optional `pr.context_*` fields on
-> `PRMetadata` (`context_title`, `context_description`, `context_branch`,
-> `context_pr_number`) used by the dedicated context-PR mechanism. The
-> bump is purely additive — pre-1.1 contracts load transparently via a
-> Pydantic `model_validator(mode="after")` migration that stamps
-> `schemaVersion = "1.1"` on every load when the on-disk value is exactly
-> `"1.0"`; the migration is silent (no audit-log entry) and idempotent.
-> `context_title` / `context_description` are planner-emitted optional
-> framing for the strategic-plan PR; `context_branch` /
-> `context_pr_number` are populated by the orchestrator after the context
-> branch is created and the context PR is opened.
+> `PRMetadata` used by the dedicated context-PR mechanism. The bump was
+> purely additive at the time. The two-branch topology these fields
+> supported was collapsed in #2777 (see schema 1.2 below); three of the
+> four fields are now hard-removed and only `pr.context_pr_number`
+> remains.
 >
-> **The context-PR mechanism is fully wired as of #2593 (gap from #2548 closed).** After
-> plan-gate approval the orchestrator creates `egg/<pipeline_id>/context`
-> from the pipeline's base branch, copies the refine + plan artifacts
-> (analysis.md, plan.md, BRC history JSON/MD, per-role agent
-> transcripts, and the contract JSON — see the #2685 paragraph below)
-> onto a temp worktree committed to that branch, opens a
-> doc-only PR via `gh pr create`, and persists `context_branch` /
-> `context_pr_number` into the contract. Slice-1 stacks on the context
-> branch rather than the pipeline work branch, so the strategic narrative
-> is reachable through the slice PR diff. The stacked-PR reconciler
-> prefers the context branch over the pipeline branch when retargeting
-> orphaned child PRs whose entire ancestor chain has been deleted.
-> (#2593 extended the hook from the inline `_run_pipeline` auto-advance
-> path to all plan→implement transition paths: `advance_phase` REST/MCP,
-> HITL-approval recovery in `start_pipeline`, and the implement-entry
-> backstop. #2744 added a fifth safety net at slice-loop entry in
-> `_run_implement_phase_slices` — called before any slice is provisioned
-> so slice-1's context-branch resolution finds a populated
-> `context_branch`; the wrapper's inner `context_pr_number` short-circuit
-> makes this call cheap when an earlier path already opened the PR.)
+> **Schema 1.2 (#2777)**: `schemaVersion` was bumped from `1.1` to `1.2`
+> to **hard-remove** three redundant fields on `PRMetadata`:
+> `pr.context_branch`, `pr.context_title`, and `pr.context_description`.
+> Under the new topology (#2777) the context PR is
+> `egg/<pipeline_id>/work → main`, so `context_branch` is always
+> derivable as `egg/<pipeline_id>/work` and the program-level title and
+> description live on the standard `pr.title` / `pr.description`. The
+> sole remaining context-PR field is `pr.context_pr_number` (still the
+> PR number of the `egg/<pipeline_id>/work → main` context PR). Pre-1.2
+> contracts on disk load transparently: a `model_validator(mode="wrap")`
+> migration (`Contract._migrate_schema_version_to_1_2`) strips the three
+> removed keys before Pydantic constructs `PRMetadata` and bumps
+> `schemaVersion` to `"1.2"`; the new value is persisted on the next
+> save. See [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
 >
-> **#2685 added two follow-on behaviors:** the contract JSON is now
-> included in the context PR diff (resolved via the contract loader so
-> integer issue identifiers map to the canonical `issue-<N>.json` path
-> rather than a bare `{identifier}.json` glob), and the legacy
-> `<pipeline_branch> → main` auto-PR in the PR phase is suppressed for
-> slice-DAG pipelines (`len(contract.slices) > 1`) — per-slice PRs
-> already exist stacked on the context PR, so the program-level
-> auto-PR would be redundant and confusing to reviewers.
+> **Context-PR mechanism (#2777 collapse).** The context PR is opened
+> **up-front at the plan→implement boundary**, **hard-required** and
+> **idempotent**, against the pipeline work branch (`egg/<pipeline_id>/work
+> → main`). The legacy `egg/<pipeline_id>/context` doc-only branch and
+> the multi-step soft-fail open path were deleted (#2777). The PR phase
+> as a separate pipeline stage was also deleted; there is no terminal
+> backstop because the up-front open is hard-required and idempotent.
+> Slice-1's `parent_branch` resolves to `egg/<id>/work`; the stacked-PR
+> reconciler uses the work branch as the canonical fallback when
+> retargeting orphaned children.
+
+### Schema v1.1 → v1.2 migration note (#2777)
+
+`PRMetadata` lost three redundant fields in v1.2:
+
+| Removed field | Replacement |
+|---------------|-------------|
+| `pr.context_branch` | Derived: always `egg/<pipeline_id>/work`. The orchestrator computes the head branch from the pipeline ID; nothing reads `pr.context_branch` from the contract anymore. |
+| `pr.context_title` | Use `pr.title`. Program-level framing now reuses the standard title. |
+| `pr.context_description` | Use `pr.description`. Program-level narrative now reuses the standard description. |
+
+Operational impact:
+
+- **In-flight contracts on disk** that still contain any of the three
+  removed fields load transparently under v1.2: the
+  `Contract._migrate_schema_version_to_1_2` wrap-mode migration strips
+  the three removed keys before Pydantic constructs `PRMetadata` and
+  bumps `schemaVersion` to `"1.2"`. The new value is persisted on the
+  next contract save. New pipelines start at v1.2 and never write the
+  removed fields.
+- **Planner authoring**: plan YAML must no longer emit
+  `pr.context_title` or `pr.context_description` — those keys are
+  rejected at parse time. Use `pr.title` and `pr.description` to frame
+  the work→main context PR.
+- **PR-phase removal**: there is no longer a separate "PR" pipeline
+  stage. The context PR opens up-front at plan→implement boundary
+  (hard-required, idempotent via `GatewayClient.lookup_open_pr`'s
+  server-side head+base filter) and per-slice PRs are opened inline by
+  `create_slice_pr` (idempotent via the same
+  `GatewayClient.lookup_open_pr` primitive, #2777 cq-8 / #2934). The
+  legacy `_should_skip_pr_phase_auto_pr` skip gate and the PR-phase
+  route/runner were removed.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
@@ -221,7 +244,7 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 | Contract schema | `.egg/schemas/contract.schema.json` |
 | Contract instances | `.egg-state/contracts/{identifier}.json` |
 | Phase drafts | `.egg-state/drafts/{identifier}-{analysis\|plan}.md` (preserved on PR branch as pipeline artifacts) |
-| BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` (re-written in PR phase as safety net; `.md` is human-readable with YAML metadata blocks, `.json` is machine-readable) |
+| BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` (committed by each phase as it completes; `.md` is human-readable with YAML metadata blocks, `.json` is machine-readable) |
 | Review verdicts | `.egg-state/reviews/{identifier}-{phase}-{reviewer}.json` |
 | Contract library | `shared/egg_contracts/` |
 | Gateway endpoints | `gateway/contract_api.py` (proxy), `gateway/phase_api.py` |
