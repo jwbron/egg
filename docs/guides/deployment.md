@@ -130,6 +130,7 @@ make build
 | `make redeploy` | Rebuild images, import into k3s, and deploy in one step — use this after any commit, pull, rebase, or branch switch |
 | `make build` | Build images and import into k3s |
 | `make litellm-config` | Apply host-side LiteLLM `model_list` from `~/.config/egg/litellm-models.yaml`; no-op if absent |
+| `make routing-policy` | Hot-reload gateway routing policy from `~/.config/egg/routing-policy.yaml` without a pod rollout; no-op if absent |
 | `make k3s-teardown` | Remove k3s installation |
 
 #### `make deploy` details
@@ -150,6 +151,13 @@ See the [Per-Agent Models guide](per-agent-models.md) for the overlay format.
 If you invoke `make litellm-config` standalone before the cluster has been deployed, the target
 also short-circuits with a notice when the in-cluster `litellm-config` ConfigMap is not yet present —
 run `make deploy` first so the base ConfigMap exists, then re-run `make litellm-config` to overlay.
+
+`make deploy` also bundles `~/.config/egg/routing-policy.yaml` into `gateway-secrets` (via
+`make k3s-secrets`) if the file exists. Between deploys, `make routing-policy` hot-reloads the
+policy by re-creating `gateway-secrets` — no gateway pod rollout, no in-flight-turn loss. Copy
+`config/routing-policy.template.yaml` to `~/.config/egg/routing-policy.yaml` to get started.
+See [Upstream Routing](../architecture/upstream-routing.md#routing-policy--reactive-fallback-2987)
+for the policy schema and quota/5xx trigger defaults.
 
 **Override at deploy time:**
 
