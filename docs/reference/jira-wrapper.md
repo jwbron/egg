@@ -2,6 +2,8 @@
 
 > Gateway REST surface that gives sandboxed agents bounded access to Jira. Mirrors the `/api/v1/gh/*` pattern: Atlassian credentials live in the gateway, the sandbox posts session-authenticated JSON, and every call is funneled through a private-mode gate, a project allowlist, and structured audit logs.
 
+> **Two front-ends, one route surface.** Sandbox agents reach these routes via either the `mcp__jira__*` MCP tools ([#2994](https://github.com/jwbron/egg/issues/2994)) — preferred, because they appear in the agent's tool manifest every turn — or the `sandbox/scripts/jira` bash wrapper. Both POST the identical bodies documented below; the MCP layer holds no credentials and adds no capability (it's a presentation layer over these routes). The operator-only `ticket/transition` route is **not** exposed via MCP (the bash wrapper doesn't surface it either). See [Agent MCP Tools → `mcp__jira__*`](agent-tools.md#mcp__jira__--jira-reads--writes-gateway-backed-2994). This doc is the source of truth for the **route surface and policy**; the MCP tools translate snake_case args (`ticket`, `jql`, `issue_type`, `add_labels`) to the camelCase bodies below.
+
 The original v1 surface ([#1556](https://github.com/jwbron/egg/issues/1556)) was read-only. The bounded write extension ([#1924](https://github.com/jwbron/egg/issues/1924)) adds four narrow write routes — `ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create` — under the same decorators and policy plumbing. All write verbs share the read verbs' private-mode + project-allowlist + audit chain; see [Write verbs](#write-verbs) for the per-route body schema, ADF wrapping rules, idempotency-key semantics, and the audit-log redaction contract for write payloads. Transitions, worklogs, attachments, watchers, deletions, and `DELETE` methods are **permanently out of scope** and are enforced at the path validator. `PUT` / `PATCH` are blocked from the `/execute` passthrough but used internally by `JiraClient.edit_issue` against `PUT /rest/api/3/issue/{key}` (the validator is bypassed for hardcoded write methods).
 
 ## Endpoint surface
@@ -457,7 +459,7 @@ jira link create \
 
 Mixing two body-source flags returns a non-zero exit with a usage error before the gateway is called. Likewise for `--labels` vs `--add-labels` / `--remove-labels` on `ticket edit`.
 
-**`notifyUsers` default differs between the wrapper and the HTTP route.** The HTTP route (`/api/v1/jira/ticket/edit`) defaults `notifyUsers=false` (decision-5 — quiet update). The `jira ticket edit` wrapper inverts that and defaults to `--notify` (sends `notifyUsers=true`) so the CLI matches Atlassian's UI behavior. Pass `--no-notify` to suppress notifications.
+**`notifyUsers` default differs between the front-end wrappers and the HTTP route.** The HTTP route (`/api/v1/jira/ticket/edit`) defaults `notifyUsers=false` (decision-5 — quiet update). The `jira ticket edit` bash wrapper and the `mcp__jira__ticket_edit` MCP tool both invert that and default to notify-on (sends `notifyUsers=true`) so the front-ends match Atlassian's UI behavior. Pass `--no-notify` (bash) or `notify_users=false` (MCP) to suppress notifications.
 
 `jira help` (and `jira --help`) lists all eight subcommands (`ticket get | comments | create | edit`, `ticket comment add`, `search`, `execute`, `link create`).
 

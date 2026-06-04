@@ -115,7 +115,9 @@ class TestSpillToFile:
 
     def test_oversized_payload_spilled(self, tmp_path):
         big = "\n".join(f"line-{i}" for i in range(5000))
-        desc = spill_to_file(big, tool="checkpoint_show", cap_bytes=1000, spill_dir=str(tmp_path))
+        desc = spill_to_file(
+            big, tool="confluence_page_get", cap_bytes=1000, spill_dir=str(tmp_path)
+        )
         assert desc is not None
         assert desc[SPILL_KEY] is True
         assert desc["total_bytes"] == _utf8(big)
@@ -137,7 +139,9 @@ class TestSpillToFile:
         # A compact (one physical line) payload must still yield a small,
         # well-formed descriptor — the preview can't blow past its budget.
         big = "z" * (300 * 1024)
-        desc = spill_to_file(big, tool="checkpoint_show", cap_bytes=1000, spill_dir=str(tmp_path))
+        desc = spill_to_file(
+            big, tool="confluence_page_get", cap_bytes=1000, spill_dir=str(tmp_path)
+        )
         assert desc is not None
         assert _utf8(desc["preview"]) <= 4 * 1024
         # output_path survives — it's the field that makes spill useful.
@@ -150,7 +154,9 @@ class TestSpillToFile:
         # descriptor dwarf the cap and risk the outer cap_text dropping
         # output_path). The full content is still preserved on disk.
         big = "z" * (300 * 1024)
-        desc = spill_to_file(big, tool="checkpoint_show", cap_bytes=2000, spill_dir=str(tmp_path))
+        desc = spill_to_file(
+            big, tool="confluence_page_get", cap_bytes=2000, spill_dir=str(tmp_path)
+        )
         assert desc is not None
         assert _utf8(desc["preview"]) <= 2000
         assert Path(desc["output_path"]).exists()
@@ -163,7 +169,9 @@ class TestSpillToFile:
         os.utime(stale, (old_time, old_time))
 
         big = "\n".join(f"line-{i}" for i in range(5000))
-        desc = spill_to_file(big, tool="checkpoint_show", cap_bytes=1000, spill_dir=str(tmp_path))
+        desc = spill_to_file(
+            big, tool="confluence_page_get", cap_bytes=1000, spill_dir=str(tmp_path)
+        )
         assert desc is not None
         assert not stale.exists()
         # The fresh spill is kept.

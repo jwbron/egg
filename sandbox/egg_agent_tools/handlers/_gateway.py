@@ -232,6 +232,40 @@ def gateway_request(
         raise GatewayError("Request to gateway timed out") from exc
 
 
+def gateway_data_request(
+    endpoint: str,
+    *,
+    body: dict[str, Any] | None = None,
+    timeout: int = 30,
+) -> Any:
+    """POST ``body`` to a gateway route and return the unwrapped ``data``.
+
+    The Atlassian gateway routes (``/api/v1/{confluence,jira}/*``) all
+    answer with the standard ``{success, message, data, details}``
+    envelope (``make_success`` / ``make_error`` in ``gateway/gateway.py``)
+    and use HTTP status codes for failures.  :func:`gateway_request`
+    already raises :class:`GatewayError` on any non-2xx response, so on
+    the happy path we simply hand the caller the upstream ``data``
+    payload — exactly what the ``confluence`` / ``jira`` shell wrappers
+    print on success (their ``call_gateway`` emits ``data`` as JSON).
+
+    The ``success`` re-check is defence-in-depth for the unlikely case of
+    a 2xx body that still flags ``success: false``; the not-found envelope
+    is *not* such a case (the gateway returns ``success: true`` with
+    ``data.status == "not_found"``), so it flows through untouched.
+    """
+    result = gateway_request(endpoint, method="POST", data=body or {}, timeout=timeout)
+    if isinstance(result, dict) and result.get("success") is False:
+        details = result.get("details")
+        raise GatewayError(
+            result.get("message", "gateway request failed"),
+            details=details if isinstance(details, dict) else None,
+        )
+    if isinstance(result, dict):
+        return result.get("data", result)
+    return result
+
+
 def orchestrator_request(
     endpoint: str,
     *,

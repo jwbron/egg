@@ -214,6 +214,29 @@ def test_cli_less_tools_are_documented_gaps():
         # what these tools already do directly.
         "mcp__sdlc__check_file_restriction",
         "mcp__sdlc__report_impasse",
+        # #2994 Atlassian-gateway verbs: these DO have a CLI analog, but
+        # it is the *bash* ``sandbox/scripts/{confluence,jira}`` wrapper,
+        # not a Python ``egg-*`` argparse tree this drift test can walk.
+        # So they set ``cli_command=None`` and carry a "no CLI" docstring
+        # rationale (asserted by tests/tools/test_rule_doc_drift.py
+        # assertion C) rather than a walkable subparser counterpart.
+        "mcp__confluence__page_get",
+        "mcp__confluence__page_descendants",
+        "mcp__confluence__page_footer_comments",
+        "mcp__confluence__page_inline_comments",
+        "mcp__confluence__space_pages",
+        "mcp__confluence__space_list",
+        "mcp__confluence__search",
+        "mcp__confluence__execute",
+        "mcp__jira__ticket_get",
+        "mcp__jira__ticket_comments",
+        "mcp__jira__ticket_remotelinks",
+        "mcp__jira__search",
+        "mcp__jira__ticket_create",
+        "mcp__jira__ticket_edit",
+        "mcp__jira__ticket_comment_add",
+        "mcp__jira__link_create",
+        "mcp__jira__execute",
     }
     actual_gaps = {name for name, reg in TOOL_REGISTRY.items() if reg.cli_command is None}
     assert actual_gaps == expected_gaps, (
