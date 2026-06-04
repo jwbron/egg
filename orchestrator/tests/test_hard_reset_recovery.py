@@ -244,16 +244,14 @@ class TestEmitDivergenceReconcileHitl:
         assert pipeline.status == PipelineStatus.AWAITING_HUMAN
         assert phase_exec.status == PipelineStatus.AWAITING_HUMAN
         store.save_pipeline.assert_called()
-        # The persisted decision carries the canonical options + a question
-        # that names the backup ref (no dispatch context — resume is manual
-        # re-run for the route path).
-        persist_kwargs = mock_persist.call_args.kwargs
-        assert persist_kwargs["options"] == _DIVERGENCE_RECONCILE_HITL_OPTIONS
-        assert "refs/egg-backup/sync-recovery/pipe-1/9" in persist_kwargs["question"]
-        # The persisted decision carries a stable string context so the
+        # The persisted decision carries the canonical options, a question
+        # that names the backup ref, and a stable string context so the
         # non-blocking ``populate_contract`` route can dedupe on it
         # (early-return 409 when a prior populate already paused the
         # pipeline on a reconcile HITL the operator hasn't yet resolved).
+        persist_kwargs = mock_persist.call_args.kwargs
+        assert persist_kwargs["options"] == _DIVERGENCE_RECONCILE_HITL_OPTIONS
+        assert "refs/egg-backup/sync-recovery/pipe-1/9" in persist_kwargs["question"]
         assert persist_kwargs.get("context") == "divergence_reconcile_unacked"
         mock_report.assert_called_once()
         assert decision.id == "decision-1"
