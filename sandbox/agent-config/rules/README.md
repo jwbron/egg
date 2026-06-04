@@ -59,16 +59,13 @@ A matching `AGENTS.md` symlink is also created in the agent's CWD next to the pr
 - **contract.md** - SDLC contract CLI commands
   - `egg-contract` command reference (show, complete-task, complete-phase, add-commit, update-notes, add-decision, add-feedback)
 
-- **checkpoint.md** - Checkpoint browser CLI commands
-  - `egg-checkpoint` command reference (list, show, browse, context)
-
 ### Pipeline-lifecycle surface (CLI-only post-#2908 slice-6)
 
-Sandbox agents drive HITL / BRC / phase / progress / task /
-checkpoint operations through the `egg-orch` / `egg-contract` /
-`egg-checkpoint` shell CLIs. The in-process Claude Agent SDK MCP
-tool surface (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`,
-`mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) and its
+Sandbox agents drive HITL / BRC / phase / progress / task
+operations through the `egg-orch` / `egg-contract` shell CLIs.
+The in-process Claude Agent SDK MCP tool surface
+(`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`,
+`mcp__progress__*`, `mcp__task__*`) and its
 `EGG_MCP_TOOLS` gating flag were retired in
 [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 — the
 CLI is the single agent surface. The

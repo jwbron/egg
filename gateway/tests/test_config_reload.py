@@ -37,33 +37,13 @@ def launcher_auth_headers():
 class TestRepoConfigReload:
     """Tests for config/repo_config.py reload_config()."""
 
-    def test_reload_clears_checkpoint_repos_cache(self):
-        """reload_config() should clear the checkpoint repos cache."""
-        from config.repo_config import (
-            get_all_checkpoint_repos,
-            reload_config,
-        )
+    def test_reload_config_runs(self):
+        """reload_config() resets cached config state without error."""
+        from config.repo_config import reload_config
 
-        # Prime the cache
-        get_all_checkpoint_repos()
-        from config import repo_config
-
-        assert repo_config._checkpoint_repos_cache is not None
-
-        # Reload should clear it
+        # Should not raise — clears the role-pattern cache so the next
+        # access re-reads repositories.yaml from disk.
         reload_config()
-        assert repo_config._checkpoint_repos_cache is None
-
-    def test_reload_allows_fresh_read(self):
-        """After reload, the next call re-reads from disk."""
-        from config.repo_config import get_all_checkpoint_repos, reload_config
-
-        # Prime cache
-        get_all_checkpoint_repos()
-        reload_config()
-        # Should not raise — re-reads config
-        result2 = get_all_checkpoint_repos()
-        assert isinstance(result2, frozenset)
 
 
 class TestPolicyReload:
@@ -170,15 +150,3 @@ class TestSighupHandler:
         gateway._reload_all_config()
 
         assert policy._bot_identities_cache is None
-
-    def test_reload_all_config_clears_repo_config_cache(self):
-        """_reload_all_config() should clear repo_config caches."""
-        from config import repo_config
-        from config.repo_config import get_all_checkpoint_repos
-
-        get_all_checkpoint_repos()
-        assert repo_config._checkpoint_repos_cache is not None
-
-        gateway._reload_all_config()
-
-        assert repo_config._checkpoint_repos_cache is None

@@ -1529,10 +1529,10 @@ class TestStalePipelineBranchTransition:
             pipeline,
         )
 
-        # #2792: the helper now returns a structured outcome; the default
-        # mock would return a MagicMock whose ``hard_reset_performed``
-        # attribute is truthy and trip the new hard-reset HITL path.
-        # Pin a non-recovery outcome so this test stays scoped to the
+        # #2792/#2979: the helper returns a structured outcome; the default
+        # mock would return a MagicMock whose ``diverged_unreconciled``
+        # attribute is truthy and trip the new reconcile-pause path.
+        # Pin a non-divergence outcome so this test stays scoped to the
         # ``StalePipelineBranchError`` propagation it's asserting.
         mock_sync.return_value = WorktreeSyncOutcome(case="already_in_sync")
 

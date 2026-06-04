@@ -71,8 +71,6 @@ gateway/
 ├── jira_policy.py          # Project allowlist loader for config/context-filters.yaml (jira.projects)
 ├── jira_search.py          # Conservative static JQL project-scope extractor (deny-on-ambiguity)
 ├── mode_gate.py            # @require_private_mode decorator (fails closed in public mode)
-├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
-├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
 ├── session_manager.py      # Agent session management (branch lock, worktree cleanup)
 ├── post_agent_commit.py    # Post-agent exit handling (HITL recovery for uncommitted work)
@@ -120,7 +118,7 @@ orchestrator/
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── pr_obligations.py       # Shared Pre-merge Obligations PR-body renderer (open + resolved sections from DeferredAction; shared by single-PR and slice-DAG context-PR paths — the legacy terminal-slice umbrella treatment was removed in #2777)
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health, deployment
+├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, contracts, health, deployment
 ├── redaction.py            # Secret redaction helpers for operator-facing diagnostic output (env vars, Bearer JWTs, API key shapes)
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
@@ -216,7 +214,6 @@ sandbox/
 │   ├── git
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
-│   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
@@ -235,7 +232,6 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI implementation
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI implementation
@@ -292,7 +288,7 @@ shared/
 │   └── __init__.py         # Public API: PLACEHOLDER_PREFIX, to_placeholder, from_placeholder — wraps session tokens in sk-ant-oat01- envelope for token-keyed session lookup
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
-├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
+├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
@@ -301,11 +297,7 @@ shared/
 │   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
-│   ├── checkpoints.py      # Checkpoint data models
-│   ├── checkpoint_loader.py # Checkpoint storage and retrieval
-│   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse, context, cost, search)
-│   ├── transcript_extractor.py # API transcript extraction
-│   └── redactor.py         # Sensitive data redaction for checkpoints
+│   └── redactor.py         # Sensitive data redaction (env vars, secrets, sensitive file paths)
 ├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
@@ -380,8 +372,7 @@ tests/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
-│       ├── test_redactor.py       # Redactor tests for sensitive data masking
-│       └── test_transcript_extractor.py # Transcript extraction tests
+│       └── test_redactor.py       # Redactor tests for sensitive data masking
 └── workflows/                     # Workflow integration tests
     ├── __init__.py
     └── test_hitl_integration.py   # HITL decision format verification

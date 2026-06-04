@@ -295,7 +295,7 @@ class TestPipelinePushBlock:
 
     def test_infrastructure_push_exempt(self, client):
         """Pushes to infrastructure branches bypass pipeline-push enforcement."""
-        from egg_config.constants import CHECKPOINT_BRANCH
+        from egg_config.constants import PIPELINE_STATE_BRANCH
 
         session = _make_session("coder")
         patches = _push_context(session)
@@ -315,7 +315,7 @@ class TestPipelinePushBlock:
             # infrastructure pushes may be rejected by other enforcement
             # layers (e.g., branch ownership). We only verify that the
             # pipeline-push check specifically does not block it.
-            response = _do_push(client, refspec=CHECKPOINT_BRANCH)
+            response = _do_push(client, refspec=PIPELINE_STATE_BRANCH)
             assert response.status_code != 403 or (
                 "pipeline sessions" not in json.loads(response.data)["message"].lower()
             ), "Infrastructure push should not be blocked by pipeline-push enforcement"

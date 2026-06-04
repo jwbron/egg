@@ -617,4 +617,3 @@ Per-slice implement-phase BRC history files written by the orchestrator (`.egg-s
 
 - `egg-contract` — SDLC contract operations (tasks, decisions, feedback)
 - `egg-pipeline-watch` — Live pipeline status polling
-- `egg-checkpoint` — Browse agent checkpoints

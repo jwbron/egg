@@ -1,9 +1,8 @@
 # Agent Pipeline-Lifecycle Surface
 
 > Sandbox agents drive pipeline lifecycle operations (BRC consensus,
-> HITL decisions, phase context, progress signals, task completion,
-> checkpoint browsing) **through the `egg-orch` / `egg-contract` /
-> `egg-checkpoint` shell CLIs**. The in-process Claude Agent SDK MCP
+> HITL decisions, phase context, progress signals, task completion)
+> **through the `egg-orch` / `egg-contract` shell CLIs**. The in-process Claude Agent SDK MCP
 > tool surface was **retired in
 > [#2908](https://github.com/jwbron/egg/issues/2908) slice-6** — the
 > CLI is the single agent surface. The operator-facing orchestrator
@@ -50,7 +49,7 @@ The dual surface had a steady carrying cost:
   `--error`, `--task`, `--pre-merge-condition`, `--text`) do **not**
   have file/stdin channels yet — pass them as bare shell-safe strings.
   Extending the channels to the rest of the `egg-orch` surface and to
-  `egg-contract` / `egg-checkpoint` is a follow-up. The structured-tool
+  `egg-contract` is a follow-up. The structured-tool
   advantage on the four covered args is real; it is now delivered by
   the CLI itself.
 
@@ -74,7 +73,7 @@ The pure-Python request → response handlers at
 CLI today (they always have; the MCP tools and the CLI both called
 through them). Slice-6 collapses **two surfaces to one** (the CLI),
 not two to zero. Every gateway-fronted operation an agent issues on
-the BRC / phase / contract / task / checkpoint hot path still runs
+the BRC / phase / contract / task hot path still runs
 through the same handler — the only thing gone is the in-process MCP
 wrapping.
 
@@ -83,8 +82,7 @@ wrapping.
 The **operator-facing** orchestrator MCP server (port 9850; tools
 like `submit_task`, `get_status`, `provide_input`, `list_tasks`,
 `cancel_task`, `restart_agent`, `restart_phase`, `advance_phase`,
-`complete_phase`, `populate_contract`, `list_checkpoints`,
-`search_checkpoints`, …) is **unaffected**. It runs in the
+`complete_phase`, `populate_contract`, …) is **unaffected**. It runs in the
 orchestrator process, not the sandbox, and is the surface operators /
 external MCP clients use to drive pipelines from outside the sandbox.
 Slice-6 only removes the sandbox-side agent tool surface.
@@ -120,7 +118,6 @@ exit-code contract.
 |-----|-----------|--------|
 | `egg-orch` | [Orchestrator CLI](orchestrator-cli.md) | BRC consensus (`consensus propose / ack / nack / withdraw / confirmed`), BRC introspection (`brc next-action / get-state / list-blocking / read-peer-artifact / resolve-obligation`), message bus (`message send / wait / wait-loop / heartbeat`), pipeline status (`pipeline status / wait-status`), progress (`progress emit / query`), signals (`signal heartbeat / error / readiness / complete`), overseer alerts (`overseer alert`), health, phase, decision, container, anchor. |
 | `egg-contract` | [SDLC Contract](sdlc-contract.md) | Contract reads (`show`), task / phase mutations (`add-commit`, `update-notes`, `complete-task`, `complete-phase`, `verify-criterion`), HITL gates (`add-decision`, `add-feedback`). |
-| `egg-checkpoint` | [Checkpoint Browser](checkpoint-browser.md) | Checkpoint browsing (`list`, `show`, `search`, `browse`, `context`, `cost`). |
 
 ### Passing free text safely (prose-arg channels — slice-5 of #2908)
 
@@ -132,7 +129,7 @@ arg-names listed below today; other prose flags (`--question`,
 `--task`, `--pre-merge-condition`, `--text`) take only the inline
 `--<arg> "value"` form and must be kept shell-safe at the call site.
 Extending the channels to the rest of `egg-orch` and to `egg-contract`
-/ `egg-checkpoint` is a follow-up.
+is a follow-up.
 
 | Channel | When to use |
 |---------|-------------|
@@ -215,9 +212,8 @@ imposed for the agent SDK's event loop in #1765) is preserved
 because the CLI shims still import the same handler modules and a
 handler that called `sys.exit` would terminate the CLI process
 mid-call without writing an error envelope. The CLI `cmd_*`
-functions in `sandbox/egg_lib/orch_cli.py`,
-`sandbox/egg_lib/contract_cli.py`, and
-`shared/egg_contracts/checkpoint_cli.py` may still call
+functions in `sandbox/egg_lib/orch_cli.py` and
+`sandbox/egg_lib/contract_cli.py` may still call
 `sys.exit(1)` on argparse-level errors (e.g. missing `--role`),
 which is fine because they run in their own process.
 
@@ -236,7 +232,7 @@ see
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `EGG_TOOL_OUTPUT_CAP_BYTES` | `102400` (100 KB) | Max serialized size of a single tool result. Output above the cap is replaced with a structured head-preview marker (`_egg_truncated`) that names how to narrow the call, or — for unpaginated content like a full checkpoint transcript — spilled to a temp file (`_egg_output_spilled`) the agent can `Read`/`grep`, with a small inline preview. |
+| `EGG_TOOL_OUTPUT_CAP_BYTES` | `102400` (100 KB) | Max serialized size of a single tool result. Output above the cap is replaced with a structured head-preview marker (`_egg_truncated`) that names how to narrow the call, or — for unpaginated content — spilled to a temp file (`_egg_output_spilled`) the agent can `Read`/`grep`, with a small inline preview. |
 
 At ~4 B/token for prose/JSON, the 100 KB default ≈ ~25k tokens — a
 sensible upper bound for a single model-bound tool result. A
@@ -270,21 +266,21 @@ for the heuristic table and the `EGG_TOOL_OUTPUT_CAP` /
 │  shared/egg_agent/client.py::run_agent_async                    │
 │      (no agent-side MCP registration; no SYSTEM_PROMPT_NUDGE)   │
 │                                                                 │
-│  agent invokes egg-orch / egg-contract / egg-checkpoint via Bash│
+│  agent invokes egg-orch / egg-contract via Bash                 │
 │                                                                 │
-│                ┌── sandbox/egg_lib/ ──┐ ┌── shared/egg_contracts ──┐
-│                │  orch_cli.py         │ │  checkpoint_cli.py        │
-│                │  contract_cli.py     │ │                           │
-│                └────────┬─────────────┘ └────────────┬──────────────┘
-│                         │                            │
-│                         ▼                            ▼
-│                ┌─── sandbox/egg_agent_tools/handlers/ ────┐
-│                │  pure req→res Python                     │
-│                │  raises GatewayError / HandlerError      │
-│                │  asyncio.to_thread() inside CLI shim     │
-│                └────────┬─────────────────────────────────┘
-│                         │ make_gateway_request
-│                         ▼
+│                ┌── sandbox/egg_lib/ ──┐                          │
+│                │  orch_cli.py         │                          │
+│                │  contract_cli.py     │                          │
+│                └────────┬─────────────┘                          │
+│                         │                                        │
+│                         ▼                                        │
+│                ┌─── sandbox/egg_agent_tools/handlers/ ────┐      │
+│                │  pure req→res Python                     │      │
+│                │  raises GatewayError / HandlerError      │      │
+│                │  asyncio.to_thread() inside CLI shim     │      │
+│                └────────┬─────────────────────────────────┘      │
+│                         │ make_gateway_request                   │
+│                         ▼                                        │
 └────────────────────────────┬───────────────────────────────────┘
                              │ HTTP
                              ▼
@@ -292,11 +288,6 @@ for the heuristic table and the `EGG_TOOL_OUTPUT_CAP` /
                        └── operator-facing MCP server (port 9850)
                            unaffected by slice-6 — operator surface
 ```
-
-Checkpoint handlers do not go through the gateway — they import the
-three pure helpers `collect_checkpoints` / `load_checkpoint` /
-`search_checkpoints` from `shared/egg_contracts/checkpoint_cli.py` and
-operate on local git-ref state.
 
 ## Version pin
 
@@ -312,7 +303,7 @@ incompatible upgrade.
 | Test | Purpose |
 |------|---------|
 | `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). |
-| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli_consensus_push.py`, `tests/sandbox/test_orch_cli_slice_id.py`, `tests/shared/egg_contracts/test_checkpoint_cli*.py` | CLI parity against committed fixtures (no auto-record — every expected value is in the repo). |
+| `tests/sandbox/test_contract_cli.py`, `tests/sandbox/test_orch_cli_consensus_push.py`, `tests/sandbox/test_orch_cli_slice_id.py` | CLI parity against committed fixtures (no auto-record — every expected value is in the repo). |
 | `tests/sandbox/egg_lib/test_orch_cli_brc.py`, `tests/sandbox/egg_lib/test_orch_cli_brc_adversarial.py` | `egg-orch brc *` verb-level subcommand parity + adversarial coverage (slice-1 / slice-5 of #2908). |
 | `tests/sandbox/egg_lib/test_orch_cli_phase.py` | `egg-orch phase get-context` verb parity. |
 | `tests/sandbox/egg_lib/test_orch_cli_prose_args.py`, `tests/sandbox/egg_lib/test_orch_cli_prose_args_adversarial.py` | `--<arg>-file PATH` / stdin (`-` sentinel) prose-arg channel coverage on the four args slice-5 covered (`--summary` / `--reason` / `--note` / `--files-reviewed`). |
@@ -345,7 +336,6 @@ Removed alongside the slice-6 deletions:
 
 - [Orchestrator CLI](orchestrator-cli.md) — full `egg-orch` shell surface.
 - [SDLC Contract](sdlc-contract.md) — full `egg-contract` shell surface.
-- [Checkpoint Browser](checkpoint-browser.md) — full `egg-checkpoint` shell surface.
 - [Architecture → Orchestrator → MCP Server](../architecture/orchestrator.md#mcp-server-mcp) — operator-facing MCP server (port 9850) and its tool inventory.
 - [Agent Wait Patterns](agent-wait-patterns.md) — `wait-loop` idiom, exit-code contract, BRC event-pump wrapper interaction.
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus + message bus the `egg-orch consensus *` subcommands drive.

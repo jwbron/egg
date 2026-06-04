@@ -9,8 +9,8 @@ are made in-place inside the worktree and stay on the state branch.
 
 The state branch is synced to the remote after every commit (best-effort,
 async push via a daemon thread).  On startup, if the local branch does not
-exist, it is restored from the remote — mirroring the ``egg/checkpoints/v2``
-pattern for cross-host recovery.
+exist, it is restored from the remote so any host can recover the
+authoritative pipeline state.
 """
 
 import json

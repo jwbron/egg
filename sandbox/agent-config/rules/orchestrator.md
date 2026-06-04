@@ -42,7 +42,7 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 **Key env vars**: `EGG_ORCHESTRATOR_URL`, `EGG_PIPELINE_ID`, `EGG_AGENT_ROLE`, `EGG_ISSUE_NUMBER`, `EGG_BRANCH`, `EGG_REPO_PATH`, `GATEWAY_URL`, `AGENT_ANCHOR_ID`
 
-**Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`
+**Related CLIs**: `egg-contract`, `egg-pipeline-watch`
 
 ## BRC consensus verbs
 

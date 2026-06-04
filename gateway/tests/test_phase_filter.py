@@ -812,8 +812,14 @@ class TestPhaseFileRestrictions:
 
         phase_filter._filter = None
 
-    def test_refine_phase_allows_contracts(self):
-        """Refine phase should allow .egg-state/contracts/ files."""
+    def test_refine_phase_blocks_contracts(self):
+        """Refine phase must NOT allow git-pushing .egg-state/contracts/ (#2979).
+
+        The orchestrator is the sole writer of contracts (agents use the
+        contract API); allowing the push let a stale snapshot race the
+        orchestrator's commit and drive the destructive sync reset #2979
+        removed.
+        """
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
@@ -821,7 +827,8 @@ class TestPhaseFileRestrictions:
             [".egg-state/contracts/123.json"],
         )
 
-        assert result.allowed is True
+        assert result.allowed is False
+        assert ".egg-state/contracts/123.json" in result.blocked_files
 
     def test_refine_phase_allows_analysis_drafts(self):
         """Refine phase should allow analysis draft files."""
@@ -1160,7 +1167,12 @@ class TestPhaseFileRestrictions:
         assert result.allowed is True
 
     def test_plan_phase_mixed_allowed_and_disallowed_files(self):
-        """Plan phase blocks push when allowed files are mixed with disallowed files."""
+        """Plan phase blocks push when allowed files are mixed with disallowed files.
+
+        Contracts are now disallowed in plan (#2979) alongside source code,
+        so both appear in ``blocked_files`` while the agent-output stays
+        allowed.
+        """
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
@@ -1174,19 +1186,22 @@ class TestPhaseFileRestrictions:
 
         assert result.allowed is False
         assert "src/main.py" in result.blocked_files
+        assert ".egg-state/contracts/plan.json" in result.blocked_files
         # Allowed files should NOT appear in blocked_files
         assert ".egg-state/agent-outputs/task-planner-output.json" not in result.blocked_files
-        assert ".egg-state/contracts/plan.json" not in result.blocked_files
 
     def test_plan_phase_allows_multiple_state_files(self):
-        """Plan phase allows push with multiple allowed .egg-state/ files."""
+        """Plan phase allows push with multiple allowed .egg-state/ files.
+
+        Contracts are excluded — they go through the contract API, not git
+        (#2979).
+        """
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
             "plan",
             [
                 ".egg-state/agent-outputs/task-planner-output.json",
-                ".egg-state/contracts/plan.json",
                 ".egg-state/reviews/architect-review.md",
                 ".egg-state/checkpoints/checkpoint-1.json",
             ],

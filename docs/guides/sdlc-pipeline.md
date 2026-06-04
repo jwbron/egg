@@ -572,9 +572,8 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 1. The contract JSON in `.egg-state/contracts/`
 2. Git commits on the feature branch
 3. GitHub issue/PR comments and reviews
-4. Checkpoints from prior agent sessions (via `egg-checkpoint`)
 
-This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context. Agents also receive checkpoint discovery hints in their prompts, enabling them to review prior sessions for richer context than handoff data alone.
+This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
 
 ### Role-Specific Prompt Context
 
@@ -584,7 +583,6 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Execution roles** (tester, documenter) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
-- Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
 - Role-filtered tasks: only the tasks assigned to their role via the `task.role` field (unassigned tasks default to coder)
 
@@ -1502,12 +1500,6 @@ Response includes a `concurrent` section:
 }
 ```
 
-Inter-agent message history is also captured in agent checkpoints and visible via:
-
-```bash
-egg-checkpoint show ckpt-<id>
-```
-
 ### Troubleshooting
 
 **Agent not receiving messages**: Check that the agent is polling with the correct
@@ -1537,11 +1529,11 @@ HITL decision is created. Consider adding role-based file restrictions to minimi
 
 ## Agent pipeline-lifecycle surface (CLI-only post-#2908 slice-6)
 
-Sandbox agents drive pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion, checkpoint browsing) through the `egg-orch` / `egg-contract` / `egg-checkpoint` shell CLIs. The in-process Claude Agent SDK MCP tool surface (introduced in [#1765](https://github.com/jwbron/egg/issues/1765) and expanded in [#1917](https://github.com/jwbron/egg/issues/1917)) was retired in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 alongside the `EGG_MCP_TOOLS` env flag. Sandbox pods no longer recognise `EGG_MCP_TOOLS` and setting it has no effect.
+Sandbox agents drive pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through the `egg-orch` / `egg-contract` shell CLIs. The in-process Claude Agent SDK MCP tool surface (introduced in [#1765](https://github.com/jwbron/egg/issues/1765) and expanded in [#1917](https://github.com/jwbron/egg/issues/1917)) was retired in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 alongside the `EGG_MCP_TOOLS` env flag. Sandbox pods no longer recognise `EGG_MCP_TOOLS` and setting it has no effect.
 
 The shared pure-Python handler layer at `sandbox/egg_agent_tools/handlers/*.py` is preserved — it backs the CLI today (it always has; the MCP tools and the CLI both called through the same handlers). Slice-6 collapses **two surfaces to one**, not two to zero. See the [Agent Pipeline-Lifecycle Surface](../reference/agent-tools.md) reference for the full rationale, the per-CLI subcommand index, and the slice-5 prose-arg channels (`--summary` / `--reason` / `--note` / `--files-reviewed` accept `--<arg>-file PATH` or stdin `-` sentinel; other prose flags do not have file/stdin channels yet) that let agents route LLM-authored free text through the CLI without shell metacharacter corruption on those four args.
 
-The **operator-facing** orchestrator MCP server (port 9850; tools like `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `restart_agent`, `restart_phase`, `advance_phase`, `complete_phase`, `populate_contract`, `list_checkpoints`, `search_checkpoints`, …) is **unaffected** — it runs in the orchestrator process, not the sandbox, and is the surface operators / external MCP clients use to drive pipelines from outside the sandbox.
+The **operator-facing** orchestrator MCP server (port 9850; tools like `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `restart_agent`, `restart_phase`, `advance_phase`, `complete_phase`, `populate_contract`, …) is **unaffected** — it runs in the orchestrator process, not the sandbox, and is the surface operators / external MCP clients use to drive pipelines from outside the sandbox.
 
 ## Pipeline Health Monitoring
 

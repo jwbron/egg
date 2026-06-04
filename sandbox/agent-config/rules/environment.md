@@ -12,10 +12,9 @@ GitHub access MUST go through the gateway sidecar (not the proxy) for policy enf
 ## Pipeline-Lifecycle Surface
 
 Drive pipeline lifecycle operations (BRC consensus, HITL decisions,
-phase context, progress signals, task completion, checkpoint
-browsing) through `egg-orch` / `egg-contract` / `egg-checkpoint`
-directly. The agent-side MCP tool surface that the `EGG_MCP_TOOLS`
-flag used to gate was retired in
+phase context, progress signals, task completion) through
+`egg-orch` / `egg-contract` directly. The agent-side MCP tool surface
+that the `EGG_MCP_TOOLS` flag used to gate was retired in
 [#2908](https://github.com/jwbron/egg/issues/2908) slice-6
 (alongside `EGG_MCP_TOOLS` itself); setting `EGG_MCP_TOOLS` has no
 effect. See

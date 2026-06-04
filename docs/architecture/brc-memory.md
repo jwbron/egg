@@ -149,17 +149,13 @@ back-to-back invocations from the same handler — or a crash mid-write —
 never expose a partial file. The shared helper guarantees no within-pod
 partial writes (v2 atomic-write contract).
 
-The writer reuses one of two existing helpers (coder picks the lighter
-migration as part of slice-1):
+The writer reuses an existing helper:
 
 - `shared/egg_overseer/state.py:266` — the `save_agent_timing` body (the
   plan referenced this as `_persist_atomic_template`; in the current tree
   the symbol is named `save_agent_timing`, with the canonical shape
   `tempfile.NamedTemporaryFile(delete=False, dir=parent) → write → flush →
   os.fsync → os.replace`, guarded by `_file_lock`).
-- `shared/egg_contracts/usage_loader.py:95` — `_atomic_write`, the lighter
-  alternative using `tempfile.mkstemp` + `os.fdopen` + `flush` + `os.fsync`
-  + `os.replace`.
 
 The acceptance criterion is testable independently of the helper chosen:
 back-to-back handler invocations under fault injection must never observe a

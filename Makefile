@@ -34,7 +34,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets litellm-config deploy redeploy k3s-teardown k3s-import sudo-keepalive \
+        k3s-setup k3s-secrets litellm-config routing-policy deploy redeploy k3s-teardown k3s-import sudo-keepalive \
         check-egg-images-present
 
 # Default target
@@ -512,6 +512,11 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
 	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
+	@# The gateway routing policy (issue #2987) rides this same bundle: if
+	@# present, ~/.config/egg/routing-policy.yaml is picked up by the
+	@# --from-file line below and lands at /secrets/routing-policy.yaml,
+	@# which the gateway hot-reads via an mtime cache. `make routing-policy`
+	@# is a thin wrapper that just re-runs this target (no gateway rollout).
 	@# LiteLLM master key (issue #2769): the in-cluster LiteLLM
 	@# Deployment expects ``gateway-secrets.litellm-master-key`` so the
 	@# gateway's injected x-api-key matches LiteLLM's master_key. The
@@ -567,6 +572,26 @@ litellm-config:  ## Apply host-side LiteLLM model_list from ~/.config/egg/litell
 		kubectl rollout status deployment litellm -n egg-system --timeout=180s; \
 	fi
 
+routing-policy:  ## Apply host-side gateway routing policy from ~/.config/egg/routing-policy.yaml
+	@# The gateway routing/fallback policy (issue #2987) lives at
+	@# ~/.config/egg/routing-policy.yaml, parallel to secrets.env. Unlike
+	@# litellm-config (which patches a ConfigMap and ROLLS the LiteLLM pod),
+	@# the routing policy rides the gateway-secrets mount: it is already
+	@# bundled by the `--from-file=~/.config/egg/` line in k3s-secrets, and
+	@# the gateway re-reads it via an mtime cache, so applying it is just
+	@# re-creating the Secret — NO gateway rollout, no in-flight-turn loss.
+	@# Copy config/routing-policy.template.yaml to register routes; an
+	@# absent file is the no-op default (fail-open to the spawn-time route).
+	@if [ ! -f "$$HOME/.config/egg/routing-policy.yaml" ]; then \
+		echo "==> No ~/.config/egg/routing-policy.yaml; gateway uses the no-op default route."; \
+		echo "    Copy config/routing-policy.template.yaml to register routes."; \
+		exit 0; \
+	fi
+	@echo "==> Re-creating gateway-secrets to publish routing-policy.yaml (no gateway rollout)..."
+	@$(MAKE) --no-print-directory k3s-secrets
+	@echo "==> routing-policy.yaml published. kubelet propagates the volume update to the"
+	@echo "    running gateway pod in ~60s; the gateway re-reads it on the next request."
+
 check-egg-images-present:
 	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
 
@@ -613,6 +638,10 @@ deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 	@# evict the next redeploy's freshly-imported, not-yet-referenced images
 	@# mid-run). Best-effort -- a reap hiccup must not fail an otherwise-green deploy.
 	@scripts/reap-stale-egg-images.sh "$(EGG_IMAGE_TAG)" || true
+	@# routing-policy.yaml (issue #2987) was already bundled by the
+	@# k3s-secrets call at the top of this target; no separate apply needed
+	@# here. `make routing-policy` is the standalone hot-reload path between
+	@# deploys.
 	@$(MAKE) --no-print-directory litellm-config
 	@echo "Deployment complete"
 

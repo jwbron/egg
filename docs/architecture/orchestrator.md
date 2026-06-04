@@ -27,7 +27,6 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 - Read/write operations go directly to the worktree directory on disk
 - Commits are made in-place and stay on the state branch
 - Survives orchestrator restarts by reading from git
-- Mirrors the `egg/checkpoints/v2` pattern for cross-host recovery
 
 **Worktree lifecycle:**
 - Created lazily on first state access
@@ -688,10 +687,6 @@ NetworkPolicies (enforced by Cilium CNI):
 Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `get_contract`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
 
 Blocking host-side waits run via the `egg-orch pipeline wait-status` Bash CLI rather than an MCP tool (issue [#2211](https://github.com/jwbron/egg/issues/2211)). The CLI loops the orchestrator's `/api/v1/pipelines/<id>/status/wait` route server-side and emits one JSON-line per pipeline-relevant event. See [Host-Side Waits](../reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the envelope, exit-code contract, and cursor protocol. The route itself stays — the CLI is a wrapper.
-
-Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`
-
-The gateway-backed checkpoint tools (`list_checkpoints`, `search_checkpoints`) accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `owner/repo-checkpoints`). When provided, this is forwarded as the `source_repo` query parameter to the gateway checkpoint endpoint.
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.

@@ -36,7 +36,6 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
@@ -63,7 +62,6 @@ sandbox/
 │   ├── git -> ../scripts/git
 │   ├── gh -> ../scripts/gh
 │   ├── git-credential-github-token -> ../scripts/git-credential-github-token
-│   ├── egg-checkpoint -> ../egg_lib/checkpoint_cli.py
 │   ├── egg-contract -> ../egg_lib/contract_cli.py
 │   ├── egg-orch -> ../egg_lib/orch_cli.py
 │   ├── egg-onboarding-docs      # Onboarding doc generator (bash)
@@ -88,8 +86,7 @@ sandbox/
 │       ├── test-workflow.md  # Testing workflow
 │       ├── pr-descriptions.md # PR guidelines
 │       ├── orchestrator.md # Orchestrator CLI commands
-│       ├── contract.md     # SDLC contract CLI commands
-│       └── checkpoint.md   # Checkpoint browser CLI commands
+│       └── contract.md     # SDLC contract CLI commands
 │
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery

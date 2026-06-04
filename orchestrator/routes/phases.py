@@ -1271,25 +1271,27 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
     ``store.repo_path``) and the operator must commit and push
     themselves before respawning.
 
-    Pre-populate sync (#2792): the route runs
-    :func:`_sync_worktree_with_remote` before reading the draft.  If
-    that helper falls through to the destructive hard-reset recovery
-    (rebase autoresolve failed), the route emits the hard-reset
-    recovery HITL itself (via
-    :func:`_fail_pipeline_and_emit_hard_reset_recovery`) and returns
-    HTTP 409 with ``reason="hard_reset_recovery_unacked"`` and
-    ``backup_ref`` / ``discarded_commit_shas`` in ``details``.  The
-    operator must ack the hard-reset recovery HITL (visible in
-    ``/sdlc``) before re-running this endpoint — a 2xx with the
-    destructive recovery flag hidden in the body would let automation
-    silently miss the discard.
+    Pre-populate sync (#2792, non-destructive since #2979): the route
+    runs :func:`_sync_worktree_with_remote` before reading the draft.
+    When the rebase autoresolve cannot reconcile a divergence the sync
+    is non-destructive — it leaves the worktree at the local HEAD
+    (committed work intact) and reports ``diverged_unreconciled``.  This
+    route cannot block on the operator, so it pauses the pipeline
+    (``AWAITING_HUMAN``, not ``FAILED``) via
+    :func:`_emit_divergence_reconcile_hitl` and returns HTTP 409 with
+    ``reason="divergence_reconcile_unacked"`` and ``backup_ref`` /
+    ``local_only_commit_shas`` in ``details``.  The operator reconciles
+    the orchestrator-side worktree, acks the reconcile HITL (visible in
+    ``/sdlc``), and re-runs this endpoint — refusing to populate against
+    an un-reconciled worktree matches the #2337 / #2627 fail-loud posture
+    without discarding work.
 
     Error responses include a machine-readable ``reason`` code (#1939,
     #2627):
 
     - 400 ``invalid_pipeline_id``
     - 404 ``pipeline_not_found`` / ``draft_missing`` / ``no_draft_path``
-    - 409 ``hard_reset_recovery_unacked`` (#2792)
+    - 409 ``divergence_reconcile_unacked`` (#2792, #2979)
     - 422 ``parse_failed`` / ``empty_result`` / forest violations
       (structured body)
     - 500 ``contract_load_failed`` / ``egg_contracts_unavailable`` /
@@ -1306,27 +1308,57 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         # Import and call the populate function
         from routes.pipelines import (
             PopulateOutcome,
-            SyncRebaseAndResetFailedError,
             _commit_statefiles_to_worktree,
             _compute_gateway_mode,
-            _fail_pipeline_and_emit_hard_reset_recovery,
+            _emit_divergence_reconcile_hitl,
+            _find_pending_divergence_reconcile_decision,
             _get_spawner,
             _pipeline_identifier,
             _populate_contract_from_plan,
             _sync_worktree_with_remote,
         )
 
-        # #2792: reconcile the worktree before reading the draft so an
-        # auto-recovery here can rescue a divergent worktree the same
-        # way the phase-boundary sync does.  When the rebase fails and
-        # the helper falls through to its hard-reset path, emit the
-        # same hard-reset recovery HITL the phase-boundary sites do,
-        # pin the pipeline+phase to FAILED, and refuse to populate.
-        # All three triggers of the destructive recovery (phase-start,
-        # post-phase, populate_contract) now expose the operator the
-        # same surface — see #2797 review B4.  A 200 with a deep-buried
-        # ``hard_reset_performed`` flag would let automation silently
-        # miss the discard.
+        # #2979 follow-up: if a prior populate_contract already paused the
+        # pipeline on a reconcile HITL and the operator has not yet
+        # resolved it, surface the existing decision instead of re-running
+        # the sync and appending a duplicate HITL.  Re-emit would still be
+        # correctness-safe (the abort path resolves the most recent
+        # decision), but each retry would bloat ``pipeline.decisions`` and
+        # confuse /sdlc.  Returning 409 here keeps the route idempotent
+        # under operator retries against an already-paused pipeline.
+        existing_reconcile_decision = _find_pending_divergence_reconcile_decision(pipeline)
+        if existing_reconcile_decision is not None:
+            logger.info(
+                "populate_contract: pipeline already paused on reconcile HITL; "
+                "skipping re-emit and returning 409",
+                pipeline_id=pipeline_id,
+                decision_id=existing_reconcile_decision.id,
+            )
+            return make_error_response(
+                "Pipeline is already paused on a worktree-reconcile HITL from a "
+                "prior populate_contract call. Reconcile the worktree, resolve "
+                "the existing decision (visible in /sdlc), and re-run "
+                "populate_contract.",
+                status_code=409,
+                reason="divergence_reconcile_unacked",
+                details={
+                    "diverged_unreconciled": True,
+                    "decision_id": existing_reconcile_decision.id,
+                    "already_paused": True,
+                },
+            )
+
+        # #2792/#2979: reconcile the worktree before reading the draft so
+        # a divergence here is surfaced the same way the phase-boundary
+        # sync does.  Since #2979 the sync is non-destructive: when the
+        # rebase autoresolve can't reconcile a divergence it leaves the
+        # worktree at the local HEAD (committed work intact) and reports
+        # ``diverged_unreconciled``.  This route cannot block on the
+        # operator the way the in-loop phase-boundary callers do, so it
+        # pauses the pipeline (AWAITING_HUMAN, NOT FAILED), emits the
+        # reconcile HITL, and returns 409 — refusing to populate against
+        # an un-reconciled worktree.  The operator reconciles the worktree,
+        # resolves the HITL, and re-runs populate_contract.
         populate_sync_outcome = None
         if pipeline.branch and worktree_path != store.repo_path:
             gateway_mode_for_sync, _ = _compute_gateway_mode(pipeline)
@@ -1339,42 +1371,6 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                     base_branch=pipeline.base_branch,
                     pipeline_branch=pipeline.branch,
                 )
-            except SyncRebaseAndResetFailedError as sync_terminal_err:
-                # #2792 review B5: rebase AND hard-reset both failed —
-                # the worktree is still divergent.  Pin the pipeline to
-                # FAILED, emit the hard-reset recovery HITL, and surface
-                # the terminal failure with a distinct 409 reason code
-                # so callers can tell it apart from the
-                # successful-recovery-but-unacked case.
-                _doubly_failed_msg = (
-                    f"Sync helper could not reconcile {pipeline.branch} during "
-                    f"populate_contract pre-sync: {sync_terminal_err}"
-                )
-                logger.error(
-                    "populate_contract: pre-populate sync doubly failed",
-                    pipeline_id=pipeline_id,
-                    backup_ref=sync_terminal_err.backup_ref,
-                    discarded_commit_count=len(sync_terminal_err.discarded_commit_shas),
-                )
-                _fail_pipeline_and_emit_hard_reset_recovery(
-                    pipeline_id,
-                    store,
-                    phase=pipeline.current_phase,
-                    error_message=_doubly_failed_msg,
-                    backup_ref=sync_terminal_err.backup_ref,
-                    discarded_commit_shas=sync_terminal_err.discarded_commit_shas,
-                    reset_succeeded=False,
-                )
-                return make_error_response(
-                    f"Worktree sync helper exhausted recovery options: {sync_terminal_err}",
-                    status_code=409,
-                    reason="sync_rebase_and_reset_failed",
-                    details={
-                        "hard_reset_performed": False,
-                        "backup_ref": sync_terminal_err.backup_ref,
-                        "discarded_commit_shas": list(sync_terminal_err.discarded_commit_shas),
-                    },
-                )
             except Exception as sync_err:  # noqa: BLE001
                 logger.warning(
                     "populate_contract: pre-populate sync raised (continuing)",
@@ -1382,52 +1378,45 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                     error=str(sync_err),
                 )
 
-        hard_reset_performed = bool(
-            populate_sync_outcome and populate_sync_outcome.hard_reset_performed
+        diverged_unreconciled = bool(
+            populate_sync_outcome and populate_sync_outcome.diverged_unreconciled
         )
-        hard_reset_backup_ref = populate_sync_outcome.backup_ref if populate_sync_outcome else None
-        hard_reset_discarded = (
-            list(populate_sync_outcome.discarded_commit_shas) if populate_sync_outcome else []
+        divergence_backup_ref = populate_sync_outcome.backup_ref if populate_sync_outcome else None
+        divergence_local_only = (
+            list(populate_sync_outcome.local_only_commit_shas) if populate_sync_outcome else []
         )
 
-        if hard_reset_performed:
-            # Do NOT run the populator on a worktree that was just
-            # hard-reset.  Pin the pipeline+phase to FAILED and emit
-            # the same hard-reset recovery HITL the phase-boundary
-            # sites do so the operator's ack surface is uniform across
-            # all three triggers of the destructive recovery, then
-            # return 409 (#2797 review B4).
-            _hard_reset_msg = (
-                f"Sync helper hard-reset {pipeline.branch} to origin during "
-                f"populate_contract pre-sync (rebase autoresolve could not "
-                f"reconcile divergence); "
-                f"{len(hard_reset_discarded)} local-only commit(s) preserved "
-                f"under {hard_reset_backup_ref or '(backup ref write failed)'}"
-            )
+        if diverged_unreconciled:
+            # Do NOT run the populator against an un-reconciled worktree.
+            # Pause the pipeline+phase (AWAITING_HUMAN — nothing was
+            # discarded; the divergence is recoverable), emit the reconcile
+            # HITL, and return 409.  The operator reconciles the
+            # orchestrator-side worktree, resolves the HITL, and re-runs
+            # populate_contract against the reconciled state (#2979).
             logger.error(
-                "populate_contract: refusing to populate after hard-reset recovery",
+                "populate_contract: refusing to populate over unreconciled divergence",
                 pipeline_id=pipeline_id,
-                backup_ref=hard_reset_backup_ref,
-                discarded_commit_count=len(hard_reset_discarded),
+                backup_ref=divergence_backup_ref,
+                local_only_commit_count=len(divergence_local_only),
             )
-            _fail_pipeline_and_emit_hard_reset_recovery(
+            _emit_divergence_reconcile_hitl(
                 pipeline_id,
                 store,
                 phase=pipeline.current_phase,
-                error_message=_hard_reset_msg,
-                backup_ref=hard_reset_backup_ref,
-                discarded_commit_shas=hard_reset_discarded,
+                backup_ref=divergence_backup_ref,
+                local_only_commit_shas=divergence_local_only,
             )
             return make_error_response(
-                "Worktree was hard-reset during pre-populate sync; "
-                "operator must ack the hard-reset recovery HITL "
-                "(visible in /sdlc) before re-running populate_contract.",
+                "Worktree diverged from origin during pre-populate sync and "
+                "could not be auto-reconciled; the pipeline is paused. Operator "
+                "must reconcile the worktree and ack the reconcile HITL (visible "
+                "in /sdlc), then re-run populate_contract.",
                 status_code=409,
-                reason="hard_reset_recovery_unacked",
+                reason="divergence_reconcile_unacked",
                 details={
-                    "hard_reset_performed": True,
-                    "backup_ref": hard_reset_backup_ref,
-                    "discarded_commit_shas": hard_reset_discarded,
+                    "diverged_unreconciled": True,
+                    "backup_ref": divergence_backup_ref,
+                    "local_only_commit_shas": divergence_local_only,
                 },
             )
 

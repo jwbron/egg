@@ -30,8 +30,6 @@ files:
     issue: "2248"
   orchestrator/gateway_client.py:
     issue: "2248"
-  shared/egg_contracts/checkpoint_cli.py:
-    issue: "2248"
   sandbox/entrypoint.py:
     issue: "2248"
   gateway/worktree_manager.py:
@@ -43,8 +41,6 @@ files:
   orchestrator/peer_consensus.py:
     issue: "2248"
   orchestrator/routes/signals.py:
-    issue: "2248"
-  gateway/checkpoint_handler.py:
     issue: "2248"
   orchestrator/routes/deployment.py:
     issue: "2248"

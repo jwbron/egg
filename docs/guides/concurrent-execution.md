@@ -527,7 +527,7 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 
 1. Agent runs `egg-orch consensus propose --summary-file PATH --files-changed F1 F2 … --push` (the `--push` flag is opt-in and required in pipeline sessions; without it, the propose call succeeds but no push happens)
 2. The CLI delegates to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
-3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
+3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
 4. Pushes without the marker are rejected with HTTP 403 and the error points at `egg-orch consensus propose --push`
 5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No pipeline-push enforcement exists in this path — the gateway is not running to enforce it
 
@@ -1241,7 +1241,6 @@ See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Standard wave-based execution
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details
-- [Checkpoint Access](checkpoint-access.md) — Cross-agent checkpoint queries
 - [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress
 - [Anchor Recovery Guide](anchor-recovery.md) — Agent post-compaction state recovery
 - [BRC Memory Artifact](../architecture/brc-memory.md) — Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack` so a future stateless event-pump handler can re-enter a review cycle with continuity ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1)
