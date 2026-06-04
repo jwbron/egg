@@ -191,7 +191,6 @@ Orchestrator
 ## Integration Points
 
 - **egg-contract**: Anchors complement contracts. Contracts = pipeline-level tasks. Anchors = agent-level working state.
-- **Checkpoints**: Anchor files are included in checkpoint captures. `egg-checkpoint show` displays anchor data.
 - **BRC consensus**: `brc_state` mirrors `PeerConsensusTracker`. Consensus wrapper loads anchor in recovery prompt.
 - **Cross-agent messaging**: `brc_state.last_message_id` enables efficient post-clear message catch-up.
 - **Gateway**: Phase filter allows anchor writes in all phases. Session-scoped validation prevents cross-agent tampering.

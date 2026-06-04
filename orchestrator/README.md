@@ -259,7 +259,7 @@ orchestrator/
 ├── gateway_client.py       # Gateway API client for session management
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, checkpoints, contracts, etc.)
+├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, contracts, etc.)
 ├── events.py               # Event emission and tracking
 ├── health_monitor.py       # Deterministic tripwire processor (heartbeat, error repeat, stall detection)
 ├── progress_store.py       # In-memory structured progress event storage
@@ -310,7 +310,7 @@ orchestrator/
 
 ## MCP Server
 
-The orchestrator includes an MCP server (port 9850) that exposes pipeline management and checkpoint tools to Claude Code and other MCP clients via Streamable HTTP transport.
+The orchestrator includes an MCP server (port 9850) that exposes pipeline management tools to Claude Code and other MCP clients via Streamable HTTP transport.
 
 ### Gateway-Backed Tools
 
@@ -318,11 +318,7 @@ These tools require a `gateway_url` and authenticate via a gateway session. The 
 
 | Tool | Description |
 |------|-------------|
-| `list_checkpoints` | List agent checkpoints with filters (issue, pipeline, agent_type, phase, status, repo, limit) |
-| `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo, limit) |
 | `get_contract` | Get SDLC contract state by issue number or task ID |
-
-Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` format) to specify the checkpoint repository when checkpoints are stored separately (e.g., `owner/repo-checkpoints`). The value is forwarded as `source_repo` to the gateway.
 
 ### Orchestrator-Backed Tools
 

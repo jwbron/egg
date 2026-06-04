@@ -421,7 +421,7 @@ class TestSessionValidationEdgeCases:
         results = []
 
         def delete_by_container():
-            deleted, _event = manager.delete_session_by_container("test-container")
+            deleted = manager.delete_session_by_container("test-container")
             results.append(deleted)
 
         # Try to delete from multiple threads

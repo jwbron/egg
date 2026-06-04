@@ -208,7 +208,6 @@ def _make_pipeline_session(
     mock_session.assigned_branch = assigned_branch
     mock_session.pipeline_id = pipeline_id
     mock_session.last_branch = assigned_branch
-    mock_session.checkpoint_repo = None
     mock_session.last_repo_path = None
     return mock_session
 
@@ -594,38 +593,6 @@ class TestPushTargetEnforcement:
             assert call_args[1]["success"] is False
             assert call_args[1]["details"]["assigned_branch"] == "egg/issue-42"
             assert call_args[1]["details"]["branch"] == "egg/wrong-branch"
-
-    def test_checkpoint_push_bypasses_enforcement(self, push_client, mock_push_policy):
-        """(k) Checkpoint push skips push-target enforcement entirely."""
-        session = _make_pipeline_session(assigned_branch="egg/issue-42")
-        # Set checkpoint_repo so the push is recognized as a checkpoint push
-        session.checkpoint_repo = "owner/repo"
-        headers, mock_result, mock_policy, current_sm = _setup_push_auth(session)
-
-        with (
-            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
-            patch.object(gateway, "audit_log"),
-            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
-            patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(
-                gateway,
-                "resolve_remote_url",
-                return_value=("https://github.com/owner/repo.git", None),
-            ),
-            patch.object(gateway, "get_auth_mode", return_value="local"),
-            patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(
-                gateway,
-                "get_authenticated_remote_target",
-                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
-            ),
-            patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
-            patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
-        ):
-            # Push to checkpoint branch (egg/checkpoints/v2) — different from assigned
-            response = _do_push(push_client, headers, refspec="egg/checkpoints/v2")
-            assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

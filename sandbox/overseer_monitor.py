@@ -348,8 +348,7 @@ def run_migrated_detectors(
                     ),
                     "detail": (
                         f"phase_entered_at={entry.phase_entered_at.isoformat()}; "
-                        f"recommended next step: check agent logs via "
-                        f"`egg-checkpoint show`."
+                        f"recommended next step: check the agent's container logs."
                     ),
                     "calibration_only": calibration_only,
                 }

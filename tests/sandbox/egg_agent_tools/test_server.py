@@ -1,13 +1,14 @@
 """Tests for egg_agent_tools.server (factory + system prompt nudge).
 
 Covers:
-- build_sandbox_mcp_server registers the expected tools (48: the 18
+- build_sandbox_mcp_server registers the expected tools (45: the 18
   iteration-1 verbs plus the 12 iteration-2 additions landed in #1917,
   minus 2 wait verbs removed in #2211, plus
   ``mcp__brc__resolve_obligation`` added in #2338, plus
-  ``check_file_restriction`` / ``report_impasse`` in #2529, plus the 17
-  Atlassian-gateway verbs in #2994, across the sdlc, brc, phase,
-  progress, task, checkpoint, confluence, and jira namespaces).
+  ``check_file_restriction`` / ``report_impasse`` in #2529, minus the
+  3 checkpoint verbs removed in #2993, plus the 17 Atlassian-gateway
+  verbs in #2994, across the sdlc, brc, phase, progress, task,
+  confluence, and jira namespaces).
 - SYSTEM_PROMPT_NUDGE stays <=200 words.
 - Symmetric drift test: every mcp__<namespace>__ substring in the nudge
   corresponds to a registered namespace, and every registered namespace
@@ -51,9 +52,9 @@ _ITER1_TOOL_NAMES = {
     "mcp__task__complete",
 }
 
-# Iteration-2 additions (12, #1917): 2 sdlc, 3 task, 1 phase, 2
-# progress, 1 brc, 3 checkpoint.  The anchor trio and directed peer
-# send/poll verbs were deferred per decisions 2 and 14.
+# Iteration-2 additions (9, #1917): 2 sdlc, 3 task, 1 phase, 2
+# progress, 1 brc.  The anchor trio and directed peer send/poll verbs
+# were deferred per decisions 2 and 14.
 _ITER2_TOOL_NAMES = {
     # sdlc
     "mcp__sdlc__show_contract",
@@ -69,10 +70,6 @@ _ITER2_TOOL_NAMES = {
     "mcp__progress__query_status",
     # brc
     "mcp__brc__read_peer_artifact",
-    # checkpoint (new namespace)
-    "mcp__checkpoint__list",
-    "mcp__checkpoint__show",
-    "mcp__checkpoint__search",
 }
 
 # Post-#1917 additions tracked separately so the diff stays auditable.
@@ -122,7 +119,6 @@ EXPECTED_NAMESPACES = {
     "phase",
     "progress",
     "task",
-    "checkpoint",
     "confluence",
     "jira",
 }
@@ -137,12 +133,13 @@ class TestToolRegistry:
         # then +1 in #2338 (``mcp__brc__resolve_obligation``) = 29,
         # then +2 in #2529 (``check_file_restriction`` +
         # ``report_impasse`` — runtime escape hatch) = 31,
+        # then -3 in #2993 (checkpoint subsystem removed) = 28,
         # then +17 in #2994 (8 confluence + 9 jira Atlassian-gateway
-        # verbs) = 48.
+        # verbs) = 45.
         # Derived assertion: trips when a future iteration drifts the
         # count without updating the prose verb-counts in
         # docs/reference/agent-tools.md.
-        assert len(TOOL_LIST) == 48
+        assert len(TOOL_LIST) == 45
 
     def test_expected_names_present(self):
         names = set(TOOL_REGISTRY.keys())
@@ -155,9 +152,10 @@ class TestToolRegistry:
         assert set(flat) == EXPECTED_TOOL_NAMES
 
     def test_namespace_set(self):
-        # Derived assertion: exactly eight namespaces.  The iter-1 five
-        # (sdlc/brc/phase/progress/task), `checkpoint` (#1917), and the
-        # two Atlassian-gateway namespaces `confluence`/`jira` (#2994).
+        # Derived assertion: exactly seven namespaces.  The iter-1 five
+        # (sdlc/brc/phase/progress/task) plus the two Atlassian-gateway
+        # namespaces `confluence`/`jira` (#2994).  The `checkpoint`
+        # namespace was removed in #2993.
         assert set(TOOL_NAMESPACES.keys()) == EXPECTED_NAMESPACES
 
     def test_iter2_tools_land_in_correct_namespace(self):
@@ -174,9 +172,6 @@ class TestToolRegistry:
             "mcp__progress__overseer_alert": "progress",
             "mcp__progress__query_status": "progress",
             "mcp__brc__read_peer_artifact": "brc",
-            "mcp__checkpoint__list": "checkpoint",
-            "mcp__checkpoint__show": "checkpoint",
-            "mcp__checkpoint__search": "checkpoint",
         }
         for tool_name, namespace in expected_ns.items():
             assert TOOL_REGISTRY[tool_name].namespace == namespace, (
@@ -213,7 +208,7 @@ class TestSystemPromptNudge:
     def test_each_namespace_appears_in_nudge(self):
         """Every registered namespace must appear as mcp__<ns>__ in the
         generated nudge — keeps the bootstrap prompt honest when a new
-        namespace lands (e.g. #1917 added ``checkpoint``)."""
+        namespace lands."""
         for namespace in TOOL_NAMESPACES:
             assert f"mcp__{namespace}__" in SYSTEM_PROMPT_NUDGE, (
                 f"Namespace '{namespace}' registered but missing from nudge"
@@ -239,8 +234,3 @@ class TestSystemPromptNudge:
 
     def test_nudge_nonempty(self):
         assert SYSTEM_PROMPT_NUDGE.strip() != ""
-
-    def test_checkpoint_namespace_mentioned_in_nudge(self):
-        """Explicit assertion for the new #1917 namespace so the drift
-        test flags if someone removes the checkpoint wiring."""
-        assert "mcp__checkpoint__" in SYSTEM_PROMPT_NUDGE

@@ -6,23 +6,14 @@ For every entry in ``TOOL_REGISTRY`` with ``cli_command`` set:
 
 1. The CLI subparser identified by ``cli_command`` exists in the
    corresponding ``create_parser()`` tree
-   (egg-orch / egg-contract / egg-checkpoint).
+   (egg-orch / egg-contract).
 2. The cmd_* function registered on that subparser (via
    ``set_defaults(func=cmd_*)``) shares a dispatch path with the MCP
-   handler.  Two patterns are accepted:
-
-   a. **Handler-import pattern** — most iter-1 / iter-2 verbs: the
-      cmd_* function imports
-      ``from egg_agent_tools.handlers import <ns> as _handlers`` and
-      calls ``_handlers.<fn>(req)``.  The drift test resolves that
-      reference via AST and asserts it is the same handler the MCP
-      tool wraps.
-   b. **Shared-helper pattern** — the checkpoint verbs (iter-2
-      decision-20): both the cmd_* function AND the MCP handler
-      import the helpers ``collect_checkpoints`` / ``load_checkpoint``
-      / ``search_checkpoints`` from ``egg_contracts.checkpoint_cli``.
-      The drift test asserts the cmd_* function references the same
-      helper name that the MCP handler's body references.
+   handler via the **handler-import pattern**: the cmd_* function
+   imports ``from egg_agent_tools.handlers import <ns> as _handlers``
+   and calls ``_handlers.<fn>(req)``.  The drift test resolves that
+   reference via AST and asserts it is the same handler the MCP tool
+   wraps.
 
 Tools with ``cli_command=None`` (the iter-1 capability-gap verbs plus
 the iter-2 net-new capabilities: ``brc__read_peer_artifact``,
@@ -47,7 +38,6 @@ sys.path.insert(0, str(ROOT / "sandbox"))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from egg_agent_tools.tools import TOOL_REGISTRY  # noqa: E402
-from egg_contracts import checkpoint_cli  # noqa: E402
 from egg_lib import (  # noqa: E402
     contract_cli,
     orch_cli,
@@ -56,14 +46,12 @@ from egg_lib import (  # noqa: E402
 PARSERS = {
     "egg-contract": contract_cli.create_parser(),
     "egg-orch": orch_cli.create_parser(),
-    "egg-checkpoint": checkpoint_cli.create_parser(),
 }
 
 # Map CLI subcommand → source module hosting its cmd_* function.
 SOURCE_MODULE = {
     "egg-contract": contract_cli,
     "egg-orch": orch_cli,
-    "egg-checkpoint": checkpoint_cli,
 }
 
 
@@ -135,42 +123,6 @@ def _extract_handler_reference(module, cmd_func_name: str) -> object | None:
     return None
 
 
-# Shared-helper pattern: the checkpoint verbs share one helper from
-# ``shared/egg_contracts/checkpoint_cli.py`` (decision-20).  The helper
-# name is the authoritative dispatch anchor; we check both the CLI
-# shim and the MCP handler reference the same helper.  Mapping:
-# MCP tool name → (helper_module, helper_attr).  When this map is
-# consulted the generic AST walk above is skipped.
-_SHARED_HELPER_DISPATCH: dict[str, tuple[str, str]] = {
-    "mcp__checkpoint__list": ("egg_contracts.checkpoint_cli", "collect_checkpoints"),
-    "mcp__checkpoint__show": ("egg_contracts.checkpoint_cli", "load_checkpoint"),
-    "mcp__checkpoint__search": ("egg_contracts.checkpoint_cli", "search_checkpoints"),
-}
-
-
-def _function_references_name(fn, *, attr_name: str) -> bool:
-    """Return True when ``fn``'s source references ``attr_name`` as a
-    callable (direct call, attribute access, or imported name).
-
-    Intentionally lax so it works for both
-    ``from egg_contracts.checkpoint_cli import collect_checkpoints``
-    (direct `collect_checkpoints(...)`) and
-    ``egg_contracts.checkpoint_cli.collect_checkpoints(...)`` access
-    styles.
-    """
-    try:
-        src = inspect.getsource(fn)
-    except OSError, TypeError:
-        return False
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == attr_name:
-            return True
-        if isinstance(node, ast.Attribute) and node.attr == attr_name:
-            return True
-    return False
-
-
 CLI_BACKED_TOOLS = [
     (name, reg) for name, reg in TOOL_REGISTRY.items() if reg.cli_command is not None
 ]
@@ -196,9 +148,8 @@ def test_cli_subparser_exists(tool_name: str, registration) -> None:
 )
 def test_cli_shim_delegates_to_tool_handler(tool_name: str, registration) -> None:
     """The cmd_* function bound to the subparser must share a dispatch
-    path with the handler the MCP wrapper invokes.
-
-    Two patterns are accepted — see module docstring for details.
+    path with the handler the MCP wrapper invokes via the handler-import
+    pattern — see module docstring for details.
     """
     cli = registration.cli_command
     binary, *path = cli
@@ -209,25 +160,7 @@ def test_cli_shim_delegates_to_tool_handler(tool_name: str, registration) -> Non
     func = leaf._defaults.get("func")
     assert func is not None, f"Subparser {' '.join(cli)} has no set_defaults(func=...)"
 
-    # Shared-helper pattern (iter-2, decision-20): the checkpoint verbs
-    # share a pure helper from ``egg_contracts.checkpoint_cli``.  Both
-    # the CLI shim and the MCP handler must reference the same helper.
-    if tool_name in _SHARED_HELPER_DISPATCH:
-        helper_module, helper_attr = _SHARED_HELPER_DISPATCH[tool_name]
-        assert _function_references_name(func, attr_name=helper_attr), (
-            f"Drift: tool {tool_name} is expected to dispatch through "
-            f"{helper_module}.{helper_attr}, but CLI shim {func.__name__} "
-            f"never references that helper."
-        )
-        assert _function_references_name(registration.handler, attr_name=helper_attr), (
-            f"Drift: tool {tool_name} MCP handler "
-            f"{registration.handler.__module__}.{registration.handler.__name__} "
-            f"does not reference the shared helper "
-            f"{helper_module}.{helper_attr}."
-        )
-        return
-
-    # Handler-import pattern (default): resolve the handler the cmd_*
+    # Handler-import pattern: resolve the handler the cmd_*
     # function delegates to via AST walk.
     handler_fn = _extract_handler_reference(SOURCE_MODULE[binary], func.__name__)
     assert handler_fn is not None, (
@@ -314,14 +247,13 @@ def test_cli_less_tools_are_documented_gaps():
 
 
 def test_iter2_cli_backed_tools_land_in_expected_binaries():
-    """Sanity check: the 10 iter-2 CLI-backed verbs dispatch through
-    the expected CLI binary (egg-contract / egg-orch / egg-checkpoint).
+    """Sanity check: the iter-2 CLI-backed verbs dispatch through
+    the expected CLI binary (egg-contract / egg-orch).
 
-    Catches a registration landing under the wrong binary (e.g. the
-    checkpoint verbs defaulting to egg-contract).  Distinct from the
-    generic parametrised tests above because those rely on
-    CLI_BACKED_TOOLS being correct — this tethers the iter-2 entries
-    explicitly.
+    Catches a registration landing under the wrong binary (e.g. a
+    verb defaulting to egg-contract).  Distinct from the generic
+    parametrised tests above because those rely on CLI_BACKED_TOOLS
+    being correct — this tethers the iter-2 entries explicitly.
     """
     expected = {
         "mcp__sdlc__show_contract": "egg-contract",
@@ -331,9 +263,6 @@ def test_iter2_cli_backed_tools_land_in_expected_binaries():
         "mcp__phase__complete_phase": "egg-contract",
         "mcp__progress__overseer_alert": "egg-orch",
         "mcp__progress__query_status": "egg-orch",
-        "mcp__checkpoint__list": "egg-checkpoint",
-        "mcp__checkpoint__show": "egg-checkpoint",
-        "mcp__checkpoint__search": "egg-checkpoint",
     }
     for tool_name, binary in expected.items():
         reg = TOOL_REGISTRY[tool_name]

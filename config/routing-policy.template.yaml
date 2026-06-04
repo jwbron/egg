@@ -1,0 +1,102 @@
+# Gateway routing policy template (issue #2987).
+#
+# The gateway is the single LLM router. On top of the spawn-time per-agent
+# upstream selection (PipelineConfig.agent_models / default_agent_model →
+# Session.upstream, see docs/guides/per-agent-models.md), this file adds a
+# HOT-RELOADABLE, model-keyed routing policy with two levers:
+#
+#   * switchover — PROACTIVE remap. Before the first send, a wire model name
+#     (the request body's "model") is remapped to a different upstream and/or
+#     model. Use this to globally re-route a wire model without respawning
+#     agents.
+#   * fallbacks — REACTIVE chain. When the primary upstream returns a trigger
+#     status (quota / opt-in error), the proxy advances through an ordered
+#     list of fallback hops for that wire model, in the PRE-STREAM window
+#     (before any byte is forwarded downstream).
+#
+# Consolidation principle: FALLBACK IS A PROPERTY OF THE MODEL, NOT THE
+# PIPELINE. The policy keys on the wire model, so an explicit per-pipeline
+# agent_models override inherits the same fallback chain for free.
+#
+# -------------------------------------------------------------------------
+# How it is delivered (hot-reload, no pod restart)
+# -------------------------------------------------------------------------
+# Copy this file to ~/.config/egg/routing-policy.yaml and edit. It rides the
+# proven secrets mount: `make k3s-secrets` bundles every file under
+# ~/.config/egg/ as a key on `gateway-secrets`, and the gateway mounts that
+# whole Secret at /secrets, so kubelet propagates an updated
+# routing-policy.yaml to the running gateway pod WITHOUT a restart and
+# WITHOUT losing in-flight turns. The gateway re-reads the file on its next
+# request via an mtime-invalidated cache.
+#
+#   1. edit ~/.config/egg/routing-policy.yaml
+#   2. run `make routing-policy`  (re-creates gateway-secrets; no rollout)
+#   3. wait for kubelet to propagate the volume update (~60s)
+#
+# It is CONFIG riding a Secret for the hot-reload mount, not a credential —
+# it carries no keys. DO NOT COMMIT ~/.config/egg/routing-policy.yaml.
+#
+# An ABSENT, EMPTY, or MALFORMED file is the no-op default: the gateway
+# fails OPEN to the spawn-time single-upstream route (byte-identical to the
+# pre-#2987 path). A typo never takes down inference — it just disables
+# routing until fixed. Check the gateway logs for a "Routing policy loaded"
+# line (and any per-entry "skipping" warnings) after applying.
+#
+# -------------------------------------------------------------------------
+# Triggers — when a status code advances vs retries (defaults shown)
+# -------------------------------------------------------------------------
+# advance_on defaults to QUOTA ONLY ({429}). Cross-model escalation can land
+# on an expensive model (e.g. Opus), so a transient blip from a cheap open
+# model must NOT silently spend Opus dollars, and a genuinely buggy upstream
+# 500 must NOT be papered over by a green Opus response that masks the
+# defect. A transient 5xx retries the SAME upstream once (retry_same_on /
+# retry_same_max) and is then SURFACED rather than escalated. Broader 5xx
+# *escalation* is opt-in: add the codes to advance_on.
+#
+# triggers:
+#   advance_on: [429]                 # status codes that advance to the next hop
+#   retry_same_on: [500, 502, 503, 529]  # status codes that retry the SAME hop first
+#   retry_same_max: 1                 # max same-hop retries before surfacing/advancing
+#
+# NOTE (prerequisite — see #2987): fallback-on-quota only fires when the
+# provider surfaces quota as a PRE-STREAM HTTP status in advance_on. If
+# Fireworks / OpenRouter / LiteLLM instead return HTTP 200 then an in-band
+# SSE error frame, the gateway streams it through and does NOT fall back.
+# Verify the real quota response of each provider before relying on this.
+#
+# -------------------------------------------------------------------------
+# Context-window safety (policy-authoring constraint — NOT enforced)
+# -------------------------------------------------------------------------
+# The Claude Code compaction profile is fixed at spawn (the [1m] /
+# ANTHROPIC_CUSTOM_MODEL_OPTION registration). A fallback/switchover target
+# with a SMALLER real context window than the source can overflow
+# mid-conversation. 1M → Opus is safe; 1M → a 256K/202K model is risky. The
+# gateway cannot know each model's window — keep fallback targets at least
+# as large as the source.
+#
+# -------------------------------------------------------------------------
+# Example (commented out — copy + uncomment + edit)
+# -------------------------------------------------------------------------
+#
+# switchover:
+#   # Globally route the "deepseek-v4-flash" wire model through litellm,
+#   # rewriting the body's model to the backend name litellm registered.
+#   deepseek-v4-flash:
+#     upstream: litellm
+#     model: deepseek-v4-flash
+#
+# fallbacks:
+#   # On a 429 from the flash backend, fall back to Opus on the direct
+#   # Anthropic upstream. A hop to `anthropic` MUST set `model` to a real
+#   # Claude id — Anthropic 404s an unknown (open-model) name.
+#   deepseek-v4-flash:
+#     - upstream: anthropic
+#       model: claude-opus-4-8
+#
+# triggers:
+#   advance_on: [429]
+#   retry_same_on: [500, 502, 503, 529]
+#   retry_same_max: 1
+
+# Empty by default — the no-op route. Uncomment the blocks above to enable.
+{}

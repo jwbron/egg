@@ -63,7 +63,6 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 - `.egg/schemas/contract.schema.json` – Contract structure and role-based field ownership
 - `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
 - `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations and file restrictions per SDLC phase
-- `.egg/schemas/checkpoint.schema.json` – Agent checkpoint structure (session context, transcripts, tool calls)
 - `.egg/schemas/agent-anchor.schema.json` – Agent anchor structure for post-compaction state recovery
 
 **Role-based ownership**: Each contract field is owned by a specific role:
@@ -85,51 +84,6 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text> [--options ...] [--format {json,markdown}]` | Create HITL decision point with optional predefined choices and markdown output format for GitHub comments |
 | `egg-contract add-feedback --question <text> [--question <text>...] [--format {json,markdown}]` | Create feedback comment for open-ended questions |
-
-### Checkpoint System
-
-Checkpoints capture agent session context as first-class versioned data in Git. The v2 checkpoint system captures **all agent sessions** (not just commits) with rich multi-dimensional querying.
-
-**Triggers**: Checkpoints are captured on two events:
-- **Commit**: When agents push to remote (one checkpoint per push, regardless of commit count)
-- **Session-end**: When agent containers terminate (completed, expired, or failed)
-
-**Captured data**:
-- **Transcript**: Full conversation history with timestamps and message roles
-- **Tool calls**: All tool invocations with parameters, results, and durations
-- **Files touched**: All file operations (read, write, edit, glob, grep)
-- **Token usage**: Input/output tokens and estimated costs
-- **Session metadata**: Session ID, agent role, model, duration
-- **Workflow context**: Issue number, PR number, pipeline phase, agent type, session status
-
-Checkpoints are stored in the `egg/checkpoints/v2` branch with a multi-dimensional index supporting rich queries. This provides full traceability from requirements to implementation, including sessions that didn't produce commits.
-
-**Checkpoint CLI**
-
-Browse and query checkpoints via the `egg-checkpoint` CLI:
-
-| Command | Purpose |
-|---------|---------|
-| `egg-checkpoint list [filters] [--limit <n>]` | List checkpoints with metadata |
-| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details |
-| `egg-checkpoint browse --issue <number>` | Filter checkpoints by issue number |
-| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
-| `egg-checkpoint cost [filters]` | Show cost breakdown (token usage and USD) by phase and agent type |
-| `egg-checkpoint search --text <query> [filters]` | Search checkpoint transcripts for matching text |
-
-**Supported filters**:
-- `--branch <name>` — Filter by git branch
-- `--issue <n>` — Filter by issue number
-- `--pr <n>` — Filter by PR number
-- `--pipeline <id>` — Filter by pipeline run ID (for multi-agent workflows)
-- `--repo <owner/repo>` — Filter by source repository
-- `--session <id>` — Filter by session ID
-- `--trigger <commit|session_end>` — Filter by trigger type
-- `--status <completed|expired|failed>` — Filter by session status
-- `--agent-type <coder|tester|documenter|reviewer|unknown>` — Filter by agent type
-- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
-
-Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
 
 ### Plan Parser
 

@@ -18,7 +18,6 @@ You are an autonomous software engineering agent in a sandboxed Docker environme
 | Confluence | Confluence REST API | Architecture decisions, runbooks, best practices |
 | JIRA | JIRA REST API | Tickets, requirements, sprint info |
 | Slack | `~/sharing/incoming/` | Task requests |
-| Checkpoints | `egg-checkpoint` CLI | Prior agent sessions |
 
 Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it contains task-specific guide lookup tables, links to architecture docs, guides, and component READMEs.
 
@@ -38,7 +37,7 @@ Use `$EGG_REPO_PATH` if it points to a specific repo (e.g., `~/repos/egg/`). If 
 
 ### 1. Gather Context → 2. Plan → 3. Implement → 4. Test → 5. Commit & PR
 
-**Gather context**: Read `$EGG_REPO_PATH/docs/index.md`. In pipelines, review prior sessions via `egg-checkpoint context --pipeline $EGG_PIPELINE_ID`.
+**Gather context**: Read `$EGG_REPO_PATH/docs/index.md`.
 
 **Branch naming**: Always use `egg/<description>` format. The gateway only allows `egg/` or `egg-` prefixed branches.
 

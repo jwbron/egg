@@ -472,7 +472,7 @@ def parse_memory(content: str) -> BRCMemory:
 def write_memory_atomic(memory: BRCMemory, path: Path) -> None:
     """Persist ``memory`` to ``path`` atomically via tempfile + os.replace.
 
-    Pattern (mirrors ``shared/egg_contracts/usage_loader.py:_atomic_write``):
+    Pattern:
 
       1. Ensure the parent directory exists (created with parents=True).
       2. ``tempfile.mkstemp`` in the same directory so ``os.replace`` is

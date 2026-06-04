@@ -3,7 +3,7 @@ name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
 argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
-allowed-tools: Monitor TaskStop Bash(${CLAUDE_SKILL_DIR}/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
+allowed-tools: Monitor TaskStop Bash(${CLAUDE_SKILL_DIR}/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract
 ---
 
 # SDLC Pipeline
@@ -1019,8 +1019,6 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 | View agent logs | `get_container_logs` | Auto-selects container by role; set `lines` for more output |
 | List containers in pipeline | `list_containers` | Find container IDs, statuses, and agent roles |
 | BRC consensus state | `get_consensus_status` | Agent phases, blocking agents, unresolved NACKs |
-| Review prior agent sessions | `list_checkpoints` | Browse transcripts, tool calls, token usage |
-| Search agent sessions | `search_checkpoints` | Search checkpoint metadata for keywords |
 | SDLC contract state | `get_contract` | Task progress, pending decisions |
 | Send message to agent | `send_message` | Nudge agents, request status updates |
 | Phase details | `get_phase` | Current phase, execution timing, review cycles |
@@ -1059,8 +1057,6 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 | `get_phase` | Current phase, execution timing, review cycles |
 | `get_pipeline_snapshot` | Comprehensive view: pipeline state, containers, messages, decisions |
 | `get_contract` | SDLC contract state: task progress, pending decisions (gateway-backed) |
-| `list_checkpoints` | Browse prior agent session transcripts (gateway-backed) |
-| `search_checkpoints` | Search checkpoint metadata for keywords (gateway-backed) |
 
 **Polling protocol:** First poll uses `get_status(task_id)` (MCP). Every subsequent quiet stretch uses one **Monitor** invocation wrapping `${CLAUDE_SKILL_DIR}/bin/wait-status <task_id> --since "<last_cursor>"` so each emitted JSON-line wakes the LLM individually. Bash is a fallback (events batch at the 10-min Bash cap). See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full envelope contract and trigger allowlist.
 

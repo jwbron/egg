@@ -19,7 +19,6 @@ from __future__ import annotations
 from typing import Any
 
 from egg_agent_tools.tools import brc as _brc_tools
-from egg_agent_tools.tools import checkpoint as _checkpoint_tools
 from egg_agent_tools.tools import confluence as _confluence_tools
 from egg_agent_tools.tools import jira as _jira_tools
 from egg_agent_tools.tools import message as _message_tools
@@ -37,7 +36,6 @@ def _register_all() -> None:
     for module in (
         _sdlc_tools,
         _brc_tools,
-        _checkpoint_tools,
         _confluence_tools,
         _jira_tools,
         _message_tools,
@@ -72,9 +70,6 @@ NAMESPACE_DESCRIPTIONS: dict[str, str] = {
     "brc": (
         "drive Broadcast-Review-Converge consensus: propose, ACK, NACK, confirm, "
         "inspect state, read peer history, and block on typed events / emit heartbeats"
-    ),
-    "checkpoint": (
-        "browse agent checkpoint history: list, show, and search across captured sessions"
     ),
     "phase": (
         "look up your phase context (role, pipeline, assigned tasks, "
