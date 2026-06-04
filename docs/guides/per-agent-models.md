@@ -115,7 +115,8 @@ The resolver's classifier divides model strings into two camps:
 |----------------------|------------|---------------------|------------------|
 | `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
-| Everything else (e.g. `qwen3-coder-30b`, `mistral-large`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
+| Everything else with a real window ≥1M (e.g. `qwen3.7-max`, `deepseek-v4-*`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
+| Sub-1M-window models (`_SUB_1M_CONTEXT_MODELS`: `kimi-k2.6` 256K, `glm-5.1` 202K) | `"litellm"` | `<model>` — bare, **no** `[1m]` (takes Claude Code's 200K default) | the bare upstream name |
 
 Two consequences:
 
@@ -123,9 +124,12 @@ Two consequences:
   model is a Claude alias — `upstream_model` is `None`, so the gateway
   forwards the body verbatim.
 - The LiteLLM path threads `<model>[1m]` into `--model` and the
-  `ANTHROPIC_CUSTOM_MODEL_OPTION` env var. Claude Code strips the
-  suffix before sending, so LiteLLM keys on the bare upstream name —
-  the gateway does not rewrite the body.
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` env var for the standard ≥1M case,
+  or the **bare** `<model>` (no suffix) for `_SUB_1M_CONTEXT_MODELS`
+  — see the *Sub-1M-window upstreams (#2987)* callout below. Claude
+  Code strips the suffix before sending (when present), so LiteLLM
+  keys on the bare upstream name — the gateway does not rewrite the
+  body.
 
 ## How the resolved decision threads through spawn
 
@@ -198,7 +202,10 @@ two env vars (plus one egg-side auth marker):
 
 - `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
   custom model ID and tells Claude Code to use 1M-context
-  compaction math.
+  compaction math. For models in `_SUB_1M_CONTEXT_MODELS` (Kimi
+  K2.6, GLM-5.1) this is set to the **bare** `<upstream>` without
+  the `[1m]` suffix; see the *Sub-1M-window upstreams (#2987)*
+  callout below.
 - `ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=<upstream>` — the bare
   on-the-wire name. Claude Code strips the `[1m]` suffix from the
   registered ID before sending the `"model"` field, so LiteLLM sees
@@ -220,8 +227,12 @@ two env vars (plus one egg-side auth marker):
   (e.g. `Explore`) route to the configured upstream instead of
   emitting `claude-haiku-…` — a name absent from the proxy's
   `model_list` that would otherwise 400 with
-  `ProxyModelNotFoundError`. Carries the `[1m]` suffix so subagents
-  share the main agent's 1M-context compaction profile.
+  `ProxyModelNotFoundError`. Pinned to the main agent's resolved
+  `claude_code_alias` so subagents share its compaction profile —
+  the `[1m]` 1M-window profile for the standard LiteLLM path, or
+  the bare alias (Claude Code's 200K default) for
+  `_SUB_1M_CONTEXT_MODELS`; see
+  the *Sub-1M-window upstreams (#2987)* callout below.
 - `ANTHROPIC_DEFAULT_HAIKU_MODEL=<upstream>` (and its deprecated
   alias `ANTHROPIC_SMALL_FAST_MODEL=<upstream>`, set for older
   Claude Code builds) — the model the `haiku` alias and Claude
@@ -235,7 +246,9 @@ two env vars (plus one egg-side auth marker):
 The resolver builds these values from the decided upstream string and
 the spawn sites merge them into the agent's `extra_env`
 (see `AgentModelDecision.env_vars()`). The resolver also pins the
-agent's `--model` flag to `<upstream>[1m]` so the harness's
+agent's `--model` flag to `<upstream>[1m]` for the standard ≥1M case
+(or the bare `<upstream>` for `_SUB_1M_CONTEXT_MODELS` — see the
+*Sub-1M-window upstreams (#2987)* callout below) so the harness's
 ``--model``-keyed pathway also routes through the custom-model
 registration.
 
@@ -249,14 +262,20 @@ registration.
 > override flow (see [#2832](https://github.com/jwbron/egg/issues/2832)
 > for the follow-up).
 
-> **Sub-1M-window upstreams.** The resolver appends `[1m]`
-> unconditionally on the LiteLLM path. The current pilot upstreams
-> (Qwen3.7-max, DeepSeek-v4-*) are all 1M; smaller upstreams (e.g.
-> the original qwen3-coder-30b at 32k) would see Claude Code defer
-> compaction past their real window. A per-entry context_window
-> declaration is the natural extension when those backends graduate
-> past pilot — left out of this change deliberately to keep the
-> seam minimal.
+> **Sub-1M-window upstreams (#2987).** Claude Code exposes a custom
+> model only two compaction profiles — the 1M window (the `[1m]`
+> suffix; its qualifier in Claude Code is literally `/\[1m\]/i`) or
+> its 200K default. There is no arbitrary `[256k]` size suffix, and
+> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` only takes effect under
+> `DISABLE_COMPACT` (which egg never sets). So the resolver appends
+> `[1m]` only for genuine ≥1M upstreams and **withholds it** for
+> models whose real window is below 1M — `_SUB_1M_CONTEXT_MODELS` in
+> `agent_model_resolution.py` (Kimi K2.6 256K, GLM-5.1 202K). Those
+> take Claude Code's 200K default, which auto-compacts safely below
+> their real limit instead of deferring compaction toward 1M and
+> overflowing the upstream mid-turn. The cost is the unused headroom
+> above 200K (e.g. ~56K for Kimi); Claude Code offers no in-between
+> profile. Add a model to the set when its real window is <1M.
 
 ### Web tool availability on the LiteLLM path (#2856)
 
@@ -609,7 +628,7 @@ Routing → Files](../architecture/upstream-routing.md#files).
 |----------|------------|-------------------|
 | `cq-3` | Per-role field on `PipelineConfig` **and** `repositories.yaml` default | Two-knob config above; precedence chain in the resolver |
 | `cq-4` | No agent-flip in this pipeline; operator smoke-test deferred | Smoke-test section is operator-driven, not gating merge |
-| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
+| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` for ≥1M upstreams (bare `<upstream>` for `_SUB_1M_CONTEXT_MODELS` per #2987) and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
 | `cq-6` | First validation backend is hosted Qwen | Step 2 example uses hosted Qwen; self-hosted deferred |
 | `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Step 4 error-path note; same behavior as today's Anthropic upstream errors |
 | `cq-11` | Leave `[1m]` for Claude | Non-Claude model strings simply do not carry `[1m]`; the resolver routes them via the LiteLLM path |
