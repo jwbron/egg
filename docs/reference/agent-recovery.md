@@ -466,8 +466,6 @@ if checkpoint.should_checkpoint:
 - `elapsed_seconds`, `remaining_seconds`
 - `data` — caller-supplied state dict
 
-This is a state-save trigger utility, not the agent checkpoint system (which stores transcripts and tool calls in the `egg/checkpoints/v2` git branch).
-
 ## Related Documentation
 
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — Failure handling in concurrent mode

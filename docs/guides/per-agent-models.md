@@ -558,8 +558,7 @@ The two compatibility properties only the live path can prove:
    in-session `/context` panel reports the right window size and that
    compaction fires on schedule.
 
-Capture the transcript via `egg-checkpoint show <ckpt>` and the
-gateway audit log via the structured-logging stream
+Capture the gateway audit log via the structured-logging stream
 ([architecture/logging](../architecture/logging.md)).
 
 This validation step is **operator-driven and out of scope for

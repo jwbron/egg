@@ -44,7 +44,7 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 **Key env vars**: `EGG_ORCHESTRATOR_URL`, `EGG_PIPELINE_ID`, `EGG_AGENT_ROLE`, `EGG_ISSUE_NUMBER`, `EGG_BRANCH`, `EGG_REPO_PATH`, `GATEWAY_URL`, `AGENT_ANCHOR_ID`
 
-**Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`
+**Related CLIs**: `egg-contract`, `egg-pipeline-watch`
 
 ## MCP tool equivalents
 
@@ -79,4 +79,4 @@ BRC introspection (#2908):
 - `mcp__brc__resolve_obligation` — Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The orchestrator rejects self-resolution (`resolver_role == producer_role`), so the producer cannot drive their own resolution — typically the tester (or any non-producer satisfier) calls this after cherry-picking the conditioning commit. CLI alias: `egg-orch brc resolve-obligation` (slice-5 of #2908; registration still `cli_command=None` — see agent-tools.md).
 
 See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 29-verb inventory.
+for the full tool inventory.

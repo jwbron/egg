@@ -42,4 +42,3 @@ The following gateway-side files are also under decomposition in
 |------|--------------|-------|
 | `gateway/worktree_manager.py` | ~2,090 lines | slice-8 (#2261) |
 | `gateway/git_client.py` | ~2,032 lines | slice-6 (#2261) |
-| `gateway/checkpoint_handler.py` | ~1,655 lines | slice-3 (#2261) |

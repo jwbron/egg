@@ -5937,10 +5937,6 @@ def _build_role_context(
     _rc_base_ref = _resolve_origin_ref(base_branch)
     lines.append(f"- Changed files: `git diff {_rc_base_ref}...HEAD` or check handoff data")
     lines.append("- Coder output: check `EGG_HANDOFF_DATA` environment variable")
-    lines.append(
-        "- Prior agent sessions: `egg-checkpoint context --pipeline $EGG_PIPELINE_ID` "
-        "(see checkpoint rule for details)"
-    )
     lines.append("")
 
     return "\n".join(lines)
@@ -13283,9 +13279,6 @@ def _build_agent_prompt(
                 "use WebSearch and WebFetch (when available) to look up testing patterns, "
                 "known edge cases, and recommended test approaches for those libraries.",
                 "",
-                "Before writing tests, review the coder's session for context on what was changed and why:",
-                "`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`",
-                "",
                 "## Parallel Execution with Subagents\n",
                 "If the changes span multiple independent components or modules, you can use "
                 "Claude Code's **Agent tool** to parallelize test writing. Launch one subagent "
@@ -13416,9 +13409,6 @@ def _build_agent_prompt(
                 "When documenting third-party integrations or external APIs, use WebSearch "
                 "and WebFetch (when available) to verify current API signatures, link to "
                 "official documentation, and confirm usage examples are up to date.",
-                "",
-                "Find all changed files across agents:",
-                "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
                 "",
                 "### When the slice warrants no doc updates (#2444)",
                 "",

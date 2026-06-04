@@ -40,7 +40,6 @@ Usage:
 """
 
 import argparse
-import codecs
 import functools
 import json
 import os
@@ -88,12 +87,6 @@ try:
     from .anthropic_credentials import (
         get_credentials_manager,
         get_litellm_credentials_manager,
-    )
-    from .checkpoint_handler import (
-        _get_checkpoint_repo_for_path,
-        capture_and_store_checkpoint,
-        capture_and_store_checkpoints_for_push,
-        get_checkpoint_handler,
     )
     from .confluence_client import (
         DEFAULT_LIMIT as CONFLUENCE_DEFAULT_LIMIT,
@@ -204,7 +197,6 @@ try:
         get_session_manager,
         validate_session_for_request,
     )
-    from .transcript_buffer import get_transcript_buffer
     from .upstream_registry import (
         UnknownUpstreamError,
         get_upstream_registry,
@@ -225,12 +217,6 @@ except ImportError:
     from anthropic_credentials import (  # type: ignore[no-redef]
         get_credentials_manager,
         get_litellm_credentials_manager,
-    )
-    from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
-        _get_checkpoint_repo_for_path,
-        capture_and_store_checkpoint,
-        capture_and_store_checkpoints_for_push,
-        get_checkpoint_handler,
     )
     from git_client import (  # type: ignore[no-redef, import-untyped]
         GIT_ALLOWED_COMMANDS,
@@ -363,7 +349,6 @@ except ImportError:
         get_session_manager,
         validate_session_for_request,
     )
-    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-untyped]
     from upstream_registry import (  # type: ignore[no-redef, import-untyped]
         UnknownUpstreamError,
         get_upstream_registry,
@@ -382,7 +367,7 @@ except ImportError:
 _config_path = Path(__file__).parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
-from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
+from repo_config import get_auth_mode
 
 logger = get_logger("gateway")
 
@@ -478,34 +463,6 @@ def _detached_head_hint(
         f"branch '{assigned}'. To set the branch to this commit, run:\n"
         f"  git update-ref refs/heads/{assigned} HEAD\n"
     )
-
-
-def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
-    """Check if a repository is a checkpoint repo, using all available signals.
-
-    Extends ``is_checkpoint_repo()`` (config-based) with session-level
-    context.  The session's ``checkpoint_repo`` field is set during session
-    creation and on git push, so it captures repos that may not appear in
-    ``repositories.yaml`` (e.g. when the config file is absent in sandboxes
-    but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
-
-    Args:
-        owner: Repository owner (e.g. "my-org")
-        repo: Repository name (e.g. "checkpoints")
-
-    Returns:
-        True if the repo is a known checkpoint destination.
-    """
-    if is_checkpoint_repo(owner, repo):
-        return True
-    try:
-        session = getattr(g, "session", None)
-        if session and session.checkpoint_repo:
-            return bool(f"{owner}/{repo}".lower() == session.checkpoint_repo.lower())
-    except RuntimeError:
-        # Outside Flask request context — fall through
-        pass
-    return False
 
 
 app = Flask(__name__)
@@ -1315,11 +1272,10 @@ def git_push() -> tuple[Response, int] | Response:
         )
 
     # Infrastructure branch bypass: pushes to infrastructure branches always succeed
-    # regardless of session mode or phase (checkpoints and pipeline state can be
-    # written at any time).
-    from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+    # regardless of session mode or phase (pipeline state can be written at any time).
+    from egg_config.constants import PIPELINE_STATE_BRANCH
 
-    INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
+    INFRASTRUCTURE_BRANCHES = {PIPELINE_STATE_BRANCH}
     is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
 
     # Slice integration-branch creation (#2368): the orchestrator pre-creates
@@ -1366,13 +1322,10 @@ def git_push() -> tuple[Response, int] | Response:
     repo_info = parse_owner_repo(repo)
     if repo_info:
         # Infrastructure operations — always accessible regardless of
-        # session mode. This covers dedicated checkpoint repos and
-        # infrastructure branch pushes (checkpoints, pipeline state).
-        is_ckpt_repo = _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo)
-        if is_infrastructure_push or is_ckpt_repo:
-            if is_ckpt_repo:
-                exempt_type = "checkpoint_repo"
-            elif is_slice_integration_push:
+        # session mode. This covers infrastructure branch pushes
+        # (pipeline state) and synthetic slice-integration pushes.
+        if is_infrastructure_push:
+            if is_slice_integration_push:
                 exempt_type = "slice_integration_branch"
             else:
                 exempt_type = "infrastructure_branch"
@@ -1430,7 +1383,7 @@ def git_push() -> tuple[Response, int] | Response:
     # bare, mis-targeted, or correctly-targeted — is rejected with a single
     # unambiguous error pointing at the right tool, instead of the three-layer
     # error cascade that previously sent agents refspec-hunting (#2028).
-    # Infrastructure pushes (checkpoint branches, etc.) are exempt.
+    # Infrastructure pushes (pipeline-state branch, etc.) are exempt.
     if not is_infrastructure_push:
         # Killswitch: PIPELINE_PUSH_ENFORCEMENT=false (legacy alias:
         # CONCURRENT_PUSH_ENFORCEMENT=false) disables the block.
@@ -1536,12 +1489,12 @@ def git_push() -> tuple[Response, int] | Response:
     # consistent and lets the fail-closed branch run even if neither
     # session has a role (the phase check still runs in that case).
     #
-    # Infrastructure pushes (checkpoint branches, pipeline-state, and synthetic-
-    # session slice integration-branch creation pushes; see is_infrastructure_push
-    # above) are exempt for two distinct reasons:
-    #   1. ``egg/checkpoints/v2`` and ``egg/pipeline-state`` are orphan/disjoint-
-    #      history branches written by orchestrator infrastructure, not agent
-    #      BRC pushes, so role-based file restrictions don't conceptually apply.
+    # Infrastructure pushes (pipeline-state and synthetic-session slice
+    # integration-branch creation pushes; see is_infrastructure_push above)
+    # are exempt for two distinct reasons:
+    #   1. ``egg/pipeline-state`` is an orphan/disjoint-history branch written
+    #      by orchestrator infrastructure, not agent BRC pushes, so role-based
+    #      file restrictions don't conceptually apply.
     #   2. Synthetic-session slice integration-branch creation pushes (#2368)
     #      diff against `main` because the target ref doesn't exist yet, which
     #      would otherwise pull in every file modified on the parent branch's
@@ -1866,8 +1819,6 @@ def git_push() -> tuple[Response, int] | Response:
     # - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
     # - implement: Can push code but not .egg-state/ (except checkpoints)
     # - pr: Can push everything
-    #
-    # Checkpoint branch pushes always bypass this check (see is_infrastructure_push above).
     if session_phase and not is_infrastructure_push:
         # Get the list of files being pushed (reuse if already fetched for role check)
         if changed_files is None:
@@ -1988,36 +1939,6 @@ def git_push() -> tuple[Response, int] | Response:
     if auth_mode == "user":
         logger.debug("User mode push", repo=repo)
 
-    # Get the remote ref SHA before push (for per-push checkpoint creation)
-    # This allows us to identify the range of commits being pushed
-    old_ref_sha: str | None = None
-    try:
-        # Use ls-remote to get the current remote ref
-        ls_remote_result = subprocess.run(
-            git_cmd("ls-remote", push_target, f"refs/heads/{branch}"),
-            cwd=exec_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if ls_remote_result.returncode == 0 and ls_remote_result.stdout.strip():
-            # Output format: "<sha>\trefs/heads/<branch>"
-            old_ref_sha = ls_remote_result.stdout.strip().split()[0]
-            logger.debug(
-                "Got remote ref before push",
-                branch=branch,
-                old_ref_sha=old_ref_sha[:7] if old_ref_sha else None,
-            )
-        else:
-            # Branch doesn't exist on remote (new branch push)
-            old_ref_sha = "0" * 40
-            logger.debug("Branch does not exist on remote (new branch)", branch=branch)
-    except Exception as e:
-        # If we can't get the old ref, we'll fall back to single-commit checkpoint
-        logger.debug("Could not get remote ref before push", error=str(e))
-        old_ref_sha = None
-
     # Create credential helper and execute push
     credential_helper_path = None
     try:
@@ -2046,62 +1967,12 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-            # Capture per-push checkpoint after successful push (async, non-blocking)
-            # Get the HEAD commit SHA (new_sha) from the worktree
-            try:
-                head_result = subprocess.run(
-                    git_cmd("rev-parse", "HEAD"),
-                    cwd=exec_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-                new_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
-
-                if new_sha:
-                    # Get session from request context
-                    session = getattr(g, "session", None)
-
-                    # Look up checkpoint repo config (may be a separate repo)
-                    ckpt_repo = get_checkpoint_repo(repo) if repo else None
-
-                    # Store on session for session-end checkpoint use
-                    if session is not None:
-                        session.checkpoint_repo = ckpt_repo  # None clears previous value
-                        session.last_repo_path = exec_path
-                        session.last_branch = branch
-
-                    if old_ref_sha:
-                        # Create single checkpoint for the push tip
-                        capture_and_store_checkpoints_for_push(
-                            repo_path=exec_path,
-                            new_sha=new_sha,
-                            branch=branch,
-                            session=session,
-                            github_token=token_str,
-                            async_store=True,  # Don't block push response
-                            checkpoint_repo=ckpt_repo,
-                        )
-                    else:
-                        # Fallback: couldn't get old ref, create single checkpoint
-                        capture_and_store_checkpoint(
-                            repo_path=exec_path,
-                            commit_sha=new_sha,
-                            branch=branch,
-                            session=session,
-                            push_sha=new_sha,
-                            github_token=token_str,
-                            async_store=True,
-                            checkpoint_repo=ckpt_repo,
-                        )
-            except Exception as checkpoint_err:
-                # Checkpoint failure should never block push success
-                logger.warning(
-                    "Checkpoint capture failed (non-blocking)",
-                    error=str(checkpoint_err),
-                    branch=branch,
-                )
+            # Update session bookkeeping after a successful push so other
+            # request handlers can resolve the session's current worktree.
+            session = getattr(g, "session", None)
+            if session is not None:
+                session.last_repo_path = exec_path
+                session.last_branch = branch
 
             success_payload: dict[str, Any] = {
                 "repo": repo,
@@ -2747,9 +2618,7 @@ def git_execute() -> tuple[Response, int] | Response:
     if _session_for_observer is not None:
         _observer_role = getattr(_session_for_observer, "agent_role", None)
         _observer_pipeline_id = getattr(_session_for_observer, "pipeline_id", None)
-        _observer_repo = getattr(_session_for_observer, "repo", None) or getattr(
-            _session_for_observer, "checkpoint_repo", None
-        )
+        _observer_repo = getattr(_session_for_observer, "repo", None)
         _observer_branch = getattr(_session_for_observer, "assigned_branch", None) or getattr(
             _session_for_observer, "branch", None
         )
@@ -2978,41 +2847,29 @@ def git_fetch() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        # Checkpoint repos are infrastructure — always accessible regardless of session mode
-        if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
+        priv_result = check_private_repo_access(
+            operation=operation,
+            owner=repo_info.owner,
+            repo=repo_info.repo,
+            for_write=False,
+            session_mode=session_mode,
+        )
+        if not priv_result.allowed:
             audit_log(
-                f"{operation}_checkpoint_repo_exempt",
+                f"{operation}_denied_private_mode",
                 f"git_{operation}",
-                success=True,
+                success=False,
                 details={
                     "repo": repo,
-                    "reason": "Checkpoint repo exempt from private mode policy",
+                    "reason": priv_result.reason,
+                    "visibility": priv_result.visibility,
                 },
             )
-        else:
-            priv_result = check_private_repo_access(
-                operation=operation,
-                owner=repo_info.owner,
-                repo=repo_info.repo,
-                for_write=False,
-                session_mode=session_mode,
+            return make_error(
+                priv_result.reason,
+                status_code=403,
+                details=priv_result.to_dict(),
             )
-            if not priv_result.allowed:
-                audit_log(
-                    f"{operation}_denied_private_mode",
-                    f"git_{operation}",
-                    success=False,
-                    details={
-                        "repo": repo,
-                        "reason": priv_result.reason,
-                        "visibility": priv_result.visibility,
-                    },
-                )
-                return make_error(
-                    priv_result.reason,
-                    status_code=403,
-                    details=priv_result.to_dict(),
-                )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)
@@ -3098,466 +2955,6 @@ def git_fetch() -> tuple[Response, int] | Response:
         return make_error(f"{operation.capitalize()} failed: {e}", status_code=500)
     finally:
         cleanup_credential_helper(credential_helper_path)
-
-
-# ---------------------------------------------------------------------------
-# Checkpoint read endpoints
-# ---------------------------------------------------------------------------
-
-
-def _int_param(name: str) -> int | None:
-    """Parse an optional integer query parameter from the current request."""
-    val = request.args.get(name)
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except ValueError, TypeError:
-        return None
-
-
-@app.route("/api/v1/checkpoints", methods=["GET"])
-@require_session_auth
-def checkpoint_list() -> tuple[Response, int] | Response:
-    """
-    List checkpoint summaries with optional filters.
-
-    Query params:
-        repo_path: Repository path (required if not inferable)
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-        issue: Filter by issue number
-        pr: Filter by PR number
-        branch: Filter by branch name
-        session: Filter by session ID
-        trigger: Filter by trigger type
-        status: Filter by session status
-        agent_type: Filter by agent type
-        phase: Filter by pipeline phase
-        pipeline: Filter by pipeline ID
-        repo: Filter by source repository (owner/repo)
-        limit: Maximum results (default 50)
-    """
-    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
-
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint index fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoints", status_code=500)
-
-    if not index:
-        return make_success("No checkpoints found", {"checkpoints": []})
-
-    # Build filters from query params
-    filters: dict[str, Any] = {}
-
-    if request.args.get("issue"):
-        filters["issue_number"] = _int_param("issue")
-    if request.args.get("pr"):
-        filters["pr_number"] = _int_param("pr")
-    if request.args.get("branch"):
-        filters["branch"] = request.args["branch"]
-    if request.args.get("session"):
-        filters["session_id"] = request.args["session"]
-    if request.args.get("trigger"):
-        filters["trigger_type"] = request.args["trigger"]
-    if request.args.get("status"):
-        filters["session_status"] = request.args["status"]
-    if request.args.get("agent_type"):
-        filters["agent_type"] = request.args["agent_type"]
-    if request.args.get("phase"):
-        filters["pipeline_phase"] = request.args["phase"]
-    if request.args.get("pipeline"):
-        filters["pipeline_id"] = request.args["pipeline"]
-    if request.args.get("repo"):
-        filters["repo"] = request.args["repo"]
-
-    limit = _int_param("limit")
-    filters["limit"] = limit if limit is not None else 50
-
-    summaries = filter_checkpoints_v2(index, **filters)
-    data = [s.model_dump(mode="json") for s in summaries]
-
-    return make_success("OK", {"checkpoints": data})
-
-
-@app.route("/api/v1/checkpoints/cost", methods=["GET"])
-@require_session_auth
-def checkpoint_cost() -> tuple[Response, int] | Response:
-    """
-    Get cost breakdown for matching checkpoints.
-
-    Query params:
-        repo_path: Repository path
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-        pipeline: Filter by pipeline ID
-        issue: Filter by issue number
-        pr: Filter by PR number
-        limit: Maximum checkpoints to load (default 500)
-    """
-    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
-    from egg_contracts.usage import TokenCounts
-
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    # fetch_and_read_index does ls-remote + fetch + read index in one pass.
-    # We then call ensure_ref to get a ref for read_checkpoint calls below.
-    # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
-    # (branch already up-to-date), so only the ls-remote is repeated.
-    try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint index fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not index:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    try:
-        ref = handler.ensure_ref(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint ref resolution failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not ref:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    filters: dict[str, Any] = {}
-    if request.args.get("pipeline"):
-        filters["pipeline_id"] = request.args["pipeline"]
-    if request.args.get("issue"):
-        filters["issue_number"] = _int_param("issue")
-    if request.args.get("pr"):
-        filters["pr_number"] = _int_param("pr")
-    limit = _int_param("limit")
-    filters["limit"] = limit if limit is not None else 500
-
-    summaries = filter_checkpoints_v2(index, **filters)
-    if not summaries:
-        return make_success(
-            "No checkpoints found",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    rows: list[dict[str, Any]] = []
-    for s in summaries:
-        checkpoint = handler.read_checkpoint(repo_path, s.id, ref)
-        if not checkpoint or not checkpoint.token_usage:
-            continue
-
-        tu = checkpoint.token_usage
-        model = checkpoint.session.model if checkpoint.session else None
-        tokens = TokenCounts(
-            input_tokens=tu.input_tokens,
-            output_tokens=tu.output_tokens,
-            cache_read_tokens=tu.cache_read_tokens,
-            cache_creation_tokens=tu.cache_creation_tokens,
-        )
-        cost = float(tokens.calculate_cost(model=model))
-        phase = checkpoint.pipeline_phase or "(none)"
-        agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
-        rows.append(
-            {
-                "phase": phase,
-                "agent": agent,
-                "input_tokens": tu.input_tokens,
-                "output_tokens": tu.output_tokens,
-                "cost": cost,
-            }
-        )
-
-    if not rows:
-        return make_success(
-            "No cost data",
-            {
-                "checkpoint_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0,
-                "breakdown": [],
-            },
-        )
-
-    agg: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in rows:
-        key = (row["phase"], row["agent"])
-        if key not in agg:
-            agg[key] = {"input": 0, "output": 0, "cost": 0.0, "count": 0}
-        agg[key]["input"] += row["input_tokens"]
-        agg[key]["output"] += row["output_tokens"]
-        agg[key]["cost"] += row["cost"]
-        agg[key]["count"] += 1
-
-    return make_success(
-        "OK",
-        {
-            "checkpoint_count": len(rows),
-            "total_input_tokens": sum(v["input"] for v in agg.values()),
-            "total_output_tokens": sum(v["output"] for v in agg.values()),
-            "total_cost_usd": round(sum(v["cost"] for v in agg.values()), 4),
-            "breakdown": [
-                {
-                    "phase": k[0],
-                    "agent": k[1],
-                    "input_tokens": v["input"],
-                    "output_tokens": v["output"],
-                    "cost_usd": round(v["cost"], 4),
-                    "checkpoint_count": v["count"],
-                }
-                for k, v in sorted(agg.items())
-            ],
-        },
-    )
-
-
-@app.route("/api/v1/checkpoints/<identifier>", methods=["GET"])
-@require_session_auth
-def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
-    """
-    Get a full checkpoint by ID or commit SHA.
-
-    Path params:
-        identifier: Checkpoint ID (ckpt-...) or commit SHA
-
-    Query params:
-        repo_path: Repository path
-        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
-    """
-    repo_path = _resolve_repo_path_for_checkpoints()
-    if not repo_path:
-        return make_error("Cannot determine repo_path")
-
-    handler = get_checkpoint_handler()
-    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
-    github_token = _resolve_checkpoint_token(repo_path)
-
-    try:
-        ref = handler.ensure_ref(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-    except Exception as e:
-        logger.error("Checkpoint ref fetch failed", error=str(e))
-        return make_error("Failed to fetch checkpoint data", status_code=500)
-
-    if not ref:
-        return make_error("Checkpoint branch not found", status_code=404)
-
-    checkpoint_id: str | None = identifier
-    if not identifier.startswith("ckpt-"):
-        # Look up by commit SHA
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
-        )
-        if index:
-            checkpoint_id = index.get_by_commit(identifier)
-        if not checkpoint_id:
-            return make_error(f"Checkpoint not found: {identifier}", status_code=404)
-
-    assert checkpoint_id is not None
-    checkpoint = handler.read_checkpoint(repo_path, checkpoint_id, ref)
-    if not checkpoint:
-        return make_error(f"Checkpoint not found: {identifier}", status_code=404)
-
-    return make_success("OK", {"checkpoint": checkpoint.model_dump(mode="json")})
-
-
-def _resolve_checkpoint_repo(repo_path: str) -> str | None:
-    """Resolve checkpoint_repo from query param or auto-detection.
-
-    Resolution order:
-    1. Explicit ``checkpoint_repo`` query parameter (owner/repo format).
-    2. Auto-detection from ``repo_path`` (git remote → config lookup).
-    3. ``source_repo`` query parameter looked up in config. This is the
-       fallback for sandbox containers where ``repositories.yaml`` is not
-       available and the sandbox repo path may not exist on the gateway.
-    """
-    explicit = request.args.get("checkpoint_repo")
-    if explicit:
-        # Basic validation: must look like "owner/repo"
-        if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", explicit):
-            return explicit
-        logger.warning(
-            "Invalid checkpoint_repo format, falling back to auto-detection",
-            checkpoint_repo=explicit,
-        )
-
-    # Try path-based auto-detection (works when repo_path is a local git repo)
-    result = _get_checkpoint_repo_for_path(repo_path)
-    if result:
-        return result
-
-    # Fallback: use source_repo query param for config lookup.
-    # The sandbox CLI sends this when it can determine the source repo
-    # from git remote but cannot resolve checkpoint_repo locally
-    # (repositories.yaml is only mounted on the gateway).
-    source_repo = request.args.get("source_repo")
-    if source_repo and re.match(
-        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
-    ):
-        try:
-            from config.repo_config import get_checkpoint_repo
-
-            cp_repo = get_checkpoint_repo(source_repo)
-            if cp_repo:
-                logger.debug(
-                    "Resolved checkpoint_repo from source_repo param",
-                    source_repo=source_repo,
-                    checkpoint_repo=cp_repo,
-                )
-                return cp_repo
-        except Exception as e:
-            logger.debug(
-                "Config lookup for source_repo failed",
-                source_repo=source_repo,
-                error=str(e),
-            )
-
-    return None
-
-
-def _resolve_checkpoint_token(repo_path: str) -> str | None:
-    """Resolve a GitHub token for checkpoint fetch operations.
-
-    Tries ``_resolve_github_token`` (which reads the git remote from
-    ``repo_path``).  When that fails — typically because ``repo_path``
-    is the scratch repo with no remotes — falls back to resolving a
-    token via the ``source_repo`` query parameter.
-    """
-    from checkpoint_handler import _resolve_github_token
-
-    token: str | None = _resolve_github_token(repo_path)
-    if token:
-        return token
-
-    source_repo = request.args.get("source_repo")
-    if source_repo and re.match(
-        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
-    ):
-        token_str, _auth_mode, _error = get_token_for_repo(source_repo)
-        if token_str:
-            return token_str
-
-    return None
-
-
-_CHECKPOINT_SCRATCH_DIR = "/home/egg/.egg-worktrees/.checkpoint-scratch"
-
-_checkpoint_scratch_lock = threading.Lock()
-
-
-def _ensure_checkpoint_scratch_repo() -> str | None:
-    """Create or return a bare git repo for checkpoint fetch operations.
-
-    When the sandbox's repo path doesn't exist on the gateway filesystem,
-    we still need a valid git directory as cwd for ``git fetch`` and
-    ``git ls-remote`` commands.  This creates a minimal bare repo that
-    serves as that working directory.
-
-    Returns:
-        Path to the scratch repo, or None on failure.
-    """
-    if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
-        return _CHECKPOINT_SCRATCH_DIR
-    with _checkpoint_scratch_lock:
-        # Re-check after acquiring lock to avoid duplicate init
-        if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
-            return _CHECKPOINT_SCRATCH_DIR
-        try:
-            os.makedirs(_CHECKPOINT_SCRATCH_DIR, exist_ok=True)
-            subprocess.run(
-                ["git", "init", "--bare", _CHECKPOINT_SCRATCH_DIR],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True,
-            )
-            logger.debug("Created checkpoint scratch repo", path=_CHECKPOINT_SCRATCH_DIR)
-            return _CHECKPOINT_SCRATCH_DIR
-        except Exception as e:
-            logger.warning("Failed to create checkpoint scratch repo", error=str(e))
-            return None
-
-
-def _resolve_repo_path_for_checkpoints() -> str | None:
-    """Resolve repository path for checkpoint read operations.
-
-    Tries query param, then session's last_repo_path, then EGG_REPO_PATH,
-    then a checkpoint scratch repo.  The scratch repo fallback handles
-    sandbox → gateway requests where the sandbox's filesystem is not
-    mounted on the gateway container.
-    """
-    # Explicit query param — if provided AND exists locally, use it.
-    repo_path = request.args.get("repo_path")
-    if repo_path:
-        path_valid, _err = validate_repo_path(repo_path)
-        if path_valid and os.path.isdir(repo_path):
-            return repo_path
-        # Path is valid format but doesn't exist on this container.
-        # This is expected when the CLI runs in a sandbox whose filesystem
-        # is not mounted on the gateway.  Fall through to other sources
-        # instead of returning None.
-        if not path_valid:
-            return None
-
-    # Session's last known repo path (set during push operations)
-    session = getattr(g, "session", None)
-    if session and getattr(session, "last_repo_path", None):
-        if os.path.isdir(session.last_repo_path):
-            return str(session.last_repo_path)
-
-    # Environment variable
-    env_path = os.environ.get("EGG_REPO_PATH")
-    if env_path and os.path.isdir(env_path):
-        return env_path
-
-    # Last resort: create a bare scratch repo for checkpoint fetching.
-    # This allows the gateway to serve checkpoint queries even without
-    # a local copy of the source repo.
-    return _ensure_checkpoint_scratch_repo()
 
 
 def _apply_pr_labels(
@@ -4686,43 +4083,31 @@ def gh_execute() -> tuple[Response, int] | Response:
     if repo:
         repo_info = parse_owner_repo(repo)
         if repo_info:
-            # Checkpoint repos are infrastructure — always accessible
-            if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
+            priv_result = check_private_repo_access(
+                operation="gh_execute",
+                owner=repo_info.owner,
+                repo=repo_info.repo,
+                for_write=False,  # Assume read for generic gh execute
+                session_mode=session_mode,
+            )
+            if not priv_result.allowed:
                 audit_log(
-                    "gh_execute_checkpoint_repo_exempt",
+                    "gh_execute_denied_private_mode",
                     "gh_execute",
-                    success=True,
+                    success=False,
                     details={
                         "repo": repo,
-                        "reason": "Checkpoint repo exempt from private mode policy",
+                        "command_args": args[:3] if len(args) > 3 else args,
+                        "reason": priv_result.reason,
+                        "visibility": priv_result.visibility,
+                        "auth_mode": auth_mode,
                     },
                 )
-            else:
-                priv_result = check_private_repo_access(
-                    operation="gh_execute",
-                    owner=repo_info.owner,
-                    repo=repo_info.repo,
-                    for_write=False,  # Assume read for generic gh execute
-                    session_mode=session_mode,
+                return make_error(
+                    priv_result.reason,
+                    status_code=403,
+                    details=priv_result.to_dict(),
                 )
-                if not priv_result.allowed:
-                    audit_log(
-                        "gh_execute_denied_private_mode",
-                        "gh_execute",
-                        success=False,
-                        details={
-                            "repo": repo,
-                            "command_args": args[:3] if len(args) > 3 else args,
-                            "reason": priv_result.reason,
-                            "visibility": priv_result.visibility,
-                            "auth_mode": auth_mode,
-                        },
-                    )
-                    return make_error(
-                        priv_result.reason,
-                        status_code=403,
-                        details=priv_result.to_dict(),
-                    )
 
     # Use reviewer token for PR reviews when available. This allows the
     # reviewer bot (a separate GitHub App) to post approve/request-changes
@@ -9036,8 +8421,7 @@ def session_create() -> tuple[Response, int] | Response:
     # Step 3: Create worktrees for filtered repos
     worktrees = {}
     worktree_errors = []
-    first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
-    first_repo: str | None = None  # First filtered repo in "owner/repo" format
+    first_worktree_path: str | None = None  # Gateway-side path for the session's repo context
 
     # Only initialise the worktree manager when there are repos to process.
     # Local-mode sessions (no repos) skip worktree creation entirely, so
@@ -9090,10 +8474,9 @@ def session_create() -> tuple[Response, int] | Response:
                     gid=gid,
                     assigned_branch=branch,
                 )
-            # Capture the first worktree's gateway-side path for checkpoint context
+            # Capture the first worktree's gateway-side path for the session's repo context
             if first_worktree_path is None:
                 first_worktree_path = str(info.worktree_path)
-                first_repo = repo
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
         except ValueError as e:
@@ -9131,19 +8514,12 @@ def session_create() -> tuple[Response, int] | Response:
         upstream_model=upstream_model,
     )
 
-    # Pre-populate checkpoint context so non-pushing sessions (reviewers,
-    # architects, etc.) have a repo_path and checkpoint_repo for session-end
-    # checkpoint storage. These fields are also set on git push, but pipeline
-    # agents that never push would otherwise have None values.
+    # Pre-populate the session's repo path so non-pushing sessions (reviewers,
+    # architects, etc.) can resolve their worktree before any git push. This is
+    # also set on git push, but pipeline agents that never push would otherwise
+    # have a None value.
     if first_worktree_path is not None:
         _session.last_repo_path = first_worktree_path
-    if first_repo is not None:
-        # Note: for local-only repos, first_repo is a bare name (e.g. "my-repo")
-        # rather than "owner/repo" format. get_checkpoint_repo() won't match it
-        # in repo_settings, so checkpoint_repo will be None. This is acceptable:
-        # local-only repos have no GitHub remote and aren't expected to produce
-        # checkpoints.
-        _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     # Use the shared pipeline branch for push enforcement.
     # session_manager already sets assigned_branch from the `branch`
@@ -9241,14 +8617,14 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     container_id = session.container_id if session else None
 
     # Delete the session
-    deleted, _checkpoint_event = session_manager.delete_session(session_token)
+    deleted = session_manager.delete_session(session_token)
 
     if not deleted:
         return make_error("Session not found", status_code=404)
 
-    # _capture_and_cleanup_session (called inside delete_session) already
-    # waits for checkpoint storage to complete before returning, so the
-    # worktree is safe to remove at this point — no second wait needed.
+    # _capture_and_cleanup_session (called inside delete_session) auto-commits
+    # the agent's WIP synchronously before returning, so the worktree is safe
+    # to remove at this point.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = (
@@ -9283,14 +8659,14 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     Auth: Bearer {launcher_secret}
     """
     session_manager = get_session_manager()
-    deleted, _checkpoint_event = session_manager.delete_session_by_container(container_id)
+    deleted = session_manager.delete_session_by_container(container_id)
 
     if not deleted:
         return make_error("Session not found for container", status_code=404)
 
     # _capture_and_cleanup_session (called inside delete_session_by_container)
-    # already waits for checkpoint storage to complete before returning, so
-    # the worktree is safe to remove at this point — no second wait needed.
+    # auto-commits the agent's WIP synchronously before returning, so the
+    # worktree is safe to remove at this point.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = _cleanup_container_worktrees(container_id)
@@ -9750,10 +9126,6 @@ def _inject_anthropic_credentials(
 # See PR #686 security findings and PR #702 analysis
 BLOCKED_TOOLS_PRIVATE_MODE = {"web_search", "WebSearch", "web_fetch", "WebFetch"}
 
-# Maximum size (in characters) for preserving raw tool input when JSON parsing fails.
-# Used for debugging incomplete streaming responses without bloating the buffer.
-RAW_INPUT_TRUNCATE_SIZE = 1000
-
 
 def _resolve_proxy_session(
     request_headers: Any,
@@ -9893,287 +9265,10 @@ def _is_streaming_request(request_body: bytes) -> bool:
         return False
 
 
-def _capture_non_streaming_response(
-    container_id: str,
-    request_json: dict[str, Any],
-    response_body: bytes,
-    start_time: float,
-    status_code: int = 200,
-) -> None:
-    """
-    Capture a non-streaming API response to the transcript buffer.
-
-    Args:
-        container_id: Container ID for buffer lookup
-        request_json: Parsed request body
-        response_body: Raw response bytes
-        start_time: Request start time for duration calculation
-        status_code: HTTP status code of the response
-    """
-    duration_ms = (time.time() - start_time) * 1000
-
-    try:
-        response_json = json.loads(response_body)
-    except json.JSONDecodeError, TypeError:
-        # For non-JSON responses (error pages, malformed responses), capture basic info
-        # This is important for debugging failed API calls
-        if status_code >= 400:
-            response_json = {
-                "error": {
-                    "type": "api_error",
-                    "status_code": status_code,
-                    "message": response_body.decode("utf-8", errors="replace")[:500],
-                }
-            }
-        else:
-            logger.debug("Could not parse response body for transcript capture")
-            return
-
-    try:
-        buffer = get_transcript_buffer(container_id)
-        # Check if this is an error response
-        error_info = response_json.get("error")
-        if error_info:
-            # Capture error as content block for visibility
-            buffer.write_api_turn(
-                request_body=request_json,
-                response_content=[{"type": "error", "error": error_info}],
-                response_usage=response_json.get("usage"),
-                response_model=response_json.get("model"),
-                stop_reason="error",
-                duration_ms=duration_ms,
-                streaming=False,
-            )
-        else:
-            buffer.write_api_turn(
-                request_body=request_json,
-                response_content=response_json.get("content"),
-                response_usage=response_json.get("usage"),
-                response_model=response_json.get("model"),
-                stop_reason=response_json.get("stop_reason"),
-                duration_ms=duration_ms,
-                streaming=False,
-            )
-    except Exception as e:
-        logger.warning(
-            "Failed to capture non-streaming response to transcript buffer",
-            container_id=container_id,
-            error=str(e),
-        )
-
-
-SSEResult = tuple[
-    list[dict[str, Any]] | None,
-    dict[str, Any] | None,
-    str | None,
-    str | None,
-]
-
-
-class _SSEAccumulator:
-    """Parse Anthropic SSE streaming responses incrementally.
-
-    Accepts bytes chunks via ``feed()``. Holds only parsed state plus a small
-    partial-line buffer — never the raw response bytes. Call ``result()`` once
-    at end of stream to get ``(content, usage, model, stop_reason)``.
-
-    Why: the previous implementation did ``b"".join(chunks).decode().split("\\n")``
-    at end-of-stream, peaking at ~3× the full response size per concurrent
-    request. At ~15 concurrent streams that's hundreds of MB of transient
-    allocation that the pod's 1Gi cgroup couldn't absorb (see #1885).
-    """
-
-    def __init__(self) -> None:
-        # errors="replace" matches the prior decode() behavior.
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self._line_buf = ""
-        self._content_by_index: dict[int, dict[str, Any]] = {}
-        # Error events produce extra content blocks ordered before indexed
-        # blocks (preserves the pre-refactor ordering).
-        self._error_blocks: list[dict[str, Any]] = []
-        self._usage: dict[str, Any] | None = None
-        self._model: str | None = None
-        self._stop_reason: str | None = None
-        self._finalized = False
-
-    def feed(self, chunk: bytes) -> None:
-        """Decode ``chunk`` and process any complete lines it completes."""
-        if self._finalized or not chunk:
-            return
-        text = self._decoder.decode(chunk)
-        if not text:
-            return
-        if "\n" not in text:
-            self._line_buf += text
-            return
-        combined = self._line_buf + text
-        parts = combined.split("\n")
-        # parts[-1] is either "" (chunk ended on a newline) or the new partial line.
-        self._line_buf = parts[-1]
-        for line in parts[:-1]:
-            self._process_line(line)
-
-    def result(self) -> SSEResult:
-        """Flush any trailing partial line and return the parsed result."""
-        if not self._finalized:
-            tail = self._decoder.decode(b"", final=True)
-            if tail:
-                self._line_buf += tail
-            if self._line_buf:
-                self._process_line(self._line_buf)
-                self._line_buf = ""
-            self._finalized = True
-
-        content_blocks: list[dict[str, Any]] = list(self._error_blocks)
-        for index in sorted(self._content_by_index.keys()):
-            block = self._content_by_index[index]
-            if block.get("type") == "tool_use" and "partial_input" in block:
-                partial_input = block.pop("partial_input")
-                try:
-                    block["input"] = json.loads(partial_input)
-                except json.JSONDecodeError:
-                    logger.debug(
-                        "Failed to parse tool_use input JSON",
-                        tool_id=block.get("id"),
-                    )
-                    block["input"] = {}
-                    block["input_parse_error"] = True
-                    block["raw_partial_input"] = (
-                        partial_input[:RAW_INPUT_TRUNCATE_SIZE]
-                        if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
-                        else partial_input
-                    )
-            content_blocks.append(block)
-
-        return content_blocks or None, self._usage, self._model, self._stop_reason
-
-    def _process_line(self, line: str) -> None:
-        line = line.strip()
-        if not line.startswith("data: "):
-            return
-        data_str = line[6:]
-        if data_str == "[DONE]":
-            return
-        try:
-            event = json.loads(data_str)
-        except json.JSONDecodeError:
-            return
-        self._process_event(event)
-
-    def _process_event(self, event: dict[str, Any]) -> None:
-        event_type = event.get("type")
-
-        if event_type == "message_start":
-            message = event.get("message", {})
-            self._model = message.get("model")
-            message_usage = message.get("usage", {})
-            if message_usage:
-                if self._usage is None:
-                    self._usage = {}
-                # input_tokens / cache_* come from message_start, not message_delta.
-                if "input_tokens" in message_usage:
-                    self._usage["input_tokens"] = message_usage["input_tokens"]
-                if "cache_read_input_tokens" in message_usage:
-                    self._usage["cache_read_input_tokens"] = message_usage[
-                        "cache_read_input_tokens"
-                    ]
-                if "cache_creation_input_tokens" in message_usage:
-                    self._usage["cache_creation_input_tokens"] = message_usage[
-                        "cache_creation_input_tokens"
-                    ]
-
-        elif event_type == "error":
-            error_info = event.get("error", {})
-            self._error_blocks.append({"type": "error", "error": error_info})
-            self._stop_reason = "error"
-
-        elif event_type == "content_block_start":
-            index = event.get("index", 0)
-            content_block = event.get("content_block", {})
-            self._content_by_index[index] = content_block.copy()
-
-        elif event_type == "content_block_delta":
-            index = event.get("index", 0)
-            delta = event.get("delta", {})
-            delta_type = delta.get("type")
-            if index not in self._content_by_index:
-                self._content_by_index[index] = {
-                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
-                }
-            block = self._content_by_index[index]
-            if delta_type == "text_delta":
-                text = delta.get("text", "")
-                block["text"] = block.get("text", "") + text
-            elif delta_type == "input_json_delta":
-                partial_json = delta.get("partial_json", "")
-                block["partial_input"] = block.get("partial_input", "") + partial_json
-
-        elif event_type == "message_delta":
-            delta = event.get("delta", {})
-            self._stop_reason = delta.get("stop_reason")
-            event_usage = event.get("usage")
-            if event_usage:
-                if self._usage is None:
-                    self._usage = {}
-                # message_delta contains output_tokens.
-                self._usage.update(event_usage)
-
-
-def _capture_streaming_response(
-    container_id: str,
-    request_json: dict[str, Any],
-    result: SSEResult,
-    start_time: float,
-) -> None:
-    """
-    Capture a streaming API response to the transcript buffer.
-
-    Args:
-        container_id: Container ID for buffer lookup
-        request_json: Parsed request body
-        result: Parsed SSE result tuple from ``_SSEAccumulator.result()``
-        start_time: Request start time for duration calculation
-    """
-    duration_ms = (time.time() - start_time) * 1000
-    response_content, response_usage, response_model, stop_reason = result
-
-    try:
-        buffer = get_transcript_buffer(container_id)
-        buffer.write_api_turn(
-            request_body=request_json,
-            response_content=response_content,
-            response_usage=response_usage,
-            response_model=response_model,
-            stop_reason=stop_reason,
-            duration_ms=duration_ms,
-            streaming=True,
-        )
-    except Exception as e:
-        logger.warning(
-            "Failed to capture streaming response to transcript buffer",
-            container_id=container_id,
-            error=str(e),
-        )
-
-
-def _parse_sse_response(chunks: list[bytes]) -> SSEResult:
-    """
-    Parse SSE response chunks and return ``(content, usage, model, stop_reason)``.
-
-    Thin wrapper over ``_SSEAccumulator`` retained for test coverage. Production
-    streaming capture feeds the accumulator directly so it never holds the
-    chunks list in memory — see ``proxy_anthropic_messages``.
-    """
-    acc = _SSEAccumulator()
-    for chunk in chunks:
-        acc.feed(chunk)
-    return acc.result()
-
-
 @app.route("/v1/messages", methods=["POST"])
 def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
-    Proxy messages API with credential injection, streaming support, and transcript capture.
+    Proxy messages API with credential injection and streaming support.
 
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     API traffic through the gateway for credential injection.
@@ -10183,12 +9278,8 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     session token in ``sk-ant-oat01-PROXY-INJECTED-egg-session-<token>``
     so Claude Code's local format check passes; the gateway extracts
     the token and looks the session up. Non-agent probes (no
-    placeholder) keep the legacy IP-keyed compat path. API
-    request/response pairs are captured to a per-session buffer for
-    checkpoint creation.
+    placeholder) keep the legacy IP-keyed compat path.
     """
-    start_time = time.time()
-
     session, lookup_error = _resolve_proxy_session(request.headers, request.remote_addr)
     if lookup_error:
         return lookup_error
@@ -10217,12 +9308,6 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     # longer rewrites the body — both upstreams receive whatever
     # ``"model"`` value the client sent.
     is_streaming = _is_streaming_request(request_body)
-
-    # Parse request body for transcript capture
-    try:
-        request_json = json.loads(request_body)
-    except json.JSONDecodeError, TypeError:
-        request_json = {}
 
     # Resolve the upstream httpx client per request. The Anthropic path
     # keeps calling ``get_anthropic_client()`` so behavior — including
@@ -10329,89 +9414,37 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
-            # Parse the SSE stream incrementally into a small accumulator so
-            # per-request peak memory is O(parsed content), not O(response × 3)
-            # as the prior b"".join(chunks).decode().split("\n") pattern was.
-            # Under concurrent pipeline load that triple allocation was the
-            # gateway's memory high-water mark — see #1885.
-            #
-            # MAX_CAPTURE_SIZE is still enforced as a defensive cap so a
-            # pathologically large upstream response can't drive the
-            # accumulator unbounded, but the raw bytes are never buffered.
-            MAX_CAPTURE_SIZE = 10 * 1024 * 1024  # 10MB
-            accumulator: _SSEAccumulator | None = _SSEAccumulator() if container_id else None
-            bytes_seen = 0
-            capture_truncated = False
-
-            def _consume_chunk(chunk: bytes) -> None:
-                """Feed a chunk into the capture accumulator if under budget."""
-                nonlocal bytes_seen, capture_truncated
-                if accumulator is not None and not capture_truncated:
-                    if bytes_seen + len(chunk) <= MAX_CAPTURE_SIZE:
-                        accumulator.feed(chunk)
-                        bytes_seen += len(chunk)
-                    else:
-                        capture_truncated = True
-                        logger.debug(
-                            "Streaming capture truncated due to size limit",
-                            container_id=container_id,
-                            size_limit=MAX_CAPTURE_SIZE,
-                        )
-
             def generate() -> Any:
                 try:
-                    try:
-                        if first_chunk is not None:
-                            _consume_chunk(first_chunk)
-                            yield first_chunk
-                        for chunk in primed_iterator:
-                            _consume_chunk(chunk)
-                            yield chunk
-                    except (httpx.ReadError, httpx.RemoteProtocolError) as mid_err:
-                        # Mid-stream reset: emit a synthetic SSE `error`
-                        # frame so the downstream SDK treats this as a
-                        # clean API error instead of a truncated socket.
-                        # The frame shape matches Anthropic's documented
-                        # error event and is parsed by ``_SSEAccumulator``
-                        # so operators still see the failed turn in the
-                        # captured transcript.
-                        logger.warning(
-                            "Upstream Anthropic stream reset mid-response; "
-                            "emitting synthetic SSE error frame",
-                            container_id=container_id,
-                            bytes_seen=bytes_seen,
-                            error=str(mid_err),
-                        )
-                        error_payload = {
-                            "type": "error",
-                            "error": {
-                                "type": "api_error",
-                                "message": "upstream connection reset",
-                            },
-                        }
-                        error_frame = (
-                            b"event: error\ndata: "
-                            + json.dumps(error_payload).encode("utf-8")
-                            + b"\n\n"
-                        )
-                        _consume_chunk(error_frame)
-                        yield error_frame
+                    if first_chunk is not None:
+                        yield first_chunk
+                    yield from primed_iterator
+                except (httpx.ReadError, httpx.RemoteProtocolError) as mid_err:
+                    # Mid-stream reset: emit a synthetic SSE `error` frame so
+                    # the downstream SDK treats this as a clean API error
+                    # instead of a truncated socket. The frame shape matches
+                    # Anthropic's documented error event.
+                    logger.warning(
+                        "Upstream Anthropic stream reset mid-response; "
+                        "emitting synthetic SSE error frame",
+                        container_id=container_id,
+                        error=str(mid_err),
+                    )
+                    error_payload = {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": "upstream connection reset",
+                        },
+                    }
+                    error_frame = (
+                        b"event: error\ndata: "
+                        + json.dumps(error_payload).encode("utf-8")
+                        + b"\n\n"
+                    )
+                    yield error_frame
                 finally:
                     upstream.close()
-                    if accumulator is not None and container_id:
-                        try:
-                            _capture_streaming_response(
-                                container_id=container_id,
-                                request_json=request_json,
-                                result=accumulator.result(),
-                                start_time=start_time,
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to capture streaming response to transcript",
-                                container_id=container_id,
-                                error=str(e),
-                            )
 
             return Response(
                 stream_with_context(generate()),
@@ -10426,16 +9459,6 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 headers=headers,
                 content=request_body,
             )
-
-            # Capture to transcript buffer
-            if container_id:
-                _capture_non_streaming_response(
-                    container_id=container_id,
-                    request_json=request_json,
-                    response_body=response.content,
-                    start_time=start_time,
-                    status_code=response.status_code,
-                )
 
             return Response(
                 response.content,
@@ -10798,25 +9821,6 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
-
-    # Check for active sessions with missing transcript buffers.
-    # Buffers are now persisted, but may still be missing if the session hasn't
-    # made any API calls yet or the buffer was cleaned up prematurely.
-    try:
-        from egg_contracts.transcript_extractor import get_proxy_buffer_path
-
-        for session_info in session_manager.list_sessions():
-            cid = session_info.get("container_id")
-            if cid:
-                bp = get_proxy_buffer_path(cid)
-                if not bp.exists():
-                    logger.warning(
-                        "Active session has no transcript buffer — may not have been created yet or was cleaned up prematurely",
-                        container_id=cid,
-                        buffer_path=str(bp),
-                    )
-    except Exception as e:
-        logger.warning("Startup transcript buffer check failed", error=str(e))
 
     # Also check Docker directly as safety net — sessions may be
     # pruned but containers still running.

@@ -261,21 +261,6 @@ proxy_monitor = _load_module_with_replaced_imports(
     GATEWAY_DIR / "proxy_monitor.py",
 )
 
-# checkpoint_handler imports from session_manager
-checkpoint_handler = _load_module_with_replaced_imports(
-    "checkpoint_handler",
-    GATEWAY_DIR / "checkpoint_handler.py",
-    import_replacements={
-        "from .session_manager import": "from session_manager import",
-    },
-)
-
-# transcript_buffer has no relative imports to other gateway modules
-transcript_buffer = _load_module_with_replaced_imports(
-    "transcript_buffer",
-    GATEWAY_DIR / "transcript_buffer.py",
-)
-
 # config_validator has no relative imports to other gateway modules
 config_validator = _load_module_with_replaced_imports(
     "config_validator",
@@ -358,8 +343,6 @@ gateway = _load_module_with_replaced_imports(
         "from .agent_restrictions import": "from agent_restrictions import",
         "from .anthropic_credentials import": "from anthropic_credentials import",
         "from .auth import": "from auth import",
-        "from .checkpoint_handler import": "from checkpoint_handler import",
-        "from .transcript_buffer import": "from transcript_buffer import",
         "from .contract_api import": "from contract_api import",
         "from .git_client import": "from git_client import",
         "from .github_client import": "from github_client import",

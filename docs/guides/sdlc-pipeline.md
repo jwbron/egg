@@ -572,9 +572,8 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 1. The contract JSON in `.egg-state/contracts/`
 2. Git commits on the feature branch
 3. GitHub issue/PR comments and reviews
-4. Checkpoints from prior agent sessions (via `egg-checkpoint`)
 
-This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context. Agents also receive checkpoint discovery hints in their prompts, enabling them to review prior sessions for richer context than handoff data alone.
+This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
 
 ### Role-Specific Prompt Context
 
@@ -584,7 +583,6 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Execution roles** (tester, documenter) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
-- Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
 - Role-filtered tasks: only the tasks assigned to their role via the `task.role` field (unassigned tasks default to coder)
 
@@ -1502,12 +1500,6 @@ Response includes a `concurrent` section:
 }
 ```
 
-Inter-agent message history is also captured in agent checkpoints and visible via:
-
-```bash
-egg-checkpoint show ckpt-<id>
-```
-
 ### Troubleshooting
 
 **Agent not receiving messages**: Check that the agent is polling with the correct
@@ -1539,7 +1531,7 @@ HITL decision is created. Consider adding role-based file restrictions to minimi
 
 **Default: on since [#1942](https://github.com/jwbron/egg/issues/1942)** — set `EGG_MCP_TOOLS=false` per pipeline to opt out.
 
-Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion, checkpoint browsing) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` / `egg-checkpoint` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 29-verb inventory across 6 namespaces (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`), schemas, and architecture.
+Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full inventory across 5 namespaces (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
 
 **Opt out per-pipeline.** Iteration 1 (#1765) shipped this default-off; #1942 flipped the default after the wire-up stabilised. Set `EGG_MCP_TOOLS` to a falsy value (`false`, `0`, `no`, `off`) on your sandbox pod env to disable:
 
@@ -1554,7 +1546,7 @@ Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions
 
 Or export it in a local-quickstart shell before running `egg-sdlc`. When the flag is opted out, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
 
-Iteration 2 (#1917) shipped peer-read, checkpoint, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
+Iteration 2 (#1917) shipped peer-read, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
 
 ## Pipeline Health Monitoring
 
