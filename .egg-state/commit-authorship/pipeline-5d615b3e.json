@@ -24,6 +24,14 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
     },
+    "8121935c97bf27bae5c62c33dc6af2676ffa56a3": {
+      "branch": "egg/pipeline-5d615b3e/work",
+      "patch_id": "8812b8e33d42cc7447edcfe677f1c98db212a5a9",
+      "pipeline_id": "pipeline-5d615b3e",
+      "registered_at": "2026-06-04T04:18:27.959000+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
     "9234c918bab51cdbd3093e7e57851f98b28a14d6": {
       "branch": "egg/pipeline-5d615b3e/work",
       "patch_id": "f5c395e0a3798affe389aebd1b478d031361bab3",
