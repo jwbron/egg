@@ -3,7 +3,8 @@
     "reviewer": [
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
-      "ckpt-3f5c3268fe283f33"
+      "ckpt-3f5c3268fe283f33",
+      "ckpt-b482ce798698fbbd"
     ],
     "unknown": [
       "ckpt-04bb218610264d80",
@@ -1119,7 +1120,8 @@
     "2995": [
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
-      "ckpt-3f5c3268fe283f33"
+      "ckpt-3f5c3268fe283f33",
+      "ckpt-b482ce798698fbbd"
     ]
   },
   "by_repo": {
@@ -1129,7 +1131,8 @@
       "ckpt-0be31eadb60dac36",
       "ckpt-ea6f98fa3944cf41",
       "ckpt-8c99f0a8413c4bb1",
-      "ckpt-3f5c3268fe283f33"
+      "ckpt-3f5c3268fe283f33",
+      "ckpt-b482ce798698fbbd"
     ]
   },
   "by_session": {
@@ -1148,6 +1151,9 @@
     "egg-exec-20260604-073714-3007": [
       "ckpt-ea6f98fa3944cf41",
       "ckpt-8c99f0a8413c4bb1"
+    ],
+    "egg-exec-20260604-075337-3099": [
+      "ckpt-b482ce798698fbbd"
     ],
     "egg-exec-20260604-075342-3127": [
       "ckpt-3f5c3268fe283f33"
@@ -2354,7 +2360,8 @@
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
       "ckpt-8c99f0a8413c4bb1",
-      "ckpt-3f5c3268fe283f33"
+      "ckpt-3f5c3268fe283f33",
+      "ckpt-b482ce798698fbbd"
     ]
   },
   "by_trigger": {
@@ -2902,7 +2909,8 @@
       "ckpt-9fe7296c97e9fd40",
       "ckpt-0be31eadb60dac36",
       "ckpt-8c99f0a8413c4bb1",
-      "ckpt-3f5c3268fe283f33"
+      "ckpt-3f5c3268fe283f33",
+      "ckpt-b482ce798698fbbd"
     ]
   },
   "checkpoints": [
@@ -13203,8 +13211,27 @@
       "tool_call_count": 17,
       "total_tokens": 5983,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "reviewer",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-06-04T07:57:50.875088Z",
+      "files_touched_count": 6,
+      "id": "ckpt-b482ce798698fbbd",
+      "issue_number": null,
+      "message_count": 994,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": 2995,
+      "repo": "jwbron/egg",
+      "session_id": "egg-exec-20260604-075337-3099",
+      "session_status": "completed",
+      "tool_call_count": 43,
+      "total_tokens": 17776,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-06-04T07:55:08.796922Z",
+  "last_updated": "2026-06-04T07:57:51.709531Z",
   "schemaVersion": "2.0"
 }
