@@ -1,5 +1,21 @@
 {
   "entries": {
+    "303d1638bd1fbafc67ecadabd45eb883dcd4b7fa": {
+      "branch": "egg/pipeline-0adb4641/work",
+      "patch_id": "fec7fb88378c1ad0d680ff951f9c083febfdc3f3",
+      "pipeline_id": "pipeline-0adb4641",
+      "registered_at": "2026-06-04T20:27:35.008776+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "51b165e1b3d7b899364d2442607367425b1ff974": {
+      "branch": "egg/pipeline-0adb4641/work",
+      "patch_id": "0452c671d3da1661ceaf1e23c3370c0aee6c28c1",
+      "pipeline_id": "pipeline-0adb4641",
+      "registered_at": "2026-06-04T20:27:35.004419+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "5209efad052c6a0e6eb32be75461061852317dda": {
       "branch": "egg/pipeline-0adb4641/work",
       "patch_id": "0452c671d3da1661ceaf1e23c3370c0aee6c28c1",
