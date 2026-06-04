@@ -218,6 +218,13 @@ sandbox/
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
 │   └── git-credential-github-token
+├── egg_agent_tools/        # Shared handler layer backing the egg-orch / egg-contract CLIs (post-#2908 slice-6 — agent-side MCP tool surface retired; CLIs call the handlers in-process)
+│   ├── push.py             # Gateway push helper (consensus propose pre-step)
+│   └── handlers/           # Pure-Python handlers shared by the CLI shims
+│       ├── _gateway.py     # gateway_request + gateway_data_request helpers
+│       ├── confluence.py   # Confluence gateway-route handlers (page/space/search/execute; #2994)
+│       ├── jira.py         # Jira gateway-route handlers (ticket CRUD/search/links/execute; #2994)
+│       └── ...             # brc.py, sdlc.py, task.py, phase.py, progress.py, message.py, restrictions.py, brc_memory.py, errors.py
 ├── egg_lib/                # Container utility libraries
 │   ├── cli.py              # CLI command handling
 │   ├── config.py           # Configuration management

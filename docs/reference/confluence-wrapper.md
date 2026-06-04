@@ -4,6 +4,8 @@
 
 > Gateway REST surface that gives sandboxed agents **read-only** access to Confluence. Mirrors the `/api/v1/jira/*` pattern from [#1556](https://github.com/jwbron/egg/issues/1556): Atlassian credentials live in the gateway, the sandbox posts session-authenticated JSON, and every call is funneled through a private-mode gate, a **space allowlist**, a verb allowlist, and structured audit logs.
 
+> **Single agent-side front-end.** Sandbox agents reach these routes via the `sandbox/scripts/confluence` bash wrapper, which POSTs the bodies documented below. The `mcp__confluence__*` in-process MCP tools added by [#2994](https://github.com/jwbron/egg/issues/2994) were retired in [#2908](https://github.com/jwbron/egg/issues/2908) slice-6 alongside the rest of the agent-side MCP tool surface; the bash wrapper is now the sole agent front-end. This doc is the source of truth for the **route surface and policy**; the gateway, not the wrapper, enforces allowlist / scope extraction / redaction / `private_mode_required`.
+
 v1 is read-only — eight `POST /api/v1/confluence/*` routes covering page reads, descendants, footer/inline comments, space listings, CQL search, and a regex-allowlisted GET-only `/execute` escape hatch. Write verbs (`page/create`, `page/update`, `comment/create`) are scoped as a follow-up and drop in as three additional narrow routes under the same decorators and policy plumbing — no re-architecting. Attachments, restrictions, permissions, space-admin verbs, user enumeration, and `PUT` / `PATCH` / `DELETE` methods are **permanently out of scope** and are enforced at the path validator.
 
 The wrapper is a **v2-first hybrid** with transparent v1 fallbacks for two known v2 quirks:

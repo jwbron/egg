@@ -44,9 +44,11 @@ All git/gh operations routed through gateway. Key restrictions:
 
 If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:9848/api/v1/health`, verify branch is egg-owned.
 
-### Jira Wrapper (`jira`)
+### Jira (`jira` wrapper)
 
-The `sandbox/scripts/jira` wrapper is the only way for the sandbox to reach Jira — it POSTs to the gateway's `/api/v1/jira/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Jira call returns 403 `private_mode_required` before any upstream request.
+The sandbox reaches Jira through the gateway's `/api/v1/jira/*` routes (`Authorization: Bearer $EGG_SESSION_TOKEN`; Atlassian credentials never enter the sandbox). **Private network mode only**: in public mode every Jira call returns 403 `private_mode_required` before any upstream request.
+
+Use the `sandbox/scripts/jira` shell wrapper — it is the source of truth for the verb/route surface (#2994). The post-#2908-slice-6 agent surface is CLI-only; the `mcp__jira__*` in-process MCP tools that #2994 originally added were retired alongside the rest of the agent-side MCP tool surface in slice-6 of [#2908](https://github.com/jwbron/egg/issues/2908). The gateway-side policy (allowlist, scope extraction, redaction, `private_mode_required`) is unchanged.
 
 | Verb | Gateway route |
 |------|---------------|
@@ -87,9 +89,11 @@ jira search 'project = ENG OR project = SEC'
 
 **Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` (no exposed surface), path traversal (`..`), duplicate slashes, non-ASCII keys. The `/execute` passthrough is GET-only (`PUT` / `PATCH` return 403 there); the four write routes (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create`) use their own dedicated paths and are the only write surface. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, write verb body schemas, idempotency keys, and the `not_found` envelope.
 
-### Confluence Wrapper (`confluence`)
+### Confluence (`confluence` wrapper)
 
-The `sandbox/scripts/confluence` wrapper is the only way for the sandbox to reach Confluence — it POSTs to the gateway's `/api/v1/confluence/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Confluence call returns 403 `private_mode_required` before any upstream request.
+The sandbox reaches Confluence through the gateway's `/api/v1/confluence/*` routes (`Authorization: Bearer $EGG_SESSION_TOKEN`; Atlassian credentials never enter the sandbox). **Private network mode only**: in public mode every Confluence call returns 403 `private_mode_required` before any upstream request.
+
+Use the `sandbox/scripts/confluence` shell wrapper — it is the source of truth for the verb/route surface (#2994). **Don't guess which spaces exist — call `confluence space list`**, which returns the allowlisted set (the failure #2994 fixes). The post-#2908-slice-6 agent surface is CLI-only; the `mcp__confluence__*` in-process MCP tools that #2994 originally added were retired alongside the rest of the agent-side MCP tool surface in slice-6 of [#2908](https://github.com/jwbron/egg/issues/2908). The gateway-side policy (allowlist, scope extraction, redaction, `private_mode_required`) is unchanged.
 
 | Verb | Gateway route |
 |------|---------------|
