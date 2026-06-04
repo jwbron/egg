@@ -7,6 +7,22 @@
       "registered_at": "2026-06-04T19:11:03.283760+00:00",
       "repo": null,
       "role": "coder"
+    },
+    "47c084d176c82c7306e7c6103759cd76ab8494ae": {
+      "branch": "egg/pipeline-4c149cd7/slice-1",
+      "patch_id": "0bdfaf52520c383c359bea9e9d2cfad253903863",
+      "pipeline_id": "pipeline-4c149cd7",
+      "registered_at": "2026-06-04T19:12:08.085840+00:00",
+      "repo": null,
+      "role": "coder"
+    },
+    "da0a6aba21150d46cc3f982ba6fe559a062ee6d3": {
+      "branch": "egg/pipeline-4c149cd7/slice-1",
+      "patch_id": "5ab148391e080163ca35797b1b9926de7dd628ca",
+      "pipeline_id": "pipeline-4c149cd7",
+      "registered_at": "2026-06-04T19:12:08.089491+00:00",
+      "repo": null,
+      "role": "coder"
     }
   },
   "version": 2
