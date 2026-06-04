@@ -23,6 +23,14 @@
       "registered_at": "2026-06-04T20:27:07.580205+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "80eb25ee76341d16c6a6d39d94516bab1c1dee91": {
+      "branch": "egg/pipeline-0adb4641/work",
+      "patch_id": "24d7860407a933f99c14a20262eddea2ff6f67de",
+      "pipeline_id": "pipeline-0adb4641",
+      "registered_at": "2026-06-04T20:33:16.793497+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
