@@ -199,7 +199,10 @@ two env vars (plus one egg-side auth marker):
 
 - `ANTHROPIC_CUSTOM_MODEL_OPTION=<upstream>[1m]` — registers the
   custom model ID and tells Claude Code to use 1M-context
-  compaction math.
+  compaction math. For models in `_SUB_1M_CONTEXT_MODELS` (Kimi
+  K2.6, GLM-5.1) this is set to the **bare** `<upstream>` without
+  the `[1m]` suffix; see the *Sub-1M-window upstreams (#2987)*
+  callout below.
 - `ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=<upstream>` — the bare
   on-the-wire name. Claude Code strips the `[1m]` suffix from the
   registered ID before sending the `"model"` field, so LiteLLM sees
@@ -221,8 +224,12 @@ two env vars (plus one egg-side auth marker):
   (e.g. `Explore`) route to the configured upstream instead of
   emitting `claude-haiku-…` — a name absent from the proxy's
   `model_list` that would otherwise 400 with
-  `ProxyModelNotFoundError`. Carries the `[1m]` suffix so subagents
-  share the main agent's 1M-context compaction profile.
+  `ProxyModelNotFoundError`. Pinned to the main agent's resolved
+  `claude_code_alias` so subagents share its compaction profile —
+  the `[1m]` 1M-window profile for the standard LiteLLM path, or
+  the bare alias (Claude Code's 200K default) for
+  `_SUB_1M_CONTEXT_MODELS`; see
+  the *Sub-1M-window upstreams (#2987)* callout below.
 - `ANTHROPIC_DEFAULT_HAIKU_MODEL=<upstream>` (and its deprecated
   alias `ANTHROPIC_SMALL_FAST_MODEL=<upstream>`, set for older
   Claude Code builds) — the model the `haiku` alias and Claude

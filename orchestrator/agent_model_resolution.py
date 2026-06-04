@@ -38,10 +38,13 @@ test paths without further plumbing.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
 from egg_contracts.agent_roles import AgentRole
+
+logger = logging.getLogger(__name__)
 
 # Built-in fallback when neither PipelineConfig.agent_models nor the
 # repository-level default_agent_model is set. Matches today's hardcoded
@@ -149,9 +152,12 @@ class AgentModelDecision:
           subagents (``Explore`` etc.) hardcode a versioned ``haiku``
           model in their ``model`` frontmatter; this var overrides that
           frontmatter so they route to the configured upstream instead.
-          Pinned to the suffixed alias so subagents share the main
-          agent's 1M-context compaction profile. Mirrors the host
-          ``cllm`` wrapper's ``CLAUDE_CODE_SUBAGENT_MODEL`` export.
+          Pinned to the main agent's resolved ``claude_code_alias`` so
+          subagents share its compaction profile — the ``[1m]``-suffixed
+          1M-window profile for the standard LiteLLM path, the bare
+          alias (Claude Code's 200K default) for ``_SUB_1M_CONTEXT_MODELS``.
+          Mirrors the host ``cllm`` wrapper's
+          ``CLAUDE_CODE_SUBAGENT_MODEL`` export.
         - ``ANTHROPIC_DEFAULT_HAIKU_MODEL`` (and its deprecated alias
           ``ANTHROPIC_SMALL_FAST_MODEL``, set for older Claude Code
           builds where the rename hasn't landed) — the model the
@@ -203,7 +209,8 @@ def classify_model(model: str) -> AgentModelDecision:
     # LiteLLM path (#2832): the operator may pass the bare upstream name
     # (e.g. ``qwen3-coder-30b``) or pre-suffix it (``qwen3-coder-30b[1m]``).
     # Normalise so ``upstream_model`` is always the bare name LiteLLM keys on.
-    bare = model.removesuffix(_CONTEXT_1M_SUFFIX) if model.endswith(_CONTEXT_1M_SUFFIX) else model
+    had_suffix = model.endswith(_CONTEXT_1M_SUFFIX)
+    bare = model.removesuffix(_CONTEXT_1M_SUFFIX) if had_suffix else model
     # ``claude_code_alias`` carries the ``[1m]`` suffix so Claude Code opts the
     # custom model into 1M-context compaction math — EXCEPT for models whose
     # real window is below 1M (``_SUB_1M_CONTEXT_MODELS``): those take the bare
@@ -213,6 +220,19 @@ def classify_model(model: str) -> AgentModelDecision:
     # authoritative over an operator's stray suffix.
     if bare in _SUB_1M_CONTEXT_MODELS:
         claude_code_alias = bare
+        if had_suffix:
+            # Surface the override so an operator who deliberately requested
+            # ``[1m]`` for a sub-1M model can see from the logs why it was
+            # dropped, rather than chasing a silent compaction discrepancy.
+            logger.warning(
+                "Ignoring [1m] suffix on sub-1M model %r: %r is in "
+                "_SUB_1M_CONTEXT_MODELS (real window <1M), so the bare alias "
+                "is used to keep Claude Code on its 200K compaction profile "
+                "(appending [1m] would defer compaction toward 1M and "
+                "overflow the upstream mid-turn). See #2987.",
+                model,
+                bare,
+            )
     else:
         claude_code_alias = f"{bare}{_CONTEXT_1M_SUFFIX}"
     return AgentModelDecision(

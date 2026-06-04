@@ -496,6 +496,59 @@ class TestSubOneMContextModels:
         assert d.claude_code_alias == f"{model}[1m]"
         assert d.upstream_model == model
 
+    def test_registry_entries_all_below_1m(self):
+        """Every entry in ``_SUB_1M_CONTEXT_MODELS`` must declare a real
+        window <1M. If a future upstream (e.g. a "Kimi K4 1.5M" successor)
+        is added with a >=1M window, it belongs on the standard ``[1m]``
+        path and adding it here would force it onto the 200K profile —
+        wasting >800K of headroom. This test asserts the dict values
+        aren't dead data; bumping a value to >=1M is the bug signal.
+        """
+        from agent_model_resolution import _SUB_1M_CONTEXT_MODELS
+
+        for name, window in _SUB_1M_CONTEXT_MODELS.items():
+            assert window < 1_000_000, (
+                f"_SUB_1M_CONTEXT_MODELS[{name!r}] = {window:_}, which is "
+                f">=1M. Models with a >=1M real window belong on the standard "
+                f"[1m] path; remove this entry."
+            )
+
+    def test_pre_suffixed_sub_1m_emits_override_warning(self, caplog):
+        """When an operator passes ``kimi-k2.6[1m]`` (sub-1M model with a
+        stray [1m] suffix), the resolver overrides the suffix and emits a
+        warning — silent overrides leave operators chasing why their
+        requested 1M profile isn't being applied.
+        """
+        import logging
+
+        from agent_model_resolution import classify_model
+
+        with caplog.at_level(logging.WARNING, logger="agent_model_resolution"):
+            d = classify_model("kimi-k2.6[1m]")
+
+        assert d.claude_code_alias == "kimi-k2.6"
+        assert any(
+            "kimi-k2.6" in record.message and "[1m]" in record.message for record in caplog.records
+        ), (
+            f"expected override warning for kimi-k2.6[1m]; got {[r.message for r in caplog.records]!r}"
+        )
+
+    def test_bare_sub_1m_emits_no_warning(self, caplog):
+        """The common case (operator passes the bare ``kimi-k2.6`` name)
+        must NOT emit the override warning — the warning is reserved for
+        the actual override.
+        """
+        import logging
+
+        from agent_model_resolution import classify_model
+
+        with caplog.at_level(logging.WARNING, logger="agent_model_resolution"):
+            classify_model("kimi-k2.6")
+
+        assert not caplog.records, (
+            f"bare sub-1M model must not warn; got {[r.message for r in caplog.records]!r}"
+        )
+
 
 # =============================================================================
 # PipelineConfig.agent_models validation (TASK-2-1)
