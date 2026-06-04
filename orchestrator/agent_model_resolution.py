@@ -22,9 +22,14 @@ as a LiteLLM-side model name (#2832): the upstream is ``"litellm"``,
 the agent is spawned with ``--model <upstream>[1m]`` and the
 ``ANTHROPIC_CUSTOM_MODEL_OPTION`` / ``…_OPTION_NAME`` env vars set so
 Claude Code registers the custom model with a 1M-context-window
-compaction profile. The gateway no longer rewrites the request body;
-Claude Code strips the ``[1m]`` suffix before sending, and LiteLLM
-matches the resulting bare name against its ``model_list``.
+compaction profile. Models whose real context window is below 1M
+(``_SUB_1M_CONTEXT_MODELS`` — e.g. Kimi 256K, GLM 202K) are the
+exception: they get the bare ``<upstream>`` alias so Claude Code uses
+its 200K default and compacts before their true limit, since Claude
+Code has no sub-1M custom-model profile (#2987). The gateway no longer
+rewrites the request body; Claude Code strips the ``[1m]`` suffix
+before sending, and LiteLLM matches the resulting bare name against
+its ``model_list``.
 
 The resolver is a pure function over its three inputs (role,
 PipelineConfig, repo) so callers can use it from spawn, restart, and
@@ -54,6 +59,24 @@ UPSTREAM_LITELLM = "litellm"
 # in ``litellm-configmap.yaml`` as a defensive guard against the documented
 # startup-probe leak path.
 _CONTEXT_1M_SUFFIX = "[1m]"
+
+# Non-Claude models whose REAL upstream context window is below 1M. Claude Code
+# offers a custom model (registered via ``ANTHROPIC_CUSTOM_MODEL_OPTION``) only
+# TWO compaction profiles: the 1M window — opted into by the ``[1m]`` suffix,
+# whose qualifier in Claude Code is literally ``/\[1m\]/i`` — or its 200K
+# default. There is no arbitrary ``[256k]`` size suffix, and
+# ``CLAUDE_CODE_MAX_CONTEXT_TOKENS`` only takes effect under ``DISABLE_COMPACT``
+# (which we never set). So a model whose true window sits between 200K and 1M
+# cannot be expressed exactly; for these we WITHHOLD ``[1m]`` and take the 200K
+# default, which auto-compacts safely below their real limit. Appending ``[1m]``
+# instead would make Claude Code treat them as 1M and defer compaction to ~1M,
+# overflowing the upstream mid-turn. Keyed by bare upstream name; the value
+# documents the real window (only membership is used). Add a model here when its
+# window is <1M. See #2987.
+_SUB_1M_CONTEXT_MODELS: dict[str, int] = {
+    "kimi-k2.6": 256_000,
+    "glm-5.1": 202_752,
+}
 
 # Recognised Claude aliases that route through the Anthropic upstream.
 # Exact-match set plus a regex for the version-pinned ``claude-*`` family
@@ -179,12 +202,21 @@ def classify_model(model: str) -> AgentModelDecision:
         )
     # LiteLLM path (#2832): the operator may pass the bare upstream name
     # (e.g. ``qwen3-coder-30b``) or pre-suffix it (``qwen3-coder-30b[1m]``).
-    # Normalise so ``upstream_model`` is always the bare name LiteLLM keys
-    # on and ``claude_code_alias`` always carries the suffix Claude Code
-    # needs to opt into 1M-context compaction math.
+    # Normalise so ``upstream_model`` is always the bare name LiteLLM keys on.
     bare = model.removesuffix(_CONTEXT_1M_SUFFIX) if model.endswith(_CONTEXT_1M_SUFFIX) else model
+    # ``claude_code_alias`` carries the ``[1m]`` suffix so Claude Code opts the
+    # custom model into 1M-context compaction math — EXCEPT for models whose
+    # real window is below 1M (``_SUB_1M_CONTEXT_MODELS``): those take the bare
+    # name so Claude Code uses its 200K default and compacts before their true
+    # limit instead of overflowing it. A pre-suffixed sub-1M model (e.g.
+    # ``kimi-k2.6[1m]``) is normalised back to bare here — the registry is
+    # authoritative over an operator's stray suffix.
+    if bare in _SUB_1M_CONTEXT_MODELS:
+        claude_code_alias = bare
+    else:
+        claude_code_alias = f"{bare}{_CONTEXT_1M_SUFFIX}"
     return AgentModelDecision(
-        claude_code_alias=f"{bare}{_CONTEXT_1M_SUFFIX}",
+        claude_code_alias=claude_code_alias,
         upstream=UPSTREAM_LITELLM,
         upstream_model=bare,
     )

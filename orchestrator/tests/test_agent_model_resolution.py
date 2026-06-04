@@ -419,6 +419,84 @@ class TestLiteLLMClassification:
         assert d.env_vars() == {}
 
 
+class TestSubOneMContextModels:
+    """Models whose real context window is below 1M (``_SUB_1M_CONTEXT_MODELS``)
+    must NOT get the ``[1m]`` suffix: Claude Code would treat them as 1M and
+    defer compaction past their true limit, overflowing the upstream mid-turn.
+    They take the bare alias → Claude Code's 200K default, which compacts
+    safely below their window. See #2987.
+    """
+
+    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    def test_sub_1m_model_drops_1m_suffix(self, model):
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": model})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.upstream == "litellm"
+        assert d.upstream_model == model
+        assert d.claude_code_alias == model, (
+            f"sub-1M model {model!r} MUST present the bare name to Claude Code "
+            f"(no [1m]) so it uses the 200K default and compacts before the "
+            f"model's real limit; got {d.claude_code_alias!r}"
+        )
+
+    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    def test_pre_suffixed_sub_1m_model_normalized_to_bare(self, model):
+        """A stray operator ``[1m]`` on a sub-1M model is overridden — the
+        registry is authoritative, so the alias is still bare.
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": f"{model}[1m]"})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.upstream_model == model
+        assert d.claude_code_alias == model
+
+    def test_sub_1m_env_vars_carry_bare_name(self):
+        """Every custom-model env var for a sub-1M model carries the bare
+        name — none may leak the ``[1m]`` suffix (which would re-trigger the
+        1M profile for the main agent or its Task-tool subagents).
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": "kimi-k2.6"})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.env_vars() == {
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": "kimi-k2.6",
+            "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "kimi-k2.6",
+            "ANTHROPIC_AUTH_METHOD": "api_key",
+            "CLAUDE_CODE_SUBAGENT_MODEL": "kimi-k2.6",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2.6",
+            "ANTHROPIC_SMALL_FAST_MODEL": "kimi-k2.6",
+        }
+
+    @pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max"])
+    def test_one_m_models_still_carry_1m_suffix(self, model):
+        """Regression guard: genuine >=1M cost-center models are unaffected —
+        they still get ``[1m]`` so they use their full 1M window.
+        """
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config(agent_models={"coder": model})
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            d = resolve_agent_model(AgentRole.CODER, config, None)
+
+        assert d.upstream == "litellm"
+        assert d.claude_code_alias == f"{model}[1m]"
+        assert d.upstream_model == model
+
+
 # =============================================================================
 # PipelineConfig.agent_models validation (TASK-2-1)
 # =============================================================================

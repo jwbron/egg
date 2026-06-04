@@ -115,7 +115,8 @@ The resolver's classifier divides model strings into two camps:
 |----------------------|------------|---------------------|------------------|
 | `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
-| Everything else (e.g. `qwen3-coder-30b`, `mistral-large`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
+| Everything else with a real window ≥1M (e.g. `qwen3.7-max`, `deepseek-v4-*`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
+| Sub-1M-window models (`_SUB_1M_CONTEXT_MODELS`: `kimi-k2.6` 256K, `glm-5.1` 202K) | `"litellm"` | `<model>` — bare, **no** `[1m]` (takes Claude Code's 200K default) | the bare upstream name |
 
 Two consequences:
 
@@ -249,14 +250,20 @@ registration.
 > override flow (see [#2832](https://github.com/jwbron/egg/issues/2832)
 > for the follow-up).
 
-> **Sub-1M-window upstreams.** The resolver appends `[1m]`
-> unconditionally on the LiteLLM path. The current pilot upstreams
-> (Qwen3.7-max, DeepSeek-v4-*) are all 1M; smaller upstreams (e.g.
-> the original qwen3-coder-30b at 32k) would see Claude Code defer
-> compaction past their real window. A per-entry context_window
-> declaration is the natural extension when those backends graduate
-> past pilot — left out of this change deliberately to keep the
-> seam minimal.
+> **Sub-1M-window upstreams (#2987).** Claude Code exposes a custom
+> model only two compaction profiles — the 1M window (the `[1m]`
+> suffix; its qualifier in Claude Code is literally `/\[1m\]/i`) or
+> its 200K default. There is no arbitrary `[256k]` size suffix, and
+> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` only takes effect under
+> `DISABLE_COMPACT` (which egg never sets). So the resolver appends
+> `[1m]` only for genuine ≥1M upstreams and **withholds it** for
+> models whose real window is below 1M — `_SUB_1M_CONTEXT_MODELS` in
+> `agent_model_resolution.py` (Kimi K2.6 256K, GLM-5.1 202K). Those
+> take Claude Code's 200K default, which auto-compacts safely below
+> their real limit instead of deferring compaction toward 1M and
+> overflowing the upstream mid-turn. The cost is the unused headroom
+> above 200K (e.g. ~56K for Kimi); Claude Code offers no in-between
+> profile. Add a model to the set when its real window is <1M.
 
 ### Web tool availability on the LiteLLM path (#2856)
 
