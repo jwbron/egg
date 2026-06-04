@@ -229,7 +229,7 @@ sandbox/
 │   │   └── ...             # brc.py, sdlc.py, task.py, phase.py, progress.py, message.py, restrictions.py, brc_memory.py, errors.py
 │   └── tools/              # @tool wrappers — one module per namespace, each exports REGISTRATIONS
 │       ├── confluence.py   # mcp__confluence__* wrappers: 8 read-only gateway mirrors (#2994)
-│       ├── jira.py         # mcp__jira__* wrappers: 9 gateway mirrors (reads + 4 writes) (#2994)
+│       ├── jira.py         # mcp__jira__* wrappers: 9 gateway mirrors (5 reads + 4 writes) (#2994)
 │       └── ...             # brc.py, sdlc.py, task.py, phase.py, progress.py, message.py, _common.py, _registry.py, _tool_compat.py
 ├── egg_lib/                # Container utility libraries
 │   ├── cli.py              # CLI command handling
