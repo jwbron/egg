@@ -124,9 +124,12 @@ Two consequences:
   model is a Claude alias — `upstream_model` is `None`, so the gateway
   forwards the body verbatim.
 - The LiteLLM path threads `<model>[1m]` into `--model` and the
-  `ANTHROPIC_CUSTOM_MODEL_OPTION` env var. Claude Code strips the
-  suffix before sending, so LiteLLM keys on the bare upstream name —
-  the gateway does not rewrite the body.
+  `ANTHROPIC_CUSTOM_MODEL_OPTION` env var for the standard ≥1M case,
+  or the **bare** `<model>` (no suffix) for `_SUB_1M_CONTEXT_MODELS`
+  — see the *Sub-1M-window upstreams (#2987)* callout below. Claude
+  Code strips the suffix before sending (when present), so LiteLLM
+  keys on the bare upstream name — the gateway does not rewrite the
+  body.
 
 ## How the resolved decision threads through spawn
 
@@ -243,7 +246,9 @@ two env vars (plus one egg-side auth marker):
 The resolver builds these values from the decided upstream string and
 the spawn sites merge them into the agent's `extra_env`
 (see `AgentModelDecision.env_vars()`). The resolver also pins the
-agent's `--model` flag to `<upstream>[1m]` so the harness's
+agent's `--model` flag to `<upstream>[1m]` for the standard ≥1M case
+(or the bare `<upstream>` for `_SUB_1M_CONTEXT_MODELS` — see the
+*Sub-1M-window upstreams (#2987)* callout below) so the harness's
 ``--model``-keyed pathway also routes through the custom-model
 registration.
 
@@ -623,7 +628,7 @@ Routing → Files](../architecture/upstream-routing.md#files).
 |----------|------------|-------------------|
 | `cq-3` | Per-role field on `PipelineConfig` **and** `repositories.yaml` default | Two-knob config above; precedence chain in the resolver |
 | `cq-4` | No agent-flip in this pipeline; operator smoke-test deferred | Smoke-test section is operator-driven, not gating merge |
-| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
+| `cq-5` | Keep Claude Code; superseded by env-var registration (#2832) | Resolver pins `claude_code_alias = "<upstream>[1m]"` for ≥1M upstreams (bare `<upstream>` for `_SUB_1M_CONTEXT_MODELS` per #2987) and threads `ANTHROPIC_CUSTOM_MODEL_OPTION` into the agent env — no gateway body rewrite |
 | `cq-6` | First validation backend is hosted Qwen | Step 2 example uses hosted Qwen; self-hosted deferred |
 | `cq-8` | Fail closed on LiteLLM errors (502, no fallback) | Step 4 error-path note; same behavior as today's Anthropic upstream errors |
 | `cq-11` | Leave `[1m]` for Claude | Non-Claude model strings simply do not carry `[1m]`; the resolver routes them via the LiteLLM path |

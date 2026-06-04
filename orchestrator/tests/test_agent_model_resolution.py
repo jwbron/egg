@@ -459,25 +459,29 @@ class TestSubOneMContextModels:
         assert d.upstream_model == model
         assert d.claude_code_alias == model
 
-    def test_sub_1m_env_vars_carry_bare_name(self):
+    @pytest.mark.parametrize("model", ["kimi-k2.6", "glm-5.1"])
+    def test_sub_1m_env_vars_carry_bare_name(self, model):
         """Every custom-model env var for a sub-1M model carries the bare
         name — none may leak the ``[1m]`` suffix (which would re-trigger the
-        1M profile for the main agent or its Task-tool subagents).
+        1M profile for the main agent or its Task-tool subagents). Parametrized
+        over both registry entries so a future drift that only broke ``glm-5.1``
+        (e.g. a ``.lower()`` or escape that special-cased the hyphen-period in
+        ``k2.6``) is caught here, not in the field.
         """
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
-        config = _pipeline_config(agent_models={"coder": "kimi-k2.6"})
+        config = _pipeline_config(agent_models={"coder": model})
 
         with patch("config.repo_config.get_default_agent_model", return_value=None):
             d = resolve_agent_model(AgentRole.CODER, config, None)
 
         assert d.env_vars() == {
-            "ANTHROPIC_CUSTOM_MODEL_OPTION": "kimi-k2.6",
-            "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "kimi-k2.6",
+            "ANTHROPIC_CUSTOM_MODEL_OPTION": model,
+            "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": model,
             "ANTHROPIC_AUTH_METHOD": "api_key",
-            "CLAUDE_CODE_SUBAGENT_MODEL": "kimi-k2.6",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2.6",
-            "ANTHROPIC_SMALL_FAST_MODEL": "kimi-k2.6",
+            "CLAUDE_CODE_SUBAGENT_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            "ANTHROPIC_SMALL_FAST_MODEL": model,
         }
 
     @pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-max"])
@@ -527,10 +531,17 @@ class TestSubOneMContextModels:
             d = classify_model("kimi-k2.6[1m]")
 
         assert d.claude_code_alias == "kimi-k2.6"
+        # The warning's %r formatting puts repr quotes around the input alias and
+        # the normalised bare name; assert both quoted forms appear so a future
+        # drift that swapped the format args (e.g. logged ``bare`` twice instead
+        # of ``model, bare``) would still fail this test rather than passing on
+        # the substring ``"[1m]"`` in the static format string alone.
         assert any(
-            "kimi-k2.6" in record.message and "[1m]" in record.message for record in caplog.records
+            "'kimi-k2.6[1m]'" in record.message and "'kimi-k2.6'" in record.message
+            for record in caplog.records
         ), (
-            f"expected override warning for kimi-k2.6[1m]; got {[r.message for r in caplog.records]!r}"
+            f"expected override warning naming both 'kimi-k2.6[1m]' and 'kimi-k2.6'; "
+            f"got {[r.message for r in caplog.records]!r}"
         )
 
     def test_bare_sub_1m_emits_no_warning(self, caplog):
