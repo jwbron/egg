@@ -136,6 +136,45 @@ When you're done, check the box below to submit.
 | Multiple questions | No (one per decision) | Yes (consolidated comment) |
 | Workflow job | `handle-decision` | `handle-feedback` |
 
+### Answering contract feedback from the host (`answer_feedback`)
+
+Agents register feedback by writing `contract.feedback` (id `feedback-N`) via
+`register_feedback_request` (`mcp__sdlc__request_feedback`). That write touches
+only the gateway-backed contract — it is **not** an orchestrator decision. It
+is promoted into the orchestrator decision queue only **after the phase_gate is
+approved**, by the server-side bridge `_queue_and_await_contract_decisions`
+(see [Contract Decision Bridge](#contract-decision-bridge)).
+
+That post-gate promotion is fine for the normal flow (refiner embeds questions
+in its draft, operator approves the draft, then answers the deferred
+questions). But an agent can also register feedback **pre-proposal** and block
+on the answer before producing any draft — e.g. a refiner asking the operator
+to supply a goal on an empty contract. No phase_gate is ever reached, so:
+
+- the feedback never appears in `get_status(...).pending_decisions`;
+- `provide_input(decision_id="feedback-N", ...)` returns **HTTP 404** (no such
+  orchestrator decision);
+- the pipeline deadlocks (the overseer emits a `stuck-phase-transition` alert).
+
+The host operator answers this via the **`answer_feedback` MCP tool**, which
+posts to `POST /api/v1/pipelines/<pipeline_id>/feedback/answer`
+(`orchestrator/routes/decisions.py`). The route writes the answers straight
+into `contract.feedback` and marks it submitted — mirroring the bridge's
+write-back — so the blocked agent unblocks on its next contract poll:
+
+```
+answer_feedback(
+  task_id="issue-1059",
+  answers={"Q1": "Add retry logic to the API client", "Q2": "p99 < 200ms"},
+  feedback_id="feedback-1",   # optional staleness guard
+)
+```
+
+The endpoint is lifecycle-secret guarded, so only the operator/MCP can answer —
+an agent cannot submit answers to its own feedback (parity with decision
+resolve; see #1769). Inspect the pending questions first with
+`get_contract(task_id).feedback`. See #3007.
+
 ## Phase Approval
 
 Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
@@ -309,7 +348,7 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 
 ## `/sdlc` Skill: Auto-Resolving Repeated Questions
 
-The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input`. Decisions surface in **two waves**: when a phase first reaches `awaiting_human`, `pending_decisions` contains only the `phase_gate`; after it is approved, the [server-side bridge](#contract-decision-bridge) promotes any deferred `choice`/`feedback` decisions into `pending_decisions` and the pipeline stays in `awaiting_human` until they are resolved (see [Two-wave surfacing](../skills/sdlc/SKILL.md#two-wave-surfacing)). Because the refiner commonly embeds those same questions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=cq-N -->` markers, the answers given during the phase_gate step would otherwise be re-asked in Wave 2.
+The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input` (orchestrator decisions) plus `answer_feedback` (contract-scoped pre-proposal feedback that never enters the decision queue — see [Answering contract feedback from the host](#answering-contract-feedback-from-the-host-answer_feedback)). Decisions surface in **two waves**: when a phase first reaches `awaiting_human`, `pending_decisions` contains only the `phase_gate`; after it is approved, the [server-side bridge](#contract-decision-bridge) promotes any deferred `choice`/`feedback` decisions into `pending_decisions` and the pipeline stays in `awaiting_human` until they are resolved (see [Two-wave surfacing](../skills/sdlc/SKILL.md#two-wave-surfacing)). Because the refiner commonly embeds those same questions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=cq-N -->` markers, the answers given during the phase_gate step would otherwise be re-asked in Wave 2.
 
 Without special handling the skill would re-prompt the user for every draft-embedded question a second time once those standalone decisions arrive — the user answers each question twice. Phase 4 of the skill avoids this via a session-scoped **`resolved_questions_map`**.
 
@@ -399,7 +438,8 @@ This recovery fires at three sites:
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
-- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
+- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve) and the operator `POST .../feedback/answer` route that answers contract-scoped feedback (`answer_feedback` MCP tool; #3007)
+- `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
 - `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling: **two-wave surfacing** (phase_gate alone in Wave 1, deferred `choice`/`feedback` in Wave 2 after approval) and the session-scoped `resolved_questions_map` that handles cross-wave deduplication
