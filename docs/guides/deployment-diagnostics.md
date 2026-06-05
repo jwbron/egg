@@ -87,9 +87,9 @@ Verify the IDs via `egg-orch pipeline status <id>` or
    container statuses).
 3. `get_deployment_context` — runtime, namespace, CNI, NetworkPolicy
    enforcement, image tags for orchestrator / gateway / agents.
-4. `validate_deployment_manifests` — five warn-on rules against the
+4. `validate_deployment_manifests` — six warn-on rules against the
    committed overlay (missing Secret, missing hostPath, missing image,
-   selector-label mismatch, env-var collision).
+   selector-label mismatch, env-var collision, session-store-not-persistent).
 5. Recent `Warning` Events in `egg-system`.
 6. Mounted Secret / ConfigMap presence check (rolls into the Events
    primitive when `FailedMount` fires).

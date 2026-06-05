@@ -160,7 +160,7 @@ Every diagnostic skill calls this first — it bounds every subsequent check.
 
 ## `validate_deployment_manifests`
 
-Static kustomize-overlay checks against five warn-on rules that caught the
+Static kustomize-overlay checks against six warn-on rules that caught the
 concrete bugs in the #1692 validation pass.
 
 **HTTP route**: `POST /api/v1/deployment/validate-manifests`
@@ -180,7 +180,7 @@ resolved from the deployment context.
 {
   "warnings": [
     {
-      "rule": "missing-secret",
+      "rule": "secret-missing",
       "severity": "error",
       "resource": "Deployment/egg-orchestrator",
       "message": "references Secret 'egg-lifecycle-secret' which is not present in the overlay"
@@ -197,15 +197,25 @@ resolved from the deployment context.
 
 **Rules**:
 
-1. `missing-secret` — a Deployment references a Secret that does not exist
-   in the overlay.
-2. `missing-hostpath` — a Pod specifies a `hostPath` volume that does not
-   exist on the host.
-3. `missing-image` — a container image tag does not match any image
-   actually built by `make build`.
+1. `secret-missing` — a Deployment volume references a Secret that is not
+   declared in the overlay.
+2. `hostpath-missing` — on a local overlay that declares `hostPath` volumes
+   elsewhere, a gateway/orchestrator Deployment has none (worktrees/repos
+   will not be visible).
+3. `image-missing` / `image-missing-tag` (k3s-gated) — a container has no
+   `image` field (`image-missing`, severity `error`), or the image string
+   has no `:` tag (`image-missing-tag`, severity `warn`) so k3s
+   containerd will not find the locally-imported image.
 4. `selector-label-mismatch` — a Service selector matches zero Pod labels.
 5. `env-var-collision` — two ConfigMaps / Secrets map the same env-var name
    into the same container with different values.
+6. `session-store-not-persistent` — a gateway deployment whose `worktrees`
+   volume survives pod recreation (non-emptyDir) but whose `egg-state` volume
+   (the gateway session store at `/home/egg/.egg-state`) is ephemeral
+   (`emptyDir` or absent, in which case it falls inside the `home` emptyDir).
+   This asymmetry causes startup worktree cleanup to see zero live sessions
+   after a pod recreation and delete every live pipeline's worktree (#3005).
+   Fires as `severity: "error"`.
 
 k3s-specific warnings (for example, `containerd image presence`) are
 **gated on the k3s-detection heuristic** from
