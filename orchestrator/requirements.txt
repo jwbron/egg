@@ -1,6 +1,6 @@
 # Core web framework
 flask>=3.0.0
-waitress>=3.0.0
+waitress>=3.0.2
 
 # Data validation
 pydantic>=2.0.0

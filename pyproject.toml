@@ -7,7 +7,7 @@ license = {text = "MIT"}
 requires-python = ">=3.14"
 dependencies = [
     "flask>=3.0.0,<4.0.0",
-    "waitress>=3.0.0,<4.0.0",
+    "waitress>=3.0.2,<4.0.0",
     "pyyaml>=6.0,<7.0",
     "requests>=2.31.0,<3.0.0",
     "PyJWT>=2.8.0,<3.0.0",
