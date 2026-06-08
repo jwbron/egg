@@ -1,5 +1,21 @@
 {
   "entries": {
+    "4a17d38586975c4572a084b1d7eb564193ac9aa0": {
+      "branch": "egg/issue-3023/work",
+      "patch_id": "18d91915e94aafd95e235e0b43078f8f5abcab8a",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-08T22:20:10.682979+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "df4c0b7f5ee42eba5f259cc036d5345c134849cc": {
+      "branch": "egg/issue-3023/work",
+      "patch_id": "8489a22b1ea465d5b328516b16330680f10b29a0",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-08T22:20:10.679777+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "fab18b080baf63afbbe30e6cf7bc839191599b23": {
       "branch": "egg/issue-3023/work",
       "patch_id": "8489a22b1ea465d5b328516b16330680f10b29a0",
