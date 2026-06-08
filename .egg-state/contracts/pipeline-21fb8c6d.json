@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.2",
+  "issue": null,
+  "pipeline_id": "pipeline-21fb8c6d",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
