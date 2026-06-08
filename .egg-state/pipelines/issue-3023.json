@@ -251,10 +251,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "What is the rollout shape? The change touches spawn / run / terminate paths simultaneously; a behind-flag rollout lets operators flip per pipeline / per phase during burn-in, while a big-bang rollout matches #2908's \"no env-flag rollback, revert by git\" stance.",
+      "context": "Open contract question cq-4, registered by an agent during the refine phase.",
+      "options": [
+        "Feature-flagged per-pipeline (e.g. PipelineConfig.on_demand_spawn=True/False, default False initially, flip to True after burn-in) — operator can pin a known-good pipeline to the long-lived model while the on-demand path soaks elsewhere",
+        "Feature-flagged per-phase (e.g. enable for refine only first, since it has the lowest event volume and the cleanest cache hit pattern) — graduated rollout per phase",
+        "Big-bang with rollback-by-git-revert (mirrors #2908 slice-4 stance) — smallest config surface, requires a clean revert path in the PR",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-08T22:43:37.180629Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-08T22:43:37.141852Z",
+  "updated_at": "2026-06-08T22:43:37.191180Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -267,7 +286,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
