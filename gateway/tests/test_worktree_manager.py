@@ -652,11 +652,16 @@ class TestWorktreeManagerDockerGitDir:
         if result.returncode == 0:
             assert not result.stdout.strip().startswith("refs/heads/egg/")
 
-    def test_worktree_reuse_resets_to_safe_remote_ref(self, tmp_path):
+    @patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", ""))
+    def test_worktree_reuse_resets_to_safe_remote_ref(self, _mock_get_token, tmp_path):
         """When a valid worktree is reused, the helper resets HEAD to a
         known-good remote ref so a stale local HEAD from a prior pipeline
         run on the same container_id (deterministic ID collision, see
         #2222) doesn't get inherited.
+
+        ``get_token_for_repo`` is patched to return no token so the
+        credentialed reuse fetch (#3021) falls back to the plain
+        environment against the local-file origin used by this test.
 
         Reproduction of the pre-fix shape:
         - First create_worktree creates the worktree at origin/main.
@@ -910,21 +915,23 @@ class TestWorktreeManagerRemoteBranchFetch:
         manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
         return manager, repos_base, repo_dir, worktree_base
 
-    def test_fetches_remote_when_base_branch_not_local(self, manager_with_repo):
-        """When base_branch doesn't exist locally, fetch from origin and use origin/<branch>."""
+    def test_fetches_remote_with_credentials_and_uses_remote_tip(self, manager_with_repo):
+        """The base branch is fetched (authenticated) and the worktree is
+        branched from ``origin/<branch>`` — even when the branch is absent
+        locally.  See #3021 failure mode 2."""
         manager, repos_base, repo_dir, worktree_base = manager_with_repo
 
         call_log = []
 
         def mock_run(args, **kwargs):
-            call_log.append(list(args))
+            call_log.append((list(args), kwargs))
             result = MagicMock()
             result.returncode = 0
             result.stderr = ""
             result.stdout = ""
 
             if "rev-parse" in args and "--verify" in args:
-                # Neither branch_name nor base_branch exist locally
+                # branch_name (the per-worktree work branch) does not exist yet
                 result.returncode = 1
             elif "fetch" in args and "origin" in args:
                 result.returncode = 0
@@ -945,34 +952,48 @@ class TestWorktreeManagerRemoteBranchFetch:
 
             return result
 
-        with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(
-                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
-            ):
-                with patch.object(manager, "_chown_recursive"):
-                    with patch.object(manager, "_chown_single"):
-                        info = manager.create_worktree(
-                            "test-repo", "issue-1495-coder", base_branch="egg/issue-1495"
-                        )
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "user", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            info = manager.create_worktree(
+                                "test-repo",
+                                "issue-1495-coder",
+                                base_branch="egg/issue-1495",
+                                repo_slug="Khan/test-repo",
+                            )
 
         assert info.container_id == "issue-1495-coder"
-        # Verify fetch was called
-        fetch_calls = [c for c in call_log if "fetch" in c and "origin" in c]
+        # Verify fetch was called for the base branch
+        fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
         assert len(fetch_calls) == 1
-        assert "egg/issue-1495" in fetch_calls[0]
+        assert "egg/issue-1495" in fetch_calls[0][0]
+        # The fetch must carry the gateway credential helper (#3021 Fix A):
+        # the mirror's origin is HTTPS, so an unauthenticated fetch fails.
+        fetch_env = fetch_calls[0][1].get("env") or {}
+        assert fetch_env.get("GIT_ASKPASS"), "fetch must run with a GIT_ASKPASS credential helper"
+        assert fetch_env.get("GIT_PASSWORD") == "fake-token"
+        assert fetch_env.get("GIT_USERNAME") == "x-access-token"
         # Verify worktree add used origin/<branch> as effective base
-        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
+        wt_add_calls = [
+            c for c in call_log if "worktree" in c[0] and "add" in c[0] and "-b" in c[0]
+        ]
         assert len(wt_add_calls) == 1
-        assert "origin/egg/issue-1495" in wt_add_calls[0]
+        assert "origin/egg/issue-1495" in wt_add_calls[0][0]
 
-    def test_skips_fetch_when_base_branch_exists_locally(self, manager_with_repo):
-        """When base_branch exists locally, no fetch needed."""
+    def test_fetches_remote_tip_even_when_base_branch_exists_locally(self, manager_with_repo):
+        """When base_branch exists locally, still fetch and branch from the
+        remote tip rather than the (possibly stale) local ref.  See #3021
+        failure mode 1."""
         manager, repos_base, repo_dir, worktree_base = manager_with_repo
 
         call_log = []
 
         def mock_run(args, **kwargs):
-            call_log.append(list(args))
+            call_log.append((list(args), kwargs))
             result = MagicMock()
             result.returncode = 0
             result.stderr = ""
@@ -980,9 +1001,11 @@ class TestWorktreeManagerRemoteBranchFetch:
 
             if "rev-parse" in args:
                 if args[-1] == "egg/my-branch":
-                    result.returncode = 0  # base_branch exists locally
+                    result.returncode = 0  # base_branch exists locally (but stale)
                 elif args[-1] == "egg/my-container/work":
                     result.returncode = 1  # branch_name doesn't exist yet
+            elif "fetch" in args and "origin" in args:
+                result.returncode = 0
             elif "worktree" in args and "add" in args:
                 wt_path = None
                 for i, a in enumerate(args):
@@ -997,24 +1020,122 @@ class TestWorktreeManagerRemoteBranchFetch:
 
             return result
 
-        with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(
-                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
-            ):
-                with patch.object(manager, "_chown_recursive"):
-                    with patch.object(manager, "_chown_single"):
-                        manager.create_worktree(
-                            "test-repo", "my-container", base_branch="egg/my-branch"
-                        )
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            manager.create_worktree(
+                                "test-repo", "my-container", base_branch="egg/my-branch"
+                            )
 
-        # No fetch should have been called
-        fetch_calls = [c for c in call_log if "fetch" in c]
-        assert len(fetch_calls) == 0
-        # worktree add should use the original base_branch directly
-        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
+        # Fetch IS called even though the branch exists locally (freshness).
+        fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
+        assert len(fetch_calls) == 1
+        assert "egg/my-branch" in fetch_calls[0][0]
+        # worktree add must branch from the remote tip, not the stale local ref.
+        wt_add_calls = [
+            c for c in call_log if "worktree" in c[0] and "add" in c[0] and "-b" in c[0]
+        ]
         assert len(wt_add_calls) == 1
-        assert "egg/my-branch" in wt_add_calls[0]
-        assert "origin/egg/my-branch" not in wt_add_calls[0]
+        assert "origin/egg/my-branch" in wt_add_calls[0][0]
+
+    def test_strips_origin_prefix_before_fetch(self, manager_with_repo):
+        """An ``origin/``-prefixed base (e.g. resolve_default_branch ->
+        ``origin/main``) fetches the bare branch name and branches from the
+        remote tip."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append((list(args), kwargs))
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and "--verify" in args:
+                result.returncode = 1  # work branch doesn't exist yet
+            elif "fetch" in args and "origin" in args:
+                result.returncode = 0
+            elif "worktree" in args and "add" in args:
+                wt_path = None
+                for i, a in enumerate(args):
+                    if a == "-b" and i + 2 < len(args):
+                        wt_path = Path(args[i + 2])
+                        break
+                if wt_path:
+                    wt_path.mkdir(parents=True, exist_ok=True)
+                    (wt_path / ".git").write_text("gitdir: /fake/git/dir")
+
+            return result
+
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            manager.create_worktree(
+                                "test-repo", "main-container", base_branch="origin/main"
+                            )
+
+        fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
+        assert len(fetch_calls) == 1
+        # The bare branch name is fetched, not "origin/main".
+        assert fetch_calls[0][0][-1] == "main"
+        wt_add_calls = [
+            c for c in call_log if "worktree" in c[0] and "add" in c[0] and "-b" in c[0]
+        ]
+        assert "origin/main" in wt_add_calls[0][0]
+
+    def test_fetch_proceeds_without_helper_when_no_token(self, manager_with_repo):
+        """When no token is available the fetch still runs (best effort) so a
+        local-file remote keeps working; git's own credential error surfaces
+        for HTTPS remotes."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append((list(args), kwargs))
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+            if "rev-parse" in args and "--verify" in args:
+                result.returncode = 1
+            elif "worktree" in args and "add" in args:
+                wt_path = None
+                for i, a in enumerate(args):
+                    if a == "-b" and i + 2 < len(args):
+                        wt_path = Path(args[i + 2])
+                        break
+                if wt_path:
+                    wt_path.mkdir(parents=True, exist_ok=True)
+                    (wt_path / ".git").write_text("gitdir: /fake/git/dir")
+            return result
+
+        with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "no token")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            manager.create_worktree(
+                                "test-repo", "no-token-container", base_branch="egg/x"
+                            )
+
+        fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
+        assert len(fetch_calls) == 1
+        # No credential helper was injected by us (token unavailable).
+        fetch_env = fetch_calls[0][1].get("env") or {}
+        assert fetch_env.get("GIT_PASSWORD") != "fake-token"
 
     def test_skips_fetch_for_head(self, manager_with_repo):
         """HEAD should never trigger a fetch."""
@@ -1077,24 +1198,69 @@ class TestWorktreeManagerRemoteBranchFetch:
 
             return result
 
-        with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(
-                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
-            ):
-                with patch.object(manager, "_chown_recursive"):
-                    with patch.object(manager, "_chown_single"):
-                        with pytest.raises(
-                            RuntimeError,
-                            match="Failed to fetch base branch 'egg/nonexistent' from remote",
-                        ):
-                            manager.create_worktree(
-                                "test-repo", "fail-container", base_branch="egg/nonexistent"
-                            )
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            with pytest.raises(
+                                RuntimeError,
+                                match="Failed to fetch base branch 'egg/nonexistent' from remote",
+                            ):
+                                manager.create_worktree(
+                                    "test-repo", "fail-container", base_branch="egg/nonexistent"
+                                )
 
         # Verify fetch was attempted
         fetch_calls = [c for c in call_log if "fetch" in c and "origin" in c]
         assert len(fetch_calls) == 1
         # Verify worktree add was NOT attempted (we raise before reaching it)
+        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c]
+        assert len(wt_add_calls) == 0
+
+    def test_raises_when_fetch_fails_even_if_base_branch_exists_locally(self, manager_with_repo):
+        """#3021 hard-fail policy: a failed fetch must raise rather than fall
+        back to a possibly-stale local copy of the base branch."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append(list(args))
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and "--verify" in args:
+                if args[-1] == "egg/local-stale":
+                    result.returncode = 0  # base branch DOES exist locally
+                else:
+                    result.returncode = 1  # work branch doesn't exist yet
+            elif "fetch" in args and "origin" in args:
+                result.returncode = 128
+                result.stderr = "fatal: unable to access remote (network blip)"
+
+            return result
+
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            with pytest.raises(
+                                RuntimeError,
+                                match="Failed to fetch base branch 'egg/local-stale' from remote",
+                            ):
+                                manager.create_worktree(
+                                    "test-repo", "stale-container", base_branch="egg/local-stale"
+                                )
+
+        # Did NOT fall back to creating a worktree from the stale local ref.
         wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c]
         assert len(wt_add_calls) == 0
 
