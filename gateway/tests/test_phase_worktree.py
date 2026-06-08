@@ -50,6 +50,7 @@ class TestCreatePhaseWorktree:
                 base_branch="egg/issue-732",
                 uid=None,
                 gid=None,
+                repo_slug=None,
             )
             assert result is mock_info
 
@@ -89,6 +90,7 @@ class TestCreatePhaseWorktree:
                 base_branch="HEAD",
                 uid=1001,
                 gid=1001,
+                repo_slug=None,
             )
 
     def test_invalid_container_id_raises(self, manager: WorktreeManager):

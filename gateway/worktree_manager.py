@@ -34,11 +34,23 @@ from collections.abc import Generator
 from egg_git.cross_process_lock import bare_repo_lock
 from egg_logging import get_logger
 
-# Import git_cmd helper
+# Import git helpers.  ``get_token_for_repo`` + the credential-helper pair are
+# used to authenticate on-demand base-branch fetches against the mirror's HTTPS
+# origin (the same credential path git_push uses).  See #3021.
 try:
-    from .git_client import git_cmd
+    from .git_client import (
+        cleanup_credential_helper,
+        create_credential_helper,
+        get_token_for_repo,
+        git_cmd,
+    )
 except ImportError:
-    from git_client import git_cmd  # type: ignore[no-redef, import-untyped]
+    from git_client import (  # type: ignore[no-redef, import-untyped]
+        cleanup_credential_helper,
+        create_credential_helper,
+        get_token_for_repo,
+        git_cmd,
+    )
 
 
 logger = get_logger("gateway.worktree-manager")
@@ -244,6 +256,7 @@ class WorktreeManager:
         uid: int | None = None,
         gid: int | None = None,
         assigned_branch: str | None = None,
+        repo_slug: str | None = None,
     ) -> WorktreeInfo:
         """
         Create an isolated worktree for a container.
@@ -260,6 +273,10 @@ class WorktreeManager:
                 assigned branch instead of the per-worktree local branch
                 (which the gateway would reject as push_denied_wrong_branch).
                 See #1809.
+            repo_slug: Full ``owner/repo`` slug used to resolve the GitHub
+                token for the authenticated base-branch fetch (#3021).
+                Defaults to ``repo_name`` when omitted, which makes token
+                resolution fall through to bot mode.
 
         Returns:
             WorktreeInfo with paths and branch information
@@ -286,6 +303,13 @@ class WorktreeManager:
         validate_branch_ref(base_branch, "base_branch")
         if assigned_branch is not None:
             validate_branch_ref(assigned_branch, "assigned_branch")
+
+        # Full ``owner/repo`` slug for token resolution on the authenticated
+        # base-branch fetch (#3021).  Callers that know the slug (the
+        # worktree-create / session routes) pass it so the fetch uses the
+        # correct bot/user token; otherwise fall back to ``repo_name``.
+        if repo_slug is None:
+            repo_slug = repo_name
 
         # Find main repo
         main_repo = self.repos_base / repo_name
@@ -340,6 +364,7 @@ class WorktreeManager:
                     container_id=container_id,
                     assigned_branch=assigned_branch,
                     base_branch=base_branch,
+                    repo_slug=repo_slug,
                 )
             # Return info about existing worktree
             return WorktreeInfo(
@@ -411,49 +436,67 @@ class WorktreeManager:
                     worktree_path=worktree_path,
                 )
             else:
-                # Resolve the base ref: if base_branch is not available
-                # locally (e.g. a pipeline branch that only exists on the
-                # remote), fetch it first and use origin/<base_branch>.
+                # Resolve the base ref.  Always fetch the base branch from
+                # origin and branch the worktree from the *remote tip*
+                # (``origin/<base_branch>``) rather than any local copy.
+                # This fixes both #3021 failure modes:
+                #   1. A branch present in the mirror at a stale SHA would
+                #      otherwise be used silently — the local ref is never
+                #      refreshed against origin.
+                #   2. A branch absent from the mirror must be fetched on
+                #      demand.
+                # The fetch is authenticated with the repo's token via the
+                # gateway credential helper (the same one git_push uses): the
+                # mirror's origin is HTTPS — SSH URLs are rewritten to HTTPS
+                # via ``insteadOf`` — so an unauthenticated fetch fails with
+                # "could not read Username for https://github.com".  We fail
+                # loudly on any fetch error rather than fall back to a
+                # possibly-stale local ref.
                 effective_base = base_branch
                 if base_branch != "HEAD":
-                    local_ref_exists = (
-                        subprocess.run(
-                            git_cmd("rev-parse", "--verify", base_branch),
-                            cwd=main_repo,
-                            capture_output=True,
-                            text=True,
-                            check=False,
-                        ).returncode
-                        == 0
+                    # ``base_branch`` may arrive already ``origin/``-prefixed
+                    # (e.g. resolve_default_branch -> "origin/main"); fetch the
+                    # underlying branch name in that case.
+                    fetch_ref = (
+                        base_branch[len("origin/") :]
+                        if base_branch.startswith("origin/")
+                        else base_branch
                     )
-                    if not local_ref_exists:
-                        logger.info(
-                            "Base branch not found locally, fetching from remote",
-                            base_branch=base_branch,
-                            container_id=container_id,
-                        )
+                    logger.info(
+                        "Fetching base branch from remote before worktree create",
+                        base_branch=base_branch,
+                        fetch_ref=fetch_ref,
+                        container_id=container_id,
+                    )
+                    # Timeout caps how long every other state-store commit /
+                    # worktree create on this repo can be blocked by a slow
+                    # remote — this fetch now runs on *every* non-HEAD spawn
+                    # (post-#3021) rather than just cold-cache misses, so keep
+                    # it tight.  Mirrors the reuse-path fetch in
+                    # ``_reset_reused_worktree_to_safe_ref``.
+                    with self._git_credential_env(repo_slug) as fetch_env:
                         try:
                             fetch_result = subprocess.run(
-                                git_cmd("fetch", "origin", base_branch),
+                                git_cmd("fetch", "origin", fetch_ref),
                                 cwd=main_repo,
                                 capture_output=True,
                                 text=True,
                                 check=False,
-                                timeout=120,
+                                timeout=30,
+                                env=fetch_env,
                             )
                         except subprocess.TimeoutExpired as e:
                             raise RuntimeError(
                                 f"Timed out fetching base branch '{base_branch}' from remote"
                             ) from e
-                        if fetch_result.returncode == 0:
-                            effective_base = f"origin/{base_branch}"
-                        else:
-                            raise RuntimeError(
-                                f"Failed to fetch base branch '{base_branch}' from remote: "
-                                f"{fetch_result.stderr.strip()}"
-                            )
+                    if fetch_result.returncode != 0:
+                        raise RuntimeError(
+                            f"Failed to fetch base branch '{base_branch}' from remote: "
+                            f"{fetch_result.stderr.strip()}"
+                        )
+                    effective_base = f"origin/{fetch_ref}"
 
-                # Create new branch from base
+                # Create new branch from the freshly fetched remote tip
                 result = self._run_git_worktree_add(
                     git_cmd(
                         "worktree",
@@ -659,6 +702,63 @@ class WorktreeManager:
                 )
                 return
 
+    @contextlib.contextmanager
+    def _git_credential_env(
+        self, repo_slug: str, *, best_effort: bool = False
+    ) -> Generator[dict[str, str]]:
+        """Yield an environment carrying GitHub credentials for a git fetch.
+
+        The gateway's local mirror talks to GitHub over HTTPS (SSH URLs are
+        rewritten via ``insteadOf``), so an unauthenticated ``git fetch``
+        fails with ``could not read Username for 'https://github.com'``.
+        This wires the same credential helper (``GIT_ASKPASS`` +
+        ``GIT_USERNAME``/``GIT_PASSWORD``) that the push path uses
+        (``gateway.git_push``), resolving the repo's bot/user token via
+        :func:`get_token_for_repo`.  See #3021.
+
+        When no token is available the plain process environment is yielded
+        so best-effort callers still run; the fetch then fails loudly with
+        git's own credential error, which the caller can surface.  The temp
+        credential file is always cleaned up on exit.
+
+        Args:
+            repo_slug: Full ``owner/repo`` slug for token resolution.
+            best_effort: When True, the caller treats the fetch as best
+                effort (e.g. the reuse-path reset, which falls back to a
+                local ref on fetch failure); a missing token then logs at
+                ``info`` rather than ``warning`` to avoid spamming
+                local-file-origin scenarios (tests, cold-start before the
+                token refresher initialises) where the absence is benign.
+                The create path leaves this False because a missing token
+                yields a hard ``RuntimeError`` on fetch failure.
+
+        In the no-token branch the ``GIT_USERNAME`` / ``GIT_PASSWORD`` /
+        ``GIT_ASKPASS`` keys are explicitly scrubbed from the yielded env so
+        a stale value inherited from a parent process (operator-set, leaked
+        from a container env, etc.) doesn't accidentally authenticate the
+        fetch — the documented "fails loudly with git's own credential
+        error" behaviour only holds when those vars are genuinely absent.
+        """
+        token_str, _auth_mode, token_error = get_token_for_repo(repo_slug)
+        cred_path: str | None = None
+        try:
+            if token_str:
+                cred_path, env = create_credential_helper(token_str, os.environ.copy())
+            else:
+                log = logger.info if best_effort else logger.warning
+                log(
+                    "No GitHub token available for authenticated fetch",
+                    repo_slug=repo_slug,
+                    token_error=token_error,
+                    best_effort=best_effort,
+                )
+                env = os.environ.copy()
+                for key in ("GIT_USERNAME", "GIT_PASSWORD", "GIT_ASKPASS"):
+                    env.pop(key, None)
+            yield env
+        finally:
+            cleanup_credential_helper(cred_path)
+
     def _reset_reused_worktree_to_safe_ref(
         self,
         worktree_path: Path,
@@ -666,6 +766,7 @@ class WorktreeManager:
         container_id: str,
         assigned_branch: str | None,
         base_branch: str,
+        repo_slug: str,
     ) -> None:
         """Hard-reset a reused worktree to a known-good remote ref.
 
@@ -699,14 +800,16 @@ class WorktreeManager:
         # create on this repo can be blocked by a slow remote — keep
         # it tight.
         try:
-            subprocess.run(
-                git_cmd("fetch", "origin"),
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
+            with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
+                subprocess.run(
+                    git_cmd("fetch", "origin"),
+                    cwd=worktree_path,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                    env=fetch_env,
+                )
         except (subprocess.TimeoutExpired, OSError) as exc:
             logger.warning(
                 "Fetch before worktree-reuse reset failed (continuing)",
@@ -997,6 +1100,7 @@ class WorktreeManager:
         base_branch: str = "HEAD",
         uid: int | None = None,
         gid: int | None = None,
+        repo_slug: str | None = None,
     ) -> WorktreeInfo:
         """Create a sub-worktree for a specific plan phase (Tier 3 parallel dispatch).
 
@@ -1029,6 +1133,7 @@ class WorktreeManager:
             base_branch=base_branch,
             uid=uid,
             gid=gid,
+            repo_slug=repo_slug,
         )
 
     def cleanup_phase_worktrees(

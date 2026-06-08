@@ -7727,6 +7727,7 @@ def worktree_create() -> tuple[Response, int] | Response:
                 uid=uid,
                 gid=gid,
                 assigned_branch=assigned_branch,
+                repo_slug=repo,
             )
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
@@ -8481,6 +8482,7 @@ def session_create() -> tuple[Response, int] | Response:
                     uid=uid,
                     gid=gid,
                     assigned_branch=branch,
+                    repo_slug=repo,
                 )
             # Capture the first worktree's gateway-side path for the session's repo context
             if first_worktree_path is None:
