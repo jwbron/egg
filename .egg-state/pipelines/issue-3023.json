@@ -193,10 +193,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "What is the acceptable cold-start latency budget for a per-event pod spawn (from `_derive_next_action != \"wait\"` to the agent process running)?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "≤ 3 s p95 — tight budget; requires worktree-PVC pre-warm AND gateway-session reuse (Option A's full optimization)",
+        "≤ 8 s p95 — loose budget; allows per-spawn gateway-session setup (worktree still pre-warmed); simpler orchestrator state but slower per-event cycle",
+        "≤ 20 s p95 — generous; would allow Option D (fresh PVC + fresh session per spawn) at the cost of a measurably slower BRC cycle",
+        "No fixed budget — measure-then-decide post-rollout, gated on a kill-switch flag",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-08T22:43:37.028418Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-08T22:43:34.155320Z",
+  "updated_at": "2026-06-08T22:43:37.042705Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -209,7 +229,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
