@@ -1,0 +1,572 @@
+{
+  "schemaVersion": "1.2",
+  "issue": {
+    "number": 3023,
+    "title": "Issue #3023",
+    "url": "https://github.com/jwbron/egg/issues/3023"
+  },
+  "pipeline_id": "issue-3023",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "What is the acceptable cold-start latency budget for a per-event pod spawn (from `_derive_next_action != \"wait\"` to the agent process running)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "\u2264 3 s p95 \u2014 tight budget; requires worktree-PVC pre-warm AND gateway-session reuse (Option A's full optimization)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "\u2264 8 s p95 \u2014 loose budget; allows per-spawn gateway-session setup (worktree still pre-warmed); simpler orchestrator state but slower per-event cycle",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "\u2264 20 s p95 \u2014 generous; would allow Option D (fresh PVC + fresh session per spawn) at the cost of a measurably slower BRC cycle",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "No fixed budget \u2014 measure-then-decide post-rollout, gated on a kill-switch flag",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No fixed cold-start latency requirement \u2014 this is a resource-freeing change, not latency-sensitive. Per-phase reuse of the prompt-cache prefix, gateway session, and worktree is unchanged; only the wait moves out of the pod, so no cold-start SLO gates the change.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:19.239260Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "How should the gateway session be managed across a role's successive on-demand spawns? (Today a long-lived pod holds one session via 30 s heartbeat; under on-demand spawning the orchestrator must take over session lifecycle.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-role session held by the orchestrator for the whole phase, refreshed by an orchestrator-side keep-alive (mirrors today's lifecycle but moves the heartbeat emitter; reuses today's gateway/session_manager.py semantics)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Fresh session per spawn (simpler orchestrator state, more gateway log noise, pays credential resolve every event)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Orchestrator-wide session multiplexed across all roles (smallest gateway-side footprint, but breaks today's per-role audit and per-role model routing from #2769)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-role session held by the orchestrator for the whole phase, refreshed by an orchestrator-side keep-alive (mirrors today's lifecycle but moves the heartbeat emitter; reuses today's gateway/session_manager.py semantics)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:24.259988Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Under on-demand spawning, who owns the \"no actionable event for X minutes\" idle-budget overseer alert that today fires from inside the wrapper at the 30-min EGG_BRC_IDLE_BUDGET_MIN? (Operator-visible signal \u2014 `stuck-phase-transition` anomaly tag at 1\u00d7 and 2\u00d7 thresholds.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Orchestrator-side per-role timer that emits the same anomaly tag with the same thresholds (drop-in replacement; operator UX unchanged)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Replace with a phase-level 'no spawns for X minutes' alert at the orchestrator (different signal \u2014 fires once per phase regardless of role count, simpler to operate but loses per-role granularity)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Drop the idle-budget alert entirely; rely on the existing phase-timeout SLO (smallest code, weakest signal)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Replace with a phase-level 'no spawns for X minutes' alert at the orchestrator (different signal \u2014 fires once per phase regardless of role count, simpler to operate but loses per-role granularity)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:24.268600Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "What is the rollout shape? The change touches spawn / run / terminate paths simultaneously; a behind-flag rollout lets operators flip per pipeline / per phase during burn-in, while a big-bang rollout matches #2908's \"no env-flag rollback, revert by git\" stance.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Feature-flagged per-pipeline (e.g. PipelineConfig.on_demand_spawn=True/False, default False initially, flip to True after burn-in) \u2014 operator can pin a known-good pipeline to the long-lived model while the on-demand path soaks elsewhere",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Feature-flagged per-phase (e.g. enable for refine only first, since it has the lowest event volume and the cleanest cache hit pattern) \u2014 graduated rollout per phase",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Big-bang with rollback-by-git-revert (mirrors #2908 slice-4 stance) \u2014 smallest config surface, requires a clean revert path in the PR",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Big-bang with rollback-by-git-revert (mirrors #2908 slice-4 stance) \u2014 smallest config surface, requires a clean revert path in the PR\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:29.288226Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "What is the retirement scope for `orchestrator/consensus_wrapper.py` after on-demand spawning is the default? Today the wrapper does five things (event loop, heartbeat, idle budget, agent invocation, signal/SIGTERM cleanup); under Option A the first three move to the orchestrator and agent invocation collapses to a single exec.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Delete consensus_wrapper.py entirely; the pod entrypoint becomes `python3 -m egg_agent --model X --max-turns N` with the composed prompt on stdin (smallest in-pod surface)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep a thin one-shot wrapper that handles only signal trapping + heartbeat-once-on-start + agent invocation (preserves the kubelet SIGTERM contract that today's wrapper handles via the cleanup trap at consensus_wrapper.py:117-124)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep the full wrapper but skip the loop when an EGG_ON_DEMAND=1 env var is set (graceful migration with both paths coexisting until burn-in completes; doubles the test surface)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Delete consensus_wrapper.py entirely; the pod entrypoint becomes `python3 -m egg_agent --model X --max-turns N` with the composed prompt on stdin (smallest in-pod surface)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:29.302818Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "Are overseer agents (decision-maker, advisor \u2014 see orchestrator/overseer/monitor.py) in scope for on-demand spawning, or out of scope for this change? They have a different lifecycle today (spawned by overseer/monitor.py on an anomaly + periodic cadence, not via concurrent_executor.spawn_all) and are already arguably on-demand.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Out of scope \u2014 leave overseer agent lifecycle as-is; this issue is about BRC-loop roles only",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In scope \u2014 unify the spawn path so overseer agents go through the same OnDemandSpawner (cleaner long-term shape, more diff in this PR, may require fixing edge cases the overseer's bespoke path already solved)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "In scope, but as a follow-up issue \u2014 note the unification target in this issue's closeout but defer the work",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"In scope, but as a follow-up issue \u2014 note the unification target in this issue's closeout but defer the work\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-08T22:55:29.313999Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-06-08T22:18:05.632908Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "What is the acceptable cold-start latency budget for a per-event pod spawn (from `_derive_next_action != \"wait\"` to the agent process running)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "\u2264 3 s p95 \u2014 tight budget; requires worktree-PVC pre-warm AND gateway-session reuse (Option A's full optimization)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "\u2264 8 s p95 \u2014 loose budget; allows per-spawn gateway-session setup (worktree still pre-warmed); simpler orchestrator state but slower per-event cycle",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "\u2264 20 s p95 \u2014 generous; would allow Option D (fresh PVC + fresh session per spawn) at the cost of a measurably slower BRC cycle",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "No fixed budget \u2014 measure-then-decide post-rollout, gated on a kill-switch flag",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the acceptable cold-start latency budget f...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:11.112611Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "How should the gateway session be managed across a role's successive on-demand spawns? (Today a long-lived pod holds one session via 30 s heartbeat; under on-demand spawning the orchestrator must take over session lifecycle.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-role session held by the orchestrator for the whole phase, refreshed by an orchestrator-side keep-alive (mirrors today's lifecycle but moves the heartbeat emitter; reuses today's gateway/session_manager.py semantics)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Fresh session per spawn (simpler orchestrator state, more gateway log noise, pays credential resolve every event)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Orchestrator-wide session multiplexed across all roles (smallest gateway-side footprint, but breaks today's per-role audit and per-role model routing from #2769)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the gateway session be managed across a...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:16.582646Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Under on-demand spawning, who owns the \"no actionable event for X minutes\" idle-budget overseer alert that today fires from inside the wrapper at the 30-min EGG_BRC_IDLE_BUDGET_MIN? (Operator-visible signal \u2014 `stuck-phase-transition` anomaly tag at 1\u00d7 and 2\u00d7 thresholds.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Orchestrator-side per-role timer that emits the same anomaly tag with the same thresholds (drop-in replacement; operator UX unchanged)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Replace with a phase-level 'no spawns for X minutes' alert at the orchestrator (different signal \u2014 fires once per phase regardless of role count, simpler to operate but loses per-role granularity)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Drop the idle-budget alert entirely; rely on the existing phase-timeout SLO (smallest code, weakest signal)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Under on-demand spawning, who owns the \"no actiona...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:22.549446Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "What is the rollout shape? The change touches spawn / run / terminate paths simultaneously; a behind-flag rollout lets operators flip per pipeline / per phase during burn-in, while a big-bang rollout matches #2908's \"no env-flag rollback, revert by git\" stance.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Feature-flagged per-pipeline (e.g. PipelineConfig.on_demand_spawn=True/False, default False initially, flip to True after burn-in) \u2014 operator can pin a known-good pipeline to the long-lived model while the on-demand path soaks elsewhere",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Feature-flagged per-phase (e.g. enable for refine only first, since it has the lowest event volume and the cleanest cache hit pattern) \u2014 graduated rollout per phase",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Big-bang with rollback-by-git-revert (mirrors #2908 slice-4 stance) \u2014 smallest config surface, requires a clean revert path in the PR",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the rollout shape? The change touches spaw...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:29.022492Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "What is the retirement scope for `orchestrator/consensus_wrapper.py` after on-demand spawning is the default? Today the wrapper does five things (event loop, heartbeat, idle budget, agent invocation, signal/SIGTERM cleanup); under Option A the first three move to the orchestrator and agent invocation collapses to a single exec.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Delete consensus_wrapper.py entirely; the pod entrypoint becomes `python3 -m egg_agent --model X --max-turns N` with the composed prompt on stdin (smallest in-pod surface)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep a thin one-shot wrapper that handles only signal trapping + heartbeat-once-on-start + agent invocation (preserves the kubelet SIGTERM contract that today's wrapper handles via the cleanup trap at consensus_wrapper.py:117-124)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep the full wrapper but skip the loop when an EGG_ON_DEMAND=1 env var is set (graceful migration with both paths coexisting until burn-in completes; doubles the test surface)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the retirement scope for `orchestrator/con...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:35.298222Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "Are overseer agents (decision-maker, advisor \u2014 see orchestrator/overseer/monitor.py) in scope for on-demand spawning, or out of scope for this change? They have a different lifecycle today (spawned by overseer/monitor.py on an anomaly + periodic cadence, not via concurrent_executor.spawn_all) and are already arguably on-demand.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Out of scope \u2014 leave overseer agent lifecycle as-is; this issue is about BRC-loop roles only",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "In scope \u2014 unify the spawn path so overseer agents go through the same OnDemandSpawner (cleaner long-term shape, more diff in this PR, may require fixing edge cases the overseer's bespoke path already solved)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "In scope, but as a follow-up issue \u2014 note the unification target in this issue's closeout but defer the work",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Are overseer agents (decision-maker, advisor \u2014 see...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-08T22:18:47.327506Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "What is the concrete resource-saving target operators care about? (e.g. 'halve the idle-pod-minutes per phase', 'support 10x current concurrent pipelines on the same k3s node', 'reduce per-phase memory reservation by X%'). This shapes how aggressively the acceptance test must drive the cold-start budget down vs. accept a higher latency for a cleaner code shape.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Are there any pipelines or repos currently relying on the in-pod wrapper's debug-shell-able-ness during incidents? (e.g. `kubectl exec` into a stuck wrapper, inspect the heartbeat subshell, read AGENT_OUTPUT_LOG). If so the on-demand model loses that affordance \u2014 would a per-spawn pod log retained in .egg-state/ be a sufficient replacement, or do operators need a long-lived debug shim?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "The plan will rely on per-role worktree PVCs already being reusable across multiple spawns. Is there any in-flight work (#2866 k3s-as-sole-runtime, #3017 declarative phase/stage abstraction) that is about to change the PVC lifecycle or the spawner's worktree-mount pattern in a way the plan should anchor on?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "The issue references #2958 (streaming per-task commits / producer lifecycle) as adjacent. Does the on-demand spawner need to coexist with a producer that 'keeps working' across multiple commits in one logical session, or does the per-event spawn model assume one event approximately equals one commit / one BRC verb cleanly?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "The current 30-min EGG_BRC_IDLE_BUDGET_MIN was tuned for the in-pod wrapper (consensus_wrapper.py:52-58 comment). Once the orchestrator owns the equivalent timer, is there appetite to tighten or widen it (e.g. tighten to 10 min now that there's no risk of a wrapper-side false positive, or widen to 60 min to match the prefix-cache TTL so we don't alert on legitimately-idle phases that are still within cache window)?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What is the concrete resource-saving target operators care about? (e.g. 'halve the idle-pod-minutes per phase', 'support 10x current concurrent pipelines on the same k3s node', 'reduce per-phase memory reservation by X%'). This shapes how aggressively the acceptance test must drive the cold-start budget down vs. accept a higher latency for a cleaner code shape.",
+        "answer": "No specific numeric target. The goal is qualitative: idle pods (a role blocked in `wait`) should not exist, so their CPU/memory reservation, pinned gateway session, and 30s heartbeat overhead are freed during waits. This is a resource-freeing change, NOT a latency optimization \u2014 do not gate it on a cold-start SLO (see cq-1). Critically: per-phase reuse of the prompt-cache prefix, gateway session, and worktree is UNCHANGED. The only thing that moves is the wait \u2014 out of the pods and into the orchestrator, as a single blocking thread covering all agents (one wait that wakes when any role becomes actionable), not N per-pod waits and not per-role timers."
+      },
+      {
+        "id": "Q2",
+        "question": "Are there any pipelines or repos currently relying on the in-pod wrapper's debug-shell-able-ness during incidents? (e.g. `kubectl exec` into a stuck wrapper, inspect the heartbeat subshell, read AGENT_OUTPUT_LOG). If so the on-demand model loses that affordance \u2014 would a per-spawn pod log retained in .egg-state/ be a sufficient replacement, or do operators need a long-lived debug shim?",
+        "answer": "Not a blocker and not a reason to keep a long-lived pod. The orchestrator's existing per-container log capture, retained per spawn, should suffice for incident inspection. We don't believe operators rely on `kubectl exec` into a live wrapper's heartbeat subshell. If that affordance turns out to matter in practice, address it as a separate, lightweight concern (e.g. a retained per-spawn log) \u2014 don't preserve the idle pod for it."
+      },
+      {
+        "id": "Q3",
+        "question": "The plan will rely on per-role worktree PVCs already being reusable across multiple spawns. Is there any in-flight work (#2866 k3s-as-sole-runtime, #3017 declarative phase/stage abstraction) that is about to change the PVC lifecycle or the spawner's worktree-mount pattern in a way the plan should anchor on?",
+        "answer": "Anchor on the current per-role worktree-mount pattern in kubernetes_spawner.py \u2014 it already supports worktree reuse across spawns, which is exactly what this change needs. #2866 (k3s as sole runtime) is about removing the Docker runtime, not changing the k8s PVC/worktree-mount pattern, so no conflict. #3017 (declarative phase/stage abstraction) is the one to coordinate with: it reshapes the phase model that this change also touches (spawn/run/terminate per phase). Neither is changing the PVC lifecycle imminently, so proceed on today's pattern and flag #3017 as the adjacency to keep in view."
+      },
+      {
+        "id": "Q4",
+        "question": "The issue references #2958 (streaming per-task commits / producer lifecycle) as adjacent. Does the on-demand spawner need to coexist with a producer that 'keeps working' across multiple commits in one logical session, or does the per-event spawn model assume one event approximately equals one commit / one BRC verb cleanly?",
+        "answer": "Do NOT assume one-event \u2248 one-commit rigidly. A spawned pod runs the full agent invocation to completion of that event's unit of work, which may produce multiple commits in a single invocation \u2014 this is exactly #2958's streaming/producer-keeps-working model. The pod exits when the agent finishes its turn for that event, not after one commit. So the model is one-spawn-per-actionable-event where a spawn may yield N commits; the orchestrator's single wait then wakes on the next actionable event (e.g. reviewers' delta-review of the streamed commits) after the pod exits. This composes cleanly with #2958."
+      },
+      {
+        "id": "Q5",
+        "question": "The current 30-min EGG_BRC_IDLE_BUDGET_MIN was tuned for the in-pod wrapper (consensus_wrapper.py:52-58 comment). Once the orchestrator owns the equivalent timer, is there appetite to tighten or widen it (e.g. tighten to 10 min now that there's no risk of a wrapper-side false positive, or widen to 60 min to match the prefix-cache TTL so we don't alert on legitimately-idle phases that are still within cache window)?",
+        "answer": "Keep the current threshold semantics; do not retune as part of this change. The 30-min EGG_BRC_IDLE_BUDGET_MIN moves to the orchestrator as the phase-level idle alert (cq-3) with the same threshold and the same stuck-phase-transition anomaly tag, so operator UX does not regress. Retuning \u2014 tightening toward the WS7-observed 10-13min legitimate-idle ceiling, or widening toward the \u226560min prefix-cache TTL \u2014 is a separable follow-up once the orchestrator-side timer has soaked. Don't bundle it here."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-06-08T22:55:39.355382Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}
