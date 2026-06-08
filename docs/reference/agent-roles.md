@@ -201,8 +201,8 @@ worktree branch.
   (intentional overlap with the tester; see the phase preamble above).
 - Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
   `.egg-state/` (pipeline state);
-  plus a block on `.github/` (CI workflows, CODEOWNERS, dependabot
-  config — branch-protection invariant). To propose `.github/` changes,
+  plus a block on `.github/` (CI workflows, CODEOWNERS —
+  branch-protection invariant). To propose `.github/` changes,
   write the end-state to `.github-staging/` mirroring the `.github/`
   structure (e.g. stage `.github/workflows/ci.yml` as
   `.github-staging/workflows/ci.yml`); the agent must call the staged
