@@ -1133,12 +1133,14 @@ def _validate_producer_draft_present(
     backstop.
 
     Graceful degradation: when the proposal carries no commit SHA, the pipeline has
-    no branch, the draft path can't be derived, or ``git show`` errors for an
-    infrastructure reason (timeout / git failure), this returns silently. It raises
-    only when it can positively confirm the draft is absent (or empty) at a resolved,
-    branch-verified commit — ``handle_consensus_propose_signal`` has already run
-    ``_verify_commit_on_branch`` (which fetches the commit), so a non-zero ``git
-    show`` here reliably means "path absent at commit", not "commit unknown".
+    no branch, the draft path can't be derived, ``git show`` errors for an
+    infrastructure reason (timeout / git failure), or branch verification was
+    inconclusive (``branch_verified is None`` — see below), this returns silently. It
+    raises only when it can positively confirm the draft is absent (or empty) at a
+    resolved, branch-verified commit — ``handle_consensus_propose_signal`` has
+    already run ``_verify_commit_on_branch`` (which fetches the commit), so a
+    non-zero ``git show`` here reliably means "path absent at commit", not "commit
+    unknown".
 
     ``pipeline_state`` / ``worktree_path`` are threaded in by
     ``handle_consensus_propose_signal`` to reuse the lookups it already performed for

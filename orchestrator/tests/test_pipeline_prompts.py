@@ -2650,6 +2650,90 @@ class TestProducerDraftPresentValidation:
                 "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
             )
 
+    def test_refiner_proposal_accepted_when_branch_verification_inconclusive(self):
+        """End-to-end: a refiner proposal whose ``_verify_commit_on_branch`` glitch
+        (fetch failure → ``None``) **must not** be rejected by the presence check —
+        the proposal reaches ``tracker.handle_propose`` instead of being 400'd.
+
+        This locks the threading wired by the previous review item: the handler
+        captures the tri-state from ``_verify_commit_on_branch``, threads it into
+        ``_validate_producer_draft_present`` via ``branch_verified``, and the
+        validator short-circuits on ``None`` so a transient orchestrator-side fetch
+        failure isn't mis-blamed on the producer as a missing draft. Mirrors the
+        wiring guarantee that
+        ``test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker``
+        provides for the rejection path.
+        """
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        # Two subprocess calls happen and only the first one runs (fetch returns
+        # non-zero → ``_verify_commit_on_branch`` short-circuits to ``None``,
+        # then the presence validator skips git access entirely because
+        # ``branch_verified is None``):
+        #   1. _verify_commit_on_branch's git fetch — returncode=1 (fetch failed)
+        #   2. (would be) _verify_commit_on_branch's git branch --contains —
+        #      not reached because fetch failed
+        side_effect = [
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="fatal: unable to access remote: connection reset",
+            ),
+        ]
+
+        mock_message_store = MagicMock()
+        mock_message_store.add_message = MagicMock()
+
+        # Build a state store mock that also satisfies ``_resolve_pipeline_phase``'s
+        # ``pipeline.current_phase.value`` access (the success path emits a
+        # CONSENSUS_PROPOSE message whose ``phase`` field is string-validated by
+        # Pydantic). The shared ``_patched_store`` doesn't set this because the
+        # other end-to-end test reaches the error path before message emission.
+        mock_pipeline = MagicMock()
+        mock_pipeline.issue_number = 3016
+        mock_pipeline.branch = "egg/issue-3016"
+        mock_pipeline.mode = None
+        mock_pipeline.current_phase.value = "refine"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run", side_effect=side_effect) as mock_run,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_message_store),
+        ):
+            data = {
+                "agent_role": "refiner",
+                "payload": {
+                    "summary": (
+                        "Analysis v1: evaluated three options for the deterministic "
+                        "draft-path guard and recommended option A"
+                    ),
+                    "artifacts": [".egg-state/drafts/3016-analysis.md"],
+                    "commit_sha": "abc1234",
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "issue-3016", data, Path("/tmp/repo")
+            )
+            # 200 — the proposal was accepted by the tracker, not 400'd by the
+            # presence validator. (Status defaults to 200 in make_success_response.)
+            assert status_code == 200
+            # The tracker WAS called — the proposal made it past both validators.
+            mock_tracker.handle_propose.assert_called_once()
+            # Only the fetch ran — branch-contains and the presence ``git show``
+            # were skipped, which is the threading guarantee under test.
+            assert mock_run.call_count == 1
+
     def test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker(self):
         """End-to-end: a refiner proposal whose analysis draft is missing at the
         proposed commit is rejected at ``handle_consensus_propose_signal`` with a
