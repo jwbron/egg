@@ -3,7 +3,7 @@ flask>=3.0.0
 waitress>=3.0.0
 
 # Data validation
-pydantic>=2.0.0
+pydantic>=2.13.4
 
 # HTTP client for gateway communication
 httpx>=0.27.0
