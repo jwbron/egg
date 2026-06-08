@@ -64,6 +64,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "e82707e17d0397070b0e80721c8225e4a90b0618": {
+      "branch": "egg/issue-3023/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-08T23:04:10.371988+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "fab18b080baf63afbbe30e6cf7bc839191599b23": {
       "branch": "egg/issue-3023/work",
       "patch_id": "8489a22b1ea465d5b328516b16330680f10b29a0",
