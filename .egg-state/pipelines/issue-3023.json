@@ -342,16 +342,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-06-08T22:43:37.319267Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-06-08T22:55:35.369457Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"No specific numeric target. The goal is qualitative: idle pods (a role blocked in `wait`) should not exist, so their CPU/memory reservation, pinned gateway session, and 30s heartbeat overhead are freed during waits. This is a resource-freeing change, NOT a latency optimization — do not gate it on a cold-start SLO (see cq-1). Critically: per-phase reuse of the prompt-cache prefix, gateway session, and worktree is UNCHANGED. The only thing that moves is the wait — out of the pods and into the orchestrator, as a single blocking thread covering all agents (one wait that wakes when any role becomes actionable), not N per-pod waits and not per-role timers.\", \"Q2\": \"Not a blocker and not a reason to keep a long-lived pod. The orchestrator's existing per-container log capture, retained per spawn, should suffice for incident inspection. We don't believe operators rely on `kubectl exec` into a live wrapper's heartbeat subshell. If that affordance turns out to matter in practice, address it as a separate, lightweight concern (e.g. a retained per-spawn log) — don't preserve the idle pod for it.\", \"Q3\": \"Anchor on the current per-role worktree-mount pattern in kubernetes_spawner.py — it already supports worktree reuse across spawns, which is exactly what this change needs. #2866 (k3s as sole runtime) is about removing the Docker runtime, not changing the k8s PVC/worktree-mount pattern, so no conflict. #3017 (declarative phase/stage abstraction) is the one to coordinate with: it reshapes the phase model that this change also touches (spawn/run/terminate per phase). Neither is changing the PVC lifecycle imminently, so proceed on today's pattern and flag #3017 as the adjacency to keep in view.\", \"Q4\": \"Do NOT assume one-event ≈ one-commit rigidly. A spawned pod runs the full agent invocation to completion of that event's unit of work, which may produce multiple commits in a single invocation — this is exactly #2958's streaming/producer-keeps-working model. The pod exits when the agent finishes its turn for that event, not after one commit. So the model is one-spawn-per-actionable-event where a spawn may yield N commits; the orchestrator's single wait then wakes on the next actionable event (e.g. reviewers' delta-review of the streamed commits) after the pod exits. This composes cleanly with #2958.\", \"Q5\": \"Keep the current threshold semantics; do not retune as part of this change. The 30-min EGG_BRC_IDLE_BUDGET_MIN moves to the orchestrator as the phase-level idle alert (cq-3) with the same threshold and the same stuck-phase-transition anomaly tag, so operator UX does not regress. Retuning — tightening toward the WS7-observed 10-13min legitimate-idle ceiling, or widening toward the ≥60min prefix-cache TTL — is a separable follow-up once the orchestrator-side timer has soaked. Don't bundle it here.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-08T22:55:29.155259Z",
+  "updated_at": "2026-06-08T22:55:35.378966Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -364,7 +364,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
