@@ -1,0 +1,331 @@
+{
+  "schema_version": "1.0",
+  "issue": 3023,
+  "pipeline_id": "issue-3023",
+  "phase": "plan",
+  "role": "risk_analyst",
+  "title": "Risk Assessment: Lift the BRC event pump out of the pod (orchestrator-driven on-demand agent spawning)",
+  "summary": "Technical-risk assessment of the on-demand spawning model that replaces the long-lived in-pod event loop (orchestrator/consensus_wrapper.py) with an orchestrator-owned single wait + one-shot pod-per-actionable-event invocation. The refine HITL resolution set the load-bearing shape: cq-1 (no fixed cold-start SLO), cq-2 (per-role gateway session held by the orchestrator with orchestrator-side keep-alive), cq-3 (phase-level idle alert replaces per-role), cq-4 (big-bang rollout, git-revert only), cq-5 (delete consensus_wrapper.py entirely; pod entrypoint becomes `python3 -m egg_agent` over stdin prompt), cq-6 (overseer agents OOS). Feedback Q1 explicitly says per-phase prompt-cache / gateway-session / worktree reuse is UNCHANGED; Q4 explicitly says one spawn may yield N commits (composes with #2958). Overall risk: MEDIUM_HIGH. The change is buildable and the prerequisites (compose_event_prompt, brc-memory, server-side prefix cache, per-role worktree mount) already shipped in #2908 — the technical foundation is sound. The risk profile is driven by (a) the absence of an in-pod long-lived debug surface during incidents (cq-5 deletion is total), (b) per-role gateway session lifecycle migrating from pod-30s-heartbeat to orchestrator-side N-timer + spawn-handoff race window, (c) shared-PVC mount semantics under repeated mount/unmount cycles, and (d) the rollback shape (cq-4 is git-revert across spawn/run/terminate simultaneously, with in-flight pipelines spanning both models during the revert window). The HIGH-likelihood items are operability concerns, not data-loss concerns; mitigations are mostly process and observability.",
+  "overall_risk_level": "MEDIUM_HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "recommendation_rationale": "The architectural shape is sound: #2908 already severed per-event invocation from in-process continuity (compose_event_prompt + durable brc-memory + server-side prefix cache), and the operator's HITL answers explicitly preserve the load-bearing reuse properties (Q1: prompt-cache / gateway-session / worktree reuse unchanged). The risk profile is MEDIUM_HIGH because (a) cq-4's big-bang + cq-5's full-wrapper deletion gives an all-or-nothing rollout with a non-trivial revert (R7), (b) the orchestrator-held gateway session per cq-2 introduces a new spawn-handoff race that did not exist when the pod's bash loop owned its own session (R3), and (c) the phase-level idle alert per cq-3 is a strict loss of operator-visible per-role granularity that runbooks will have to absorb (R4). None of these are blockers; each has a concrete pre-merge mitigation (atomic session handoff via env-injected session id, runbook update bundled with the PR, drain-in-flight guidance for the revert path). The plan should require these mitigations as acceptance criteria, not as best-effort.",
+  "top_3_risks": [
+    "R3 — Per-role gateway session handoff race: the orchestrator now owns session keep-alive (cq-2); on each on-demand spawn the pod must inherit (not re-create) the session id, or per-agent model routing (#2769) breaks. HIGH severity, MEDIUM likelihood. Mitigation is a pre-spawn invariant + env-injected EGG_GATEWAY_SESSION_ID.",
+    "R7 — Big-bang rollout (cq-4) + full wrapper deletion (cq-5) compounds: a revert at production runtime spans spawn/run/terminate simultaneously, and the in-flight pipelines at revert time straddle both models. HIGH severity, MEDIUM likelihood. Mitigation: PR body must include an explicit drain-then-revert protocol; the orchestrator's pod-state reader must tolerate both shapes during the transition window.",
+    "R1 — Shared worktree-PVC repeated-mount semantics: today one long-lived pod per role mounts the PVC for the whole phase; under on-demand, M sequential pods mount/unmount the same PVC, and per concurrent_executor.get_worktree_branch all agents in a slice share the same integration branch (thus typically the same PVC). Two adjacent on-demand spawns (e.g. coder finishing a propose while tester spawns to ACK) can collide on a ReadWriteOnce mount. MEDIUM-HIGH severity, MEDIUM likelihood. Mitigation: orchestrator must serialize spawns per shared-PVC scope, OR adopt RWX storage class, OR enforce per-role PVCs for the new model."
+  ],
+  "complexity_assessment": "MEDIUM. The change is concentrated in the orchestrator (spawn/run/terminate paths, the new single wait loop, the orchestrator-held session keep-alive) and a clean deletion in the wrapper (cq-5). compose_event_prompt and brc-memory already exist and are load-bearing — no new agent-side code is required for the happy path. The complexity drivers are (a) cq-2's session lifecycle migration, (b) cq-3's idle-alert relocation (semantic, not just code), and (c) cq-4's big-bang rollback story. The deletion in cq-5 is itself low-complexity (~600 lines + tests) but the surface it removes (signal trap, heartbeat subshell, idle-budget loop, classifiers) was load-bearing for incident response and must be re-homed conceptually even though no code re-implements it in the pod.",
+  "external_research_done": "Skipped — change is purely internal (no third-party dependency surface added or removed). k8s/k3s PVC ReadWriteOnce semantics are well-documented and not re-researched here. The Anthropic prefix-cache TTL was cross-referenced against the issue body's '≥60-min TTL' claim only; no upstream change since the #2908 work.",
+  "external_research_sources": [],
+  "operator_directives_acknowledged": {
+    "cq-1": "No fixed cold-start latency SLO — resource-freeing not latency-sensitive. Risks below do NOT gate the change on cold-start budgets.",
+    "cq-2": "Per-role gateway session held by orchestrator for whole phase, refreshed by orchestrator-side keep-alive (mirrors today's lifecycle, moves the heartbeat emitter; reuses gateway/session_manager.py semantics). R3 follows directly.",
+    "cq-3": "Phase-level 'no spawns for X minutes' alert at orchestrator (replaces per-role wrapper alert). R4 follows directly.",
+    "cq-4": "Big-bang rollout, rollback by git revert. R7 follows directly.",
+    "cq-5": "Delete consensus_wrapper.py entirely. Pod entrypoint becomes `python3 -m egg_agent --model X --max-turns N` with composed prompt on stdin. R5 (loss of debug-shell affordance) and R10 (test surface for wrapper-removal) follow.",
+    "cq-6": "Overseer agents OOS this issue; follow-up issue tracker. R11 (divergent spawn paths) follows.",
+    "feedback_Q1": "Resource-freeing, not latency. Per-phase reuse of prompt-cache prefix / gateway session / worktree is UNCHANGED — load-bearing for cache-hit rate. R2 (prefix-cache eviction at long HITL gaps) follows.",
+    "feedback_Q2": "In-pod debug-shell-ability is not a blocker; per-spawn retained pod log in .egg-state/ is the suggested replacement. R5 mitigation aligns.",
+    "feedback_Q3": "Anchor on the current per-role worktree-mount pattern in kubernetes_spawner.py; coordinate with #3017 (declarative phase/stage abstraction) but do not gate on it. #2866 (k3s as sole runtime) does not change the PVC lifecycle.",
+    "feedback_Q4": "One spawn ≠ one commit rigidly. A spawn may yield N commits (composes with #2958 streaming model). The pod exits when the agent finishes its turn for that event, not after one commit. R6 (pod-exit-before-BRC-verb-finalized race) follows.",
+    "feedback_Q5": "Keep the 30-min EGG_BRC_IDLE_BUDGET_MIN threshold; retuning is a separable follow-up. R4 mitigation must preserve the 30-min threshold."
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Shared worktree-PVC repeated-mount contention under on-demand spawn",
+      "category": "infrastructure",
+      "severity": "MEDIUM_HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "Two on-demand pods for the same slice (or the same role's consecutive spawns) collide on a ReadWriteOnce worktree PVC. The second mount blocks indefinitely (k8s default) or fails (CSI driver dependent). Agent appears to hang at startup; orchestrator's spawn-side timeouts trip; the new phase-level idle alert (cq-3) eventually fires but the operator-visible failure shape is unfamiliar (today it would have been a clear wrapper-side log).",
+      "description": "concurrent_executor.get_worktree_branch comment (orchestrator/concurrent_executor.py:204-217) is explicit: 'every agent in the slice shares the slice's integration branch egg/issue-N/slice-M' — the same shared-branch model the non-slice flow has always used. In practice this is realized via a per-slice worktree on a shared PVC (kubernetes_spawner mount pattern, feedback Q3 anchors on it). Today this is collision-free because at most one pod per role exists for the phase duration, and spawn ordering at spawn_all is atomic. Under on-demand spawning, multiple roles' pods spawn and exit independently; M re-proposes / re-reviews per phase mean M overlapping mount/unmount cycles. RWX storage classes are not assumed (k3s default is local-path → RWO). The risk is concrete on busy slices: e.g. coder's pod terminating after a multi-commit propose (per feedback Q4) while the orchestrator simultaneously spawns reviewer_code's pod to ACK.",
+      "affected_files": [
+        "orchestrator/concurrent_executor.py:204-217 (shared-branch invariant)",
+        "orchestrator/kubernetes_spawner.py (PVC mount path)",
+        "orchestrator/routes/pipelines.py (spawn dispatch under new on-demand path, TBD by plan)"
+      ],
+      "mitigation": {
+        "strategy": "Three options ranked by preference: (1) Orchestrator-side per-PVC mutex: serialize spawns for any role-set that shares a worktree PVC. Easiest, smallest infra surface, sacrifices some concurrency (acceptable per cq-1 — no cold-start SLO). (2) Per-role worktree PVCs under the on-demand model (regress to per-role mount, accept the storage-cost increase). Larger change; departs from #2137's slice-integration-branch model. (3) Switch the worktree storage class to RWX (longhorn / NFS / hostpath-multi-attach). Largest infra change, easiest correctness story. Plan should require option (1) by default; option (2) and (3) noted as escape hatches if (1) measurably hurts throughput.",
+        "effort": "MEDIUM (option 1: per-PVC mutex in orchestrator); HIGH (options 2-3: storage layer)",
+        "residual_risk": "LOW under option (1) if the mutex's lock scope matches the PVC's mount scope; MEDIUM if the lock is coarser (per-pipeline rather than per-PVC) and serializes more than necessary."
+      },
+      "requires_human_review": true,
+      "review_reason": "PVC mount semantics under repeated mount/unmount are infrastructure-shaped, not application-shaped. The operator should confirm the storage class in use (k3s local-path vs. anything else) and ratify the chosen serialization scope before plan-phase consensus."
+    },
+    {
+      "id": "R2",
+      "title": "Prefix-cache eviction at long quiet stretches (HITL gates, slow review)",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Anthropic server-side prefix cache TTL is ≥60 min per the issue body; if a role's actionable events for a phase are spaced >60 min apart (legitimate: HITL approval delay, slow reviewer round-trip, operator going to lunch), the next on-demand spawn pays a cold prefix-cache miss. Per-event cost doubles or more for the next invocation. Not a correctness issue, but the feedback Q1 promise of 'per-phase reuse of the prompt-cache prefix is UNCHANGED' is only true within the TTL window. Under the long-lived model the pod's continuous Anthropic client connection masked some of this with a session-keep-alive request shape; under on-demand, every spawn issues a fresh request and the cache is purely passive.",
+      "description": "compose_event_prompt (orchestrator/routes/event_prompt.py) is deliberately structured to keep the event framing in the cacheable prefix and append the changing memory excerpt at the tail (architect od-6 Option B per #2908). This is the right shape for cache reuse. The risk is timing, not structure: today's long-lived pod implicitly kept the cache warm by issuing periodic-but-small heartbeat-shaped requests; the new model has no such warm-keeping. WS7-observed legitimate-idle ceiling is 10-13 min, well under 60 min, so most phases will not hit this. The risk surface is HITL-blocked phases (refine after open-question approval) and PR-phase review delays.",
+      "affected_files": [
+        "orchestrator/routes/event_prompt.py (compose_event_prompt — prefix shape is load-bearing)",
+        "orchestrator/routes/consensus.py:280 (_derive_next_action — spawn trigger lives here)"
+      ],
+      "mitigation": {
+        "strategy": "Two layers: (1) Document the >60-min quiet-stretch case as a known cost amplifier in the on-demand model design doc; do NOT add a synthetic keep-alive request (it would waste Anthropic spend for a problem that hits a small fraction of phases). (2) Acceptance criterion: measure the effective cache-hit rate on a representative pipeline post-rollout and surface it on the OVERSEER_ALERT idle-budget pathway (cq-3); a sustained drop below baseline is a signal worth investigating. The cq-1 explicit 'no cold-start SLO' resolution means we are NOT gating the rollout on per-event latency, but we should still observe it.",
+        "effort": "LOW (documentation + a single observability metric)",
+        "residual_risk": "LOW for the typical phase; MEDIUM for long-HITL-blocked phases. Acceptable per cq-1."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Per-role gateway session handoff race between orchestrator keep-alive and pod spawn",
+      "category": "integration",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "If the orchestrator's per-role session keep-alive timer (cq-2) and the on-demand pod spawn race, the pod can start an Anthropic request before inheriting the orchestrator-held session id — the request runs under a fresh session, which (a) bypasses #2769 per-agent model routing, (b) loses any per-role audit linkage, (c) causes the cq-2-promised 'mirrors today's lifecycle' invariant to silently regress to per-spawn session creation (which was cq-2's REJECTED Option 2). The failure is silent: the pod runs and exits cleanly, just on the wrong session, and the operator sees per-spawn gateway log noise where they expected per-phase session continuity.",
+      "description": "Today the wrapper's 30s heartbeat (consensus_wrapper.py:hb_interval) is BOTH the pod's session keep-alive AND the per-role session identity carrier (gateway-side session_manager.py refreshes on heartbeat). Under cq-2 the orchestrator takes over the heartbeat emission; the gateway-side session lifecycle code (gateway/session_manager.py) is unchanged per cq-2's 'reuses today's gateway/session_manager.py semantics' clause. The new race: (a) orchestrator decides spawn is needed at T0; (b) orchestrator issues kubernetes_spawner.spawn_agent_job at T0+50ms; (c) pod starts at T0+2s; (d) pod's first egg_agent invocation issues an Anthropic request at T0+2.5s; (e) the spawn invocation must somehow carry the per-role session id BEFORE step (d). If the orchestrator only emits a session-keep-alive heartbeat post-spawn (the simplest implementation), the pod's first request runs under a fresh session created by the gateway on its first call.",
+      "affected_files": [
+        "gateway/session_manager.py (session lifecycle — cq-2 says 'reuses semantics' but does not say WHO calls it)",
+        "orchestrator/kubernetes_spawner.py (spawn_agent_job: must inject session id into pod env)",
+        "shared/egg_agent/__main__.py (must accept session-id env / arg and pass it to gateway calls)",
+        "orchestrator/routes/consensus.py:280 (_derive_next_action: spawn trigger ordering)",
+        "shared/egg_contracts/models.py (per-#2769 per-agent model routing depends on session metadata)"
+      ],
+      "mitigation": {
+        "strategy": "Three mandatory pre-merge measures: (1) Orchestrator-side invariant: 'Before kubernetes_spawner.spawn_agent_job is called for role R, the orchestrator has issued a session-establish call to the gateway that returns a session_id, and that session_id is injected into the pod's env as EGG_GATEWAY_SESSION_ID.' The pod's egg_agent reads EGG_GATEWAY_SESSION_ID and passes it on every gateway call (Authorization header or X-Session-Id, per existing convention). (2) Gateway-side enforcement: 'If a request arrives without EGG_GATEWAY_SESSION_ID but is from a known-agent caller, log a structured warning and create a fresh session — do NOT route via #2769 per-agent model.' This is the fail-loud path that surfaces the race in tests. (3) Acceptance criterion: a test that spawns a role twice in succession and asserts both pods' gateway-side session records share the same session_id (no per-spawn session creation).",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW if the env-injection invariant is enforced; MEDIUM if it is best-effort. Strongly prefer the test-backed invariant."
+      },
+      "requires_human_review": true,
+      "review_reason": "cq-2 was an explicit HITL choice between three session models; the operator chose Option 1 ('mirrors today's lifecycle, moves the heartbeat emitter'). The plan must materialize that choice as the env-injection invariant; a non-enforcing implementation silently regresses to Option 2 ('fresh session per spawn'), which the operator rejected."
+    },
+    {
+      "id": "R4",
+      "title": "Phase-level idle alert (cq-3) is a strict loss of per-role granularity; runbook regression",
+      "category": "operability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Today's wrapper-side OVERSEER_ALERT (anomaly stuck-phase-transition, default 30 min) names the specific role that is idle in its payload — operators triage by role. Under cq-3 the alert is phase-level and fires once per phase regardless of which role is blocked. Operators with existing runbooks ('if reviewer_code is stuck-phase-transition, check the diff at HEAD; if architect is stuck-phase-transition, check the slices.yaml...') see a less-informative alert. Alarm-fatigue risk: a single role stuck on a HITL gate that the operator is just slow to approve fires the same phase-level alert as a genuinely-wedged phase.",
+      "description": "The cq-3 decision was made with explicit awareness of the trade-off ('different signal — fires once per phase regardless of role count, simpler to operate but loses per-role granularity'). The risk-analyst recommendation is to honor cq-3 but lift the per-role next-action snapshot INTO the phase-level alert payload so operators retain the drill-down without re-architecting. Additionally, the alert must suppress (or downgrade to LOW priority) when the orchestrator can see ≥1 pending HITL decision — the operator-pending case is not a stuck phase, it's an awaiting-human phase. Today's wrapper-side alert had no HITL-pending visibility; the orchestrator-side replacement does, and not exploiting that is a regression.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py (alert emit site; current 30-min stuck-phase-transition lineage)",
+        "orchestrator/routes/decisions.py (HITL decision state — orchestrator can read pending count for the suppression rule)",
+        "orchestrator/consensus_wrapper.py:idle-budget-loop (deleted per cq-5; semantic moves here)"
+      ],
+      "mitigation": {
+        "strategy": "Three measures, all bundled with the PR: (1) The new phase-level alert payload MUST include a `per_role_state` field that names each role's last actionable event and time-since (gives operators the drill-down today's per-role alert gave them, in one payload). (2) The alert MUST be suppressed (or downgraded to LOW priority) when the orchestrator sees ≥1 pending HITL decision — the operator-pending case is a known waiting state, not a stuck-phase signal. (3) The runbook docs/guides/concurrent-execution.md (and any runbook adjacent files) MUST be updated in the same PR — the alert-shape change is operator-facing, not internal. Acceptance criterion: an end-to-end test that simulates 30 min idle with a pending HITL and asserts the alert is LOW priority; a separate test with NO pending HITL asserts MEDIUM priority. Preserve the 30-min threshold per feedback Q5.",
+        "effort": "LOW (mostly payload shape + a HITL-state read)",
+        "residual_risk": "LOW if the per_role_state field ships; the runbook docs update is the load-bearing piece for operator UX."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Loss of in-pod debug-shell affordance during incidents (cq-5 deletes wrapper entirely)",
+      "category": "operability",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Under cq-5 the pod is `python3 -m egg_agent` over stdin — no bash, no heartbeat subshell, no signal trap, no PID 1 process tree to inspect. Operators who today `kubectl exec` into a stuck wrapper to read the heartbeat subshell's state, tail AGENT_OUTPUT_LOG, or re-run a hung wait-loop interactively lose all of that. Feedback Q2 explicitly resolved this as 'not a blocker', so this risk is informational — but the mitigation (per-spawn pod log retained in .egg-state/) is itself net-new code that must land in this issue, not be deferred.",
+      "description": "consensus_wrapper.py:117-124 (cleanup trap) and the heartbeat subshell are the load-bearing pieces today. cq-5's Option 1 deletes them all; Option 2 was 'keep a thin one-shot wrapper that handles only signal trapping + heartbeat-once-on-start + agent invocation' and was rejected. The risk is concrete: when an on-demand pod hangs (e.g. on the R1 PVC-mount block), the operator's only investigation surface is `kubectl describe pod` (events) and orchestrator-side logs — no live shell, no in-pod tail. Feedback Q2 promises a per-spawn retained log in .egg-state/ as the replacement; this must be SHIPPED with the PR (a per-spawn pod log artifact path), not deferred. Without it, R1's failure mode (silent PVC mount block) is much harder to diagnose.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py (full deletion per cq-5)",
+        "orchestrator/kubernetes_spawner.py (pod-log capture-and-retain logic, new code)",
+        ".egg-state/agent-outputs/<role>/ (new pod-log artifact dir, alongside brc-memory.md)",
+        "docs/guides/concurrent-execution.md (incident-response runbook update)"
+      ],
+      "mitigation": {
+        "strategy": "Two bundled-with-PR measures: (1) The per-spawn pod log retention path that feedback Q2 named must be a TASK in the plan: orchestrator captures pod stdout/stderr on pod-exit (success or failure) and writes to .egg-state/agent-outputs/<role>/spawn-<timestamp>.log with a retention policy (last N spawns per role). (2) Runbook update: the incident-response guide must include 'how to read a per-spawn log' instead of 'how to kubectl exec into the wrapper'. Acceptance criterion: an integration test that spawns an agent, induces a failure, and asserts the spawn log artifact exists at the expected path.",
+        "effort": "LOW (orchestrator-side pod-log capture is a small addition)",
+        "residual_risk": "LOW once the spawn-log artifact lands; the runbook update is the operator-UX piece."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Pod-exit-before-BRC-verb-finalized race (multi-commit-per-spawn, composes with #2958)",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Feedback Q4 explicitly says one spawn may yield N commits and the pod exits when the agent finishes its turn for that event. The risk: if the agent issues `git commit` (commit M) but the subsequent BRC `propose` call has not completed when the pod terminates (kubelet SIGTERM, OOM, network blip), the orchestrator sees an orphan commit on the shared branch with no BRC verb attached. Reviewers cannot review work that has not been proposed; the producer's role enters a wedged state from the BRC tracker's perspective even though commits exist on the branch.",
+      "description": "Today's long-lived pod handled this serially: the agent process did commit → propose → loop back to wait; the pod stayed alive across the boundary, so even a slow propose call had room. Under on-demand: the pod's entrypoint is `python3 -m egg_agent --max-turns N`; when the agent's max-turns is exhausted or the agent returns the pod terminates. The agent-side contract that propose/ack/nack runs to completion BEFORE the agent returns must be load-bearing. This is already true in well-formed agent code, but it becomes a correctness invariant rather than a happy-path assumption. The signal-trap cleanup in consensus_wrapper.py:117-124 (kill heartbeat on EXIT) is being deleted per cq-5 — equivalent cleanup on the BRC side (rollback an in-flight propose if pod terminates mid-call) does NOT exist and is not in scope here.",
+      "affected_files": [
+        "sandbox/egg_agent_tools/handlers/brc.py (propose / ack / nack handlers — must complete before return)",
+        "shared/egg_agent/__main__.py (turn-completion contract)",
+        "orchestrator/routes/consensus.py (orchestrator-side post-pod-exit consistency check)"
+      ],
+      "mitigation": {
+        "strategy": "Three measures: (1) Agent-side: brc handlers MUST complete (acknowledged by gateway with a 2xx) before the agent's turn returns. This is implicit today and must become explicit in handler docstrings + a test. (2) Orchestrator-side: after a pod exits cleanly but BEFORE deriving next-action, the orchestrator checks (a) commits on the shared branch vs. (b) BRC tracker state — if commits exist post-spawn but the tracker shows no proposed/acked event for the spawn's role, the orchestrator emits an OVERSEER_ALERT (anomaly = `orphan_commit_post_spawn`) and retries the spawn with an injected 'finish your in-flight BRC verb' prompt. (3) Acceptance: an integration test that forces pod termination mid-propose and asserts the orchestrator detects + recovers. This composes naturally with #2958 (streaming producer): the streaming model already requires this same invariant; the on-demand-spawn work piggybacks.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW if the orphan-commit detector ships; MEDIUM without it (silent producer wedge state)."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Big-bang rollout (cq-4) + full wrapper deletion (cq-5) → git-revert spans spawn/run/terminate simultaneously; in-flight pipelines straddle both models during revert",
+      "category": "deployment",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "cq-4 explicitly chose 'big-bang with rollback-by-git-revert' — there is no env-flag rollback path. Combined with cq-5's full wrapper deletion, a regression in production requires a multi-file revert across orchestrator spawn/run/terminate paths simultaneously. At the moment of the revert, in-flight pipelines have BOTH long-lived wrapper-pods (pre-rollout pipelines that started before the merge) AND on-demand pods (post-rollout pipelines): the reverted orchestrator code, which expects only long-lived wrappers, sees on-demand pods that have already exited and cannot find their wrapper-state, producing a recovery-time orchestrator-side error wave.",
+      "description": "cq-4 is the right call for code-shape (matches #2908 slice-4's stance), but it has consequences for the recovery story that the plan must own. The specific failure shape: (a) operator merges this issue's PR; (b) in-flight pipelines at merge time are running long-lived wrapper-pods; (c) new pipelines start using on-demand spawning; (d) operator detects a regression (R3 silent session-id loss, say); (e) operator git-reverts the PR; (f) the reverted orchestrator's pod-state reader (which expects long-lived wrappers) encounters in-flight on-demand pipelines whose pods have already exited and whose wrapper-state never existed → orchestrator throws on every pipeline_status call for those pipelines until they are manually terminated. The pre-existing wrapper-restart-on-orchestrator-restart logic (#2548 wave) was built assuming long-lived wrappers; it will not gracefully handle the in-flight on-demand case under a revert.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (pod-state reader; expects long-lived wrapper post-revert)",
+        "orchestrator/startup_reconciliation.py (pipeline-restart-recovery — needs to tolerate both shapes during transition)",
+        "orchestrator/kubernetes_spawner.py (spawn shape change)"
+      ],
+      "mitigation": {
+        "strategy": "Three required-by-AC measures: (1) The PR body MUST include an explicit drain-then-revert protocol: 'Before reverting, run `egg-orch pipeline list --running` and either let those pipelines complete OR explicitly terminate them with `egg-orch pipeline terminate`. The revert does NOT auto-recover in-flight on-demand pipelines.' (2) The orchestrator's pod-state reader MUST tolerate both shapes for a single release window: a feature-flag-free fall-through that recognizes a missing wrapper-state as 'on-demand pipeline, look at the BRC tracker instead' — this is NOT a rollout feature flag, it is a robustness fall-through that survives the rollout. (3) Acceptance: an integration test that simulates the revert scenario (orchestrator started with this issue's code, pipeline launched, orchestrator stopped, orchestrator re-started with pre-issue code, pipeline status checked, asserts the failure is loud and recoverable — not silent corruption).",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM. cq-4 has no environment-flag rollback; the drain-then-revert protocol moves the recovery story from 'automatic' to 'documented + operator-driven'. This is the cost of cq-4 and was implicitly accepted in the HITL decision."
+      },
+      "requires_human_review": true,
+      "review_reason": "The drain-then-revert protocol is operator-facing and changes the rollback story relative to standard PR-revert. The operator should ratify it before plan-phase consensus so the PR body language is pre-approved."
+    },
+    {
+      "id": "R8",
+      "title": "Spawn-throughput / k8s API rate limiting under high-churn slices",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Today the spawn-API call volume per phase is bounded: N spawns (one per role) at phase start. Under on-demand, M spawns where M is the total actionable-event count per phase: a slice with 3 NACK→re-propose cycles is ~12 spawn calls (vs. 4 today). In a burst (e.g. reviewer NACK fan-out simultaneously triggers re-propose for the same producer across multiple reviewers), the orchestrator can be throttled by the k8s API server, slowing the BRC cycle. k3s default API server rate limits are operator-tunable but not unbounded.",
+      "description": "Concrete failure shape: reviewer_plan + reviewer_contract + reviewer_code all NACK at the same propose; orchestrator's _derive_next_action returns 'propose' for the producer; orchestrator issues kubernetes_spawner.spawn_agent_job; pod spawns; pod re-proposes; same 3 reviewers re-NACK. If each NACK arrives within 100ms of the others (typical for a fan-out), the orchestrator may issue redundant spawn calls if the dispatcher does not coalesce. Spawning a pod is ~2s of k8s API work; in pathological cases the orchestrator could thrash. Today this is collision-free because the long-lived pod just loops without spawn cost.",
+      "affected_files": [
+        "orchestrator/routes/consensus.py:280 (_derive_next_action: spawn-trigger arming)",
+        "orchestrator/kubernetes_spawner.py (spawn dispatch)",
+        "orchestrator/concurrent_executor.py:323 (spawn_all: today's batch path)"
+      ],
+      "mitigation": {
+        "strategy": "Two measures: (1) Orchestrator-side coalescer: maintain a per-role 'pending spawn' flag — if a spawn for role R is already in flight, additional actionable-event triggers for R coalesce (the next derive_next_action call after the pod exits picks up the latest state and spawns once). This is small and obvious. (2) Orchestrator-side per-pipeline spawn rate cap (e.g. ≤5 spawns/sec sustained); excess events queue. Defaults selected to be far above any realistic burst (the cap is a safety net, not a tunable). Acceptance: an integration test that fires 10 actionable events for a single role in <100ms and asserts exactly 1 spawn results.",
+        "effort": "LOW (the coalescer is a per-role boolean + an in-flight-set; the cap is a sliding-window limiter)",
+        "residual_risk": "LOW once the coalescer ships."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Orchestrator-held single wait becomes hot path; orchestrator restart blocks all agents until it returns",
+      "category": "availability",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "Today, N pods independently long-poll the message bus; if the orchestrator briefly restarts, pods keep waiting on their existing connections (or reconnect on their next 60s iteration) and the bus's state-of-record is preserved. Under on-demand: the orchestrator holds THE wait — if the orchestrator crashes, no agent makes forward progress until the orchestrator returns. The orchestrator's restart latency becomes a global agent-progress latency floor. Today this risk is already mitigated by orchestrator restart-resume logic (#2548 wave); the on-demand model amplifies the cost of an orchestrator outage rather than introducing a new vulnerability class.",
+      "description": "Feedback Q1 'a single blocking thread covering all agents (one wait that wakes when any role becomes actionable), not N per-pod waits and not per-role timers' is the explicit design. The orchestrator's wait must be: (a) resumable across orchestrator restarts (already covered by #2548-wave reconciliation), (b) crash-safe (orchestrator process exit during wait must not lose the in-flight wait state — wait state lives in the BRC tracker, which is durable), (c) not a single point of in-process failure (the wait thread must restart cleanly on uncaught exception). The risk is operability, not correctness — but it concentrates blast radius in the orchestrator process where today's model spread it across N pods.",
+      "affected_files": [
+        "orchestrator/routes/consensus.py (new single-wait loop, TBD by plan)",
+        "orchestrator/startup_reconciliation.py (must resume in-flight waits across orchestrator restart)",
+        "orchestrator/health_monitor.py (must surface wait-thread health)"
+      ],
+      "mitigation": {
+        "strategy": "Two measures: (1) The single-wait loop MUST be a supervised thread with auto-restart on uncaught exception, surfacing a health-check probe that the orchestrator's /health endpoint exposes. (2) Acceptance: an integration test that kills the orchestrator process mid-wait and asserts wait resumes cleanly post-restart with no missed events.",
+        "effort": "LOW",
+        "residual_risk": "LOW. The startup_reconciliation infrastructure from the #2548 wave is the load-bearing piece and already exists."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Wrapper-deletion test surface: stale references and helper carry-over after cq-5",
+      "category": "test_surface",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "cq-5 deletes consensus_wrapper.py entirely. The orchestrator/tests/test_consensus_wrapper.py file, the buffer-overflow / transient-crash / startup-failure shell classifiers (kept as named helpers per the wrapper's docstring), every test that imports build_consensus_wrapped_command, and any compose-time formatting tests that exercise EVENT_PUMP_* constants must be deleted lock-step. Risk: stale references slip past the deletion, leaving dead imports that lint catches but compose-time test helpers that silently no-op.",
+      "description": "Mechanical risk, not a design risk. The wrapper docstring (consensus_wrapper.py:8-58) enumerates what's being removed: event loop, heartbeat, idle budget, agent invocation, signal trap, plus the three exit-code classifiers (is_buffer_overflow, is_transient_crash, is_startup_failure) the docstring explicitly notes were preserved 'as named helpers for future use'. cq-5 removes the entire file; the classifiers go with it. Any caller of those classifiers (none in production today per the docstring, but tests sometimes import internals) must be cleaned up. The post-deletion grep is mechanical but easy to under-specify.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py (full deletion)",
+        "orchestrator/tests/test_consensus_wrapper.py (delete)",
+        "orchestrator/tests/test_compose_event_prompt.py (audit — event_prompt is preserved per cq-5, but tests may import from wrapper)",
+        "orchestrator/tests/test_consensus_next_action.py (audit — likely unaffected but verify)",
+        "orchestrator/tests/test_pipeline_prompts.py (audit)",
+        "orchestrator/tests/test_dag_visualizer.py (audit)"
+      ],
+      "mitigation": {
+        "strategy": "Acceptance criterion: after the deletion commit, `grep -rn 'consensus_wrapper\\|build_consensus_wrapped_command\\|EVENT_PUMP_\\|is_buffer_overflow\\|is_transient_crash\\|is_startup_failure' .` returns ZERO matches outside of git history. The reviewer_plan and reviewer_test runs the grep and gates on a clean result. PR body MUST include the before/after grep output.",
+        "effort": "LOW",
+        "residual_risk": "LOW with the grep AC."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "Overseer agents on a divergent spawn path post-rollout (cq-6 deferred)",
+      "category": "code_quality",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "cq-6 explicitly defers overseer agent unification ('In scope, but as a follow-up issue'). After this issue's PR merges, BRC-loop roles spawn via OnDemandSpawner (new code) and overseer agents spawn via overseer/monitor.py's bespoke path (unchanged). Two divergent spawn paths in the codebase; small but real maintenance tax (e.g. a future credentials-injection change must be made in two places). Not a correctness risk; a tech-debt risk with a known closeout (the follow-up issue).",
+      "description": "cq-6 was explicit; the plan does not need to do anything about it in this issue. The risk is flagged only so the plan's closeout language explicitly names the follow-up issue (or files it as part of this issue's closeout PR description) so the divergent-path window does not become an indefinite-divergent-path window.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py (bespoke spawn path; unchanged this issue)"
+      ],
+      "mitigation": {
+        "strategy": "The closeout PR body must name the follow-up issue or file one as part of merging. Acceptance criterion (PR-phase, not implement): PR body contains a 'Follow-ups' section that references the overseer-unification follow-up issue number.",
+        "effort": "LOW",
+        "residual_risk": "LOW. cq-6 made this an explicit deferral."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "BRC memory write race under aggressive spawn retry (e.g. R8 coalescer regression)",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "sandbox/egg_agent_tools/handlers/brc_memory.py writes .egg-state/agent-outputs/<role>/brc-memory.md on every brc_ack / brc_nack. Today this is single-threaded because one pod per role exists. If the R8 coalescer regresses (or in any future change to the spawner that does not preserve the single-pod-per-role invariant), two pods for the same role could overlap brc-memory writes and corrupt the file.",
+      "description": "Defensive risk, not a known active issue. The brc-memory file is the load-bearing per-role durability surface (issue body explicitly calls it out: 'externalizes the agent's working memory so it survives across stateless invocations rather than living in a running process'). A corrupted brc-memory.md silently breaks the next spawn's last_reviewed_commit_sha derivation, which silently breaks the per-producer git-log delta in compose_event_prompt — a reviewer sees a wrong diff. Failure is silent and downstream.",
+      "affected_files": [
+        "sandbox/egg_agent_tools/handlers/brc_memory.py (write path)",
+        "sandbox/egg_agent_tools/handlers/brc.py (callers)"
+      ],
+      "mitigation": {
+        "strategy": "Two layers: (1) Make brc-memory.md writes atomic via write-to-tmp + rename-into-place (POSIX rename is atomic on the same filesystem; .egg-state/agent-outputs/<role>/ is on the worktree PVC). (2) Restate the single-pod-per-role invariant in the orchestrator's spawn dispatcher as an explicit assertion: 'spawn_agent_job(role=R) MUST fail-loud if a pod for role R already exists in the namespace'. Acceptance: a unit test that exercises concurrent brc-memory writes against a tmp dir and asserts no corruption.",
+        "effort": "LOW (rename-into-place is a 2-line change; the assertion is a 1-line spawner precondition)",
+        "residual_risk": "LOW once atomic writes ship."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R13",
+      "title": "Phase-level idle alert false-positive under HITL approval delay (interaction with R4)",
+      "category": "operability",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "HITL gates can pause a phase for hours waiting for human approval (refine-phase HITL is a regular pattern). The R4 phase-level alert (cq-3) at 30 min will fire during legitimate HITL waits unless suppressed. Operators will see the alert, check the pipeline, realize 'oh, it's just waiting for me', and dismiss — alarm fatigue. Today's per-role wrapper alert had the same problem but was scoped per-role; the phase-level alert is louder.",
+      "description": "Already captured under R4 mitigation #2 ('alert MUST be suppressed or downgraded to LOW priority when ≥1 pending HITL decision'). Listed separately as R13 to ensure it is not lost in R4's broader scope — the HITL-suppression rule is a separate AC.",
+      "affected_files": [
+        "orchestrator/overseer/monitor.py (alert emit site)",
+        "orchestrator/routes/decisions.py (HITL state read)"
+      ],
+      "mitigation": {
+        "strategy": "See R4 mitigation #2. Specifically: when emitting the phase-level idle alert, the orchestrator reads pending HITL decision count; if >0, the alert is LOW priority (or suppressed entirely with structured-log only) and the payload's `reason` field names the pending decision IDs.",
+        "effort": "LOW",
+        "residual_risk": "LOW with the HITL-state read."
+      },
+      "requires_human_review": false
+    }
+  ],
+  "out_of_scope_observations": [
+    "Per cq-6, overseer agent spawn-path unification is OOS (follow-up tracker). R11 names this; no in-issue work.",
+    "Per cq-1, cold-start latency budget is explicitly out of scope as an SLO; R2's mitigation is observability, not gating.",
+    "Per feedback Q5, retuning the 30-min idle threshold is a separable follow-up; the new phase-level alert preserves the threshold.",
+    "Per feedback Q3, no PVC lifecycle changes in flight (#2866 and #3017 do not change the mount pattern); R1's mitigation anchors on today's mount pattern.",
+    "#2958 (streaming per-task commits) composes naturally with R6's orphan-commit detector; if #2958 lands before this issue, the detector should be designed once and shared."
+  ],
+  "rollback_assessment": {
+    "rollback_shape": "git revert of this issue's PR; no env-flag rollback per cq-4.",
+    "rollback_safety": "MEDIUM. The revert is mechanical at the source level. The operational concern is in-flight pipelines straddling both models at revert time (R7); the mitigation is a documented drain-then-revert protocol in the PR body and a both-shapes-tolerant pod-state reader as a robustness fall-through (not a feature flag).",
+    "rollback_latency": "Minutes (revert + redeploy orchestrator) for the source-level change; potentially HOURS-to-DAYS to drain in-flight pipelines if the operator chooses 'let them complete' over 'terminate them'.",
+    "post_rollback_state": "Pre-issue model fully restored; in-flight on-demand pipelines either completed (best case) or terminated and re-launched on the long-lived model (recovery case)."
+  },
+  "acceptance_criteria_for_plan_phase": [
+    "AC-R1: Plan task for orchestrator-side per-PVC spawn mutex (or explicit ratification of RWX storage / per-role PVCs as alternates with HITL approval).",
+    "AC-R3: Plan task for EGG_GATEWAY_SESSION_ID env-injection invariant with gateway-side fail-loud enforcement; backed by a test asserting two consecutive spawns of the same role share session_id.",
+    "AC-R4: Plan task for phase-level idle alert with `per_role_state` payload field AND HITL-pending suppression rule, with runbook update in the same PR.",
+    "AC-R5: Plan task for per-spawn pod-log artifact at .egg-state/agent-outputs/<role>/spawn-<timestamp>.log with retention policy, with runbook update.",
+    "AC-R6: Plan task for orchestrator-side orphan-commit detector (post-pod-exit consistency check) with integration test that forces pod termination mid-propose.",
+    "AC-R7: PR body MUST include drain-then-revert protocol; pod-state reader MUST tolerate both shapes as a robustness fall-through with integration test for the revert scenario.",
+    "AC-R8: Plan task for orchestrator-side spawn coalescer (per-role in-flight flag) with integration test that fires 10 events in <100ms and asserts exactly 1 spawn.",
+    "AC-R9: Single-wait loop is a supervised thread with auto-restart and /health probe; integration test for orchestrator-restart mid-wait resume.",
+    "AC-R10: Post-cq-5-deletion grep AC: zero references to consensus_wrapper / build_consensus_wrapped_command / EVENT_PUMP_* / is_buffer_overflow / is_transient_crash / is_startup_failure outside git history; before/after grep in PR body.",
+    "AC-R11: PR body 'Follow-ups' section names overseer-unification follow-up issue (or files one).",
+    "AC-R12: brc-memory.md writes are atomic (tmp + rename); spawner asserts single-pod-per-role precondition.",
+    "AC-R13: Phase-level idle alert reads HITL decision state; pending-HITL case is LOW priority or suppressed with structured-log only."
+  ],
+  "questions_for_architect": [
+    "Q1 (R1): Confirm the assumed worktree-PVC access mode in production k3s (ReadWriteOnce vs. ReadWriteMany). The mitigation choice depends on this.",
+    "Q2 (R3): The new orchestrator-side gateway session keep-alive — is it a per-pipeline thread, a per-role thread, or a single multiplexed loop? Plan must specify; R3 mitigation depends on it.",
+    "Q3 (R6 + #2958): Does the plan intend to land the orphan-commit detector in this issue, or piggyback on #2958's already-needed detector? Design-once preferred."
+  ]
+}
