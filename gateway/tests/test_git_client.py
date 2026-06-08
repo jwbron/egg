@@ -943,7 +943,7 @@ class TestGetChangedFilesInPush:
                 # merge-base call succeeds for main
                 if "merge-base" in cmd and "origin/main" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "abc123\n"
+                    result.stdout = "abcdef0123456789abcdef0123456789abcdef01\n"
                     return result
 
                 # Fallback rev-list returns two commits
@@ -1001,7 +1001,7 @@ class TestGetChangedFilesInPush:
 
                 if "merge-base" in cmd and "origin/master" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "def456\n"
+                    result.stdout = "def4567890abcdef1234567890abcdef12345678\n"
                     return result
 
                 if "rev-list" in cmd:
@@ -1046,7 +1046,7 @@ class TestGetChangedFilesInPush:
 
                 if "merge-base" in cmd and "origin/main" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "abc123\n"
+                    result.stdout = "abcdef0123456789abcdef0123456789abcdef01\n"
                     return result
 
                 if "rev-list" in cmd:
@@ -1102,7 +1102,7 @@ class TestGetChangedFilesInPush:
 
                 if "merge-base" in cmd and "origin/main" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "abc123\n"
+                    result.stdout = "abcdef0123456789abcdef0123456789abcdef01\n"
                     return result
 
                 if "rev-list" in cmd:
@@ -1298,7 +1298,7 @@ class TestGetChangedFilesInPush:
                 # Fallback: merge-base with main
                 if "merge-base" in cmd and "origin/main" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "abc123\n"
+                    result.stdout = "abcdef0123456789abcdef0123456789abcdef01\n"
                     return result
 
                 # Fallback rev-list

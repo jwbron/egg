@@ -542,6 +542,27 @@ class SessionManager:
             if len(upstream_model) > 256:
                 raise ValueError("upstream_model must be 256 characters or fewer")
 
+        # Validate branch / base_branch shape (#3024 defense-in-depth).
+        # Both values flow into ``git fetch`` / ``git merge-base`` as positional
+        # argv inside the push handler, so a leading-dash value would be parsed
+        # as a git flag (e.g. ``--upload-pack=evil``). The HTTP route applies
+        # the same check; mirror it here so a direct in-process caller (the
+        # slice-2 spawner, tests) cannot bypass it.
+        try:
+            from .worktree_manager import validate_branch_ref
+        except ImportError:
+            from worktree_manager import (  # type: ignore[no-redef,import-untyped]
+                validate_branch_ref,
+            )
+        if branch is not None:
+            if not isinstance(branch, str) or len(branch) > 256:
+                raise ValueError("branch must be a string of ≤256 characters")
+            validate_branch_ref(branch, "branch")
+        if base_branch is not None:
+            if not isinstance(base_branch, str) or len(base_branch) > 256:
+                raise ValueError("base_branch must be a string of ≤256 characters")
+            validate_branch_ref(base_branch, "base_branch")
+
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         token_hash = _hash_token(token)

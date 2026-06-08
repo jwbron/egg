@@ -211,6 +211,7 @@ try:
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
+        validate_branch_ref,
         validate_identifier,
     )
 except ImportError:
@@ -367,6 +368,7 @@ except ImportError:
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
+        validate_branch_ref,
         validate_identifier,
     )
 
@@ -8273,6 +8275,16 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
 
     # Validate base_branch if provided (#3024)
+    #
+    # Defense-in-depth: ``base_branch`` flows into ``git fetch`` and
+    # ``git merge-base origin/<base_branch> HEAD`` as positional argv (see
+    # ``get_changed_files_in_push`` / ``_enumerate_push_commits``). A value
+    # starting with ``-`` would otherwise be interpreted as a git flag (the
+    # historical ``--upload-pack=...`` shape that has produced git RCEs).
+    # The orchestrator already validates ``base_branch`` at pipeline submission
+    # and the launcher secret gates this endpoint, but the gateway must not
+    # rely on caller hygiene here — ``validate_branch_ref`` rejects leading
+    # dashes, ``..``, null bytes, ``//``, and other unsafe ref shapes.
     if session_base_branch is not None:
         if not isinstance(session_base_branch, str):
             return make_error("Invalid base_branch: must be a string")
@@ -8280,6 +8292,10 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid base_branch: must be a non-empty string")
         if len(session_base_branch) > 256:
             return make_error("Invalid base_branch: must be 256 characters or fewer")
+        try:
+            validate_branch_ref(session_base_branch, "base_branch")
+        except ValueError as exc:
+            return make_error(str(exc))
 
     # Validate issue_number if provided
     if issue_number is not None and (not isinstance(issue_number, int) or issue_number < 1):
@@ -8317,11 +8333,20 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid claude_code_version: must be 64 characters or fewer")
 
     # Validate branch if provided
+    #
+    # Same argv-injection concern as ``base_branch`` above — ``branch`` flows
+    # into ``git fetch origin <branch>`` and ``git rev-list origin/<branch>..HEAD``
+    # in the push handler, so refuse leading dashes and other unsafe ref shapes
+    # via ``validate_branch_ref`` regardless of upstream callers' own checks.
     if branch is not None:
         if not isinstance(branch, str):
             return make_error("Invalid branch: must be a string")
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
+        try:
+            validate_branch_ref(branch, "branch")
+        except ValueError as exc:
+            return make_error(str(exc))
 
     # Validate synthetic if provided
     if not isinstance(synthetic, bool):

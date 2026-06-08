@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from git_client import (  # noqa: E402
     _enumerate_push_commits,
     _fallback_base_candidates,
+    _fetch_base_branch_best_effort,
     get_changed_files_in_push,
     git_cmd,
 )
@@ -162,48 +163,88 @@ def test_enumerate_push_commits_excludes_base_commits(tmp_path):
 
 def test_base_branch_fetch_failure_falls_through_to_trunk():
     """If origin/<base_branch> can't be resolved, the merge-base loop falls
-    through to main/master rather than failing closed prematurely."""
+    through to main/master rather than failing closed prematurely.
+
+    Mock routing keys on the **subcommand verb at a fixed argv position** and
+    on **exact equality of named positional argv slots**, never substring
+    ``in`` checks against ``" ".join(cmd)`` — a `"origin/main"` substring
+    would otherwise misroute if a future ref name happened to contain it
+    (``origin/main-backup``) or if a ``-c`` config slot mentioned the trunk.
+    """
+    # git_cmd argv shapes the SUT calls. Verifying these here keeps the mock
+    # honest if git_cmd grows new prefix args (e.g. extra ``-c`` flags).
+    fetch_branch_argv = git_cmd("fetch", "origin", "branch")
+    fetch_base_argv = git_cmd("fetch", "origin", "missing-base")
+    primary_rev_list_argv = git_cmd("rev-list", "origin/branch..HEAD")
+    rev_parse_base_argv = git_cmd("rev-parse", "--verify", "--quiet", "origin/missing-base")
+    mb_base_argv = git_cmd("merge-base", "origin/missing-base", "HEAD")
+    mb_main_argv = git_cmd("merge-base", "origin/main", "HEAD")
+    # 40-char hex SHA — _SHA_LINE_RE requires 7-64 lowercase hex; the
+    # harmonized validation in get_changed_files_in_push now rejects shorter
+    # values too, so use a realistic SHA shape rather than the toy "abc123".
+    fake_fork_point = "abcdef0123456789abcdef0123456789abcdef01"
+    fake_commit = "1234567890abcdef1234567890abcdef12345678"
+    rev_list_from_main_argv = git_cmd("rev-list", f"{fake_fork_point}..HEAD")
+    diff_tree_argv = git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", fake_commit)
+
     with patch("subprocess.run") as mock_run:
 
         def side_effect(cmd, **kwargs):
             result = MagicMock()
-            cmd_str = " ".join(cmd)
 
-            if "fetch" in cmd:
-                # Both the pushed-branch and base_branch fetches fail.
+            # Both fetches fail (pushed-branch + base_branch refs missing).
+            if cmd == fetch_branch_argv or cmd == fetch_base_argv:
                 result.returncode = 128
                 result.stderr = "fatal: couldn't find remote ref"
+                result.stdout = ""
+                return result
+
+            # rev-parse on origin/missing-base fails (ref never fetched), so
+            # the helper falls through to the network fetch (which also fails).
+            if cmd == rev_parse_base_argv:
+                result.returncode = 128
+                result.stdout = ""
+                result.stderr = ""
                 return result
 
             # Primary rev-list fails (new branch).
-            if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
+            if cmd == primary_rev_list_argv:
                 result.returncode = 128
                 result.stderr = "fatal: bad revision"
+                result.stdout = ""
                 return result
 
             # base_branch merge-base can't resolve (ref never fetched).
-            if "merge-base" in cmd and "origin/missing-base" in cmd_str:
+            if cmd == mb_base_argv:
                 result.returncode = 128
                 result.stderr = "fatal: not a valid object name"
+                result.stdout = ""
                 return result
 
             # main merge-base succeeds — the trailing fallback.
-            if "merge-base" in cmd and "origin/main" in cmd_str:
+            if cmd == mb_main_argv:
                 result.returncode = 0
-                result.stdout = "abc123\n"
+                result.stdout = f"{fake_fork_point}\n"
+                result.stderr = ""
                 return result
 
-            if "rev-list" in cmd:
+            # rev-list of the post-fork-point range yields one synthetic SHA.
+            if cmd == rev_list_from_main_argv:
                 result.returncode = 0
-                result.stdout = "sha1\n"
+                result.stdout = f"{fake_commit}\n"
+                result.stderr = ""
                 return result
 
-            if "diff-tree" in cmd:
+            # diff-tree of that synthetic SHA reports one changed file.
+            if cmd == diff_tree_argv:
                 result.returncode = 0
                 result.stdout = "src/app.py\n"
+                result.stderr = ""
                 return result
 
             result.returncode = 128
+            result.stdout = ""
+            result.stderr = ""
             return result
 
         mock_run.side_effect = side_effect
@@ -214,9 +255,88 @@ def test_base_branch_fetch_failure_falls_through_to_trunk():
 
         assert error is None
         assert files == ["src/app.py"]
-        # base_branch was attempted before main.
-        merge_base_refs = [
-            " ".join(c[0][0]) for c in mock_run.call_args_list if "merge-base" in c[0][0]
+
+        # base_branch merge-base was tried **before** main: assert ordering
+        # by indexing on the exact argv, not on substring containment.
+        merge_base_calls = [
+            call.args[0]
+            for call in mock_run.call_args_list
+            if len(call.args) > 0 and "merge-base" in call.args[0]
         ]
-        assert any("origin/missing-base" in r for r in merge_base_refs)
-        assert any("origin/main" in r for r in merge_base_refs)
+        assert mb_base_argv in merge_base_calls
+        assert mb_main_argv in merge_base_calls
+        assert merge_base_calls.index(mb_base_argv) < merge_base_calls.index(mb_main_argv)
+
+
+# ---------------------------------------------------------------------------
+# _fetch_base_branch_best_effort — rev-parse short-circuit avoids redundant
+# fetch when the ref is already local (e.g. on the second call within one push)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchBaseBranchBestEffort:
+    def test_skips_fetch_when_ref_already_local(self):
+        """If rev-parse resolves origin/<base_branch>, no network fetch runs.
+
+        This is the redundant-fetch elimination: a single push calls both
+        get_changed_files_in_push and _enumerate_push_commits, each of which
+        runs this helper. The first call fetches; the second finds the ref
+        locally and skips, halving the worst-case fallback latency.
+        """
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                # rev-parse succeeds — ref is already local.
+                if "rev-parse" in cmd:
+                    result.returncode = 0
+                    result.stdout = "deadbeefdeadbeef\n"
+                    result.stderr = ""
+                    return result
+                # Any other call (we expect none) returns a failure to make
+                # an accidental network fetch loud rather than silent.
+                result.returncode = 128
+                result.stdout = ""
+                result.stderr = ""
+                return result
+
+            mock_run.side_effect = side_effect
+
+            _fetch_base_branch_best_effort("/fake/repo", "origin", "base")
+
+            argvs = [call.args[0] for call in mock_run.call_args_list if len(call.args) > 0]
+            # rev-parse ran; fetch did NOT.
+            assert any("rev-parse" in argv for argv in argvs)
+            for argv in argvs:
+                assert "fetch" not in argv, f"Unexpected fetch after successful rev-parse: {argv!r}"
+
+    def test_fetches_when_ref_not_local(self):
+        """If rev-parse fails, the helper falls through to git fetch."""
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                if "rev-parse" in cmd:
+                    result.returncode = 128  # ref unknown locally
+                    result.stdout = ""
+                    result.stderr = ""
+                    return result
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    result.stdout = ""
+                    result.stderr = ""
+                    return result
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            _fetch_base_branch_best_effort("/fake/repo", "origin", "base")
+
+            fetched = [
+                call.args[0]
+                for call in mock_run.call_args_list
+                if len(call.args) > 0 and "fetch" in call.args[0]
+            ]
+            assert fetched, "expected git fetch to run when rev-parse fails"
+            assert fetched[0] == git_cmd("fetch", "origin", "base")

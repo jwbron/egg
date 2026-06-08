@@ -1375,6 +1375,62 @@ def cleanup_credential_helper(path: str | None) -> None:
 # =============================================================================
 
 
+# Matches a single git SHA line (7–64 lowercase hex). Used to reject
+# multi-line / garbled stdout from a misbehaving git wrapper before treating
+# the value as a commit identifier. Shared by both new-branch fallback paths
+# (``get_changed_files_in_push`` and ``_enumerate_push_commits``).
+_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _fetch_base_branch_best_effort(
+    repo_path: str, remote: str, base_branch: str, timeout: int = 15
+) -> None:
+    """Best-effort fetch of ``origin/<base_branch>`` for the new-branch fallback.
+
+    A single ``git_push`` request calls both ``get_changed_files_in_push`` and
+    ``_enumerate_push_commits`` and both run this fallback on the first push
+    (before ``origin/<branch>`` exists). Without coordination they each pay
+    the full fetch timeout — up to 60 s of added latency when the remote is
+    reachable-but-slow. This helper checks for the ref locally first via a
+    cheap ``rev-parse --verify --quiet``: on the second call the ref is
+    already present (the first call just fetched it) and the redundant network
+    round-trip is skipped. Fetch timeout is 15 s here vs. 30 s for the primary
+    branch fetch, because the base ref is a fallback, not the critical path.
+
+    Best-effort throughout: both rev-parse and fetch errors are swallowed —
+    if the fetch fails, the merge-base loop just falls through to the next
+    candidate (``main`` / ``master``) and ultimately fails closed if nothing
+    resolves.
+    """
+    import subprocess
+
+    try:
+        check = subprocess.run(
+            git_cmd("rev-parse", "--verify", "--quiet", f"{remote}/{base_branch}"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if check.returncode == 0 and (check.stdout or "").strip():
+            return
+    except Exception:
+        pass  # treat as not-yet-fetched and try the network fetch
+
+    try:
+        subprocess.run(
+            git_cmd("fetch", remote, base_branch),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception:
+        pass  # merge-base will fall through to the next candidate
+
+
 def _fallback_base_candidates(base_branch: str | None) -> list[str]:
     """Ordered, de-duplicated diff-base candidates for new-branch pushes.
 
@@ -1532,17 +1588,10 @@ def get_changed_files_in_push(
             # Best-effort fetch so origin/<base_branch> resolves for the
             # merge-base below — the top-of-function fetch only refreshed the
             # pushed branch. main/master are assumed already present locally.
-            try:
-                subprocess.run(
-                    git_cmd("fetch", remote, base_branch),
-                    cwd=repo_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-            except Exception:
-                pass  # merge-base will fall through to the next candidate
+            # The helper short-circuits on the second call of the same push
+            # (when _enumerate_push_commits ran first or vice-versa) via a
+            # local rev-parse check, avoiding a redundant network fetch.
+            _fetch_base_branch_best_effort(repo_path, remote, base_branch)
         for default_branch in fallback_bases:
             merge_base_result = subprocess.run(
                 git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
@@ -1555,8 +1604,12 @@ def get_changed_files_in_push(
             if merge_base_result.returncode != 0:
                 continue
 
-            fork_point = merge_base_result.stdout.strip()
-            if not fork_point:
+            # Validate the merge-base output is a single SHA line (mirrors
+            # _enumerate_push_commits): a misbehaving git wrapper or multi-line
+            # stdout (e.g. parent-pair output that would surface if --all were
+            # ever added) must not leak through as a fork point.
+            fork_point = (merge_base_result.stdout or "").strip()
+            if not _SHA_LINE_RE.match(fork_point):
                 continue
 
             # Get files changed in each commit between fork point and HEAD
@@ -1677,9 +1730,6 @@ class AttributedPushRange:
     error: str | None = None
 
 
-_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
-
-
 def _enumerate_push_commits(
     repo_path: str, remote: str, branch: str, base_branch: str | None = None
 ) -> tuple[list[str], str | None]:
@@ -1740,18 +1790,11 @@ def _enumerate_push_commits(
 
     # New-branch fallback: prefer the pipeline's configured base_branch so
     # commits inherited from a non-trunk base stay out of the range (#3024).
+    # The helper short-circuits if the ref is already local (the sister
+    # function in the same push already fetched it), avoiding a redundant
+    # network round-trip.
     if base_branch and base_branch != "HEAD":
-        try:
-            subprocess.run(
-                git_cmd("fetch", remote, base_branch),
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-        except Exception:
-            pass  # merge-base will fall through to the next candidate
+        _fetch_base_branch_best_effort(repo_path, remote, base_branch)
     for default_branch in _fallback_base_candidates(base_branch):
         mb = subprocess.run(
             git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
