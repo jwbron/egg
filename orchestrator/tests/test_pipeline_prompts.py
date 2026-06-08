@@ -2383,17 +2383,27 @@ class TestPlannerRoleAlignmentValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # Two subprocess calls happen in this path:
+        # Four subprocess calls happen in this path (task_planner):
         #   1. _verify_commit_on_branch's git fetch
         #   2. _verify_commit_on_branch's git branch --contains
-        #   3. _validate_planner_role_alignment's git show
-        # The first two return success; the third returns the misassigned plan.
+        #   3. _validate_producer_draft_present's git show (#3016) — plan
+        #      present at the commit, so the presence guard passes
+        #   4. _validate_planner_role_alignment's git show — returns the
+        #      misassigned plan, so the alignment guard raises
+        # The first two return success; calls 3 and 4 both read the plan draft
+        # at the proposed commit, so both return the (misassigned) plan.
         side_effect = [
             subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
                 stdout="  origin/egg/issue-2527\n",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=self._PLAN_WITH_MISASSIGNED_TASK,
                 stderr="",
             ),
             subprocess.CompletedProcess(
@@ -2435,6 +2445,188 @@ class TestPlannerRoleAlignmentValidation:
             # never mutates tracker state. This is the regression
             # guarantee the PR-1 review flagged as the missing
             # production-sequence test.
+            mock_tracker.handle_propose.assert_not_called()
+
+
+class TestProducerDraftPresentValidation:
+    """Tests for ``_validate_producer_draft_present`` in ``signals.py`` (#3016).
+
+    A refine/plan producer that commits its draft to a non-canonical path (or not
+    at all) used to reach BRC consensus and complete the phase, after which the
+    operator gate — which reads ``.egg-state/drafts/{prefix}-{analysis|plan}.md``
+    via ``_get_draft_path`` — reported "No <analysis|plan> draft was found". This
+    validator runs at ``CONSENSUS_PROPOSE`` (always issued in concurrent refine/
+    plan), reads the draft at the proposed commit via ``git show``, and rejects
+    (400) when it is absent so the still-alive producer re-proposes with the draft
+    at the right path.
+    """
+
+    @staticmethod
+    def _patched_store(issue_number: int | None = 3016, branch: str = "egg/issue-3016"):
+        mock_pipeline = MagicMock()
+        mock_pipeline.issue_number = issue_number
+        mock_pipeline.branch = branch
+        mock_pipeline.mode = None
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        return patch("routes.signals.get_state_store", return_value=mock_store)
+
+    @staticmethod
+    def _patched_subprocess(stdout: str, returncode: int = 0):
+        result = subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=stdout, stderr=""
+        )
+        return patch("routes.signals.subprocess.run", return_value=result)
+
+    @staticmethod
+    def _patched_worktree():
+        return patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
+
+    def test_skips_when_commit_sha_missing(self):
+        """No commit SHA on payload → nothing to validate against."""
+        from routes.signals import _validate_producer_draft_present
+
+        # No other patches needed — the bail-out happens before any git access.
+        _validate_producer_draft_present("refine", "issue-3016", {}, Path("/tmp"))
+        _validate_producer_draft_present("refine", "issue-3016", {"commit_sha": ""}, Path("/tmp"))
+
+    def test_accepts_when_refine_draft_present(self):
+        """Analysis draft present and non-empty at the proposed commit → no raise."""
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("# Analysis: something real\n\n## Problem\n..."),
+        ):
+            _validate_producer_draft_present(
+                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+            )
+
+    def test_rejects_when_refine_draft_absent(self):
+        """``git show`` non-zero (analysis draft absent at commit) → raises."""
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("", returncode=128),
+        ):
+            with pytest.raises(ValueError, match="no analysis draft found"):
+                _validate_producer_draft_present(
+                    "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+                )
+
+    def test_rejects_when_refine_draft_empty(self):
+        """Draft exists but is empty/whitespace-only → still rejected."""
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("   \n  \n"),
+        ):
+            with pytest.raises(ValueError, match="no analysis draft found"):
+                _validate_producer_draft_present(
+                    "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+                )
+
+    def test_rejects_when_plan_draft_absent_names_plan_path(self):
+        """Plan-phase rejection names the plan draft, not analysis."""
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("", returncode=128),
+        ):
+            with pytest.raises(ValueError, match=r"no plan draft found.*-plan\.md"):
+                _validate_producer_draft_present(
+                    "plan", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+                )
+
+    def test_skips_when_git_show_errors(self):
+        """A git/infra failure (not a clean non-zero exit) → graceful skip.
+
+        Distinguishes infrastructure failure (don't false-reject) from a
+        definitive absent-at-commit signal (a clean non-zero return, which the
+        ``test_rejects_*`` cases cover).
+        """
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch(
+                "routes.signals.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="git", timeout=15),
+            ),
+        ):
+            # Should not raise — infra failures degrade gracefully.
+            _validate_producer_draft_present(
+                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+            )
+
+    def test_skips_when_pipeline_has_no_branch(self):
+        """A pipeline with ``branch=None`` → graceful skip (no git context)."""
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(branch=None),
+            self._patched_worktree(),
+        ):
+            _validate_producer_draft_present(
+                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+            )
+
+    def test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker(self):
+        """End-to-end: a refiner proposal whose analysis draft is missing at the
+        proposed commit is rejected at ``handle_consensus_propose_signal`` with a
+        400 BEFORE the tracker is mutated (mirrors the planner guarantee #2527).
+        """
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        # Three subprocess calls in the refiner path:
+        #   1. _verify_commit_on_branch's git fetch
+        #   2. _verify_commit_on_branch's git branch --contains
+        #   3. _validate_producer_draft_present's git show — non-zero (absent)
+        side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="  origin/egg/issue-3016\n", stderr=""
+            ),
+            subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr=""),
+        ]
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run", side_effect=side_effect),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "refiner",
+                "payload": {
+                    "summary": (
+                        "Analysis v1: evaluated three options for the deterministic "
+                        "draft-path guard and recommended option A"
+                    ),
+                    "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
+                    "commit_sha": "abc1234",
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "issue-3016", data, Path("/tmp/repo")
+            )
+            assert status_code == 400
+            data_out = response.get_json()
+            assert "no analysis draft found" in data_out.get("message", "")
             mock_tracker.handle_propose.assert_not_called()
 
 
