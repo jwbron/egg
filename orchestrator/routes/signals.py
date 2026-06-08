@@ -1001,7 +1001,7 @@ def _validate_planner_role_alignment(
         return
 
     # Build the plan draft path. Imported lazily to avoid pulling the
-    # 16k-line ``routes.pipelines`` module into ``signals`` import time.
+    # ~24k-line ``routes.pipelines`` module into ``signals`` import time.
     try:
         from routes.pipelines import _get_draft_path
     except ImportError:
@@ -1033,7 +1033,18 @@ def _validate_planner_role_alignment(
             check=False,
         )
         if result.returncode != 0:
-            return  # Plan not present at this commit — nothing to validate.
+            # Plan absent at this commit — nothing to validate. Note: on the
+            # production handler path this branch is unreachable for
+            # task_planner because ``_validate_producer_draft_present`` (#3016)
+            # now runs first in ``handle_consensus_propose_signal`` and rejects
+            # an absent plan with 400 before this validator is invoked. The
+            # silent-skip here is retained as a safety net for direct callers
+            # (tests, future re-orderings) — but the two guards have opposite
+            # responses to the same ``returncode != 0`` signal, so any
+            # refactor that moves the alignment guard ahead of the presence
+            # guard would silently re-introduce the #3016 bug. Keep
+            # ``_validate_producer_draft_present`` upstream of this call.
+            return
         plan_text = result.stdout
     except Exception as exc:
         logger.warning(
@@ -1094,6 +1105,7 @@ def _validate_producer_draft_present(
     *,
     pipeline_state: Any | None = None,
     worktree_path: Path | None = None,
+    branch_verified: bool | None = True,
 ) -> None:
     """Reject a producer proposal whose canonical phase draft is absent at the
     proposed commit (#3016).
@@ -1132,9 +1144,29 @@ def _validate_producer_draft_present(
     ``handle_consensus_propose_signal`` to reuse the lookups it already performed for
     ``_verify_commit_on_branch``; the function loads them itself when called directly
     (e.g. from unit tests).
+
+    ``branch_verified`` mirrors the tri-state from ``_verify_commit_on_branch``:
+    ``True`` (commit is on the branch — fetch + ``--contains`` succeeded), ``False``
+    (commit is *not* on the branch — the caller already 409'd, so this is
+    unreachable in practice), or ``None`` (verification was inconclusive because
+    ``git fetch`` or ``git branch -r --contains`` errored — orchestrator-side
+    glitch, not a producer fault). When ``None`` is passed, the presence check is
+    skipped because a non-zero ``git show`` could legitimately mean the commit
+    isn't in the local object cache rather than the path being absent — false-
+    rejecting in that case would burn a producer turn on an orchestrator glitch
+    (matches the existing "could not verify branch" non-blocking warning at the
+    handler level). Defaults to ``True`` so direct callers (unit tests) that
+    don't run ``_verify_commit_on_branch`` still get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
+        return
+
+    # Orchestrator-side verification of the commit was inconclusive (fetch or
+    # branch-contains errored). A non-zero ``git show`` below could legitimately
+    # be "commit not in local object cache" rather than "path absent at commit",
+    # so skip rather than risk a false 400.
+    if branch_verified is None:
         return
 
     if pipeline_state is None:
@@ -1146,7 +1178,7 @@ def _validate_producer_draft_present(
     if not pipeline_state.branch:
         return
 
-    # Lazy import to avoid pulling the ~21k-line ``routes.pipelines`` module into
+    # Lazy import to avoid pulling the ~24k-line ``routes.pipelines`` module into
     # ``signals`` import time (matches ``_validate_planner_role_alignment``).
     try:
         from routes.pipelines import _get_draft_path
@@ -1362,6 +1394,14 @@ def handle_consensus_propose_signal(
     commit_sha = payload.get("commit_sha", "")
     pipeline_state = None
     worktree_path = None
+    # Tri-state mirroring ``_verify_commit_on_branch``: True (commit on
+    # branch), False (commit NOT on branch — 409 short-circuit below), or
+    # None (verification inconclusive — fetch or branch-contains errored).
+    # Threaded into ``_validate_producer_draft_present`` so that a glitch
+    # in our fetch doesn't get blamed on the producer as a missing draft
+    # (a non-zero ``git show`` after a failed fetch could be "commit not
+    # in local object cache" rather than "path absent at commit").
+    branch_verified: bool | None = True
     if commit_sha:
         try:
             store_mod = get_state_store(repo_path)
@@ -1393,6 +1433,10 @@ def handle_consensus_propose_signal(
                 commit_sha=commit_sha,
                 error=str(e),
             )
+            # Verification raised — same posture as ``_verify_commit_on_branch``
+            # returning None: skip the downstream presence check rather than
+            # blame the producer for an orchestrator-side glitch.
+            branch_verified = None
 
     try:
         # Validate tester proposals cover all configured repo checks (#1459).
@@ -1412,6 +1456,7 @@ def handle_consensus_propose_signal(
                 repo_path,
                 pipeline_state=pipeline_state,
                 worktree_path=worktree_path,
+                branch_verified=branch_verified,
             )
         # Validate task_planner proposals: (a) the plan draft is present at the
         # canonical path (#3016 — same deterministic-input guard as refine), and
@@ -1425,6 +1470,7 @@ def handle_consensus_propose_signal(
                 repo_path,
                 pipeline_state=pipeline_state,
                 worktree_path=worktree_path,
+                branch_verified=branch_verified,
             )
             _validate_planner_role_alignment(
                 pipeline_id,

@@ -2545,6 +2545,77 @@ class TestProducerDraftPresentValidation:
                     "plan", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
                 )
 
+    def test_accepts_when_plan_draft_present(self):
+        """Plan draft present and non-empty at the proposed commit → no raise.
+
+        Mirrors ``test_accepts_when_refine_draft_present`` to lock the symmetry
+        between the two producer phases — the end-to-end planner test exercises
+        the present-plan path indirectly (call 3 returning non-empty stdout),
+        but this is the direct unit-level confirmation.
+        """
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("# Plan: issue-3016\n\n## Task 1\nDo the thing.\n"),
+        ):
+            _validate_producer_draft_present(
+                "plan", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+            )
+
+    def test_skips_when_pipeline_lookup_fails(self):
+        """State store load failure → graceful skip.
+
+        Covers the ``except StateStoreError: return`` branch — an orchestrator-
+        side glitch loading the pipeline shouldn't blame the producer.
+        """
+        from routes.signals import _validate_producer_draft_present
+        from state_store import StateValidationError
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.side_effect = StateValidationError("corrupt state")
+
+        with (
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            self._patched_worktree(),
+        ):
+            # Should not raise — graceful degradation.
+            _validate_producer_draft_present(
+                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
+            )
+
+    def test_skips_when_branch_verified_is_none(self):
+        """``branch_verified=None`` (orchestrator-side fetch/contains glitch) →
+        graceful skip.
+
+        Regression guard for the PR-1 review concern: when
+        ``_verify_commit_on_branch`` returns ``None`` (fetch failed, or
+        ``git branch -r --contains`` failed), the commit may not be in the
+        local object cache. A subsequent ``git show {commit}:{path}`` would
+        return 128 with "bad revision" — *not* "path absent at commit" — so
+        running the presence check in that state would mis-blame the producer
+        for an orchestrator-side glitch. The handler threads the tri-state
+        through; we verify the validator honours it by skipping git access
+        entirely.
+        """
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run") as mock_run,
+        ):
+            # Should not raise — and should not even reach git.
+            _validate_producer_draft_present(
+                "refine",
+                "issue-3016",
+                {"commit_sha": "abc1234"},
+                Path("/tmp/repo"),
+                branch_verified=None,
+            )
+            mock_run.assert_not_called()
+
     def test_skips_when_git_show_errors(self):
         """A git/infra failure (not a clean non-zero exit) → graceful skip.
 
