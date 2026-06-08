@@ -1145,11 +1145,24 @@ class TestWorktreeManagerRemoteBranchFetch:
         ]
         assert "origin/main" in wt_add_calls[0][0]
 
-    def test_fetch_proceeds_without_helper_when_no_token(self, manager_with_repo):
+    def test_fetch_proceeds_without_helper_when_no_token(self, manager_with_repo, monkeypatch):
         """When no token is available the fetch still runs (best effort) so a
         local-file remote keeps working; git's own credential error surfaces
-        for HTTPS remotes."""
+        for HTTPS remotes.
+
+        Also verifies that ``GIT_USERNAME`` / ``GIT_PASSWORD`` / ``GIT_ASKPASS``
+        keys inherited from the gateway process env are explicitly scrubbed
+        from the yielded env in the no-token branch — otherwise a stale value
+        could silently authenticate the fetch and undermine the documented
+        "fails loudly with git's own credential error" outcome.
+        """
         manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        # Seed the gateway process env with stale credential keys to verify
+        # the no-token branch explicitly removes them.
+        monkeypatch.setenv("GIT_USERNAME", "stale-user")
+        monkeypatch.setenv("GIT_PASSWORD", "stale-pass")
+        monkeypatch.setenv("GIT_ASKPASS", "/tmp/stale-askpass.sh")
 
         call_log = []
 
@@ -1196,6 +1209,13 @@ class TestWorktreeManagerRemoteBranchFetch:
             f"credential helper should not be wired up when no token is "
             f"available; got GIT_ASKPASS={askpass!r}"
         )
+        # Stale credential keys must be scrubbed so they cannot silently
+        # authenticate the fetch.
+        for key in ("GIT_USERNAME", "GIT_PASSWORD", "GIT_ASKPASS"):
+            assert key not in fetch_env, (
+                f"stale {key} must be scrubbed from the no-token fetch env; "
+                f"got {key}={fetch_env.get(key)!r}"
+            )
 
     def test_skips_fetch_for_head(self, manager_with_repo):
         """HEAD should never trigger a fetch."""
@@ -2466,21 +2486,27 @@ class TestCreateWorktreeFetchTimeout:
             if "rev-parse" in args and "--verify" in args:
                 result.returncode = 1  # branch not found locally
             elif "fetch" in args and "origin" in args:
-                raise subprocess.TimeoutExpired(cmd=args, timeout=120)
+                raise subprocess.TimeoutExpired(cmd=args, timeout=30)
             return result
 
-        with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(
-                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
-            ):
-                with patch.object(manager, "_chown_recursive"):
-                    with patch.object(manager, "_chown_single"):
-                        with pytest.raises(RuntimeError, match="Timed out fetching base branch"):
-                            manager.create_worktree(
-                                "test-repo",
-                                "timeout-container",
-                                base_branch="egg/slow-branch",
-                            )
+        # Patch ``get_token_for_repo`` for symmetry with the other create-path
+        # tests so the credentialed branch is exercised and no benign "no token"
+        # warning fires during the run.
+        with patch("worktree_manager.get_token_for_repo", return_value=("fake-token", "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                with patch.object(
+                    manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+                ):
+                    with patch.object(manager, "_chown_recursive"):
+                        with patch.object(manager, "_chown_single"):
+                            with pytest.raises(
+                                RuntimeError, match="Timed out fetching base branch"
+                            ):
+                                manager.create_worktree(
+                                    "test-repo",
+                                    "timeout-container",
+                                    base_branch="egg/slow-branch",
+                                )
 
 
 if __name__ == "__main__":

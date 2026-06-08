@@ -703,7 +703,9 @@ class WorktreeManager:
                 return
 
     @contextlib.contextmanager
-    def _git_credential_env(self, repo_slug: str) -> Generator[dict[str, str]]:
+    def _git_credential_env(
+        self, repo_slug: str, *, best_effort: bool = False
+    ) -> Generator[dict[str, str]]:
         """Yield an environment carrying GitHub credentials for a git fetch.
 
         The gateway's local mirror talks to GitHub over HTTPS (SSH URLs are
@@ -718,6 +720,24 @@ class WorktreeManager:
         so best-effort callers still run; the fetch then fails loudly with
         git's own credential error, which the caller can surface.  The temp
         credential file is always cleaned up on exit.
+
+        Args:
+            repo_slug: Full ``owner/repo`` slug for token resolution.
+            best_effort: When True, the caller treats the fetch as best
+                effort (e.g. the reuse-path reset, which falls back to a
+                local ref on fetch failure); a missing token then logs at
+                ``info`` rather than ``warning`` to avoid spamming
+                local-file-origin scenarios (tests, cold-start before the
+                token refresher initialises) where the absence is benign.
+                The create path leaves this False because a missing token
+                yields a hard ``RuntimeError`` on fetch failure.
+
+        In the no-token branch the ``GIT_USERNAME`` / ``GIT_PASSWORD`` /
+        ``GIT_ASKPASS`` keys are explicitly scrubbed from the yielded env so
+        a stale value inherited from a parent process (operator-set, leaked
+        from a container env, etc.) doesn't accidentally authenticate the
+        fetch — the documented "fails loudly with git's own credential
+        error" behaviour only holds when those vars are genuinely absent.
         """
         token_str, _auth_mode, token_error = get_token_for_repo(repo_slug)
         cred_path: str | None = None
@@ -725,12 +745,16 @@ class WorktreeManager:
             if token_str:
                 cred_path, env = create_credential_helper(token_str, os.environ.copy())
             else:
-                logger.warning(
+                log = logger.info if best_effort else logger.warning
+                log(
                     "No GitHub token available for authenticated fetch",
                     repo_slug=repo_slug,
                     token_error=token_error,
+                    best_effort=best_effort,
                 )
                 env = os.environ.copy()
+                for key in ("GIT_USERNAME", "GIT_PASSWORD", "GIT_ASKPASS"):
+                    env.pop(key, None)
             yield env
         finally:
             cleanup_credential_helper(cred_path)
@@ -776,7 +800,7 @@ class WorktreeManager:
         # create on this repo can be blocked by a slow remote — keep
         # it tight.
         try:
-            with self._git_credential_env(repo_slug) as fetch_env:
+            with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
                 subprocess.run(
                     git_cmd("fetch", "origin"),
                     cwd=worktree_path,
