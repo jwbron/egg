@@ -772,6 +772,11 @@ class KubernetesSpawner:
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
+                    # Pipeline base branch — the gateway uses it as the preferred
+                    # diff base for the new-branch restricted-path push check so a
+                    # branch forked from a non-trunk base is not blamed for files
+                    # inherited unchanged from that base (#3024).
+                    base_branch=base_branch,
                     jira_ticket=jira_ticket,
                     # Reuse the per-agent worktrees created above under
                     # agent_worktree_id.  Without this, the gateway would

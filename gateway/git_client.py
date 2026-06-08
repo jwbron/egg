@@ -1375,8 +1375,31 @@ def cleanup_credential_helper(path: str | None) -> None:
 # =============================================================================
 
 
+def _fallback_base_candidates(base_branch: str | None) -> list[str]:
+    """Ordered, de-duplicated diff-base candidates for new-branch pushes.
+
+    Used only by the merge-base fallback that fires when ``origin/<branch>``
+    does not yet exist (a pipeline's first push). The pipeline's configured
+    ``base_branch`` is tried first: a branch forked from a non-trunk base
+    carries that base's content, and diffing against trunk (``main``/
+    ``master``) instead would attribute every file inherited unchanged from
+    the base to the pushing role — falsely blocking non-documenter roles on
+    bases that legitimately carry documenter-owned files (#3024). ``main``
+    and ``master`` remain as trailing candidates so sessions with no
+    ``base_branch`` (legacy / non-pipeline) keep today's behavior, and so the
+    merge-base still resolves if the configured base ref can't be fetched.
+    """
+    candidates: list[str] = []
+    if base_branch and base_branch != "HEAD":
+        candidates.append(base_branch)
+    for trunk in ("main", "master"):
+        if trunk not in candidates:
+            candidates.append(trunk)
+    return candidates
+
+
 def get_changed_files_in_push(
-    repo_path: str, remote: str, branch: str
+    repo_path: str, remote: str, branch: str, base_branch: str | None = None
 ) -> tuple[list[str], str | None]:
     """
     Get the list of files that would be changed by a push.
@@ -1396,6 +1419,11 @@ def get_changed_files_in_push(
         repo_path: Path to the git repository
         remote: Remote name (e.g., "origin")
         branch: Branch name being pushed
+        base_branch: The pipeline's configured base branch (PR base). Used as
+            the preferred diff base for the new-branch merge-base fallback so a
+            branch forked from a non-trunk base is not blamed for files it
+            inherited unchanged from that base (#3024). ``None`` (legacy /
+            non-pipeline sessions) falls back to ``main``/``master`` as before.
 
     Returns:
         Tuple of (changed_files, error_message)
@@ -1494,7 +1522,28 @@ def get_changed_files_in_push(
         # If remote branch doesn't exist yet, use per-commit file detection via
         # merge-base + diff-tree. This avoids false positives from inherited
         # differences between worktree branches and origin/main (Bug #1239).
-        for default_branch in ("main", "master"):
+        #
+        # Diff against the pipeline's configured base_branch first (#3024): a
+        # branch forked from a non-trunk base carries that base's content, and
+        # diffing against trunk would mis-attribute those inherited files to the
+        # pushing role. main/master remain trailing fallbacks.
+        fallback_bases = _fallback_base_candidates(base_branch)
+        if base_branch and base_branch != "HEAD":
+            # Best-effort fetch so origin/<base_branch> resolves for the
+            # merge-base below — the top-of-function fetch only refreshed the
+            # pushed branch. main/master are assumed already present locally.
+            try:
+                subprocess.run(
+                    git_cmd("fetch", remote, base_branch),
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+            except Exception:
+                pass  # merge-base will fall through to the next candidate
+        for default_branch in fallback_bases:
             merge_base_result = subprocess.run(
                 git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
                 cwd=repo_path,
@@ -1632,17 +1681,19 @@ _SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
 
 def _enumerate_push_commits(
-    repo_path: str, remote: str, branch: str
+    repo_path: str, remote: str, branch: str, base_branch: str | None = None
 ) -> tuple[list[str], str | None]:
     """Return (commits_oldest_first, error).
 
     Mirrors ``get_changed_files_in_push`` rev-list logic: prefers
-    ``<remote>/<branch>..HEAD``, then falls back to merge-base with
-    main/master for new-branch pushes.  On any error, returns
-    ``([], "...")`` — the caller then fails closed.  Output lines
-    that don't parse as a git SHA (7–64 lowercase hex) are
-    rejected so that a misbehaving git wrapper can't smuggle
-    arbitrary strings into the commit list.
+    ``<remote>/<branch>..HEAD``, then falls back to merge-base with the
+    pipeline's ``base_branch`` (then main/master) for new-branch pushes.
+    Diffing against ``base_branch`` first keeps commits inherited from a
+    non-trunk base out of the range so they are not attributed to the
+    pushing role (#3024).  On any error, returns ``([], "...")`` — the
+    caller then fails closed.  Output lines that don't parse as a git SHA
+    (7–64 lowercase hex) are rejected so that a misbehaving git wrapper
+    can't smuggle arbitrary strings into the commit list.
     """
     import subprocess
 
@@ -1687,7 +1738,21 @@ def _enumerate_push_commits(
     if primary is not None:
         return primary, None
 
-    for default_branch in ("main", "master"):
+    # New-branch fallback: prefer the pipeline's configured base_branch so
+    # commits inherited from a non-trunk base stay out of the range (#3024).
+    if base_branch and base_branch != "HEAD":
+        try:
+            subprocess.run(
+                git_cmd("fetch", remote, base_branch),
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            pass  # merge-base will fall through to the next candidate
+    for default_branch in _fallback_base_candidates(base_branch):
         mb = subprocess.run(
             git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
             cwd=repo_path,
@@ -1822,11 +1887,16 @@ def get_attributed_changed_files_in_push(
     branch: str,
     session_role: str | None = None,
     registry_client: object | None = None,
+    base_branch: str | None = None,
 ) -> AttributedPushRange:
     """Return attributed files + commit range for a planned push.
 
     ``session_role`` is advisory (currently used only for audit logging
     in the caller); the function itself does not filter on it.
+
+    ``base_branch`` is forwarded to ``_enumerate_push_commits`` as the
+    preferred new-branch diff base so commits inherited from a non-trunk
+    base are excluded from the attributed range (#3024).
 
     The caller supplies a ``registry_client`` with a ``lookup_bulk``
     method so the gateway's push handler can mock the client in tests
@@ -1837,7 +1907,7 @@ def get_attributed_changed_files_in_push(
     On any detection failure, returns an ``AttributedPushRange`` with
     ``error`` set and ``files`` empty — the caller MUST fail closed.
     """
-    commits, err = _enumerate_push_commits(repo_path, remote, branch)
+    commits, err = _enumerate_push_commits(repo_path, remote, branch, base_branch=base_branch)
     if err:
         logger.error(
             "get_attributed_changed_files_in_push enumeration failed — failing closed",

@@ -1511,15 +1511,22 @@ def git_push() -> tuple[Response, int] | Response:
     # The downstream anchor/phase/agent-restriction checks already gate on
     # `not is_infrastructure_push`; this gate makes the role check symmetric.
     session_role = None
+    # Pipeline base branch (#3024): used as the preferred diff base for the
+    # new-branch fallback so a branch forked from a non-trunk base is not
+    # blamed for files it inherited unchanged from that base.
+    session_base_branch = None
     changed_files = None  # populated below; reused by attribution + phase checks
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
+        session_base_branch = getattr(g.session, "base_branch", None)
 
     if session_role and not is_infrastructure_push:
         # Get the list of files being pushed for downstream attribution-aware
         # role enforcement (the canonical agent-role check below) and the
         # phase-restriction check further down.
-        changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+        changed_files, check_error = get_changed_files_in_push(
+            exec_path, remote, branch, base_branch=session_base_branch
+        )
 
         # SECURITY: Fail closed - if we can't determine changed files, block the push.
         # This prevents bypass via git diff manipulation (timeout, corrupt refs, etc.)
@@ -1613,7 +1620,11 @@ def git_push() -> tuple[Response, int] | Response:
         # Resolve attribution for every commit in the push range.
         try:
             attributed_push = _get_attributed_fn(
-                exec_path, remote, branch, session_role=session_role
+                exec_path,
+                remote,
+                branch,
+                session_role=session_role,
+                base_branch=session_base_branch,
             )
         except Exception as exc:
             logger.warning("attribution_lookup_exception", error=str(exc), exc_info=True)
@@ -1830,7 +1841,9 @@ def git_push() -> tuple[Response, int] | Response:
     if session_phase and not is_infrastructure_push:
         # Get the list of files being pushed (reuse if already fetched for role check)
         if changed_files is None:
-            changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+            changed_files, check_error = get_changed_files_in_push(
+                exec_path, remote, branch, base_branch=session_base_branch
+            )
             if check_error:
                 audit_log(
                     "push_denied_file_check_failed",
@@ -8214,6 +8227,11 @@ def session_create() -> tuple[Response, int] | Response:
     agent_anchor_id = data.get("agent_anchor_id")  # Optional agent anchor ID
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
+    # Optional pipeline base branch (PR base). Stored on the session and used
+    # as the preferred diff base for the new-branch restricted-path push check
+    # (#3024). Distinct from the locally-derived ``worktree_base_branch`` below,
+    # which selects the ref a fresh worktree forks from.
+    session_base_branch = data.get("base_branch")
     jira_ticket = data.get("jira_ticket")  # Optional Atlassian ticket key — advisory only
     synthetic = data.get("synthetic", False)  # Orchestrator-internal temp session
     # Per-session upstream routing (issue #2769). Default to "anthropic" so
@@ -8253,6 +8271,15 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid pipeline_id: must be a non-empty string")
         if len(pipeline_id) > 256:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
+
+    # Validate base_branch if provided (#3024)
+    if session_base_branch is not None:
+        if not isinstance(session_base_branch, str):
+            return make_error("Invalid base_branch: must be a string")
+        if not session_base_branch:
+            return make_error("Invalid base_branch: must be a non-empty string")
+        if len(session_base_branch) > 256:
+            return make_error("Invalid base_branch: must be 256 characters or fewer")
 
     # Validate issue_number if provided
     if issue_number is not None and (not isinstance(issue_number, int) or issue_number < 1):
@@ -8516,6 +8543,7 @@ def session_create() -> tuple[Response, int] | Response:
         agent_anchor_id=agent_anchor_id,
         claude_code_version=claude_code_version,
         branch=branch,
+        base_branch=session_base_branch,
         jira_ticket=jira_ticket if isinstance(jira_ticket, str) and jira_ticket else None,
         synthetic=synthetic,
         upstream=upstream,
