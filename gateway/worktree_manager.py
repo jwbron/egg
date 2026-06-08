@@ -468,6 +468,12 @@ class WorktreeManager:
                         fetch_ref=fetch_ref,
                         container_id=container_id,
                     )
+                    # Timeout caps how long every other state-store commit /
+                    # worktree create on this repo can be blocked by a slow
+                    # remote — this fetch now runs on *every* non-HEAD spawn
+                    # (post-#3021) rather than just cold-cache misses, so keep
+                    # it tight.  Mirrors the reuse-path fetch in
+                    # ``_reset_reused_worktree_to_safe_ref``.
                     with self._git_credential_env(repo_slug) as fetch_env:
                         try:
                             fetch_result = subprocess.run(
@@ -476,7 +482,7 @@ class WorktreeManager:
                                 capture_output=True,
                                 text=True,
                                 check=False,
-                                timeout=120,
+                                timeout=30,
                                 env=fetch_env,
                             )
                         except subprocess.TimeoutExpired as e:

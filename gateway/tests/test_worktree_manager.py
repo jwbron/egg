@@ -769,6 +769,58 @@ class TestWorktreeManagerDockerGitDir:
             f"got {head_after} (still on stale local commit)"
         )
 
+    def test_reused_worktree_fetch_carries_credentials(self, tmp_path):
+        """When a token is available, the reuse-path fetch inside
+        ``_reset_reused_worktree_to_safe_ref`` runs under the gateway
+        credential helper (#3021 Fix A).
+
+        Complements ``test_worktree_reuse_resets_to_safe_remote_ref``,
+        which exercises the token-absent fallback against a local-file
+        origin — the credentialed branch on the reuse path is genuinely
+        new in #3021 and would otherwise be uncovered.
+        """
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+
+        worktree_path = tmp_path / "worktrees" / "test-repo" / "egg-coder"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".git").write_text("gitdir: /fake/git/dir")
+
+        call_log: list[tuple[list[str], dict]] = []
+
+        def mock_run(args, **kwargs):
+            call_log.append((list(args), kwargs))
+            result = MagicMock()
+            result.returncode = 1  # no candidate ref resolves -> early bail
+            result.stderr = ""
+            result.stdout = ""
+            return result
+
+        with patch(
+            "worktree_manager.get_token_for_repo",
+            return_value=("fake-token", "user", ""),
+        ):
+            with patch("subprocess.run", side_effect=mock_run):
+                manager._reset_reused_worktree_to_safe_ref(
+                    worktree_path=worktree_path,
+                    main_repo=tmp_path / "repos" / "test-repo",
+                    container_id="egg-coder",
+                    assigned_branch="egg/issue-99",
+                    base_branch="main",
+                    repo_slug="Khan/test-repo",
+                )
+
+        fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
+        assert len(fetch_calls) == 1, "reuse path must fetch origin before resetting"
+        fetch_env = fetch_calls[0][1].get("env") or {}
+        assert "git-askpass-" in fetch_env.get("GIT_ASKPASS", ""), (
+            "credential helper must be wired up when a token is available"
+        )
+        assert fetch_env.get("GIT_PASSWORD") == "fake-token"
+        assert fetch_env.get("GIT_USERNAME") == "x-access-token"
+
     def test_create_worktree_reapplies_upstream_on_reuse(self, git_repo):
         """When a valid worktree is reused, upstream config is re-applied.
 
@@ -1133,9 +1185,17 @@ class TestWorktreeManagerRemoteBranchFetch:
 
         fetch_calls = [c for c in call_log if "fetch" in c[0] and "origin" in c[0]]
         assert len(fetch_calls) == 1
-        # No credential helper was injected by us (token unavailable).
+        # No credential helper was wired up by the gateway (token unavailable):
+        # assert the gateway-installed askpass shim is absent rather than the
+        # weaker "GIT_PASSWORD != <literal>", which would pass for any stale
+        # or inherited value.  ``create_credential_helper`` writes a temp
+        # ``git-askpass-*`` shim into ``GIT_ASKPASS`` whenever it's wired up.
         fetch_env = fetch_calls[0][1].get("env") or {}
-        assert fetch_env.get("GIT_PASSWORD") != "fake-token"
+        askpass = fetch_env.get("GIT_ASKPASS", "")
+        assert "git-askpass-" not in askpass, (
+            f"credential helper should not be wired up when no token is "
+            f"available; got GIT_ASKPASS={askpass!r}"
+        )
 
     def test_skips_fetch_for_head(self, manager_with_repo):
         """HEAD should never trigger a fetch."""
