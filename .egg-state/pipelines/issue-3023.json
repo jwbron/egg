@@ -289,10 +289,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Are overseer agents (decision-maker, advisor — see orchestrator/overseer/monitor.py) in scope for on-demand spawning, or out of scope for this change? They have a different lifecycle today (spawned by overseer/monitor.py on an anomaly + periodic cadence, not via concurrent_executor.spawn_all) and are already arguably on-demand.",
+      "context": "Open contract question cq-6, registered by an agent during the refine phase.",
+      "options": [
+        "Out of scope — leave overseer agent lifecycle as-is; this issue is about BRC-loop roles only",
+        "In scope — unify the spawn path so overseer agents go through the same OnDemandSpawner (cleaner long-term shape, more diff in this PR, may require fixing edge cases the overseer's bespoke path already solved)",
+        "In scope, but as a follow-up issue — note the unification target in this issue's closeout but defer the work",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-06-08T22:43:37.275320Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-08T22:43:37.239912Z",
+  "updated_at": "2026-06-08T22:43:37.284274Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -305,7 +324,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
