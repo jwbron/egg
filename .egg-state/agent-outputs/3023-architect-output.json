@@ -1,0 +1,374 @@
+{
+  "issue": 3023,
+  "phase": "plan",
+  "role": "architect",
+  "schema_version": "1",
+  "title": "Architecture: orchestrator-driven on-demand agent spawning (lift the event pump out of the pod)",
+  "summary": "Design for inverting the BRC agent lifecycle: today every BRC role runs as a long-lived k8s pod that loops in orchestrator/consensus_wrapper.py (802 lines) and long-polls egg-orch message wait-loop. After this change the wait moves OUT of the pod and into the orchestrator. A single orchestrator-side blocking watcher per phase observes all roles' actionable events via the existing message_store wait surface and the existing _derive_next_action route (orchestrator/routes/consensus.py:280). When any role's derived action != 'wait', the orchestrator spawns a one-shot pod whose entrypoint collapses to python3 -m egg_agent --model X --max-turns N (cq-5). The composed per-event prompt is produced orchestrator-side by the existing compose_event_prompt (orchestrator/routes/event_prompt.py:339) and piped to the pod via stdin (already supported by shared/egg_agent/__main__.py:42-50). Per-phase reuse of (a) the prompt-cache prefix, (b) the per-role gateway session, and (c) the per-role worktree is UNCHANGED (feedback Q1) — only the wait moves. The 30s gateway-session heartbeat moves from the in-pod wrapper subshell (consensus_wrapper.py:200-222) to an orchestrator-side per-phase keep-alive thread reusing gateway_client.heartbeat_session_by_container (orchestrator/gateway_client.py:992) which already exists (#2068). The 30-min idle-budget alert moves from per-role/per-pod to a single phase-level orchestrator-side timer that emits the same stuck-phase-transition anomaly tag at the same threshold (cq-3, feedback Q5). Rollout is big-bang with rollback by git revert (cq-4); the entire consensus_wrapper.py is deleted, no env flag. The change composes with #2908 streaming (pod runs the agent's full turn for ONE actionable event, which may yield N commits — feedback Q4) and is orthogonal to #2866 (k3s sole runtime, unrelated to PVC lifecycle) and #3017 (declarative phase abstraction, flagged as adjacency). Overseer agents stay on their current spawn path; unification deferred to a follow-up (cq-6). Single slice (slice-1) consistent with cq-4 big-bang stance; task_planner picks task decomposition.",
+  "recommended_approach": {
+    "option_id": "A",
+    "name": "Single orchestrator-side phase watcher + on-demand spawner; gateway session and worktree pre-allocated at phase start and reused; consensus_wrapper.py deleted",
+    "summary": "At phase start, the orchestrator does ONE-time setup per role: register a gateway session via gateway_client.register_session (orchestrator/kubernetes_spawner.py:761-794) AND create the per-role worktree via gateway_client.create_worktrees (kubernetes_spawner.py:619), exactly as today's spawn path does — but does NOT spawn a pod yet. It then starts THREE orchestrator-side threads scoped to the (pipeline_id, phase, slice_id) tuple: (1) a single PhaseEventWatcher that blocks on the existing message_store.get_messages_with_meta wait surface (orchestrator/routes/messages.py:596-609) for the union of BRC event types ({CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, CONSENSUS_RE_REVIEW, STATUS, OVERSEER_ALERT, plus CONSENSUS_CONFIRMED post-confirm} — mirrors the wait-filter set built by consensus_wrapper.py:345-360); (2) a PhaseGatewaySessionKeeper that ticks every 30s and calls gateway_client.heartbeat_session_by_container for each registered per-role session, replacing the in-pod heartbeat subshell at consensus_wrapper.py:201-222; (3) a PhaseIdleBudgetMonitor that tracks LAST_SPAWN_AT for the phase and emits exactly one stuck-phase-transition OVERSEER_ALERT (priority high) at the 30-min threshold and another at 2x, mirroring consensus_wrapper.py:489-548 but ONCE PER PHASE not once per role (cq-3). On each watcher wake (event arrived, or timeout — 60s default, mirrors EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT at consensus_wrapper.py:77), the watcher iterates the roles registered on the tracker (created at concurrent_executor.py:344-352) and calls the pure-Python _derive_next_action(tracker, role) (orchestrator/routes/consensus.py:280) for each. For any role whose action is in {propose, ack, nack, confirm, complete}, the OnDemandSpawner spawns a one-shot pod: command becomes ['python3', '-m', 'egg_agent', '--model', decision.claude_code_alias, '--max-turns', '1000'] (collapses consensus_wrapper.py:750-758 to argv with no bash wrapper) and the orchestrator-rendered per-event prompt (via compose_event_prompt) is piped on stdin (egg_agent's __main__.py:42-50 already supports stdin when prompt arg is None). The gateway session is re-registered with the same container_id so the gateway returns the existing session_token via worktree_container_id reuse (kubernetes_spawner.py:780-782) — preserves cache prefix per feedback Q1. The pod runs the agent to its natural turn-completion (which may include N commits per #2958, feedback Q4) and exits. The watcher's next wake (woken by the very CONSENSUS_PROPOSE / ACK / NACK the pod just emitted) re-derives next-action for ALL roles and spawns the next pod(s). Confirm/complete actions invoke egg-orch consensus confirmed directly from the orchestrator (no need to spawn a pod for it; consensus_wrapper.py:619-621 / :635-636 already calls the CLI sync; the orchestrator can call the route directly). consensus_wrapper.py is deleted entirely (802 lines).",
+    "why_recommended": [
+      "Matches the issue's stated model exactly: 'the orchestrator owns the event loop and spawns an agent pod only when that role has an actionable event' — _derive_next_action is already the spawn-trigger oracle (issue body, refine cq-1 feedback Q1).",
+      "Preserves per-phase reuse of cache prefix, gateway session, and worktree — feedback Q1 calls this out as non-negotiable. Per-role session is registered once at phase start and the SAME container_id (job_name pattern at kubernetes_spawner.py:552) is reused across spawns. The worktree is created once via gateway_client.create_worktrees (kubernetes_spawner.py:619) and re-mounted on each spawn via the same agent_worktree_id (kubernetes_spawner.py:609, 780-782), exactly as today's spawn_agent_job already does for restart paths.",
+      "Uses the SAME orchestrator-side primitives the in-pod wrapper uses today, just moved one network hop in: _derive_next_action (consensus.py:280), message_store.get_messages_with_meta (routes/messages.py:596), gateway_client.heartbeat_session_by_container (gateway_client.py:992 / gateway.py:8715 / session_manager.py:903). No new orchestrator-side primitives; the move is structural, not algorithmic.",
+      "Single watcher across all roles in the phase (not N per-role watchers) — feedback Q1 pins this as the intended shape: 'a single blocking thread covering all agents (one wait that wakes when any role becomes actionable), not N per-pod waits and not per-role timers.' Falls out naturally from message_store's existing single-stream wait semantics.",
+      "Composes cleanly with #2908 (slice-3 / #2949) — compose_event_prompt is already orchestrator-importable Python (lives at orchestrator/routes/event_prompt.py, not in sandbox/). The wrapper's invoke_agent_for_event (consensus_wrapper.py:394-458) calls it from a subshell today via EGG_EVENT_PROMPT_SCRIPT; moving the call to the orchestrator-side spawner is a direct port with NO API change to the composer.",
+      "Composes cleanly with #2958 (per-task streaming commits) — a single on-demand spawn runs the agent to its natural turn-completion regardless of how many commits it produces. The pod-exit signal is the agent SDK turn-completion, not commit-count, so feedback Q4's 'one-spawn-per-actionable-event where a spawn may yield N commits' is the literal behavior.",
+      "Big-bang per cq-4: consensus_wrapper.py is deleted in the same PR that adds the orchestrator-side replacement. No env flag. Revert is git revert of the slice. The new code paths are unit-testable on the orchestrator side without touching the gateway or the sandbox image (the spawner can be mocked at the kubernetes_spawner boundary like all existing concurrent_executor tests already do — see orchestrator/tests/test_concurrent_executor.py).",
+      "Restart-agent route (orchestrator/routes/pipelines.py:2351 restart_agent) is reduced to a noop / kick-the-bus operation: under on-demand spawning the watcher already re-spawns when the role becomes actionable. The route is kept as an operator affordance that posts a synthetic STATUS message to wake the watcher and force a re-evaluation; the build_consensus_wrapped_command call site at pipelines.py:2901-2905 is deleted along with the wrapper."
+    ],
+    "rejected_options_summary": {
+      "B_keep_thin_wrapper_for_signal_trapping_only": "cq-5 explicitly chose 'Delete consensus_wrapper.py entirely' over the thin-wrapper option. Under one-shot pod lifecycle the kubelet SIGTERM contract no longer needs in-pod handling: a one-shot pod that has finished its single agent invocation simply exits — there is no long-lived bash loop for SIGTERM to interrupt. The cleanup that the trap at consensus_wrapper.py:236-239 did (stop_background_heartbeat) is moot because the heartbeat moved to the orchestrator. Keeping the wrapper just to satisfy a phantom signal-handling concern would also keep the test surface (orchestrator/tests/test_consensus_wrapper.py — 1300+ lines) that the deletion is meant to retire.",
+      "C_per_role_watcher_threads": "Rejected by feedback Q1 ('a single blocking thread covering all agents, not N per-pod waits and not per-role timers'). N per-role watchers would also fan out N gateway-heartbeat threads and N idle-budget timers, defeating the resource-freeing goal — one of the two motivating goals in the issue body.",
+      "D_in_scope_overseer_unification": "cq-6 chose 'In scope, but as a follow-up issue'. Overseer agents have a different spawn lifecycle (kubernetes_spawner.spawn_overseer_job at kubernetes_spawner.py:1694 — Tier-2 sonnet decision agent, not in the BRC consensus loop) and are already arguably on-demand. Unification would broaden the PR surface and risk breaking the overseer's bespoke retry path; deferring keeps this issue's diff bounded.",
+      "E_keep_in_pod_wait_with_env_flag_rollback": "Rejected by cq-4 (big-bang rollout, rollback by git revert; mirrors #2908 slice-4 stance). An env-flag rollback path would force both the wrapper and the new orchestrator-side loop to coexist in production, doubling the test surface for what is meant to be a structural simplification."
+    }
+  },
+  "component_breakdown": {
+    "slices": [
+      {
+        "id": "slice-1",
+        "name": "Orchestrator-driven on-demand spawning (single slice, big-bang per cq-4)",
+        "depends_on": [],
+        "summary": "All four pieces — orchestrator-side phase event watcher, on-demand spawner, gateway-session keep-alive, phase-level idle-budget monitor — plus the wrapper deletion land together. Pre-existing primitives are reused as-is: _derive_next_action, message_store.get_messages_with_meta, gateway_client.heartbeat_session_by_container, gateway_client.register_session, compose_event_prompt, kubernetes_spawner.spawn_agent_job. The slice is testable in pure-orchestrator unit tests by mocking the KubernetesSpawner boundary (same boundary today's concurrent_executor tests already mock).",
+        "components": [
+          {
+            "name": "PhaseEventWatcher (new orchestrator module)",
+            "where": "orchestrator/phase_event_watcher.py (new file). Planner picks the exact import path; the watcher is started from concurrent_executor.spawn_all (orchestrator/concurrent_executor.py:323-376) so it sits naturally alongside the executor.",
+            "responsibility": "Single blocking thread per (pipeline_id, phase, slice_id) tuple. Owns one wait loop: calls message_store.get_messages_with_meta(pipeline_id, since_id=cursor, wait=WAIT_TIMEOUT_SECS, wait_for_types=BRC_EVENT_TYPES, slice_id=slice_id, from_tip=cursor is None) (mirrors the orchestrator-side wait_messages route handler at orchestrator/routes/messages.py:596-607 but called in-process). On wake — match OR timeout — iterates tracker.registered_agents (snapshotted via tracker.matrix.keys() or the tracker's accessor; PeerConsensusTracker holds the registered set from concurrent_executor.py:351-352) and calls the pure _derive_next_action(tracker, role) (orchestrator/routes/consensus.py:280). For each role whose action is in {propose, ack, nack, confirm, complete}, dispatches to OnDemandSpawner.spawn_for_event(role, action, event_payload). The watcher exits when tracker.evaluate()['is_complete'] is True (mirrors consensus_wrapper.py:567-569). Wait-filter must conditionally omit CONSENSUS_CONFIRMED pre-confirm per the orchestrator's HTTP-400 rule (#2064/#2482, risk_analyst R12; the wrapper handles this at consensus_wrapper.py:340-359 — the watcher needs the same conditional construction, but per-role rather than for the whole phase, so it builds the union: include CONSENSUS_CONFIRMED in the wait set only when at least one role in the phase is post-confirm).",
+            "evidence": "_derive_next_action signature + dual-role ordering: orchestrator/routes/consensus.py:280-406. message_store.get_messages_with_meta(wait=, wait_for_types=, slice_id=, from_tip=) primitives: orchestrator/routes/messages.py:596-607. Today's per-pod wait set: consensus_wrapper.py:345-360 (CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, STATUS, CONSENSUS_RE_REVIEW, OVERSEER_ALERT + conditional CONSENSUS_CONFIRMED). Tracker construction with registered agents: orchestrator/concurrent_executor.py:344-352. Tracker registered-set accessor: tracker.matrix is keyed on role (peer_consensus.py — register_agent populates it). NEW symbol; no existing implementation to cite."
+          },
+          {
+            "name": "OnDemandSpawner (new orchestrator module)",
+            "where": "orchestrator/on_demand_spawner.py (new file). Holds a reference to the KubernetesSpawner instance the executor already owns (orchestrator/concurrent_executor.py:323+ — spawn_fn is the KubernetesSpawner.create_concurrent_spawn_fn output at kubernetes_spawner.py:1772) plus the per-role state (registered session_token, agent_worktree_id, model_decision, base_branch).",
+            "responsibility": "Single method spawn_for_event(role, action, event_payload) that: (a) composes the per-event prompt by calling orchestrator/routes/event_prompt.py::compose_event_prompt(role=role, event_payload=event_payload, memory_excerpt=read_memory(role), nacks=event_payload.get('unresolved_nacks') or barrier, git_log_delta=produce_delta(role, base_branch), base_branch=base_branch) — this is the SAME composer the wrapper invokes today via the EGG_EVENT_PROMPT_SCRIPT subshell at consensus_wrapper.py:394-457, but called in-process here. Memory and git-log-delta production are extracted from the wrapper's in-pod path (.egg-state/agent-outputs/<role>/brc-memory.md read at consensus_wrapper.py:382 / event_prompt.py:362-364 — the file is on the worktree volume which the orchestrator can ALSO read because the orchestrator owns the worktree base dir at /home/egg/.egg-worktrees; gateway/worktree_manager.py already manages this tree). (b) Builds the pod command: ['python3', '-m', 'egg_agent', '--model', decision.claude_code_alias, '--max-turns', '1000'] — no bash wrapper, no event-pump template (consensus_wrapper.py:750-758 collapsed to a literal argv). (c) Calls KubernetesSpawner.spawn_agent_job (orchestrator/kubernetes_spawner.py:491) with command=<argv>, extra_env=event_env, repo_volumes=<existing per-role worktree mapping>. The spawner already supports reuse via worktree_container_id=agent_worktree_id (kubernetes_spawner.py:780-782); the OnDemandSpawner threads that through unconditionally now. (d) Pipes the composed prompt to the pod's stdin: requires the k8s client to support a stdin/attach pattern — see kubernetes_spawner.py's k8s.create_container call (kubernetes_spawner.py:1008-1015) — or, equivalently, base64-encodes the prompt into an env var that the entrypoint decodes. Planner picks the mechanism; the architect's recommended mechanism is to write the rendered prompt to a single-file ConfigMap-style env var EGG_EVENT_PROMPT and adjust the pod command to bash -c \"printf '%s' \\\"$EGG_EVENT_PROMPT\\\" | python3 -m egg_agent --model X --max-turns N\" so the stdin path of __main__.py:42-50 fires naturally. EGG_EVENT_PROMPT itself is bounded by event_prompt.py's PROMPT_ENVELOPE_MAX_BYTES cap (event_prompt.py:413-436), well under k8s's per-env-var ~1 MiB ceiling.",
+            "evidence": "Existing spawn_agent_job signature with command/extra_env/worktree_container_id: orchestrator/kubernetes_spawner.py:491-794 (full param list at 491-514; worktree reuse at 780-782; env composition at 826-972). compose_event_prompt entry point + envelope cap: orchestrator/routes/event_prompt.py:339-450. egg_agent stdin support: shared/egg_agent/__main__.py:42-50 (already reads stdin when prompt arg is None). claude_code_alias as the value to pass to --model: orchestrator/agent_model_resolution.py:104-122 (AgentModelDecision.claude_code_alias). Current wrapper composes the SAME argv: consensus_wrapper.py:750-758. NEW orchestrator module."
+          },
+          {
+            "name": "PhaseGatewaySessionKeeper (new orchestrator module)",
+            "where": "orchestrator/phase_session_keeper.py (new file). Started by concurrent_executor.spawn_all alongside the watcher.",
+            "responsibility": "30s ticker thread (interval == EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT at consensus_wrapper.py:68; KEEP THIS VALUE — feedback Q5 says do not retune in this slice). On each tick: for every role in the tracker's registered set, call gateway_client.heartbeat_session_by_container(container_id) — where container_id is the existing job_name pattern derived by kubernetes_spawner.py:552 (egg-agent-{pid}-{role} or egg-agent-{pid}-{slice_id}-{role} per JOB_NAME_FORMAT_SLICE convention, normalised role with hyphens — see routes/messages.py:864-871 which already builds this string for the fan-out path). Stops when the watcher exits. This MOVES the heartbeat from the in-pod subshell at consensus_wrapper.py:201-222 to the orchestrator process; the gateway-side endpoint (gateway/gateway.py:8715 — POST /api/v1/sessions/heartbeat/by-container) is unchanged. Today's #2068 fan-out path at orchestrator/routes/messages.py:846-880 (heartbeat coordinator -> heartbeat_session_by_container) ALREADY does this exact call as a side effect of in-pod heartbeats; this slice makes the orchestrator the PRIMARY caller and removes the fan-out trigger (the wrapper-emitted HEARTBEAT messages cease to exist). The route handler at routes/messages.py:846 keeps working for non-BRC heartbeat sources but no longer carries the BRC-pod load.",
+            "evidence": "Heartbeat-by-container client method: orchestrator/gateway_client.py:992. Gateway endpoint: gateway/gateway.py:8715-8720 (POST /api/v1/sessions/heartbeat/by-container). Session manager method: gateway/session_manager.py:903-934 (in-memory TTL extend, no disk write — same semantics as the current path). Existing orchestrator-side fan-out site that already does this exact call as a heartbeat side-effect: orchestrator/routes/messages.py:872. Job-name pattern (the container_id): orchestrator/kubernetes_spawner.py:552-554 via _build_k8s_job_names; the normalisation mirror: orchestrator/routes/messages.py:864-871. Wrapper's heartbeat being moved: consensus_wrapper.py:188-222 (emit_heartbeat + start_background_heartbeat). NEW orchestrator module."
+          },
+          {
+            "name": "PhaseIdleBudgetMonitor (new orchestrator module)",
+            "where": "orchestrator/phase_idle_budget.py (new file). Started by concurrent_executor.spawn_all alongside the watcher and keeper.",
+            "responsibility": "Phase-level idle-budget tracker. Maintains LAST_SPAWN_AT (initialised at phase start). The OnDemandSpawner notifies the monitor on each successful spawn: monitor.note_spawn(). A separate ticker (e.g. 60s) checks (time.monotonic() - LAST_SPAWN_AT) against IDLE_BUDGET_SECS (== 30 * 60 == 1800; sourced from env EGG_BRC_IDLE_BUDGET_MIN with default 30 per consensus_wrapper.py:55-58, KEEP unchanged per cq-3 + feedback Q5). Emits exactly one OVERSEER_ALERT (priority=high, anomaly=stuck-phase-transition) at the 1x boundary and one more at the 2x boundary, using the same payload shape as consensus_wrapper.py:489-528 (anomaly tag, priority, summary including the idle seconds, detail including a BRC-state snapshot from tracker.evaluate()). Critical difference per cq-3: the alert fires ONCE for the whole phase regardless of role count (today's per-role wrapper fires N copies for N idle roles). Latches are sticky for the phase — once 2x has fired, no re-fire — same as consensus_wrapper.py:534-558. The OVERSEER_ALERT is posted via the existing egg-orch overseer alert verb or its programmatic equivalent (orchestrator already has overseer_alert helpers; planner picks the in-process call path vs. shelling out to the CLI).",
+            "evidence": "Today's threshold + alert payload shape: consensus_wrapper.py:55-58 (EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30), :112-113 (env var read), :489-528 (raise_idle_alert: anomaly stuck-phase-transition, priority high, summary 'BRC event-pump idle for ${idle}s', detail with BRC state). Latch semantics: consensus_wrapper.py:531-558. Anomaly tag is the operator-visible signal — feedback Q5 says 'keep current threshold semantics; do not retune'. NEW orchestrator module."
+          },
+          {
+            "name": "Spawn-site refactor in concurrent_executor.spawn_all + _spawn_agent",
+            "where": "orchestrator/concurrent_executor.py:323 (spawn_all), :402 (_spawn_roles), :445 (_spawn_agent), :489 (build_consensus_wrapped_command call site).",
+            "responsibility": "spawn_all stops being 'fan out N long-lived pods via the thread pool'. New shape: for each role in self.get_agent_roles() (line 337) — (a) resolve_agent_model (lines 472-485 stays unchanged); (b) build_agent_env (line 457) — no longer carries any wrapper-specific env (EGG_BRC_IDLE_BUDGET_MIN, EGG_BRC_HEARTBEAT_INTERVAL_SECS, EGG_BRC_WAIT_TIMEOUT_SECS — those env vars cease to have any in-pod consumer); (c) reserve_per_role_state(role, decision, branch, env) — registers the gateway session via spawner.gateway.register_session AND creates the worktree via spawner.gateway.create_worktrees (the exact two calls kubernetes_spawner.py:761-794 and :619-722 already do today inside spawn_agent_job), but DOES NOT call k8s.create_container. The spawn_agent_job call path is decomposed: the session+worktree-prep half runs at phase start; the create_container half runs per-event from the OnDemandSpawner. Then start PhaseEventWatcher + PhaseGatewaySessionKeeper + PhaseIdleBudgetMonitor scoped to (pipeline_id, phase, slice_id). spawn_all returns immediately (no AgentExecution per role — the AgentExecution record now represents 'role registered for on-demand spawning', not 'pod running'). The _spawn_agent helper (line 445) is renamed/refactored to _reserve_role_state (no pod, no command construction). The build_consensus_wrapped_command call at line 489 is DELETED; the import at line 37 is DELETED; nothing in concurrent_executor.py builds a bash wrapper. The decision.env_vars() merge (line 495) and the spawn_kwargs assembly (lines 501-509) move into OnDemandSpawner per spawn — same kwargs, called per-event instead of once.",
+            "evidence": "Today's spawn flow: concurrent_executor.py:323-376 (spawn_all), :402-443 (_spawn_roles via ThreadPoolExecutor), :445-524 (_spawn_agent — the deletion target). Today's session+worktree creation in spawn_agent_job: kubernetes_spawner.py:619-722 (worktrees) and :761-794 (session). agent_worktree_id derivation: kubernetes_spawner.py:609-611. The function decomposition is mechanical; no new external dependencies. AgentExecution shape: orchestrator/models.py — AgentExecution carries role/status/container_id; under on-demand the container_id field is set when the FIRST spawn happens (or stays None until then) and the status starts as REGISTERED rather than RUNNING (planner to pick whether to extend the AgentExecutionStatus enum or reuse an existing value)."
+          },
+          {
+            "name": "Per-spawn pod env composition (minor delta)",
+            "where": "orchestrator/kubernetes_spawner.py:826-972 (the environment dict).",
+            "responsibility": "On a one-shot per-event spawn the pod no longer needs the wrapper-only env vars EGG_BRC_IDLE_BUDGET_MIN / EGG_BRC_HEARTBEAT_INTERVAL_SECS / EGG_BRC_WAIT_TIMEOUT_SECS / EGG_BRC_EVENT_PUMP / EGG_BRC_MEMORY (the last drove the wrapper's prompt composer at consensus_wrapper.py:380-381, now an orchestrator-side concern). It DOES still need: EGG_AGENT_ROLE, EGG_PIPELINE_ID, EGG_SESSION_TOKEN, ANTHROPIC_BASE_URL/HTTP(S)_PROXY plumbing, AGENT_ANCHOR_ID, EGG_BASE_BRANCH, EGG_WAIT_PRODUCER_ALLOWLIST (this last one becomes inert because the agent no longer calls message wait-loop, but leaving it doesn't break anything — its presence is defensively-set in _PROTECTED_ENV_KEYS at kubernetes_spawner.py:169-176; planner can either keep it for defensive symmetry or remove it from the spawn-time env composition at kubernetes_spawner.py:957-961). The session-token placeholder credential (kubernetes_spawner.py:847-879) is unchanged. The new EGG_EVENT_PROMPT env var (or stdin equivalent — see OnDemandSpawner above) carries the rendered per-event prompt.",
+            "evidence": "Today's env composition: kubernetes_spawner.py:826-972. Protected keys: kubernetes_spawner.py:138-201. Env vars whose only consumer is consensus_wrapper.py: consensus_wrapper.py:112-115 (read EGG_BRC_IDLE_BUDGET_MIN, EGG_BRC_HEARTBEAT_INTERVAL_SECS, EGG_BRC_WAIT_TIMEOUT_SECS) — these become unreferenced after the wrapper is deleted; they can be left in operator manifests harmlessly (the wrapper deletion comment at consensus_wrapper.py:718-722 is the precedent: 'silently inert; operators with it lingering in k8s manifests can remove it without any production impact')."
+          },
+          {
+            "name": "restart_agent route reduction",
+            "where": "orchestrator/routes/pipelines.py:2351 (restart_agent), :2901-2905 (build_consensus_wrapped_command call site).",
+            "responsibility": "restart_agent's role under on-demand spawning is much smaller: the watcher already spawns when a role becomes actionable, so a restart is rarely needed. The route is reduced to: post a synthetic STATUS message to the message bus for the pipeline_id (this wakes the watcher; on its next iteration it re-derives next-action for all roles and respawns any that have an actionable event). The build_consensus_wrapped_command call at pipelines.py:2901-2905 is DELETED; the local import at pipelines.py:2901 is DELETED. The model-resolution + prompt-reconstruction path at pipelines.py:2872-2913 is no longer needed for restart (the watcher's prompt composition is per-event and self-contained). The restart_agent_container call at pipelines.py:2940-2956 is DELETED — restart-by-respawn is now restart-by-wake-the-watcher. Planner picks whether to keep the route's HTTP signature for operator compatibility (return 202 'kick acknowledged') or to deprecate it; the architect's recommendation is keep-as-kick so existing operator scripts don't 404.",
+            "evidence": "Today's restart path: orchestrator/routes/pipelines.py:2351-2956. The build_consensus_wrapped_command call site at :2901-2905 is the second of two locations the wrapper is referenced (the other is concurrent_executor.py:489). restart_agent_container call: pipelines.py:2940-2956 via kubernetes_spawner.restart_agent_container."
+          },
+          {
+            "name": "consensus_wrapper.py deletion",
+            "where": "orchestrator/consensus_wrapper.py (802 lines, full file).",
+            "responsibility": "Deleted entirely (cq-5: 'Delete consensus_wrapper.py entirely; the pod entrypoint becomes python3 -m egg_agent --model X --max-turns N with the composed prompt on stdin'). Both public symbols (build_consensus_wrapped_command at line 770, build_event_pump_wrapped_command at line 725) are gone. The two known call sites are removed in the same diff (concurrent_executor.py:489 and routes/pipelines.py:2901-2905). All tests referencing the wrapper are removed: orchestrator/tests/test_consensus_wrapper.py (1300+ lines), and any wrapper-specific assertions in orchestrator/tests/test_concurrent_integration.py (line 718) and orchestrator/tests/test_concurrent_executor.py (line 958, 1014, 1020, 1040). The corresponding bash classifiers (is_buffer_overflow / is_transient_crash / is_startup_failure at consensus_wrapper.py:153-176) had no callers in the propose|ack|nack arm even today (see the comment at :144-150) so their loss is a no-op; the operator-visible escalation paths (idle budget at 1x and 2x, consecutive-failure counters) move to PhaseIdleBudgetMonitor and to a minor watcher-side counter for AGENT_FAIL_STREAK / CONFIRM_FAIL_STREAK (planner picks whether to keep these counters — they are operator-visibility nits, not correctness gates).",
+            "evidence": "Full wrapper: orchestrator/consensus_wrapper.py:1-802. Public symbol declarations: consensus_wrapper.py:725 (build_event_pump_wrapped_command), :770 (build_consensus_wrapped_command). Test files referencing the wrapper: orchestrator/tests/test_consensus_wrapper.py (1300+ lines, dedicated test file), test_concurrent_integration.py:718 (one-line wrapper import), test_concurrent_executor.py:958/1014/1020/1040 (assertions on the wrapper command). cq-5 selected option text: 'Delete consensus_wrapper.py entirely'."
+          },
+          {
+            "name": "Slice-1 tests (orchestrator-side, mockable)",
+            "where": "orchestrator/tests/test_phase_event_watcher.py (new), orchestrator/tests/test_on_demand_spawner.py (new), orchestrator/tests/test_phase_session_keeper.py (new), orchestrator/tests/test_phase_idle_budget.py (new), updates to orchestrator/tests/test_concurrent_executor.py (spawn-all is now session-and-worktree-prep-plus-watcher-start, not N spawns).",
+            "responsibility": "Pure unit tests against a mocked KubernetesSpawner (same boundary today's tests already mock at concurrent_executor.py:489 spawn_fn). Coverage seeds (the planner picks the exact AC list): (a) Watcher: with all roles returning action='wait' from _derive_next_action, no spawn fires regardless of how many timeouts elapse — exact mirror of consensus_wrapper.py:660-674's 'wait timeout returns 0 only on match' rule, but at the watcher level. (b) Watcher: a CONSENSUS_PROPOSE message for producer P wakes the watcher; reviewers of P now have action='ack'; spawner.spawn_for_event is called once per reviewer, with the correct event_payload. (c) Watcher: action='confirm' results in egg-orch consensus confirmed being called DIRECTLY from the orchestrator (no pod spawn for confirm), reproducing consensus_wrapper.py:619-621 / :635-636 without the wrapper. (d) Spawner: spawn_for_event composes the prompt via compose_event_prompt with the role/event_payload/memory/git_log_delta/base_branch passed through verbatim — the per-spawn argv is ['python3', '-m', 'egg_agent', '--model', resolved_alias, '--max-turns', '1000']. (e) Spawner: subsequent spawns for the same role reuse the same agent_worktree_id (kubernetes_spawner.py:609-611) and the same session_token; assert spawner.gateway.register_session is NOT re-called past phase start (the per-phase session-prep helper has run once). (f) SessionKeeper: every 30s tick calls gateway_client.heartbeat_session_by_container for every registered per-role container_id; clock-advanced fakes assert N calls in 5 minutes. (g) IdleBudgetMonitor: 30-min boundary fires exactly one stuck-phase-transition OVERSEER_ALERT priority=high; 60-min boundary fires one more; subsequent ticks do not re-fire — sticky latches (consensus_wrapper.py:534-558 ports verbatim). (h) IdleBudgetMonitor: a successful spawn between the 1x and 2x boundary resets LAST_SPAWN_AT (mirror of consensus_wrapper.py:551 note_progress) — assert the 2x alert does NOT fire afterwards. (i) Integration smoke test: the existing test_concurrent_integration.py is updated to assert the new lifecycle — spawn_all returns immediately, then a synthetic CONSENSUS_PROPOSE message in the bus drives an OnDemandSpawner.spawn_for_event call; no consensus_wrapper string appears in any spawn command. (j) Wait-filter conditional CONSENSUS_CONFIRMED inclusion: when at least one role is post-confirm, the watcher's get_messages_with_meta wait_for_types includes CONSENSUS_CONFIRMED; pre-confirm phases omit it (#2064/#2482, R12 — same bug class the wrapper guards against at consensus_wrapper.py:340-359).",
+            "evidence": "Existing test pattern (mock KubernetesSpawner boundary, mock message_store, drive _derive_next_action via a synthetic tracker): orchestrator/tests/test_concurrent_executor.py:958-1040. Existing wrapper-bash assertion pattern that is being replaced: orchestrator/tests/test_concurrent_integration.py:689 ('egg-orch brc next-action' in command). NEW test files; no existing implementation to cite."
+          },
+          {
+            "name": "Documentation updates",
+            "where": "docs/architecture/orchestrator.md, docs/guides/concurrent-execution.md, orchestrator/CLAUDE.md, orchestrator/README.md.",
+            "responsibility": "Document the new lifecycle: 'orchestrator owns the wait; pods are one-shot per event'. Update the prior event-pump narrative (docs/architecture/orchestrator.md:782-793 references consensus_wrapper.py) to point at PhaseEventWatcher / OnDemandSpawner. Add an upgrade-from-event-pump section that explains the env var dropouts (EGG_BRC_IDLE_BUDGET_MIN moves from per-pod to orchestrator-side; EGG_BRC_HEARTBEAT_INTERVAL_SECS and EGG_BRC_WAIT_TIMEOUT_SECS are no longer read in-pod). Document the overseer follow-up flagged by cq-6 — note unification target.",
+            "evidence": "docs/architecture/orchestrator.md:782-793 (existing event-pump narrative referencing consensus_wrapper.py). docs/guides/concurrent-execution.md (BRC protocol narrative, currently describes the in-pod wrapper lifecycle). orchestrator/CLAUDE.md (orchestrator-side index)."
+          }
+        ]
+      }
+    ]
+  },
+  "key_files_changed": {
+    "production_code_slice_1": [
+      "orchestrator/phase_event_watcher.py (NEW)",
+      "orchestrator/on_demand_spawner.py (NEW)",
+      "orchestrator/phase_session_keeper.py (NEW)",
+      "orchestrator/phase_idle_budget.py (NEW)",
+      "orchestrator/concurrent_executor.py (MODIFY — drop build_consensus_wrapped_command import; refactor spawn_all/_spawn_agent to per-role session+worktree reserve + start watcher; lines 37, 323-376, 402-524)",
+      "orchestrator/routes/pipelines.py (MODIFY — drop the wrapper-rebuild path in restart_agent; lines 2901-2905; reduce restart_agent at 2351-2956 to a synthetic-STATUS kick)",
+      "orchestrator/kubernetes_spawner.py (MODIFY — minor env-composition cleanup at 826-972 to drop wrapper-only env vars; decompose the session-and-worktree prep portion of spawn_agent_job out from the create_container portion so the watcher can drive the latter per-event)",
+      "orchestrator/consensus_wrapper.py (DELETE — 802 lines)"
+    ],
+    "tests_slice_1": [
+      "orchestrator/tests/test_phase_event_watcher.py (NEW)",
+      "orchestrator/tests/test_on_demand_spawner.py (NEW)",
+      "orchestrator/tests/test_phase_session_keeper.py (NEW)",
+      "orchestrator/tests/test_phase_idle_budget.py (NEW)",
+      "orchestrator/tests/test_consensus_wrapper.py (DELETE — full file)",
+      "orchestrator/tests/test_concurrent_executor.py (MODIFY — drop wrapper-related assertions at 958/1014/1020/1040; add 'spawn_all returns without spawning pods; watcher fires spawns per actionable event' coverage)",
+      "orchestrator/tests/test_concurrent_integration.py (MODIFY — drop the 'egg-orch brc next-action in command' assertion at 689; replace with on-demand-spawn assertions)"
+    ],
+    "docs_followup_not_in_scope_for_architect_files": [
+      "docs/architecture/orchestrator.md (existing event-pump narrative at lines 782-793 — to be rewritten)",
+      "docs/guides/concurrent-execution.md (BRC protocol description)",
+      "orchestrator/CLAUDE.md (orchestrator-side index entry for new modules)",
+      "orchestrator/README.md (architecture section)"
+    ]
+  },
+  "runtime_primitives_with_evidence_2594": [
+    {
+      "primitive": "_derive_next_action(tracker, role) -> (action, event_payload, reason)",
+      "location": "orchestrator/routes/consensus.py:280-406",
+      "used_by": "PhaseEventWatcher per-loop iteration",
+      "context": "Orchestrator process (in-process Python call from the watcher thread)"
+    },
+    {
+      "primitive": "PeerConsensusTracker (registered agents, matrix, evaluate(), confirmed_roles)",
+      "location": "orchestrator/peer_consensus.py — get_peer_consensus_tracker / create_peer_consensus_tracker; concurrent_executor.py:344-352 (creation site)",
+      "used_by": "PhaseEventWatcher (registered-agent iteration, is_complete short-circuit)",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "message_store.get_messages_with_meta(pipeline_id, since_id, limit, wait, wait_for_types, slice_id, from_tip)",
+      "location": "orchestrator/routes/messages.py:596-607 (call site); orchestrator/message_store.py (implementation)",
+      "used_by": "PhaseEventWatcher's single blocking wait",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "gateway_client.heartbeat_session_by_container(container_id) -> bool",
+      "location": "orchestrator/gateway_client.py:992; gateway/gateway.py:8715-8720 (route); gateway/session_manager.py:903-934 (in-memory TTL extend)",
+      "used_by": "PhaseGatewaySessionKeeper's 30s ticker",
+      "context": "Orchestrator process (HTTP call to gateway)"
+    },
+    {
+      "primitive": "gateway_client.register_session(...) (returns SessionInfo with session_token)",
+      "location": "orchestrator/gateway_client.py:718-... ; gateway-side: gateway/session_manager.py:458-579",
+      "used_by": "spawn-all phase-start one-time per-role session reservation; same call shape as today's spawn_agent_job at kubernetes_spawner.py:761-794",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "gateway_client.create_worktrees(container_id, repos, uid, gid, base_branch, assigned_branch)",
+      "location": "orchestrator/kubernetes_spawner.py:619-633 (call site); gateway/worktree_manager.py (implementation)",
+      "used_by": "spawn-all phase-start one-time per-role worktree creation; same call shape and same agent_worktree_id (kubernetes_spawner.py:609-611) reused across spawns",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "KubernetesSpawner.spawn_agent_job(pipeline_id, agent_role, command, extra_env, repo_volumes, mode, repos, phase, branch, base_branch, ...)",
+      "location": "orchestrator/kubernetes_spawner.py:491-1032",
+      "used_by": "OnDemandSpawner per-event spawn (with command=['python3','-m','egg_agent','--model',X,'--max-turns','1000'] and the rendered prompt threaded through EGG_EVENT_PROMPT env var or stdin)",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "compose_event_prompt(role, event_payload, memory_excerpt, nacks, git_log_delta, base_branch) -> str",
+      "location": "orchestrator/routes/event_prompt.py:339-450",
+      "used_by": "OnDemandSpawner's prompt composition (moves the call from in-pod EGG_EVENT_PROMPT_SCRIPT subshell at consensus_wrapper.py:394-457 to orchestrator-side in-process)",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "AgentModelDecision (.claude_code_alias, .upstream, .upstream_model, .env_vars())",
+      "location": "orchestrator/agent_model_resolution.py:100-240",
+      "used_by": "OnDemandSpawner builds --model <claude_code_alias> argv; reuses resolve_agent_model exactly as concurrent_executor.py:473-485 does today",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "shared/egg_agent/__main__.py --model + stdin-or-argv prompt",
+      "location": "shared/egg_agent/__main__.py:24-64 (CLI entry, stdin path at 42-50)",
+      "used_by": "One-shot per-event pod entrypoint (replaces the bash wrapper template at consensus_wrapper.py:102-714)",
+      "context": "Sandboxed agent pod"
+    },
+    {
+      "primitive": "Job-name pattern egg-agent-{pipeline_id}[-{slice_id}]-{role} (with role normalised hyphen-not-underscore)",
+      "location": "orchestrator/kubernetes_spawner.py:552-554 (_build_k8s_job_names); container-id mirror in fan-out path at orchestrator/routes/messages.py:864-871",
+      "used_by": "PhaseGatewaySessionKeeper to address each per-role gateway session for heartbeat-by-container",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "agent_worktree_id = _build_agent_worktree_id(pipeline_id, agent_role, slice_id)",
+      "location": "orchestrator/kubernetes_spawner.py:609-611",
+      "used_by": "OnDemandSpawner reuses the same worktree across N spawns by passing worktree_container_id=agent_worktree_id (kubernetes_spawner.py:780-782 already supports reuse)",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "PROMPT_ENVELOPE_MAX_BYTES bound on the rendered event prompt",
+      "location": "orchestrator/routes/event_prompt.py:413-436",
+      "used_by": "OnDemandSpawner — guarantees the prompt fits in a single k8s env var (well under the ~1 MiB per-env-var ceiling) when threaded as EGG_EVENT_PROMPT",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "BRC wait-filter set: CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, STATUS, CONSENSUS_RE_REVIEW, OVERSEER_ALERT, conditional CONSENSUS_CONFIRMED",
+      "location": "consensus_wrapper.py:345-360 (build_wait_args — the union the watcher ports)",
+      "used_by": "PhaseEventWatcher's get_messages_with_meta wait_for_types",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "EGG_BRC_IDLE_BUDGET_MIN (default 30) env var",
+      "location": "consensus_wrapper.py:55-58 (default constant), :112 (env read)",
+      "used_by": "PhaseIdleBudgetMonitor reads the same env name with the same default (KEEP per cq-3 + feedback Q5 — no retuning in this slice)",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "stuck-phase-transition OVERSEER_ALERT payload shape (anomaly, priority, summary, detail with BRC-state snapshot)",
+      "location": "consensus_wrapper.py:489-528 (raise_idle_alert — the orchestrator-side monitor ports this payload verbatim)",
+      "used_by": "PhaseIdleBudgetMonitor — alert tag must be unchanged so operator UX does not regress (cq-3 wording: 'replace with a phase-level no-spawns-for-X-minutes alert at the orchestrator')",
+      "context": "Orchestrator process"
+    },
+    {
+      "primitive": "build_consensus_wrapped_command / build_event_pump_wrapped_command (DELETE TARGET)",
+      "location": "orchestrator/consensus_wrapper.py:725-802 (public entry points); orchestrator/consensus_wrapper.py:102-714 (the bash template)",
+      "used_by": "Today: orchestrator/concurrent_executor.py:489, orchestrator/routes/pipelines.py:2901-2905. After this slice: nobody.",
+      "context": "Orchestrator process (composition); previously sandboxed pod (execution)"
+    }
+  ],
+  "key_constraints_carried_from_refine": {
+    "no_idle_pods_qualitative_target": "Per feedback Q1: 'idle pods (a role blocked in wait) should not exist'. The change moves the wait OUT of the pod — not as a latency optimization but to free per-role pod reservation, gateway session pin, and 30s heartbeat overhead during waits. No cold-start SLO gates the change (cq-1).",
+    "per_phase_reuse_unchanged": "Per feedback Q1: 'per-phase reuse of the prompt-cache prefix, gateway session, and worktree is UNCHANGED. The only thing that moves is the wait'. The design preserves this: one session_token per role per phase, one worktree per role per phase (via agent_worktree_id reuse at kubernetes_spawner.py:780-782), and the prompt prefix is composed identically (compose_event_prompt is reused, not rewritten).",
+    "single_blocking_thread": "Per feedback Q1: 'a single blocking thread covering all agents (one wait that wakes when any role becomes actionable), not N per-pod waits and not per-role timers'. PhaseEventWatcher is exactly that single thread; the message_store wait semantics support a single-stream multi-type subscription so this falls out without extra plumbing.",
+    "orchestrator_owned_gateway_session_lifecycle": "Per cq-2: 'Per-role session held by the orchestrator for the whole phase, refreshed by an orchestrator-side keep-alive (mirrors today's lifecycle but moves the heartbeat emitter; reuses today's gateway/session_manager.py semantics)'. PhaseGatewaySessionKeeper IS that keep-alive; it calls the existing heartbeat_session_by_container path (gateway/session_manager.py:903-934, no semantics change).",
+    "phase_level_idle_alert": "Per cq-3: idle alert moves from per-pod to one phase-level alert with the same stuck-phase-transition anomaly tag and same default threshold. PhaseIdleBudgetMonitor implements exactly this — operator UX regresses only in that idle-role granularity is gone (replaced by one fires-once-per-phase alert).",
+    "big_bang_no_env_flag": "Per cq-4: 'Big-bang with rollback-by-git-revert (mirrors #2908 slice-4 stance) — smallest config surface, requires a clean revert path in the PR'. No EGG_ON_DEMAND env flag, no coexistence; the wrapper is deleted in the same diff that adds the orchestrator-side replacement.",
+    "wrapper_full_retirement": "Per cq-5: 'Delete consensus_wrapper.py entirely; the pod entrypoint becomes python3 -m egg_agent --model X --max-turns N with the composed prompt on stdin'. The pod entrypoint is exactly that — egg_agent's __main__.py:42-50 already accepts stdin, no SDK change required.",
+    "overseer_out_of_scope_followup": "Per cq-6: overseer agents (spawn_overseer_job at kubernetes_spawner.py:1694) stay on their bespoke path; unification deferred to a follow-up issue. Note in the PR closeout.",
+    "kubectl_exec_debug_replaced_by_logs": "Per feedback Q2: per-spawn pod log retained in .egg-state/ is a sufficient replacement for the today's 'kubectl exec into stuck wrapper' affordance. The orchestrator's per-container log capture (retained per spawn) is the operator's incident-inspection surface.",
+    "anchor_on_current_worktree_pvc_pattern": "Per feedback Q3: anchor on the per-role worktree-mount pattern in kubernetes_spawner.py; #2866 (k3s-as-sole-runtime) does not change PVC lifecycle, and #3017 (declarative phase abstraction) is the adjacency to keep in view. The design proceeds on today's pattern and flags #3017 as a future-coordination point in the open-risks section.",
+    "one_spawn_one_event_multi_commit": "Per feedback Q4: a spawn may produce N commits in a single invocation; the pod exits when the agent's turn for THAT event completes, not after one commit. Composes with #2958 streaming. The OnDemandSpawner does not gate exit on commit-count.",
+    "do_not_retune_idle_threshold": "Per feedback Q5: keep the current 30-min threshold semantics; do not retune. PhaseIdleBudgetMonitor reads EGG_BRC_IDLE_BUDGET_MIN with the same default of 30 (mirrors consensus_wrapper.py:55-58)."
+  },
+  "open_risks_for_risk_analyst": [
+    {
+      "id": "R1",
+      "name": "Watcher thread death silently stalls the phase",
+      "summary": "If PhaseEventWatcher's blocking thread dies (uncaught exception in get_messages_with_meta poll, Python-level OOM, etc.) the phase silently goes inert — no spawns, no idle-budget alert (because LAST_SPAWN_AT will never be updated but the monitor ticker is a SIBLING thread that doesn't fail-fast on the watcher's death). Today the in-pod wrapper has a per-role failure mode (one role's wrapper dying surfaces as a Job restart on the kubelet's retry policy + AGENT_FAILED message to the bus); the orchestrator-side single watcher concentrates that failure into a single point.",
+      "evidence": "consensus_wrapper.py:236-239 (today's per-pod cleanup trap) vs the new single-thread design; today's in-pod alert at consensus_wrapper.py:489-528 is per-role-pod, the new design fires once per phase.",
+      "mitigation_hint": "Wrap the watcher loop in a supervisor that restarts the thread on uncaught exception and emits an OVERSEER_ALERT(anomaly=watcher-died) on every restart. Idle-budget monitor should additionally check watcher liveness on each tick and alert if dead. Risk analyst to size the priority + thresholds."
+    },
+    {
+      "id": "R2",
+      "name": "Gateway session expiry between successive on-demand spawns",
+      "summary": "Sessions have a TTL (gateway/session_manager.py default DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES, ~60min). If a role's actionable event takes longer than 60min between spawns AND the SessionKeeper missed a tick, the second spawn fails session lookup. Today the in-pod wrapper heartbeats every 30s so this never happens; the orchestrator-side keeper is the structural equivalent but failure modes (orchestrator-process restart, k8s eviction of the orchestrator pod) can pause the heartbeat for longer than the gateway's idle timeout.",
+      "evidence": "Today's TTL extend in heartbeat_session_by_container at gateway/session_manager.py:903-934. Today's per-pod 30s cadence at consensus_wrapper.py:68. Today's orchestrator-process restart concerns: heartbeat ceasing for the restart duration. The PhaseGatewaySessionKeeper inherits the same exposure but at the phase level.",
+      "mitigation_hint": "On orchestrator startup, re-register every active phase's per-role sessions from the persisted pipeline-state store before starting the keeper. Add a retry-on-session-expired arm to OnDemandSpawner.spawn_for_event that re-registers on a 404 from spawn_agent_job's gateway calls."
+    },
+    {
+      "id": "R3",
+      "name": "Race: spawn fires while watcher is iterating; same role spawned twice",
+      "summary": "The watcher's iteration over registered roles is not transactional with the message_store wake. If a watcher wake at T=0 fires a spawn for role X (action='ack'), and a second event for X arrives at T=0.5 (e.g. a different reviewer's NACK that re-derives to action='nack' for X) before the first spawn's pod finishes, the watcher's next wake fires a SECOND spawn for X — concurrent pods for the same role on the same worktree. Today's wrapper serializes per-role by being one process per role; the orchestrator-side design needs an explicit per-role spawn lock.",
+      "evidence": "Today's per-pod serialization: consensus_wrapper.py's bash loop is intrinsically per-role single-threaded. _derive_next_action is pure but stateless w.r.t. in-flight spawns.",
+      "mitigation_hint": "OnDemandSpawner maintains a per-role IN_FLIGHT flag; spawn_for_event is a no-op when the role's pod is still running. The next pod-completion event (the pod's PROPOSE/ACK/NACK message) clears the flag and re-derives next-action. Risk analyst to confirm this doesn't introduce a deadlock (e.g. a pod that crashes without emitting a CONSENSUS_* message leaves the flag stuck)."
+    },
+    {
+      "id": "R4",
+      "name": "Wait-filter CONSENSUS_CONFIRMED inclusion is a per-role decision the watcher must aggregate",
+      "summary": "The orchestrator's HTTP-400 rule (#2064/#2482, risk_analyst R12 in #2908) rejects a wait that includes CONSENSUS_CONFIRMED when the caller is a producer pre-confirm. The wrapper handles this per-role at consensus_wrapper.py:340-359 (passes include_confirmed=$ROLE_CONFIRMED). The watcher waits ONCE across all roles, so it must decide: include CONSENSUS_CONFIRMED in the wait set iff AT LEAST ONE role in the tracker is post-confirm. Otherwise the watcher hits the HTTP-400 unconditionally for pre-confirm phases.",
+      "evidence": "Wrapper guard: consensus_wrapper.py:340-359. Today's HTTP-400 rejection: orchestrator/routes/messages.py:_check_producer_pending_confirm_guard at :440-462. Producer-pending-confirm logic: peer_consensus.py is_producer_pending_confirm.",
+      "mitigation_hint": "PhaseEventWatcher dynamically rebuilds its wait_for_types each iteration based on tracker.confirmed_roles. Risk analyst to confirm that 'one role post-confirm' is the right boundary, vs 'all roles post-confirm' (the wrapper uses per-role; the aggregation choice across roles is new)."
+    },
+    {
+      "id": "R5",
+      "name": "Stdin/env piping of the rendered prompt to a one-shot pod",
+      "summary": "The cq-5 selected option says 'composed prompt on stdin'. Two viable mechanisms exist: (a) k8s exec / attach with stdin piping (requires the orchestrator to remain connected during pod startup; brittle on transient network blips); (b) EGG_EVENT_PROMPT env var + a one-line bash wrapper that pipes printf into python3 -m egg_agent (env-var size limit ~1 MiB per env, well under PROMPT_ENVELOPE_MAX_BYTES; resilient to network blips). Picking (b) keeps the pod self-contained — egg_agent's __main__.py:42-50 already supports stdin. But (b) is technically 'env var passed to a one-line bash, then piped to stdin' — not literal stdin from the orchestrator. Open question whether cq-5's 'on stdin' wording rules out (b).",
+      "evidence": "egg_agent stdin path: shared/egg_agent/__main__.py:42-50. PROMPT_ENVELOPE_MAX_BYTES cap: orchestrator/routes/event_prompt.py:413-436. K8s env-var size ceiling: ~1 MiB documented limit. Today's argv path: consensus_wrapper.py:457 ({agent_command_prefix} \"$prompt\").",
+      "mitigation_hint": "Architect's recommendation is mechanism (b) — env var + one-line bash + stdin pipe. This preserves the spirit of cq-5 (no wrapper template, single egg_agent invocation; the bash one-liner is not a state-holding wrapper) while avoiding the operational fragility of mechanism (a). Risk analyst to weigh whether (b) is 'still on stdin per cq-5' or whether a re-decision is needed."
+    },
+    {
+      "id": "R6",
+      "name": "Orchestrator-process restart loses in-memory phase state",
+      "summary": "Today's per-pod wrapper survives orchestrator-process restarts (the pod stays alive; on restart the orchestrator reconnects via the gateway session and the wrapper continues looping). Under on-demand spawning the watcher / keeper / monitor live in the orchestrator process; a restart kills all three. The persisted pipeline state (orchestrator/.egg-state/pipelines/<id>.json or equivalent) needs to be sufficient to reconstruct: registered roles per phase, agent_worktree_ids, session_tokens, base_branch, slice_id, LAST_SPAWN_AT, idle-budget latch states.",
+      "evidence": "Orchestrator pipeline-state shape: orchestrator/routes/pipelines.py (state store) — planner to cite the exact persistence path. Today's restart-survives-because-pods-are-stateful invariant: an artifact of consensus_wrapper.py:567-569 + the persistent gateway session.",
+      "mitigation_hint": "Persist the watcher / keeper / monitor state at every state-change boundary (spawn, alert fire, role-completion). On orchestrator startup, scan the pipeline-state store for phases in {refine, plan, implement, pr} that have not completed and restart their watchers/keepers/monitors from the persisted state. Risk analyst to size the persistence cadence vs disk-I/O cost."
+    },
+    {
+      "id": "R7",
+      "name": "Per-role pod logs are now ephemeral",
+      "summary": "Today's long-lived wrapper accumulates one log per Job; ad-hoc kubectl exec inspection works on a live wrapper. Per feedback Q2, operators agree the kubectl-exec affordance is dispensable — but feedback Q2 ALSO says 'address it as a separate, lightweight concern (e.g. a retained per-spawn log)'. The on-demand model creates one Job per spawn — many short-lived pods per phase. K8s default Job-log retention is per-pod and gets pruned by the kubelet eventually; if the orchestrator wants a unified per-role log it has to stream-and-store each spawn's output.",
+      "evidence": "feedback Q2 answer wording: 'a per-spawn pod log retained in .egg-state/ be a sufficient replacement'. Today's per-Job log location: kubelet-resident, pruned per retention policy.",
+      "mitigation_hint": "OnDemandSpawner tails the pod log to .egg-state/agent-outputs/<role>/spawn-<timestamp>-<event_type>.log on pod completion. Risk analyst to confirm whether this is in-scope for slice-1 (architect's recommendation: yes — Q2's 'retained per-spawn log' is the architect's read of the operator's expectation)."
+    },
+    {
+      "id": "R8",
+      "name": "Spawn-rate amplification under a NACK cascade",
+      "summary": "Today a NACK cascade (reviewer NACKs producer, producer re-proposes, reviewer NACKs again) is naturally rate-limited by the long-lived wrapper's per-role consecutive-failure backoff (consensus_wrapper.py:643-657 CONFIRM_FAIL_STREAK; :691-700 AGENT_FAIL_STREAK with sleep 1). Under on-demand spawning a fast-NACK loop could trigger many spawns per minute — each one paying Job-creation + pod-start latency, but no per-role backoff is built-in. Operator-visible failure mode: per-role gateway-credential injection rate amplified, k8s API server hit harder, $/hr crossed faster.",
+      "evidence": "Wrapper's per-role backoff: consensus_wrapper.py:638-657 (confirm streak), :686-700 (agent streak). No equivalent today in concurrent_executor or kubernetes_spawner.",
+      "mitigation_hint": "PhaseEventWatcher (or OnDemandSpawner) maintains a per-role spawn-streak counter; when a role spawns N times in M seconds with no consensus advance, insert a linear backoff before the next spawn. Mirror the wrapper's CONFIRM_FAIL_STREAK / AGENT_FAIL_STREAK shape — keep the operator-visible streak log lines so the existing oncall runbooks still work. Risk analyst to pick concrete N/M and confirm the streak isn't a permanent escalation gate (the wrapper deliberately lets the idle budget fire while the backoff caps individual retries)."
+    }
+  ],
+  "task_planner_inputs": {
+    "slice_count": 1,
+    "slice_dependency": "none — single slice, big-bang per cq-4",
+    "ordering_rationale": "cq-4 explicitly forbids a phased rollout with env-flag coexistence. The wrapper is the bus through which today's pods reach the gateway; replacing it cleanly requires the orchestrator-side replacement to land in the same diff. A multi-slice ordering would either (a) require an env-flag coexistence path (forbidden by cq-4) or (b) leave a transient broken state in main between slices. Single slice with the planner picking the task decomposition WITHIN the slice is the right shape.",
+    "task_decomposition_hints_planner_owns_the_breakdown": [
+      "task-1-1: Add PhaseEventWatcher + tests (mock _derive_next_action + message_store)",
+      "task-1-2: Add OnDemandSpawner + tests (mock KubernetesSpawner; verify argv shape and prompt composition)",
+      "task-1-3: Add PhaseGatewaySessionKeeper + tests (clock-fake, verify heartbeat_session_by_container call count and container_id derivation)",
+      "task-1-4: Add PhaseIdleBudgetMonitor + tests (clock-fake, verify single alert per boundary, latch semantics)",
+      "task-1-5: Refactor concurrent_executor.spawn_all + _spawn_agent to one-time per-role reserve + start watcher",
+      "task-1-6: Reduce restart_agent route to a synthetic-STATUS kick; delete the build_consensus_wrapped_command call site at routes/pipelines.py:2901-2905",
+      "task-1-7: Delete orchestrator/consensus_wrapper.py and orchestrator/tests/test_consensus_wrapper.py; clean up the residual wrapper-references in test_concurrent_executor.py / test_concurrent_integration.py",
+      "task-1-8: Docs (orchestrator.md / concurrent-execution.md / orchestrator/CLAUDE.md)"
+    ],
+    "acceptance_criteria_seeds": [
+      "AC-1: After spawn_all, no Job is created for any role (k8s.create_container mock asserts zero calls). After a CONSENSUS_PROPOSE bus message, the watcher fires exactly one OnDemandSpawner.spawn_for_event per reviewer of that producer.",
+      "AC-2: OnDemandSpawner.spawn_for_event composes the per-event prompt via compose_event_prompt with the role/event_payload/memory/git_log_delta/base_branch inputs passed through verbatim; the resulting pod command is ['python3', '-m', 'egg_agent', '--model', <resolved_alias>, '--max-turns', '1000'] (no bash wrapper).",
+      "AC-3: For role X, the FIRST spawn calls spawner.gateway.register_session; the SECOND spawn does NOT (the session_token is reused). Same for create_worktrees: called once at phase start, reused across spawns via worktree_container_id=agent_worktree_id.",
+      "AC-4: PhaseGatewaySessionKeeper emits heartbeat_session_by_container N times in 30N seconds for each registered role; clock-fake assertion. The keeper STOPS on phase completion.",
+      "AC-5: PhaseIdleBudgetMonitor: at LAST_SPAWN_AT + 30min, exactly one OVERSEER_ALERT(anomaly=stuck-phase-transition, priority=high) fires; at 60min, exactly one more (higher priority semantics unchanged from consensus_wrapper.py:489-528). No re-fire on subsequent ticks past 60min. A successful spawn between the two boundaries resets LAST_SPAWN_AT and the 2x latch does NOT fire afterwards.",
+      "AC-6: Conditional CONSENSUS_CONFIRMED inclusion in the watcher's wait_for_types: when no role is post-confirm, CONSENSUS_CONFIRMED is omitted from the wait set; when at least one role is post-confirm, it is included. Wait does NOT receive HTTP 400 from the orchestrator's pending-confirm guard.",
+      "AC-7: orchestrator/consensus_wrapper.py file does not exist after this slice; pytest collection of orchestrator/tests/ does not reference any symbol from consensus_wrapper; ripgrep of the repo for build_consensus_wrapped_command yields zero hits.",
+      "AC-8: restart_agent (orchestrator/routes/pipelines.py:2351) returns 202 and posts a synthetic STATUS message; no Job is created by the route directly; the watcher's next wake spawns any newly-actionable roles.",
+      "AC-9: A spawned pod that emits N CONSENSUS_PROPOSE messages followed by a natural turn-completion exits cleanly; the watcher does not respawn it until the next actionable event for that role (composes with #2958 streaming per feedback Q4).",
+      "AC-10: The PROMPT_ENVELOPE_MAX_BYTES cap in compose_event_prompt is honored end-to-end (the rendered prompt that lands in the pod's env var or stdin is bounded by the same cap; no over-cap path)."
+    ],
+    "out_of_scope_explicitly": [
+      "Overseer agents stay on spawn_overseer_job (kubernetes_spawner.py:1694) — unification follow-up per cq-6.",
+      "Retuning the 30-min idle budget threshold — explicitly deferred per feedback Q5.",
+      "Refactoring the wrapper-only env vars (EGG_BRC_HEARTBEAT_INTERVAL_SECS, EGG_BRC_WAIT_TIMEOUT_SECS) into orchestrator-side config — they just become inert and operators can clean them out of k8s manifests at their leisure (mirrors the EGG_BRC_EVENT_PUMP deprecation pattern at consensus_wrapper.py:718-722).",
+      "Decomposing kubernetes_spawner.spawn_agent_job into separate session-prep and pod-create primitives as a public API — slice-1 does the decomposition INTERNALLY (or by adding two new spawner methods, planner picks), but exporting them as new public methods is a follow-up if other call sites need them.",
+      "Coordination with #3017 declarative phase abstraction — flagged as an adjacency in open-risks but no API contract is pre-built for it (the new watcher/keeper/monitor modules are deliberately scoped to (pipeline_id, phase, slice_id) tuples, which is the data shape #3017's phase model will naturally express).",
+      "Persisted-state recovery on orchestrator-process restart (R6) — architect recommends including a basic 'restart watcher from pipeline-state' path in slice-1 because the alternative leaves a load-bearing regression on orchestrator restarts; risk analyst to confirm scope."
+    ]
+  },
+  "external_research_done": [
+    {
+      "topic": "#2908 BRC event-pump foundation (the precedent this builds on)",
+      "finding": "PR #2949 / slice-3 landed compose_event_prompt + durable BRC memory + the cache-preserving prompt shape. The wrapper at consensus_wrapper.py:1-802 explicitly describes itself as 'event-pump model' and 'one-shot per actionable BRC event' (header comment, lines 3-24). The on-demand work is the natural next step: now that per-event invocation is stateless and the prompt is composed identically every time, the wrapper's last reason-to-exist is its bash loop and its heartbeat subshell.",
+      "evidence": "consensus_wrapper.py:3-48 (header docstring), :725-802 (post-slice-4 public entry points)."
+    },
+    {
+      "topic": "#2769 per-agent model resolution (the seam this reuses)",
+      "finding": "AgentModelDecision.claude_code_alias is the value passed to --model. resolve_agent_model is a pure function (orchestrator/agent_model_resolution.py:1-240). OnDemandSpawner calls it exactly as concurrent_executor.py:473-485 does today; no new resolver logic needed.",
+      "evidence": "orchestrator/agent_model_resolution.py:100-240 (AgentModelDecision + classify_model + resolve_agent_model)."
+    },
+    {
+      "topic": "Existing orchestrator-side heartbeat fan-out (#2068 already wired the seam)",
+      "finding": "When the in-pod wrapper emits a HEARTBEAT message today, the orchestrator's heartbeat handler ALREADY calls gateway_client.heartbeat_session_by_container as a side effect (orchestrator/routes/messages.py:846-880). This means the gateway-side endpoint (gateway.py:8715) and session_manager.heartbeat_session_by_container (session_manager.py:903-934) are battle-tested at production cadence — the new PhaseGatewaySessionKeeper just replaces the trigger (in-pod 30s heartbeat) with an orchestrator-side timer.",
+      "evidence": "orchestrator/routes/messages.py:846-880 (existing fan-out); gateway/gateway.py:8715-8720 (endpoint); gateway/session_manager.py:903-934 (in-memory TTL extend, no disk write semantics already proven safe)."
+    },
+    {
+      "topic": "#3017 declarative phase/stage abstraction (adjacency check)",
+      "finding": "Per feedback Q3: #3017 reshapes the phase model that this change also touches (spawn/run/terminate per phase). Architect's read: not in the codebase yet, no API contract to anchor on; the new modules are scoped to (pipeline_id, phase, slice_id) which is the natural shape #3017's phase model will express. Flagged as an open risk for future coordination but not blocking slice-1.",
+      "evidence": "feedback Q3 answer wording: 'flag #3017 as the adjacency to keep in view'."
+    }
+  ],
+  "decisions_referenced": [
+    "cq-1 (cold-start latency budget): No fixed budget — resource-freeing change, not latency-sensitive. Drives no design knob in slice-1 beyond reusing the per-phase session/worktree/cache prefix.",
+    "cq-2 (gateway session management across on-demand spawns): Per-role session held by the orchestrator for the whole phase, refreshed by an orchestrator-side keep-alive. PhaseGatewaySessionKeeper implements exactly this.",
+    "cq-3 (idle-budget alert ownership): Replace per-pod alert with a phase-level no-spawns-for-X-minutes alert at the orchestrator (same stuck-phase-transition tag, same threshold). PhaseIdleBudgetMonitor implements exactly this.",
+    "cq-4 (rollout shape): Big-bang with rollback by git revert. Single slice; no env-flag coexistence; wrapper deleted in the same diff.",
+    "cq-5 (wrapper retirement scope): Delete consensus_wrapper.py entirely; pod entrypoint becomes python3 -m egg_agent --model X --max-turns N with composed prompt on stdin. The architect's recommended stdin-mechanism is EGG_EVENT_PROMPT env var + a one-line bash printf|python3 -m egg_agent (preserves the spirit of cq-5; egg_agent's __main__.py:42-50 already supports stdin); risk analyst to confirm this is within cq-5's intent vs requiring literal k8s-attached stdin.",
+    "cq-6 (overseer scope): In scope but follow-up issue. The new modules deliberately do not touch spawn_overseer_job; a follow-up can layer overseer unification on top.",
+    "feedback Q1 (resource-saving target qualitative; single blocking thread; per-phase reuse unchanged): The design's most load-bearing constraint — drives the single-watcher shape and the phase-start one-time session/worktree reservation.",
+    "feedback Q2 (kubectl exec affordance loss + per-spawn log retention): Architect recommends OnDemandSpawner streams per-spawn pod logs to .egg-state/agent-outputs/<role>/spawn-<ts>-<event>.log; risk analyst to confirm in-scope for slice-1.",
+    "feedback Q3 (anchor on current worktree PVC pattern; #2866 / #3017 adjacencies): Design proceeds on today's pattern; #3017 flagged as adjacency.",
+    "feedback Q4 (one-spawn-may-yield-N-commits, composes with #2958): OnDemandSpawner does not gate exit on commit-count; pod-exit signal is the agent SDK turn-completion.",
+    "feedback Q5 (keep 30-min threshold; do not retune): PhaseIdleBudgetMonitor reads EGG_BRC_IDLE_BUDGET_MIN with default 30 (unchanged from consensus_wrapper.py:55-58)."
+  ]
+}
