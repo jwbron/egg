@@ -308,10 +308,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "What is the concrete resource-saving target operators care about? (e.g. 'halve the idle-pod-minutes per phase', 'support 10x current concurrent pipelines on the same k3s node', 'reduce per-phase memory reservation by X%'). This shapes how aggressively the acceptance test must drive the cold-start budget down vs. accept a higher latency for a cleaner code shape.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Are there any pipelines or repos currently relying on the in-pod wrapper's debug-shell-able-ness during incidents? (e.g. `kubectl exec` into a stuck wrapper, inspect the heartbeat subshell, read AGENT_OUTPUT_LOG). If so the on-demand model loses that affordance — would a per-spawn pod log retained in .egg-state/ be a sufficient replacement, or do operators need a long-lived debug shim?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "The plan will rely on per-role worktree PVCs already being reusable across multiple spawns. Is there any in-flight work (#2866 k3s-as-sole-runtime, #3017 declarative phase/stage abstraction) that is about to change the PVC lifecycle or the spawner's worktree-mount pattern in a way the plan should anchor on?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "The issue references #2958 (streaming per-task commits / producer lifecycle) as adjacent. Does the on-demand spawner need to coexist with a producer that 'keeps working' across multiple commits in one logical session, or does the per-event spawn model assume one event approximately equals one commit / one BRC verb cleanly?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "The current 30-min EGG_BRC_IDLE_BUDGET_MIN was tuned for the in-pod wrapper (consensus_wrapper.py:52-58 comment). Once the orchestrator owns the equivalent timer, is there appetite to tighten or widen it (e.g. tighten to 10 min now that there's no risk of a wrapper-side false positive, or widen to 60 min to match the prefix-cache TTL so we don't alert on legitimately-idle phases that are still within cache window)?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-06-08T22:43:37.319267Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-08T22:43:37.284274Z",
+  "updated_at": "2026-06-08T22:43:37.328245Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -324,7 +364,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
