@@ -44,6 +44,18 @@ that branch:
     with no payload (line 302-303). The happy-path
     ``test_parity_complete_after_full_convergence`` exercises the same
     branch indirectly; this case is a tighter unit assertion.
+
+The WORKING-branch ``nacks`` enrichment path at
+``consensus.py:340-344`` (``if nacks: payload["unresolved_nacks"] =
+nacks``) intentionally has NO adversarial parity case because it is
+unreachable through valid producer FSM transitions. The helper
+``_producer_has_unresolved_nacks_on_current_version`` at
+``consensus.py:264`` short-circuits to ``[]`` when ``current_version
+== 0``, and a producer in WORKING phase either has never proposed
+(``current_version == 0``) or arrived there via a path the FSM does
+not currently expose. The WORKING + non-empty-nacks payload shape is
+therefore documented here rather than asserted via a test against an
+unreachable state.
 """
 
 from __future__ import annotations
