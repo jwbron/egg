@@ -16,6 +16,14 @@
       "repo": null,
       "role": "architect"
     },
+    "330e37836be58389905bdf66562842db23634db1": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "8a8006596309fa6c97f48760f62be3f679318ba8",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T02:58:22.537122+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "37b9fe830d63c4eb4527fce4706c8e19a6e32f7c": {
       "branch": "egg/issue-3023/work",
       "patch_id": "5877d34a18ea939d2fad5ca059cb6683ac3507ed",
