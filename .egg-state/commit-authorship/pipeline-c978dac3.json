@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "01a4abd3f55b656dcbcafa9e7171e33d3daccc0a": {
+      "branch": "egg/pipeline-c978dac3/work",
+      "patch_id": "72fc492a9875d3e567532b3fd14b0ce3f0e5994f",
+      "pipeline_id": "pipeline-c978dac3",
+      "registered_at": "2026-06-09T17:32:10.212496+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
