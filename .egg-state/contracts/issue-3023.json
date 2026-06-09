@@ -12,7 +12,7 @@
     {
       "id": "slice-1",
       "name": "Orchestrator-side phase-level idle-budget alert",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -21,8 +21,8 @@
         {
           "id": "task-1-1",
           "description": "Create orchestrator/phase_idle_budget.py with a PhaseIdleBudgetTimer\nclass. Owns DEFAULT_PHASE_IDLE_BUDGET_MIN = 30 (parity with\nconsensus_wrapper.py:59); state (pipeline_id, phase, last_spawn_at,\nlast_alert_at, per_role_last_action); APIs record_spawn(pipeline_id,\nphase, role, action), check(now, pending_hitl_count), reset. Emits\nstuck-phase-transition once at the 1x threshold and once at 2x via the\nsame overseer-alert entry point overseer/monitor.py uses. HITL-pending\nsuppression (AC-R13): when pending_hitl_count>0 the 1x alert downgrades\nto priority=low with pending_hitl_ids in reason and the 2x alert is\nsuppressed. Every alert carries a structured per_role_state payload\nfield (AC-R4) derived from per_role_last_action. Idempotent re-fire\nwithin a threshold bucket.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- File exists; class exposes record_spawn, check, reset; constant == 30.\n- Unit tests: 0 idle min -> no emit; 30 min -> 1x emit once with\n  populated per_role_state; 60 min -> 2x emit once (1x not re-emitted);\n  record_spawn resets and updates per-role state; idempotent across\n  check() calls in the same bucket; pending_hitl_count=1 at 30 min ->\n  priority=low + pending HITL id in reason; pending_hitl_count=1 at\n  60 min -> no additional alert.",
@@ -43,8 +43,8 @@
         {
           "id": "task-1-2",
           "description": "Wire PhaseIdleBudgetTimer.check(now, pending_hitl_count) into the\norchestrator's existing per-phase tick in orchestrator/routes/pipelines.py\n(the run loop that already polls consensus for phase completion). Each\ntick reads the pending-HITL count (routes/decisions.py open-decision\ncount), calls check(now=monotonic, pending_hitl_count=...), and emits a\nstructured phase_idle_budget_tick log once per emitted alert.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Tick invokes check exactly once per loop iteration.\n- After the fixture advances past 30 min with no record_spawn and zero\n  pending HITL, the overseer alert handler is invoked exactly once with\n  anomaly=\"stuck-phase-transition\", priority=medium.\n- With one pending HITL the same interval emits priority=low and the\n  pending HITL id appears in reason.",
@@ -65,8 +65,8 @@
         {
           "id": "task-1-3",
           "description": "Coexistence guard while the in-pod wrapper still exists (until slice 3):\nthe orchestrator timer is authoritative and the wrapper's\nconsensus_wrapper.py:531-549 emitter is silenced behind a branch keyed\non a new EGG_PHASE_IDLE_BUDGET_OWNER=orchestrator env var injected\nunconditionally by concurrent_executor._spawn_agent. Slice 3 deletes the\nwrapper-side emitter outright.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- EGG_PHASE_IDLE_BUDGET_OWNER=orchestrator appears in the spawn env from\n  _spawn_agent for every role.\n- Wrapper unit test confirms the alert subshell short-circuits when the\n  var is set; alert emitted exactly once per phase per threshold (no\n  double-emit).",
@@ -88,15 +88,15 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3023/work",
+      "integration_base_sha": "40113b112f12b5774022e32fa554530930bca668",
       "commit": null,
       "review_feedback": []
     },
     {
       "id": "slice-2",
       "name": "On-demand spawner + worktree-PVC and gateway-session reuse",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -106,7 +106,7 @@
           "id": "task-2-0",
           "description": "Coexistence guard for the long-lived wrapper pod (BLOCKER 1). spawn_all\nstill spawns one wrapper pod per role in slice 2; without a guard both\nits in-pod while-true loop (consensus_wrapper.py:564-602) and the\norchestrator's new on-demand tick would act on the same event. Add a new\nEGG_EVENT_LOOP_OWNER env var injected unconditionally with value\n\"orchestrator\" by concurrent_executor._spawn_agent, and a short-circuit\nat the very top of the _EVENT_PUMP_WRAPPER_TEMPLATE main loop\n(consensus_wrapper.py:564) that turns the loop into a passive\nheartbeat-only sleep when EGG_EVENT_LOOP_OWNER=orchestrator (never calls\nbrc next-action, never invokes the agent). Active in slice 2, dead code\nin slice 3.",
           "status": "pending",
-          "commit": null,
+          "commit": "068388f8c01418d7349c88e6e7c20dfe1f2906b2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Env var injection asserted (alongside TASK-1-3).\n- Wrapper unit test: with EGG_EVENT_LOOP_OWNER=orchestrator the wrapper\n  does NOT call `egg-orch brc next-action`, does NOT invoke the agent,\n  and DOES emit heartbeats.\n- TASK-2-8 integration test asserts exactly one BRC verb per actionable\n  event (no double-emit).",
@@ -379,15 +379,15 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3023/work",
+      "integration_base_sha": "40113b112f12b5774022e32fa554530930bca668",
       "commit": null,
       "review_feedback": []
     },
     {
       "id": "slice-3",
       "name": "consensus_wrapper.py retirement + entrypoint simplification",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -510,8 +510,8 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3023/work",
+      "integration_base_sha": "40113b112f12b5774022e32fa554530930bca668",
       "commit": null,
       "review_feedback": []
     }
@@ -718,6 +718,191 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"In scope, but as a follow-up issue \u2014 note the unification target in this issue's closeout but defer the work\"}",
       "resolved_by": "human",
       "resolved_at": "2026-06-08T22:55:29.313999Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "Documenter has zero assigned tasks in slice-1 of issue-3023 (all three slice-1 tasks have role=null). Documenter's only assignment is task-3-4 in slice-3, which is premature because the slice-1 coder branch has not committed any implementation yet. The documenter producer branch is at origin/main with zero commits ahead, so v1 and v2 BRC proposals were empty and reviewer_code (correctly) NACKed v2. How should slice-1's BRC matrix unblock?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Skip documenter for slice-1 and slice-2 \u2014 defer documenter participation until slice-3 (when task-3-4 has substrate to document); remove documenter from the slice-1/slice-2 BRC matrix or mark not-required",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Assign at least one slice-1 documentation task to documenter (e.g. a doc-stub for orchestrator/phase_idle_budget.py or a slice-1 runbook snippet) so the producer has legitimate work to propose",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep documenter blocking and have it withdraw its current proposal; let the BRC cycle stay open until slice-3 \u2014 accept the idle-budget alert risk",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer slice-1 entirely until plan refinement re-scopes documenter coverage across all three slices",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-8",
+      "question": "Tester is listed as a blocking producer in the slice-3 BRC matrix (producer_phase=WORKING) for issue-3023 but has ZERO assigned tasks across all three slices \u2014 mcp__phase__get_assigned_tasks returns count=0, and all slice-3 task roles are null or 'documenter'. The slice-3 task descriptions include test files (orchestrator/tests/test_concurrent_executor.py [task-3-2], orchestrator/tests/test_pipelines_restart_on_demand.py [task-3-2], shared/tests/test_egg_agent_signal.py [task-3-3], orchestrator/tests/test_startup_reconciliation_cross_version.py [task-3-5]), but their parent tasks bundle the tests with coder-owned implementation files (concurrent_executor.py, routes/pipelines.py, etc.) \u2014 so the planner folded test-writing into coder tasks rather than carving out tester producer tasks. file_restriction_check confirms: tester CAN write the four test files, but is blocked from the bundled implementation files (alternative_role=coder). This is structurally identical to cq-7 (documenter/slice-1) but for tester/slice-3 and remains unresolved. Without tester producer tasks, any proposal would be empty and reviewer_code would NACK it for emptiness. BRC next-action keeps returning 'propose' so the wrapper keeps re-invoking. An impasse signal was filed (category=plan_bug) on the 2nd invocation but hasn't unblocked the cycle. How should slice-3's BRC matrix unblock for tester?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Carve a tester producer task out of the slice-3 plan that owns only the four test files (test_concurrent_executor.py, test_pipelines_restart_on_demand.py, test_egg_agent_signal.py, test_startup_reconciliation_cross_version.py) so tester can propose a non-empty test-only artifact while coder retains the implementation files",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Remove tester from the slice-3 BRC matrix entirely \u2014 coder owns the test files in their bundled tasks per the current plan, and tester participation is not required for slice-3",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer slice-3 until plan refinement re-scopes tester coverage across all three slices (mirrors cq-7 opt-4 for documenter)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Keep tester blocking and have it propose a no-op 'no test changes needed' attestation against the existing coder commits (uses the no_test_changes_needed strict-mode path from #2431) for slice-3, accepting the matrix stays open until coder commits land",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-9",
+      "question": "Slice-3 BRC deadlock: reviewer_concurrency has NACKed tester v4/v5/v6 claiming the re-review delta from their `last_reviewed_commit_sha 8f2729187` to HEAD is empty, but `git log 8f2729187..HEAD --not origin/main` reliably shows commit `47b2ce2e6 test(#3023 slice-3): depth-pin spawn_all register\u2192seed atomicity (tester v6)` adding 162 lines (two new test methods in TestSpawnAllSeedPreseedWindowIsObservablyAtomic) to orchestrator/tests/test_concurrent_executor.py that explicitly address the v3 concurrency-lens NACK item 4 (TASK-3-2 tracker-registration + auto-ACK pre-seed race window). The two new pins (test_seeder_fires_at_most_once_per_spawn_all + test_no_register_agent_calls_after_seeder_fires) close depth-axis holes the v3 ordering pin (test_register_agents_completes_before_auto_ack_preseed in TestSpawnAllRetiresWrapperPodSpawn) does NOT catch (empty-list trivial pass + double-seeder re-entry race). The v6 commit is pushed to origin/egg/issue-3023/slice-3 (verified). The reviewer's own NACK names \"(b) escalate the disagreement to HITL\" as one of the recommended paths. Should the tester (1) be deemed converged on v6 (reviewer_concurrency overruled \u2014 their claim of empty delta is factually contradicted by the git tree, and v6 materially addresses the v3 named blocker on TASK-3-2), or (2) push an additional v7 commit even though v6 already addresses the named v3 blocker, or (3) something else? Note: tester is the producer; this NACK pattern (three identical false-premise NACKs against progressively-deepened code) is a runaway-reviewer signal, not a substantive scope dispute.",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark tester v6 converged \u2014 reviewer_concurrency's empty-delta claim is factually false and the v3 named blocker is materially addressed by v6's TestSpawnAllSeedPreseedWindowIsObservablyAtomic depth pins",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Tester must push v7 with an additional commit despite v6 already addressing the v3 blocker, to force a non-empty delta the reviewer recognizes",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Drop reviewer_concurrency from slice-3 review set and converge without their ACK",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-10",
+      "question": "Coder has ZERO assigned tasks in slice-2 of issue-3023 \u2014 all 12 slice-2 tasks (task-2-0 through task-2-11) have role=null in the plan, so mcp__phase__get_assigned_tasks returns count=0 and any propose would be empty (reviewer_code would NACK for emptiness, identical to the documenter/slice-1 NACK pattern that drove cq-7 and the tester/slice-3 pattern in cq-8). Every slice-2 task body names coder-allowed files (orchestrator/on_demand_spawner.py, orchestrator/concurrent_executor.py, orchestrator/kubernetes_spawner.py, orchestrator/routes/consensus.py, orchestrator/routes/event_prompt.py, orchestrator/session_keepalive.py, orchestrator/orphan_commit_detector.py, sandbox/egg_agent_tools/handlers/brc_memory.py) and file_restriction_check confirms coder CAN write every one \u2014 this is a planner role-assignment omission, not a wrong_role situation that could be auto-delegated. A prior coder invocation filed report_impasse(category=plan_bug) at .egg-state/agent-outputs/issue-3023-coder-output.json on 2026-06-09T05:42:25Z but no HITL decision was created and BRC next-action keeps returning 'propose', so the wrapper keeps re-invoking. The contract is still at current_phase='refine' even though EGG_PHASE='implement' and HITL cq-1..cq-6 resolved on 2026-06-08T22:55Z. Note: origin/egg/issue-3023/slice-2 already carries commit 068388f8c 'feat(orchestrator): expose derive_next_action as module-level callable (#3023 slice-2 TASK-2-1)' from a previous coder run, but the current coder worktree branch egg/issue-3023-slice-2-coder/work is 0 commits ahead of origin/main. How should slice-2's BRC matrix unblock for coder?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Update the slice-2 plan to set role='coder' on every task whose files_affected match coder-allowed patterns (most/all of slice-2 tasks) and role='tester' on any test-file-only carve-outs (paralleling cq-8 opt-1) \u2014 then re-derive the assigned-task list so coder can compose a non-empty proposal",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rebase egg/issue-3023-slice-2-coder/work onto origin/egg/issue-3023/slice-2 (which already has commit 068388f8c for TASK-2-1) and have coder propose that existing commit as v1 \u2014 no plan edit, but skips the 'role assignment' question for the other 11 tasks which would each still be unassigned",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer slice-2 entirely until plan refinement re-scopes producer coverage across all three slices (mirrors cq-7 opt-4 and cq-8 opt-3) \u2014 bundles a single replanning pass for slice-1/slice-2/slice-3 producer assignments",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Remove coder from the slice-2 BRC matrix entirely and have whichever role was implicitly doing the work (the planner / architect, given the existing 068388f8c commit) continue ad-hoc \u2014 smallest immediate edit but loses BRC review coverage on slice-2 implementation",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-11",
+      "question": "Documenter has ZERO assigned tasks in slice-2 of issue-3023. The plan draft (`.egg-state/drafts/3023-plan.md`, commit 4ccb973e4) assigns TASK-2-1..TASK-2-8 to coder/tester only, and the sole documenter task TASK-3-4 (rewrite of docs/architecture/orchestrator.md) is scheduled for slice-3. mcp__phase__get_assigned_tasks returns count=0 for role=documenter. The SDLC contract is still at current_phase='refine' while BRC is operating in implement, so the plan\u2192implement transition never transcribed planned tasks into the contract \u2014 contract.tasks == []. Meanwhile BRC next-action keeps returning 'propose' for documenter (event payload arrives with action='unspecified'), and the wrapper keeps re-invoking me. The slice-2 documenter working branch (egg/issue-3023-slice-2-documenter/work) is 5 ahead of origin/main but 15 behind origin/egg/issue-3023/slice-2 \u2014 so even if a documenter task existed, the implemented artifacts on origin (orchestrator/on_demand_spawner.py, session_keepalive.py, the derive_next_action public alias in routes/consensus.py from commit 068388f8c) are not visible on my branch to document. A prior documenter invocation filed report_impasse(category=plan_bug) at 2026-06-09T05:43:22Z (.egg-state/agent-outputs/issue-3023-documenter-output.json) but no HITL decision was created and the BRC cycle keeps re-invoking. This is structurally identical to cq-7 (documenter/slice-1), cq-8 (tester/slice-3), and cq-10 (coder/slice-2). How should slice-2's BRC matrix unblock for documenter?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Skip documenter for slice-2 \u2014 remove documenter from the slice-2 BRC matrix (or mark not-required); documentation deliverable stays at TASK-3-4 in slice-3 where the slice-2 substrate will already exist on origin",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Update the slice-2 plan to add a documenter task (e.g. a slice-2 runbook snippet or doc-stub for orchestrator/on_demand_spawner.py + session_keepalive.py) AND repopulate contract.tasks from the plan so the BRC producer has legitimate non-empty work to propose",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Rebase egg/issue-3023-slice-2-documenter/work onto origin/egg/issue-3023/slice-2 (so the already-landed slice-2 commits are visible) AND add a slice-2 documenter task in the plan AND repopulate the contract \u2014 composite fix that mirrors option B but also resolves the missing-substrate sub-problem",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer slice-2 entirely until plan refinement re-scopes producer coverage across all three slices (mirrors cq-7 opt-4 / cq-8 opt-3 / cq-10 opt-3) \u2014 bundles a single replanning pass across the four open structural HITLs",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -1030,6 +1215,351 @@
         "debounce_until": null
       },
       "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T02:34:46.109575Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "Documenter has zero assigned tasks in slice-1 of issue-3023 (all three slice-1 tasks have role=null). Documenter's only assignment is task-3-4 in slice-3, which is premature because the slice-1 coder branch has not committed any implementation yet. The documenter producer branch is at origin/main with zero commits ahead, so v1 and v2 BRC proposals were empty and reviewer_code (correctly) NACKed v2. How should slice-1's BRC matrix unblock?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Skip documenter for slice-1 and slice-2 \u2014 defer documenter participation until slice-3 (when task-3-4 has substrate to document); remove documenter from the slice-1/slice-2 BRC matrix or mark not-required",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Assign at least one slice-1 documentation task to documenter (e.g. a doc-stub for orchestrator/phase_idle_budget.py or a slice-1 runbook snippet) so the producer has legitimate work to propose",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep documenter blocking and have it withdraw its current proposal; let the BRC cycle stay open until slice-3 \u2014 accept the idle-budget alert risk",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer slice-1 entirely until plan refinement re-scopes documenter coverage across all three slices",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Documenter has zero assigned tasks in slice-1 of i...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T03:14:05.283228Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "068388f8c01418d7349c88e6e7c20dfe1f2906b2",
+      "reason": "Linked commit 068388f to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T03:24:25.678687Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-8",
+        "question": "Tester is listed as a blocking producer in the slice-3 BRC matrix (producer_phase=WORKING) for issue-3023 but has ZERO assigned tasks across all three slices \u2014 mcp__phase__get_assigned_tasks returns count=0, and all slice-3 task roles are null or 'documenter'. The slice-3 task descriptions include test files (orchestrator/tests/test_concurrent_executor.py [task-3-2], orchestrator/tests/test_pipelines_restart_on_demand.py [task-3-2], shared/tests/test_egg_agent_signal.py [task-3-3], orchestrator/tests/test_startup_reconciliation_cross_version.py [task-3-5]), but their parent tasks bundle the tests with coder-owned implementation files (concurrent_executor.py, routes/pipelines.py, etc.) \u2014 so the planner folded test-writing into coder tasks rather than carving out tester producer tasks. file_restriction_check confirms: tester CAN write the four test files, but is blocked from the bundled implementation files (alternative_role=coder). This is structurally identical to cq-7 (documenter/slice-1) but for tester/slice-3 and remains unresolved. Without tester producer tasks, any proposal would be empty and reviewer_code would NACK it for emptiness. BRC next-action keeps returning 'propose' so the wrapper keeps re-invoking. An impasse signal was filed (category=plan_bug) on the 2nd invocation but hasn't unblocked the cycle. How should slice-3's BRC matrix unblock for tester?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Carve a tester producer task out of the slice-3 plan that owns only the four test files (test_concurrent_executor.py, test_pipelines_restart_on_demand.py, test_egg_agent_signal.py, test_startup_reconciliation_cross_version.py) so tester can propose a non-empty test-only artifact while coder retains the implementation files",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Remove tester from the slice-3 BRC matrix entirely \u2014 coder owns the test files in their bundled tasks per the current plan, and tester participation is not required for slice-3",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer slice-3 until plan refinement re-scopes tester coverage across all three slices (mirrors cq-7 opt-4 for documenter)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Keep tester blocking and have it propose a no-op 'no test changes needed' attestation against the existing coder commits (uses the no_test_changes_needed strict-mode path from #2431) for slice-3, accepting the matrix stays open until coder commits land",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Tester is listed as a blocking producer in the sli...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T05:03:41.579979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-9",
+        "question": "Slice-3 BRC deadlock: reviewer_concurrency has NACKed tester v4/v5/v6 claiming the re-review delta from their `last_reviewed_commit_sha 8f2729187` to HEAD is empty, but `git log 8f2729187..HEAD --not origin/main` reliably shows commit `47b2ce2e6 test(#3023 slice-3): depth-pin spawn_all register\u2192seed atomicity (tester v6)` adding 162 lines (two new test methods in TestSpawnAllSeedPreseedWindowIsObservablyAtomic) to orchestrator/tests/test_concurrent_executor.py that explicitly address the v3 concurrency-lens NACK item 4 (TASK-3-2 tracker-registration + auto-ACK pre-seed race window). The two new pins (test_seeder_fires_at_most_once_per_spawn_all + test_no_register_agent_calls_after_seeder_fires) close depth-axis holes the v3 ordering pin (test_register_agents_completes_before_auto_ack_preseed in TestSpawnAllRetiresWrapperPodSpawn) does NOT catch (empty-list trivial pass + double-seeder re-entry race). The v6 commit is pushed to origin/egg/issue-3023/slice-3 (verified). The reviewer's own NACK names \"(b) escalate the disagreement to HITL\" as one of the recommended paths. Should the tester (1) be deemed converged on v6 (reviewer_concurrency overruled \u2014 their claim of empty delta is factually contradicted by the git tree, and v6 materially addresses the v3 named blocker on TASK-3-2), or (2) push an additional v7 commit even though v6 already addresses the named v3 blocker, or (3) something else? Note: tester is the producer; this NACK pattern (three identical false-premise NACKs against progressively-deepened code) is a runaway-reviewer signal, not a substantive scope dispute.",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Mark tester v6 converged \u2014 reviewer_concurrency's empty-delta claim is factually false and the v3 named blocker is materially addressed by v6's TestSpawnAllSeedPreseedWindowIsObservablyAtomic depth pins",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Tester must push v7 with an additional commit despite v6 already addressing the v3 blocker, to force a non-empty delta the reviewer recognizes",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Drop reviewer_concurrency from slice-3 review set and converge without their ACK",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Slice-3 BRC deadlock: reviewer_concurrency has NAC...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T05:46:34.351081Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-10",
+        "question": "Coder has ZERO assigned tasks in slice-2 of issue-3023 \u2014 all 12 slice-2 tasks (task-2-0 through task-2-11) have role=null in the plan, so mcp__phase__get_assigned_tasks returns count=0 and any propose would be empty (reviewer_code would NACK for emptiness, identical to the documenter/slice-1 NACK pattern that drove cq-7 and the tester/slice-3 pattern in cq-8). Every slice-2 task body names coder-allowed files (orchestrator/on_demand_spawner.py, orchestrator/concurrent_executor.py, orchestrator/kubernetes_spawner.py, orchestrator/routes/consensus.py, orchestrator/routes/event_prompt.py, orchestrator/session_keepalive.py, orchestrator/orphan_commit_detector.py, sandbox/egg_agent_tools/handlers/brc_memory.py) and file_restriction_check confirms coder CAN write every one \u2014 this is a planner role-assignment omission, not a wrong_role situation that could be auto-delegated. A prior coder invocation filed report_impasse(category=plan_bug) at .egg-state/agent-outputs/issue-3023-coder-output.json on 2026-06-09T05:42:25Z but no HITL decision was created and BRC next-action keeps returning 'propose', so the wrapper keeps re-invoking. The contract is still at current_phase='refine' even though EGG_PHASE='implement' and HITL cq-1..cq-6 resolved on 2026-06-08T22:55Z. Note: origin/egg/issue-3023/slice-2 already carries commit 068388f8c 'feat(orchestrator): expose derive_next_action as module-level callable (#3023 slice-2 TASK-2-1)' from a previous coder run, but the current coder worktree branch egg/issue-3023-slice-2-coder/work is 0 commits ahead of origin/main. How should slice-2's BRC matrix unblock for coder?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Update the slice-2 plan to set role='coder' on every task whose files_affected match coder-allowed patterns (most/all of slice-2 tasks) and role='tester' on any test-file-only carve-outs (paralleling cq-8 opt-1) \u2014 then re-derive the assigned-task list so coder can compose a non-empty proposal",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rebase egg/issue-3023-slice-2-coder/work onto origin/egg/issue-3023/slice-2 (which already has commit 068388f8c for TASK-2-1) and have coder propose that existing commit as v1 \u2014 no plan edit, but skips the 'role assignment' question for the other 11 tasks which would each still be unassigned",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer slice-2 entirely until plan refinement re-scopes producer coverage across all three slices (mirrors cq-7 opt-4 and cq-8 opt-3) \u2014 bundles a single replanning pass for slice-1/slice-2/slice-3 producer assignments",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Remove coder from the slice-2 BRC matrix entirely and have whichever role was implicitly doing the work (the planner / architect, given the existing 068388f8c commit) continue ad-hoc \u2014 smallest immediate edit but loses BRC review coverage on slice-2 implementation",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coder has ZERO assigned tasks in slice-2 of issue-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T05:48:19.759882Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-11",
+        "question": "Documenter has ZERO assigned tasks in slice-2 of issue-3023. The plan draft (`.egg-state/drafts/3023-plan.md`, commit 4ccb973e4) assigns TASK-2-1..TASK-2-8 to coder/tester only, and the sole documenter task TASK-3-4 (rewrite of docs/architecture/orchestrator.md) is scheduled for slice-3. mcp__phase__get_assigned_tasks returns count=0 for role=documenter. The SDLC contract is still at current_phase='refine' while BRC is operating in implement, so the plan\u2192implement transition never transcribed planned tasks into the contract \u2014 contract.tasks == []. Meanwhile BRC next-action keeps returning 'propose' for documenter (event payload arrives with action='unspecified'), and the wrapper keeps re-invoking me. The slice-2 documenter working branch (egg/issue-3023-slice-2-documenter/work) is 5 ahead of origin/main but 15 behind origin/egg/issue-3023/slice-2 \u2014 so even if a documenter task existed, the implemented artifacts on origin (orchestrator/on_demand_spawner.py, session_keepalive.py, the derive_next_action public alias in routes/consensus.py from commit 068388f8c) are not visible on my branch to document. A prior documenter invocation filed report_impasse(category=plan_bug) at 2026-06-09T05:43:22Z (.egg-state/agent-outputs/issue-3023-documenter-output.json) but no HITL decision was created and the BRC cycle keeps re-invoking. This is structurally identical to cq-7 (documenter/slice-1), cq-8 (tester/slice-3), and cq-10 (coder/slice-2). How should slice-2's BRC matrix unblock for documenter?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Skip documenter for slice-2 \u2014 remove documenter from the slice-2 BRC matrix (or mark not-required); documentation deliverable stays at TASK-3-4 in slice-3 where the slice-2 substrate will already exist on origin",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Update the slice-2 plan to add a documenter task (e.g. a slice-2 runbook snippet or doc-stub for orchestrator/on_demand_spawner.py + session_keepalive.py) AND repopulate contract.tasks from the plan so the BRC producer has legitimate non-empty work to propose",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Rebase egg/issue-3023-slice-2-documenter/work onto origin/egg/issue-3023/slice-2 (so the already-landed slice-2 commits are visible) AND add a slice-2 documenter task in the plan AND repopulate the contract \u2014 composite fix that mirrors option B but also resolves the missing-substrate sub-problem",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer slice-2 entirely until plan refinement re-scopes producer coverage across all three slices (mirrors cq-7 opt-4 / cq-8 opt-3 / cq-10 opt-3) \u2014 bundles a single replanning pass across the four open structural HITLs",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Documenter has ZERO assigned tasks in slice-2 of i...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.115941Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "reason": "Linked commit e5cc150 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.136154Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.174262Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "reason": "Linked commit e5cc150 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.196684Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.229345Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "reason": "Linked commit e5cc150 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:31:01.248656Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:35:02.707944Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "new_value": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
+      "reason": "Linked commit 309bcdf to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:35:02.746067Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "new_value": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
+      "reason": "Linked commit 309bcdf to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-09T16:35:02.777615Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "e5cc150d806a0938704936bc8e1599f89cad13a3",
+      "new_value": "309bcdf017872107bc6c28fa1ca156387cca4ac7",
+      "reason": "Linked commit 309bcdf to task-1-3",
       "checkpoint_id": null
     }
   ],
