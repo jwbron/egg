@@ -144,6 +144,36 @@ class TestOverlapRejection:
         assert len(errors) == 1
         assert "x.py" in errors[0] and "y.py" in errors[0]
 
+    def test_surface_form_aliases_count_as_overlap(self) -> None:
+        # ``./orchestrator/x.py`` and ``orchestrator/x.py`` are the same
+        # logical file; the implement phase would still hit a modify/delete
+        # collision if these were left unordered. Regression pin for the
+        # ``_normalize`` step inside ``validate_slice_file_overlap`` —
+        # without it, the set intersection would compare surface forms and
+        # silently miss this case. Mirrors ``_is_file_blocked_for_role``'s
+        # ``posixpath.normpath`` + strip ``./`` normalisation.
+        slices = [
+            _slice("slice-1", [], ["./orchestrator/x.py"]),
+            _slice("slice-2", [], ["orchestrator/x.py"]),
+        ]
+        errors = validate_slice_file_overlap(slices)
+        assert len(errors) == 1
+        # Error reports the canonical form, which is what a reader can grep.
+        assert "orchestrator/x.py" in errors[0]
+        assert "./orchestrator/x.py" not in errors[0]
+
+    def test_dotdot_segments_normalise_to_same_file(self) -> None:
+        # ``a/b/../c.py`` and ``a/c.py`` resolve to the same path after
+        # ``posixpath.normpath``; the validator must treat them as a single
+        # logical file and fire one ordering error.
+        slices = [
+            _slice("slice-1", [], ["a/b/../c.py"]),
+            _slice("slice-2", [], ["a/c.py"]),
+        ]
+        errors = validate_slice_file_overlap(slices)
+        assert len(errors) == 1
+        assert "a/c.py" in errors[0]
+
 
 class TestRobustness:
     """The validator must not crash on shapes validate_forest owns."""
