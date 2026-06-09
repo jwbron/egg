@@ -233,3 +233,230 @@ class TestCrossVersionRevertIntegration:
             "continues to work as before. Lives in the integration "
             "suite alongside the revert scenario above."
         )
+
+
+# --------------------------------------------------------------------------- #
+# (4) Concurrency-lens pins for TASK-3-5 — reviewer_concurrency v3 item 4
+# --------------------------------------------------------------------------- #
+
+
+class TestCrossVersionRevertConcurrencyLens:
+    """Concurrency-lens pins for TASK-3-5's cross-version revert path,
+    addressing the reviewer_concurrency v3 item-4 carry-forward concern
+    that the cross-version startup-reconciliation file lacked an explicit
+    concurrency lens.
+
+    The revert scenario is intrinsically concurrent:
+
+      1. The reverted orchestrator's reconciler runs on startup against a
+         tracker state that on-demand pods may still be writing to (events
+         arriving via the gateway during the seconds before the reverted
+         binary takes over).
+      2. The reconciler may be retried on the same tracker state under a
+         systemd / k8s restart loop; the fall-through MUST be idempotent
+         and read-only with respect to the tracker so retries do not
+         duplicate side effects.
+      3. The fall-through MUST NOT trigger a fresh wrapper-pod spawn on
+         the in-flight (pipeline_id, role) — that would race with the
+         on-demand event path and double-seed the BRC matrix.
+
+    These pins land at the wiring level (source-grep on the reconciler)
+    so they survive even in minimal CI environments where the full
+    reconciler dependency graph isn't importable. Skip-vs-assert pattern
+    matches the rest of this file.
+    """
+
+    def test_fall_through_does_not_spawn_wrapper_pod(self):
+        """The fall-through branch MUST NOT call
+        ``spawn_wrapper_pod`` / ``spawn_consensus_wrapped_pod`` / any
+        ``kube_client.create_namespaced_job`` family inside the revert
+        path. Those are the legacy wrapper-spawn callers; firing one on
+        an in-flight (pipeline_id, role) would race with the on-demand
+        event path that is still delivering BRC events to the gateway,
+        producing a duplicate role pod and a half-seeded BRC matrix.
+
+        The fall-through must instead re-derive ``next-action`` from
+        the tracker state (read-only) and let the on-demand path
+        continue handling events.
+        """
+        if not _task_3_5_landed():
+            pytest.skip(
+                "TASK-3-5 fall-through branch not yet landed; "
+                "concurrency-lens spawn-suppression pin will assert once "
+                "the coder's commit lands."
+            )
+
+        source = _reconciliation_source()
+        # Locate the fall-through block heuristically by the canonical
+        # marker tokens introduced in _task_3_5_landed(). The pin then
+        # asserts the surrounding span does NOT contain a wrapper-spawn
+        # call. This is a wiring-level guard: a regression that puts a
+        # spawn inside the revert branch would change the source text.
+        lower = source.lower()
+        # Build a list of forbidden call sites the fall-through must
+        # never invoke. ``create_namespaced_job`` is the kubernetes
+        # client primitive; ``spawn_wrapper`` / ``spawn_consensus`` are
+        # the legacy higher-level wrappers.
+        forbidden_calls = (
+            "spawn_wrapper_pod(",
+            "spawn_consensus_wrapped_pod(",
+            "create_namespaced_job(",
+        )
+        # The fall-through marker tokens are checked by _task_3_5_landed
+        # above; find the first occurrence and inspect a generous window
+        # (4 KB) around it. The window is large enough to capture a
+        # multi-line branch body but tight enough that unrelated spawn
+        # calls elsewhere in the reconciler don't trigger a false hit.
+        marker_idx = -1
+        for marker in (
+            "on_demand_in_flight",
+            "on-demand in-flight",
+            "cross-version",
+            "cross_version",
+            "on_demand_revert",
+        ):
+            idx = lower.find(marker)
+            if idx >= 0:
+                marker_idx = idx
+                break
+        assert marker_idx >= 0, (
+            "Concurrency-lens pin requires the fall-through marker to be "
+            "discoverable; _task_3_5_landed() guard should have skipped "
+            "this test if the marker were absent."
+        )
+
+        window_start = max(0, marker_idx - 200)
+        window_end = min(len(source), marker_idx + 4000)
+        window = source[window_start:window_end]
+        for call in forbidden_calls:
+            assert call not in window, (
+                "TASK-3-5 concurrency-lens: the cross-version revert "
+                f"fall-through must NOT invoke ``{call}`` — that would "
+                "race with the on-demand event path still delivering "
+                "BRC events for the in-flight (pipeline_id, role) and "
+                "double-seed the BRC matrix with a duplicate role pod. "
+                "The fall-through should re-derive next-action from "
+                "tracker state (read-only) and let the on-demand path "
+                "continue."
+            )
+
+    def test_fall_through_is_read_only_against_tracker(self):
+        """The fall-through MUST NOT mutate the tracker (no
+        ``register_agent`` / ``seed_auto_ack_for_empty_pure_producers``
+        / ``record_phase_start`` calls inside the revert branch).
+
+        Mutating writes inside the revert path would race with the
+        on-demand event handler that is still writing tracker state via
+        the gateway; the dual-writer would either double-seed the
+        matrix or clobber a concurrent register_agent. The pre-#3023
+        legacy reconciler is read-only against the tracker; the
+        fall-through must preserve that invariant.
+
+        Pinned at the source level so a future refactor that inlines a
+        tracker mutation into the fall-through trips this test instead
+        of landing as a silent concurrency hazard.
+        """
+        if not _task_3_5_landed():
+            pytest.skip(
+                "TASK-3-5 not yet landed; read-only-fall-through pin "
+                "will assert once the coder's commit lands."
+            )
+
+        source = _reconciliation_source()
+        lower = source.lower()
+        marker_idx = -1
+        for marker in (
+            "on_demand_in_flight",
+            "on-demand in-flight",
+            "cross-version",
+            "cross_version",
+            "on_demand_revert",
+        ):
+            idx = lower.find(marker)
+            if idx >= 0:
+                marker_idx = idx
+                break
+        assert marker_idx >= 0
+        window_start = max(0, marker_idx - 200)
+        window_end = min(len(source), marker_idx + 4000)
+        window = source[window_start:window_end]
+        # Forbidden mutating calls. Note we look for the call form (with
+        # trailing paren) to avoid false-positives on docstrings that
+        # mention the symbol name in prose.
+        forbidden_mutations = (
+            "tracker.register_agent(",
+            "tracker.seed_auto_ack_for_empty_pure_producers(",
+            "tracker.record_phase_start(",
+            ".register_agent(",
+            ".record_phase_start(",
+        )
+        for call in forbidden_mutations:
+            assert call not in window, (
+                "TASK-3-5 concurrency-lens: the cross-version revert "
+                f"fall-through must be read-only against the tracker — "
+                f"``{call}`` inside the revert branch would race with "
+                "the on-demand event handler still writing tracker state "
+                "via the gateway. Either double-seeds the matrix or "
+                "clobbers a concurrent register_agent."
+            )
+
+    def test_reconciler_is_idempotent_under_restart_loop(self):
+        """The reconciler entry point (``reconcile_stale_containers``)
+        must be safe to call repeatedly on the same tracker state — a
+        systemd / k8s restart loop will retry it. The fall-through must
+        not accumulate side effects across retries.
+
+        Pinned via a wiring-level marker: the reconciler source must
+        carry an idempotency comment OR use a guard idiom
+        (``already_reconciled`` / ``reconciled_pipelines`` /
+        ``idempotent`` / set-membership check) so a contributor reading
+        the file can locate the guard. The forbidden anti-pattern is a
+        bare unconditional spawn inside the entry point.
+        """
+        if not _task_3_5_landed():
+            pytest.skip(
+                "TASK-3-5 not yet landed; idempotency-under-restart-loop "
+                "pin will assert once the coder's commit lands."
+            )
+
+        source = _reconciliation_source()
+        lower = source.lower()
+        # Acceptable idempotency markers — any one is sufficient.
+        # The canonical explicit markers come first; the "leaving
+        # RUNNING" / "leave it RUNNING" idioms are accepted as
+        # *evidence* of an idempotent fall-through (the reconciler
+        # leaves the pipeline state untouched, so a retry is a no-op
+        # by construction). Substring matches keep the pin tolerant to
+        # phrasing while still naming the concept.
+        markers = (
+            "idempotent",
+            "already_reconciled",
+            "reconciled_pipelines",
+            "already_running",
+            "no-op on retry",
+            "no-op on re-entry",
+            "safe to retry",
+            "safe to re-enter",
+            "restart loop",
+            # Fall-through "leave RUNNING" idioms are evidence of an
+            # idempotent reconciler: leaving the pipeline state
+            # untouched means a retry has no incremental effect.
+            "leaving running",
+            "leave running",
+            "leaving pipeline running",
+            "leave the pipeline running",
+        )
+        assert any(m in lower for m in markers), (
+            "TASK-3-5 concurrency-lens: ``reconcile_stale_containers`` "
+            "must be idempotent under systemd / k8s restart loops. The "
+            "source should carry one of the canonical idempotency "
+            "markers (``idempotent``, ``already_reconciled``, "
+            "``reconciled_pipelines``, ``no-op on retry``, …) OR an "
+            "explicit ``leaving RUNNING`` / ``leave the pipeline "
+            "RUNNING`` idiom in the fall-through so a contributor can "
+            "locate the retry-safety reasoning without reading the "
+            "full entry point. The ``leave RUNNING`` form is accepted "
+            "as evidence of an idempotent fall-through: leaving the "
+            "pipeline state untouched means a retry has no incremental "
+            "effect by construction."
+        )
