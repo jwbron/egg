@@ -455,6 +455,14 @@
       "registered_at": "2026-06-08T22:19:33.979886+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "ffd0f9d630903b11b535c78bf44b9032babd52e1": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "118fb59159eb95ec452f90636cc98379c02c8452",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:34:36.700910+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
