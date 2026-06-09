@@ -137,8 +137,11 @@ class TestTickFiresExactlyOneMediumAlertAtThirtyMinutes:
 
         # The run loop calls ``check`` once per tick. We simulate ticks at
         # 10-second cadence (a typical orchestrator polling interval) and
-        # let monotonic time accrue past the 30-min budget.
-        for tick_t in range(10, 60 * 60 + 10, 10):
+        # let monotonic time accrue past the 30-min budget — but stop
+        # before the 2× (60-min) bucket so the assertion below is pinned
+        # on the 1× ``medium`` alert in isolation. The 2× emission is
+        # exercised in the unit-level tests in ``test_phase_idle_budget``.
+        for tick_t in range(10, 35 * 60 + 10, 10):
             timer.check(now=float(tick_t), pending_hitl_count=0)
 
         assert emitter.call_count == 1, (
