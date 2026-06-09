@@ -32,6 +32,14 @@
       "repo": null,
       "role": "tester"
     },
+    "0556dccc17d34cd01c4d4f5056b6d167cd15b680": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "c9f9ba5c19b50c09b7524b0c81762dfe5c2016f4",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T07:08:19.699546+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "068388f8c01418d7349c88e6e7c20dfe1f2906b2": {
       "branch": "egg/issue-3023/slice-2",
       "patch_id": "0be12339bfde8322d7afbfab83f8baf3ce107317",
