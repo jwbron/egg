@@ -280,6 +280,14 @@
       "repo": null,
       "role": "reviewer_refine"
     },
+    "c486bed7a1a38c87d55c28e82b4484c87792b78c": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "165e0f5116481de73e4a97f304bf28162d01326c",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:32:37.364764+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "d1c5d1aa4d1873f0be3848311c62d7297628aa27": {
       "branch": "egg/issue-3023/work",
       "patch_id": "719ae6974125ec1fd8715db3c2b99fdad6731377",
