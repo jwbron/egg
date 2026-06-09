@@ -359,10 +359,10 @@
         {
           "container_id": "f9293c00-1baa-42ed-816b-d343625ea0dc",
           "container_name": "egg-sandbox-egg-agent-issue-3023-slice-1-documenter",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-06-09T02:23:34.854446Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-06-09T03:07:43.440449Z",
+          "exit_code": -1,
           "agent_role": "documenter",
           "session_token": null,
           "pod_name": null,
@@ -564,7 +564,15 @@
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": null,
-      "agent_exits": []
+      "agent_exits": [
+        {
+          "role": "documenter",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-06-09T03:07:43.501667Z",
+          "container_id": "f9293c00-1baa-42ed-816b-d343625ea0dc"
+        }
+      ]
     }
   },
   "decisions": [
@@ -760,7 +768,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T03:07:41.154138Z",
+  "updated_at": "2026-06-09T03:07:43.501741Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -773,7 +781,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T02:23:18.399982Z",
-  "version": 41,
+  "version": 42,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
