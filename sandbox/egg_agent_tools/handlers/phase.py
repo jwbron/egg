@@ -77,10 +77,23 @@ def _tasks_for_role(contract: dict[str, Any], role: str | None) -> list[dict[str
     If ``role`` is None, returns all tasks.  Tasks without an explicit
     ``role`` field are treated as assigned to the default producer (coder)
     for backward compatibility.
+
+    The implementation breakdown is the contract's ``slices`` array (renamed
+    from ``phases`` in #2137).  We read ``slices`` first and fall back to the
+    legacy ``phases`` key for any pre-rename / un-migrated raw JSON.  Reading
+    *only* ``phases`` — the pre-#2137 name — silently returned ``[]`` for
+    every role on every modern contract (the served shape is
+    ``Contract.model_dump`` → ``slices``), which made a producer with real
+    work wrongly conclude it had none and take the no-op path (#3027).
+
+    Task fields are read under their canonical contract names
+    (``acceptance_criteria`` / ``files_affected``); the older ``acceptance`` /
+    ``files`` keys never matched the serialised contract and always surfaced
+    as empty.
     """
     tasks: list[dict[str, Any]] = []
-    for phase in contract.get("phases") or []:
-        for t in phase.get("tasks") or []:
+    for slice_ in contract.get("slices") or contract.get("phases") or []:
+        for t in slice_.get("tasks") or []:
             task_role = t.get("role")
             if role is None or task_role == role or (task_role is None and role == "coder"):
                 tasks.append(
@@ -88,10 +101,10 @@ def _tasks_for_role(contract: dict[str, Any], role: str | None) -> list[dict[str
                         "id": t.get("id"),
                         "description": t.get("description"),
                         "status": t.get("status"),
-                        "phase_id": phase.get("id"),
-                        "phase_name": phase.get("name"),
-                        "acceptance": t.get("acceptance"),
-                        "files": t.get("files") or [],
+                        "phase_id": slice_.get("id"),
+                        "phase_name": slice_.get("name"),
+                        "acceptance": t.get("acceptance_criteria"),
+                        "files": t.get("files_affected") or [],
                         "role": task_role,
                         "commit": t.get("commit"),
                     }
