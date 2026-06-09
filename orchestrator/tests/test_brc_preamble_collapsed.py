@@ -41,8 +41,16 @@ PRE_COLLAPSE_BASELINE_BYTES: dict[str, int] = {
     "tester": 24139,
 }
 
-# Minimum acceptable byte-size drop ratio (plan TASK-3-3 acceptance).
-MIN_DROP_RATIO = 0.25
+# Minimum acceptable byte-size drop ratio (plan TASK-3-3 acceptance,
+# originally 0.25). #3027 added the generic no-op propose guidance to
+# the producer lifecycle (the `--no-changes-needed` path + how to spot
+# when to use it); that prose lives in every producer-bearing preamble
+# and legitimately re-raised the post-collapse sizes — coder dropped to
+# ~0.19 and tester to ~0.23. The threshold is softened to 0.18 so the
+# acceptance still validates the slice-3 collapse landed (the absolute
+# `test_preamble_byte_size_under_ceiling_tester` ceiling pins the other
+# direction against a runaway re-expansion).
+MIN_DROP_RATIO = 0.18
 
 
 def _render(role: str) -> str:

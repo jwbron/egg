@@ -95,6 +95,14 @@ class ApprovalMatrix:
         self._entries: dict[tuple[str, str], ApprovalEntry] = {}
         # producer -> current proposal version
         self._proposal_versions: dict[str, int] = {}
+        # producer -> whether the *current* proposal is a generic no-op
+        # (#3027). A no-op proposal (the producer has no work in this
+        # slice) counts as "proposed" for the global zero-proposal guard
+        # but needs no reviewer ACKs: ``is_fully_acked`` is True and
+        # ``get_blocking_edges`` is empty for it, and reviewers skip it.
+        # Overwritten on every ``record_proposal`` so a later real
+        # proposal (no_changes=False) clears the no-op state.
+        self._proposal_no_changes: dict[str, bool] = {}
         # (reviewer, producer) -> revision count (bounded revision rounds)
         self._revision_counts: dict[tuple[str, str], int] = {}
 
@@ -107,15 +115,28 @@ class ApprovalMatrix:
             )
             self._revision_counts[key] = 0
 
-    def record_proposal(self, producer: str) -> int:
-        """Record a new proposal from a producer. Returns the version number."""
+    def record_proposal(self, producer: str, no_changes: bool = False) -> int:
+        """Record a new proposal from a producer. Returns the version number.
+
+        ``no_changes`` marks this proposal as a generic no-op (#3027): the
+        producer has no work in this slice. The flag is recorded against the
+        producer's *current* proposal and overwritten on each call, so a
+        later real proposal clears it.
+        """
         version = self._proposal_versions.get(producer, 0) + 1
         self._proposal_versions[producer] = version
+        self._proposal_no_changes[producer] = no_changes
         return version
 
     def get_proposal_version(self, producer: str) -> int:
         """Get the current proposal version for a producer."""
         return self._proposal_versions.get(producer, 0)
+
+    def is_no_changes_proposal(self, producer: str) -> bool:
+        """Whether the producer's current proposal is a generic no-op (#3027)."""
+        return bool(self._proposal_no_changes.get(producer, False)) and (
+            self._proposal_versions.get(producer, 0) > 0
+        )
 
     def record_ack(
         self,
@@ -232,86 +253,22 @@ class ApprovalMatrix:
             return False
         return not bool(prev_refs & new_refs)
 
-    def seed_auto_ack_for_empty_pure_producers(self, producers_with_tasks: set[str]) -> list[str]:
-        """Pre-seed proposal + critical-reviewer ACKs for pure producers
-        whose role has no tasks in this slice.
-
-        Prevents a BRC deadlock (#2581) where a producer-only slice (e.g.
-        tester-only or documenter-only) leaves CODER with no work but
-        still spawned: CODER's critical reviewers (REVIEWER_CODE et al.)
-        have nothing to review and may NACK indefinitely, since the
-        protocol requires every critical reviewer to ACK at the latest
-        version.
-
-        Behavior, per producer ``P`` in the graph not present in
-        ``producers_with_tasks``:
-
-        * Skip ``P`` if ``graph.is_dual_role(P)`` — a dual-role producer
-          (e.g. TESTER also reviews CODER) must always run so it can
-          discharge its reviewer responsibilities for the *other*
-          producers; auto-ACKing it as a producer is fine in principle,
-          but right now no role besides TESTER is dual-role, and skipping
-          here keeps the rule trivially aligned with the "tester always
-          runs" intent.
-        * Otherwise call :meth:`record_proposal` to bump ``P``'s
-          ``proposal_version`` (returns the new version ``v``), then
-          record an ACK at version ``v`` from **every** critical reviewer
-          of ``P``. On the first invocation ``v == 1``; if the seeder is
-          ever invoked again on the same matrix (e.g. a retry path) ``v``
-          increments, and the new round of seeded ACKs lands at the new
-          version.
-
-        **Dual-role reviewer pre-ACK — known failure mode.** This method
-        seeds an ACK from **every** critical reviewer of ``P``, including
-        dual-role reviewers like TESTER reviewing CODER. The reviewer's
-        own producer work has not yet run, so its ACK of ``P`` is a
-        *starting state*, not a final verdict: if its own work later
-        uncovers a need for ``P`` to produce something, it can NACK at
-        version ``v``, which overrides the seeded ACK and forces ``P`` to
-        re-propose at version ``v+1`` via the normal flow. Operationally
-        this means if a dual-role reviewer's container crashes, deadlocks,
-        or otherwise fails to revisit ``P`` before its own work is done,
-        the seeded ACK becomes the final word — a false-positive ACK that
-        a future reader of the matrix will see as "TESTER ACKed CODER"
-        without TESTER ever having reviewed anything. Issue #2581's
-        proposed design left dual-role reviewers PENDING (silence reads
-        as "not done"); we trade that defensive default for "consensus
-        reachable when the dual-role reviewer never gets to it," because
-        the alternative is exactly the deadlock this seed exists to
-        prevent. Operators inspecting a stalled slice should treat
-        seeded TESTER→CODER ACKs as advisory rather than authoritative.
-
-        The producer container is still spawned by the caller — this only
-        pre-seeds the matrix. The caller is responsible for telling the
-        empty pure producer (via its prompt) to skip its propose step;
-        otherwise the agent's real propose at version ``v+1`` invalidates
-        the seeded ACKs and the deadlock recurs.
-
-        Returns the list of producer roles that were auto-ACKed (mostly
-        useful for logging / tests).
-        """
-        auto_acked: list[str] = []
-        # ``empty_pure_producers`` is the single source of truth for "this
-        # role is a pure producer with no tasks in this slice" (#2581).
-        # ``_run_concurrent_phase`` uses the same helper to compute the
-        # prompt-level shortcut flag — keeping the prompt and the matrix
-        # state in lockstep.
-        for producer in sorted(self._graph.empty_pure_producers(producers_with_tasks)):
-            version = self.record_proposal(producer)
-            for reviewer in self._graph.critical_reviewers_for(producer):
-                self.record_ack(reviewer, producer, version=version)
-            auto_acked.append(producer)
-        return auto_acked
-
     def is_fully_acked(self, producer: str) -> bool:
         """Check if all critical reviewers have ACKed the producer's latest proposal.
 
         Advisory reviewers are excluded from the check — their ACK is
         informational but does not block consensus.
+
+        A generic no-op proposal (#3027) is fully acked by definition: the
+        producer declared it has no work in this slice, so reviewers neither
+        review nor block it.
         """
         latest_version = self._proposal_versions.get(producer, 0)
         if latest_version == 0:
             return False
+
+        if self.is_no_changes_proposal(producer):
+            return True
 
         reviewers = self._graph.critical_reviewers_for(producer)
         for reviewer in reviewers:
@@ -330,7 +287,14 @@ class ApprovalMatrix:
         return self._graph.all_roles().issubset(confirmed_roles)
 
     def get_blocking_edges(self, producer: str) -> list[ApprovalEntry]:
-        """Get review edges that are blocking consensus for a producer."""
+        """Get review edges that are blocking consensus for a producer.
+
+        A generic no-op proposal (#3027) has no blocking edges: reviewers do
+        not review it, so a stale ACK/NACK on a prior real proposal must not
+        wedge consensus once the producer declares it has no work.
+        """
+        if self.is_no_changes_proposal(producer):
+            return []
         latest_version = self._proposal_versions.get(producer, 0)
         blocking = []
         for reviewer in self._graph.reviewers_for(producer):

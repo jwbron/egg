@@ -54,11 +54,15 @@ class ContextPrCreationReason(StrEnum):
     PIPELINE_LOAD_FAILED = "pipeline_load_failed"
     ROUTES_UNAVAILABLE = "routes_unavailable"
     LOADER_UNAVAILABLE = "loader_unavailable"
-    # Pipeline misconfiguration (cq-4 hard-required: ``repo`` and
-    # ``base_branch`` must BOTH be set OR BOTH empty).
+    # Pipeline misconfiguration. ``base_branch`` left unset alongside a
+    # ``repo`` is NOT a misconfiguration — it is the normal "auto-detect
+    # the repo's default branch" state (#3031), so the opener resolves it
+    # rather than raising. The remaining genuine misconfigurations are a
+    # ``base_branch`` with no ``repo`` to open a PR against
+    # (``missing_repo``) and a remote pipeline with no work branch
+    # (``missing_branch``).
     MISSING_BRANCH = "missing_branch"
     MISSING_REPO = "missing_repo"
-    MISSING_BASE_BRANCH = "missing_base_branch"
     # Contract / PR-metadata failures encountered after the pipeline
     # passed the misconfiguration check.
     CONTRACT_LOAD_FAILED = "contract_load_failed"
@@ -9334,84 +9338,6 @@ def _build_brc_history_link_line(
     return f"_Per-phase BRC transcripts: {links}._"
 
 
-def _derive_producer_roles_with_tasks(
-    pipeline_id: str,
-    slice_id: str | None,
-    has_contract: bool,
-    worktree_repo_path: Path,
-) -> set[str] | None:
-    """Compute which producer roles have tasks in this slice's plan (#2581).
-
-    Drives both the matrix-level auto-ACK seed
-    (``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``) and the
-    prompt-level shortcut flag (``is_pre_seeded_empty_producer``) used
-    by ``_build_brc_preamble`` / ``_build_producer_orientation``.
-
-    Behavior:
-
-    * Returns ``None`` when ``slice_id`` is ``None`` or the pipeline has
-      no contract — preserves pre-#2581 unconditional-roster behavior,
-      no seed.
-    * Otherwise loads the contract, locates the slice, and returns
-      ``{(task.role or "coder") for task in slice.tasks}``. ``Task.role``
-      is ``str | None`` and ``None`` is the execution-time coder default
-      per the contract schema.
-    * If the slice id is absent from the loaded contract, logs a WARNING
-      with ``available_slice_ids`` inlined and returns ``None`` — the
-      seed is skipped and pure producers in this slice will deadlock if
-      they have no tasks. Logged loud so operators can spot the safety
-      net being off.
-    * Narrowly catches ``ContractNotFoundError`` /
-      ``ContractValidationError`` / ``OSError`` from the loader — these
-      are recoverable load-time errors (missing branch checkout, malformed
-      contract, file IO failure). Logs a WARNING and returns ``None``.
-      Unknown exceptions (schema bumps, ``AttributeError`` on contract
-      model changes) propagate so they fail loudly during testing rather
-      than silently re-introducing the deadlock in production.
-
-    Extracted from ``_run_concurrent_phase`` so this load+derive path can
-    be unit-tested without spinning up containers — the production
-    call site is ``_run_concurrent_phase`` and the unit tests in
-    ``test_auto_ack_pure_producers.py`` patch the ``load_contract``
-    import via this module so the catch logic is exercised directly.
-    """
-    if slice_id is None or not has_contract:
-        return None
-
-    from egg_contracts.loader import (
-        ContractNotFoundError,
-        ContractValidationError,
-        load_contract,
-    )
-
-    try:
-        _contract = load_contract(pipeline_id, worktree_repo_path)
-    except (ContractNotFoundError, ContractValidationError, OSError) as exc:
-        logger.warning(
-            "Could not derive producer_roles_with_tasks for auto-ACK seeding — "
-            "pure producers in this slice may deadlock if they have no tasks",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-        return None
-
-    _slice_obj = next((s for s in _contract.slices if s.id == slice_id), None)
-    if _slice_obj is None:
-        logger.warning(
-            "Slice id not found in contract — auto-ACK seeding off "
-            "for this run; pure producers in this slice may deadlock "
-            "if they have no tasks",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            available_slice_ids=[s.id for s in _contract.slices],
-        )
-        return None
-
-    return {(t.role or "coder") for t in _slice_obj.tasks}
-
-
 def _persist_context_pr_number(
     pipeline_id: str,
     pr_number: int,
@@ -9594,11 +9520,16 @@ def _open_context_pr_at_implement_start(
     Behaviour:
 
     1. Look up the pipeline + worktree from ``pipeline_id``.
-    2. If the pipeline has no ``repo`` or ``base_branch`` set (local
-       mode), return ``None`` without raising — there is no remote PR
-       to open. This matches the legacy wrapper's silent-skip behaviour
-       for local pipelines so the new hard-required contract does not
-       regress in-house test pipelines.
+    2. If the pipeline has neither ``repo`` nor ``base_branch`` set
+       (local mode), return ``None`` without raising — there is no
+       remote PR to open. This matches the legacy wrapper's silent-skip
+       behaviour for local pipelines so the new hard-required contract
+       does not regress in-house test pipelines. A ``repo`` with no
+       ``base_branch`` is the normal "auto-detect the default branch"
+       state (#3031), NOT a misconfiguration: the base is resolved via
+       :func:`_detect_default_branch` and used for the lookup + create.
+       A ``base_branch`` with no ``repo`` is a genuine misconfiguration
+       and raises ``ContextPrCreationError(reason="missing_repo")``.
     3. Otherwise call ``GatewayClient.lookup_open_pr(head, base)`` — the
        same control-plane idempotency primitive ``create_slice_pr`` uses
        — to find the open PR whose head is the pipeline's work branch and
@@ -9667,12 +9598,27 @@ def _open_context_pr_at_implement_start(
             cause=load_err,
         ) from load_err
 
-    # Step 2: local-mode short-circuit. ``repo`` AND ``base_branch``
-    # MUST BOTH be empty to qualify as local-mode; a remote pipeline
-    # that has ``repo`` set but ``base_branch`` empty (or vice versa)
-    # is a misconfiguration, not a local pipeline, and the soft-skip
-    # below would silently mask the cq-4 hard-required contract
-    # (reviewer_code_holistic blocker 3). Surface the misconfig as a
+    # Step 2: local-mode short-circuit + base-branch resolution.
+    #
+    # ``repo`` AND ``base_branch`` both empty ⇒ local mode (no remote PR
+    # to open); return ``None`` without raising.
+    #
+    # ``repo`` set but ``base_branch`` empty is the NORMAL state, not a
+    # misconfiguration: ``Pipeline.base_branch`` defaults to ``None``
+    # ("auto-detected from repo's default branch") and the standard
+    # ``submit_task`` path never populates it, so essentially every
+    # remote pipeline reaches here with ``base_branch=None``. #2777 cq-4
+    # collapsed the final ``work → main`` PR into this up-front opener
+    # but dropped the default-branch resolution the deleted PR phase did,
+    # making the opener the only ``base_branch`` consumer that hard-
+    # raised on ``None`` instead of resolving it — stranding every
+    # standard pipeline's slice stack on ``/work`` (#3031). Resolve it
+    # here the way every other consumer does
+    # (``base_branch or _detect_default_branch``) and thread the resolved
+    # value through both the idempotency lookup and ``create_pr``.
+    #
+    # A ``base_branch`` set with no ``repo`` IS a genuine
+    # misconfiguration (nothing to open a PR against); surface it as a
     # typed error so the operator notices.
     repo_set = bool(pipeline.repo)
     base_set = bool(pipeline.base_branch)
@@ -9682,14 +9628,12 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
         )
         return None
-    if repo_set != base_set:
-        # Partial-config pipeline. Raise so the operator sees the
-        # asymmetry rather than silently skipping the context PR.
+    if base_set and not repo_set:
         raise ContextPrCreationError(
-            f"pipeline {pipeline_id!r} has asymmetric remote config "
-            f"(repo={pipeline.repo!r}, base_branch={pipeline.base_branch!r}); "
-            "both must be set for a remote PR or neither for local mode",
-            reason="missing_base_branch" if repo_set else "missing_repo",
+            f"pipeline {pipeline_id!r} has a base_branch "
+            f"({pipeline.base_branch!r}) but no repo; cannot open a context "
+            "PR with no remote",
+            reason="missing_repo",
         )
 
     if not pipeline.branch:
@@ -9703,6 +9647,12 @@ def _open_context_pr_at_implement_start(
         )
 
     worktree_repo_path = resolve_worktree_path(pipeline_id, store.repo_path)
+    # Resolve ``base_branch=None`` to the repo's default branch (#3031).
+    # ``_detect_default_branch`` reads ``origin/HEAD`` from the worktree
+    # and falls back to ``main``/``master`` then the literal ``"main"``,
+    # so it never raises and always yields a concrete base ref for the
+    # lookup + create_pr calls below.
+    effective_base = pipeline.base_branch or _detect_default_branch(worktree_repo_path)
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     gateway_mode, _vis = _compute_gateway_mode(pipeline)
 
@@ -9727,7 +9677,7 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
         )
     except Exception as lookup_err:
         raise ContextPrCreationError(
@@ -9752,7 +9702,7 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
             pr_number=existing_pr_number,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
         )
         return existing_pr_number
 
@@ -9792,7 +9742,7 @@ def _open_context_pr_at_implement_start(
             title=pr_title,
             body=pr_description,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
             issue_number=pipeline.issue_number,
             mode=gateway_mode,
         )
@@ -9845,7 +9795,7 @@ def _open_context_pr_at_implement_start(
         pipeline_id=pipeline_id,
         pr_number=new_pr_number,
         head=pipeline.branch,
-        base=pipeline.base_branch,
+        base=effective_base,
         url=pr_url,
     )
     return new_pr_number
@@ -11792,8 +11742,6 @@ def _build_brc_preamble(
     repo: str | None = None,
     branch: str | None = None,
     base_branch: str | None = None,
-    *,
-    is_pre_seeded_empty_producer: bool = False,
 ) -> str:
     """Build the BRC consensus lifecycle preamble for an agent.
 
@@ -11804,17 +11752,8 @@ def _build_brc_preamble(
     Includes:
     - Agent roster showing all active agents and what they produce
     - Role-specific proactive preparation instructions
-    - Full BRC lifecycle steps
-
-    Args:
-        is_pre_seeded_empty_producer: True when this role is a pure producer
-            (coder, documenter) whose slice plan contains no tasks for the
-            role and whose BRC matrix entry was pre-seeded by the
-            orchestrator (#2581). The producer lifecycle text instructs
-            the agent to SKIP its propose step entirely and confirm
-            directly — otherwise its real propose at version 2 would
-            invalidate the seeded version-1 ACKs and re-trigger the
-            deadlock the seed exists to prevent.
+    - Full BRC lifecycle steps (including the generic no-op propose path,
+      #3027, for a producer that finds it has no work in this slice)
     """
     try:
         from review_graph import get_review_graph_for_phase
@@ -11956,49 +11895,36 @@ def _build_brc_preamble(
 
     if is_producer:
         producer_lifecycle: list[str] = ["### Producer Lifecycle"]
-        # Pre-seeded empty-pure-producer shortcut (#2581). When the
-        # orchestrator has determined this role has no tasks in the
-        # current slice and pre-seeded its matrix state, the agent MUST
-        # NOT run the normal propose flow — its real propose would bump
-        # the proposal version and invalidate the seeded ACKs, reopening
-        # the deadlock the seed exists to prevent.
-        if is_pre_seeded_empty_producer:
-            producer_lifecycle.append(
-                "**Pre-seeded empty-producer shortcut (#2581).** Your role "
-                "has no tasks in this slice's plan and the orchestrator "
-                "has pre-seeded your BRC consensus matrix entry: an empty "
-                "proposal at version 1 plus an ACK at version 1 from every "
-                "critical reviewer of your role. "
-                "**Do NOT run `egg-orch consensus propose`** at any point — "
-                "your real propose would bump the version to 2 and "
-                "invalidate the seeded ACKs, re-opening the deadlock the "
-                "seed exists to prevent.\n\n"
-                "Your lifecycle replaces steps 2–5 below with this short flow:\n"
-                "  (a) Run step 1 (ORIENT) to confirm your role has no tasks.\n"
-                "  (b) Try `egg-orch consensus confirmed`.\n"
-                "      - If it succeeds, exit; the orchestrator (slice-2 "
-                "event-pump wrapper) re-invokes you with the next event.\n"
-                "      - If it returns `status: pending_acks` referencing "
-                "`global_zero_proposal` (other slice producers haven't "
-                "proposed yet), exit; the wrapper will re-invoke you when "
-                "a peer producer proposes. Retry `egg-orch consensus "
-                "confirmed` on the next invocation. The dual-role-NACK-"
-                "recovery scenario (a dual-role reviewer NACKs your seeded "
-                "ACKs while you wait) is also surfaced via re-invocation: "
-                "the next event will carry the NACK in `event_payload`. On "
-                "any `CONSENSUS_RE_REVIEW` event for your role, re-confirm "
-                "(do not propose).\n"
-                "      - If it returns `status: pending_acks` with "
-                "`producer_not_fully_acked`, a dual-role reviewer (TESTER) "
-                "has NACKed the seeded version because its own work uncovered "
-                "a need for code your role should have produced. This is a "
-                "planning gap — call "
-                "`mcp__sdlc__register_open_question` with options "
-                '`("Add coder task to this slice", "Defer to a follow-up '
-                'slice", "Treat the slice as documenter-only")` so the '
-                "operator can resolve it; do NOT silently start producing.\n"
-                "  (c) Re-confirm on subsequent re-invocations until the "
-                "orchestrator stops you."
+        # The no-op propose path (#3027) is only valid in the implement
+        # phase. In refine/plan the producer's draft is mandatory and the
+        # orchestrator rejects no-op explicitly — so don't even surface the
+        # affordance to refine/plan producers (architect, refiner,
+        # task_planner, risk_analyst), keeping prose and enforcement in
+        # lockstep (review feedback on #3029).
+        propose_line = (
+            "3. **PROPOSE**: When done, run: "
+            '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
+            '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
+            '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
+            "The `--summary` must be ≥50 chars of substantive content describing what was "
+            "built, what was tested, and which contract tasks it satisfies. "
+            "Boilerplate like 'looks good' or 'approved' will be rejected."
+        )
+        if phase == "implement":
+            propose_line += (
+                "\n\n"
+                "   **No work for you in this slice? Submit a no-op propose (#3027).** "
+                "If after ORIENT you find your role has no assigned task here AND "
+                "nothing to contribute (e.g. a documenter on a code-only slice, a "
+                "tester on a doc-only slice, your domain is not impacted by the "
+                "diff), do NOT skip silently and do NOT invent busywork — run "
+                "`egg-orch consensus propose --no-changes-needed --no-changes-reason "
+                '"<why you have no work here>"` (no artifacts or commit-sha needed). '
+                "This counts as proposing, so consensus is not blocked waiting on "
+                "you; reviewers accept it as a non-blocking no-op (they will not "
+                "NACK it). Then CONFIRM (step 5) as normal once peers have proposed. "
+                "Reach for a real propose instead the moment you do find work "
+                "(e.g. the coder's diff turns out to need docs)."
             )
         producer_lifecycle.extend(
             [
@@ -12008,16 +11934,9 @@ def _build_brc_preamble(
                     phase,
                     reviewers,
                     branch=branch,
-                    is_pre_seeded_empty_producer=is_pre_seeded_empty_producer,
                 ),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
-                "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
-                '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
-                '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
-                "The `--summary` must be ≥50 chars of substantive content describing what was "
-                "built, what was tested, and which contract tasks it satisfies. "
-                "Boilerplate like 'looks good' or 'approved' will be rejected.",
+                propose_line,
                 "4. **RESPOND TO REVIEWS**: When a reviewer NACKs your "
                 "proposal you will be re-invoked to address it. Read every "
                 "NACK in the event payload, fix all named blockers, and "
@@ -12411,17 +12330,11 @@ def _build_reviewer_preparation(
                 "documented and the tests are syntactically valid. "
                 "Also scrutinize low `tests_run` counts relative to change scope — "
                 "a multi-file change with only 1 test run warrants investigation. "
-                "If the tester reports `no_test_changes_needed: true`, walk the diff "
-                "and confirm it is genuinely behavior-preserving (symbol moves, "
-                "doc-only, etc.) before ACKing — the no-op propose path is only "
-                "valid when the slice truly warrants no new tests (#2431). "
-                "If the documenter reports `no_doc_changes_needed: true`, walk "
-                "the diff and confirm there is genuinely no documented-surface "
-                "impact (no public API signature change, no behavior change a "
-                "user-facing doc describes, no new feature/flag in README or "
-                "docs/, no docstring contract drift) before ACKing — the "
-                "documenter's no-op path is only valid when the slice truly "
-                "warrants no doc updates (#2444)."
+                "If a producer has no work in this slice it submits a generic "
+                "no-op propose (`no_changes_needed=true`, #3027): the orchestrator "
+                "treats that as a non-blocking no-op and will not surface it to "
+                "you for review — there is nothing to ACK or NACK, and it does "
+                "not block consensus."
             )
         elif role_value == "reviewer_code_holistic":
             return (
@@ -12694,8 +12607,6 @@ def _build_producer_orientation(
     phase: str,
     reviewers: list[str],
     branch: str | None = None,
-    *,
-    is_pre_seeded_empty_producer: bool = False,
 ) -> str:
     """Build orientation instructions for producer agents.
 
@@ -12703,29 +12614,16 @@ def _build_producer_orientation(
     context, knowing what reviewers will check, and checking existing code
     patterns. This produces higher-quality first proposals and fewer NACKs.
 
+    A producer that orients and finds it has no work in this slice takes the
+    generic no-op propose path described in the Producer Lifecycle (#3027) —
+    no special orientation text is needed.
+
     Args:
         role_value: Producer role (e.g. ``coder``).
         phase: Pipeline phase name.
         reviewers: Names of reviewers that will review this producer.
         branch: The pipeline's working branch, used for sync instructions.
-        is_pre_seeded_empty_producer: True when this role has no tasks in
-            the slice and its matrix entry was pre-seeded (#2581). The
-            orient text is shortened to "read the contract, confirm there
-            are no tasks for your role, do not produce" — the lifecycle
-            preamble above already tells the agent to skip propose and
-            confirm directly.
     """
-    if is_pre_seeded_empty_producer and phase == "implement":
-        return (
-            "read the contract (`egg-contract show`) and confirm your role "
-            "has no tasks in the current slice — this matches the "
-            "orchestrator's pre-seeded matrix state. **Do not invent work** "
-            "or stretch the slice's scope to author code/docs that the "
-            "planner did not assign to you; the pre-seeded path exists "
-            "precisely to let this slice reach consensus without your "
-            "contribution. Then follow the **Pre-seeded empty-producer "
-            "shortcut** block above, which replaces steps 2–5 below."
-        )
     reviewer_awareness = ""
     if reviewers:
         reviewer_names = ", ".join(reviewers)
@@ -12772,12 +12670,13 @@ def _build_producer_orientation(
                 "**You MUST propose** even when the slice warrants no new tests "
                 "(pure refactor / doc-only / symbol moves with no behavior "
                 "change): the BRC consensus blocks until every producer has "
-                "proposed (#2431). For that case, run the configured checks "
-                "against the coder's diff and use the no-op propose path — "
-                "set `attestation.no_test_changes_needed=true` with a non-empty "
-                "`no_test_changes_reason` and the usual `checks_passed` list. "
-                "Do NOT just heartbeat indefinitely waiting for test work that "
-                "isn't there — that deadlocks the slice." + sync_note + reviewer_awareness
+                "proposed. For that case, submit a generic no-op propose "
+                "(#3027) — `egg-orch consensus propose --no-changes-needed "
+                "--no-changes-reason '<why: e.g. pure refactor, existing tests "
+                "cover>'`. It is accepted as a non-blocking no-op (reviewers do "
+                "not review or NACK it). Do NOT just heartbeat indefinitely "
+                "waiting for test work that isn't there — that deadlocks the "
+                "slice." + sync_note + reviewer_awareness
             )
         elif role_value == "documenter":
             sync_note = ""
@@ -12795,13 +12694,13 @@ def _build_producer_orientation(
                 "**You MUST propose** even when the slice warrants no doc "
                 "updates (pure refactor / test-only / internal-only with no "
                 "documented-surface impact): the BRC consensus blocks until "
-                "every producer has proposed (#2444, mirror of #2431). For "
-                "that case, walk the coder's diff to confirm there is no "
-                "doc surface impacted, then use the no-op propose path — "
-                "set `attestation.no_doc_changes_needed=true` with a "
-                "non-empty `no_doc_changes_reason`. Do NOT just heartbeat "
-                "indefinitely waiting for doc work that isn't there — that "
-                "deadlocks the slice." + sync_note + reviewer_awareness
+                "every producer has proposed. For that case, submit a generic "
+                "no-op propose (#3027) — `egg-orch consensus propose "
+                "--no-changes-needed --no-changes-reason '<why: e.g. no "
+                "documented surface impacted by the coder's diff>'`. It is "
+                "accepted as a non-blocking no-op (reviewers do not review or "
+                "NACK it). Do NOT just heartbeat indefinitely waiting for doc "
+                "work that isn't there — that deadlocks the slice." + sync_note + reviewer_awareness
             )
     elif phase == "plan":
         if role_value == "architect":
@@ -12933,8 +12832,6 @@ def _build_agent_prompt(
     network_mode: str | None = None,
     operator_directives: list[OperatorDirective] | None = None,
     iteration_history: list[IterationSummary] | None = None,
-    *,
-    is_pre_seeded_empty_producer: bool = False,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -13013,7 +12910,6 @@ def _build_agent_prompt(
                 repo=repo,
                 branch=branch,
                 base_branch=base_branch,
-                is_pre_seeded_empty_producer=is_pre_seeded_empty_producer,
             )
         return base_prompt
 
@@ -13074,7 +12970,6 @@ def _build_agent_prompt(
                 repo=repo,
                 branch=branch,
                 base_branch=base_branch,
-                is_pre_seeded_empty_producer=is_pre_seeded_empty_producer,
             )
         )
 
@@ -13151,35 +13046,29 @@ def _build_agent_prompt(
                 "",
                 "You are also responsible for **lint/type-check validation**.",
                 "",
-                "### When the slice warrants no new tests (#2431)",
+                "### When the slice warrants no new tests (#3027)",
                 "",
                 "Pure refactors (symbol moves, decompositions with no behavior "
                 "change), doc-only slices, and other no-test-work slices still "
                 "require you to **propose** — BRC consensus blocks until every "
                 "producer has proposed at least once. **Don't just heartbeat "
-                "and wait for work that isn't coming.** Instead:",
+                "and wait for work that isn't coming.** Instead submit a "
+                "generic no-op propose:",
                 "",
-                "1. Run **all** configured checks against the coder's diff "
-                "(`make lint`, `make test`, etc.) and confirm they pass.",
-                "2. Propose with the no-op attestation:",
-                "   - `attestation.no_test_changes_needed: true`",
-                "   - `attestation.no_test_changes_reason`: a concrete sentence "
-                'explaining why no new tests are warranted (e.g. "slice-3 is '
-                "a pure decomposition: symbol moves between submodules, no "
-                "behavior change; the existing test suite covers the "
-                're-exported barrel").',
-                "   - `attestation.checks_passed`: the configured checks that "
-                "actually ran and passed (`['lint', 'test']` etc.) — still "
-                "required.",
-                "   - `attestation.tests_run`: 0 is acceptable here; if you "
-                "did run the existing suite, report the count.",
-                '3. Make sure your propose `summary` says "no new tests '
-                'warranted: <reason>" so reviewers can verify the diff '
-                "really is behavior-preserving.",
+                "1. (Optional but encouraged) run the configured checks against "
+                "the coder's diff (`make lint`, `make test`, etc.) to confirm "
+                "the slice really is behavior-preserving.",
+                "2. Propose a no-op: `egg-orch consensus propose "
+                "--no-changes-needed --no-changes-reason '<concrete reason, "
+                "e.g. slice-3 is a pure decomposition: symbol moves between "
+                "submodules, no behavior change; existing suite covers the "
+                "re-exported barrel>'`. No artifacts or commit-sha are needed.",
                 "",
-                "If the slice **does** have new test work (real behavior "
-                "changes, new edge cases, modified contracts), do NOT use the "
-                "no-op path — author tests as usual.",
+                "The no-op counts as proposing (so consensus is not blocked on "
+                "you) and is accepted as a non-blocking no-op — reviewers do not "
+                "review or NACK it. If the slice **does** have new test work "
+                "(real behavior changes, new edge cases, modified contracts), do "
+                "NOT use the no-op path — author tests and propose as usual.",
                 "",
                 "### Testing",
                 "",
@@ -13308,13 +13197,13 @@ def _build_agent_prompt(
             '2. Include an explicit **"TESTS UNVERIFIED"** warning in your proposal summary',
             '3. Do NOT claim your work is "complete" — state that tests are written but unverified',
             "",
-            "**Picking between `tests_execution_blocked` and `no_test_changes_needed`** "
-            "(see the no-op section above): if the slice warrants no new tests *and* "
-            "the configured checks could not run, prefer the blocked path — "
-            "`tests_execution_blocked` reports lower confidence than "
-            "`no_test_changes_needed` and is the more conservative claim. The two "
-            "flags are mutually exclusive; the orchestrator and pre-flight both "
-            "reject a proposal that asserts both.",
+            "**Distinguish `tests_execution_blocked` from a no-op propose** "
+            "(see the no-op section above): set `tests_execution_blocked=true` "
+            "when you DID author / intend tests but the configured checks could "
+            "not run (blocked downloads, missing tools) — that is a real "
+            "proposal with lower confidence. Use the generic no-op propose "
+            "(`--no-changes-needed`) only when the slice genuinely warrants no "
+            "new tests at all. Don't conflate the two.",
             "",
         ]
         if network_mode == "private":
@@ -13414,34 +13303,33 @@ def _build_agent_prompt(
                 "and WebFetch (when available) to verify current API signatures, link to "
                 "official documentation, and confirm usage examples are up to date.",
                 "",
-                "### When the slice warrants no doc updates (#2444)",
+                "### When the slice warrants no doc updates (#3027)",
                 "",
                 "Pure refactors (symbol moves, decompositions with no "
                 "surfaced API change), test-only slices, and internal-only "
                 "slices that don't touch any documented surface still "
                 "require you to **propose** — BRC consensus blocks until "
                 "every producer has proposed at least once. **Don't just "
-                "heartbeat and wait for work that isn't coming.** Instead:",
+                "heartbeat and wait for work that isn't coming.** Instead "
+                "submit a generic no-op propose:",
                 "",
                 "1. Walk the coder's diff and confirm there is no "
                 "documented-surface impact: no public API signature "
                 "changes, no behavior changes a user-facing doc describes, "
                 "no new feature or flag mentioned in README / docs/, no "
                 "docstring contracts that drift.",
-                "2. Propose with the no-op attestation:",
-                "   - `attestation.no_doc_changes_needed: true`",
-                "   - `attestation.no_doc_changes_reason`: a concrete "
-                "sentence explaining why no doc updates are warranted "
-                '(e.g. "slice-3 is a pure decomposition: symbol moves '
-                "between submodules, no surfaced API change; no README / "
-                'docs/ / docstring surface impacted").',
-                '3. Make sure your propose `summary` says "no doc '
-                'updates warranted: <reason>" so reviewers can verify '
-                "the diff really has no doc impact.",
+                "2. Propose a no-op: `egg-orch consensus propose "
+                "--no-changes-needed --no-changes-reason '<concrete reason, "
+                "e.g. slice-3 is a pure decomposition: symbol moves between "
+                "submodules, no surfaced API change; no README / docs/ / "
+                "docstring surface impacted>'`. No artifacts or commit-sha "
+                "are needed.",
                 "",
-                "If the slice **does** have doc impact (any of the bullets "
-                "above), do NOT use the no-op path — author doc changes as "
-                "usual.",
+                "The no-op counts as proposing (so consensus is not blocked "
+                "on you) and is accepted as a non-blocking no-op — reviewers "
+                "do not review or NACK it. If the slice **does** have doc "
+                "impact (any of the bullets above), do NOT use the no-op "
+                "path — author doc changes and propose as usual.",
                 "",
                 *_EXPLORATION_SUBAGENT_GUIDANCE,
             ]
@@ -16988,20 +16876,6 @@ def _run_concurrent_phase(
     ]
     filtered_graph = ReviewGraph(filtered_edges)
 
-    # Determine which producer roles the slice's plan actually assigns
-    # tasks to (#2581). Used to pre-seed auto-ACKs for pure producers
-    # (e.g. CODER, DOCUMENTER) that the planner didn't include —
-    # otherwise their empty proposal can deadlock BRC consensus when
-    # reviewers NACK "nothing to review". Pipelines without a slice plan
-    # (and contract-load failures) get ``None``, which preserves the
-    # pre-#2581 unconditional-roster behavior.
-    producer_roles_with_tasks = _derive_producer_roles_with_tasks(
-        pipeline.id,
-        slice_id,
-        getattr(pipeline, "has_contract", True),
-        worktree_repo_path,
-    )
-
     # Resolve base branch for diff commands in agent prompts.
     _resolved_base_branch = pipeline.base_branch
     if not _resolved_base_branch:
@@ -17010,22 +16884,12 @@ def _run_concurrent_phase(
         except Exception:
             _resolved_base_branch = None
 
-    # Decide which roles will be pre-seeded as empty pure producers
-    # (#2581). The producer-prompt path uses this to inject a shortcut
-    # block telling the agent to skip its propose step entirely — required
-    # for the matrix-level seed to survive end-to-end (the agent's real
-    # propose would bump the version and invalidate the seeded ACKs).
-    # Same predicate as ``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``
-    # (both route through ``ReviewGraph.empty_pure_producers``) so the
-    # prompt flag and the matrix seed cannot drift.
-    _pre_seeded_empty_producer_roles: set[str]
-    if producer_roles_with_tasks is not None:
-        _pre_seeded_empty_producer_roles = filtered_graph.empty_pure_producers(
-            producer_roles_with_tasks
-        )
-    else:
-        _pre_seeded_empty_producer_roles = set()
-
+    # A producer with no work in this slice is no longer pre-seeded (#3027
+    # retired the #2581 pre-seed). It stays spawned and, if it finds it has
+    # nothing to contribute, submits a generic no-op propose
+    # (``no_changes_needed=true``) — the prompts below tell every producer
+    # about that path. The consensus protocol accepts the no-op durably, so
+    # no orchestrator-side roster pre-classification is needed.
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
@@ -17044,7 +16908,6 @@ def _run_concurrent_phase(
             network_mode=gateway_mode,
             operator_directives=operator_directives,
             iteration_history=iteration_history,
-            is_pre_seeded_empty_producer=role.value in _pre_seeded_empty_producer_roles,
         )
         agent_prompts[role] = prompt
 
@@ -17081,7 +16944,6 @@ def _run_concurrent_phase(
         review_graph=filtered_graph,
         roles=roles,
         slice_id=slice_id,
-        producer_roles_with_tasks=producer_roles_with_tasks,
     )
 
     # Spawn all agents with their prompts.

@@ -194,16 +194,6 @@ class PeerConsensusTracker:
             if self.graph.is_reviewer(role):
                 self._reviewer_phases[role] = ConsensusPhase.WORKING
 
-    def seed_auto_ack_for_empty_pure_producers(self, producers_with_tasks: set[str]) -> list[str]:
-        """Pre-seed the matrix for pure producers absent from the slice's task list.
-
-        Thin lock-holding wrapper around
-        ``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers`` (#2581).
-        See that method's docstring for the dual-role / pure-reviewer rules.
-        """
-        with self._lock:
-            return self.matrix.seed_auto_ack_for_empty_pure_producers(producers_with_tasks)
-
     def release_nudge(self, role: str, version: int) -> None:
         """Roll back a nudge memo entry recorded by ``_collect_newly_ready_producers``.
 
@@ -343,18 +333,25 @@ class PeerConsensusTracker:
 
         # Validate payload
         proposal = ProposalPayload(**payload)
+        no_changes = bool(proposal.no_changes_needed)
 
-        # Validate role-specific attestation
+        # Validate role-specific attestation. A generic no-op propose (#3027)
+        # means the producer did no work, so the strict per-role requirements
+        # (commit_shas / tests_run / sections_updated …) don't apply — validate
+        # in RELAXED mode. The no-op is justified by ``no_changes_reason``,
+        # which ``ProposalPayload`` already enforces.
         if proposal.attestation:
             validate_attestation(
                 agent_role,
                 proposal.attestation,
-                strictness=self.attestation_strictness,
+                strictness=(
+                    AttestationStrictness.RELAXED if no_changes else self.attestation_strictness
+                ),
                 is_producer=True,
             )
 
-        # Record proposal version
-        version = self.matrix.record_proposal(agent_role)
+        # Record proposal version (marking the no-op state, #3027)
+        version = self.matrix.record_proposal(agent_role, no_changes=no_changes)
 
         # Transition to PROPOSED
         self._producer_phases[agent_role] = ConsensusPhase.PROPOSED
@@ -365,25 +362,33 @@ class PeerConsensusTracker:
         # Pin this version's commit SHA in the accumulating history so a
         # later re-review notice can resolve any prior reviewer's
         # last-verdicted version back to the commit they actually saw
-        # (#2887). ProposalPayload already requires a non-empty
-        # commit_sha; the guard is defensive so the history never holds
-        # an empty anchor.
+        # (#2887). A no-op propose carries no commit_sha; the guard skips
+        # it so the history never holds an empty anchor.
         if proposal.commit_sha:
             self._proposal_commit_sha_history.setdefault(agent_role, {})[version] = (
                 proposal.commit_sha
             )
 
-        # Detect reviewers who confirmed on a stale version and need re-review.
-        # This prevents deadlocks where a confirmed reviewer never sees a new
-        # proposal version after the producer withdraws and re-proposes.
-        stale_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
+        if no_changes:
+            # A no-op proposal needs no review (is_fully_acked is True and it
+            # has no blocking edges, #3027). Reviewers skip it, so there is no
+            # stale-reviewer / pre-proposal-ACK bookkeeping to do — touching
+            # reviewer confirm state here would only churn it for nothing.
+            stale_reviewers: list[str] = []
+        else:
+            # Detect reviewers who confirmed on a stale version and need
+            # re-review. This prevents deadlocks where a confirmed reviewer
+            # never sees a new proposal version after the producer withdraws
+            # and re-proposes.
+            stale_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
 
-        # Invalidate pre-proposal ACKs (version 0).  When a reviewer ACKs a
-        # producer that hasn't proposed yet, the ACK is recorded at version 0.
-        # After the producer proposes (version >= 1), these version-0 ACKs can
-        # never satisfy is_fully_acked() and would create a permanent deadlock.
-        pre_proposal_stale = self._invalidate_pre_proposal_acks(agent_role, version)
-        stale_reviewers.extend(pre_proposal_stale)
+            # Invalidate pre-proposal ACKs (version 0).  When a reviewer ACKs a
+            # producer that hasn't proposed yet, the ACK is recorded at version
+            # 0. After the producer proposes (version >= 1), these version-0
+            # ACKs can never satisfy is_fully_acked() and would create a
+            # permanent deadlock.
+            pre_proposal_stale = self._invalidate_pre_proposal_acks(agent_role, version)
+            stale_reviewers.extend(pre_proposal_stale)
 
         emit_event(
             EventType.CONSENSUS_PROPOSE_RECEIVED,
@@ -2118,7 +2123,14 @@ def reconstruct_tracker_from_messages(
                 # Historical messages may pre-date this requirement.
                 # Use an explicit sentinel so callers of
                 # get_proposal_commit_sha() can distinguish it from a real SHA.
-                if not payload.get("commit_sha"):
+                #
+                # Skipped for a no-op propose (#3027): a no-op carries no
+                # commit_sha by design — ``ProposalPayload.validate_commit_sha_present``
+                # is bypassed for it — so injecting the sentinel would write
+                # misleading audit data (``RECONSTRUCTED_NO_SHA`` against a
+                # producer that never had a commit to point at) into the
+                # commit-sha history. Leave it empty.
+                if not payload.get("commit_sha") and not payload.get("no_changes_needed"):
                     payload["commit_sha"] = "RECONSTRUCTED_NO_SHA"
 
                 # Debounce auto-re-propose messages during replay:

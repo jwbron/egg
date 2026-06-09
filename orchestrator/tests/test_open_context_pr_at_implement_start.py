@@ -63,7 +63,7 @@ from routes.pipelines import (  # noqa: E402
 def _make_pipeline(
     *,
     repo: str = "owner/repo",
-    base_branch: str = "main",
+    base_branch: str | None = "main",
     branch: str = "egg/issue-2777/work",
 ) -> Pipeline:
     """Pipeline with the fields the opener reads (repo, base_branch, branch)."""
@@ -250,18 +250,51 @@ class TestOpenContextPRAtImplementStartTypedErrors:
         ):
             assert _open_context_pr_at_implement_start("issue-2777") is None
 
-    def test_asymmetric_missing_base_branch_raises(self, store, spawner_factory):
-        """Repo set but base_branch empty → typed error."""
-        pipeline = _make_pipeline(repo="owner/repo", base_branch="")
+    def test_base_branch_unset_resolves_default_branch(self, tmp_path, store, spawner_factory):
+        """Repo set but base_branch unset is the NORMAL auto-detect state
+        (#3031), NOT a misconfiguration. ``Pipeline.base_branch`` defaults
+        to ``None`` and the standard ``submit_task`` path never populates
+        it, so the opener MUST resolve the repo's default branch via
+        ``_detect_default_branch`` and open the context PR against it —
+        rather than hard-raising ``missing_base_branch`` and stranding the
+        slice stack on ``/work`` (the #2777 regression #3031 fixes). A
+        non-``main`` default proves the base is genuinely resolved rather
+        than hardcoded, and both the idempotency lookup and ``create_pr``
+        must receive the resolved value."""
+        pipeline = _make_pipeline(repo="owner/repo", base_branch=None)
+        spawner = spawner_factory(
+            lookup_open_pr_return=None,
+            create_pr_return="https://github.com/owner/repo/pull/7777",
+        )
+        contract = _make_contract()
+        save_calls: list = []
+
+        def _fake_save(c, _root):
+            save_calls.append(c.pr.context_pr_number)
+
         with (
             patch(
                 "routes.get_state_store_for_pipeline",
                 return_value=(store, pipeline),
             ),
+            patch("routes.resolve_worktree_path", return_value=tmp_path),
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch(
+                "routes.pipelines._detect_default_branch",
+                return_value="develop",
+            ) as detect,
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract", side_effect=_fake_save),
+            patch("state_store.get_state_store", return_value=store),
         ):
-            with pytest.raises(ContextPrCreationError) as exc_info:
-                _open_context_pr_at_implement_start("issue-2777")
-            assert exc_info.value.reason == ContextPrCreationReason.MISSING_BASE_BRANCH.value
+            store.load_pipeline.return_value = MagicMock(repo="owner/repo")
+            result = _open_context_pr_at_implement_start("issue-2777")
+
+        assert result == 7777
+        detect.assert_called_once_with(tmp_path)
+        assert spawner.gateway.lookup_open_pr.call_args.kwargs["base"] == "develop"
+        assert spawner.gateway.create_pr.call_args.kwargs["base"] == "develop"
+        assert save_calls == [7777]
 
     def test_asymmetric_missing_repo_raises(self, store, spawner_factory):
         """Base branch set but repo empty → typed error."""

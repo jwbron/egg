@@ -1382,3 +1382,107 @@ class TestContainerIdInGatewayRequests:
         post_bodies = captured["bodies"]
         assert len(post_bodies) >= 1
         assert "container_id" not in post_bodies[0]
+
+
+class TestPrintContractSummarySlicesKey:
+    """Review feedback item A (#3029 r4): ``_print_contract_summary``
+    must read the modern ``slices`` key, not just the legacy ``phases``
+    key.
+
+    Same shape as the ``_tasks_for_role`` (#3029 r3) and
+    ``task_mark_gap`` (#3029 r3) fixes: the orchestrator serves
+    contracts as ``Contract.model_dump`` → ``slices``, never
+    ``phases``.  Pre-fix this CLI display function read
+    ``contract.get("phases", [])`` and silently omitted the entire
+    "Phases:" section from ``egg-contract show`` against every modern
+    contract.  The hand-keyed-``phases`` fixtures used by the rest of
+    this file masked the bug — only crossing the real serialise→consume
+    seam catches it.
+    """
+
+    def test_summary_renders_phases_from_real_serialized_contract(self, capsys):
+        """Feed a legacy ``phases`` input through the real codec so the
+        served shape is ``slices``, then assert the human-readable
+        summary still renders the phase + task lines.  Pre-fix the
+        "Phases:" section was silently omitted.
+        """
+        from egg_contracts.loader import export_contract  # local import: shared deps
+        from egg_contracts.models import Contract
+        from egg_lib.contract_cli import _print_contract_summary
+
+        served = export_contract(
+            Contract.model_validate(
+                {
+                    "pipeline_id": "issue-3023",
+                    "phases": [
+                        {
+                            "id": "phase-1",
+                            "name": "code only",
+                            "tasks": [
+                                {
+                                    "id": "task-1-1",
+                                    "description": "implement the thing",
+                                    "status": "pending",
+                                    "acceptance_criteria": "it works",
+                                    "files_affected": ["foo.py"],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            include_audit_log=False,
+        )
+        assert "phases" not in served and "slices" in served
+
+        _print_contract_summary(served)
+        out = capsys.readouterr().out
+
+        # The "Phases:" section header MUST render — pre-fix this entire
+        # block was silently omitted because the function read
+        # ``contract.get("phases", [])`` against a payload that only has
+        # the ``slices`` key.
+        assert "Phases:" in out
+        # The #2137 codec migrates phase ids on serialise:
+        # ``phase-N`` → ``slice-N``.  Assert on the post-migration id so
+        # the test exercises the real serialise→consume seam (which is
+        # the point of using the codec instead of a hand-keyed dict).
+        assert "slice-1" in out
+        assert "code only" in out
+        assert "task-1-1" in out
+        assert "implement the thing" in out
+
+    def test_summary_renders_phases_from_legacy_phases_key(self, capsys):
+        """Backward-compat: any un-migrated raw JSON that still has the
+        ``phases`` key (no ``slices``) must continue to render.  The
+        ``contract.get("slices") or contract.get("phases")`` fallback
+        chain preserves this.
+        """
+        from egg_lib.contract_cli import _print_contract_summary
+
+        legacy = {
+            "issue": {"number": 42, "title": "legacy contract"},
+            "current_phase": "implement",
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "legacy phase",
+                    "status": "in_progress",
+                    "tasks": [
+                        {
+                            "id": "task-1-1",
+                            "description": "legacy task",
+                            "status": "pending",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        _print_contract_summary(legacy)
+        out = capsys.readouterr().out
+
+        assert "Phases:" in out
+        assert "phase-1" in out
+        assert "legacy phase" in out
+        assert "task-1-1" in out

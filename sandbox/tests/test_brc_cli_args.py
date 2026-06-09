@@ -505,6 +505,35 @@ class TestProposeStructuredArgsInPayload:
         assert payload["tasks_satisfied"] == []
 
 
+class TestProposeNoChangesMutualPresence:
+    """Review feedback on #3029: ``--no-changes-reason`` without
+    ``--no-changes-needed`` was silently dropped and the orchestrator then
+    returned the generic "requires at least one artifact" error. Catch it
+    at the CLI with a clearer message before the handler runs."""
+
+    def test_reason_without_flag_exits_nonzero(self, capsys):
+        from egg_lib.orch_cli import cmd_consensus_propose
+
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "propose",
+                "issue-42",
+                "--role",
+                "documenter",
+                "--summary",
+                "x" * 30,
+                "--no-changes-reason",
+                "I forgot the flag",
+            ]
+        )
+        rc = cmd_consensus_propose(args)
+        assert rc == 2
+        stderr = capsys.readouterr().err
+        assert "--no-changes-needed" in stderr
+
+
 # ---------------------------------------------------------------------------
 # MESSAGE SEND: --type help text includes HANDOFF (issue #1718)
 # ---------------------------------------------------------------------------

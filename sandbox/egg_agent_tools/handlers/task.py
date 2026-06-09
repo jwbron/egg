@@ -419,7 +419,18 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
         if not read_result.get("success"):
             raise GatewayError(read_result.get("message", "contract fetch failed"))
         contract = read_result.get("data", {}) or {}
-        phases = contract.get("phases") or []
+        # Read ``slices`` first and fall back to the legacy ``phases`` key
+        # for any pre-#2137 / un-migrated raw JSON (same shape as the
+        # ``_tasks_for_role`` fix in #3029).  The served contract shape is
+        # ``Contract.model_dump`` → ``slices``; reading *only* ``phases``
+        # silently returned ``[]`` for every modern contract and raised
+        # "Phase index out of range" for every mark-gap call.  The
+        # ``field_path`` write below still uses ``phases.{...}``: that
+        # path works because ``Contract.phases`` is a ``@property`` alias
+        # for ``self.slices`` and the orchestrator's mutate handler
+        # navigates via ``hasattr``, so write-side compatibility holds
+        # without further changes.
+        phases = contract.get("slices") or contract.get("phases") or []
         if phase_idx >= len(phases):
             raise HandlerError(
                 f"Phase index {phase_idx + 1} out of range for contract "
