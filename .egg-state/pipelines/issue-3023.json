@@ -424,10 +424,10 @@
         {
           "container_id": "16e0738a-cdae-43aa-9a8c-f2f40ce65adb",
           "container_name": "egg-sandbox-egg-agent-issue-3023-slice-2-tester",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-06-09T07:11:21.120499Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-06-09T07:19:50.788368Z",
+          "exit_code": -1,
           "agent_role": "tester",
           "session_token": null,
           "pod_name": null,
@@ -641,15 +641,15 @@
         },
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "16e0738a-cdae-43aa-9a8c-f2f40ce65adb",
           "container_info": null,
           "slice_id": "slice-2",
           "started_at": "2026-06-09T07:11:21.120516Z",
-          "completed_at": null,
+          "completed_at": "2026-06-09T07:19:50.802913Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -996,6 +996,13 @@
           ],
           "terminated_at": "2026-06-09T07:11:10.352540Z",
           "container_id": "90e11454-df52-46d6-a6b9-9c9177d182a3"
+        },
+        {
+          "role": "tester",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-06-09T07:19:50.802924Z",
+          "container_id": "16e0738a-cdae-43aa-9a8c-f2f40ce65adb"
         }
       ]
     }
@@ -1193,7 +1200,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T07:11:21.120846Z",
+  "updated_at": "2026-06-09T07:19:50.803064Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1206,7 +1213,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T06:44:07.129942Z",
-  "version": 78,
+  "version": 79,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
