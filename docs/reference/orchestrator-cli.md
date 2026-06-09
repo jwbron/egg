@@ -407,6 +407,9 @@ egg-orch consensus propose --push --summary "Implemented feature X with JWT vali
 # Use when the role has no assigned tasks or its domain is not impacted.
 # --artifacts and --commit-sha are not required; reviewers accept it as non-blocking.
 # --no-changes-reason is required: explain why you have no work.
+# Only valid in the implement phase — refine and task_planner producers must
+# author and commit their draft (the orchestrator rejects no-op propose
+# in other phases with HTTP 400).
 egg-orch consensus propose \
   --no-changes-needed \
   --no-changes-reason "No assigned tasks in this slice; coder diff touches no documented surface"

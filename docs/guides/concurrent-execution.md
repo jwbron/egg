@@ -575,7 +575,7 @@ egg-orch consensus propose \
   --no-changes-reason "No assigned tasks in this slice; coder diff touches no documented surface"
 ```
 
-Or via the MCP tool, pass `no_changes_needed=True` and `no_changes_reason="..."` in the `brc_propose` request.
+Or via the MCP tool, pass `no_changes_needed=True` and `no_changes_reason="..."` in the `mcp__brc__propose` request.
 
 **How the orchestrator handles it:**
 
@@ -585,6 +585,10 @@ Or via the MCP tool, pass `no_changes_needed=True` and `no_changes_reason="..."`
 - A subsequent real proposal from the same producer (one with `no_changes_needed=False`) overwrites the no-op state normally.
 
 **Applies to any producer role** — no per-role flag or orchestrator-side configuration needed.
+
+**Implement phase only.** The orchestrator's no-op propose guard (`orchestrator/routes/signals.py`) rejects `--no-changes-needed` in any phase other than `implement` with HTTP 400 ("the producer's draft is required for this phase"). Refine and task_planner producers must author and commit their draft — a no-op propose is not a substitute for the analysis or plan artifact.
+
+**Tester edge case: mutually exclusive with `tests_execution_blocked`.** A tester proposal that combines `no_changes_needed=true` with `attestation.tests_execution_blocked=true` is rejected by `validate_no_changes_blocked_mutual_exclusion` (`orchestrator/attestation_schemas.py`). The two flags mean different things — "no changes needed" means the configured checks ran and there was nothing to author; "tests execution blocked" means the checks could not run at all. Pick one.
 
 **`--no-changes-reason` is required.** The reason must be a non-empty string explaining why the producer has no work (e.g. "no tasks assigned in this slice", "doc-only slice, no code changes"). A silent skip is not accepted; the justification is an audit record.
 
