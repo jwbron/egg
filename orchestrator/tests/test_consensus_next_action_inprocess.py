@@ -171,21 +171,18 @@ def _assert_parity(client, tracker, role):
     route_body = _route_call(client, tracker, role)
     assert route_body["success"] is True
     assert route_body["action"] == in_proc_action, (
-        f"action mismatch: route={route_body['action']!r} "
-        f"in_proc={in_proc_action!r}"
+        f"action mismatch: route={route_body['action']!r} in_proc={in_proc_action!r}"
     )
     # event_payload absent on the route side means in-process must have
     # returned None. Symmetry both ways.
     route_payload = route_body.get("event_payload")
     assert route_payload == in_proc_payload, (
-        f"event_payload mismatch: route={route_payload!r} "
-        f"in_proc={in_proc_payload!r}"
+        f"event_payload mismatch: route={route_payload!r} in_proc={in_proc_payload!r}"
     )
     # reason is included only when non-empty; in-process always returns
     # a non-empty string, so the route must echo it back verbatim.
     assert route_body.get("reason", "") == in_proc_reason, (
-        f"reason mismatch: route={route_body.get('reason')!r} "
-        f"in_proc={in_proc_reason!r}"
+        f"reason mismatch: route={route_body.get('reason')!r} in_proc={in_proc_reason!r}"
     )
 
 
