@@ -528,10 +528,10 @@
         {
           "container_id": "774dea9e-1dcf-4801-920d-c1081a85ca5a",
           "container_name": "egg-sandbox-egg-agent-issue-3023-slice-3-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-06-09T17:06:24.320922Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-06-09T18:24:59.172579Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null,
           "pod_name": null,
@@ -870,15 +870,15 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "774dea9e-1dcf-4801-920d-c1081a85ca5a",
           "container_info": null,
           "slice_id": "slice-3",
           "started_at": "2026-06-09T17:06:24.320935Z",
-          "completed_at": null,
+          "completed_at": "2026-06-09T18:25:00.246570Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -1239,6 +1239,13 @@
           "last_lines": [],
           "terminated_at": "2026-06-09T18:14:22.389707Z",
           "container_id": "19d79131-c71b-4cac-866c-3a72d619ca31"
+        },
+        {
+          "role": "coder",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-06-09T18:25:00.246594Z",
+          "container_id": "774dea9e-1dcf-4801-920d-c1081a85ca5a"
         }
       ]
     }
@@ -1436,7 +1443,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T18:14:22.389848Z",
+  "updated_at": "2026-06-09T18:25:00.250162Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1449,7 +1456,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T16:12:44.343424Z",
-  "version": 97,
+  "version": 98,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
