@@ -421,3 +421,54 @@ class TestMakePhaseIdleBudgetEmitterClosure:
             timer.check(now=31 * 60, pending_hitl_count=0)
 
         msg_store.add_message.assert_called_once()
+
+    def test_store_unavailable_sets_publish_error_sentinel(self):
+        """Regression for the second #3034 review's non-blocking
+        observation: when ``_get_message_store()`` returns ``None``, the
+        structured ``phase_idle_budget_tick`` log must carry a
+        ``publish_error`` sentinel distinguishing "store unavailable"
+        from an exception during publish. Before the fix, ``publish_error``
+        stayed ``None`` in that branch and an operator grepping the
+        structured log could not tell why the publish was skipped.
+        """
+        _make_phase_idle_budget_emitter = self._import_factory_or_skip()
+        Cls = _resolve_class()
+
+        pipeline = MagicMock()
+        emitter = _make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id="issue-3023",
+            slice_id=None,
+        )
+        timer = Cls(alert_emitter=emitter, budget_minutes=30, now=0.0)
+        timer.record_spawn(
+            pipeline_id="issue-3023",
+            phase="implement",
+            role="coder",
+            action="propose",
+            now=0.0,
+        )
+
+        with (
+            patch(
+                "routes.pipelines._get_message_store",
+                return_value=None,
+            ),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            timer.check(now=31 * 60, pending_hitl_count=0)
+
+        tick_calls = [
+            c for c in mock_logger.info.call_args_list
+            if c.args and c.args[0] == "phase_idle_budget_tick"
+        ]
+        assert len(tick_calls) == 1, (
+            "phase_idle_budget_tick must be emitted exactly once per "
+            f"threshold cross; got {len(tick_calls)} calls."
+        )
+        kwargs = tick_calls[0].kwargs
+        assert kwargs["published"] is False
+        assert kwargs["publish_error"] == "message store unavailable", (
+            "store-unavailable branch must set a publish_error sentinel so "
+            "the structured log distinguishes it from a publish exception."
+        )
