@@ -528,7 +528,7 @@ mostly health-check noise.
 - `since_seconds` (optional) scopes the read to "logs newer than N
   seconds ago" — useful for "logs around when my pipeline failed at
   HH:MM." When filters are active this bounds the per-pod scan window;
-  the backing fetch is widened to `_MAX_LOG_LINES` so the filter has
+  the backing fetch is widened to 10 000 lines so the filter has
   material to match.
 - `pipeline_id` (optional) — keep only lines emitted for this
   pipeline/task id. Checked against `context.task_id`,
@@ -539,7 +539,9 @@ mostly health-check noise.
   `ERROR` | `CRITICAL`); drops lower-severity and unstructured lines.
   Case-sensitive on the HTTP route (matches the MCP schema enum).
 - `pattern` (optional) — Python regex applied via `re.search`; a plain
-  substring is a valid pattern.
+  substring is a valid pattern. Matches against the raw line, so it can
+  keep non-JSON / unstructured lines too (unlike `level`, which drops
+  them); combine with `level` if you want JSON-only matches.
 
 Filters are ANDed: a line must pass every active filter to be kept.
 
