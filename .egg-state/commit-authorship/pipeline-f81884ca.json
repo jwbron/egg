@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "230b8b124affbebc36cb727c8d15312a3d7ffb12": {
+      "branch": "egg/pipeline-f81884ca/work",
+      "patch_id": "f1ad137236e10a77065c91f3c65f8f7b8698b69f",
+      "pipeline_id": "pipeline-f81884ca",
+      "registered_at": "2026-06-09T16:13:46.197740+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
