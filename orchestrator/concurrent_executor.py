@@ -299,6 +299,27 @@ class ConcurrentPhaseExecutor:
         env = {
             "EGG_CONCURRENT_MODE": "true",
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
+            # Coexistence guard (#3023 slice-2 task-2-0). Tells the in-pod
+            # event-pump wrapper that the orchestrator's on-demand spawner
+            # (``orchestrator/on_demand_spawner.py``, slice-2 task-2-2)
+            # now owns the BRC event loop: the orchestrator polls
+            # ``_derive_next_action`` in-process and spawns one-shot pods
+            # per actionable event. With this var set to ``orchestrator``,
+            # the wrapper's ``while true`` event-pump loop at
+            # ``consensus_wrapper.py`` short-circuits to a passive
+            # heartbeat-only sleep — it never calls ``egg-orch brc
+            # next-action`` and never invokes the agent. This makes the
+            # two paths mutually exclusive while ``spawn_all`` still
+            # spawns the long-lived wrapper pod in slice 2 (the pod
+            # holds the per-role worktree PVC mount and heartbeats
+            # session liveness). Slice-3 (task-3-1) deletes the wrapper
+            # outright; this guard is dead code at that point. Injected
+            # unconditionally for every role (AC for task-2-0). The
+            # sibling slice-1 task-1-3 ``EGG_PHASE_IDLE_BUDGET_OWNER``
+            # guard lands on its own branch and is symmetric with this
+            # one; both vars run concurrently during the slice-2 cutover
+            # once slice-1 merges.
+            "EGG_EVENT_LOOP_OWNER": "orchestrator",
         }
         # Add review graph info for BRC protocol
         graph = self._get_review_graph()

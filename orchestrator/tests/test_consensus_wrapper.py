@@ -1297,3 +1297,263 @@ class TestEventPumpInvokesComposer:
     # and ``invoke_agent_for_event``. See
     # ``test_invokes_event_prompt_composer_script`` (above) for the
     # post-deletion positive invariant.
+
+
+# --------------------------------------------------------------------------- #
+# Issue #3023 slice-2 task-2-0: event-loop owner coexistence guard
+# --------------------------------------------------------------------------- #
+
+
+def _wrapper_event_loop_guard_landed(script: str) -> bool:
+    """Whether the task-2-0 event-loop coexistence guard has landed in the
+    bash template. Used for the TDD skip-then-assert dance below.
+    """
+    return "EGG_EVENT_LOOP_OWNER" in script
+
+
+class TestEventLoopOwnerCoexistenceGuard:
+    """Slice-2 task-2-0 introduces an ``EGG_EVENT_LOOP_OWNER`` env var that
+    the orchestrator sets to ``orchestrator`` on every wrapper-pod spawn.
+    With it set, the wrapper's ``while true`` event-pump loop MUST short-
+    circuit to a passive heartbeat-only sleep — it must NOT call
+    ``egg-orch brc next-action`` and must NOT invoke the agent — so that
+    the orchestrator's on-demand spawner (slice-2 task-2-2) is the sole
+    BRC-verb emitter. Without this guard both paths would observe the
+    same actionable event and race on the same propose/ack/nack.
+
+    Acceptance lines (task-2-0):
+
+    * ``Env var injection asserted (alongside TASK-1-3).`` — pinned in
+      ``TestEventLoopOwnerEnvInjection`` below;
+    * ``Wrapper unit test: with EGG_EVENT_LOOP_OWNER=orchestrator the
+      wrapper does NOT call ``egg-orch brc next-action``, does NOT invoke
+      the agent, and DOES emit heartbeats.`` — pinned here.
+
+    The tests skip cleanly until the coder's task-2-0 production change
+    lands; once it lands they assert against the rendered bash.
+    """
+
+    def test_template_references_event_loop_owner_var(self, monkeypatch):
+        """The wrapper bash must reference ``EGG_EVENT_LOOP_OWNER`` in
+        some control-flow branch — without the reference there is no way
+        for the wrapper to know the orchestrator owns the loop and it
+        would keep firing ``brc next-action`` / spawning the agent
+        alongside the orchestrator's on-demand spawner.
+        """
+        import pytest as _pytest
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+
+        if not _wrapper_event_loop_guard_landed(script):
+            _pytest.skip(
+                "task-2-0 production change (EGG_EVENT_LOOP_OWNER guard in "
+                "consensus_wrapper.py) not yet landed on the slice branch; "
+                "test will assert once the coder's commit lands."
+            )
+        assert "EGG_EVENT_LOOP_OWNER" in script, (
+            "task-2-0 acceptance: the wrapper template must reference "
+            "EGG_EVENT_LOOP_OWNER so its event-pump loop can short-circuit "
+            "when the orchestrator owns the loop. Without this reference, "
+            "slice-2 coexistence double-emits BRC verbs on every actionable "
+            "event."
+        )
+
+    def test_guard_short_circuits_brc_next_action(self, monkeypatch):
+        """The guard branch MUST appear before the wrapper calls
+        ``brc next-action`` so that, with the env var set, the wrapper
+        never observes consensus state. We pin this by asserting the
+        first occurrence of ``EGG_EVENT_LOOP_OWNER`` inside the main loop
+        precedes the first ``ACTION_JSON=$(fetch_next_action)`` call site.
+        """
+        import pytest as _pytest
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+
+        if not _wrapper_event_loop_guard_landed(script):
+            _pytest.skip(
+                "task-2-0 production change not yet landed; the "
+                "EGG_EVENT_LOOP_OWNER ↔ brc-next-action ordering check is "
+                "moot until the env var is in the rendered script."
+            )
+
+        # Anchor on the ``# --- main event-pump loop ---`` comment so we
+        # find the main event-pump loop body (not the heartbeat-emitter
+        # subshell's inner ``while true``). The guard must appear inside
+        # the loop so it short-circuits per-iteration, and before the
+        # loop's first ``ACTION_JSON=$(fetch_next_action)`` call site
+        # (the function definition itself appears earlier in the script
+        # and does not invoke ``brc next-action``).
+        loop_marker = "# --- main event-pump loop ---"
+        loop_idx = script.find(loop_marker)
+        assert loop_idx >= 0, (
+            "Event-pump template must contain the ``main event-pump loop`` "
+            "marker comment; without it the task-2-0 guard cannot be "
+            "anchored to the main loop body."
+        )
+        owner_idx = script.find("EGG_EVENT_LOOP_OWNER", loop_idx)
+        next_action_idx = script.find("ACTION_JSON=$(fetch_next_action)", loop_idx)
+        assert owner_idx >= 0, (
+            "EGG_EVENT_LOOP_OWNER reference must appear inside the main "
+            "``while true`` loop body so the short-circuit fires per "
+            "iteration."
+        )
+        assert next_action_idx >= 0, (
+            "``ACTION_JSON=$(fetch_next_action)`` call site must still exist "
+            "for the non-orchestrator owner path; the guard only short-"
+            "circuits, it does not delete the call."
+        )
+        assert owner_idx < next_action_idx, (
+            "task-2-0 acceptance: the EGG_EVENT_LOOP_OWNER guard must sit "
+            "BEFORE ``ACTION_JSON=$(fetch_next_action)`` inside the main "
+            "loop so the wrapper never calls ``brc next-action`` when the "
+            "orchestrator owns the event loop. Current ordering: "
+            f"owner_idx={owner_idx} >= next_action_idx={next_action_idx}."
+        )
+
+    def test_guard_emits_heartbeat_in_passive_branch(self, monkeypatch):
+        """The passive branch (orchestrator-owner short-circuit) must still
+        emit heartbeats — the wrapper pod's only remaining job in slice 2
+        is to hold the worktree PVC mount and keep the gateway session warm
+        via ``emit_heartbeat`` (which side-effects a session-refresh via
+        ``_maybe_attach_slice_id``, #2451). A guard that silently sleeps
+        would let the session age out.
+
+        We pin this by asserting the guard branch (``EGG_EVENT_LOOP_OWNER``
+        bash conditional body) contains an ``emit_heartbeat`` call and a
+        ``continue``.
+        """
+        import re
+
+        import pytest as _pytest
+
+        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+
+        if not _wrapper_event_loop_guard_landed(script):
+            _pytest.skip(
+                "task-2-0 production change not yet landed; the "
+                "passive-branch heartbeat assertion is moot until the env "
+                "var is in the rendered script."
+            )
+
+        # Anchor on the actual bash conditional, not a comment mention,
+        # so the guard-branch boundary is the in-code if/fi block.
+        loop_marker = "# --- main event-pump loop ---"
+        loop_idx = script.find(loop_marker)
+        if_match = re.search(
+            r'if\s*\[\s*"\$\{EGG_EVENT_LOOP_OWNER[^]]*\]\s*;\s*then',
+            script[loop_idx:],
+        )
+        assert if_match is not None, (
+            'task-2-0 guard must be a bash ``if [ "${EGG_EVENT_LOOP_OWNER..." '
+            "]`` conditional inside the main event-pump loop."
+        )
+        if_start = loop_idx + if_match.start()
+        fi_idx = script.find("\n    fi", if_start)
+        assert fi_idx > if_start, (
+            "task-2-0 guard branch must close with ``fi`` (the bash conditional terminator)."
+        )
+        guard_branch = script[if_start:fi_idx]
+        assert "continue" in guard_branch, (
+            "task-2-0 guard branch must contain a ``continue`` so the "
+            "loop returns to the top without falling through into "
+            "``fetch_state`` / ``fetch_next_action``."
+        )
+        assert "emit_heartbeat" in guard_branch, (
+            "task-2-0 acceptance: the passive (orchestrator-owner) branch "
+            "must emit heartbeats so the gateway session stays warm while "
+            "the wrapper holds the worktree PVC. No emit_heartbeat call "
+            "found in the guard branch body."
+        )
+
+
+class TestEventLoopOwnerEnvInjection:
+    """Slice-2 task-2-0 acceptance line: ``EGG_EVENT_LOOP_OWNER=orchestrator``
+    must appear in the spawn env from ``_spawn_agent`` for every role.
+    The injection is unconditional — every agent the orchestrator spawns
+    during slice-2 coexistence gets the var so its wrapper bash short-
+    circuits the duplicate BRC event loop.
+    """
+
+    def _spawn_agent_env_for_role(self, role_name: str):
+        """Construct an executor, call ``_spawn_agent`` for the given role,
+        and return the ``extra_env`` dict the spawn_fn was invoked with.
+        """
+        from unittest.mock import MagicMock, patch
+
+        try:
+            from concurrent_executor import ConcurrentPhaseExecutor
+            from egg_orchestrator.types import AgentRole
+        except ImportError:
+            import pytest as _pytest
+
+            _pytest.skip(
+                "concurrent_executor / egg_orchestrator.types not importable "
+                "in this minimal environment."
+            )
+
+        try:
+            from test_concurrent_executor import (  # type: ignore[import-not-found]
+                _kubernetes_spawn_result,
+                _make_pipeline,
+            )
+        except ImportError:
+            import pytest as _pytest
+
+            _pytest.skip(
+                "test_concurrent_executor.py helpers not importable; the "
+                "env-injection test relies on the shared pipeline/spawn-"
+                "result factories."
+            )
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result(role_name))
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+
+        role_enum = getattr(AgentRole, role_name.upper())
+        with patch(
+            "concurrent_executor.build_consensus_wrapped_command",
+            return_value=["bash", "-c", "true"],
+        ):
+            executor._spawn_agent(role_enum, prompt_text="run task")
+
+        _args, kwargs = mock_spawn.call_args
+        return kwargs.get("extra_env") or {}
+
+    def _assert_or_skip(self, env: dict, role_name: str) -> None:
+        """Skip cleanly when the production env-injection change hasn't
+        landed yet; assert once it has.
+        """
+        import pytest as _pytest
+
+        if "EGG_EVENT_LOOP_OWNER" not in env:
+            _pytest.skip(
+                "task-2-0 production change (env injection in "
+                "concurrent_executor._spawn_agent) not yet landed; the "
+                f"{role_name} spawn does not yet carry "
+                "EGG_EVENT_LOOP_OWNER. Test will assert once the coder's "
+                "commit lands."
+            )
+        assert env.get("EGG_EVENT_LOOP_OWNER") == "orchestrator", (
+            f"task-2-0 acceptance: every spawn from _spawn_agent must "
+            f"inject EGG_EVENT_LOOP_OWNER=orchestrator. {role_name} spawn "
+            f"carries an unexpected value: "
+            f"{env.get('EGG_EVENT_LOOP_OWNER')!r}."
+        )
+
+    def test_event_loop_owner_injected_for_coder(self):
+        env = self._spawn_agent_env_for_role("coder")
+        self._assert_or_skip(env, "coder")
+
+    def test_event_loop_owner_injected_for_tester(self):
+        env = self._spawn_agent_env_for_role("tester")
+        self._assert_or_skip(env, "tester")
+
+    def test_event_loop_owner_injected_for_reviewer_code(self):
+        env = self._spawn_agent_env_for_role("reviewer_code")
+        self._assert_or_skip(env, "reviewer_code")

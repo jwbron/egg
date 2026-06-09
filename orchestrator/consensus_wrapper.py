@@ -562,6 +562,33 @@ cw_log "Event-pump starting (role=${{EGG_AGENT_ROLE:-?}}, slice=${{EGG_SLICE_ID:
 emit_heartbeat "WORKING" "event-pump start"
 
 while true; do
+    # Coexistence guard (#3023 slice-2 task-2-0). When
+    # ``EGG_EVENT_LOOP_OWNER=orchestrator`` is injected by
+    # ``concurrent_executor.get_agent_env`` (slice-2), the orchestrator's
+    # on-demand spawner is the authoritative event-loop owner: it polls
+    # ``_derive_next_action`` in-process and spawns one-shot pods per
+    # actionable BRC event. This wrapper pod is still launched by
+    # ``spawn_all`` so it holds the per-role worktree PVC mount and keeps
+    # the gateway session alive via heartbeats, but it MUST NOT call
+    # ``egg-orch brc next-action`` or invoke the agent -- otherwise the
+    # orchestrator-side spawn and the wrapper-side spawn would race on
+    # the same actionable event and double-emit BRC verbs.
+    #
+    # The guard turns the loop into a passive heartbeat-only sleep:
+    # emit one ``WAITING_FOR_EVENT`` beat per ``HB_INTERVAL_SECS`` and
+    # then ``continue``. We deliberately bypass ``fetch_state`` /
+    # ``fetch_next_action`` / ``check_idle_budget`` so the wrapper
+    # cannot observe or act on consensus state. Heartbeats keep the
+    # gateway session warm (per #2451: each heartbeat refreshes the
+    # slice-scoped session via ``_maybe_attach_slice_id``), which is
+    # the only job the wrapper has left in slice 2. Slice-3 task-3-1
+    # deletes the wrapper outright, so this branch becomes dead code.
+    if [ "${{EGG_EVENT_LOOP_OWNER:-}}" = "orchestrator" ]; then
+        emit_heartbeat "WAITING_FOR_EVENT" "passive (event-loop=orchestrator)"
+        sleep "$HB_INTERVAL_SECS"
+        continue
+    fi
+
     STATE_JSON=$(fetch_state)
 
     if [ "$(consensus_is_complete "$STATE_JSON")" = "True" ]; then
