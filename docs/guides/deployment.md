@@ -436,20 +436,34 @@ If the state-store worktree is wedged (for example, after a state-volume reset t
    than `imageMinimumGCAge` (~2 min) and thus GC-eligible, while sandbox/litellm
    are still inside the immunity window.
 
-   The disk hog lives in **k3s's containerd** (`/var/lib/rancher/k3s/agent/containerd`),
-   a *different* store from docker's — so `docker system prune` frees the wrong
-   space and the next redeploy's import spike re-crosses the threshold. Reclaim
-   containerd space, then redeploy (which re-imports everything):
+   On **btrfs root filesystems** (the local Fedora Asahi dev host), the root
+   cause is deeper: repeated image build/import/delete churn fragments data
+   chunks, and btrfs over-allocates (all chunks allocated but mostly empty).
+   `statfs` counts allocated-but-empty chunks as used, so the node reports
+   ~86% usage even though only ~68 GiB is actually used. Deleting images
+   via `crictl rmi` or `docker system prune` does **not** return chunks to
+   unallocated — kubelet then reports "freed 0 bytes" and DiskPressure persists.
+
+   **Immediate unblock** (runbook for the local dev host):
 
    ```bash
    sudo k3s crictl rmi --prune   # safe immediately before a redeploy
-   df -h /                       # confirm well under 80%
+   sudo btrfs balance start -dusage=50 /   # reclaim ≤50%-full data chunks
+   kubectl delete pods -n egg-system --field-selector status.phase=Failed
    make redeploy
    ```
 
-   A successful deploy now reaps older egg tags from containerd automatically
-   (`scripts/reap-stale-egg-images.sh`), keeping it bounded to the current tag
-   so the threshold isn't crossed on subsequent redeploys.
+   The `btrfs balance` step is load-bearing on btrfs: without it, freed image
+   data stays in allocated chunks and DiskPressure does not clear.
+
+   `make redeploy` now automatically bounds both stores to keep fragmentation
+   slow: `scripts/reclaim-docker-disk.sh` reaps stale docker tags + caps the
+   BuildKit cache before `k3s-import` (lever C), and `k3s-import` skips the
+   `docker save` + `ctr import` of unchanged images by retagging from `:latest`
+   instead (lever A). Post-deploy, `scripts/reap-stale-egg-images.sh` reaps
+   older containerd tags automatically. On btrfs, periodic `btrfs balance` is
+   still required as a maintenance backstop because deleting images does not
+   reclaim chunks.
 
 ### Claude binary not found
 

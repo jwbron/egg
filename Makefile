@@ -691,8 +691,23 @@ sudo-keepalive:
 # non-egg content -- no tool in this repo does so, and an out-of-band retag
 # would only mismatch if :$(EGG_IMAGE_TAG) is also absent (the inner grep
 # guard skips when it is already present).
+#
+# Reclaim docker disk BEFORE the import (issue #2999 lever C). The loop below
+# does, per image, `docker save <img> > /var/tmp/*.tar` -- a second ~12 GB copy
+# of the sandbox on the shared root fs. If docker's accumulated old tags plus an
+# unbounded BuildKit cache already sit near kubelet's image-GC high-water mark
+# (~85%), that spike contributes to the fragmentation that eventually drives
+# DiskPressure. Bounding docker here, keyed on the tag we are about to import,
+# removes the stale-tag accumulation and caps the BuildKit cache before the
+# save. Best-effort: a reclaim hiccup must not fail the import. Complements the
+# post-deploy reap-stale-egg-images.sh, which bounds the OTHER store (k3s
+# containerd); this one bounds docker. The combined effect with lever A (skip
+# unchanged re-import) means the common unchanged-sandbox case does no actual
+# `docker save` at all, so the reclaimed docker space is not immediately
+# re-consumed.
 k3s-import: SHELL := /bin/bash
 k3s-import: sudo-keepalive  ## Import built images into k3s
+	@scripts/reclaim-docker-disk.sh "$(EGG_IMAGE_TAG)" || true
 	@set -euo pipefail; \
 	tmp=$$(mktemp -d -p /var/tmp egg-k3s-import.XXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
