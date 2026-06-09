@@ -398,6 +398,11 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
     print(f"Phase: {contract.get('current_phase', 'unknown')}")
     print()
 
+    # Surface `task_description` so the CLI summary doesn't silently drop
+    # the full free-text task that `mcp__sdlc__show_contract` returns (#3033).
+    if task_description := contract.get("task_description"):
+        print(f"Task:\n{task_description}\n")
+
     phases = contract.get("phases", [])
     if phases:
         print("Phases:")

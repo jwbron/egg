@@ -61,6 +61,34 @@ Both mechanisms use a 30-second debounce to allow humans to edit before processi
 When submitted, the pipeline resumes with the human input available in your prompt
 context via `get_submitted_feedback()` or the selected decision option.
 
+## Recovering the task — `task_description`
+
+Under the BRC event-pump (default-on since #2908 slice-4) the
+orchestrator-built spawn prompt is **not** delivered to agents — the
+event-pump prompt carries the event banner, git-log delta, NACKs, and
+BRC memory, but no `## Task Description` section. Agents therefore
+recover the task by reading the contract.
+
+The contract field for this is `task_description` (added in #3033,
+schema `1.3`):
+
+- **GitHub-issue pipelines** (`pipeline.issue_number is not None`) —
+  `task_description` is `None`. `issue.title` is a short label; the
+  agent fetches the full body out-of-band with `gh issue view <n>`.
+- **JIRA-driven pipelines** (`pipeline.jira_ticket` set,
+  `pipeline.issue_number is None`) — `task_description` is a snapshot
+  of the submitted description so the agent can recover the task from
+  the contract alone. For the latest ticket state, fetch out-of-band
+  with `jira ticket get "$EGG_JIRA_TICKET"`.
+- **Free-text submits** (no issue, no ticket) — `task_description` is
+  the **only** complete copy of the task. The 100-char contract title
+  is a label, not a substitute.
+
+The field is read-only after creation (`SYSTEM`-owned in
+`FIELD_OWNERSHIP`); agents must not mutate it. Both
+`egg-contract show` (human summary) and `mcp__sdlc__show_contract`
+surface it.
+
 ## Contract State in Concurrent Mode
 
 In concurrent execution mode, contracts are stored in the **shared pipeline worktree** (`/home/egg/.egg-worktrees/<pipeline_id>/<repo>/`) rather than in per-agent worktrees. All `egg-contract` commands route through the gateway, which proxies to the orchestrator's `/api/v1/contracts/` endpoints. The orchestrator is the single source of truth for contract state, ensuring all agents (producer and reviewers) observe the same contract regardless of which per-agent worktree they run in.
