@@ -950,45 +950,77 @@ def _validate_tester_check_coverage(
         )
 
 
-def _validate_planner_role_alignment(
+def _validate_plan_proposal(
     pipeline_id: str,
     payload: dict[str, Any],
     repo_path: Path,
     *,
     pipeline_state: Any | None = None,
     worktree_path: Path | None = None,
+    branch_verified: bool | None = True,
 ) -> None:
-    """Validate task role↔files alignment for a planner proposal (#2527).
+    """Validate a ``task_planner`` proposal at propose-time (#3016 / #3026 / #2527).
 
-    Reads the plan draft at the proposed commit via ``git show`` against
-    the orchestrator's pipeline worktree and runs
-    ``validate_task_role_alignment``. Raises ``ValueError`` if any task
-    is assigned to a role that cannot push its files — the caller's
-    ``handle_consensus_propose_signal`` ``except`` block then returns 400
-    to the planner before the proposal is recorded on the tracker, so no
-    reviewer cycle is wasted on a structurally-broken plan.
+    A single ``git show`` + a single ``parse_plan`` of the plan draft at the
+    proposed commit, feeding three checks that the populate / gate / push paths
+    would otherwise enforce only later and far more expensively:
 
-    The check mirrors the gateway's push-time blocked-pattern logic
-    (``gateway/phase_filter.py::FileRestriction.is_file_blocked``), so a
-    rejection here predicts a push-time ``403 restricted_path_modified``
-    in the implement phase. Caught here it costs the planner one
-    re-propose; caught at push time it costs a full producer cycle.
+    1. **Presence** (#3016): the canonical plan draft exists and is non-empty at
+       the proposed commit. The operator gate, contract populator, and resume
+       path all read the plan from ``_get_draft_path("plan", …)``; a draft
+       committed off-path (or not at all) is invisible to them.
+    2. **Parseability / ≥1 slice** (#3026): the draft parses via the *same*
+       ``parse_plan`` the contract populator runs, and yields ≥1 slice. A draft
+       that is complete in prose but omits the machine-readable ``# yaml-tasks``
+       appendix parses to ``success=False`` — it passes BRC consensus and phase
+       completion on content grounds, then fails the *whole pipeline* at
+       ``populate_contract`` (``parse_failed`` / ``empty_result``) ~40 min later,
+       after the plan HITL gate, surfacing an expensive recovery decision.
+       Mirrors the populate fail-fast condition
+       (``_populate_result_is_empty_contract`` = non-success OR ``slice_count ==
+       0``); using the same parser means the propose-time check and the populate
+       check cannot diverge. Catching it here is one cheap NACK→re-propose cycle.
+    3. **Role↔files alignment** (#2527 / #2528): no task is assigned to a role
+       whose blocklist forbids its files (would 403 at push time per
+       ``gateway/phase_filter.py::FileRestriction.is_file_blocked`` /
+       ``shared/egg_restrictions/patterns.py``).
 
-    Graceful degradation: when the plan file doesn't exist at the
-    proposed commit, ``git show`` fails, parsing fails, or the validator
-    raises, this function returns silently. The push-time gateway check
-    remains the backstop, and the existing forest-validation pass at
-    plan-ingestion time still runs.
+    All three run BEFORE ``handle_propose`` records the proposal, so a rejection
+    costs the still-alive planner one re-propose and never mutates the tracker;
+    the caller's ``except`` maps the raised ``ValueError`` to a 400.
 
-    ``pipeline_state`` and ``worktree_path`` should be passed in by
-    ``handle_consensus_propose_signal`` so the state-store + worktree
-    lookups it has already performed for ``_verify_commit_on_branch``
-    aren't duplicated. The function falls back to loading them itself
-    when called directly (e.g. from unit tests), preserving backward
-    compatibility with patches on ``get_state_store`` / ``resolve_worktree_path``.
+    Consolidates the former ``_validate_producer_draft_present("plan", …)`` +
+    ``_validate_planner_role_alignment`` pair, which each ``git show``-ed the
+    same draft at the same commit and disagreed on how to treat a missing one.
+    A single read now feeds every check. (Refine still uses
+    ``_validate_producer_draft_present`` — analysis drafts have no parseable
+    appendix, so existence-only is the right check there.)
+
+    ``pipeline_state`` / ``worktree_path`` are threaded in by
+    ``handle_consensus_propose_signal`` to reuse the lookups it already performed
+    for ``_verify_commit_on_branch``; the function loads them itself when called
+    directly (e.g. from unit tests).
+
+    Graceful degradation: returns silently when the proposal carries no commit
+    SHA, branch verification was inconclusive (``branch_verified is None`` — an
+    orchestrator-side fetch glitch, not a producer fault; a non-zero ``git show``
+    could then mean "commit not in local cache" rather than "path absent"), the
+    pipeline has no branch / no resolvable draft path, ``git show`` errors for an
+    infrastructure reason (timeout / git failure), or the parser raises. It
+    raises only when it can positively confirm — at a resolved, branch-verified
+    commit — that the draft is absent/empty, unparseable, sliceless, or
+    role-misassigned. ``branch_verified`` defaults to ``True`` so direct callers
+    (unit tests) that don't run ``_verify_commit_on_branch`` still get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
+        return
+
+    # Orchestrator-side commit verification was inconclusive — a non-zero
+    # ``git show`` below could be "commit not in local object cache" rather than
+    # "path absent at commit", so skip rather than false-blame the producer (the
+    # same tri-state guard ``_validate_producer_draft_present`` uses, #3016).
+    if branch_verified is None:
         return
 
     if pipeline_state is None:
@@ -1020,10 +1052,9 @@ def _validate_planner_role_alignment(
     if worktree_path is None:
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
 
-    # Read plan content as committed at the proposed SHA so a stale
-    # local checkout cannot mask a real misassignment. The preceding
-    # ``_verify_commit_on_branch`` call has already done a ``git fetch``,
-    # making the commit reachable in the worktree.
+    # Read plan content as committed at the proposed SHA, not from the working
+    # tree (which can lag HEAD — #2723). The preceding ``_verify_commit_on_branch``
+    # call has already done a ``git fetch``, making the commit reachable.
     try:
         result = subprocess.run(
             ["git", "-C", str(worktree_path), "show", f"{commit_sha}:{plan_rel}"],
@@ -1032,28 +1063,28 @@ def _validate_planner_role_alignment(
             timeout=15,
             check=False,
         )
-        if result.returncode != 0:
-            # Plan absent at this commit — nothing to validate. Note: on the
-            # production handler path this branch is unreachable for
-            # task_planner because ``_validate_producer_draft_present`` (#3016)
-            # now runs first in ``handle_consensus_propose_signal`` and rejects
-            # an absent plan with 400 before this validator is invoked. The
-            # silent-skip here is retained as a safety net for direct callers
-            # (tests, future re-orderings) — but the two guards have opposite
-            # responses to the same ``returncode != 0`` signal, so any
-            # refactor that moves the alignment guard ahead of the presence
-            # guard would silently re-introduce the #3016 bug. Keep
-            # ``_validate_producer_draft_present`` upstream of this call.
-            return
-        plan_text = result.stdout
     except Exception as exc:
         logger.warning(
-            "plan role-alignment validation: git show failed (non-blocking)",
+            "plan proposal validation: git show failed (non-blocking)",
             pipeline_id=pipeline_id,
             commit_sha=commit_sha,
             error=str(exc),
         )
         return
+
+    # (1) Presence — absent or empty at the proposed commit. (Previously a
+    # separate ``_validate_producer_draft_present("plan", …)`` call; folded in
+    # here so the same read serves all three checks.)
+    if result.returncode != 0 or not result.stdout.strip():
+        raise ValueError(
+            f"Plan proposal rejected: no plan draft found at `{plan_rel}` in the "
+            f"proposed commit ({commit_sha[:8]}). The phase gate, contract "
+            f"population, and resume all read the plan from this exact path — a "
+            f"draft committed to a different path (or an empty one) is invisible "
+            f"to them. Write your plan to `{plan_rel}`, commit and push it, then "
+            f"re-propose."
+        )
+    plan_text = result.stdout
 
     try:
         from egg_contracts.plan_parser import (
@@ -1065,13 +1096,46 @@ def _validate_planner_role_alignment(
 
     try:
         parsed = parse_plan(plan_text)
-        if not parsed.success:
-            return
-        slices = parsed.to_contract_slices()
-        # #2528: pass the pipeline's repo so per-repo role_patterns from
-        # repositories.yaml are honoured. Plan-time validation must
-        # mirror push-time enforcement, which now also reads the per-repo
-        # overrides (gateway/agent_restrictions.py).
+    except Exception as exc:
+        logger.warning(
+            "plan proposal validation: parser raised (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+            error=str(exc),
+        )
+        return
+
+    # (2) Parseability / ≥1 slice — the #3026 fix. Reuses the contract
+    # populator's parser, and mirrors its fail-fast condition
+    # (``_populate_result_is_empty_contract``), so a draft that would later
+    # populate an empty contract is NACKed now instead.
+    if not parsed.success:
+        detail = f" {parsed.error}" if parsed.error else ""
+        raise ValueError(
+            f"Plan proposal rejected: the plan draft at `{plan_rel}` "
+            f"({commit_sha[:8]}) does not parse into any tasks.{detail} The "
+            f"contract populator runs this exact parser at plan-completion; a "
+            f"draft that is complete in prose but omits the machine-readable "
+            f"``# yaml-tasks`` appendix passes consensus and then fails the whole "
+            f"pipeline at populate. Add a ``# yaml-tasks`` code fence enumerating "
+            f"your slices and tasks, commit and push it, then re-propose."
+        )
+
+    slices = parsed.to_contract_slices()
+    if not slices:
+        raise ValueError(
+            f"Plan proposal rejected: the plan draft at `{plan_rel}` "
+            f"({commit_sha[:8]}) parsed but produced zero slices, so the contract "
+            f"populator would build an empty contract the implement phase cannot "
+            f"act on. Ensure your ``# yaml-tasks`` appendix lists at least one "
+            f"slice with tasks, commit and push it, then re-propose."
+        )
+
+    # (3) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
+    # per-repo ``role_patterns`` from repositories.yaml are honoured — plan-time
+    # validation must mirror push-time enforcement, which also reads the per-repo
+    # overrides (gateway/agent_restrictions.py).
+    try:
         errors = validate_task_role_alignment(
             slices, repo=getattr(pipeline_state, "repo", None) or None
         )
@@ -1110,17 +1174,24 @@ def _validate_producer_draft_present(
     """Reject a producer proposal whose canonical phase draft is absent at the
     proposed commit (#3016).
 
-    The refine/plan operator gate, the contract populator, and the resume path all
-    read the phase artifact from the canonical
+    Used for the **refine** phase. (Plan goes through ``_validate_plan_proposal``,
+    which folds this presence check together with parseability and role-alignment
+    into a single read — a plan draft that parses to ≥1 slice is necessarily
+    present and non-empty, so a separate existence-only pass would be redundant.
+    The ``phase`` parameter is kept generic so the function remains a phase-neutral
+    presence guard for any future producer whose artifact is *not* parsed.)
+
+    The refine operator gate, the contract populator, and the resume path all read
+    the phase artifact from the canonical
     ``.egg-state/drafts/{prefix}-{analysis|plan}.md`` path (``_get_draft_path``). A
     producer that commits its draft to some other path — or not at all — still
     reaches BRC consensus and completes the phase; only later does the gate report
-    "No <analysis|plan> draft was found on the work branch", a silent
+    "No <analysis> draft was found on the work branch", a silent
     deterministic-input failure. (Observed: a refiner that committed
     ``.egg-state/agent-outputs/refiner-refine.md`` — a path no code reads — instead
     of ``.egg-state/drafts/<n>-analysis.md``.)
 
-    refine and plan are always concurrent, so the producer always issues
+    refine is always concurrent, so the producer always issues
     ``consensus_propose``. Validating here — before ``handle_propose`` records the
     proposal — turns a missing draft into a 400 the producer (still alive) can fix by
     re-proposing with the draft at the right path, instead of the failure surfacing a
@@ -1129,8 +1200,8 @@ def _validate_producer_draft_present(
 
     Existence-only by design. Format/template conformance is intentionally *not*
     enforced here — that would risk false-rejecting a legitimate-but-differently-
-    structured draft (see #3016 / #3017); the gate and reviewers remain the content
-    backstop.
+    structured analysis draft (see #3016 / #3017); the gate and reviewers remain the
+    content backstop.
 
     Graceful degradation: when the proposal carries no commit SHA, the pipeline has
     no branch, the draft path can't be derived, ``git show`` errors for an
@@ -1181,7 +1252,7 @@ def _validate_producer_draft_present(
         return
 
     # Lazy import to avoid pulling the ~24k-line ``routes.pipelines`` module into
-    # ``signals`` import time (matches ``_validate_planner_role_alignment``).
+    # ``signals`` import time (matches ``_validate_plan_proposal``).
     try:
         from routes.pipelines import _get_draft_path
     except ImportError:
@@ -1390,19 +1461,19 @@ def handle_consensus_propose_signal(
     # completion handler — graceful degradation on network errors (None).
     #
     # ``pipeline_state`` and ``worktree_path`` are loaded once here and
-    # threaded into ``_validate_planner_role_alignment`` below so the
-    # validator's dependency on this block is explicit and the
-    # state-store + worktree lookups aren't duplicated.
+    # threaded into the producer validators below (``_validate_plan_proposal`` /
+    # ``_validate_producer_draft_present``) so their dependency on this block is
+    # explicit and the state-store + worktree lookups aren't duplicated.
     commit_sha = payload.get("commit_sha", "")
     pipeline_state = None
     worktree_path = None
     # Tri-state mirroring ``_verify_commit_on_branch``: True (commit on
     # branch), False (commit NOT on branch — 409 short-circuit below), or
     # None (verification inconclusive — fetch or branch-contains errored).
-    # Threaded into ``_validate_producer_draft_present`` so that a glitch
-    # in our fetch doesn't get blamed on the producer as a missing draft
-    # (a non-zero ``git show`` after a failed fetch could be "commit not
-    # in local object cache" rather than "path absent at commit").
+    # Threaded into the producer validators so that a glitch in our fetch
+    # doesn't get blamed on the producer as a missing draft (a non-zero
+    # ``git show`` after a failed fetch could be "commit not in local object
+    # cache" rather than "path absent at commit").
     branch_verified: bool | None = True
     if commit_sha:
         try:
@@ -1460,26 +1531,19 @@ def handle_consensus_propose_signal(
                 worktree_path=worktree_path,
                 branch_verified=branch_verified,
             )
-        # Validate task_planner proposals: (a) the plan draft is present at the
-        # canonical path (#3016 — same deterministic-input guard as refine), and
-        # (b) no task is misassigned to a role whose blocklist forbids its files
-        # (#2527). Both run BEFORE handle_propose so the tracker isn't mutated.
+        # Validate task_planner proposals in one pass: the plan draft is present
+        # at the canonical path (#3016), parses into ≥1 slice via the same parser
+        # the contract populator runs (#3026), and assigns no task to a role whose
+        # blocklist forbids its files (#2527). Runs BEFORE handle_propose so the
+        # tracker isn't mutated on a rejected proposal.
         elif agent_role == "task_planner":
-            _validate_producer_draft_present(
-                "plan",
+            _validate_plan_proposal(
                 pipeline_id,
                 payload,
                 repo_path,
                 pipeline_state=pipeline_state,
                 worktree_path=worktree_path,
                 branch_verified=branch_verified,
-            )
-            _validate_planner_role_alignment(
-                pipeline_id,
-                payload,
-                repo_path,
-                pipeline_state=pipeline_state,
-                worktree_path=worktree_path,
             )
 
         # Check if this is a re-proposal
