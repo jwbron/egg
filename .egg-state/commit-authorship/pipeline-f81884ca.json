@@ -7,6 +7,22 @@
       "registered_at": "2026-06-09T16:13:46.197740+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "4b2790ba020dd4b3e339e1cf2dd922230df60698": {
+      "branch": "egg/pipeline-f81884ca/work",
+      "patch_id": "f1ad137236e10a77065c91f3c65f8f7b8698b69f",
+      "pipeline_id": "pipeline-f81884ca",
+      "registered_at": "2026-06-09T16:14:28.401256+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "d9a1f892298e3acec0354e8141c9d4db549f312c": {
+      "branch": "egg/pipeline-f81884ca/work",
+      "patch_id": "91bfcc938d03d6efd77dfcd1ecd28e53847f9042",
+      "pipeline_id": "pipeline-f81884ca",
+      "registered_at": "2026-06-09T16:14:28.409795+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
