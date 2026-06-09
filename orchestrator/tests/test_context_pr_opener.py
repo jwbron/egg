@@ -217,6 +217,49 @@ class TestOpenContextPrHappyPath:
         assert lookup_kwargs["head"] == pipeline.branch
         assert lookup_kwargs["base"] == "release/v2"
 
+    def test_base_branch_unset_resolves_default_branch(self, tmp_path):
+        """``repo`` set + ``base_branch`` unset is the NORMAL state, not a
+        misconfig: ``Pipeline.base_branch`` defaults to ``None`` and the
+        standard ``submit_task`` path never populates it. #2777 cq-4
+        collapsed the resolving PR phase into this up-front opener but
+        dropped the default-branch resolution, so the opener hard-raised
+        ``missing_base_branch`` and stranded every standard pipeline's
+        slice stack on ``/work`` (#3031). The opener MUST instead resolve
+        the default branch via ``_detect_default_branch`` and open the PR
+        against it. A non-``main`` resolved value proves it is genuinely
+        detected (not hardcoded) and is threaded into both the
+        idempotency lookup and ``create_pr``."""
+        pipeline = _make_pipeline(base_branch=None)
+        contract = _make_contract()
+        spawner = MagicMock()
+        spawner.gateway.lookup_open_pr.return_value = None
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/555"
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(MagicMock(repo_path=tmp_path), pipeline),
+            ),
+            patch("routes.resolve_worktree_path", return_value=tmp_path),
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch(
+                "routes.pipelines._compute_gateway_mode",
+                return_value=("public", "public"),
+            ),
+            patch(
+                "routes.pipelines._detect_default_branch",
+                return_value="develop",
+            ) as detect,
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("routes.pipelines._persist_context_pr_number"),
+        ):
+            result = _open_context_pr_at_implement_start(pipeline.id)
+
+        assert result == 555
+        detect.assert_called_once_with(tmp_path)
+        assert spawner.gateway.lookup_open_pr.call_args.kwargs["base"] == "develop"
+        assert spawner.gateway.create_pr.call_args.kwargs["base"] == "develop"
+
 
 # ---------------------------------------------------------------------------
 # Idempotent path — existing PR is returned without a create_pr call
@@ -355,49 +398,6 @@ class TestOpenContextPrHardRequiredRaises:
         ):
             _open_context_pr_at_implement_start(pipeline.id)
         assert exc_info.value.reason == ContextPrCreationReason.MISSING_REPO.value
-
-    def test_base_branch_unset_resolves_default_branch(self, tmp_path):
-        """``repo`` set + ``base_branch`` unset is the NORMAL state, not a
-        misconfig: ``Pipeline.base_branch`` defaults to ``None`` and the
-        standard ``submit_task`` path never populates it. #2777 cq-4
-        collapsed the resolving PR phase into this up-front opener but
-        dropped the default-branch resolution, so the opener hard-raised
-        ``missing_base_branch`` and stranded every standard pipeline's
-        slice stack on ``/work`` (#3031). The opener MUST instead resolve
-        the default branch via ``_detect_default_branch`` and open the PR
-        against it. A non-``main`` resolved value proves it is genuinely
-        detected (not hardcoded) and is threaded into both the
-        idempotency lookup and ``create_pr``."""
-        pipeline = _make_pipeline(base_branch=None)
-        contract = _make_contract()
-        spawner = MagicMock()
-        spawner.gateway.lookup_open_pr.return_value = None
-        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/555"
-
-        with (
-            patch(
-                "routes.get_state_store_for_pipeline",
-                return_value=(MagicMock(repo_path=tmp_path), pipeline),
-            ),
-            patch("routes.resolve_worktree_path", return_value=tmp_path),
-            patch("routes.pipelines._get_spawner", return_value=spawner),
-            patch(
-                "routes.pipelines._compute_gateway_mode",
-                return_value=("public", "public"),
-            ),
-            patch(
-                "routes.pipelines._detect_default_branch",
-                return_value="develop",
-            ) as detect,
-            patch("egg_contracts.loader.load_contract", return_value=contract),
-            patch("routes.pipelines._persist_context_pr_number"),
-        ):
-            result = _open_context_pr_at_implement_start(pipeline.id)
-
-        assert result == 555
-        detect.assert_called_once_with(tmp_path)
-        assert spawner.gateway.lookup_open_pr.call_args.kwargs["base"] == "develop"
-        assert spawner.gateway.create_pr.call_args.kwargs["base"] == "develop"
 
     def test_missing_branch_raises(self, tmp_path):
         """A remote pipeline must have ``branch`` set; an empty branch
