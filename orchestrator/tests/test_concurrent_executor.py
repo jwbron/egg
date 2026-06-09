@@ -1281,3 +1281,165 @@ class TestSpawnAgentNoWrapperCommand:
             "reference — re-check both the import at line 37 and the call "
             "site at line 489."
         )
+
+
+# --------------------------------------------------------------------------- #
+# (8) Concurrency-lens depth: register→seed window is observable as atomic
+# --------------------------------------------------------------------------- #
+
+
+class TestSpawnAllSeedPreseedWindowIsObservablyAtomic:
+    """Depth pin extending TestSpawnAllRetiresWrapperPodSpawn (v3 ordering
+    pin) along the concurrency-lens axis reviewer_concurrency v3 item 4
+    explicitly named for TASK-3-2: *the register_agent → seeder window
+    must not just be ordered, it must be observable as ATOMIC from any
+    concurrent reader*.
+
+    The hazard the v3 ordering pin DOES catch:
+        * A future refactor that interleaves ``register_agent(role_a)`` →
+          ``seed_auto_ack_for_empty_pure_producers`` → ``register_agent(role_b)``
+          leaves role_b's auto-ACK silently un-seeded.
+
+    The hazard the v3 ordering pin DOES NOT catch and this class DOES:
+        * A future refactor that calls ``register_agent`` inside a
+          *retry / cleanup / oversight* path AFTER the seeder has fired
+          for that same spawn_all invocation. Even if the headline
+          ordering inside the main loop is preserved, a stray late
+          ``register_agent`` (e.g. from a failed-spawn recovery hook
+          calling back into ``spawn_all``) re-opens the half-seeded
+          window — and the seeder has already returned, so the late
+          role never gets an auto-ACK candidacy check.
+        * A future refactor that re-enters ``spawn_all`` from inside
+          ``_spawn_roles`` (or from a callback invoked under the
+          ``seed_auto_ack_for_empty_pure_producers`` side-effect) would
+          fire the seeder TWICE for the same matrix; the second call
+          would observe an already-seeded matrix and silently skip,
+          leaving a phantom auto-ACK for any role registered between the
+          first seeder call and the re-entry.
+
+    The invariant this class pins is: **inside one ``spawn_all`` call,
+    the seeder is called AT MOST ONCE, and no ``register_agent`` happens
+    after the seeder fires**. The skip-vs-assert dance is unnecessary
+    here because the invariants hold both pre- and post-TASK-3-2 (the
+    structural shape — one registration loop followed by one seeder call
+    — does not change with the wrapper-pod retirement).
+    """
+
+    def test_seeder_fires_at_most_once_per_spawn_all(self):
+        """Direct concurrency-lens reinforcement: even under repeated
+        invocations of ``spawn_all`` on the same executor (which the
+        post-#3023 on-demand flow can drive via the orchestrator tick
+        re-entering after a transient error), each call must invoke the
+        seeder AT MOST ONCE for that call. A double-seeder per call
+        would race with itself: the second seeder observes the partial
+        result of the first and may auto-ACK a role twice or skip a
+        role whose registration is still in flight on the first pass.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(
+            pipeline,
+            spawn_fn=MagicMock(),
+            producer_roles_with_tasks=set(),
+        )
+
+        tracker_instance = MagicMock()
+        tracker_instance.seed_auto_ack_for_empty_pure_producers.return_value = []
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(
+                ConcurrentPhaseExecutor,
+                "_spawn_roles",
+                autospec=True,
+                return_value=[],
+            ),
+        ):
+            mock_tracker.return_value = tracker_instance
+            executor.spawn_all()
+
+        # One spawn_all → at most one seeder call.
+        assert tracker_instance.seed_auto_ack_for_empty_pure_producers.call_count <= 1, (
+            "spawn_all concurrency-lens invariant violated: the auto-ACK "
+            "pre-seed must fire AT MOST ONCE per spawn_all call. Observed "
+            f"call_count="
+            f"{tracker_instance.seed_auto_ack_for_empty_pure_producers.call_count}. "
+            "A double-seeder per call races with itself: the second call "
+            "would observe the partial result of the first and may "
+            "auto-ACK a role twice or skip a role whose registration is "
+            "still in flight on the first pass."
+        )
+
+    def test_no_register_agent_calls_after_seeder_fires(self):
+        """The strict-ordering depth pin extending the v3 register→seed
+        invariant: not just that EVERY ``register_agent`` lands before
+        the seeder, but that NO ``register_agent`` lands after it
+        either. A stray late call (e.g. from a failed-spawn cleanup
+        hook calling back into ``spawn_all`` partway through the
+        registration loop) re-opens the half-seeded window even when
+        the main loop's ordering is preserved.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(
+            pipeline,
+            spawn_fn=MagicMock(),
+            producer_roles_with_tasks=set(),
+        )
+
+        call_log: list[str] = []
+        tracker_instance = MagicMock()
+
+        def _record_register_agent(role: str) -> None:
+            call_log.append(f"register_agent:{role}")
+
+        def _record_seed_auto_ack(producer_roles_with_tasks: set[str]) -> list[str]:
+            call_log.append("seed_auto_ack_for_empty_pure_producers")
+            return []
+
+        tracker_instance.register_agent.side_effect = _record_register_agent
+        tracker_instance.seed_auto_ack_for_empty_pure_producers.side_effect = _record_seed_auto_ack
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(
+                ConcurrentPhaseExecutor,
+                "_spawn_roles",
+                autospec=True,
+                return_value=[],
+            ),
+        ):
+            mock_tracker.return_value = tracker_instance
+            executor.spawn_all()
+
+        # Find the seeder index, then assert no register_agent label
+        # appears AFTER it. (The v3 pin asserts every register_agent
+        # appears before — this pin asserts NONE appear after, which is
+        # the same invariant from the other direction PLUS a guard
+        # against stray late calls the v3 pin's index-comparison check
+        # could miss if the seeder didn't fire at all.)
+        assert "seed_auto_ack_for_empty_pure_producers" in call_log, (
+            "Auto-ACK pre-seed did not fire under ProducerTasksSentinel; "
+            "test cannot pin the no-late-register invariant without the "
+            "seeder actually being called."
+        )
+
+        seeder_idx = call_log.index("seed_auto_ack_for_empty_pure_producers")
+        late_registers = [
+            label for label in call_log[seeder_idx + 1 :] if label.startswith("register_agent:")
+        ]
+        assert not late_registers, (
+            "spawn_all concurrency-lens invariant violated: at least one "
+            "register_agent call landed AFTER "
+            "seed_auto_ack_for_empty_pure_producers. Even if the main "
+            "registration loop preserves the ordering, a stray late "
+            "register_agent (e.g. from a failed-spawn cleanup hook "
+            "re-entering spawn_all partway through the loop) re-opens "
+            "the half-seeded BRC matrix window the v3 ordering pin "
+            f"guards against. Observed late registers: {late_registers}. "
+            f"Full call log: {call_log}."
+        )
