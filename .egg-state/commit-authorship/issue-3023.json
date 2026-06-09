@@ -16,6 +16,14 @@
       "repo": null,
       "role": "architect"
     },
+    "048f4e850e450420174df201281a244d0ce30010": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "118fb59159eb95ec452f90636cc98379c02c8452",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:33:45.797509+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "068388f8c01418d7349c88e6e7c20dfe1f2906b2": {
       "branch": "egg/issue-3023/slice-2",
       "patch_id": "0be12339bfde8322d7afbfab83f8baf3ce107317",
@@ -303,6 +311,14 @@
       "registered_at": "2026-06-09T05:31:01.505838+00:00",
       "repo": null,
       "role": "documenter"
+    },
+    "b8768649ee786ebb51eb1d8a24d8582b713f11ee": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "165e0f5116481de73e4a97f304bf28162d01326c",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:33:45.791659+00:00",
+      "repo": null,
+      "role": "tester"
     },
     "b8b607fdde801d5042a4e9ec2a7299ffb4bc2d43": {
       "branch": "egg/issue-3023/slice-1",
