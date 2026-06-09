@@ -1598,6 +1598,29 @@ def create_pipeline() -> tuple[Response, int]:
 
     repo_path = get_repo_path()
 
+    # #3038: resolve the repo's default branch ONCE at submit time and
+    # persist it on the pipeline record, so every downstream consumer
+    # (the context-PR opener, the restart/spawn paths, the gateway
+    # ``register_session`` base, the spawner ``EGG_BASE_BRANCH`` export)
+    # reads a concrete base off the record instead of re-deriving it on
+    # every invocation. Re-deriving each time opened a narrow race the
+    # #3035 reviewer flagged: a single flaky ``git symbolic-ref
+    # origin/HEAD`` read drops the opener into the ``origin/main →
+    # origin/master → "main"`` fallback chain, which can pick the wrong
+    # default on a ``master`` repo and 422 a second ``create_pr``.
+    # Persisting closes the race because the consumers' ``base_branch or
+    # _detect_default_branch(...)`` short-circuits on the stored value and
+    # never reaches the subprocess. ``_detect_default_branch`` is the
+    # local/fast helper (``git symbolic-ref``) and is the same resolution
+    # the stale-branch reuse check below already performs.
+    #
+    # An explicit ``base_branch`` (validated above) is passed through
+    # untouched; ``repo`` is already guaranteed non-empty by the early
+    # ``Missing repo`` guard, so only the ``base_branch`` side needs a
+    # check here.
+    if not base_branch:
+        base_branch = _detect_default_branch(repo_path)
+
     # Check that the target branch does not already exist on the remote.
     # This catches conflicts early (before spawning agents).  However,
     # allow branch reuse when the pipeline is in a terminal state

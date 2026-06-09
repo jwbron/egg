@@ -326,15 +326,17 @@ class TestDeletePipelineBranchCleanup:
 class TestCreatePipelineMultiRepo:
     """Tests that create_pipeline resolves repo paths in multi-repo setups (#1323)."""
 
+    @patch("routes.pipelines._detect_default_branch")
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_create_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, mock_gw, client
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
     ):
         """create_pipeline should call get_repo_path() for all pipeline types."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_gw.return_value.ls_remote_branch.return_value = False
+        mock_detect.return_value = "main"
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
         mock_pipeline.id = "issue-42"
@@ -354,14 +356,16 @@ class TestCreatePipelineMultiRepo:
         mock_repo_path.assert_called_once()
         mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
 
+    @patch("routes.pipelines._detect_default_branch")
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_create_prompt_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, mock_gw, client
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
     ):
         """Prompt-driven pipelines (no issue_number) also use get_repo_path()."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_detect.return_value = "main"
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
         mock_pipeline.id = "prompt-abc"
@@ -398,6 +402,81 @@ class TestCreatePipelineMultiRepo:
         body = response.get_json() or {}
         msg = body.get("message", "") or body.get("description", "")
         assert "webapp" in msg or "webapp" in response.get_data(as_text=True)
+
+
+class TestCreatePipelineBaseBranchPersistence:
+    """``base_branch`` is resolved once at submit time and persisted (#3038).
+
+    Re-deriving the default branch on every downstream invocation opened a
+    narrow race (the #3035 reviewer's flag): a single flaky
+    ``git symbolic-ref origin/HEAD`` read could pick the wrong default on a
+    ``master`` repo. Resolving + storing once at submit closes it — the
+    consumers' ``base_branch or _detect_default_branch(...)`` short-circuits
+    on the stored value.
+    """
+
+    @patch("routes.pipelines._detect_default_branch")
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_resolves_and_persists_base_branch_when_none(
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
+    ):
+        """repo set + base_branch omitted → resolve via _detect_default_branch
+        and pass the concrete value to store.create_pipeline."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw.return_value.ls_remote_branch.return_value = False
+        mock_detect.return_value = "develop"
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-42"
+        mock_pipeline.model_dump.return_value = {"id": "issue-42"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 42,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-42",
+            },
+        )
+        assert response.status_code == 200
+        mock_detect.assert_called_once_with(Path("/home/egg/repos/webapp"))
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["base_branch"] == "develop"
+
+    @patch("routes.pipelines._detect_default_branch")
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_explicit_base_branch_passed_through_unchanged(
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
+    ):
+        """An explicit base_branch is persisted as-is; no resolution happens."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw.return_value.ls_remote_branch.return_value = False
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-42"
+        mock_pipeline.model_dump.return_value = {"id": "issue-42"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 42,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-42",
+                "base_branch": "release-1",
+            },
+        )
+        assert response.status_code == 200
+        mock_detect.assert_not_called()
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["base_branch"] == "release-1"
 
 
 def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
