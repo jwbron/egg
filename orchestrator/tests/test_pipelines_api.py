@@ -326,15 +326,17 @@ class TestDeletePipelineBranchCleanup:
 class TestCreatePipelineMultiRepo:
     """Tests that create_pipeline resolves repo paths in multi-repo setups (#1323)."""
 
+    @patch("routes.pipelines._detect_default_branch")
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_create_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, mock_gw, client
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
     ):
         """create_pipeline should call get_repo_path() for all pipeline types."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_gw.return_value.ls_remote_branch.return_value = False
+        mock_detect.return_value = "main"
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
         mock_pipeline.id = "issue-42"
@@ -354,14 +356,16 @@ class TestCreatePipelineMultiRepo:
         mock_repo_path.assert_called_once()
         mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
 
+    @patch("routes.pipelines._detect_default_branch")
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_create_prompt_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, mock_gw, client
+        self, mock_repo_path, mock_get_store, mock_gw, mock_detect, client
     ):
         """Prompt-driven pipelines (no issue_number) also use get_repo_path()."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_detect.return_value = "main"
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
         mock_pipeline.id = "prompt-abc"

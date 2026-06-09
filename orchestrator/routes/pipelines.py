@@ -1614,11 +1614,11 @@ def create_pipeline() -> tuple[Response, int]:
     # local/fast helper (``git symbolic-ref``) and is the same resolution
     # the stale-branch reuse check below already performs.
     #
-    # Only resolve when ``repo`` is set and no explicit ``base_branch`` was
-    # supplied: a local pipeline (no repo) must keep ``base_branch=None`` so
-    # the opener's local-mode short-circuit still fires, and an explicit
-    # base is passed through untouched.
-    if repo and not base_branch:
+    # An explicit ``base_branch`` (validated above) is passed through
+    # untouched; ``repo`` is already guaranteed non-empty by the early
+    # ``Missing repo`` guard, so only the ``base_branch`` side needs a
+    # check here.
+    if not base_branch:
         base_branch = _detect_default_branch(repo_path)
 
     # Check that the target branch does not already exist on the remote.
