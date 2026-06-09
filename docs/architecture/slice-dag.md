@@ -107,17 +107,20 @@ so downstream code visibly fails fast.
 class ForestValidationError(Exception):
     status_code: int = 422
     errors: list[str]
+    reason: str  # "forest_violation" or "slice_overlap_violation" (#3046)
     def to_response(self) -> tuple[dict[str, object], int]: ...
 ```
 
-`ForestValidationError.to_response()` returns the canonical
-`({"error": "forest_violation", "errors": [...]}, 422)` Flask shape so any
-future route that ingests a plan in-band can catch it and return a 422
-with the inlined errors. The internal `_populate_contract_from_plan_safe`
-wrapper catches `ForestValidationError` with a dedicated structured
-warning (separate audit-log discriminator from the catch-all
-`except Exception`) and re-raises `ForestValidationError` — only generic
-exceptions are swallowed by the safe wrapper.
+`ForestValidationError.to_response()` returns
+`({"error": self.reason, "errors": [...]}, 422)` — the `error` key reflects
+the `reason` discriminator (`"forest_violation"` for multi-parent DAGs,
+`"slice_overlap_violation"` for overlapping-but-unordered slices added in
+#3046). Any future route that ingests a plan in-band can catch it and return
+`jsonify(*err.to_response())`. The internal `_populate_contract_from_plan_safe`
+wrapper catches `ForestValidationError` with a dedicated structured warning
+(separate audit-log discriminator from the catch-all `except Exception`) and
+returns a `PopulateResult` mapped via `_forest_error_to_outcome` — the
+exception does not propagate past the safe wrapper.
 
 A typical error message:
 
