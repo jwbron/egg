@@ -24,6 +24,14 @@
       "repo": null,
       "role": "coder"
     },
+    "07574065cf37a6dfbc1c9e99fbd75c468b30888f": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "4f0c0cb56bd99129c81a40eb1310ad0eb40cea98",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:31:01.515736+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "108cf69e7302e6af696b0b9d52cf2b5ca543788f": {
       "branch": "egg/issue-3023/slice-1",
       "patch_id": "165e0f5116481de73e4a97f304bf28162d01326c",
@@ -31,6 +39,22 @@
       "registered_at": "2026-06-09T05:30:13.824199+00:00",
       "repo": null,
       "role": "tester"
+    },
+    "10ebcb5ad64db0f1ae7db685d36ef9a4c98d6065": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "682064b597b06b905ae1e3ee050904d6fb117953",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:31:01.518790+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
+    "1b58f529585c6a7eda6c453e0245e7604fb41d52": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "b2e642325b741e583c8e02fad6c6ed9f9f3bb96a",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:31:01.511050+00:00",
+      "repo": null,
+      "role": "documenter"
     },
     "330e37836be58389905bdf66562842db23634db1": {
       "branch": "egg/issue-3023/slice-1",
@@ -224,6 +248,14 @@
       "repo": null,
       "role": "documenter"
     },
+    "b3199d61e2b30c1e1c5b15a9fc25982ccfe27872": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "d8970411b91f223f78a16afcbe20b6ddc93e1574",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:31:01.505838+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "bc85cecff3ab904fab492b9f8336c9bbcd2130b3": {
       "branch": "egg/issue-3023/work",
       "patch_id": "58ce0a3f1ac658b244a19795cbc1eaffb99d79bd",
@@ -287,6 +319,14 @@
       "registered_at": "2026-06-08T23:04:10.371988+00:00",
       "repo": null,
       "role": "risk_analyst"
+    },
+    "eec9957b9b7d2df97f782bbd1b0236402e393b3b": {
+      "branch": "egg/issue-3023/slice-1",
+      "patch_id": "f224e06b6a1fea88e7301a983bebdbc517454b2b",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:31:01.522709+00:00",
+      "repo": null,
+      "role": "documenter"
     },
     "f4c91d7cb6b56fdde2dee9202dce37e2c1da1ee9": {
       "branch": "egg/issue-3023/slice-1",
