@@ -299,6 +299,19 @@ class ConcurrentPhaseExecutor:
         env = {
             "EGG_CONCURRENT_MODE": "true",
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
+            # Coexistence guard (#3023 slice-1 task-1-3). Tells the in-pod
+            # wrapper that the orchestrator is now the authoritative emitter
+            # of the ``stuck-phase-transition`` idle-budget overseer alert
+            # (see ``orchestrator/phase_idle_budget.py`` and the per-phase
+            # tick wiring in ``routes/pipelines.py``). The wrapper's own
+            # ``check_idle_budget`` / ``raise_idle_alert`` arm short-
+            # circuits when this is set, so the operator does not get
+            # paged twice (once per role from the wrapper + once per
+            # phase from the orchestrator). Slice-3 deletes the wrapper-
+            # side emitter outright; this guard buys clean coexistence
+            # for slice-2's gradual cutover. Injected unconditionally
+            # for every role (AC for task-1-3).
+            "EGG_PHASE_IDLE_BUDGET_OWNER": "orchestrator",
         }
         # Add review graph info for BRC protocol
         graph = self._get_review_graph()

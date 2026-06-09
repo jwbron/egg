@@ -96,6 +96,37 @@ class TestBRCEnvironmentVariables:
         env = executor.get_agent_env(AgentRole.CODER)
         assert env["EGG_CONCURRENT_MODE"] == "true"
 
+    def test_phase_idle_budget_owner_env_injected_for_every_role(self):
+        """#3023 slice-1 task-1-3 AC: EGG_PHASE_IDLE_BUDGET_OWNER=orchestrator
+        appears in the spawn env from _spawn_agent for every role.
+
+        Coexistence guard for the wrapper-side ``check_idle_budget``
+        emitter (consensus_wrapper.py): the wrapper short-circuits when
+        the orchestrator is the authoritative emitter of the
+        ``stuck-phase-transition`` alert. Without this env var the
+        operator would be paged twice per phase (once per role from
+        the wrapper + once per phase from the orchestrator).
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        for role in (
+            AgentRole.CODER,
+            AgentRole.REVIEWER_CODE,
+            AgentRole.TESTER,
+            AgentRole.DOCUMENTER,
+            AgentRole.REVIEWER_CONTRACT,
+            AgentRole.REVIEWER_SECURITY,
+        ):
+            env = executor.get_agent_env(role)
+            assert env.get("EGG_PHASE_IDLE_BUDGET_OWNER") == "orchestrator", (
+                f"role={role!r} must carry EGG_PHASE_IDLE_BUDGET_OWNER="
+                "orchestrator (slice-1 task-1-3 coexistence guard)."
+            )
+
     def test_dual_role_tester_gets_both(self):
         """Tester is both producer and reviewer — should have both role types."""
         from concurrent_executor import ConcurrentPhaseExecutor

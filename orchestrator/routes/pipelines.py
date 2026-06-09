@@ -14941,6 +14941,232 @@ def _emit_producer_death_alert(
         )
 
 
+# -----------------------------------------------------------------------------
+# Phase-level idle-budget alert (#3023 slice-1 task-1-2).
+#
+# Replaces the wrapper-side ``check_idle_budget`` / ``raise_idle_alert`` in
+# ``consensus_wrapper.py`` (slice-1 task-1-3 silences that emitter behind an
+# env flag; slice-3 deletes it). The orchestrator-side timer fires once per
+# phase per threshold rather than once per role, which is the operator-
+# visible UX improvement called out in cq-3:
+#
+#   "Replace with a phase-level 'no spawns for X minutes' alert at the
+#    orchestrator (different signal — fires once per phase regardless of
+#    role count, simpler to operate but loses per-role granularity)"
+#
+# Per-role granularity is preserved in the alert's ``per_role_state``
+# payload (AC-R4) derived from ``PhaseIdleBudgetTimer.per_role_last_action``.
+# -----------------------------------------------------------------------------
+
+
+def _publish_phase_idle_budget_alert(
+    *,
+    pipeline: Pipeline,
+    pipeline_id: str,
+    slice_id: str | None,
+    anomaly: str,
+    priority: str,
+    phase: str,
+    per_role_state: dict[str, str],
+    pending_hitl_ids: tuple[str, ...],
+    threshold_multiplier: int,
+    summary: str,
+    reason: str,
+    **_extra: Any,
+) -> None:
+    """Publish a phase-level ``stuck-phase-transition`` OVERSEER_ALERT (#3023).
+
+    Designed to be invoked as the ``PhaseIdleBudgetTimer.alert_emitter``
+    callback. Best-effort: failures to write to the message store
+    degrade to a WARNING log, matching ``_publish_consensus_timeout_alert``.
+    The orchestrator log is the always-on fallback so the operator
+    still has a record even if the message bus is unreachable.
+
+    The ``per_role_state`` payload (AC-R4) goes into ``metadata`` so
+    the operator UX can render the per-role table without parsing the
+    free-text body, but it is also folded into the human-readable body
+    for the SDLC-skill summary view.
+
+    The ``_extra`` catch-all keeps the signature forward-compatible:
+    the timer may add new fields in slice-2 / slice-3 without
+    requiring a lock-step edit here.
+    """
+    del _extra  # forward-compat absorber
+    # Pull phase value from the pipeline as the operator-displayed
+    # source of truth; the ``phase`` arg the timer passes is the same
+    # value but de-duped here in case the pipeline transitioned between
+    # check() and emit().
+    phase_value = (
+        pipeline.current_phase.value
+        if hasattr(pipeline.current_phase, "value")
+        else str(pipeline.current_phase)
+    )
+    # Subject follows the SDLC-skill convention
+    # ``<anomaly_type>: <agent_role> [<priority>]``. There's no single
+    # blocking role at the phase level — the alert is about the phase as a
+    # whole — so the role slot carries the phase identifier (matches the
+    # consensus-timeout fallback at ``_publish_consensus_timeout_alert``).
+    subject = f"{anomaly}: {phase_value} [{priority}]"
+
+    if per_role_state:
+        # Stable per-role rendering so a snapshot test can pin the
+        # ordering. Sorted by role name; ``role -> last_action`` keeps
+        # the body short while preserving the AC-R4 signal.
+        per_role_render = "\n".join(
+            f"  {role}: {action}" for role, action in sorted(per_role_state.items())
+        )
+    else:
+        per_role_render = "  (no spawns recorded for this phase yet)"
+
+    body = (
+        f"{reason}\n\n"
+        f"Per-role last action:\n{per_role_render}\n\n"
+        "The orchestrator's per-phase tick continues to poll for "
+        "consensus; the pipeline is NOT transitioned to FAILED. If you "
+        "want to intervene, use ``cancel_task`` to stop the pipeline or "
+        "``restart_phase`` to retry."
+    )
+    metadata: dict[str, Any] = {
+        "anomaly_type": anomaly,
+        "phase": phase_value,
+        "priority": priority,
+        "threshold_multiplier": threshold_multiplier,
+        "per_role_state": dict(per_role_state),
+        "pending_hitl_ids": list(pending_hitl_ids),
+        "summary": summary,
+    }
+    if slice_id is not None:
+        metadata["slice_id"] = slice_id
+
+    try:
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            from ..message_store import (  # type: ignore[no-redef]
+                Message,
+                MessageType,
+            )
+        store_fn = _get_message_store()
+        if store_fn is None:
+            logger.warning(
+                "Phase-idle-budget alert: message store unavailable",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+            )
+            return
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject=subject,
+                body=body,
+                metadata=metadata,
+                phase=phase_value,
+            )
+        )
+        # Structured log once per emission so operators grepping
+        # ``phase_idle_budget_tick`` get a one-line record of every
+        # threshold cross independent of whether the message bus is
+        # healthy (AC for task-1-2).
+        logger.info(
+            "phase_idle_budget_tick",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+            slice_id=slice_id,
+            threshold_multiplier=threshold_multiplier,
+            priority=priority,
+            pending_hitl_ids=list(pending_hitl_ids),
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to publish phase-idle-budget OVERSEER_ALERT",
+            pipeline_id=pipeline_id,
+            phase=phase_value,
+            error=str(e),
+            exc_info=True,
+        )
+
+
+def _make_phase_idle_budget_emitter(
+    *,
+    pipeline: Pipeline,
+    pipeline_id: str,
+    slice_id: str | None,
+):
+    """Bind ``_publish_phase_idle_budget_alert`` to a pipeline + slice context.
+
+    The returned callable matches the timer's ``alert_emitter``
+    contract: keyword-only kwargs from the timer flow through, and the
+    bound pipeline / slice context is closed over so the timer does
+    not need to know about either.
+    """
+
+    def _emitter(**kwargs: Any) -> None:
+        _publish_phase_idle_budget_alert(
+            pipeline=pipeline,
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            **kwargs,
+        )
+
+    return _emitter
+
+
+def _tick_phase_idle_budget(
+    *,
+    phase_idle_budget_timer,  # PhaseIdleBudgetTimer; untyped here so the import stays local
+    pipeline: Pipeline,
+    pipeline_id: str,
+    phase_str: str,
+    now: float | None = None,
+) -> None:
+    """Run one iteration of the phase-idle-budget tick (#3023 slice-1 task-1-2).
+
+    Called from ``_run_concurrent_phase``'s polling loop once per
+    iteration (AC: "Tick invokes check exactly once per loop iteration").
+    The function is small and side-effect-localised so unit tests can
+    drive it directly without spinning up the whole concurrent-phase
+    runner.
+
+    Reads:
+      * ``pipeline.get_pending_decisions()`` — the AC says we use the
+        pipeline's open-decision count. Best-effort; an exception here
+        degrades to a count of zero so the alert still fires on a
+        genuine idle.
+
+    Side effects:
+      * Calls ``phase_idle_budget_timer.check`` (which dispatches the
+        alert via the injected emitter when a threshold is crossed).
+    """
+    try:
+        pending = pipeline.get_pending_decisions()
+        pending_count = len(pending)
+        pending_ids = [d.id for d in pending]
+    except Exception as e:
+        logger.warning(
+            "Phase-idle-budget tick: failed to read pending HITL decisions",
+            pipeline_id=pipeline_id,
+            phase=phase_str,
+            error=str(e),
+        )
+        pending_count = 0
+        pending_ids = []
+
+    monotonic_now = time.monotonic() if now is None else now
+    # Name kept identifier-rich so a source-grep ("PhaseIdleBudgetTimer"
+    # or "phase_idle_budget") on routes/pipelines.py finds this exact
+    # call site (used by the cadence-pin test in
+    # test_pipelines_phase_idle_budget.py).
+    phase_idle_budget_timer.check(
+        now=monotonic_now,
+        pending_hitl_count=pending_count,
+        pending_hitl_ids=pending_ids,
+    )
+
+
 # Pipeline-branch divergence alert (#2224 PR 3).
 #
 # Watches ``origin/<pipeline_branch>`` for the contamination shape from
@@ -17273,6 +17499,40 @@ def _run_concurrent_phase(
     start_time = time.monotonic()
     objection_decision_created = False
 
+    # Phase-level idle-budget timer (#3023 slice-1 task-1-2). Replaces
+    # the wrapper-side per-role emitter (silenced in task-1-3, deleted
+    # in slice-3). Instantiated once per phase entry and dropped when
+    # the loop returns; no cross-phase state leakage. The injected
+    # emitter is bound to this phase's pipeline + slice context so the
+    # timer itself stays pipeline-agnostic.
+    try:
+        from phase_idle_budget import PhaseIdleBudgetTimer
+    except ImportError:
+        from ..phase_idle_budget import (  # type: ignore[no-redef]
+            PhaseIdleBudgetTimer,
+        )
+    phase_idle_timer = PhaseIdleBudgetTimer(
+        alert_emitter=_make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        ),
+        now=start_time,
+    )
+    # Seed the timer with the phase identity so ``check()`` has the
+    # binding it needs before any slice-2 ``record_spawn`` calls land.
+    # Without this the first 30 min of every phase would no-op silently
+    # (the timer requires a record_spawn to bind the (pipeline_id, phase)
+    # pair, and slice-1 doesn't yet wire record_spawn into the per-event
+    # spawn path — that's slice-2 task-2-8).
+    phase_idle_timer.record_spawn(
+        pipeline_id=pipeline_id,
+        phase=phase_str,
+        role="orchestrator",
+        action="phase_start",
+        now=start_time,
+    )
+
     # Track which containers have exited and their results.
     exited_containers: dict[str, ContainerInfo] = {}
 
@@ -17496,6 +17756,29 @@ def _run_concurrent_phase(
                 error=str(e),
             )
             consensus = {"is_complete": False, "has_objections": False, "blocking_agents": []}
+
+        # 1b. Phase-level idle-budget check (#3023 slice-1 task-1-2).
+        # Runs after consensus check so a tick that crosses ``is_complete``
+        # still passes through the early-return below; runs before the
+        # objection branch so an alert fires even when an objection HITL
+        # is already open (the operator may still need the per-phase
+        # signal). Exceptions inside the helper are caught here so a
+        # rogue ``check`` cannot break the polling loop's liveness
+        # invariant (mirrors the consensus-check try/except above).
+        try:
+            _tick_phase_idle_budget(
+                phase_idle_budget_timer=phase_idle_timer,
+                pipeline=pipeline,
+                pipeline_id=pipeline_id,
+                phase_str=phase_str,
+            )
+        except Exception as idle_err:
+            logger.warning(
+                "Phase-idle-budget tick raised; continuing poll",
+                pipeline_id=pipeline_id,
+                phase=phase_str,
+                error=str(idle_err),
+            )
 
         # 2. Consensus reached — stop containers and return
         if consensus.get("is_complete"):

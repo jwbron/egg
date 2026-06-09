@@ -529,6 +529,21 @@ print(f\"role={{role}} producer_phase={{my.get('producer_phase','?')}} reviewer_
 }}
 
 check_idle_budget() {{
+    # Coexistence guard (#3023 slice-1 task-1-3). The orchestrator's
+    # per-phase tick now owns the ``stuck-phase-transition`` overseer
+    # alert (see ``orchestrator/phase_idle_budget.py`` + the wiring in
+    # ``routes/pipelines.py``). When ``EGG_PHASE_IDLE_BUDGET_OWNER`` is
+    # set to ``orchestrator`` (injected unconditionally for every role
+    # by ``concurrent_executor.get_agent_env``), this wrapper-side
+    # emitter short-circuits so the operator is not paged twice (once
+    # per role from the wrapper + once per phase from the orchestrator).
+    # The local ``LAST_PROGRESS`` / ``ALERTED_AT_*`` bookkeeping is
+    # left intact: the wrapper still ages the counter for its own
+    # logging, just without sending the alert. Slice-3 deletes this
+    # function and the rest of the wrapper-side emitter outright.
+    if [ "${{EGG_PHASE_IDLE_BUDGET_OWNER:-}}" = "orchestrator" ]; then
+        return 0
+    fi
     local idle=$(( SECONDS - LAST_PROGRESS ))
     local double=$(( 2 * IDLE_BUDGET_SECS ))
     if [ "$idle" -ge "$double" ] && [ "$ALERTED_AT_DOUBLE" != "true" ]; then
