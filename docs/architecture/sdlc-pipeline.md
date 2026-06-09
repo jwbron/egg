@@ -107,6 +107,23 @@ The contract is a JSON document tracking the complete state of an issue through 
 }
 ```
 
+For a free-text or JIRA-driven pipeline (no GitHub issue), `issue` is
+`null` and `task_description` carries the full, untruncated prompt that
+the agent reads to recover the task:
+
+```json
+{
+  "schemaVersion": "1.3",
+  "issue": null,
+  "pipeline_id": "KORE-1234",
+  "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
+  "current_phase": "implement",
+  "slices": [...],
+  "workflow_owner": "my-org",
+  "audit_log": [...]
+}
+```
+
 > **Schema rename (#2137)**: `phases[]` was renamed to `slices[]` and
 > `phase-N` IDs to `slice-N` to support the slice-DAG implement model
 > (each slice is an independent unit with its own branch, BRC, and PR).

@@ -451,12 +451,14 @@ The local orchestrator handles concurrent contract updates through `orchestrator
   },
   "task_description": null,
   "current_phase": "implement",
-  "phases": [
+  "slices": [
     {
-      "id": "phase-1",
+      "id": "slice-1",
       "name": "Core Implementation",
       "status": "in_progress",
       "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
       "tasks": [
         {
           "id": "task-1-1",
@@ -469,10 +471,12 @@ The local orchestrator handles concurrent contract updates through `orchestrator
       "review_feedback": []
     },
     {
-      "id": "phase-2",
+      "id": "slice-2",
       "name": "Integration",
       "status": "pending",
-      "dependencies": ["phase-1"],
+      "dependencies": ["slice-1"],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
       "tasks": [],
       "review_feedback": []
     }
