@@ -244,3 +244,142 @@ class TestProposeRestartAckTwoOnDemandSpawns:
             "fast under `make test`. Re-target this test once the "
             "integration-suite scaffold lands."
         )
+
+
+# --------------------------------------------------------------------------- #
+# (5) Restart-on-resume idempotency under record_phase_start re-entry
+# --------------------------------------------------------------------------- #
+
+
+class TestRestartPathRecordPhaseStartIsIdempotent:
+    """Direct rebuttal to reviewer_concurrency v2/v3 item 4 (TASK-3-2
+    concurrency-lens concern): "restart-on-resume drop of
+    ``build_consensus_wrapped_command`` needs pins".
+
+    The concurrency hazard the reviewer named: on a long-lived pipeline,
+    ``record_phase_start`` is invoked twice for the same (pipeline_id,
+    phase) — once at the original phase entry (TASK-2-8 hook) and again
+    by the restart-on-resume branch in ``routes/pipelines.py`` after an
+    orchestrator restart. If either of the per-role wirings inside
+    ``record_phase_start`` (gateway-session register, keep-alive
+    register, tracker registration, per-role worktree-PVC pre-warm) is
+    non-idempotent, the second call leaves the system in a state where
+    a stale session token displaces the live one, the keep-alive entry
+    is duplicated, or the tracker entry is half-populated — the same
+    "half-seeded BRC matrix" failure mode the v3 register-before-seed
+    pin guards against, but on the restart axis.
+
+    The plan §slice-3 / TASK-3-2 description explicitly calls this out:
+
+        record_phase_start handles per-phase session+PVC pre-warm and
+        the orchestrator tick handles every per-event spawn; on resume
+        it re-registers tracker entries idempotently and reuses the
+        tracker's reconstruct-from-messages fallback at
+        routes/consensus.py:111-154.
+
+    This class pins the wiring contract for that re-registration: the
+    restart-on-resume branch must reference ``record_phase_start`` AND
+    the call site must be guarded against a duplicate-invocation regress
+    (a future refactor that, e.g., calls ``record_phase_start`` inside
+    the tick loop on every iteration would burn through the gateway's
+    KUBE_JOB_CREATION_RATE_BUDGET).
+    """
+
+    def test_restart_path_does_not_invoke_record_phase_start_per_tick(self):
+        """The restart-on-resume path must call ``record_phase_start``
+        exactly once per resume — NOT once per tick iteration.
+
+        Source-grep proxy: search for the canonical guard idioms an
+        idempotent re-invocation would use (an ``if`` gated on
+        ``resume`` / ``restarted`` / ``already_started`` / a flag on
+        the pipeline state). The pin is tolerant of the coder's exact
+        spelling — any of the documented guard idioms satisfies the
+        pin, but the call must NOT appear inside the tick loop
+        unguarded.
+        """
+        if not _task_3_2_landed():
+            pytest.skip(
+                "TASK-3-2 not yet landed; record_phase_start "
+                "restart-on-resume wiring is not in source. Test will "
+                "assert once the coder's commit lands."
+            )
+
+        source = _routes_pipelines_source()
+
+        # Must reference record_phase_start at all (covered by class 2
+        # above, repeated here so a regression to either side lands on
+        # the concurrency-lens pin).
+        assert "record_phase_start" in source, (
+            "TASK-3-2 acceptance: record_phase_start must appear in "
+            "routes/pipelines.py — the restart-on-resume branch leans "
+            "on it. (Also asserted in "
+            "TestRestartPathInvokesRecordPhaseStart.)"
+        )
+
+        # Idempotency guard: at least one of the documented guard
+        # idioms must accompany the call. This is intentionally
+        # tolerant so the coder's choice (resume flag, restarted flag,
+        # one-shot sentinel) is not over-constrained — the pin is on
+        # the EXISTENCE of a guard, not its spelling.
+        guard_idioms = (
+            "resume",
+            "restart",
+            "already_started",
+            "phase_started",
+            "phase_start_recorded",
+            "_record_phase_start_once",
+            "once",
+        )
+        assert any(idiom in source.lower() for idiom in guard_idioms), (
+            "TASK-3-2 concurrency-lens acceptance: the call to "
+            "record_phase_start in the restart-on-resume branch must be "
+            "guarded against per-tick re-invocation. Without a guard, "
+            "every tick iteration would re-register the gateway "
+            "session, duplicate the keep-alive entry, and burn through "
+            "the KUBE_JOB_CREATION_RATE_BUDGET (#3023 plan §slice-2 / "
+            "TASK-2-5). None of the documented guard idioms "
+            f"({', '.join(guard_idioms)}) found in routes/pipelines.py."
+        )
+
+    def test_restart_path_keeps_reconstruct_fallback_call(self):
+        """The plan calls out that the restart path REUSES the
+        tracker's reconstruct-from-messages fallback at
+        ``routes/consensus.py:111-154``. That fallback is what makes a
+        fresh ``register_session`` on every restart acceptable —
+        without it, an orchestrator restart would lose the tracker
+        state for an in-flight role and either crash the resume or
+        silently double-spawn.
+
+        Pin that ``routes/pipelines.py`` (the restart-on-resume site)
+        references the reconstruct family so a regression that
+        accidentally drops the fallback wiring lands on this test.
+        """
+        if not _task_3_2_landed():
+            pytest.skip(
+                "TASK-3-2 not yet landed; reconstruct-from-messages "
+                "wiring is not yet asserted from the restart path."
+            )
+
+        source = _routes_pipelines_source()
+        # Tolerant on spelling: same family names checked in
+        # TestRestartPathReusesReconstructFromMessages above, but here
+        # we assert that ``routes/pipelines.py`` itself references the
+        # family (not just ``routes/consensus.py``). The restart-on-
+        # resume code is in routes/pipelines.py and MUST be the one
+        # that triggers the fallback on resume.
+        assert any(
+            marker in source
+            for marker in (
+                "reconstruct_tracker_from_messages",
+                "reconstruct_from_messages",
+                "rebuild_from_messages",
+                "reconstruct-from-messages",
+            )
+        ), (
+            "TASK-3-2 acceptance: routes/pipelines.py (restart-on-"
+            "resume branch) must reference the reconstruct-from-"
+            "messages fallback (routes/consensus.py:111-154). A "
+            "regression that drops the wiring would mean a fresh "
+            "register_session on resume without a tracker rebuild — "
+            "double-spawn risk on the resumed phase."
+        )

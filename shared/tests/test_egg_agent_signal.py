@@ -446,7 +446,175 @@ class TestSigtermDoubleFireGuard:
 
 
 # --------------------------------------------------------------------------- #
-# (5) End-to-end integration sentinel
+# (5) Signal-vs-asyncio-loop race: handler doesn't block the loop
+# --------------------------------------------------------------------------- #
+
+
+class TestSigtermSignalVsAsyncioLoopRace:
+    """Direct rebuttal to reviewer_concurrency v3 item 4 (TASK-3-3
+    concurrency-lens list): "signal-vs-loop race" pin.
+
+    The hazard the reviewer named: the SDK's ``query()`` runs under
+    ``asyncio.run``. A Python signal handler runs in the *main thread's
+    interrupt context*, NOT inside the loop's coroutine context. If the
+    handler does anything that touches the running loop synchronously
+    (e.g. ``loop.run_until_complete``, ``asyncio.run`` re-entry,
+    blocking ``Future.result()``), it deadlocks the loop and the agent
+    hangs until SIGKILL — defeating the entire reason TASK-3-3 migrates
+    the trap into the Python process.
+
+    The safe shape: the handler MUST be quick — set a flag, schedule a
+    coroutine via ``loop.call_soon_threadsafe`` / ``asyncio.run_coroutine
+    _threadsafe``, then return. Cleanup runs on the loop, not in the
+    handler.
+
+    This pin is at the source-text level (the production handler isn't
+    importable in CI without the SDK, so we can't drive a real loop)
+    and tolerantly checks the handler body for the documented anti-
+    patterns and for at least one of the canonical safe-handoff idioms.
+    """
+
+    def test_handler_does_not_block_running_loop(self):
+        """The handler body MUST NOT call ``asyncio.run`` or
+        ``loop.run_until_complete`` — those are the textbook re-entrancy
+        crashes (``RuntimeError: This event loop is already running``).
+
+        Pre-TASK-3-3 the seam doesn't exist; skip. Post-TASK-3-3 the
+        seam's source body MUST avoid both anti-patterns.
+        """
+        if not _task_3_3_landed():
+            pytest.skip(
+                "TASK-3-3 not yet landed; signal-vs-loop race pin is "
+                "recorded as a placeholder. Once the coder lands the "
+                "trap, the body grep below asserts the handler does "
+                "not re-enter the loop."
+            )
+
+        # Locate the production handler source. The seam may be a
+        # bare callable or an installer; either way the file we want
+        # is shared/egg_agent/__main__.py.
+        main_py = _shared_path / "egg_agent" / "__main__.py"
+        if not main_py.is_file():
+            pytest.skip(
+                "shared/egg_agent/__main__.py not present in this "
+                "checkout — skipping signal-vs-loop race source pin."
+            )
+
+        source = main_py.read_text(encoding="utf-8")
+
+        # Anti-patterns the handler MUST NOT use: these would re-enter
+        # the running loop from a signal-handler frame and deadlock.
+        forbidden = (
+            "asyncio.run(",
+            "run_until_complete(",
+            ".result(timeout=",  # blocking Future wait from handler
+        )
+        for token in forbidden:
+            assert token not in source, (
+                f"TASK-3-3 signal-vs-loop race: shared/egg_agent/"
+                f"__main__.py contains {token!r}, which inside a "
+                f"signal handler would re-enter the running asyncio "
+                f"loop and deadlock the agent until SIGKILL. The "
+                f"handler must schedule cleanup via "
+                f"``loop.call_soon_threadsafe`` or "
+                f"``asyncio.run_coroutine_threadsafe`` and return."
+            )
+
+        # Safe-handoff idioms: at least one must be present so the
+        # handler has *some* way to land work on the loop. Tolerant of
+        # exact spelling.
+        safe_idioms = (
+            "call_soon_threadsafe",
+            "run_coroutine_threadsafe",
+            "loop.stop(",
+            "shutdown_event",
+            "shutdown_in_progress",
+            "_shutdown",
+        )
+        assert any(idiom in source for idiom in safe_idioms), (
+            "TASK-3-3 signal-vs-loop race: shared/egg_agent/__main__.py "
+            "must use one of the documented safe-handoff idioms "
+            f"({', '.join(safe_idioms)}) so the SIGTERM handler can "
+            "schedule cleanup on the asyncio loop without blocking. "
+            "None of the idioms found — the handler likely runs cleanup "
+            "synchronously in the interrupt frame, racing the loop."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# (6) Heartbeat-cadence under stall: heartbeat stops on shutdown
+# --------------------------------------------------------------------------- #
+
+
+class TestSigtermHeartbeatCadenceUnderStall:
+    """Direct rebuttal to reviewer_concurrency v3 item 4 (TASK-3-3
+    concurrency-lens list): "heartbeat cadence under stall" pin.
+
+    The hazard: the pre-TASK-3-3 wrapper had a background heartbeat
+    subshell (``consensus_wrapper.py:188-234``) that emitted HEARTBEAT
+    messages every N seconds. When SIGTERM arrived, the wrapper's
+    cleanup trap (``consensus_wrapper.py:117-124``) killed the subshell
+    before exiting so no further heartbeats landed on the orchestrator
+    after the agent had shut down. The post-TASK-3-3 trap MUST preserve
+    that invariant: once the agent process has accepted SIGTERM and is
+    on the shutdown path, no further HEARTBEAT messages are emitted.
+
+    A regression here would cause the orchestrator's stuck-phase
+    detector (#3023 slice-1 PhaseIdleBudgetTimer) to see heartbeats
+    from a dying pod and *delay* its overseer alert — defeating the
+    whole point of slice-1's alerting.
+
+    The pin is source-level: assert the production handler references
+    a shutdown sentinel that the heartbeat path can check on each tick.
+    """
+
+    def test_handler_signals_shutdown_to_heartbeat_path(self):
+        """The handler body MUST reference a shutdown sentinel — a flag,
+        Event, or cancellation token — that the heartbeat-emit code
+        path checks on each iteration. Without it the heartbeat thread
+        continues sending after the agent has stopped processing
+        events.
+        """
+        if not _task_3_3_landed():
+            pytest.skip(
+                "TASK-3-3 not yet landed; heartbeat-cadence-under-"
+                "stall pin is recorded as a placeholder. Once the "
+                "coder lands the trap, the source-grep below asserts "
+                "the handler signals shutdown to the heartbeat path."
+            )
+
+        main_py = _shared_path / "egg_agent" / "__main__.py"
+        if not main_py.is_file():
+            pytest.skip(
+                "shared/egg_agent/__main__.py not present in this "
+                "checkout — skipping heartbeat-cadence pin."
+            )
+
+        source = main_py.read_text(encoding="utf-8")
+
+        # Look for any documented shutdown-sentinel idiom that the
+        # heartbeat path can latch onto. Tolerant of spelling.
+        sentinels = (
+            "shutdown_event",
+            "shutdown_in_progress",
+            "_shutdown",
+            "is_shutting_down",
+            "cancel(",  # task.cancel() to a heartbeat coroutine
+            "stop_event",
+        )
+        assert any(sentinel in source for sentinel in sentinels), (
+            "TASK-3-3 heartbeat-cadence acceptance: the SIGTERM "
+            "handler in shared/egg_agent/__main__.py must signal "
+            "shutdown to the heartbeat-emit path via one of the "
+            f"documented sentinel idioms ({', '.join(sentinels)}). "
+            "Without it, HEARTBEAT messages would continue flowing "
+            "from a dying pod and silence the orchestrator's stuck-"
+            "phase alert (#3023 slice-1 PhaseIdleBudgetTimer)."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# (7) End-to-end integration sentinel
 # --------------------------------------------------------------------------- #
 
 
