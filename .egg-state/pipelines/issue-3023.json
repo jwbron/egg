@@ -5,8 +5,8 @@
   "branch": "egg/issue-3023/work",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
-  "current_phase": "implement",
+  "status": "running",
+  "current_phase": "apply",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -312,10 +312,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "failed",
+      "status": "complete",
       "started_at": "2026-06-09T16:13:37.070102Z",
       "work_started_at": "2026-06-09T16:13:38.298840Z",
-      "completed_at": "2026-06-09T18:25:02.397674Z",
+      "completed_at": "2026-06-09T18:25:02.555657Z",
       "containers": [
         {
           "container_id": "2764ea52-9ad6-43ba-bf9f-ebf9d439eaae",
@@ -1248,6 +1248,24 @@
           "container_id": "774dea9e-1dcf-4801-920d-c1081a85ca5a"
         }
       ]
+    },
+    "apply": {
+      "phase": "apply",
+      "status": "running",
+      "started_at": "2026-06-09T18:25:02.555719Z",
+      "work_started_at": "2026-06-09T18:25:02.555721Z",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "operator_directives": [],
+      "iteration_history": [],
+      "phase_start_sha": null,
+      "agent_exits": []
     }
   },
   "decisions": [
@@ -1443,7 +1461,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T18:25:02.397903Z",
+  "updated_at": "2026-06-09T18:25:02.558713Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1455,8 +1473,8 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-06-09T16:12:44.343424Z",
-  "version": 99,
+  "run_epoch": "2026-06-09T18:25:02.555722Z",
+  "version": 100,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
