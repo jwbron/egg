@@ -3,6 +3,17 @@
 Track SDLC pipeline progress through the contract. Full reference:
 `$EGG_REPO_PATH/docs/reference/sdlc-contract.md`
 
+**Where the task lives.** Read the contract first (`egg-contract show` /
+`mcp__sdlc__show_contract`) to recover what you're working on. For
+issue/JIRA-driven pipelines, `issue.title` is the label and you fetch the
+full body out-of-band (`gh issue view <n>`). For **free-text submits**
+there is no issue to fetch — the complete, untruncated task/problem
+statement is the contract's **`task_description`** field. `issue.title`
+(or the contract title) is only a 100-char label; never treat it as the
+whole task. The orchestrator-built spawn prompt is **not** delivered to
+you under the BRC event-pump, so the contract is the authoritative
+source — read `task_description` before you analyze (#3033).
+
 **Use the structured contract tool — do not compose an `egg-contract`
 command for the `Bash` tool.** The free-text fields (`--question`,
 `--options`, `--notes`) carry LLM-authored prose. In a `Bash` command

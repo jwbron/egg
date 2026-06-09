@@ -8258,9 +8258,13 @@ def _ensure_statefiles_on_branch(
                 repo_root=worktree_repo_path,
             )
         else:
+            # Free-text submit: persist the FULL prompt as
+            # ``task_description`` so the restored contract carries the
+            # complete task. Mirrors the primary creation site — see #3033.
             create_contract(
                 pipeline_id=pipeline.id,
                 title=(pipeline.prompt or "")[:100],
+                task_description=pipeline.prompt,
                 repo_root=worktree_repo_path,
             )
 
@@ -21128,9 +21132,19 @@ def _run_pipeline(
                             repo_root=worktree_repo_path,
                         )
                     else:
+                        # Free-text submit: there is no GitHub issue / JIRA
+                        # ticket the agent can fetch the body from, so persist
+                        # the FULL prompt as ``task_description``. The
+                        # event-pump never delivers the orchestrator-built
+                        # spawn prompt to the agent, so the contract (read via
+                        # ``egg-contract show``) is the reliable channel for
+                        # the complete task. The ``title`` arg is only used for
+                        # the ``IssueInfo`` label and is dropped without an
+                        # ``issue_number``, so it is not a substitute (#3033).
                         create_contract(
                             pipeline_id=pipeline.id,
                             title=(pipeline.prompt or "")[:100],
+                            task_description=pipeline.prompt,
                             repo_root=worktree_repo_path,
                         )
 

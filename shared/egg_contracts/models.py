@@ -778,7 +778,7 @@ class Contract(EggContractBaseModel):
     """The complete SDLC contract."""
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.2",
+        default="1.3",
         pattern=r"^[0-9]+\.[0-9]+$",
         description=(
             "Schema version. Bumped to ``1.1`` in #2548 to track the "
@@ -786,17 +786,39 @@ class Contract(EggContractBaseModel):
             "``1.2`` in #2777 (cq-2) when ``pr.context_branch`` / "
             "``pr.context_title`` / ``pr.context_description`` were "
             "hard-removed in favour of opening the context PR on the work "
-            "branch directly. Pre-1.2 contracts on disk that still carry "
-            "those fields load transparently — the wrap-mode migrator "
-            "strips them before pydantic constructs ``PRMetadata`` — and "
-            "are promoted to ``1.2`` whenever they are loaded into the "
-            "model; the new value is then persisted on the next save. "
-            "See ``_migrate_schema_version_to_1_1`` (the additive 1.0 → "
-            "1.1 stamp) and ``_migrate_schema_version_to_1_2`` (the "
-            "wrap-mode field strip + 1.1 → 1.2 bump)."
+            "branch directly, then to ``1.3`` in #3033 to track the "
+            "addition of the optional ``task_description`` field. Pre-1.3 "
+            "contracts on disk load transparently — the wrap-mode migrator "
+            "strips the removed ``pr.context_*`` keys before pydantic "
+            "constructs ``PRMetadata`` and the after-mode stamps promote "
+            "the version — and are promoted to ``1.3`` whenever they are "
+            "loaded into the model; the new value is then persisted on the "
+            "next save. See ``_migrate_schema_version_to_1_1`` (the "
+            "additive 1.0 → 1.1 stamp), ``_migrate_schema_version_to_1_2`` "
+            "(the wrap-mode field strip + 1.1 → 1.2 bump), and "
+            "``_migrate_schema_version_to_1_3`` (the additive 1.2 → 1.3 "
+            "stamp)."
         ),
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
+    task_description: str | None = Field(
+        default=None,
+        description=(
+            "Full, untruncated task/problem statement for the pipeline. "
+            "Populated from the pipeline ``prompt`` for free-text submits "
+            "(``submit_task`` with no ``issue_number`` / ``jira_ticket``), "
+            "where there is no GitHub issue or JIRA ticket the agent could "
+            "fetch the body from out-of-band. This is the authoritative "
+            "channel by which producer/reviewer agents recover the complete "
+            "task: in the BRC event-pump model the orchestrator-built spawn "
+            "prompt is not delivered to the agent, so the contract (read via "
+            "``egg-contract show`` / ``mcp__sdlc__show_contract``) is the "
+            "reliable source. ``None`` for issue/JIRA-driven pipelines, where "
+            "the agent recovers the body via ``gh issue view`` / the JIRA "
+            "API instead. Must NOT be truncated — ``issue.title`` is the "
+            "short label; this field is the full text (#3033)."
+        ),
+    )
     pipeline_id: str | None = Field(
         default=None,
         description=(
@@ -959,6 +981,29 @@ class Contract(EggContractBaseModel):
         """
         if self.schemaVersion == "1.0":
             self.schemaVersion = "1.1"
+        return self
+
+    @model_validator(mode="after")
+    def _migrate_schema_version_to_1_3(self) -> Contract:
+        """Promote ``1.2`` contracts to schema ``1.3`` (#3033).
+
+        The ``1.2`` → ``1.3`` bump is purely additive — it documents the
+        arrival of the optional ``task_description`` field, which defaults
+        to ``None``. Pre-1.3 JSON loads cleanly without the field; we just
+        stamp the new version so downstream tooling (audit, status
+        renderers) sees a consistent value.
+
+        Mirrors ``_migrate_schema_version_to_1_1``: ``mode="after"`` so the
+        bump happens at every load (including in-memory
+        ``Contract.model_validate(...)``), guarded on the exact prior
+        version so it is idempotent and so an unrelated future bump (e.g.
+        a hypothetical ``2.0``) is never silently downgraded. The two
+        additive after-stamps compose: a ``1.0`` payload first runs through
+        the wrap-mode ``_migrate_schema_version_to_1_2`` (1.1 → 1.2), then
+        this stamp lifts ``1.2`` → ``1.3`` in the same load.
+        """
+        if self.schemaVersion == "1.2":
+            self.schemaVersion = "1.3"
         return self
 
     @model_validator(mode="wrap")
