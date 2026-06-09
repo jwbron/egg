@@ -5,7 +5,7 @@
   "branch": "egg/issue-3023/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -984,7 +984,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T03:08:15.429087Z",
+  "updated_at": "2026-06-09T03:14:16.669592Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -997,7 +997,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T02:23:18.399982Z",
-  "version": 50,
+  "version": 51,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
