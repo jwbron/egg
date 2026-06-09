@@ -1582,6 +1582,108 @@ def _detect_cycles(slices: list[Slice], known_ids: set[str]) -> list[list[str]]:
     return cycles
 
 
+def validate_slice_file_overlap(slices: list[Slice]) -> list[str]:
+    """Reject slice pairs that share files but lack a dependency ordering.
+
+    Added in #3046. The implement phase cuts each slice's integration
+    branch off its dependency parent (root slices off the pipeline
+    ``work`` branch) and ships it as a stacked PR. Two slices whose
+    ``files_affected`` sets intersect must therefore be **ordered** along
+    the dependency DAG — one a transitive ancestor of the other — so the
+    later slice's branch is forked from a base that already contains the
+    earlier slice's commits. When two overlapping slices are left
+    unordered (e.g. both declared as roots), their branches fork
+    independently off the shared base and their edits to the shared file
+    collide at integration time. This is the guaranteed modify/delete
+    conflict observed on #3023, where three slices all touched
+    ``consensus_wrapper.py`` (one deleting it) with no dependency edges —
+    the git topology faithfully mirrored a DAG that declared overlapping
+    work as parallel roots.
+
+    Slices with **disjoint** file sets are safe to branch in parallel off
+    the shared base — that concurrency is the whole point of slicing — so
+    only *overlapping, unordered* pairs are flagged. Two slices on the
+    same chain are fine even when an intermediate slice is disjoint: the
+    later branch is still cut transitively from the earlier one's tip.
+
+    The forest constraint (:func:`validate_forest`: ≤1 DAG parent per
+    slice) means the remediation is always to collapse the overlapping
+    cluster into a single linear ``dependencies`` chain — you cannot
+    express "depends on both A and B" as a diamond, so the architect
+    picks an order and stacks them. Each error names the shared files so
+    the architect's re-propose is actionable.
+
+    ``files_affected`` is read from each slice's tasks (the same
+    planner-declared signal :func:`validate_task_role_alignment` uses).
+    Slices with no declared files contribute no overlap signal and are
+    skipped. Cyclic / duplicate-id DAGs are reported separately by
+    :func:`validate_forest`; the reachability walk here is cycle-safe so a
+    cycle neither loops nor crashes this validator.
+
+    Args:
+        slices: The slice list extracted from the contract / plan.
+
+    Returns:
+        One structured-error string per offending unordered overlapping
+        pair, in deterministic (declared-order) order. An empty list
+        means no overlap-ordering violations.
+    """
+    # Deduplicate by id (duplicate ids are reported by validate_forest);
+    # preserve declared order for deterministic pair iteration.
+    ordered_ids: list[str] = []
+    files_by_id: dict[str, set[str]] = {}
+    deps_by_id: dict[str, list[str]] = {}
+    for slice_ in slices:
+        if slice_.id in files_by_id:
+            continue
+        ordered_ids.append(slice_.id)
+        files: set[str] = set()
+        for task in slice_.tasks:
+            files.update(task.files_affected or [])
+        files_by_id[slice_.id] = files
+        deps_by_id[slice_.id] = [d for d in (slice_.dependencies or []) if d]
+
+    known = set(ordered_ids)
+
+    # Transitive-ancestor set for each slice: every slice it depends on
+    # directly or transitively, following ``dependencies`` edges. The
+    # per-start visited set keeps the walk cycle-safe (a cyclic DAG is
+    # reported by validate_forest, not here).
+    def _ancestors(start: str) -> set[str]:
+        seen: set[str] = set()
+        stack = [d for d in deps_by_id.get(start, []) if d in known]
+        while stack:
+            cur = stack.pop()
+            if cur == start or cur in seen:
+                continue
+            seen.add(cur)
+            stack.extend(d for d in deps_by_id.get(cur, []) if d in known)
+        return seen
+
+    ancestors = {sid: _ancestors(sid) for sid in ordered_ids}
+
+    errors: list[str] = []
+    for i, a in enumerate(ordered_ids):
+        for b in ordered_ids[i + 1 :]:
+            shared = files_by_id[a] & files_by_id[b]
+            if not shared:
+                continue
+            # Ordered iff one is a transitive ancestor of the other.
+            if b in ancestors[a] or a in ancestors[b]:
+                continue
+            errors.append(
+                f"Slices '{a}' and '{b}' both touch {sorted(shared)!r} but "
+                "neither depends on the other; the implement phase branches "
+                "each slice independently off the shared base, so their edits "
+                "to the shared file(s) collide at integration (e.g. a "
+                "modify/delete conflict). Order them along one dependency "
+                "chain — add the earlier slice to the other's 'dependencies' "
+                "so the later slice's branch is cut from it — or merge them "
+                "into a single slice. See issue #3046."
+            )
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # #2527 — task role ↔ files_affected alignment
 # ---------------------------------------------------------------------------

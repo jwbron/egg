@@ -205,6 +205,7 @@ from .plan_parser import (
     parse_plan,
     parse_plan_file,
     validate_forest,
+    validate_slice_file_overlap,
     validate_task_role_alignment,
 )
 from .resilience import (
@@ -311,6 +312,7 @@ __all__ = [
     "parse_plan",
     "parse_plan_file",
     "validate_forest",
+    "validate_slice_file_overlap",
     "validate_task_role_alignment",
     # Phase Defaults
     "get_default_phase_config",

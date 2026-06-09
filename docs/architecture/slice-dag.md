@@ -149,6 +149,58 @@ Multi-parent and cyclic violations are reported in the same returned
 list, so a single populator pass surfaces every structural defect at
 once.
 
+### File-overlap ordering validation (#3046)
+
+`validate_forest` checks the DAG's *shape* (≤1 parent, acyclic). A
+separate validator, `validate_slice_file_overlap(slices)`, checks a
+*file-semantic* property: **two slices that touch overlapping files must
+be ordered along the dependency DAG** — one a transitive `dependencies`
+ancestor of the other.
+
+The implement phase cuts each slice's integration branch off its
+dependency parent (root slices off `egg/<id>/work`) and ships it as a
+stacked PR — see [Per-slice branches](#per-slice-branches--brc-trackers).
+So when slice-A and slice-B touch the same file:
+
+- **Ordered** (one transitively depends on the other) → the later
+  slice's branch is forked from a base that already contains the
+  earlier slice's commits, so the edits stack cleanly. An intermediate
+  disjoint slice on the chain is fine — the fork point is still
+  transitive.
+- **Unordered** (both roots, or siblings in different subtrees) → both
+  branches fork independently off the shared base, and their edits to
+  the shared file collide at integration. This is a *guaranteed*
+  conflict, including unavoidable modify/delete when one slice deletes a
+  file the other modifies.
+
+This is the #3023 failure: three slices all declared `dependencies: []`
+(parallel roots) while all three touched `consensus_wrapper.py` — one
+*deleting* it. The git branch topology faithfully mirrored the DAG (all
+three forked off `work`); the **DAG itself** was the defect. The branches
+matched the slice DAG perfectly — the slice DAG just didn't encode the
+file-level dependency, and nothing rejected it.
+
+`files_affected` is read from each slice's tasks (the same
+planner-declared signal `validate_task_role_alignment` uses); slices with
+no declared files contribute no overlap signal. The reachability walk is
+cycle-safe (a cycle is reported by `validate_forest`, not here).
+
+The populator (`_populate_contract_from_plan`) runs this validator *after*
+`validate_forest` passes and gives it **identical handling**: the slices
+are not written to the contract, the structured errors are stashed on
+`Contract.plan_review_feedback`, and a `ForestValidationError` is raised
+with `reason="slice_overlap_violation"` (the safe-wrapper maps it to
+`PopulateOutcome.SLICE_OVERLAP_VIOLATION`, distinct from
+`FOREST_VIOLATION`, so the operator-facing HITL prose names the actual
+defect). The plan reviewer NACKs the **architect** (slice-composition
+authority, #2809) — see plan-review criteria §12.
+
+Because the forest constraint forbids a diamond (a slice cannot depend on
+two parents), the remediation is always to **serialise the overlapping
+cluster into one linear `dependencies` chain** — or merge the slices.
+Disjoint slices stay parallel, preserving the concurrency that slicing
+exists to provide.
+
 ## DependencyGraph generification
 
 `shared/egg_contracts/dependency_graph.py` was generified in #2137.
