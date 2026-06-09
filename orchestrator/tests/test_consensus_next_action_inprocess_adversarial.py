@@ -14,48 +14,50 @@ HTTP-side membership check or quietly adds an in-process one fails fast
 here.
 
 The cases below were chosen by walking each remaining return-statement
-in ``orchestrator/routes/consensus.py:280-406`` and asserting parity at
-that branch:
+in ``_derive_next_action`` (``orchestrator/routes/consensus.py``) and
+asserting parity at that branch:
 
 1. **role-complete short-circuit with ``is_complete=False``** —
-   confirmed role waits with ``blocking_agents`` payload (line 304-309).
+   confirmed role waits with ``blocking_agents`` payload.
 2. **open-NACK barrier on PROPOSED producer** (≥2 NACKing reviewers) —
-   surfaces ``status="open_nacks_blocked"`` payload (line 350-352).
+   surfaces ``status="open_nacks_blocked"`` payload.
 3. **single-NACK on PROPOSED producer** (1 NACKing reviewer) — surfaces
-   ``unresolved_nacks`` payload (line 353-359).
+   ``unresolved_nacks`` payload.
 4. **PROPOSED producer with confirm_guard not allowed** — wait with
-   ``confirm_guard_reason`` payload (line 367-372).
+   ``confirm_guard_reason`` payload.
 5. **dual-role WORKING + peer PROPOSE pending (R11a)** — own
-   "propose" wins over peer review (line 330-344).
+   "propose" wins over peer review.
 6. **dual-role post-own-propose with pending peer review (R11b)** —
-   reviewer-side "ack" fires (line 386-394).
+   reviewer-side "ack" fires.
 7. **pure reviewer with no pending proposals + guard not allowed** —
-   wait with ``confirm_guard_reason`` (line 395-402).
+   wait with ``confirm_guard_reason``.
 8. **stale-version re-review after re-propose v2** — reviewer who
-   ACKed v1 sees v2 and is told to ``ack`` again (line 386-394 via
+   ACKed v1 sees v2 and is told to ``ack`` again (via
    ``_has_pending_peer_proposals``'s stale-version branch).
-9. **documented divergence: non-graph role** — in-process returns
-   ``("wait", None, "role not in review graph")``; HTTP route returns
-   400. The on-demand spawner's caller MUST validate membership
-   before calling ``derive_next_action`` and this test pins the
-   contract so that requirement does not silently regress.
+9. **documented divergence: non-graph role** — in-process
+   ``derive_next_action`` raises ``ValueError`` (the up-front
+   membership guard in the alias); HTTP route returns 400 (its own
+   up-front membership check). The on-demand spawner's caller MUST
+   pass a role that participates in the review graph; this test pins
+   that both surfaces fail loudly on a phantom role rather than
+   silently returning ``"wait"``.
 10. **role-complete short-circuit with ``is_complete=True``** —
     confirmed role with global ``is_complete`` returns ``"complete"``
-    with no payload (line 302-303). The happy-path
+    with no payload. The happy-path
     ``test_parity_complete_after_full_convergence`` exercises the same
     branch indirectly; this case is a tighter unit assertion.
 
-The WORKING-branch ``nacks`` enrichment path at
-``consensus.py:340-344`` (``if nacks: payload["unresolved_nacks"] =
-nacks``) intentionally has NO adversarial parity case because it is
-unreachable through valid producer FSM transitions. The helper
-``_producer_has_unresolved_nacks_on_current_version`` at
-``consensus.py:264`` short-circuits to ``[]`` when ``current_version
-== 0``, and a producer in WORKING phase either has never proposed
-(``current_version == 0``) or arrived there via a path the FSM does
-not currently expose. The WORKING + non-empty-nacks payload shape is
-therefore documented here rather than asserted via a test against an
-unreachable state.
+The WORKING-branch ``nacks`` enrichment path (the
+``if nacks: payload["unresolved_nacks"] = nacks`` branch in the
+WORKING arm of ``_derive_next_action``) intentionally has NO
+adversarial parity case because it is unreachable through valid
+producer FSM transitions. The helper
+``_producer_has_unresolved_nacks_on_current_version`` short-circuits
+to ``[]`` when ``current_version == 0``, and a producer in WORKING
+phase either has never proposed (``current_version == 0``) or
+arrived there via a path the FSM does not currently expose. The
+WORKING + non-empty-nacks payload shape is therefore documented here
+rather than asserted via a test against an unreachable state.
 """
 
 from __future__ import annotations
@@ -243,8 +245,8 @@ def _assert_parity(client, tracker, role):
     in-process tuple. The route omits ``event_payload`` when None and
     omits ``reason`` when empty; we accept those omissions as
     equivalent to ``None`` / ``""`` so the parity check matches the
-    route's documented surface (route docstring at
-    ``routes/consensus.py:430-445``).
+    route's documented surface (see the ``handle_next_action`` route
+    docstring in ``orchestrator/routes/consensus.py``).
     """
     from routes.consensus import derive_next_action  # type: ignore
 
@@ -276,10 +278,10 @@ def test_parity_confirmed_role_waits_when_others_not_yet_complete(client, simple
     """Confirmed role with ``is_complete=False`` → both surfaces emit
     ``wait`` with a ``blocking_agents`` event_payload.
 
-    This is the role-complete short-circuit's "wait" branch at
-    ``consensus.py:304-309`` — distinct from the happy-path
-    ``test_parity_complete_after_full_convergence`` which exercises the
-    "complete" branch on the SAME line ladder.
+    This is the role-complete short-circuit's "wait" branch — distinct
+    from the happy-path ``test_parity_complete_after_full_convergence``
+    which exercises the "complete" branch on the same short-circuit
+    ladder.
     """
     _propose(simple_tracker, "coder")
     _ack(simple_tracker, "reviewer_code", "coder", version=1)
@@ -293,7 +295,8 @@ def test_parity_confirmed_role_waits_when_others_not_yet_complete(client, simple
 
 def test_parity_complete_short_circuit_for_a_confirmed_role(client, simple_tracker):
     """Tighter unit assertion of the ``role in confirmed_roles AND
-    is_complete=True → "complete"`` branch (``consensus.py:302-303``).
+    is_complete=True → "complete"`` branch of the role-complete
+    short-circuit.
 
     The happy-path file's ``test_parity_complete_after_full_convergence``
     exercises this via the full propose-ack-confirm flow on three roles;
@@ -314,7 +317,9 @@ def test_parity_complete_short_circuit_for_a_confirmed_role(client, simple_track
 
 def test_parity_open_nack_barrier_surfaces_payload(client, simple_tracker):
     """PROPOSED producer with 2 NACKing reviewers → both surfaces emit
-    ``propose`` with the open-NACK barrier payload (``consensus.py:350-352``).
+    ``propose`` with the open-NACK barrier payload (the
+    ``status="open_nacks_blocked"`` branch in the PROPOSED arm of
+    ``_derive_next_action``).
 
     The barrier's ``status="open_nacks_blocked"`` and ``nacks[]`` array
     must surface byte-identically over both call paths so the
@@ -330,7 +335,8 @@ def test_parity_open_nack_barrier_surfaces_payload(client, simple_tracker):
 def test_parity_single_nack_surfaces_unresolved_nacks(client, simple_tracker):
     """PROPOSED producer with one NACKing reviewer (sub-barrier
     threshold) → both surfaces emit ``propose`` with
-    ``unresolved_nacks`` in the payload (``consensus.py:353-359``).
+    ``unresolved_nacks`` in the payload (the sub-barrier branch in the
+    PROPOSED arm of ``_derive_next_action``).
 
     The single-reviewer NACK path is distinct from the
     two-reviewer barrier path (#2142); the route's behaviour here is
@@ -346,7 +352,8 @@ def test_parity_single_nack_surfaces_unresolved_nacks(client, simple_tracker):
 def test_parity_proposed_producer_waits_when_confirm_guard_blocks(client, simple_tracker):
     """PROPOSED producer with no NACKs and an UNSATISFIED confirm guard
     (only one of two reviewers has ACKed) → both surfaces emit ``wait``
-    with a ``confirm_guard_reason`` (``consensus.py:367-372``).
+    with a ``confirm_guard_reason`` (the confirm-guard "wait" branch in
+    the PROPOSED arm of ``_derive_next_action``).
 
     This is the "produced, no NACKs, reviewers still working" branch
     — the path the wrapper used to poll-loop on. The on-demand
@@ -361,7 +368,8 @@ def test_parity_proposed_producer_waits_when_confirm_guard_blocks(client, simple
 
 def test_parity_dual_role_pre_propose_returns_propose_R11a(client, dual_tracker):
     """Dual-role agent in WORKING with a peer PROPOSE pending → both
-    surfaces emit ``propose`` (#2749 R11a; ``consensus.py:330-344``).
+    surfaces emit ``propose`` (#2749 R11a; the WORKING-arm own-propose
+    branch of ``_derive_next_action``).
 
     Per the ordering rule, dual-role agents propose OWN work first
     even when a peer producer has a pending CONSENSUS_PROPOSE for
@@ -376,8 +384,9 @@ def test_parity_dual_role_pre_propose_returns_propose_R11a(client, dual_tracker)
 
 def test_parity_dual_role_post_propose_returns_ack_R11b(client, dual_tracker):
     """Dual-role agent post-own-propose with a peer PROPOSE pending →
-    both surfaces emit ``ack`` (#2749 R11b; ``consensus.py:386-394``
-    via the dual-role fall-through at ``consensus.py:367-373``).
+    both surfaces emit ``ack`` (#2749 R11b; the reviewer-side
+    pending-proposal branch of ``_derive_next_action`` reached via the
+    dual-role fall-through out of the PROPOSED arm).
 
     This is the matching branch to R11a above — once the dual-role
     agent has proposed its own work it transitions to the reviewer
@@ -391,7 +400,8 @@ def test_parity_dual_role_post_propose_returns_ack_R11b(client, dual_tracker):
 def test_parity_pure_reviewer_waits_when_no_pending_and_guard_blocked(client, simple_tracker):
     """Pure reviewer with no pending peer proposals AND an UNSATISFIED
     confirm guard → both surfaces emit ``wait`` with
-    ``confirm_guard_reason`` (``consensus.py:395-402``).
+    ``confirm_guard_reason`` (the reviewer-arm confirm-guard "wait"
+    branch of ``_derive_next_action``).
 
     Concretely: producer in WORKING (no proposal yet), so the reviewer
     has nothing to ack; reviewer's confirm guard fails because the
@@ -406,8 +416,9 @@ def test_parity_pure_reviewer_waits_when_no_pending_and_guard_blocked(client, si
 
 def test_parity_stale_version_re_review_after_re_propose(client, simple_tracker):
     """Reviewer who ACKed v1 sees v2 after a re-propose → both surfaces
-    emit ``ack`` (stale-version branch of ``_has_pending_peer_proposals``;
-    ``consensus.py:386-394``).
+    emit ``ack`` (stale-version branch of
+    ``_has_pending_peer_proposals``, reached via the reviewer-arm
+    pending-proposal branch of ``_derive_next_action``).
 
     Concretely: v1 lands, reviewer_code ACKs v1, then the producer
     re-proposes v2 (e.g. addressing a separate NACK from
@@ -426,36 +437,35 @@ def test_parity_stale_version_re_review_after_re_propose(client, simple_tracker)
 
 def test_parity_documented_divergence_non_graph_role(client, simple_tracker):
     """Documented divergence: a role that is not in the review graph
-    returns ``("wait", None, "role not in review graph")`` in-process
-    (the role-not-in-graph default branch at the tail of
-    ``_derive_next_action``) but the HTTP route returns 400 (the
-    up-front membership check in the route handler).
+    fails loudly on BOTH surfaces but via different mechanisms — the
+    in-process ``derive_next_action`` raises ``ValueError`` from its
+    up-front membership guard; the HTTP route returns 400 from its
+    up-front membership check before delegating to
+    ``_derive_next_action`` (which itself still silently falls through
+    to ``("wait", None, "role not in review graph")`` — that's the
+    route's documented contract).
 
-    The on-demand spawner's caller MUST validate graph membership
-    before calling ``derive_next_action`` — the in-process callable
-    is documented in its docstring as "Caller MUST validate that role
-    is a participant in the review graph".
+    The on-demand spawner's caller MUST pass a role that participates
+    in the review graph. The in-process alias enforces that loudly so
+    a misconfigured caller fails fast instead of sleeping forever on
+    the silent "wait" branch.
 
-    This test pins the contract: if a future refactor accidentally
-    adds a membership check inside ``_derive_next_action`` (changing
-    the in-process behaviour) or accidentally removes the HTTP-side
-    check (changing the route behaviour), it fails here. The
-    divergence is a feature of the contract, not a bug, and is the
-    only point where the two call surfaces are NOT byte-identical.
+    This test pins the contract on both surfaces: if a future refactor
+    accidentally removes the up-front guard in ``derive_next_action``
+    (regressing to silent wait), or accidentally removes the HTTP-side
+    check, it fails here. The two surfaces' identical
+    "non-graph role fails loudly" guarantee is a feature of the
+    contract, not a bug.
     """
     from routes.consensus import derive_next_action  # type: ignore
 
     phantom = "phantom_role_not_in_graph"
 
-    # In-process: derivation falls through to the role-not-in-graph
-    # default branch at the tail of ``_derive_next_action`` because
-    # the role is neither a producer nor a reviewer in this graph.
-    action, payload, reason = derive_next_action(simple_tracker, phantom)
-    assert action == "wait", f"in-process should default to wait; got {action!r}"
-    assert payload is None, f"in-process payload should be None; got {payload!r}"
-    assert reason == "role not in review graph", (
-        f"in-process reason should pin the role-not-in-graph default; got {reason!r}"
-    )
+    # In-process: ``derive_next_action``'s up-front membership guard
+    # raises ``ValueError`` for a role that is neither a producer nor
+    # a reviewer in this graph.
+    with pytest.raises(ValueError, match="not a participant in the review graph"):
+        derive_next_action(simple_tracker, phantom)
 
     # HTTP route: same role returns 400 because the route handler
     # validates graph membership up front, before delegating to

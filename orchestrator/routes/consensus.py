@@ -413,15 +413,26 @@ def derive_next_action(
 
     Lets the orchestrator's per-phase run loop call the BRC derivation
     in-process without taking a TCP round-trip through the HTTP route.
-    Behaviour is byte-identical to the route handler — both call
+    Behaviour mirrors the route handler — both delegate to
     ``_derive_next_action`` with the same arguments, so the return tuple
     ``(action, event_payload, reason)`` is identical for any given
     ``(tracker, role)`` snapshot.
 
-    Caller MUST validate that ``role`` is a participant in the review
-    graph (producer, reviewer, or both) — this is the same precondition
-    the HTTP route validates before delegating to ``_derive_next_action``.
+    ``role`` MUST be a participant in the review graph (producer,
+    reviewer, or both). When the precondition fails this raises
+    ``ValueError`` so a misconfigured caller fails loudly instead of
+    silently sleeping on the "role not in review graph" wait branch in
+    ``_derive_next_action``. The HTTP route enforces the same
+    precondition via its own up-front 400 response and continues to
+    call ``_derive_next_action`` directly, so the route's documented
+    contract (silent fall-through if a future refactor removes the
+    up-front check) is unaffected.
     """
+    if not (tracker.graph.is_producer(role) or tracker.graph.is_reviewer(role)):
+        raise ValueError(
+            f"Role {role!r} is not a participant in the review graph "
+            f"(neither producer nor reviewer)"
+        )
     return _derive_next_action(tracker, role)
 
 
