@@ -200,6 +200,14 @@
       "repo": null,
       "role": "tester"
     },
+    "3c3a59f9f0aa08546834b08c71b7ebc2919c3be0": {
+      "branch": "egg/issue-3023/slice-3",
+      "patch_id": "11f1c3e9aa52d2f95ab8332aa80ad270a82a4bda",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T17:13:51.646923+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "3ee3431206002bfebc6f0061f75fbb48a10ffcd8": {
       "branch": "egg/issue-3023/slice-1",
       "patch_id": "f224e06b6a1fea88e7301a983bebdbc517454b2b",
@@ -231,6 +239,14 @@
       "registered_at": "2026-06-09T04:23:13.934692+00:00",
       "repo": null,
       "role": "tester"
+    },
+    "473a006e9c6927f3081c328d5151cde3a02b10fc": {
+      "branch": "egg/issue-3023/slice-3",
+      "patch_id": "3941eb78bd44add9b26f8875d26f598b10ce8519",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T17:13:51.650270+00:00",
+      "repo": null,
+      "role": "coder"
     },
     "47b2ce2e6de7f7be4113c2a5fe1c1eeb4d494ce7": {
       "branch": "egg/issue-3023/slice-3",
@@ -359,6 +375,14 @@
       "registered_at": "2026-06-09T06:55:42.191340+00:00",
       "repo": null,
       "role": "tester"
+    },
+    "7397c3d504a19b0a8b3172d4d02f7fc1a289e781": {
+      "branch": "egg/issue-3023/slice-3",
+      "patch_id": "b2e642325b741e583c8e02fad6c6ed9f9f3bb96a",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T17:13:51.651790+00:00",
+      "repo": null,
+      "role": "coder"
     },
     "73ff40455f597377c9b35811dd17d4f080449b0d": {
       "branch": "egg/issue-3023/slice-1",
