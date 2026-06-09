@@ -54,11 +54,15 @@ class ContextPrCreationReason(StrEnum):
     PIPELINE_LOAD_FAILED = "pipeline_load_failed"
     ROUTES_UNAVAILABLE = "routes_unavailable"
     LOADER_UNAVAILABLE = "loader_unavailable"
-    # Pipeline misconfiguration (cq-4 hard-required: ``repo`` and
-    # ``base_branch`` must BOTH be set OR BOTH empty).
+    # Pipeline misconfiguration. ``base_branch`` left unset alongside a
+    # ``repo`` is NOT a misconfiguration — it is the normal "auto-detect
+    # the repo's default branch" state (#3031), so the opener resolves it
+    # rather than raising. The remaining genuine misconfigurations are a
+    # ``base_branch`` with no ``repo`` to open a PR against
+    # (``missing_repo``) and a remote pipeline with no work branch
+    # (``missing_branch``).
     MISSING_BRANCH = "missing_branch"
     MISSING_REPO = "missing_repo"
-    MISSING_BASE_BRANCH = "missing_base_branch"
     # Contract / PR-metadata failures encountered after the pipeline
     # passed the misconfiguration check.
     CONTRACT_LOAD_FAILED = "contract_load_failed"
@@ -9590,11 +9594,16 @@ def _open_context_pr_at_implement_start(
     Behaviour:
 
     1. Look up the pipeline + worktree from ``pipeline_id``.
-    2. If the pipeline has no ``repo`` or ``base_branch`` set (local
-       mode), return ``None`` without raising — there is no remote PR
-       to open. This matches the legacy wrapper's silent-skip behaviour
-       for local pipelines so the new hard-required contract does not
-       regress in-house test pipelines.
+    2. If the pipeline has neither ``repo`` nor ``base_branch`` set
+       (local mode), return ``None`` without raising — there is no
+       remote PR to open. This matches the legacy wrapper's silent-skip
+       behaviour for local pipelines so the new hard-required contract
+       does not regress in-house test pipelines. A ``repo`` with no
+       ``base_branch`` is the normal "auto-detect the default branch"
+       state (#3031), NOT a misconfiguration: the base is resolved via
+       :func:`_detect_default_branch` and used for the lookup + create.
+       A ``base_branch`` with no ``repo`` is a genuine misconfiguration
+       and raises ``ContextPrCreationError(reason="missing_repo")``.
     3. Otherwise call ``GatewayClient.lookup_open_pr(head, base)`` — the
        same control-plane idempotency primitive ``create_slice_pr`` uses
        — to find the open PR whose head is the pipeline's work branch and
@@ -9663,12 +9672,27 @@ def _open_context_pr_at_implement_start(
             cause=load_err,
         ) from load_err
 
-    # Step 2: local-mode short-circuit. ``repo`` AND ``base_branch``
-    # MUST BOTH be empty to qualify as local-mode; a remote pipeline
-    # that has ``repo`` set but ``base_branch`` empty (or vice versa)
-    # is a misconfiguration, not a local pipeline, and the soft-skip
-    # below would silently mask the cq-4 hard-required contract
-    # (reviewer_code_holistic blocker 3). Surface the misconfig as a
+    # Step 2: local-mode short-circuit + base-branch resolution.
+    #
+    # ``repo`` AND ``base_branch`` both empty ⇒ local mode (no remote PR
+    # to open); return ``None`` without raising.
+    #
+    # ``repo`` set but ``base_branch`` empty is the NORMAL state, not a
+    # misconfiguration: ``Pipeline.base_branch`` defaults to ``None``
+    # ("auto-detected from repo's default branch") and the standard
+    # ``submit_task`` path never populates it, so essentially every
+    # remote pipeline reaches here with ``base_branch=None``. #2777 cq-4
+    # collapsed the final ``work → main`` PR into this up-front opener
+    # but dropped the default-branch resolution the deleted PR phase did,
+    # making the opener the only ``base_branch`` consumer that hard-
+    # raised on ``None`` instead of resolving it — stranding every
+    # standard pipeline's slice stack on ``/work`` (#3031). Resolve it
+    # here the way every other consumer does
+    # (``base_branch or _detect_default_branch``) and thread the resolved
+    # value through both the idempotency lookup and ``create_pr``.
+    #
+    # A ``base_branch`` set with no ``repo`` IS a genuine
+    # misconfiguration (nothing to open a PR against); surface it as a
     # typed error so the operator notices.
     repo_set = bool(pipeline.repo)
     base_set = bool(pipeline.base_branch)
@@ -9678,14 +9702,12 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
         )
         return None
-    if repo_set != base_set:
-        # Partial-config pipeline. Raise so the operator sees the
-        # asymmetry rather than silently skipping the context PR.
+    if base_set and not repo_set:
         raise ContextPrCreationError(
-            f"pipeline {pipeline_id!r} has asymmetric remote config "
-            f"(repo={pipeline.repo!r}, base_branch={pipeline.base_branch!r}); "
-            "both must be set for a remote PR or neither for local mode",
-            reason="missing_base_branch" if repo_set else "missing_repo",
+            f"pipeline {pipeline_id!r} has a base_branch "
+            f"({pipeline.base_branch!r}) but no repo; cannot open a context "
+            "PR with no remote",
+            reason="missing_repo",
         )
 
     if not pipeline.branch:
@@ -9699,6 +9721,12 @@ def _open_context_pr_at_implement_start(
         )
 
     worktree_repo_path = resolve_worktree_path(pipeline_id, store.repo_path)
+    # Resolve ``base_branch=None`` to the repo's default branch (#3031).
+    # ``_detect_default_branch`` reads ``origin/HEAD`` from the worktree
+    # and falls back to ``main``/``master`` then the literal ``"main"``,
+    # so it never raises and always yields a concrete base ref for the
+    # lookup + create_pr calls below.
+    effective_base = pipeline.base_branch or _detect_default_branch(worktree_repo_path)
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     gateway_mode, _vis = _compute_gateway_mode(pipeline)
 
@@ -9723,7 +9751,7 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
             repo=pipeline.repo,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
         )
     except Exception as lookup_err:
         raise ContextPrCreationError(
@@ -9748,7 +9776,7 @@ def _open_context_pr_at_implement_start(
             pipeline_id=pipeline_id,
             pr_number=existing_pr_number,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
         )
         return existing_pr_number
 
@@ -9788,7 +9816,7 @@ def _open_context_pr_at_implement_start(
             title=pr_title,
             body=pr_description,
             head=pipeline.branch,
-            base=pipeline.base_branch,
+            base=effective_base,
             issue_number=pipeline.issue_number,
             mode=gateway_mode,
         )
@@ -9841,7 +9869,7 @@ def _open_context_pr_at_implement_start(
         pipeline_id=pipeline_id,
         pr_number=new_pr_number,
         head=pipeline.branch,
-        base=pipeline.base_branch,
+        base=effective_base,
         url=pr_url,
     )
     return new_pr_number
