@@ -1255,8 +1255,64 @@
       "started_at": "2026-06-09T18:25:02.555719Z",
       "work_started_at": "2026-06-09T18:25:08.207790Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "0917ca5e-b892-4a45-b3e5-0fe9e9e1cd61",
+          "container_name": "egg-sandbox-egg-agent-issue-3023-reviewer-contract",
+          "status": "running",
+          "started_at": "2026-06-09T18:25:10.337066Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-3023-reviewer-contract"
+        },
+        {
+          "container_id": "005edbd4-2f50-4654-9ab8-2bd89455f53e",
+          "container_name": "egg-sandbox-egg-agent-issue-3023-applier",
+          "status": "running",
+          "started_at": "2026-06-09T18:25:10.337087Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "applier",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-3023-applier"
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "0917ca5e-b892-4a45-b3e5-0fe9e9e1cd61",
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-06-09T18:25:10.337080Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "applier",
+          "status": "running",
+          "container_id": "005edbd4-2f50-4654-9ab8-2bd89455f53e",
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-06-09T18:25:10.337093Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -1468,7 +1524,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T18:25:08.212250Z",
+  "updated_at": "2026-06-09T18:25:10.337168Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1481,7 +1537,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T18:25:02.555722Z",
-  "version": 101,
+  "version": 102,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
