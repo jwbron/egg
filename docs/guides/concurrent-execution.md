@@ -69,34 +69,101 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 
 Each agent is registered in the peer consensus tracker before spawning begins.
 
-## Consensus Wrapper
+## On-Demand Agent Spawning
 
-> **[#2908](https://github.com/jwbron/egg/issues/2908) replaced the model-driven restart loop with a deterministic event-pump wrapper across slices 1–4.** The wrapper is now the sole loop driver — the agent is one-shot per actionable BRC event, the wrapper holds the wait between events, and heartbeats + gateway-session keep-alive ride on wrapper-side subshells rather than the in-pod `message_wait_loop`. The 3-restart `MAX_CONSENSUS_RESTARTS` FAIL cap was replaced by an idle/no-progress overseer-alert budget that never transitions the pipeline to FAILED. The legacy `_CONSENSUS_WRAPPER_TEMPLATE`, the `_RECOVERY_SYSTEM_PROMPT`, the SSE `consensus.reached` machinery, the `MAX_CONSENSUS_RESTARTS` constant, and the `EGG_BRC_EVENT_PUMP=false` escape hatch were deleted in slice-4 — the supported regression path is `git revert` of the slice-4 / slice-3 / slice-2 / slice-1 merge commits in reverse-merge order (see [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan)). See [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) for the deterministic-loop semantics, the wait-filter construction, the wrapper-side heartbeat + keep-alive subshells, the idle-budget escalation table, and the rollback plan. The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
+> **[#3023](https://github.com/jwbron/egg/issues/3023) inverted the BRC agent lifecycle.** Before #3023 the orchestrator spawned the full team at phase start and each pod ran a long-lived event-pump wrapper (`orchestrator/consensus_wrapper.py`) that long-polled the bus and invoked the agent one-shot per event, staying alive across the whole phase. After #3023 the wait moves out of the pods into a single orchestrator-side blocking thread that covers all roles: the orchestrator derives per-role actionability with `_derive_next_action` and spawns a one-shot pod **only when a role has an actionable event**. The pod handles the event and exits. There are no idle pods. Per-phase reuse of the prompt-cache prefix, per-(pipeline, role) gateway session, and per-role worktree PVC is **unchanged** — the orchestrator now holds those across spawns. This is a resource-freeing change, not a latency optimisation (no cold-start SLO gates it). The wait-side companion is [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model); the full design lives in [Orchestrator Architecture — BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning).
 
-All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper is the deterministic BRC loop driver: it polls `egg-orch brc get-state` / `egg-orch brc next-action` for sequencing, blocks in `egg-orch message wait-loop` between actionable events, and invokes the agent one-shot per `INVOKE` event with a prompt composed by `compose_event_prompt` (slice-3).
+`orchestrator/consensus_wrapper.py` is **deleted** as of slice 3 of #3023. The pod entrypoint is exactly `python3 -m egg_agent --model {alias} --max-turns {N}` with the composed prompt piped on stdin; no wrapper bash, no heartbeat subshell, no `bash -c`. SIGTERM handling moved into `shared/egg_agent/__main__.py` (a Python signal trap) and produces the same audit-log entries the pre-#3023 wrapper cleanup trap emitted.
+
+**On-demand spawn lifecycle (high level):**
+
+```text
+        ┌──────────────────────────────────────────────────────────────┐
+        │ orchestrator per-phase tick (one blocking thread, all roles) │
+        └──────────────────────────────────────────────────────────────┘
+                                  │
+       ┌──────────────────────────┼──────────────────────────┐
+       │                          │                          │
+       ▼                          ▼                          ▼
+  for role in phase.roles:   refresh_all(now)          check(now, hitls)
+  derive_next_action(...)     (gateway session)       (phase-idle alert)
+       │
+       ├─► wait/complete  ──► no spawn
+       │
+       └─► propose|ack|nack|confirm
+              │
+              ├─► (pipeline, role) in_flight? ──► coalesce
+              │
+              └─► compose_event_prompt(role, event)        (in-process)
+                  spawn_fn(role, prompt, model_decision)
+                       │
+                       ▼
+                  ┌──────────────────────────────────────────┐
+                  │ pod (one-shot): python3 -m egg_agent     │
+                  │   • mounts reused per-role worktree PVC  │
+                  │   • EGG_SESSION_TOKEN = orchestrator-held│
+                  │   • EGG_SPAWN_INDEX  = <N>               │
+                  │   • stdout/stderr → spawn-<N>.log        │
+                  │   • runs to completion of this event     │
+                  │   • exits 0                              │
+                  └──────────────────────────────────────────┘
+```
 
 **How it works:**
 
-1. The wrapper starts two background subshells: a heartbeat emitter (every 30 s while a `wait-loop` is blocking) and the implicit gateway-session keep-alive that rides on every accepted heartbeat. Both surfaces moved here from the pre-#2908 agent-side `message_wait_loop` (see [Wrapper-side heartbeat (#2036)](../architecture/orchestrator.md#wrapper-side-heartbeat-2036-migration-completed-in-slice-4) and [Wrapper-side gateway-session keep-alive (#2451)](../architecture/orchestrator.md#wrapper-side-gateway-session-keep-alive-2451-migration-completed-in-slice-4)).
-2. The wrapper polls `egg-orch brc get-state --json`. If `role_complete` is true, it calls `egg-orch consensus confirmed` and exits with code 0.
-3. Otherwise it polls `egg-orch brc next-action --json`. The action is one of `WAIT` (block in `egg-orch message wait-loop` with a conditional filter — see [Wait-filter construction](../architecture/orchestrator.md#wait-filter-construction-pre-confirm-vs-post-confirm)) or `INVOKE` (spawn the agent with a one-shot event prompt).
-4. When the agent exits cleanly after an `INVOKE`, the wrapper loops back to step 2 — no restart, no recovery prompt. Clean exit between events is the expected steady state.
-5. If the agent exits non-zero (transient signal-class crash, exit 1, or anything else), the wrapper increments `AGENT_FAIL_STREAK`, sleeps 1 s, and resumes the loop — there is no per-crash restart, no exponential backoff, and no exit-code branching on the `propose|ack|nack` arm. The `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` helpers are still defined in the wrapper bash template but are **not invoked** today; they are retained as named placeholders against a possible future classifier-gated fast-fail path (see `orchestrator/consensus_wrapper.py` L145–150).
-6. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` cap and the `_RECOVERY_SYSTEM_PROMPT` recovery-restart cycle no longer exist. The wrapper does not propagate non-zero agent exits — they accrue against the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes), which is the sole operator-visible escalation surface. At threshold and `2 ×` threshold the wrapper emits an `OVERSEER_ALERT`; the pipeline is never transitioned to FAILED by this path.
+1. **Sequencing.** The orchestrator's per-phase tick calls `derive_next_action(tracker, role)` in-process for every role once per loop iteration. `wait` and `complete` are no-ops; `propose`/`ack`/`nack`/`confirm` triggers a spawn.
+2. **Spawn.** `OnDemandSpawner.tick` composes the event prompt in-process (`compose_event_prompt`, unchanged from #2908) and calls `KubernetesSpawner.create_on_demand_spawn_fn` to launch a one-shot pod. The pod runs `python3 -m egg_agent` to completion of that event and exits.
+3. **Coalescing (AC-R1).** While a spawn is in flight for `(pipeline_id, role)`, subsequent actionable returns from `derive_next_action` are coalesced — a NACK fan-out producing N events in a tight window yields exactly one spawn, not N. Defense in depth: `KubernetesSpawner.spawn_agent_job` raises `SpawnPreconditionError` if a non-terminal Job already exists for the same (pipeline, role) label.
+4. **Per-(pipeline, role) gateway session (cq-2).** `OrchestratorSessionKeepAlive` (`orchestrator/session_keepalive.py`) holds the session token per (pipeline, role). `OnDemandSpawner.record_phase_start` calls `GatewayClient.register_session` once at phase entry; `record_phase_end` calls `delete_session`. The per-phase tick calls `refresh_all(now)` once per iteration, validating stale records against the same gateway endpoint the pre-#3023 wrapper heartbeat hit.
+5. **Per-role worktree PVC reuse.** PVCs are pre-warmed at `record_phase_start` and reused across spawns. The RWO mount semantics are why a single-pod-in-flight precondition is enforced.
+6. **Per-spawn logs (feedback Q2).** Each spawn writes stdout/stderr to `.egg-state/agent-outputs/<role>/spawn-<EGG_SPAWN_INDEX>.log` on the per-role PVC. Retention is `OnDemandSpawner.PER_ROLE_LOG_RETENTION = 20` per role (overridable via `EGG_SPAWN_LOG_RETENTION`); older files rotate out. Logs are not compressed (cat/grep during triage).
+7. **Orphan-commit detector (AC-R6).** A pod can exit after `git commit M` but before its `propose`/`ack`/`nack` finishes, leaving commits with no covering BRC verb. `OrphanCommitDetector` runs once per tick before `derive_next_action` for each role: if the role's branch has commits not covered by a tracker event, it fires `OVERSEER_ALERT(anomaly="orphan_commit_post_spawn")` and re-spawns the role with a prompt instructing it to propose covering exactly those commits.
+8. **Atomic `brc-memory.md` writes (AC-R12).** `brc_ack`/`brc_nack` write to `brc-memory.md.tmp.<pid>` then `os.rename` to final, so any unobserved concurrency window produces one complete write, never a partial concatenation.
 
-**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it dispatches the agent to handle each actionable event and lets the agent issue ACK / NACK / PROPOSE / CONFIRM verdicts itself. Sequencing is the wrapper's job; *judgment* (what to review, what to fix, when to re-propose) stays with the model.
-
-**Design intent — the wrapper is the loop, not a safety net.** Before #2908 the wrapper existed as a fallback that re-spawned the agent on premature exit (e.g., context exhaustion) and the agent was expected to hold a long-running BRC wait between events. After #2908 the wrapper *is* the BRC loop driver — clean per-event exits are the steady-state contract, not an edge case. The orchestrator detects consensus and sends SIGTERM to terminate containers when the role is complete; the agent only exits because it finished its event handler or because consensus closed. There is no expensive context-reload-on-restart path.
+**Key design principle:** Agents must **explicitly** participate in consensus. The orchestrator never auto-signals on behalf of an agent — it spawns a pod to handle each actionable event and lets the agent issue ACK / NACK / PROPOSE / CONFIRM verdicts itself. Sequencing is the orchestrator's job; *judgment* (what to review, what to fix, when to re-propose) stays with the model. Per-event spawns are conceptually cheap — there is no expensive context-reload path because per-phase state (prompt-cache prefix, gateway session, worktree PVC) is held across spawns by the orchestrator.
 
 **Configuration:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so per-event agent invocations have headroom; the wrapper-side loop never reaches this cap because per-event exits are short-lived). |
-| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) for the legacy "already-confirmed" guard preserved for race-window safety when the wrapper observes `role_complete` between polls. |
-| `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) preserved from the legacy `is_startup_failure` classifier. The helper is still defined but is not invoked by the post-slice-4 `propose|ack|nack` arm, so this knob has no runtime effect today; it is retained against a future classifier-gated fast-fail path. |
-| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Idle / no-progress safety budget in minutes. Replaces the pre-#2908 3-restart FAIL cap; at threshold and `2 ×` threshold the wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`) without transitioning the pipeline to FAILED. |
-| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between heartbeat emissions and message polls. |
+| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so per-event invocations have headroom; per-event runs are short-lived). |
+| `EGG_BRC_IDLE_BUDGET_MIN` | `30` | Phase-level idle / no-progress safety budget in minutes. `PhaseIdleBudgetTimer` (`orchestrator/phase_idle_budget.py`) fires `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`) at threshold and at `2 ×` threshold without transitioning the pipeline to FAILED. HITL-pending suppression (AC-R13): when `pending_hitl_count > 0` the 1× alert downgrades to `priority=low` with pending HITL IDs in `reason`, and the 2× alert is suppressed. |
+| `OnDemandSpawner.PER_ROLE_LOG_RETENTION` | `20` | Per-role `spawn-<N>.log` retention. Overridable via the `EGG_SPAWN_LOG_RETENTION` env var. |
+| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Heartbeat / poll cadence (legacy; consumed by the wait-patterns surface). |
+
+### Runbook: triaging a phase-idle alert (`stuck-phase-transition`)
+
+The pre-#3023 alert was **per-role** (one alert per role per threshold bucket). The new alert is **per-phase** (one alert per phase per threshold bucket, fired when no role has spawned for `EGG_BRC_IDLE_BUDGET_MIN` minutes). Per-role granularity moves into a structured `per_role_state` payload on every alert; the pending HITL IDs ride in `reason` when the alert is downgraded to `low`.
+
+To triage:
+
+1. Read the alert payload's `per_role_state` field — it maps every role to its `last_action` (`wait`/`propose`/`ack`/`nack`) and `last_spawn_at` timestamp. The role(s) with the oldest `last_spawn_at` are the candidates that have actually been quiet.
+2. If `priority=low`, the alert was downgraded because a HITL decision is pending — read the pending IDs from `reason` and open the HITL surface. The 2× alert is suppressed in this case, so don't expect a follow-up at `2 ×` threshold.
+3. For a `medium`/`high` alert, inspect the most recent `spawn-<N>.log` files for the quietest role at `.egg-state/agent-outputs/<role>/spawn-<N>.log` on the per-role PVC. The last `PER_ROLE_LOG_RETENTION = 20` files are retained per role; `cat` / `grep` for an error pattern or last action.
+4. If the role is genuinely stuck, escalate via the standard overseer surface — `EGG_BRC_IDLE_BUDGET_MIN` never transitions the pipeline to FAILED; it is purely an alert.
+
+### Runbook: triaging an `orphan_commit_post_spawn` alert
+
+`OrphanCommitDetector` fires when a role's branch has commits not covered by a tracker event. The orchestrator automatically re-spawns the role with a prompt instructing it to propose covering exactly those commits, so this alert is informational in the steady state. If the same alert re-fires for the same role across multiple ticks, that suggests the agent is repeatedly failing to propose — read the per-spawn logs at `.egg-state/agent-outputs/<role>/spawn-<N>.log` and inspect the `brc-memory.md` for that role.
+
+### Runbook: triaging a `missing_session_token` alert
+
+`OnDemandSpawner` fires this with a fail-loud `SessionNotRegisteredError` if `OrchestratorSessionKeepAlive` returns `None` for a (pipeline, role) lookup at spawn time — there is no fresh-session fallback. The gateway also emits a structured warning + bypasses #2769 per-agent model routing on tokenless requests. Recovery: restart the affected phase (the per-phase tick's `record_phase_start` re-registers the session).
+
+### Per-spawn pod-log retention
+
+Operators that previously used `kubectl exec` into a wrapper's heartbeat subshell to inspect a stuck phase now read the retained `spawn-<N>.log` files:
+
+- Path: `.egg-state/agent-outputs/<role>/spawn-<EGG_SPAWN_INDEX>.log`
+- Retention: `OnDemandSpawner.PER_ROLE_LOG_RETENTION = 20` per role (overridable via `EGG_SPAWN_LOG_RETENTION`).
+- Format: raw stdout/stderr, uncompressed (cat / grep during triage).
+- Lifetime: lives on the per-role worktree PVC, survives pod exit.
+
+There is no `kubectl exec`-able long-lived pod under on-demand spawning — pods only exist while their event is in flight.
+
+### Rollback — drain-then-revert (cq-4 big-bang)
+
+#3023 ships big-bang with no feature flag. The supported regression path is `git revert` on `main`, preceded by a drain protocol that runs in-flight pipelines through to completion or cancels them before the revert lands. The tolerant pod-state reader (TASK-3-5) ensures the reverted orchestrator can re-enter pipelines that were running on either lifecycle. See [Orchestrator Architecture — Rollback plan](../architecture/orchestrator.md#rollback-plan--drain-then-revert-cq-4-big-bang) for the full protocol.
 
 ## Message Bus
 
@@ -699,7 +766,7 @@ egg-orch brc resolve-obligation \
 
 #### `egg-orch brc` — the verb-level read/derive surface
 
-The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler, used by the event-pump consensus wrapper to decide what the agent should do next without paying for an LLM round-trip. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
+The `consensus` subcommands above are the **write-side** of BRC (proposes, acks, withdraws, confirms). The companion `egg-orch brc` surface — `next-action`, `get-state`, `list-blocking`, `resolve-obligation`, `read-peer-artifact` — is the **read / derive** side: each subcommand is a thin CLI shim over the corresponding `mcp__brc__*` handler. Under #3023 on-demand spawning the orchestrator calls `derive_next_action` in-process (no CLI hop) inside its per-phase tick; the `egg-orch brc` CLI subcommands remain available for operator debugging and as an external integration surface. See [Orchestrator CLI — BRC verb-level operations](../reference/orchestrator-cli.md#brc-verb-level-operations-egg-orch-brc) for the full subcommand table and shell examples.
 
 ### BRC History Persistence
 
@@ -878,7 +945,7 @@ The additional API call in step 5 is negligible — it only runs on the terminal
 
 ### Transient Crash Recovery
 
-Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper absorbs non-zero agent exits at the wrapper level rather than propagating them. In the post-slice-4 event-pump arm there is **no per-crash restart and no exponential backoff** — every non-zero exit from a `propose|ack|nack` agent invocation is handled identically: `AGENT_FAIL_STREAK++`, `sleep 1 s`, resume the loop. Because the agent is one-shot per event, "resume the loop" means the wrapper polls `egg-orch brc next-action` again on the next iteration. If the next actionable event yields a successful invocation, the failure is fully absorbed at the wrapper level — the orchestrator never sees a failure event. Repeated failures inside the same wrapper run are bounded by the **idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes): the wrapper emits an `OVERSEER_ALERT` at threshold and at `2 ×` threshold but does **not** mark the pipeline FAILED. The pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` hard cap and the `TRANSIENT_RESTART_BACKOFF_INITIAL` backoff constant were deleted in slice-4 alongside the legacy template. The `is_transient_crash` / `is_buffer_overflow` / `is_startup_failure` helpers in `consensus_wrapper.py` remain defined but are not invoked by the post-slice-4 arm. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#crash-handling-in-the-event-pump-wrapper) for the full exit-code table.
+Under [#3023](https://github.com/jwbron/egg/issues/3023) on-demand spawning a non-zero agent exit no longer routes through a wrapper that absorbs it — the pod was a one-shot per event, so it just exits and the orchestrator's next tick re-derives `derive_next_action` for the role. If the next actionable event yields a successful spawn, the prior failure is fully absorbed at the lifecycle level — the orchestrator's `handle_agent_crash` path is reserved for true infrastructure failures (CrashLoopBackOff after repeated immediate exits, OOM kill, missing image), not per-event noise. Repeated failures inside the same phase are bounded by the **phase-level idle / no-progress safety budget** (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 minutes) emitted by `PhaseIdleBudgetTimer`: at threshold and at `2 ×` threshold the orchestrator emits `OVERSEER_ALERT(anomaly="stuck-phase-transition")` with the structured `per_role_state` payload, but does **not** mark the pipeline FAILED. Pre-#2908 `MAX_CONSENSUS_RESTARTS = 3` and `TRANSIENT_RESTART_BACKOFF_INITIAL` were retired in #2908 slice-4; #3023 retired the wrapper-side crash classifiers (`is_transient_crash`, `is_buffer_overflow`, `is_startup_failure`) outright when `consensus_wrapper.py` was deleted.
 
 ### Agent Failure During Consensus
 
@@ -1243,4 +1310,4 @@ See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details
 - [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress
 - [Anchor Recovery Guide](anchor-recovery.md) — Agent post-compaction state recovery
-- [BRC Memory Artifact](../architecture/brc-memory.md) — Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack` so a future stateless event-pump handler can re-enter a review cycle with continuity ([#2908](https://github.com/jwbron/egg/issues/2908) slice-1)
+- [BRC Memory Artifact](../architecture/brc-memory.md) — Per-role-per-pipeline distilled memory file written by `brc_ack`/`brc_nack` so a stateless per-event handler can re-enter a review cycle with continuity (introduced by [#2908](https://github.com/jwbron/egg/issues/2908) slice-1; consumed unchanged by the [#3023](https://github.com/jwbron/egg/issues/3023) on-demand spawn path)
