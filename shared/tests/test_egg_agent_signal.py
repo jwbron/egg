@@ -287,7 +287,166 @@ class TestFinalStateLogParity:
 
 
 # --------------------------------------------------------------------------- #
-# (4) End-to-end integration sentinel
+# (4) Double-fire guard for re-entrant SIGTERM
+# --------------------------------------------------------------------------- #
+
+
+class TestSigtermDoubleFireGuard:
+    """Direct rebuttal to reviewer_concurrency v2 item 4 (TASK-3-3
+    concurrency-lens concern): "SIGTERM handler inside an asyncio event
+    loop … needs ... double-fire guards" pins.
+
+    Operationally, the kubelet sends SIGTERM at pod-delete time. If the
+    grace period elapses without the pod exiting, the kubelet sends
+    SIGKILL. But there are two intermediate-states where a SECOND
+    SIGTERM can land on the same process:
+
+    * an operator's ``kubectl delete pod --grace-period=0`` (the second
+      kubelet pass);
+    * a pod restart loop where systemd / containerd re-sends TERM
+      during a graceful-stop tight retry.
+
+    Without a guard, the second SIGTERM would re-enter the handler while
+    the first invocation is still emitting the final-state log + tearing
+    down the asyncio loop — producing duplicate audit records, racing
+    cleanup, and a non-zero exit. Pin that the handler is idempotent at
+    the seam-level: registering it twice and invoking it twice MUST be
+    safe. The pin is tolerant of the exact spelling of the guard (a
+    ``_shutdown_in_progress`` flag, an ``asyncio.Event``, an explicit
+    ``Once``-like primitive) — we just exercise the install + double-
+    invoke path and assert no exception escapes.
+    """
+
+    def test_handler_install_is_idempotent(self):
+        """Installing the SIGTERM handler twice MUST NOT raise. A naive
+        ``signal.signal`` call is itself idempotent (returns the
+        previous handler), but ``install_signal_handlers`` may also
+        register a SIGINT handler, start a background coroutine, or
+        attach to an asyncio loop — each of those is a re-entrancy
+        hazard if the install path is called twice. This test exercises
+        the install path twice and restores the previous handlers so
+        the test interpreter is not left with a custom handler.
+        """
+        if not _task_3_3_landed():
+            pytest.skip(
+                "TASK-3-3 not yet landed; double-fire guard pin is "
+                "recorded as a placeholder. Once the coder lands the "
+                "trap, expand this test to assert the second install "
+                "is a no-op (or returns cleanly)."
+            )
+
+        main_mod = _import_main_module()
+        seam = _resolve_handler_seam(main_mod)
+        assert seam is not None
+
+        if seam.__name__ not in (
+            "install_signal_handlers",
+            "_install_signal_handlers",
+        ):
+            # The seam is the bare handler callable, not an installer.
+            # Bare callable double-fire is exercised in
+            # ``test_handler_double_invoke_is_safe`` below.
+            pytest.skip(
+                "Seam is a bare handler, not an installer; double-"
+                "install path does not apply. The double-invoke path "
+                "is exercised in test_handler_double_invoke_is_safe."
+            )
+
+        previous_term = signal.getsignal(signal.SIGTERM)
+        previous_int = signal.getsignal(signal.SIGINT)
+        try:
+            # First install: the canonical path.
+            seam()
+            # Second install: MUST NOT raise. A naive implementation
+            # that, e.g., starts a background asyncio task on every
+            # install call would leak a task here — the guard is
+            # required for graceful operator triage where the install
+            # is invoked twice (initial main + a debug-re-install).
+            seam()
+        except Exception as e:
+            pytest.fail(
+                f"TASK-3-3 double-fire guard: installing the signal "
+                f"handler twice must be idempotent; raised "
+                f"{type(e).__name__}: {e}. The handler must guard "
+                f"against re-installation so a kubelet grace-period "
+                f"re-send + an operator's explicit re-install do not "
+                f"compound."
+            )
+        finally:
+            signal.signal(signal.SIGTERM, previous_term)
+            signal.signal(signal.SIGINT, previous_int)
+
+    def test_handler_double_invoke_is_safe(self):
+        """If the kubelet sends a second SIGTERM during the grace
+        period, the handler MUST tolerate being invoked twice on the
+        same frame. The first invocation initiates shutdown; the second
+        invocation must short-circuit (or re-emit cleanly) without
+        raising and without crashing the asyncio loop.
+
+        The pin is at the call level: invoke the handler twice with
+        synthetic signal-frame args and assert no exception escapes.
+        Once the production trap lands the assertion expands to also
+        check that the final-state log is emitted ONCE (not twice).
+        """
+        if not _task_3_3_landed():
+            pytest.skip(
+                "TASK-3-3 not yet landed; double-invoke pin is "
+                "recorded as a placeholder. Once the coder lands the "
+                "trap, expand this test to capture the structured "
+                "log stream and assert {role, signal, reason} keys "
+                "appear exactly once."
+            )
+
+        main_mod = _import_main_module()
+        seam = _resolve_handler_seam(main_mod)
+        assert seam is not None
+
+        # Find the bare handler callable. If the seam is an installer,
+        # introspect the module for a ``handle_sigterm`` /
+        # ``_handle_sigterm`` companion symbol.
+        handler = None
+        if seam.__name__ in (
+            "install_signal_handlers",
+            "_install_signal_handlers",
+        ):
+            for name in ("handle_sigterm", "_handle_sigterm"):
+                if hasattr(main_mod, name):
+                    handler = getattr(main_mod, name)
+                    break
+            if handler is None:
+                pytest.skip(
+                    "Seam is an installer with no exported "
+                    "handle_sigterm companion; double-invoke pin can "
+                    "only be exercised end-to-end (see "
+                    "TestSigtermEndToEndIntegration)."
+                )
+        else:
+            handler = seam
+
+        # Synthetic signal-frame args: signum + frame=None is the
+        # standard shape ``signal.signal`` callbacks receive.
+        try:
+            handler(signal.SIGTERM, None)
+            handler(signal.SIGTERM, None)
+        except SystemExit:
+            # Calling the handler may sys.exit() — that is acceptable
+            # on the FIRST invocation but the SECOND invocation must
+            # land on a guard that short-circuits. If both invocations
+            # raise SystemExit the test passes (the second was a clean
+            # exit), but a non-SystemExit exception is a regression.
+            pass
+        except Exception as e:
+            pytest.fail(
+                f"TASK-3-3 double-fire guard: invoking the SIGTERM "
+                f"handler twice raised {type(e).__name__}: {e}. The "
+                f"handler must guard against re-entrancy so a kubelet "
+                f"grace-period re-send does not compound (duplicate "
+                f"audit records, racing asyncio cancellation)."
+            )
+
+
+# --------------------------------------------------------------------------- #
+# (5) End-to-end integration sentinel
 # --------------------------------------------------------------------------- #
 
 

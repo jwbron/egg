@@ -1600,6 +1600,104 @@ class TestSpawnAllRetiresWrapperPodSpawn:
             "here would leave reviewers ACKing against an unknown agent set."
         )
 
+    def test_register_agents_completes_before_auto_ack_preseed(self):
+        """Direct rebuttal to reviewer_concurrency v2 item 4 (TASK-3-2
+        concurrency-lens concern): "concurrent_executor.spawn_all
+        tracker-registration + auto-ACK pre-seed race window needs pins".
+
+        Pin the ordering invariant at
+        ``concurrent_executor.py:344-374``: every ``register_agent`` call
+        for every role MUST complete BEFORE
+        ``seed_auto_ack_for_empty_pure_producers`` is invoked. If a
+        future refactor were to interleave them — e.g. registering one
+        role, calling the seeder, then registering the next — a
+        pure-producer role still pending registration could be silently
+        skipped by the seeder, leaving the BRC matrix in a half-seeded
+        state. The skip-vs-assert pattern is unnecessary here because
+        the ordering is already present pre-TASK-3-2 (it is the existing
+        loop at lines 351-352 followed by the seeder at line 365) and
+        TASK-3-2 only removes the trailing ``_spawn_roles`` call. The
+        pin must hold both pre- and post-TASK-3-2 so the race window
+        cannot re-open in either direction.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        # Pre-seed by enabling the auto-ACK path: ``spawn_all`` only
+        # invokes the seeder when ``_producer_roles_with_tasks is not
+        # None`` (see concurrent_executor.py:364). Pass an empty set
+        # so every pure-producer role is a candidate for auto-ACK
+        # pre-seed; the seeder fires unconditionally and the ordering
+        # invariant is exercised.
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(
+            pipeline,
+            spawn_fn=MagicMock(),
+            producer_roles_with_tasks=set(),
+        )
+
+        call_log: list[str] = []
+        tracker_instance = MagicMock()
+
+        def _record_register_agent(role: str) -> None:
+            call_log.append(f"register_agent:{role}")
+
+        def _record_seed_auto_ack(producer_roles_with_tasks: set[str]) -> list[str]:
+            call_log.append("seed_auto_ack_for_empty_pure_producers")
+            return []
+
+        tracker_instance.register_agent.side_effect = _record_register_agent
+        tracker_instance.seed_auto_ack_for_empty_pure_producers.side_effect = _record_seed_auto_ack
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(
+                ConcurrentPhaseExecutor,
+                "_spawn_roles",
+                autospec=True,
+                return_value=[],
+            ),
+        ):
+            mock_tracker.return_value = tracker_instance
+            executor.spawn_all()
+
+        # Find the seeder index. If the seeder did not fire at all the
+        # test would silently pass without exercising the invariant —
+        # fail loudly so a future regression that drops the seeder is
+        # caught here.
+        assert "seed_auto_ack_for_empty_pure_producers" in call_log, (
+            "Auto-ACK pre-seed did not fire under ProducerTasksSentinel; "
+            "test cannot pin the ordering invariant without the seeder "
+            "actually being called. Check that spawn_all still invokes "
+            "seed_auto_ack_for_empty_pure_producers when "
+            "_producer_roles_with_tasks is not None."
+        )
+
+        seeder_idx = call_log.index("seed_auto_ack_for_empty_pure_producers")
+        register_idxs = [
+            i for i, label in enumerate(call_log) if label.startswith("register_agent:")
+        ]
+
+        # Every register_agent index must be < the seeder index.
+        # Equivalent to: the seeder is the LAST entry among
+        # {register_agent x N, seeder}.
+        assert all(idx < seeder_idx for idx in register_idxs), (
+            "spawn_all ordering invariant violated: at least one "
+            "register_agent call landed AFTER "
+            "seed_auto_ack_for_empty_pure_producers. The seeder must run "
+            "AFTER every role has been registered, otherwise an "
+            "as-yet-unregistered pure-producer role is silently skipped "
+            "by the seeder (leaving the BRC matrix half-seeded). "
+            f"Observed call order: {call_log}"
+        )
+
+        # Sanity: register_agent fired at least once. Without this the
+        # all() above would trivially pass on an empty list.
+        assert register_idxs, (
+            "spawn_all did not register any agents — test cannot pin "
+            "the ordering invariant against a zero-call baseline."
+        )
+
 
 class TestSpawnAgentNoWrapperCommand:
     """Slice-3 / TASK-3-2 acceptance line: ``concurrent_executor.py:489``
