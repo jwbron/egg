@@ -427,13 +427,14 @@ def test_parity_stale_version_re_review_after_re_propose(client, simple_tracker)
 def test_parity_documented_divergence_non_graph_role(client, simple_tracker):
     """Documented divergence: a role that is not in the review graph
     returns ``("wait", None, "role not in review graph")`` in-process
-    (``consensus.py:404-406``) but the HTTP route returns 400
-    (``consensus.py:488-493``).
+    (the role-not-in-graph default branch at the tail of
+    ``_derive_next_action``) but the HTTP route returns 400 (the
+    up-front membership check in the route handler).
 
     The on-demand spawner's caller MUST validate graph membership
     before calling ``derive_next_action`` — the in-process callable
-    is documented as "Caller MUST validate that role is a participant
-    in the review graph" (``consensus.py:421-423``).
+    is documented in its docstring as "Caller MUST validate that role
+    is a participant in the review graph".
 
     This test pins the contract: if a future refactor accidentally
     adds a membership check inside ``_derive_next_action`` (changing
@@ -446,9 +447,9 @@ def test_parity_documented_divergence_non_graph_role(client, simple_tracker):
 
     phantom = "phantom_role_not_in_graph"
 
-    # In-process: derivation falls through to the "role not in review
-    # graph" default (line 404-406) because the role is neither a
-    # producer nor a reviewer in this graph.
+    # In-process: derivation falls through to the role-not-in-graph
+    # default branch at the tail of ``_derive_next_action`` because
+    # the role is neither a producer nor a reviewer in this graph.
     action, payload, reason = derive_next_action(simple_tracker, phantom)
     assert action == "wait", f"in-process should default to wait; got {action!r}"
     assert payload is None, f"in-process payload should be None; got {payload!r}"
@@ -456,8 +457,9 @@ def test_parity_documented_divergence_non_graph_role(client, simple_tracker):
         f"in-process reason should pin the role-not-in-graph default; got {reason!r}"
     )
 
-    # HTTP route: same role returns 400 because the route validates
-    # membership up front (line 488-493).
+    # HTTP route: same role returns 400 because the route handler
+    # validates graph membership up front, before delegating to
+    # ``_derive_next_action``.
     resp = _route_call(client, simple_tracker, phantom)
     assert resp.status_code == 400, (
         f"HTTP route must reject non-graph role with 400; got {resp.status_code}: {resp.data!r}"

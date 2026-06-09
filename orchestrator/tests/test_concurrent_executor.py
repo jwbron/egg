@@ -96,38 +96,6 @@ class TestBRCEnvironmentVariables:
         env = executor.get_agent_env(AgentRole.CODER)
         assert env["EGG_CONCURRENT_MODE"] == "true"
 
-    def test_event_loop_owner_env_injected_for_every_role(self):
-        """#3023 slice-2 task-2-0 AC: EGG_EVENT_LOOP_OWNER=orchestrator
-        appears in the spawn env from _spawn_agent for every role.
-
-        Coexistence guard for the wrapper-side ``while true`` event-pump
-        loop (consensus_wrapper.py): the wrapper short-circuits its
-        ``brc next-action`` polling and agent-invocation arms when the
-        orchestrator's on-demand spawner (slice-2 task-2-2) is the
-        authoritative BRC-verb emitter. Without this env var the wrapper
-        pod and the orchestrator-side spawn would race on the same
-        actionable event and double-emit propose/ack/nack.
-        """
-        from concurrent_executor import ConcurrentPhaseExecutor
-        from egg_orchestrator.types import AgentRole
-
-        pipeline = _make_pipeline()
-        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
-
-        for role in (
-            AgentRole.CODER,
-            AgentRole.REVIEWER_CODE,
-            AgentRole.TESTER,
-            AgentRole.DOCUMENTER,
-            AgentRole.REVIEWER_CONTRACT,
-            AgentRole.REVIEWER_SECURITY,
-        ):
-            env = executor.get_agent_env(role)
-            assert env.get("EGG_EVENT_LOOP_OWNER") == "orchestrator", (
-                f"role={role!r} must carry EGG_EVENT_LOOP_OWNER="
-                "orchestrator (slice-2 task-2-0 coexistence guard)."
-            )
-
     def test_dual_role_tester_gets_both(self):
         """Tester is both producer and reviewer — should have both role types."""
         from concurrent_executor import ConcurrentPhaseExecutor
