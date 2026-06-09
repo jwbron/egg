@@ -90,15 +90,51 @@ def test_slice_trigger_is_topology_keyed_not_bare_existence(check_script: str) -
     #1134 removed a branch-level "contract exists" check because every PR
     inherits the default branch's accumulated contracts, so it over-fired on
     docs-only PRs. The slice trigger must therefore guard the contract-presence
-    check behind the `egg/<id>/slice-N` head match — i.e. the regex must appear
-    before (and gate) the work-branch contract lookup in the script.
+    check structurally — i.e. the work-branch contract lookup must sit *inside*
+    the `if [[ "$branch_name" =~ ^egg/(.+)/slice-N$ ]]; then ... fi` block. A
+    refactor that hoisted the lookup out of that block (while leaving the
+    regex string in a comment) would reintroduce the #1134 over-fire even
+    though a literal-position assertion would still pass.
     """
-    slice_regex_pos = check_script.find("slice-[0-9]+$")
-    contracts_lookup_pos = check_script.rfind("contents/.egg-state/contracts?ref=${work_branch}")
-    assert slice_regex_pos != -1, "slice-branch head match missing"
-    assert contracts_lookup_pos != -1, "work-branch contract lookup missing"
-    assert slice_regex_pos < contracts_lookup_pos, (
-        "the work-branch contract lookup is not gated behind the slice-branch "
-        "head match — this risks reintroducing the #1134 over-fire on PRs that "
-        "merely inherit the default branch's contracts"
+    lines = check_script.splitlines()
+
+    slice_if_idx = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.lstrip().startswith("if [[") and "slice-[0-9]+$" in line
+        ),
+        None,
+    )
+    assert slice_if_idx is not None, (
+        "no `if [[ ... slice-[0-9]+$ ... ]]; then` line found — the slice "
+        "trigger is not gated by a head-topology if-block"
+    )
+
+    # Walk forward counting `if` opens and `fi` closes from the slice-if line.
+    # `elif` does not open a new block (matched by an outer `fi`), and `fi`
+    # never appears mid-expression in this gate's bash, so simple stripped-line
+    # matching is sufficient.
+    depth = 0
+    slice_fi_idx: int | None = None
+    for i in range(slice_if_idx, len(lines)):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("if "):
+            depth += 1
+        if stripped == "fi" or stripped.startswith("fi "):
+            depth -= 1
+            if depth == 0:
+                slice_fi_idx = i
+                break
+    assert slice_fi_idx is not None, (
+        "no matching `fi` found for the slice-branch `if` — the gate's "
+        "bash block structure is malformed"
+    )
+
+    inside_block = "\n".join(lines[slice_if_idx + 1 : slice_fi_idx])
+    assert "contents/.egg-state/contracts?ref=${work_branch}" in inside_block, (
+        "the work-branch contract lookup is not inside the "
+        "`if [[ ... slice-[0-9]+$ ... ]]; then ... fi` block — this risks "
+        "reintroducing the #1134 over-fire on PRs that merely inherit the "
+        "default branch's contracts"
     )
