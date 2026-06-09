@@ -482,7 +482,13 @@ Tasks are assigned based on the files they modify:
 
 The YAML schema restricts the `role` field to the enum values `coder`, `tester`, and `documenter`. The plan parser validates role values at parse time — invalid roles generate a parse warning and are treated as unassigned (`null`).
 
-The orchestrator also validates **role↔file alignment** at `CONSENSUS_PROPOSE` time for `task_planner` proposals ([#2527](https://github.com/jwbron/egg/issues/2527)). A task whose `role:` assignment cannot push its `files:` — per the same `shared/egg_restrictions/patterns.py` blocklist the gateway uses at push time — causes the proposal to be rejected with HTTP 400 before it reaches reviewers. This catches structurally broken plans at plan time rather than after a producer cycle is wasted on a `403 restricted_path_modified`. The `validator` is available for manual use via `egg_contracts.plan_parser.validate_task_role_alignment(slices)`.
+The orchestrator runs three checks at `CONSENSUS_PROPOSE` time for `task_planner` proposals — all in a single `git show` of the plan draft at the proposed commit — and rejects with HTTP 400 before the proposal reaches reviewers:
+
+1. **Presence** ([#3016](https://github.com/jwbron/egg/issues/3016)): the plan draft exists at the canonical `.egg-state/drafts/{id}-plan.md` path in the proposed commit. The phase gate, contract populator, and resume path all read from this exact path; a draft committed elsewhere is invisible to them.
+2. **Parseability** ([#3026](https://github.com/jwbron/egg/issues/3026)): the draft parses via the same `parse_plan` the contract populator runs — i.e., it contains a machine-readable `# yaml-tasks` appendix. A plan that is complete in prose but omits the appendix passes BRC consensus, then fails `populate_contract` ~40 minutes later with an empty contract. Catching it at propose time costs the planner one re-propose; catching it at populate time stalls the whole pipeline.
+3. **Role↔file alignment** ([#2527](https://github.com/jwbron/egg/issues/2527)): no task is assigned to a role whose blocklist forbids its files, per the same `shared/egg_restrictions/patterns.py` patterns the gateway uses at push time. This catches misassigned tasks before a full producer cycle is wasted on a `403 restricted_path_modified`. The validator is also available for manual use via `egg_contracts.plan_parser.validate_task_role_alignment(slices)`.
+
+All three checks degrade gracefully: they skip silently when the proposal carries no commit SHA, the orchestrator's branch verification was inconclusive (a fetch glitch), or the plan path cannot be resolved — so infra transients don't produce false rejections. The gateway's push-time enforcement remains the backstop for cases the propose-time check cannot reach.
 
 ### Backward Compatibility
 
