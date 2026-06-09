@@ -12,8 +12,13 @@ Threshold model:
     ``stuck-phase-transition`` alert.
   - 2x ``DEFAULT_PHASE_IDLE_BUDGET_MIN`` (60 min) -> high priority
     follow-up alert.
-  - Each threshold fires at most once per phase entry; ``reset()`` clears
-    the latches (called at phase transition).
+  - Each threshold fires at most once per phase entry. Re-arming is by
+    per-phase instance lifetime: ``routes/pipelines.py`` constructs a
+    fresh ``PhaseIdleBudgetTimer`` inside the per-phase concurrent
+    runner and drops it when the phase returns, so a new phase entry
+    always starts with the latches cleared. ``reset()`` is exposed for
+    tests and for future cross-phase reuse (slice-2 / slice-3) but is
+    not on the slice-1 production hot path.
   - HITL suppression (AC-R13): when ``pending_hitl_count > 0`` the 1x
     alert downgrades to priority=low and includes the pending HITL IDs
     in ``reason``; the 2x alert is suppressed entirely. The operator is
@@ -89,13 +94,19 @@ class PhaseIdleBudgetTimer:
         calls from a sibling pipeline / earlier phase are ignored so a
         stray ``record_spawn`` cannot silence this timer.
       * :meth:`check` once per loop iteration.
-      * :meth:`reset` at phase transition (re-binds the timer to a fresh
-        ``(pipeline_id, phase)`` on the next ``record_spawn``).
+      * :meth:`reset` (optional) when reusing one instance across phases.
+        Slice-1 production does *not* call ``reset`` — it constructs a
+        fresh instance per phase entry inside ``_run_concurrent_phase``
+        and drops it when the phase returns, so re-arming happens by
+        instance lifetime. ``reset`` is kept for tests and for slice-2
+        / slice-3 cross-phase reuse paths that may need to re-bind a
+        long-lived timer without throwing it away.
 
     The threshold latches (``_alerted_1x`` / ``_alerted_2x``) are sticky
-    for the lifetime of the instance — only :meth:`reset` re-arms them.
-    Re-arming on every spawn would let a single brief progress signal
-    silence an otherwise-stuck phase, defeating the safety net.
+    for the lifetime of the instance — only :meth:`reset` (or
+    constructing a new instance) re-arms them. Re-arming on every spawn
+    would let a single brief progress signal silence an otherwise-stuck
+    phase, defeating the safety net.
 
     Construction:
         timer = PhaseIdleBudgetTimer(alert_emitter=my_emitter, budget_minutes=30)
@@ -129,15 +140,24 @@ class PhaseIdleBudgetTimer:
 
     # -- mutation ---------------------------------------------------------
 
-    # Phase-warmup debounce (#3023 slice-1). Multiple ``record_spawn``
-    # calls within this window of one another do NOT reset
-    # ``last_spawn_at`` — only ``per_role_last_action`` updates. The
-    # budget tracks "no actionable event for X min", not "no individual
-    # record_spawn call"; a flurry of spawns at phase fan-out is the
-    # phase starting, not progress against the idle budget. A
-    # subsequent spawn that arrives more than ``_BUDGET_RESET_GAP_SECS``
-    # after the last one is treated as a fresh progress event and
-    # rebases the budget window.
+    # Phase-warmup debounce (#3023 slice-1). Precise rule:
+    #
+    #   record_spawn updates ``last_spawn_at`` iff
+    #       (first_call) OR (now - last_spawn_at >= _BUDGET_RESET_GAP_SECS)
+    #
+    # ``per_role_last_action`` is updated unconditionally (the AC-R4
+    # payload reflects every spawn regardless of debounce). What the
+    # debounce gates is the budget rebasing.
+    #
+    # Why: continuous activity (spawns < 60s apart) still rebases on
+    # each crossing of the 60s boundary, so a steadily active phase
+    # never tips the 30-min budget — the rebase cadence is at most one
+    # per 60s, not one per spawn. A flurry of spawns at phase fan-out
+    # collapses to a single rebase (the first spawn binds the timer and
+    # rebases unconditionally; immediate follow-on spawns within 60s
+    # are absorbed). Slice-2 ``record_spawn`` call sites can therefore
+    # fire freely without worrying about whether they will "starve" a
+    # legitimate idle alert.
     _BUDGET_RESET_GAP_SECS = 60
 
     def record_spawn(
@@ -183,13 +203,20 @@ class PhaseIdleBudgetTimer:
             self.last_spawn_at = ts
 
     def reset(self) -> None:
-        """Clear all state. Called at phase transition.
+        """Clear all state. Exposed for tests and cross-phase reuse.
 
         Re-bases ``last_spawn_at`` to "now" so the new phase gets a
         fresh budget window, unbinds the ``(pipeline_id, phase)`` pair
         so the next ``record_spawn`` can re-bind to a different phase,
         drops the per-role action snapshot, and re-arms both threshold
         latches.
+
+        Slice-1 production does NOT call ``reset``: the per-phase
+        runner in ``routes/pipelines.py`` builds a fresh instance per
+        phase entry, so re-arming happens by instance lifetime. Reach
+        for ``reset`` only when reusing one instance across phases (a
+        slice-2 / slice-3 affordance) or in tests that pin the threshold
+        semantics of a re-armed timer.
         """
         self.pipeline_id = None
         self.phase = None

@@ -24,7 +24,7 @@ Acceptance criteria pinned here:
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -254,7 +254,7 @@ class TestTickCallsCheckOncePerIteration:
             if (".check(" in line)
             and (
                 "phase_idle" in line
-                or "PhaseIdleBudget" in line.lower().replace("_", "")
+                or "phaseidlebudget" in line.lower().replace("_", "")
                 or "idle_budget" in line
                 or "_idle_budget_timer" in line
                 or "self._idle_budget" in line
@@ -270,3 +270,154 @@ class TestTickCallsCheckOncePerIteration:
             f"{len(candidates)}). A second call site risks double-emission "
             "on the 2× threshold. Found lines: {candidates!r}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# (5) End-to-end timer -> emitter closure -> message store
+# --------------------------------------------------------------------------- #
+
+
+class TestMakePhaseIdleBudgetEmitterClosure:
+    """Exercise the *real* ``_make_phase_idle_budget_emitter`` closure
+    end-to-end against a real ``PhaseIdleBudgetTimer``, with only the
+    message-store import stubbed at the boundary.
+
+    The reviewer flagged that every other test in this module passes a
+    ``MagicMock`` straight in as ``alert_emitter`` and never crosses the
+    closure, so a regression in the closure (e.g. a duplicate
+    ``pipeline_id`` kwarg — see #3034 review §"Blocking 1") would silently
+    pass CI while production swallowed every alert in the outer
+    ``try/except`` around ``_tick_phase_idle_budget``. This test pins
+    that boundary: the timer fires, the closure forwards, the message
+    store receives an ``add_message`` with a recognisable
+    ``stuck-phase-transition`` payload, and no ``TypeError`` is raised.
+    """
+
+    def _import_factory_or_skip(self):
+        try:
+            from routes.pipelines import (
+                _make_phase_idle_budget_emitter,  # type: ignore[attr-defined]
+            )
+        except ImportError:
+            pytest.skip(
+                "routes.pipelines is not importable in this minimal test "
+                "environment (e.g. missing Flask). The unit-level test in "
+                "test_phase_idle_budget.py still covers the timer's emit "
+                "contract; this test covers the production closure binding."
+            )
+        return _make_phase_idle_budget_emitter
+
+    def test_timer_to_emitter_to_message_store_end_to_end(self):
+        """A 30-min idle crossing must reach ``msg_store.add_message`` exactly
+        once with the canonical alert shape. Regression guard for #3034
+        review §"Blocking 1": before the fix, both the closure and the
+        timer passed ``pipeline_id`` and the closure raised ``TypeError:
+        got multiple values for keyword argument 'pipeline_id'``, which
+        was silently swallowed by the wiring's try/except.
+        """
+        _make_phase_idle_budget_emitter = self._import_factory_or_skip()
+        Cls = _resolve_class()
+
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            pytest.skip(
+                "message_store is not importable in this minimal test "
+                "environment; the production closure can't be exercised."
+            )
+
+        # Minimal pipeline stub — the closure-call we exercise no longer
+        # touches ``pipeline.current_phase`` (the timer's ``phase`` kwarg
+        # is the source of truth after the #3034 review fix) but the
+        # closure still binds the reference for forward compat.
+        pipeline = MagicMock()
+
+        msg_store = MagicMock()
+        store_factory = MagicMock(return_value=msg_store)
+
+        emitter = _make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id="issue-3023",
+            slice_id="slice-1",
+        )
+        timer = Cls(alert_emitter=emitter, budget_minutes=30, now=0.0)
+
+        # Bind the timer to (pipeline_id, phase) by recording an initial
+        # spawn at t=0. The timer needs this binding before ``check``
+        # will emit anything.
+        timer.record_spawn(
+            pipeline_id="issue-3023",
+            phase="implement",
+            role="coder",
+            action="propose",
+            now=0.0,
+        )
+
+        with patch(
+            "routes.pipelines._get_message_store",
+            return_value=store_factory,
+        ):
+            # One tick at t = 31 min crosses the 1x threshold (30 min).
+            timer.check(now=31 * 60, pending_hitl_count=0)
+
+        msg_store.add_message.assert_called_once()
+        message = msg_store.add_message.call_args[0][0]
+        assert isinstance(message, Message)
+        assert message.pipeline_id == "issue-3023"
+        assert message.from_role == "orchestrator"
+        assert message.to_role == "all"
+        assert message.message_type == MessageType.OVERSEER_ALERT
+        # Timer's ``phase`` kwarg is authoritative (review §"Non-blocking:
+        # the timer's ``phase`` kwarg is dead").
+        assert message.phase == "implement"
+        # Subject follows ``<anomaly>: <phase> [<priority>]``.
+        assert message.subject.startswith("stuck-phase-transition: implement")
+        assert message.metadata["anomaly_type"] == "stuck-phase-transition"
+        assert message.metadata["threshold_multiplier"] == 1
+        assert message.metadata["priority"] == "medium"
+        assert message.metadata["slice_id"] == "slice-1"
+        assert message.metadata["per_role_state"] == {"coder": "propose"}
+
+    def test_timer_to_emitter_does_not_raise_type_error(self):
+        """Direct regression for #3034 review §"Blocking 1".
+
+        Construct the real closure exactly as ``_run_concurrent_phase``
+        does, drive it through the timer, and assert ``TypeError`` is
+        NOT raised. Without the fix, the closure passed
+        ``pipeline_id`` both from its capture and via ``**kwargs`` and
+        the call resolved to ``_publish_phase_idle_budget_alert(...,
+        pipeline_id=<closure>, pipeline_id=<timer>, ...)`` — caught by
+        the wiring's outer ``try/except`` so the production alert was
+        silently dropped. This test would have caught that regression
+        the moment the closure shape diverged from the call site.
+        """
+        _make_phase_idle_budget_emitter = self._import_factory_or_skip()
+        Cls = _resolve_class()
+
+        pipeline = MagicMock()
+        msg_store = MagicMock()
+        store_factory = MagicMock(return_value=msg_store)
+        emitter = _make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id="issue-3023",
+            slice_id=None,
+        )
+        timer = Cls(alert_emitter=emitter, budget_minutes=30, now=0.0)
+        timer.record_spawn(
+            pipeline_id="issue-3023",
+            phase="implement",
+            role="coder",
+            action="propose",
+            now=0.0,
+        )
+
+        with patch(
+            "routes.pipelines._get_message_store",
+            return_value=store_factory,
+        ):
+            # No assertion needed beyond "does not raise" — but we also
+            # confirm a message landed, which is the operator-visible
+            # contract.
+            timer.check(now=31 * 60, pending_hitl_count=0)
+
+        msg_store.add_message.assert_called_once()

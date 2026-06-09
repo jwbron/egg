@@ -14992,15 +14992,14 @@ def _publish_phase_idle_budget_alert(
     requiring a lock-step edit here.
     """
     del _extra  # forward-compat absorber
-    # Pull phase value from the pipeline as the operator-displayed
-    # source of truth; the ``phase`` arg the timer passes is the same
-    # value but de-duped here in case the pipeline transitioned between
-    # check() and emit().
-    phase_value = (
-        pipeline.current_phase.value
-        if hasattr(pipeline.current_phase, "value")
-        else str(pipeline.current_phase)
-    )
+    del pipeline  # kept in the signature for slice-2 wiring; unused here today
+    # The timer's ``phase`` kwarg is the source of truth: the timer
+    # bound this phase identifier on its first ``record_spawn`` and the
+    # alert is about *that* phase. Reading ``pipeline.current_phase``
+    # instead would name the wrong phase if the pipeline transitioned
+    # between ``check()`` and ``emit()`` — the operator would see "phase
+    # Y is idle" for an alert the timer raised about phase X.
+    phase_value = phase
     # Subject follows the SDLC-skill convention
     # ``<anomaly_type>: <agent_role> [<priority>]``. There's no single
     # blocking role at the phase level — the alert is about the phase as a
@@ -15038,6 +15037,16 @@ def _publish_phase_idle_budget_alert(
     if slice_id is not None:
         metadata["slice_id"] = slice_id
 
+    # Structured log once per emission so operators grepping
+    # ``phase_idle_budget_tick`` get a one-line record of every
+    # threshold cross independent of whether the message bus is
+    # healthy (AC for task-1-2). Hoisted out of the publish ``try``
+    # so a ``msg_store.add_message`` failure still leaves the log
+    # line (which carries a ``published=False`` flag in the catch
+    # branch). Without this hoist, the comment claim "independent of
+    # whether the message bus is healthy" was untrue.
+    published = False
+    publish_error: str | None = None
     try:
         try:
             from message_store import Message, MessageType
@@ -15053,41 +15062,41 @@ def _publish_phase_idle_budget_alert(
                 pipeline_id=pipeline_id,
                 phase=phase_value,
             )
-            return
-        msg_store = store_fn()
-        msg_store.add_message(
-            Message(
-                pipeline_id=pipeline_id,
-                from_role="orchestrator",
-                to_role="all",
-                message_type=MessageType.OVERSEER_ALERT,
-                subject=subject,
-                body=body,
-                metadata=metadata,
-                phase=phase_value,
+        else:
+            msg_store = store_fn()
+            msg_store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role="all",
+                    message_type=MessageType.OVERSEER_ALERT,
+                    subject=subject,
+                    body=body,
+                    metadata=metadata,
+                    phase=phase_value,
+                )
             )
-        )
-        # Structured log once per emission so operators grepping
-        # ``phase_idle_budget_tick`` get a one-line record of every
-        # threshold cross independent of whether the message bus is
-        # healthy (AC for task-1-2).
-        logger.info(
-            "phase_idle_budget_tick",
-            pipeline_id=pipeline_id,
-            phase=phase_value,
-            slice_id=slice_id,
-            threshold_multiplier=threshold_multiplier,
-            priority=priority,
-            pending_hitl_ids=list(pending_hitl_ids),
-        )
+            published = True
     except Exception as e:
+        publish_error = str(e)
         logger.warning(
             "Failed to publish phase-idle-budget OVERSEER_ALERT",
             pipeline_id=pipeline_id,
             phase=phase_value,
-            error=str(e),
+            error=publish_error,
             exc_info=True,
         )
+    logger.info(
+        "phase_idle_budget_tick",
+        pipeline_id=pipeline_id,
+        phase=phase_value,
+        slice_id=slice_id,
+        threshold_multiplier=threshold_multiplier,
+        priority=priority,
+        pending_hitl_ids=list(pending_hitl_ids),
+        published=published,
+        publish_error=publish_error,
+    )
 
 
 def _make_phase_idle_budget_emitter(
@@ -15102,12 +15111,27 @@ def _make_phase_idle_budget_emitter(
     contract: keyword-only kwargs from the timer flow through, and the
     bound pipeline / slice context is closed over so the timer does
     not need to know about either.
+
+    ``pipeline_id`` is supplied by both the closure (for the
+    ``message_store`` write) and the timer's per-emit kwargs (the timer
+    binds it on its first ``record_spawn``). The timer's value is the
+    canonical source — popping it from ``kwargs`` before forwarding
+    avoids the ``multiple values for keyword argument 'pipeline_id'``
+    TypeError that would otherwise silently fire on every alert (caught
+    by the outer ``try/except`` around ``_tick_phase_idle_budget`` and
+    logged only as a warning). In practice both values are identical;
+    this is defence-in-depth for the closure-vs-timer wiring contract.
     """
+    _closure_pipeline_id = pipeline_id
 
     def _emitter(**kwargs: Any) -> None:
+        # Timer-supplied ``pipeline_id`` wins; fall back to the closure
+        # value if the timer has not bound one yet (it always has by the
+        # time ``check`` fires, so this branch is purely defensive).
+        emit_pipeline_id = kwargs.pop("pipeline_id", _closure_pipeline_id)
         _publish_phase_idle_budget_alert(
             pipeline=pipeline,
-            pipeline_id=pipeline_id,
+            pipeline_id=emit_pipeline_id,
             slice_id=slice_id,
             **kwargs,
         )
@@ -17519,19 +17543,21 @@ def _run_concurrent_phase(
         ),
         now=start_time,
     )
-    # Seed the timer with the phase identity so ``check()`` has the
-    # binding it needs before any slice-2 ``record_spawn`` calls land.
-    # Without this the first 30 min of every phase would no-op silently
-    # (the timer requires a record_spawn to bind the (pipeline_id, phase)
-    # pair, and slice-1 doesn't yet wire record_spawn into the per-event
-    # spawn path — that's slice-2 task-2-8).
-    phase_idle_timer.record_spawn(
-        pipeline_id=pipeline_id,
-        phase=phase_str,
-        role="orchestrator",
-        action="phase_start",
-        now=start_time,
-    )
+    # NOTE: slice-1 deliberately does NOT seed the timer with a
+    # ``phase_start`` ``record_spawn``. The seed was originally added so
+    # ``check()`` had a binding before any per-event ``record_spawn``
+    # arrived — but slice-1 does not yet wire ``record_spawn`` into the
+    # per-event spawn path (that's slice-2 task-2-8), and a seed without
+    # follow-on spawns turns every long-running phase into a guaranteed
+    # false-positive ``stuck-phase-transition`` alert at the 30-min /
+    # 60-min thresholds (the orchestrator-side ``last_spawn_at`` never
+    # advances). The wrapper-side emitter is silenced by
+    # ``EGG_PHASE_IDLE_BUDGET_OWNER=orchestrator``, so silencing both
+    # sides during the slice-1 coexistence window is the operator-
+    # correct choice: an alert gap is strictly better than a false page.
+    # ``check()`` no-ops while ``pipeline_id`` is None
+    # (``phase_idle_budget.py`` line ~238). Slice-2 lands the real
+    # ``record_spawn`` calls that bind the timer for the first time.
 
     # Track which containers have exited and their results.
     exited_containers: dict[str, ContainerInfo] = {}
