@@ -8324,9 +8324,22 @@ def _ensure_statefiles_on_branch(
                 repo_root=worktree_repo_path,
             )
         else:
+            # ``pipeline.issue_number is None`` covers both free-text
+            # submits (no GitHub issue, no JIRA ticket) and JIRA-driven
+            # pipelines (``pipeline.jira_ticket`` set; ``pipeline.prompt``
+            # carries the description). In both cases the event-pump
+            # never delivers the orchestrator-built spawn prompt to the
+            # agent, so we persist the full ``pipeline.prompt`` as
+            # ``task_description`` on the restored contract — mirroring
+            # the primary creation site. For JIRA pipelines an agent
+            # can still fetch the latest ticket body out-of-band via
+            # ``jira ticket get "$EGG_JIRA_TICKET"``; this field is a
+            # complementary, snapshotted copy of the description as
+            # submitted (#3033).
             create_contract(
                 pipeline_id=pipeline.id,
                 title=(pipeline.prompt or "")[:100],
+                task_description=pipeline.prompt,
                 repo_root=worktree_repo_path,
             )
 
@@ -21179,9 +21192,27 @@ def _run_pipeline(
                             repo_root=worktree_repo_path,
                         )
                     else:
+                        # ``pipeline.issue_number is None`` covers both
+                        # free-text submits (no GitHub issue, no JIRA ticket)
+                        # and JIRA-driven pipelines (``pipeline.jira_ticket``
+                        # set; ``pipeline.prompt`` carries the description).
+                        # In both cases the event-pump never delivers the
+                        # orchestrator-built spawn prompt to the agent, so
+                        # we persist the full ``pipeline.prompt`` as
+                        # ``task_description``. The contract (read via
+                        # ``egg-contract show``) becomes the reliable
+                        # channel for the complete task; the ``title`` arg
+                        # is only used for the ``IssueInfo`` label and is
+                        # dropped without an ``issue_number``, so it is not
+                        # a substitute. For JIRA pipelines an agent can
+                        # still fetch the latest ticket body out-of-band
+                        # via ``jira ticket get "$EGG_JIRA_TICKET"`` — this
+                        # field is a complementary, snapshotted copy of
+                        # the description as submitted (#3033).
                         create_contract(
                             pipeline_id=pipeline.id,
                             title=(pipeline.prompt or "")[:100],
+                            task_description=pipeline.prompt,
                             repo_root=worktree_repo_path,
                         )
 

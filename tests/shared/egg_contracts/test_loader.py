@@ -284,6 +284,55 @@ class TestCreateContract:
         )
         assert contract.current_phase == PipelinePhase.REFINE
 
+    def test_task_description_defaults_to_none(self, tmp_path):
+        """Omitting ``task_description`` leaves it ``None`` (issue-driven case)."""
+        contract = create_contract(
+            issue_number=58,
+            title="Issue 58",
+            url="https://github.com/owner/repo/issues/58",
+            repo_root=tmp_path,
+        )
+        assert contract.task_description is None
+        assert load_contract(58, repo_root=tmp_path).task_description is None
+
+    def test_free_text_stores_full_untruncated_task_description(self, tmp_path):
+        """Free-text submit: the FULL prompt is persisted untruncated (#3033).
+
+        Regression for the silent under-scoping bug. A free-text contract
+        has ``issue is None`` (no GitHub issue/JIRA ticket), so before
+        #3033 there was no surviving copy of the prompt on the contract at
+        all — the ``title`` arg is dropped without an ``issue_number``.
+        ``task_description`` is the channel that now carries the complete
+        multi-section task so a producer/reviewer reading ``show_contract``
+        recovers everything the operator submitted.
+        """
+        # A multi-section scope doc well over the 100-char title cap.
+        full_prompt = (
+            "Agent docs and skills, a generate-and-maintain system for webapp.\n\n"
+            "## Deliverables\n"
+            + ("Build the AGENTS.md / REVIEW.md hierarchy with progressive disclosure. " * 20)
+            + "\n\n## Sources of truth\n"
+            + ("Enumerate the five sources of truth and their precedence. " * 20)
+        )
+        assert len(full_prompt) > 100  # exceeds the title label cap
+
+        contract = create_contract(
+            pipeline_id="pipeline-f81884ca",
+            title=full_prompt[:100],
+            task_description=full_prompt,
+            repo_root=tmp_path,
+        )
+
+        # Free-text → no IssueInfo; the full text lives in task_description.
+        assert contract.issue is None
+        # Nothing was dropped on the way in.
+        assert contract.task_description == full_prompt
+        assert "Sources of truth" in contract.task_description
+
+        # And it round-trips through disk untruncated.
+        loaded = load_contract("pipeline-f81884ca", repo_root=tmp_path)
+        assert loaded.task_description == full_prompt
+
 
 class TestLoadContractFromBranch:
     """Tests for load_contract_from_branch function."""

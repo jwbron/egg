@@ -289,8 +289,8 @@ class TestPRMetadataSchemaVersionMigration:
     ``deferred_actions``, (c) leave fresh-v1.2 contracts untouched."
     """
 
-    def test_default_schemaversion_is_1_2(self):
-        """Brand-new ``Contract`` defaults ``schemaVersion`` to ``"1.2"``."""
+    def test_default_schemaversion_is_1_3(self):
+        """Brand-new ``Contract`` defaults ``schemaVersion`` to ``"1.3"`` (#3033)."""
         contract = Contract(
             issue=IssueInfo(
                 number=2777,
@@ -298,13 +298,17 @@ class TestPRMetadataSchemaVersionMigration:
                 url="https://github.com/o/r/issues/2777",
             )
         )
-        assert contract.schemaVersion == "1.2"
+        assert contract.schemaVersion == "1.3"
 
-    def test_legacy_1_1_payload_promotes_to_1_2(self):
-        """Loading a ``1.1`` payload must bump ``schemaVersion`` to ``"1.2"``."""
+    def test_legacy_1_1_payload_promotes_to_1_3(self):
+        """Loading a ``1.1`` payload must bump ``schemaVersion`` to ``"1.3"``.
+
+        Composes the wrap-mode ``1.1 → 1.2`` strip+bump with the additive
+        after-mode ``1.2 → 1.3`` stamp (#3033) in a single load.
+        """
         payload = _minimal_contract_payload(schema_version="1.1")
         contract = Contract.model_validate(payload)
-        assert contract.schemaVersion == "1.2"
+        assert contract.schemaVersion == "1.3"
 
     def test_legacy_1_1_payload_with_removed_fields_loads_cleanly(self):
         """A ``1.1`` payload carrying any of the three deleted keys loads
@@ -322,8 +326,8 @@ class TestPRMetadataSchemaVersionMigration:
 
         contract = Contract.model_validate(payload)
 
-        # schemaVersion was promoted.
-        assert contract.schemaVersion == "1.2"
+        # schemaVersion was promoted (1.1 → 1.2 → 1.3).
+        assert contract.schemaVersion == "1.3"
         # The kept field survives.
         assert contract.pr is not None
         assert contract.pr.context_pr_number == 4242
@@ -346,8 +350,8 @@ class TestPRMetadataSchemaVersionMigration:
 
         contract = Contract.model_validate(payload)
 
-        # Composed migrations land at the post-slice-2 version.
-        assert contract.schemaVersion == "1.2"
+        # Composed migrations land at the latest version (1.0 → … → 1.3).
+        assert contract.schemaVersion == "1.3"
         # No leftover attributes on the model.
         assert contract.pr is not None
         for attr in ("context_branch", "context_title", "context_description"):
@@ -385,8 +389,8 @@ class TestPRMetadataSchemaVersionMigration:
         # Legacy non-context fields also survive.
         assert contract.pr.title == "Cleanup: drop context-PR scaffold + PR phase"
 
-    def test_legacy_1_1_round_trip_persists_at_1_2(self):
-        """After 1.1 → 1.2 promotion, dump→reload must stay at 1.2.
+    def test_legacy_1_1_round_trip_persists_at_1_3(self):
+        """After 1.1 → 1.2 → 1.3 promotion, dump→reload must stay at 1.3.
 
         Adversarial: a faulty migration on the *input* path could
         re-trigger on the second load and silently re-bump or
@@ -394,29 +398,45 @@ class TestPRMetadataSchemaVersionMigration:
         """
         payload = _minimal_contract_payload(schema_version="1.1")
         first = Contract.model_validate(payload)
-        assert first.schemaVersion == "1.2"
+        assert first.schemaVersion == "1.3"
 
         dumped = first.model_dump()
-        assert dumped["schemaVersion"] == "1.2"
+        assert dumped["schemaVersion"] == "1.3"
 
         second = Contract.model_validate(dumped)
-        assert second.schemaVersion == "1.2"
+        assert second.schemaVersion == "1.3"
 
         third = Contract.model_validate(second.model_dump())
-        assert third.schemaVersion == "1.2"
+        assert third.schemaVersion == "1.3"
 
-    def test_fresh_1_2_payload_loads_unchanged(self):
-        """A fresh ``1.2`` payload (with no removed keys) must be a no-op.
+    def test_fresh_1_2_payload_promotes_to_1_3(self):
+        """A ``1.2`` payload must be promoted to ``1.3`` by the additive stamp.
 
-        The migration is conditional on ``schemaVersion == "1.1"`` (per
-        the existing migration-shim pattern in the codebase). A future
-        ``2.0`` payload must not get silently downgraded to ``1.2``.
+        The ``1.2 → 1.3`` migration (#3033) is purely additive — it
+        documents the arrival of the optional ``task_description`` field.
+        Like the ``1.0 → 1.1`` stamp it promotes older contracts on load,
+        and it must not touch the still-stripped ``pr.context_*`` keys.
         """
         payload = _minimal_contract_payload(schema_version="1.2")
         contract = Contract.model_validate(payload)
-        assert contract.schemaVersion == "1.2"
+        assert contract.schemaVersion == "1.3"
         assert contract.pr is not None
         # No spurious deleted-field attributes appear on the model.
+        for attr in ("context_branch", "context_title", "context_description"):
+            with pytest.raises(AttributeError):
+                getattr(contract.pr, attr)
+
+    def test_fresh_1_3_payload_loads_unchanged(self):
+        """A fresh ``1.3`` payload (the current latest) must be a no-op.
+
+        The additive ``1.2 → 1.3`` stamp is conditional on
+        ``schemaVersion == "1.2"``; a contract already at ``1.3`` must
+        load unchanged, and a future ``2.0`` must not be downgraded.
+        """
+        payload = _minimal_contract_payload(schema_version="1.3")
+        contract = Contract.model_validate(payload)
+        assert contract.schemaVersion == "1.3"
+        assert contract.pr is not None
         for attr in ("context_branch", "context_title", "context_description"):
             with pytest.raises(AttributeError):
                 getattr(contract.pr, attr)
@@ -426,7 +446,7 @@ class TestPRMetadataSchemaVersionMigration:
 
         Adversarial: the migration shim must be selective. A future
         ``2.0`` loading on the post-slice-2 binary should keep its
-        declared version, not get silently downgraded to ``1.2``.
+        declared version, not get silently downgraded to ``1.3``.
         """
         payload = _minimal_contract_payload(schema_version="2.0")
         contract = Contract.model_validate(payload)
@@ -444,14 +464,14 @@ class TestPRMetadataSchemaVersionMigration:
         with pytest.raises(ValidationError):
             Contract.model_validate(payload)
 
-    def test_combined_phases_and_schemaversion_migration_through_1_2(self):
+    def test_combined_phases_and_schemaversion_migration_through_1_3(self):
         """A legacy contract with both ``phases:`` (pre-#2137) AND
         ``schemaVersion=1.0`` (pre-#2548) AND the three removed keys
         (pre-slice-2) must be migrated correctly by every validator.
 
-        Adversarial probe: three migrations live on the same model.
+        Adversarial probe: four migrations live on the same model.
         Pin the combined invariant — legacy keys re-map, the
-        schemaVersion lands at the post-slice-2 value, and the three
+        schemaVersion lands at the latest value (1.3), and the three
         removed keys are stripped.
         """
         payload = _minimal_contract_payload(schema_version="1.0")
@@ -470,7 +490,7 @@ class TestPRMetadataSchemaVersionMigration:
 
         contract = Contract.model_validate(payload)
 
-        assert contract.schemaVersion == "1.2"
+        assert contract.schemaVersion == "1.3"
         assert len(contract.slices) == 2
         assert contract.slices[0].id == "slice-1"
         assert contract.slices[1].id == "slice-2"

@@ -560,6 +560,73 @@ class TestWithMockGateway:
         captured = capsys.readouterr()
         assert "123" in captured.out
 
+    def test_show_renders_task_description_for_free_text(self, mock_gateway_factory, capsys):
+        """Free-text contracts surface ``task_description`` in the human summary.
+
+        Regression for #3033 review feedback: the new
+        ``contract.md`` rule tells agents to read the contract first,
+        but the CLI used to omit ``task_description`` from its summary,
+        so an agent invoking ``egg-contract show`` saw a Phase line and
+        nothing of the task itself. The MCP path returns the full dict
+        and was fine; this test pins the parity for the CLI path.
+        """
+        full_prompt = (
+            "Refactor the auth middleware.\n\n"
+            "## Goals\nDrop the session-token cookie path.\n\n"
+            "## Out of scope\nThe JWT validator (already done in #1234)."
+        )
+        responses = {
+            ("GET", "/api/v1/contract/pipe-abc"): {
+                "success": True,
+                "data": {
+                    "pipeline_id": "pipe-abc",
+                    "task_description": full_prompt,
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            }
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        with patch.dict(
+            "os.environ",
+            {"GATEWAY_URL": mock_gateway, "EGG_PIPELINE_ID": "pipe-abc", "CONTAINER_ID": ""},
+            clear=True,
+        ):
+            result = main(["show"])
+
+        assert result == 0
+        captured = capsys.readouterr()
+        # The full untruncated prompt — including the multi-section
+        # body — must appear in the human-readable summary.
+        assert "Task:" in captured.out
+        assert "Refactor the auth middleware." in captured.out
+        assert "## Out of scope" in captured.out
+
+    def test_show_omits_task_description_when_absent(self, mock_gateway_factory, capsys):
+        """Issue-driven contracts (``task_description`` is ``None``) don't print a Task: section."""
+        responses = {
+            ("GET", "/api/v1/contract/456"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 456, "title": "Some issue"},
+                    "task_description": None,
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            }
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        with patch.dict("os.environ", {"GATEWAY_URL": mock_gateway, "CONTAINER_ID": ""}):
+            result = main(["--issue", "456", "show"])
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Task:" not in captured.out
+
     def test_add_commit_success(self, mock_gateway_factory, capsys):
         """Test add-commit command with successful response."""
         responses = {

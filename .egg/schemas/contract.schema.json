@@ -14,7 +14,7 @@
       "type": "string",
       "description": "Schema version for migrations",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "default": "1.0"
+      "default": "1.3"
     },
     "issue": {
       "oneOf": [
@@ -49,6 +49,11 @@
     "pipeline_id": {
       "type": ["string", "null"],
       "description": "Pipeline ID for local-mode pipelines (e.g., local-a1b2c3d4)",
+      "default": null
+    },
+    "task_description": {
+      "type": ["string", "null"],
+      "description": "Full, untruncated task/problem statement for the pipeline. Populated from the pipeline prompt for free-text and JIRA-driven submits where there is no GitHub issue body the agent could fetch out-of-band. Null for GitHub-issue pipelines (agent recovers the body via `gh issue view`). See #3033.",
       "default": null
     },
     "current_phase": {

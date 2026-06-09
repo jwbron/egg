@@ -64,3 +64,8 @@ files:
   # entry follows the same pattern as the other slice-15 targets.
   orchestrator/routes/phases.py:
     issue: "2261"
+  # #3033 added task_description surfacing to _print_contract_summary,
+  # pushing the file from 1496 → 1501 lines (1 over the 1500-line hard cap).
+  # Decompose in a follow-up PR.
+  sandbox/egg_lib/contract_cli.py:
+    issue: "3033"

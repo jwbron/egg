@@ -151,6 +151,7 @@ class TestEnsureStatefilesOnBranch:
         mock_create.assert_called_once_with(
             pipeline_id="pipe-abc",
             title="test prompt",
+            task_description="test prompt",
             repo_root=tmp_path,
         )
         mock_populate.assert_called_once_with(

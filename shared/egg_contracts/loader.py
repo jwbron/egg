@@ -208,6 +208,7 @@ def create_contract(
     pipeline_id: str | None = None,
     repo_root: Path | None = None,
     initial_phase: PipelinePhase = PipelinePhase.REFINE,
+    task_description: str | None = None,
 ) -> Contract:
     """
     Create a new contract for a pipeline.
@@ -221,6 +222,18 @@ def create_contract(
             without an explicit ``pipeline_id``, defaults to ``issue-<N>``.
         repo_root: Optional repository root path
         initial_phase: Initial pipeline phase
+        task_description: Full, untruncated task/problem statement. Pass
+            the pipeline ``prompt`` for free-text **and JIRA-driven**
+            submits (any pipeline where ``issue_number is None``) so
+            producer and reviewer agents can recover the complete task
+            from the contract (``egg-contract show``); the event-pump
+            model does not deliver the orchestrator-built spawn prompt
+            to the agent, and ``issue.title`` is only a 100-char label.
+            For JIRA pipelines this is a complementary snapshot of the
+            description as submitted — the agent can still fetch live
+            ticket state via ``jira ticket get``. ``None`` for
+            GitHub-issue pipelines, where the agent fetches the body
+            out-of-band via ``gh issue view``. See #3033.
 
     Returns:
         The newly created Contract
@@ -232,6 +245,7 @@ def create_contract(
         issue=issue,
         pipeline_id=pipeline_id,
         current_phase=initial_phase,
+        task_description=task_description,
     )
 
     save_contract(contract, repo_root)
