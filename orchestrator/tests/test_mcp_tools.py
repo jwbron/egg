@@ -2784,6 +2784,40 @@ class TestGetServiceLogsTool:
         endpoint = mock_req.call_args.args[0]
         assert "service=a%2Fb%20c" in endpoint
 
+    def test_forwards_filter_params(self, handler):
+        """``pipeline_id``/``level``/``pattern`` are forwarded, url-encoded (#3032)."""
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"pods": []}},
+        ) as mock_req:
+            handler.handle_tool_call(
+                "get_service_logs",
+                {
+                    "service": "orchestrator",
+                    "pipeline_id": "pipeline-f8/1884",
+                    "level": "WARNING",
+                    "pattern": "Context PR opener",
+                },
+            )
+        endpoint = mock_req.call_args.args[0]
+        assert "pipeline_id=pipeline-f8%2F1884" in endpoint
+        assert "level=WARNING" in endpoint
+        assert "pattern=Context%20PR%20opener" in endpoint
+
+    def test_omits_filter_params_when_absent(self, handler):
+        """Unset filters don't append empty query params."""
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"pods": []}},
+        ) as mock_req:
+            handler.handle_tool_call("get_service_logs", {"service": "gateway"})
+        endpoint = mock_req.call_args.args[0]
+        assert "pipeline_id=" not in endpoint
+        assert "level=" not in endpoint
+        assert "pattern=" not in endpoint
+
     def test_http_failure_wraps_into_error(self, handler):
         with patch.object(handler, "_make_request", side_effect=RuntimeError("gateway down")):
             result = handler.handle_tool_call("get_service_logs", {"service": "gateway"})
@@ -2857,6 +2891,16 @@ class TestPipelineToolsSchemasForDeployment:
         assert schema.get("required") == ["service"]
         assert set(props["service"].get("enum", [])) == {"gateway", "orchestrator"}
         assert props["lines"]["default"] == 100
+        # #3032 server-side filter params.
+        assert "pipeline_id" in props
+        assert "pattern" in props
+        assert set(props["level"].get("enum", [])) == {
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }
 
     def test_get_service_logs_enum_matches_route_allowlist(self):
         """MCP schema enum and route allowlist must stay in sync."""
@@ -2868,6 +2912,17 @@ class TestPipelineToolsSchemasForDeployment:
             tools_by_name["get_service_logs"]["inputSchema"]["properties"]["service"]["enum"]
         )
         assert schema_enum == _SERVICE_LOG_ALLOWLIST
+
+    def test_get_service_logs_level_enum_matches_log_filter(self):
+        """MCP `level` enum and the route's severity ranks must stay in sync (#3032)."""
+        from log_filter import known_severities
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema_enum = set(
+            tools_by_name["get_service_logs"]["inputSchema"]["properties"]["level"]["enum"]
+        )
+        assert schema_enum == set(known_severities())
 
     def test_validate_network_isolation_requires_pipeline_id(self):
         from mcp_tools import PIPELINE_TOOLS

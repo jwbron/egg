@@ -64,6 +64,7 @@ except ImportError:  # pragma: no cover - shared path always present in prod
 # practice, never trips the cap because its output is bounded by design.
 _TOOL_NARROW_HINTS: dict[str, str] = {
     "get_service_logs": (
+        "scope with `pipeline_id`, `level`, or `pattern` (applied before truncation), "
         "lower `lines` or set a smaller `since_seconds` window, or fetch a single service at a time"
     ),
     "get_container_logs": (
@@ -976,7 +977,11 @@ PIPELINE_TOOLS = [
             "containers) so operators can cross-reference gateway-side spawn "
             "failures — 'Connection refused', 'Remote end closed connection', "
             "'push_worktree_branch returned False' — without shelling into the "
-            "cluster. Only available on the Kubernetes runtime."
+            "cluster. Only available on the Kubernetes runtime. Use the "
+            "`pipeline_id`, `level`, and `pattern` filters (applied server-side "
+            "before truncation) to scope a noisy multi-pipeline tail to the "
+            "lines you want — e.g. WARNING+ for one pipeline in the last 5 min "
+            "— instead of fetching a raw tail that's mostly health-check noise."
         ),
         "inputSchema": {
             "type": "object",
@@ -988,7 +993,11 @@ PIPELINE_TOOLS = [
                 },
                 "lines": {
                     "type": "integer",
-                    "description": "Number of log lines to return (default 100).",
+                    "description": (
+                        "Number of log lines to return (default 100). With a "
+                        "filter active this caps the matching lines returned, "
+                        "not the raw tail scanned."
+                    ),
                     "default": 100,
                 },
                 "since_seconds": {
@@ -996,6 +1005,27 @@ PIPELINE_TOOLS = [
                     "description": (
                         "Only return logs newer than this many seconds — useful for "
                         "scoping to 'logs around when my pipeline failed at HH:MM'."
+                    ),
+                },
+                "pipeline_id": {
+                    "type": "string",
+                    "description": (
+                        "Keep only lines emitted for this pipeline/task id "
+                        "(matched against the log's `context.task_id`)."
+                    ),
+                },
+                "level": {
+                    "type": "string",
+                    "description": (
+                        "Minimum severity to return; drops lower-severity and unstructured lines."
+                    ),
+                    "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": (
+                        "Python regular expression; keep only lines it matches "
+                        "(`re.search`). A plain substring is a valid pattern."
                     ),
                 },
             },
@@ -2634,6 +2664,16 @@ class PipelineToolHandler:
         since_seconds = args.get("since_seconds")
         if since_seconds is not None:
             params.append(f"since_seconds={int(since_seconds)}")
+        # Server-side filters (#3032) — applied before truncation.
+        pipeline_id = args.get("pipeline_id")
+        if pipeline_id:
+            params.append(f"pipeline_id={quote(str(pipeline_id), safe='')}")
+        level = args.get("level")
+        if level:
+            params.append(f"level={quote(str(level), safe='')}")
+        pattern = args.get("pattern")
+        if pattern:
+            params.append(f"pattern={quote(str(pattern), safe='')}")
 
         endpoint = "/api/v1/deployment/logs?" + "&".join(params)
         try:
