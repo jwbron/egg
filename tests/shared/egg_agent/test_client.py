@@ -1159,9 +1159,19 @@ class TestSdkReaderBuffer:
 class TestBufferOverflowErrorHandling:
     """Issue #2804: when the SDK raises CLIJSONDecodeError on a buffer
     overflow, the agent must return a structured failure with the
-    overflow marker preserved in ``error`` — the consensus-wrapper
-    greps for that string to short-circuit retry. With the reader buffer
-    raised (#2884) this is now a rare backstop, but must still be clean.
+    overflow marker preserved in ``error`` — the agreed-upon
+    error-string token between ``run_agent``'s CLI-JSON-decode path and
+    any downstream classifier. With the reader buffer raised (#2884)
+    this is a rare backstop, but must still be clean.
+
+    Historical note: the consensus-wrapper used to grep this marker out
+    of ``result.error`` from its in-pod ``is_buffer_overflow`` helper to
+    short-circuit retry. That wrapper (and the helper) was deleted in
+    #3023 slice-3 (TASK-3-1) when the orchestrator's on-demand
+    spawn path replaced the in-pod event-pump loop. The surface
+    contract — marker survives into ``result.error`` verbatim — is kept
+    so any future classifier (orchestrator-side or otherwise) can
+    re-key on it without needing the client to learn another vocabulary.
     """
 
     @patch("claude_agent_sdk.query")
@@ -1176,10 +1186,13 @@ class TestBufferOverflowErrorHandling:
 
         assert result.success is False
         assert result.returncode == -1
-        # Marker must appear verbatim in ``error`` so the wrapper's grep
-        # in is_buffer_overflow() matches. Referencing the module-level
-        # constant here means a rename in client.py drives a test
-        # failure rather than silently desyncing from the wrapper grep.
+        # Marker must appear verbatim in ``error`` so a downstream
+        # classifier can key off it without a private client vocabulary.
+        # The original wrapper-side ``is_buffer_overflow`` consumer was
+        # deleted in #3023 slice-3 (TASK-3-1); referencing the
+        # module-level constant here means a future rename in client.py
+        # drives a test failure rather than silently desyncing whichever
+        # classifier is current.
         assert _BUFFER_OVERFLOW_MARKER in result.error
 
 

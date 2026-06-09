@@ -500,12 +500,20 @@ def _is_on_demand_in_flight(pipeline: Any, pipeline_id: str) -> bool:
     NACK in the message history, or a reconstructed-from-messages
     tracker that already carries a proposal version > 0) is enough to
     flag the pipeline as having genuinely moved through the on-demand
-    path. The expensive shape (asking the message store for the role's
-    history) is wrapped in a defensive try/except so a reconstruction
-    failure here cannot crash the whole startup-reconciliation loop;
-    on any unexpected exception the function returns ``False`` and the
-    pipeline falls through to the legacy marking-FAILED path, which is
-    the strictly safer behaviour for an undecidable cross-version state.
+    path. A consequence: a pipeline that has already reached CONFIRMED
+    for every role but has not yet been cleaned up by the run loop
+    (e.g. orchestrator crashed in the brief window between phase
+    completion and the tick that closes out the phase) also falls
+    through to RUNNING here. That is intentional — the running
+    orchestrator's tick will re-derive next-action, see ``complete``
+    for every role, and either advance the phase cleanly or surface a
+    ``stuck-phase-transition`` alert if it cannot. The expensive shape
+    (asking the message store for the role's history) is wrapped in a
+    defensive try/except so a reconstruction failure here cannot crash
+    the whole startup-reconciliation loop; on any unexpected exception
+    the function returns ``False`` and the pipeline falls through to
+    the legacy marking-FAILED path, which is the strictly safer
+    behaviour for an undecidable cross-version state.
 
     Args:
         pipeline: Pipeline object whose current-phase role set we

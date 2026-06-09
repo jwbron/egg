@@ -25,34 +25,50 @@ The tests still use a ``threading.Barrier`` to give the threads
 roughly-simultaneous entry — that maximises the chance of catching
 a non-serialised mutation if one is ever introduced.
 
-issue #2908 verification stance (slices 2-4)
---------------------------------------------
+issue #2908 / #3023 verification stance
+---------------------------------------
 
-The event-pump wrapper template was introduced in slice-2 behind
-``EGG_BRC_EVENT_PUMP``; slice-4 task-4-1 flipped the unset-env default
-to ON, and slice-4 task-4-2 deleted the legacy capped-restart template
-and the env flag along with it. The wrapper template is now the only
-production path.
+The event-pump wrapper template was introduced in slice-2 of #2908
+behind ``EGG_BRC_EVENT_PUMP``; #2908 slice-4 task-4-1 flipped the
+unset-env default to ON, and slice-4 task-4-2 deleted the legacy
+capped-restart template and the env flag along with it. Then #3023
+slice-3 (TASK-3-1) deleted the in-pod wrapper template outright —
+``orchestrator/consensus_wrapper.py`` and its companion
+``orchestrator/tests/test_consensus_wrapper.py`` are gone, and the
+orchestrator's per-phase tick drives ``brc next-action`` + spawns a
+one-shot pod per actionable event via
+``OnDemandSpawner.tick`` + ``compose_event_prompt``.
 
 This BRC concurrency regression suite drives the in-process
 ``PeerConsensusTracker`` directly — it is orchestrator-side coverage
 and is unaffected by the wrapper changes. It is kept green as the
-slice-2 / slice-3 / slice-4 baseline "the orchestrator-side BRC
-state-machine still serialises concurrent proposers / reviewers
-correctly under the new event-pump model".
+"the orchestrator-side BRC state-machine still serialises concurrent
+proposers / reviewers correctly under the new on-demand spawn model"
+baseline across #2908 and #3023.
 
 No flag-on end-to-end test was added at the integration tier under
-slices 2-4. The rationale (preserved for slice-5 / slice-6
+slices 2-4 of #2908 or slice-3 of #3023. The rationale (preserved for
 follow-up): no in-process test double can drive a deployed agent pod
 end-to-end — the pod-injection ``ScriptedProvider`` avenue was ruled
 out per #2474 (see ``integration_tests/regression/conftest.py:45``).
 True end-to-end validation is deferred to issue #2585 (Claude-route
 E2E via the ``egg_stack`` real-pod fixture at
-``integration_tests/conftest.py:340``). Until then, the event-pump
-path is exercised exclusively by the unit-tier in
-``orchestrator/tests/test_consensus_wrapper.py`` (see
-``TestEventPumpTemplateSelection`` + sibling classes for the
-TASK-2-6 (i)..(ix) acceptance coverage).
+``integration_tests/conftest.py:340``). Until then, the surviving
+coverage for the on-demand spawn invariants lives at the unit tier:
+
+* ``orchestrator/tests/test_concurrent_integration.py::
+  test_orchestrator_drives_event_pump_loop`` — import-level assert
+  pinning TASK-3-1 (the ``consensus_wrapper`` module must not be
+  importable).
+* ``shared/tests/test_egg_agent_signal.py`` — TASK-3-3 SIGTERM
+  coverage: the Python entrypoint installs the signal trap that used
+  to live in the wrapper bash, emits a final-state audit line, and
+  exits cleanly.
+* ``orchestrator/tests/test_concurrent_executor.py`` and the slice-3
+  TDD scaffolds the tester landed (commits 42ea6ea, 6034c62, 8f27291,
+  47b2ce2) — pin the ``spawn_all`` → tracker-registration-only
+  collapse, the restart-on-resume idempotency, and the cross-version
+  revert tolerance in ``startup_reconciliation.py``.
 """
 
 from __future__ import annotations
