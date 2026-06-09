@@ -1601,6 +1601,78 @@ class TestGetServiceLogsRoute:
         assert response.status_code == 400
         assert "level" in response.get_json()["message"]
 
+    def test_lowercase_level_returns_400(self, client, monkeypatch):
+        """Route is case-sensitive on ``level`` to match the MCP enum (#3032)."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        response = client.get("/api/v1/deployment/logs?service=gateway&level=warning")
+        assert response.status_code == 400
+        assert "warning" in response.get_json()["message"]
+
+    def test_filter_matches_production_extra_pipeline_id_shape(self, client, monkeypatch):
+        """The pipeline filter matches lines whose id lives at ``extra.pipeline_id``
+        — that's the shape every orchestrator production call site emits.
+
+        Pre-fix the filter only checked ``context.task_id`` and would return
+        an empty result for this input. The motivating example from #3032
+        (``Context PR opener … failed`` at ``orchestrator/routes/phases.py``)
+        is one such call.
+        """
+        import json as _json
+
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        raw = "\n".join(
+            [
+                _json.dumps(
+                    {
+                        "severity": "WARNING",
+                        "message": "Context PR opener failed at advance_phase",
+                        "extra": {"pipeline_id": "issue-123", "reason": "X"},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "severity": "INFO",
+                        "message": "routine poll",
+                        "extra": {"pipeline_id": "issue-123"},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "severity": "ERROR",
+                        "message": "other-pipeline boom",
+                        "extra": {"pipeline_id": "issue-999"},
+                    }
+                ),
+            ]
+        )
+        fake_k8s = MagicMock()
+        fake_k8s.get_service_logs.return_value = {
+            "service": "orchestrator",
+            "namespace": "egg-system",
+            "pods": [{"pod": "orchestrator-abc", "logs": raw}],
+        }
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes_client": MagicMock(
+                    get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    PodNotFoundError=type("PodNotFoundError", (Exception,), {}),
+                    JobOperationError=type("JobOperationError", (Exception,), {}),
+                )
+            },
+        ):
+            response = client.get(
+                "/api/v1/deployment/logs?service=orchestrator&pipeline_id=issue-123&level=WARNING"
+            )
+
+        assert response.status_code == 200
+        logs = response.get_json()["data"]["pods"][0]["logs"]
+        assert "Context PR opener" in logs
+        assert "routine poll" not in logs  # below WARNING
+        assert "other-pipeline boom" not in logs  # wrong pipeline
+
     def test_invalid_pattern_returns_400(self, client, monkeypatch):
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
         response = client.get("/api/v1/deployment/logs?service=gateway&pattern=%5B")

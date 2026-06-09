@@ -1010,8 +1010,12 @@ PIPELINE_TOOLS = [
                 "pipeline_id": {
                     "type": "string",
                     "description": (
-                        "Keep only lines emitted for this pipeline/task id "
-                        "(matched against the log's `context.task_id`)."
+                        "Keep only lines emitted for this pipeline/task id. "
+                        "Matched against the log's `context.task_id`, with "
+                        "`extra.pipeline_id` and `extra.task_id` as fallbacks "
+                        "— production call sites use `pipeline_id=...`, which "
+                        "the JsonFormatter lands in `extra` rather than the "
+                        "context-allowlisted `task_id` slot."
                     ),
                 },
                 "level": {

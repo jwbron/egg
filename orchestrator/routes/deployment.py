@@ -53,7 +53,7 @@ except ImportError:
 
 
 from lifecycle_auth import require_lifecycle_secret
-from log_filter import filter_log_lines, known_severities, severity_rank
+from log_filter import filter_log_lines, known_severities
 
 logger = get_logger("orchestrator.deployment")
 
@@ -468,17 +468,32 @@ def get_service_logs() -> tuple[Response, int]:
         lines: tail length, default 100, capped at _MAX_LOG_LINES. When a
             filter (``pipeline_id``/``level``/``pattern``) is active this caps
             the *matching* lines returned rather than the raw tail.
-        since_seconds: only return logs newer than this many seconds.
-        pipeline_id: keep only lines whose ``context.task_id`` matches (#3032).
-        level: minimum severity (DEBUG..CRITICAL); drops lower-severity and
-            unstructured lines (#3032).
-        pattern: Python regex; keep only lines it finds via ``re.search`` (#3032).
+        since_seconds: only return logs newer than this many seconds. When
+            filters are active this is the only knob that bounds the
+            per-pod scan window — the backing fetch is widened to
+            ``_MAX_LOG_LINES`` so the filter has material to match.
+        pipeline_id: keep only lines whose pipeline/task id matches; checks
+            ``context.task_id`` and the ``extra.pipeline_id`` /
+            ``extra.task_id`` fallbacks the JsonFormatter lands kwargs in
+            (#3032).
+        level: minimum severity (case-sensitive; ``DEBUG`` … ``CRITICAL``);
+            drops lower-severity and unstructured lines. The MCP ``level``
+            enum is the source of truth — the HTTP route rejects lowercase
+            for parity (#3032).
+        pattern: Python regex; keep only lines it finds via ``re.search``.
+            Compiled with no complexity guardrail — pathological patterns
+            (catastrophic backtracking) can spin a request thread per pod
+            line. This endpoint is gated behind ``require_lifecycle_secret``
+            and called from trusted operator tooling, so the trust model
+            here is "operator can hose their own request"; widen with a
+            timeout if this surface ever opens up (#3032).
 
     Filters are applied server-side **before** truncation, so a targeted query
     returns the relevant lines instead of a raw tail that's mostly health-check
     noise. When any filter is set, the backing pod is scanned over a wider
     window (``_MAX_LOG_LINES``, still bounded by ``since_seconds``) so the
-    filter has material to match, and ``lines`` caps the matches returned.
+    filter has material to match, and ``lines`` caps the matches returned —
+    use ``since_seconds`` to keep the per-pod scan cost bounded.
     """
     if _current_runtime() != "kubernetes":
         return _not_available_on_runtime()
@@ -522,8 +537,13 @@ def get_service_logs() -> tuple[Response, int]:
 
     # Server-side filters (#3032). Applied below, before truncation.
     pipeline_id = (request.args.get("pipeline_id") or "").strip() or None
-    level = (request.args.get("level") or "").strip().upper() or None
-    if level is not None and severity_rank(level) is None:
+    # Case-sensitive on purpose: the MCP `level` enum is uppercase-only, and
+    # accepting lowercase here would diverge HTTP behavior from what the
+    # schema advertises. ``severity_rank`` itself is case-insensitive so the
+    # filter helper works for any direct caller; the strict check is the
+    # route's contract with its operator-facing schema.
+    level = (request.args.get("level") or "").strip() or None
+    if level is not None and level not in known_severities():
         return (
             jsonify(
                 {
