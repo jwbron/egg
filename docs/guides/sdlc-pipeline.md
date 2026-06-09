@@ -443,12 +443,13 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 
 ```json
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "issue": {
     "number": 123,
     "title": "Add feature X",
     "url": "https://github.com/org/repo/issues/123"
   },
+  "task_description": null,
   "current_phase": "implement",
   "phases": [
     {
@@ -495,6 +496,20 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > keys before constructing `PRMetadata` and bumps `schemaVersion` to
 > `"1.2"`; the new value is persisted on the next save (see the
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
+
+> **Schema 1.3 (#3033)**: The default `schemaVersion` is now `"1.3"`. An
+> optional `task_description` field was added at the top level. It holds
+> the full, untruncated pipeline prompt for free-text and JIRA-driven
+> submits (any pipeline where `issue_number is None`). Under the BRC
+> event-pump model the orchestrator-built spawn prompt is not delivered
+> to agents, so the contract becomes the authoritative channel for
+> recovering the complete task. `task_description` is `null` for
+> GitHub-issue pipelines, where agents fetch the body via
+> `gh issue view`. The bump is purely additive — pre-1.3 contracts load
+> cleanly and are promoted to `"1.3"` by an `mode="after"` validator
+> (`Contract._migrate_schema_version_to_1_3`) on every load. See
+> [Recovering the task — `task_description`](../reference/sdlc-contract.md#recovering-the-task--task_description)
+> for the full recovery matrix.
 
 ### Role-Based Field Ownership
 
