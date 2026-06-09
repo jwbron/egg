@@ -1,6 +1,7 @@
 name: "egg: Contract Verification"
 
-# Trigger on PRs with the sdlc:pr label or a new contract file in the diff
+# Trigger on PRs with the sdlc:pr label, a new contract file in the diff, or a
+# slice PR (egg/<id>/slice-N -> egg/<id>/work) whose work branch carries a contract.
 # This workflow verifies that implementation matches the SDLC contract
 on:
   pull_request:
@@ -115,7 +116,34 @@ jobs:
               exit 0
             fi
 
-            echo "No sdlc:pr label and no new contract file in diff, skipping"
+            # Slice PRs (egg/<pipeline_id>/slice-<N> -> egg/<pipeline_id>/work)
+            # carry agent:<role> labels (not sdlc:pr) and inherit the contract
+            # from the work branch rather than *adding* it, so neither trigger
+            # above fires (#3040). Detect them by the head-branch topology — a
+            # docs/normal PR's head never has the egg/<id>/slice-<N> shape — then
+            # confirm the contract is present on the pipeline's work branch.
+            #
+            # NOTE: do NOT trigger on bare "a contract file exists on the
+            # branch": every PR inherits the contracts accumulated on the
+            # default branch, which is exactly why #1134 removed the
+            # branch-level existence check. The slice-branch head match is the
+            # real discriminator; the work-branch contract check is a sanity
+            # guard. Deriving the work branch from the head (not the PR base)
+            # also covers stacked slices whose base is another slice branch.
+            if [[ "$branch_name" =~ ^egg/(.+)/slice-[0-9]+$ ]]; then
+              work_branch="egg/${BASH_REMATCH[1]}/work"
+              work_contracts=$(
+                gh api "repos/${{ github.repository }}/contents/.egg-state/contracts?ref=${work_branch}" \
+                  --jq '[.[] | select(.name | endswith(".json"))] | length' 2>/dev/null || echo 0)
+              if [[ "${work_contracts:-0}" -gt 0 ]]; then
+                echo "Slice PR ${branch_name}: contract present on ${work_branch}, running contract verification"
+                echo "run=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "Slice PR but no contract found on work branch ${work_branch}; skipping"
+            fi
+
+            echo "No sdlc:pr label, no new contract file, and not a slice PR with a contract; skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
