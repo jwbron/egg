@@ -969,17 +969,23 @@ def _validate_plan_proposal(
        the proposed commit. The operator gate, contract populator, and resume
        path all read the plan from ``_get_draft_path("plan", …)``; a draft
        committed off-path (or not at all) is invisible to them.
-    2. **Parseability / ≥1 slice** (#3026): the draft parses via the *same*
-       ``parse_plan`` the contract populator runs, and yields ≥1 slice. A draft
-       that is complete in prose but omits the machine-readable ``# yaml-tasks``
-       appendix parses to ``success=False`` — it passes BRC consensus and phase
-       completion on content grounds, then fails the *whole pipeline* at
-       ``populate_contract`` (``parse_failed`` / ``empty_result``) ~40 min later,
-       after the plan HITL gate, surfacing an expensive recovery decision.
-       Mirrors the populate fail-fast condition
-       (``_populate_result_is_empty_contract`` = non-success OR ``slice_count ==
-       0``); using the same parser means the propose-time check and the populate
-       check cannot diverge. Catching it here is one cheap NACK→re-propose cycle.
+    2. **Parseability** (#3026): the draft parses via the *same* ``parse_plan``
+       the contract populator runs. A draft that is complete in prose but omits
+       the machine-readable ``# yaml-tasks`` appendix parses to ``success=False``
+       — it passes BRC consensus and phase completion on content grounds, then
+       fails the *whole pipeline* at ``populate_contract`` (``parse_failed`` /
+       ``empty_result``) ~40 min later, after the plan HITL gate, surfacing an
+       expensive recovery decision. Using the same parser means the propose-time
+       check and the populate check cannot diverge **on parse failures**
+       (``_populate_result_is_empty_contract``'s ``not success`` branch); other
+       populate-time outcomes — ``FOREST_VIOLATION`` for a cyclic ``depends_on``
+       DAG, ``UNEXPECTED_EXCEPTION`` for downstream contract-build failures —
+       are still caught only at populate, by design (this guard is for the
+       fence-less / unparseable case #3026 names). Catching that here is one
+       cheap NACK→re-propose cycle. (``parse_plan`` itself guarantees
+       ``success=True`` ⇒ ≥1 phase ⇒ ≥1 slice via ``to_contract_slices`` — the
+       per-phase placeholder-task injection sees to it — so a separate
+       ``slice_count == 0`` check would be dead code here.)
     3. **Role↔files alignment** (#2527 / #2528): no task is assigned to a role
        whose blocklist forbids its files (would 403 at push time per
        ``gateway/phase_filter.py::FileRestriction.is_file_blocked`` /
@@ -1006,11 +1012,12 @@ def _validate_plan_proposal(
     orchestrator-side fetch glitch, not a producer fault; a non-zero ``git show``
     could then mean "commit not in local cache" rather than "path absent"), the
     pipeline has no branch / no resolvable draft path, ``git show`` errors for an
-    infrastructure reason (timeout / git failure), or the parser raises. It
+    infrastructure reason (timeout / git failure), the parser raises, or
+    ``to_contract_slices`` raises (e.g. a future Pydantic field tightening). It
     raises only when it can positively confirm — at a resolved, branch-verified
-    commit — that the draft is absent/empty, unparseable, sliceless, or
-    role-misassigned. ``branch_verified`` defaults to ``True`` so direct callers
-    (unit tests) that don't run ``_verify_commit_on_branch`` still get the check.
+    commit — that the draft is absent/empty, unparseable, or role-misassigned.
+    ``branch_verified`` defaults to ``True`` so direct callers (unit tests) that
+    don't run ``_verify_commit_on_branch`` still get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
@@ -1105,10 +1112,13 @@ def _validate_plan_proposal(
         )
         return
 
-    # (2) Parseability / ≥1 slice — the #3026 fix. Reuses the contract
-    # populator's parser, and mirrors its fail-fast condition
-    # (``_populate_result_is_empty_contract``), so a draft that would later
-    # populate an empty contract is NACKed now instead.
+    # (2) Parseability — the #3026 fix. Reuses the contract populator's parser
+    # so a draft that would later populate an empty contract on the
+    # ``not parsed.success`` branch of ``_populate_result_is_empty_contract`` is
+    # NACKed now instead. (``success=True`` already guarantees ``phases`` is
+    # non-empty and every phase has ≥1 task via the parser's
+    # placeholder-task injection, so ``to_contract_slices()`` cannot return an
+    # empty list — no separate slice-count check is needed.)
     if not parsed.success:
         detail = f" {parsed.error}" if parsed.error else ""
         raise ValueError(
@@ -1121,15 +1131,20 @@ def _validate_plan_proposal(
             f"your slices and tasks, commit and push it, then re-propose."
         )
 
-    slices = parsed.to_contract_slices()
-    if not slices:
-        raise ValueError(
-            f"Plan proposal rejected: the plan draft at `{plan_rel}` "
-            f"({commit_sha[:8]}) parsed but produced zero slices, so the contract "
-            f"populator would build an empty contract the implement phase cannot "
-            f"act on. Ensure your ``# yaml-tasks`` appendix lists at least one "
-            f"slice with tasks, commit and push it, then re-propose."
+    # Symmetric with the ``parse_plan`` / ``validate_task_role_alignment``
+    # wraps above and below: a future Pydantic field tightening on ``Task`` /
+    # ``Slice`` could cause this to raise, and the old single-try posture
+    # silently skipped any such failure rather than surfacing a 500.
+    try:
+        slices = parsed.to_contract_slices()
+    except Exception as exc:
+        logger.warning(
+            "plan proposal validation: to_contract_slices raised (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+            error=str(exc),
         )
+        return
 
     # (3) Role↔files alignment (#2527). #2528: pass the pipeline's repo so
     # per-repo ``role_patterns`` from repositories.yaml are honoured — plan-time
