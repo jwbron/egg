@@ -506,8 +506,11 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > recovering the complete task. `task_description` is `null` for
 > GitHub-issue pipelines, where agents fetch the body via
 > `gh issue view`. The bump is purely additive — pre-1.3 contracts load
-> cleanly and are promoted to `"1.3"` by an `mode="after"` validator
-> (`Contract._migrate_schema_version_to_1_3`) on every load. See
+> cleanly and reach `"1.3"` via the migration chain: pre-1.2 contracts
+> are first promoted to `"1.2"` by the wrap-mode
+> `_migrate_schema_version_to_1_2` validator, and any contract at
+> `"1.2"` is then stamped to `"1.3"` by the `mode="after"`
+> `Contract._migrate_schema_version_to_1_3` validator on every load. See
 > [Recovering the task — `task_description`](../reference/sdlc-contract.md#recovering-the-task--task_description)
 > for the full recovery matrix.
 

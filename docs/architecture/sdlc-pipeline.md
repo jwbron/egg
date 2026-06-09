@@ -211,9 +211,10 @@ Operational impact:
   `Contract._migrate_schema_version_to_1_3` `mode="after"` validator
   stamps `schemaVersion` from `"1.2"` to `"1.3"` on every load;
   the new value is persisted on the next save.
-- **`task_description` is `SYSTEM`-owned** in `FIELD_OWNERSHIP` — agents
-  must not mutate it. Both `egg-contract show` and
-  `mcp__sdlc__show_contract` surface the field.
+- **`task_description` is owned by `SYSTEM`** via the `DEFAULT_OWNER`
+  fallback in `shared/egg_contracts/roles.py` (not explicitly listed in
+  `FIELD_OWNERSHIP`) — agents must not mutate it. Both `egg-contract
+  show` and `mcp__sdlc__show_contract` surface the field.
 - **Agent task recovery**: under the BRC event-pump the spawn prompt is
   not delivered to agents. Agents on free-text or JIRA pipelines should
   read `task_description` from the contract rather than inferring the
