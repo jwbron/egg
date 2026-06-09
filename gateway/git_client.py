@@ -1375,8 +1375,109 @@ def cleanup_credential_helper(path: str | None) -> None:
 # =============================================================================
 
 
+# Matches a single git SHA line (7–64 lowercase hex). Used to reject
+# multi-line / garbled stdout from a misbehaving git wrapper before treating
+# the value as a commit identifier. Shared by both ``get_changed_files_in_push``
+# and ``_enumerate_push_commits`` for fork-point and rev-list validation.
+_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _parse_sha_lines(text: str) -> list[str] | None:
+    """Parse rev-list stdout into a list of SHAs, or ``None`` if any line is garbled.
+
+    Mirrors the validation in ``_enumerate_push_commits`` and applies it to
+    both fallback and primary rev-list output in ``get_changed_files_in_push``
+    so SHA-from-stdout discipline is uniform across every path that pipes a
+    line of git stdout into ``diff-tree``'s positional argv. A misbehaving
+    git wrapper that smuggled ``--ext-diff=…`` or another diff-tree flag as
+    a "SHA" would otherwise be passed through; failing closed on parse error
+    keeps the caller's fail-closed semantics for security checks intact.
+    """
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if not _SHA_LINE_RE.match(s):
+            return None
+        out.append(s)
+    return out
+
+
+def _fetch_base_branch_best_effort(
+    repo_path: str, remote: str, base_branch: str, timeout: int = 15
+) -> None:
+    """Best-effort fetch of ``origin/<base_branch>`` for the new-branch fallback.
+
+    A single ``git_push`` request calls both ``get_changed_files_in_push`` and
+    ``_enumerate_push_commits`` and both run this fallback on the first push
+    (before ``origin/<branch>`` exists). Without coordination they each pay
+    the full fetch timeout — up to 60 s of added latency when the remote is
+    reachable-but-slow. This helper checks for the ref locally first via a
+    cheap ``rev-parse --verify --quiet``: on the second call the ref is
+    already present (the first call just fetched it) and the redundant network
+    round-trip is skipped. Fetch timeout is 15 s here vs. 30 s for the primary
+    branch fetch, because the base ref is a fallback, not the critical path.
+
+    Best-effort throughout: both rev-parse and fetch errors are swallowed —
+    if the fetch fails, the merge-base loop just falls through to the next
+    candidate (``main`` / ``master``) and ultimately fails closed if nothing
+    resolves.
+    """
+    import subprocess
+
+    try:
+        check = subprocess.run(
+            git_cmd("rev-parse", "--verify", "--quiet", f"{remote}/{base_branch}"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if check.returncode == 0 and (check.stdout or "").strip():
+            return
+    except Exception:
+        pass  # treat as not-yet-fetched and try the network fetch
+
+    try:
+        subprocess.run(
+            git_cmd("fetch", remote, base_branch),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception:
+        pass  # merge-base will fall through to the next candidate
+
+
+def _fallback_base_candidates(base_branch: str | None) -> list[str]:
+    """Ordered, de-duplicated diff-base candidates for new-branch pushes.
+
+    Used only by the merge-base fallback that fires when ``origin/<branch>``
+    does not yet exist (a pipeline's first push). The pipeline's configured
+    ``base_branch`` is tried first: a branch forked from a non-trunk base
+    carries that base's content, and diffing against trunk (``main``/
+    ``master``) instead would attribute every file inherited unchanged from
+    the base to the pushing role — falsely blocking non-documenter roles on
+    bases that legitimately carry documenter-owned files (#3024). ``main``
+    and ``master`` remain as trailing candidates so sessions with no
+    ``base_branch`` (legacy / non-pipeline) keep today's behavior, and so the
+    merge-base still resolves if the configured base ref can't be fetched.
+    """
+    candidates: list[str] = []
+    if base_branch and base_branch != "HEAD":
+        candidates.append(base_branch)
+    for trunk in ("main", "master"):
+        if trunk not in candidates:
+            candidates.append(trunk)
+    return candidates
+
+
 def get_changed_files_in_push(
-    repo_path: str, remote: str, branch: str
+    repo_path: str, remote: str, branch: str, base_branch: str | None = None
 ) -> tuple[list[str], str | None]:
     """
     Get the list of files that would be changed by a push.
@@ -1396,6 +1497,11 @@ def get_changed_files_in_push(
         repo_path: Path to the git repository
         remote: Remote name (e.g., "origin")
         branch: Branch name being pushed
+        base_branch: The pipeline's configured base branch (PR base). Used as
+            the preferred diff base for the new-branch merge-base fallback so a
+            branch forked from a non-trunk base is not blamed for files it
+            inherited unchanged from that base (#3024). ``None`` (legacy /
+            non-pipeline sessions) falls back to ``main``/``master`` as before.
 
     Returns:
         Tuple of (changed_files, error_message)
@@ -1442,15 +1548,29 @@ def get_changed_files_in_push(
             check=False,
         )
 
-        if rev_list_result.returncode == 0:
+        # Validate every rev-list line is a SHA before feeding it to diff-tree's
+        # positional argv (parity with _enumerate_push_commits, which goes through
+        # _parse_sha_lines on both its primary and fallback paths). On parse
+        # failure (garbled or multi-line stdout from a misbehaving git wrapper),
+        # treat the primary path as a miss and fall through to the merge-base
+        # fallback — same effect as a non-zero rev-list returncode.
+        primary_shas = (
+            _parse_sha_lines(rev_list_result.stdout) if rev_list_result.returncode == 0 else None
+        )
+        if primary_shas is None and rev_list_result.returncode == 0:
+            logger.error(
+                "rev-list stdout contained a non-SHA line - falling through to fallback",
+                repo_path=repo_path,
+                remote=remote,
+                branch=branch,
+            )
+
+        if primary_shas is not None:
             all_files: set[str] = set()
             commits_found = 0
             commits_inspected = 0
             diff_tree_errors: list[str] = []
-            for sha in rev_list_result.stdout.strip().split("\n"):
-                sha = sha.strip()
-                if not sha:
-                    continue
+            for sha in primary_shas:
                 commits_found += 1
                 # NOTE: On merge commits, `diff-tree -r` uses combined diff
                 # format, which only shows files differing from *all* parents
@@ -1494,7 +1614,21 @@ def get_changed_files_in_push(
         # If remote branch doesn't exist yet, use per-commit file detection via
         # merge-base + diff-tree. This avoids false positives from inherited
         # differences between worktree branches and origin/main (Bug #1239).
-        for default_branch in ("main", "master"):
+        #
+        # Diff against the pipeline's configured base_branch first (#3024): a
+        # branch forked from a non-trunk base carries that base's content, and
+        # diffing against trunk would mis-attribute those inherited files to the
+        # pushing role. main/master remain trailing fallbacks.
+        fallback_bases = _fallback_base_candidates(base_branch)
+        if base_branch and base_branch != "HEAD":
+            # Best-effort fetch so origin/<base_branch> resolves for the
+            # merge-base below — the top-of-function fetch only refreshed the
+            # pushed branch. main/master are assumed already present locally.
+            # The helper short-circuits on the second call of the same push
+            # (when _enumerate_push_commits ran first or vice-versa) via a
+            # local rev-parse check, avoiding a redundant network fetch.
+            _fetch_base_branch_best_effort(repo_path, remote, base_branch)
+        for default_branch in fallback_bases:
             merge_base_result = subprocess.run(
                 git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
                 cwd=repo_path,
@@ -1506,8 +1640,12 @@ def get_changed_files_in_push(
             if merge_base_result.returncode != 0:
                 continue
 
-            fork_point = merge_base_result.stdout.strip()
-            if not fork_point:
+            # Validate the merge-base output is a single SHA line (mirrors
+            # _enumerate_push_commits): a misbehaving git wrapper or multi-line
+            # stdout (e.g. parent-pair output that would surface if --all were
+            # ever added) must not leak through as a fork point.
+            fork_point = (merge_base_result.stdout or "").strip()
+            if not _SHA_LINE_RE.match(fork_point):
                 continue
 
             # Get files changed in each commit between fork point and HEAD
@@ -1522,14 +1660,19 @@ def get_changed_files_in_push(
             if log_result.returncode != 0:
                 continue
 
+            # Validate every SHA line before piping it to diff-tree argv.
+            # On parse failure, continue to the next candidate trunk — the
+            # caller's fail-closed loop still kicks in if every candidate
+            # fails (mirrors the per-line validation in _enumerate_push_commits).
+            fallback_shas = _parse_sha_lines(log_result.stdout)
+            if fallback_shas is None:
+                continue
+
             all_files = set()
             commits_found = 0
             commits_inspected = 0
             diff_tree_errors = []
-            for sha in log_result.stdout.strip().split("\n"):
-                sha = sha.strip()
-                if not sha:
-                    continue
+            for sha in fallback_shas:
                 commits_found += 1
                 dt_result = subprocess.run(
                     git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
@@ -1628,21 +1771,20 @@ class AttributedPushRange:
     error: str | None = None
 
 
-_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
-
-
 def _enumerate_push_commits(
-    repo_path: str, remote: str, branch: str
+    repo_path: str, remote: str, branch: str, base_branch: str | None = None
 ) -> tuple[list[str], str | None]:
     """Return (commits_oldest_first, error).
 
     Mirrors ``get_changed_files_in_push`` rev-list logic: prefers
-    ``<remote>/<branch>..HEAD``, then falls back to merge-base with
-    main/master for new-branch pushes.  On any error, returns
-    ``([], "...")`` — the caller then fails closed.  Output lines
-    that don't parse as a git SHA (7–64 lowercase hex) are
-    rejected so that a misbehaving git wrapper can't smuggle
-    arbitrary strings into the commit list.
+    ``<remote>/<branch>..HEAD``, then falls back to merge-base with the
+    pipeline's ``base_branch`` (then main/master) for new-branch pushes.
+    Diffing against ``base_branch`` first keeps commits inherited from a
+    non-trunk base out of the range so they are not attributed to the
+    pushing role (#3024).  On any error, returns ``([], "...")`` — the
+    caller then fails closed.  Output lines that don't parse as a git SHA
+    (7–64 lowercase hex) are rejected so that a misbehaving git wrapper
+    can't smuggle arbitrary strings into the commit list.
     """
     import subprocess
 
@@ -1659,17 +1801,6 @@ def _enumerate_push_commits(
     except Exception:
         pass
 
-    def _parse_shas(text: str) -> list[str] | None:
-        out: list[str] = []
-        for line in (text or "").splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            if not _SHA_LINE_RE.match(s):
-                return None
-            out.append(s)
-        return out
-
     def _rev_list(base: str) -> list[str] | None:
         result = subprocess.run(
             git_cmd("rev-list", "--reverse", f"{base}..HEAD"),
@@ -1681,13 +1812,20 @@ def _enumerate_push_commits(
         )
         if result.returncode != 0:
             return None
-        return _parse_shas(result.stdout)
+        return _parse_sha_lines(result.stdout)
 
     primary = _rev_list(f"{remote}/{branch}")
     if primary is not None:
         return primary, None
 
-    for default_branch in ("main", "master"):
+    # New-branch fallback: prefer the pipeline's configured base_branch so
+    # commits inherited from a non-trunk base stay out of the range (#3024).
+    # The helper short-circuits if the ref is already local (the sister
+    # function in the same push already fetched it), avoiding a redundant
+    # network round-trip.
+    if base_branch and base_branch != "HEAD":
+        _fetch_base_branch_best_effort(repo_path, remote, base_branch)
+    for default_branch in _fallback_base_candidates(base_branch):
         mb = subprocess.run(
             git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
             cwd=repo_path,
@@ -1822,11 +1960,16 @@ def get_attributed_changed_files_in_push(
     branch: str,
     session_role: str | None = None,
     registry_client: object | None = None,
+    base_branch: str | None = None,
 ) -> AttributedPushRange:
     """Return attributed files + commit range for a planned push.
 
     ``session_role`` is advisory (currently used only for audit logging
     in the caller); the function itself does not filter on it.
+
+    ``base_branch`` is forwarded to ``_enumerate_push_commits`` as the
+    preferred new-branch diff base so commits inherited from a non-trunk
+    base are excluded from the attributed range (#3024).
 
     The caller supplies a ``registry_client`` with a ``lookup_bulk``
     method so the gateway's push handler can mock the client in tests
@@ -1837,7 +1980,7 @@ def get_attributed_changed_files_in_push(
     On any detection failure, returns an ``AttributedPushRange`` with
     ``error`` set and ``files`` empty — the caller MUST fail closed.
     """
-    commits, err = _enumerate_push_commits(repo_path, remote, branch)
+    commits, err = _enumerate_push_commits(repo_path, remote, branch, base_branch=base_branch)
     if err:
         logger.error(
             "get_attributed_changed_files_in_push enumeration failed — failing closed",

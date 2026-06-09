@@ -219,6 +219,12 @@ class Session:
     last_branch: str | None = None  # Last known branch from git push
     claude_code_version: str | None = None  # Claude Code version from container
     assigned_branch: str | None = None  # Worktree branch locked to this session
+    # Pipeline's configured base branch (PR base). The push handler uses it as
+    # the preferred diff base for the new-branch restricted-path check so a
+    # branch forked from a non-trunk base is not blamed for files inherited
+    # unchanged from that base (#3024). Orchestrator-authoritative (set from the
+    # launcher-authenticated register_session) — never agent-settable.
+    base_branch: str | None = None
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     jira_ticket: str | None = None  # Advisory Jira ticket key (issue #1556)
     synthetic: bool = False  # Orchestrator-internal temp session — skip auto-commit
@@ -271,6 +277,8 @@ class Session:
             result["claude_code_version"] = self.claude_code_version
         if self.assigned_branch is not None:
             result["assigned_branch"] = self.assigned_branch
+        if self.base_branch is not None:
+            result["base_branch"] = self.base_branch
         if self.auto_commit_sha is not None:
             result["auto_commit_sha"] = self.auto_commit_sha
         if self.jira_ticket is not None:
@@ -307,6 +315,7 @@ class Session:
             last_branch=data.get("last_branch"),
             claude_code_version=data.get("claude_code_version"),
             assigned_branch=data.get("assigned_branch"),
+            base_branch=data.get("base_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
             jira_ticket=data.get("jira_ticket"),
             synthetic=bool(data.get("synthetic", False)),
@@ -468,6 +477,7 @@ class SessionManager:
         agent_anchor_id: str | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         jira_ticket: str | None = None,
         synthetic: bool = False,
         upstream: str = "anthropic",
@@ -488,6 +498,10 @@ class SessionManager:
             agent_anchor_id: Optional agent anchor ID for scoped anchor file writes
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
+            base_branch: Optional pipeline base branch (PR base). Stored on the
+                session and used as the preferred diff base for the new-branch
+                restricted-path push check so a branch forked from a non-trunk
+                base is not blamed for files inherited unchanged from it (#3024).
             upstream: Upstream registry name driving ``/v1/messages``
                 traffic for this session (issue #2769). Defaults to
                 ``"anthropic"`` so all pre-#2769 callers keep byte-identical
@@ -528,6 +542,27 @@ class SessionManager:
             if len(upstream_model) > 256:
                 raise ValueError("upstream_model must be 256 characters or fewer")
 
+        # Validate branch / base_branch shape (#3024 defense-in-depth).
+        # Both values flow into ``git fetch`` / ``git merge-base`` as positional
+        # argv inside the push handler, so a leading-dash value would be parsed
+        # as a git flag (e.g. ``--upload-pack=evil``). The HTTP route applies
+        # the same check; mirror it here so a direct in-process caller (the
+        # slice-2 spawner, tests) cannot bypass it.
+        try:
+            from .worktree_manager import validate_branch_ref
+        except ImportError:
+            from worktree_manager import (  # type: ignore[no-redef,import-untyped]
+                validate_branch_ref,
+            )
+        if branch is not None:
+            if not isinstance(branch, str) or len(branch) > 256:
+                raise ValueError("branch must be a string of ≤256 characters")
+            validate_branch_ref(branch, "branch")
+        if base_branch is not None:
+            if not isinstance(base_branch, str) or len(base_branch) > 256:
+                raise ValueError("base_branch must be a string of ≤256 characters")
+            validate_branch_ref(base_branch, "base_branch")
+
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         token_hash = _hash_token(token)
@@ -549,6 +584,7 @@ class SessionManager:
             agent_role=agent_role,
             agent_anchor_id=agent_anchor_id,
             claude_code_version=claude_code_version,
+            base_branch=base_branch,
             jira_ticket=jira_ticket,
             synthetic=synthetic,
             upstream=upstream,

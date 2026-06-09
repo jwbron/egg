@@ -731,6 +731,7 @@ class GatewayClient:
         pr_number: int | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         worktree_container_id: str | None = None,
         jira_ticket: str | None = None,
         synthetic: bool = False,
@@ -757,6 +758,12 @@ class GatewayClient:
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing session metadata
+            base_branch: Optional pipeline base branch (PR base). The gateway
+                stores it on the session and uses it as the preferred diff base
+                for the new-branch restricted-path push check, so a branch
+                forked from a non-trunk base is not blamed for files inherited
+                unchanged from that base (#3024). Omitted callers keep today's
+                main/master fallback.
             worktree_container_id: Optional container_id under which per-agent
                 worktrees were already created by a prior create_worktrees
                 call.  When provided, the gateway reuses those worktrees
@@ -811,6 +818,10 @@ class GatewayClient:
             request_data["claude_code_version"] = claude_code_version
         if branch is not None:
             request_data["branch"] = branch
+        if base_branch is not None:
+            # Only include when set — omitting keeps the wire shape identical
+            # for callers that don't carry a base_branch (#3024).
+            request_data["base_branch"] = base_branch
         if worktree_container_id is not None:
             request_data["worktree_container_id"] = worktree_container_id
         if jira_ticket:

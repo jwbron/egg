@@ -31,8 +31,8 @@ class TestGetChangedFilesInPushScopedIsolation:
             # git fetch
             MagicMock(returncode=0, stdout="", stderr=""),
             # git rev-list origin/branch..HEAD
-            MagicMock(returncode=0, stdout="abc123\n", stderr=""),
-            # git diff-tree for abc123
+            MagicMock(returncode=0, stdout="abc1234\n", stderr=""),
+            # git diff-tree for abc1234
             MagicMock(
                 returncode=0,
                 stdout="tests/test_new.py\ntests/conftest.py\n",
