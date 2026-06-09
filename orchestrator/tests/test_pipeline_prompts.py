@@ -2208,26 +2208,28 @@ class TestTesterCheckCoverageValidation:
             mock_tracker.handle_propose.assert_not_called()
 
 
-class TestPlannerRoleAlignmentValidation:
-    """Tests for ``_validate_planner_role_alignment`` in ``signals.py`` (#2527).
+class TestPlanProposalValidation:
+    """Tests for ``_validate_plan_proposal`` in ``signals.py``.
 
-    Exercises the production code path the original PR-1 implementation
-    couldn't reach: in concurrent BRC mode, ``_run_concurrent_phase``
-    builds every reviewer prompt up-front before the planner has produced
-    the plan, so a prompt-time validator can never fire on the first
-    cycle. This validator runs at ``CONSENSUS_PROPOSE`` instead — by
-    that point the planner has pushed the plan to origin, and the
-    orchestrator reads it via ``git show <commit>:<plan_path>``.
+    Consolidates the former ``_validate_planner_role_alignment`` (#2527) and the
+    plan branch of ``_validate_producer_draft_present`` (#3016) into one
+    propose-time validator that does a single ``git show`` + single ``parse_plan``
+    and asserts three things, in order: the plan draft is present and non-empty at
+    the proposed commit (#3016), it parses into ≥1 slice via the same parser the
+    contract populator runs (#3026), and no task is assigned to a role whose
+    blocklist forbids its files (#2527).
+
+    Runs at ``CONSENSUS_PROPOSE`` — by that point the planner has pushed the plan
+    to origin and the orchestrator reads it via ``git show <commit>:<plan_path>``.
+    A prompt-time validator could never fire on the first cycle (in concurrent BRC
+    mode ``_run_concurrent_phase`` builds every reviewer prompt up-front, before
+    the planner has produced the plan).
     """
 
     # A coder→docs assignment is still a misassignment (docs are the
     # documenter's scope). Note: coder→test-files is NO LONGER a violation —
     # the coder authors its own tests now (intentional overlap with the
     # tester), so this fixture uses a docs file to exercise the reject path.
-    # (Cherry-picked from main #2936 in the slice-4 v3 cycle to match the
-    # current validator semantics; the original slice-3 conflict-resolution
-    # kept the old ``integration_tests/conftest.py`` fixture but that path
-    # no longer trips the validator post-#2936.)
     _PLAN_WITH_MISASSIGNED_TASK = (
         "# Plan\n"
         "\n"
@@ -2266,6 +2268,28 @@ class TestPlannerRoleAlignmentValidation:
         "```\n"
     )
 
+    # The #3026 incident fixture: a draft that is complete and faithful in prose
+    # — narrative slice breakdown, task references, acceptance criteria — but
+    # omits the machine-readable ``# yaml-tasks`` code fence the populator parses.
+    # ``parse_plan`` finds no yaml fence, no ``## Phase N:`` headers, and no
+    # ``[TASK-n-m] … — Acceptance: …`` markdown lines, so it returns
+    # ``success=False`` ("No tasks or phases found"). Pre-#3026 this sailed
+    # through consensus and failed the whole pipeline at ``populate_contract``.
+    _PLAN_WITHOUT_YAML_TASKS = (
+        "# Plan: issue-3026\n"
+        "\n"
+        "## Overview\n"
+        "\n"
+        "Consolidate the two propose-time plan validators into one so the\n"
+        "presence check and the parse check cannot diverge.\n"
+        "\n"
+        "## Slice breakdown\n"
+        "\n"
+        "Slice one rewrites the validator; slice two updates the tests. Each\n"
+        "task ships with acceptance criteria and a role assignment, described\n"
+        "in prose here rather than in a structured appendix.\n"
+    )
+
     @staticmethod
     def _patched_store(issue_number: int | None = 2527, branch: str = "egg/issue-2527"):
         mock_pipeline = MagicMock()
@@ -2289,16 +2313,16 @@ class TestPlannerRoleAlignmentValidation:
 
     def test_skips_when_commit_sha_missing(self):
         """No commit SHA on payload → nothing to validate against."""
-        from routes.signals import _validate_planner_role_alignment
+        from routes.signals import _validate_plan_proposal
 
         # Should not raise even with no other patches in place — the
         # bail-out happens before any state-store / git access.
-        _validate_planner_role_alignment("issue-2527", {"payload": {}}, Path("/tmp"))
-        _validate_planner_role_alignment("issue-2527", {"commit_sha": ""}, Path("/tmp"))
+        _validate_plan_proposal("issue-2527", {"payload": {}}, Path("/tmp"))
+        _validate_plan_proposal("issue-2527", {"commit_sha": ""}, Path("/tmp"))
 
     def test_rejects_misassigned_plan_at_propose_time(self):
-        """Planner pushed a plan with coder→test-files: validator raises."""
-        from routes.signals import _validate_planner_role_alignment
+        """Planner pushed a plan with coder→docs: validator raises (#2527)."""
+        from routes.signals import _validate_plan_proposal
 
         with (
             self._patched_store(),
@@ -2307,11 +2331,11 @@ class TestPlannerRoleAlignmentValidation:
         ):
             payload = {"commit_sha": "abc1234"}
             with pytest.raises(ValueError, match="role↔files alignment violations"):
-                _validate_planner_role_alignment("issue-2527", payload, Path("/tmp/repo"))
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
     def test_accepts_clean_plan(self):
-        """Planner pushed a plan with correctly-assigned roles: no raise."""
-        from routes.signals import _validate_planner_role_alignment
+        """Planner pushed a present, parseable, correctly-assigned plan: no raise."""
+        from routes.signals import _validate_plan_proposal
 
         with (
             self._patched_store(),
@@ -2320,11 +2344,31 @@ class TestPlannerRoleAlignmentValidation:
         ):
             payload = {"commit_sha": "abc1234"}
             # Should not raise.
-            _validate_planner_role_alignment("issue-2527", payload, Path("/tmp/repo"))
+            _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
-    def test_skips_when_git_show_fails(self):
-        """``git show`` non-zero exit (plan absent at commit) → graceful skip."""
-        from routes.signals import _validate_planner_role_alignment
+    def test_rejects_when_plan_lacks_yaml_tasks_appendix(self):
+        """#3026 regression: a present, prose-complete plan that omits the
+        ``# yaml-tasks`` appendix parses to ``success=False`` and is NACKed at
+        propose-time — instead of passing consensus and failing the whole
+        pipeline at ``populate_contract`` (``parse_failed``) ~40 min later.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITHOUT_YAML_TASKS),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError, match="does not parse into any tasks"):
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_rejects_when_plan_draft_absent(self):
+        """``git show`` non-zero exit (plan absent at commit) → presence raise
+        (#3016). The consolidated validator no longer silently skips this — it
+        rejects so the gate can't later false-negative on an off-path draft.
+        """
+        from routes.signals import _validate_plan_proposal
 
         with (
             self._patched_store(),
@@ -2332,12 +2376,63 @@ class TestPlannerRoleAlignmentValidation:
             self._patched_subprocess("", returncode=128),
         ):
             payload = {"commit_sha": "abc1234"}
-            # Should not raise.
-            _validate_planner_role_alignment("issue-2527", payload, Path("/tmp/repo"))
+            with pytest.raises(ValueError, match=r"no plan draft found.*-plan\.md"):
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_rejects_when_plan_draft_empty(self):
+        """Draft exists but is empty/whitespace-only → presence raise (#3016)."""
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess("   \n  \n"),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError, match="no plan draft found"):
+                _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
+
+    def test_skips_when_branch_verified_is_none(self):
+        """``branch_verified=None`` (orchestrator-side fetch/contains glitch) →
+        graceful skip without touching git, so a transient fetch failure isn't
+        mis-blamed on the producer as a missing/unparseable draft.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run") as mock_run,
+        ):
+            _validate_plan_proposal(
+                "issue-2527",
+                {"commit_sha": "abc1234"},
+                Path("/tmp/repo"),
+                branch_verified=None,
+            )
+            mock_run.assert_not_called()
+
+    def test_skips_when_git_show_errors(self):
+        """An infra failure (timeout, not a clean non-zero exit) → graceful skip,
+        distinct from the definitive absent-at-commit signal the presence raise
+        covers.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch(
+                "routes.signals.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="git", timeout=15),
+            ),
+        ):
+            # Should not raise — infra failures degrade gracefully.
+            _validate_plan_proposal("issue-2527", {"commit_sha": "abc1234"}, Path("/tmp/repo"))
 
     def test_skips_when_pipeline_lookup_fails(self):
         """State store load failure → graceful skip."""
-        from routes.signals import _validate_planner_role_alignment
+        from routes.signals import _validate_plan_proposal
         from state_store import StateValidationError
 
         mock_store = MagicMock()
@@ -2349,11 +2444,11 @@ class TestPlannerRoleAlignmentValidation:
         ):
             payload = {"commit_sha": "abc1234"}
             # Should not raise — graceful degradation
-            _validate_planner_role_alignment("issue-2527", payload, Path("/tmp/repo"))
+            _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
     def test_skips_when_pipeline_has_no_branch(self):
         """A pipeline with ``branch=None`` → graceful skip (no git context)."""
-        from routes.signals import _validate_planner_role_alignment
+        from routes.signals import _validate_plan_proposal
 
         with (
             self._patched_store(branch=None),
@@ -2361,20 +2456,15 @@ class TestPlannerRoleAlignmentValidation:
         ):
             payload = {"commit_sha": "abc1234"}
             # Should not raise — branch is required to resolve the worktree commit.
-            _validate_planner_role_alignment("issue-2527", payload, Path("/tmp/repo"))
+            _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
     def test_rejected_proposal_does_not_mutate_tracker(self):
         """Integration: a planner proposal carrying a misassigned plan
         is rejected at ``handle_consensus_propose_signal`` BEFORE the
-        tracker is mutated — same guarantee as
-        ``test_rejected_proposal_does_not_mutate_tracker`` for
-        testers (#1459).
+        tracker is mutated (#1459 / #2527).
 
-        This is the production-sequence end-to-end test the PR-1 review
-        flagged as missing: it builds the propose signal exactly the
-        way the planner agent does in concurrent BRC mode, mocks
-        ``git show`` to return the misassigned plan (the file the
-        orchestrator's worktree would read at the proposed commit),
+        Builds the propose signal exactly the way the planner agent does in
+        concurrent BRC mode, mocks ``git show`` to return the misassigned plan,
         and asserts the tracker is left untouched.
         """
         from flask import Flask
@@ -2383,27 +2473,19 @@ class TestPlannerRoleAlignmentValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # Four subprocess calls happen in this path (task_planner):
+        # Three subprocess calls happen in this path (task_planner) — the
+        # consolidated ``_validate_plan_proposal`` reads the plan once, not
+        # twice as the former presence+alignment pair did:
         #   1. _verify_commit_on_branch's git fetch
         #   2. _verify_commit_on_branch's git branch --contains
-        #   3. _validate_producer_draft_present's git show (#3016) — plan
-        #      present at the commit, so the presence guard passes
-        #   4. _validate_planner_role_alignment's git show — returns the
-        #      misassigned plan, so the alignment guard raises
-        # The first two return success; calls 3 and 4 both read the plan draft
-        # at the proposed commit, so both return the (misassigned) plan.
+        #   3. _validate_plan_proposal's single git show — returns the
+        #      misassigned plan, so the alignment check raises
         side_effect = [
             subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
                 stdout="  origin/egg/issue-2527\n",
-                stderr="",
-            ),
-            subprocess.CompletedProcess(
-                args=[],
-                returncode=0,
-                stdout=self._PLAN_WITH_MISASSIGNED_TASK,
                 stderr="",
             ),
             subprocess.CompletedProcess(
@@ -2442,23 +2524,74 @@ class TestPlannerRoleAlignmentValidation:
             assert "role↔files alignment violations" in data_out.get("message", "")
             # Tracker.handle_propose must NOT have been called — the
             # validator runs BEFORE the tracker, so a rejected proposal
-            # never mutates tracker state. This is the regression
-            # guarantee the PR-1 review flagged as the missing
-            # production-sequence test.
+            # never mutates tracker state.
+            mock_tracker.handle_propose.assert_not_called()
+
+    def test_fence_less_plan_rejected_does_not_mutate_tracker(self):
+        """#3026 end-to-end: a task_planner proposal whose plan draft is present
+        but omits the ``# yaml-tasks`` appendix is rejected (400) at
+        ``handle_consensus_propose_signal`` BEFORE the tracker is mutated — the
+        cheap NACK→re-propose cycle, not a post-consensus populate failure.
+        """
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        # 1. fetch, 2. branch --contains, 3. _validate_plan_proposal's git show
+        # (present but fence-less → parse fails → raise).
+        side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="  origin/egg/issue-2527\n", stderr=""
+            ),
+            subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=self._PLAN_WITHOUT_YAML_TASKS, stderr=""
+            ),
+        ]
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run", side_effect=side_effect),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "task_planner",
+                "payload": {
+                    "summary": (
+                        "Plan v1: 2-slice decomposition described in prose, "
+                        "consolidating the propose-time validators"
+                    ),
+                    "artifacts": [".egg-state/drafts/2527-plan.md"],
+                    "commit_sha": "abc1234",
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "issue-2527", data, Path("/tmp/repo")
+            )
+            assert status_code == 400
+            data_out = response.get_json()
+            assert "does not parse into any tasks" in data_out.get("message", "")
             mock_tracker.handle_propose.assert_not_called()
 
 
 class TestProducerDraftPresentValidation:
     """Tests for ``_validate_producer_draft_present`` in ``signals.py`` (#3016).
 
-    A refine/plan producer that commits its draft to a non-canonical path (or not
-    at all) used to reach BRC consensus and complete the phase, after which the
-    operator gate — which reads ``.egg-state/drafts/{prefix}-{analysis|plan}.md``
-    via ``_get_draft_path`` — reported "No <analysis|plan> draft was found". This
-    validator runs at ``CONSENSUS_PROPOSE`` (always issued in concurrent refine/
-    plan), reads the draft at the proposed commit via ``git show``, and rejects
-    (400) when it is absent so the still-alive producer re-proposes with the draft
-    at the right path.
+    Now the **refine** presence guard. (Plan presence is checked inside
+    ``_validate_plan_proposal`` — see ``TestPlanProposalValidation`` — which folds
+    presence, parseability, and role-alignment into a single read.) A refiner that
+    commits its analysis draft to a non-canonical path (or not at all) used to
+    reach BRC consensus and complete the phase, after which the operator gate —
+    which reads ``.egg-state/drafts/{prefix}-analysis.md`` via ``_get_draft_path``
+    — reported "No analysis draft was found". This validator runs at
+    ``CONSENSUS_PROPOSE`` (always issued in concurrent refine), reads the draft at
+    the proposed commit via ``git show``, and rejects (400) when it is absent so
+    the still-alive refiner re-proposes with the draft at the right path.
     """
 
     @staticmethod
@@ -2530,39 +2663,6 @@ class TestProducerDraftPresentValidation:
                 _validate_producer_draft_present(
                     "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
                 )
-
-    def test_rejects_when_plan_draft_absent_names_plan_path(self):
-        """Plan-phase rejection names the plan draft, not analysis."""
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            self._patched_subprocess("", returncode=128),
-        ):
-            with pytest.raises(ValueError, match=r"no plan draft found.*-plan\.md"):
-                _validate_producer_draft_present(
-                    "plan", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-                )
-
-    def test_accepts_when_plan_draft_present(self):
-        """Plan draft present and non-empty at the proposed commit → no raise.
-
-        Mirrors ``test_accepts_when_refine_draft_present`` to lock the symmetry
-        between the two producer phases — the end-to-end planner test exercises
-        the present-plan path indirectly (call 3 returning non-empty stdout),
-        but this is the direct unit-level confirmation.
-        """
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            self._patched_subprocess("# Plan: issue-3016\n\n## Task 1\nDo the thing.\n"),
-        ):
-            _validate_producer_draft_present(
-                "plan", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-            )
 
     def test_skips_when_pipeline_lookup_fails(self):
         """State store load failure → graceful skip.
@@ -5845,11 +5945,11 @@ class TestDualRoleExecutionOrdering:
 # opposite of the truth.
 #
 # Resolution (this PR-2): orchestrator-side validation runs at
-# CONSENSUS_PROPOSE in routes/signals.py:_validate_planner_role_alignment,
+# CONSENSUS_PROPOSE in routes/signals.py:_validate_plan_proposal,
 # rejecting the planner's proposal with HTTP 400 before the tracker
 # state is mutated. The reviewer prompt no longer carries a per-prompt
 # section; the validator-runs-here tests live in this same file under
-# class TestPlannerRoleAlignmentValidation (above).
+# class TestPlanProposalValidation (above).
 
 
 class TestPlanReviewCriteriaReflectsOrchestratorSideValidation:
