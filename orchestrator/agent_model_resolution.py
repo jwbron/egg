@@ -47,8 +47,9 @@ from egg_contracts.agent_roles import AgentRole
 logger = logging.getLogger(__name__)
 
 # Built-in fallback when neither PipelineConfig.agent_models nor the
-# repository-level default_agent_model is set. Matches today's hardcoded
-# default in ``orchestrator/consensus_wrapper.py::build_consensus_wrapped_command``.
+# repository-level default_agent_model is set. Mirrors the per-agent
+# default on the on-demand spawn path (post-#3023 slice-3) — the
+# ``--model`` flag passed to ``python3 -m egg_agent``.
 DEFAULT_AGENT_MODEL = "opus"
 
 # Upstream identifiers used by the gateway's UpstreamRegistry

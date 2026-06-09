@@ -34,7 +34,6 @@ from agent_model_resolution import (
     classify_model,
     resolve_agent_model,
 )
-from consensus_wrapper import build_consensus_wrapped_command
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
 from models import (
@@ -337,16 +336,41 @@ class ConcurrentPhaseExecutor:
         self,
         agent_prompts: dict[AgentRole, str] | None = None,
     ) -> list[AgentExecution]:
-        """Spawn all agent containers concurrently.
+        """Register every role for this phase with the BRC tracker.
+
+        Post-#3023 slice-3 (TASK-3-2): this no longer spawns a long-lived
+        per-role wrapper pod. The on-demand path is the only spawn path —
+        the orchestrator's per-phase tick re-derives ``next-action`` per
+        role (see ``routes/consensus.py::_derive_next_action`` /
+        ``derive_next_action``) and ``OnDemandSpawner.record_phase_start``
+        (slice-2 TASK-2-8) handles per-phase gateway-session creation +
+        per-role worktree-PVC pre-warm. Every subsequent spawn is a
+        one-shot pod produced by the orchestrator tick.
+
+        The ``agent_prompts`` argument is accepted for signature parity
+        with the pre-#3023 call sites; the on-demand path renders its
+        own per-event prompt via
+        ``orchestrator/routes/event_prompt.py::compose_event_prompt``, so
+        the dict here is no longer interpolated into a wrapper bash
+        template. Callers can pass ``None`` (or an empty dict) without
+        changing observable behaviour.
+
+        The function name ``spawn_all`` is stale post-#3023 (it now
+        registers, doesn't spawn). A follow-up cleanup issue
+        renames it to ``register_phase_roles`` once the cq-6 overseer
+        unification (also a follow-up) is in flight; bundling the rename
+        with the topology change would have inflated the cq-4 big-bang
+        diff for no incremental safety.
 
         Args:
-            agent_prompts: Mapping of role to prompt text. When provided,
-                each agent container is started with a Claude CLI command
-                using the role-specific prompt.
+            agent_prompts: Accepted for signature parity; no longer used
+                (the per-event prompt is composed at tick time).
 
         Returns:
-            List of AgentExecution records for spawned agents.
+            An empty list — ``AgentExecution`` records are emitted by the
+            on-demand spawner per event, not by this registration call.
         """
+        del agent_prompts  # interface parity with the pre-#3023 signature
         roles = self.get_agent_roles()
         graph = self._get_review_graph()
         config = self.pipeline.config
@@ -386,7 +410,13 @@ class ConcurrentPhaseExecutor:
                     auto_acked=auto_acked,
                 )
 
-        return self._spawn_roles(roles, agent_prompts or {})
+        # No long-lived per-role pod spawn — ``OnDemandSpawner.record_phase_start``
+        # (slice-2 TASK-2-8) handles session + worktree-PVC pre-warm at
+        # phase start; the orchestrator tick handles every subsequent
+        # spawn on demand. Returning an empty list keeps the signature
+        # compatible with the pre-#3023 call sites (which used to read
+        # the list for their initial ``AgentExecution`` accounting).
+        return []
 
     def spawn_specific_roles(
         self,
@@ -395,10 +425,20 @@ class ConcurrentPhaseExecutor:
     ) -> list[AgentExecution]:
         """Spawn a subset of agent roles.
 
-        Used by the phase coordinator's transient-failure retry path
-        (#1879): after ``spawn_all`` returns with some roles in FAILED
-        state, the coordinator classifies failures and calls this to
+        Originally the phase coordinator's transient-failure retry path
+        (#1879): after ``spawn_all`` returned with some roles in FAILED
+        state, the coordinator classified failures and called this to
         respawn just the failed roles without disturbing survivors.
+
+        Post-#3023 slice-3: the long-lived per-role wrapper pod is
+        retired so the transient-failure-retry path is no longer
+        exercised in production — the orchestrator tick handles every
+        spawn on demand and retries are scheduled per event by the
+        on-demand spawner. The method is kept here so the cq-4 big-bang
+        retirement diff doesn't sweep up every retry-path call site in
+        the same PR; a follow-up cleanup issue retires both
+        ``spawn_specific_roles`` and ``_spawn_roles`` once the
+        ``register_phase_roles`` rename lands.
 
         Does not touch the consensus tracker — roles were already
         registered by the original ``spawn_all`` call.
@@ -497,9 +537,17 @@ class ConcurrentPhaseExecutor:
             )
             decision = classify_model(DEFAULT_AGENT_MODEL)
 
+        # Post-#3023 slice-3 (TASK-3-2): the long-lived per-role
+        # wrapper pod is retired. ``_spawn_agent`` no longer composes a
+        # ``bash -c`` script around the agent invocation — the
+        # on-demand spawn path (slice-2 TASK-2-4) builds the
+        # ``python3 -m egg_agent --model X --max-turns N`` command and
+        # passes the per-event prompt on stdin instead. The remaining
+        # call sites of this method are the test-harness paths that
+        # mock ``spawn_fn`` directly; they pass ``command=None`` and
+        # the spawner uses the image's default entrypoint.
         command: list[str] | None = None
-        if prompt_text:
-            command = build_consensus_wrapped_command(prompt_text, model=decision.claude_code_alias)
+        del prompt_text  # interface parity with the pre-#3023 signature
 
         # On the LiteLLM path Claude Code needs the ANTHROPIC_CUSTOM_MODEL_OPTION
         # env vars to opt into 1M-context compaction math (#2832). The decision's

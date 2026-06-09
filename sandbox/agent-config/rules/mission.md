@@ -159,11 +159,11 @@ You do **not** need to call `egg-orch message wait` yourself, hold a polling loo
 - The orchestrator *observes* consensus, it doesn't *decide* it
 - **Producers**: orient → work → propose → on each invocation, respond to reviews or confirm consensus
 - **Reviewers**: on each invocation, prepare → review the named proposal → ACK/NACK (or re-confirm on `CONSENSUS_RE_REVIEW`)
-- **Dual-role agents** (e.g. `tester`): handle both the producer-side and reviewer-side events for the invocation, in the order the wrapper dispatches them
+- **Dual-role agents** (e.g. `tester`): handle both the producer-side and reviewer-side events for the invocation, in the order the orchestrator dispatches them
 - **Adversarial re-review** of a producer's v2+ delta is a fresh review — read the per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` delivered in your prompt; the durable BRC memory file under `.egg-state/agent-outputs/<role>/` carries the prior verdict so you can compare without re-reading the codebase end-to-end
-- See `$EGG_REPO_PATH/docs/architecture/orchestrator.md` (BRC Event-Pump Wrapper section) for the wrapper-side lifecycle and `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md` §10 for the wait surface
+- See `$EGG_REPO_PATH/docs/architecture/orchestrator.md` (BRC On-Demand Agent Spawning section) for the orchestrator-side lifecycle and `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md` §10 for the wait surface
 
-> **Legacy path note.** The collapsed preamble above is shared by both wrapper paths — `_build_brc_preamble` is collapsed unconditionally in slice-3. The flag that varies is the **wrapper**, not the preamble. With `EGG_BRC_EVENT_PUMP=false` (today's default; slice-4 flips it), the legacy capped-restart wrapper (`orchestrator/consensus_wrapper.py`) re-supplies wait / restart instructions through its built-in recovery system prompt on each agent restart — follow whatever your live prompt says rather than the meta-reference here. With `EGG_BRC_EVENT_PUMP=true`, the event-handler contract above is the production behaviour.
+> **Lifecycle note.** Post-#3023 the orchestrator spawns a one-shot pod per actionable BRC event — your invocation handles ONE event then exits, and the orchestrator's per-phase tick re-derives `next-action` to schedule the next spawn. The collapsed preamble above is the event-handler contract; the legacy `EGG_BRC_EVENT_PUMP` flag and `orchestrator/consensus_wrapper.py` are gone. Follow whatever your live per-event prompt says — the durable BRC memory file under `.egg-state/agent-outputs/<role>/` carries the cross-invocation continuity that the wrapper bash loop used to hold.
 
 ### Anti-Sycophancy Requirements
 

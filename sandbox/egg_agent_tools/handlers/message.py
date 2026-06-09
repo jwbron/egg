@@ -38,20 +38,20 @@ _HEARTBEAT_STATES = {
 # gateway-session keep-alive path (``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS``,
 # ``_default_emit_wait_loop_heartbeat``, ``_start_wait_loop_heartbeat``,
 # and the per-iteration emit_hb invocations inside ``message_wait_loop``).
-# The event-pump wrapper now owns both responsibilities:
+# Post-#3023 (slice-3) those responsibilities are owned by the
+# orchestrator, not the sandbox:
 #
-#   * heartbeat liveness (#2036): the wrapper's
-#     ``start_background_heartbeat`` subshell in
-#     ``orchestrator/consensus_wrapper.py:_EVENT_PUMP_WRAPPER_TEMPLATE``
-#     emits ``egg-orch message heartbeat`` every 30 s while blocking on
-#     ``egg-orch message wait-loop``.
-#   * gateway-session keep-alive (#2451): the same heartbeat carries
-#     ``slice_id`` (sourced from ``$EGG_SLICE_ID``), so the orchestrator's
-#     ``_maybe_attach_slice_id`` fan-out refreshes the slice-scoped
-#     container session as a side effect of every wrapper heartbeat.
+#   * heartbeat liveness (#2036): emitted by the orchestrator's
+#     ``OrchestratorSessionKeepAlive`` (slice-2 / cq-2) for each
+#     ``(pipeline_id, role)`` while a phase is in flight.
+#   * gateway-session keep-alive (#2451): the orchestrator-owned
+#     keep-alive heartbeat carries ``slice_id`` (sourced from
+#     ``EGG_SLICE_ID`` of the per-phase context), so
+#     ``_maybe_attach_slice_id`` on the gateway fan-out continues to
+#     refresh the slice-scoped session as a side effect.
 #
 # ``message_heartbeat`` (the explicit handler below) is unchanged — it
-# is still the path the wrapper bash invokes via
+# is still the path the orchestrator's keep-alive uses via
 # ``egg-orch message heartbeat`` and that callers like the overseer
 # self-test still exercise directly.
 

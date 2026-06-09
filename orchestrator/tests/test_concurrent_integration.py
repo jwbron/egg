@@ -657,11 +657,18 @@ class TestConcurrentPromptLifecycle:
         assert "exit successfully" in prompt
 
 
-class TestSpawnUsesConsensusWrapper:
-    """Tests that concurrent spawns use the consensus shell wrapper."""
+class TestSpawnUsesOnDemandEntrypoint:
+    """Post-#3023 slice-3: ``_spawn_agent`` no longer wraps the agent in
+    a bash event-pump. The wrapper is retired; the pod entrypoint is
+    ``python3 -m egg_agent`` (the image default) and the per-event
+    prompt is rendered by ``compose_event_prompt`` at tick time.
+    """
 
-    def test_spawn_agent_uses_wrapped_command(self):
-        """_spawn_agent should produce a bash -c wrapper, not raw claude args."""
+    def test_spawn_agent_passes_command_none(self):
+        """_spawn_agent must pass ``command=None`` so the spawner uses
+        the image's default entrypoint. The wrapper bash command shape
+        (``bash -c``) is retired with TASK-3-2.
+        """
         from concurrent_executor import ConcurrentPhaseExecutor
         from models import AgentRole, ContainerInfo
 
@@ -677,16 +684,14 @@ class TestSpawnUsesConsensusWrapper:
         mock_spawn.assert_called_once()
         call_kwargs = mock_spawn.call_args
         command = call_kwargs.kwargs.get("command") or call_kwargs[1].get("command")
-        assert command[0] == "bash"
-        assert command[1] == "-c"
-        assert "egg_agent" in command[2]
-        # Slice-4 (#2908) replaced the capped-restart wrapper with the
-        # event-pump template; check for its deterministic-loop markers
-        # instead of the deleted RESTART_COUNT / "BRC Consensus Recovery"
-        # strings.
-        assert "event-pump" in command[2]
-        assert "egg-orch brc get-state" in command[2]
-        assert "egg-orch brc next-action" in command[2]
+        # Post-#3023 slice-3: no wrapper command is composed; the
+        # spawner uses the image's default entrypoint (``python3 -m
+        # egg_agent --model X --max-turns N``).
+        assert command is None, (
+            "TASK-3-2 acceptance: _spawn_agent must pass command=None "
+            "after the wrapper retirement; observed command="
+            f"{command!r}."
+        )
 
 
 class TestNoImplicitReadyOnCleanExit:
@@ -703,27 +708,32 @@ class TestNoImplicitReadyOnCleanExit:
     # is now enforced by the BRC peer-consensus protocol, not an
     # orchestrator-side readiness evaluator.
 
-    def test_wrapper_drives_event_pump_loop(self):
-        """The wrapper should drive a BRC event-pump loop, not auto-signal READY.
+    def test_orchestrator_drives_event_pump_loop(self):
+        """The orchestrator drives the BRC event-pump loop, not the pod.
 
-        Slice-4 (#2908) deleted the legacy capped-restart wrapper
-        (``RESTART_COUNT`` / "Restarting" / "BRC Consensus Recovery"
-        strings) in favour of the event-pump template, which invokes
-        the agent one-shot per actionable event driven by
-        ``egg-orch brc next-action`` rather than restarting after
-        each exit. The invariant the original test guarded
-        ("orchestrator must not fake consensus on behalf of agents")
-        is preserved: the event-pump never auto-signals READY either.
+        Post-#3023 slice-3 (TASK-3-1): the in-pod ``consensus_wrapper``
+        bash template is deleted; the orchestrator's per-phase tick
+        re-derives ``next-action`` and spawns a one-shot pod per
+        actionable event. The legacy invariant the original test
+        guarded ("orchestrator must not fake consensus on behalf of
+        agents") is preserved by the on-demand spawn path — the
+        orchestrator only spawns when ``next-action != wait`` and
+        never auto-signals consensus on the agent's behalf. The
+        deterministic per-event invocation comes from
+        ``OnDemandSpawner.tick`` + ``compose_event_prompt`` instead of
+        a bash loop inside the pod.
         """
-        from consensus_wrapper import build_consensus_wrapped_command
+        # The wrapper module is gone (TASK-3-1) — assert at the import
+        # level so a regression that re-introduces it is caught here.
+        try:
+            import consensus_wrapper  # type: ignore[import-not-found]  # noqa: F401
 
-        cmd = build_consensus_wrapped_command("Do work")
-        script = cmd[2]
-        # Must drive a deterministic event-pump loop against the BRC bus
-        assert "event-pump" in script
-        assert "egg-orch brc next-action" in script
-        # Must NOT contain auto-READY
-        assert "Auto-signaling READY" not in script
+            raise AssertionError(
+                "TASK-3-1 acceptance: consensus_wrapper module must be "
+                "deleted; on-demand spawning is the only spawn path."
+            )
+        except ImportError:
+            pass
 
 
 class TestConcurrentPhaseSkipsReviewerSpawn:

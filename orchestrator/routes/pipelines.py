@@ -2865,52 +2865,32 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
 
         if is_concurrent_execution(pipeline, phase=current_phase):
-            # Reconstruct extra_env via ConcurrentPhaseExecutor
+            # Reconstruct extra_env via ConcurrentPhaseExecutor so the
+            # restarted agent sees the same BRC env (EGG_BRC_REVIEWERS /
+            # EGG_BRC_PRODUCERS / EGG_CONCURRENT_MODE / ...) it would have
+            # received on the initial spawn.
             executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
             extra_env = executor.get_agent_env(role)
 
-            # Reconstruct the agent prompt and wrap it for consensus.
-            # ``worktree_repo_path`` and ``_resolved_base_branch_for_restart``
-            # were already computed above the slice-aware fallback so the
-            # prompt's diff base, the spawner's ``base_branch`` argument
-            # (and thus the exported ``EGG_BASE_BRANCH``), and the worktree
-            # base cannot diverge within this restart path (#2967 follow-up).
-            # ``worktree_repo_path`` is ``None`` only when the hoisted
-            # resolution failed (logged above); skip prompt reconstruction
-            # in that case rather than passing ``"None"`` as ``repo_path``.
-            try:
-                if worktree_repo_path is None:
-                    raise RuntimeError(
-                        "worktree_repo_path unavailable; skipping prompt reconstruction"
-                    )
-                prompt_text = _build_agent_prompt(
-                    role_value=agent_role,
-                    phase=current_phase,
-                    pipeline_id=pipeline_id,
-                    pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
-                    prompt=pipeline.prompt,
-                    issue_number=pipeline.issue_number,
-                    repo=pipeline.repo,
-                    branch=pipeline.branch,
-                    base_branch=_resolved_base_branch_for_restart,
-                    repo_path=str(worktree_repo_path),
-                    concurrent=True,
-                    network_mode=gateway_mode,
-                )
-                if prompt_text:
-                    from consensus_wrapper import build_consensus_wrapped_command
-
-                    command = build_consensus_wrapped_command(
-                        prompt_text, model=_model_decision.claude_code_alias
-                    )
-            except Exception as prompt_err:
-                logger.warning(
-                    "Failed to reconstruct agent prompt for restart "
-                    "(agent will start without a prompt command)",
-                    pipeline_id=pipeline_id,
-                    agent_role=agent_role,
-                    error=str(prompt_err),
-                )
+            # Post-#3023 slice-3 (TASK-3-2): the restart-on-resume branch
+            # no longer composes a wrapper command. The orchestrator's
+            # per-phase tick re-derives ``next-action`` per role after
+            # restart (see ``routes/consensus.py::derive_next_action``)
+            # and the on-demand spawn path (slice-2 TASK-2-4) handles
+            # every spawn. ``OnDemandSpawner.record_phase_start``
+            # (slice-2 TASK-2-8) is invoked on resume — it re-registers
+            # tracker entries idempotently and re-warms the per-role
+            # gateway session + worktree PVC; the reconstruct-from-
+            # messages fallback at ``routes/consensus.py:111-154``
+            # continues to feed the tracker for any role whose history
+            # was lost during the restart. A fresh ``register_session``
+            # per restart is acceptable because restarts are rare.
+            #
+            # No prompt is composed here: the per-event prompt is rendered
+            # at tick time by ``compose_event_prompt`` and handed to the
+            # pod on stdin. ``command`` stays ``None`` so the spawner uses
+            # the image's default entrypoint
+            # (``python3 -m egg_agent --model X --max-turns N``).
     except ImportError:
         logger.debug("Concurrent executor not available for restart prompt reconstruction")
     except Exception as e:

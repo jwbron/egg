@@ -1,12 +1,14 @@
 """Per-event prompt composer for the BRC event-pump (#2908 slice-3 task-3-1).
 
-The slice-2 event-pump wrapper (``orchestrator/consensus_wrapper.py``)
-invokes the agent one-shot per actionable BRC event. Slice-2 shipped a
-minimal stub prompt; this module is the slice-3 replacement.
+The composer is called by the orchestrator tick's on-demand spawn path
+(``OnDemandSpawner.tick`` → ``compose_event_prompt`` → ``spawn_fn``)
+post-#3023; the rendered envelope is unchanged so the prompt-cache
+prefix hit rate is preserved across the lifecycle change.
 
-The composer assembles the single user prompt the wrapper hands to
-``python3 -m egg_agent`` for a given event. Memory continuity rides on
-the durable per-role memory artifact written by slice-1
+The composer assembles the single user prompt the orchestrator hands to
+``python3 -m egg_agent`` (the pod entrypoint post-#3023) on stdin for a
+given event. Memory continuity rides on the durable per-role memory
+artifact written by slice-1
 (``sandbox/egg_agent_tools/handlers/brc_memory.py``); for review events
 the prompt also includes the FULL ``git log
 {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p`` delta

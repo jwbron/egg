@@ -237,6 +237,49 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             )
             continue
 
+        # ----------------------------------------------------------------
+        # On-demand in-flight fall-through (#3023 slice-3 TASK-3-5)
+        # ----------------------------------------------------------------
+        # Cross-version revert tolerance: after #3023's PR merges, in-
+        # flight pipelines may have on-demand pods (or NO pod at all
+        # between events) because the orchestrator now spawns a one-shot
+        # pod per actionable BRC event rather than holding a long-lived
+        # wrapper pod per role. A reverted orchestrator's reader (this
+        # function) lands on a pipeline state where ``pipeline_live_ids``
+        # is empty but the BRC tracker has a non-empty event history for
+        # at least one role of the current phase — that is the
+        # ``on-demand in-flight`` signature, NOT a crashed pipeline.
+        #
+        # Without this fall-through the reverted reader would treat the
+        # missing wrapper pod as a #2009-style "crashed between submit
+        # and spawn" and mark the pipeline FAILED, which would force
+        # operators into a manual restart for every in-flight pipeline
+        # during a revert window. With this branch the reader leaves the
+        # pipeline RUNNING and the running orchestrator's per-phase tick
+        # re-derives ``next-action`` per role (see
+        # ``routes/consensus.py::_derive_next_action``) and spawns on
+        # demand for any role whose action is not ``wait``.
+        #
+        # The "non-empty event history" check is intentionally permissive
+        # — any role whose tracker has registered a CONSENSUS_PROPOSE /
+        # CONSENSUS_ACK / CONSENSUS_NACK message is enough to identify the
+        # pipeline as having genuinely moved through the on-demand path.
+        # An entirely fresh pipeline with no events (a spawn-failed-on-
+        # first-event scenario) still falls through to the legacy
+        # marking-FAILED path below because the tracker carries nothing
+        # to anchor the in-flight verdict on.
+        if _is_on_demand_in_flight(pipeline, pipeline_id):
+            logger.info(
+                "Startup reconciliation: pipeline has no live pods but BRC "
+                "tracker shows on-demand in-flight events — leaving RUNNING "
+                "(cross-version revert tolerance, #3023 TASK-3-5). The "
+                "running orchestrator's tick will re-derive next-action and "
+                "spawn on demand.",
+                pipeline_id=pipeline_id,
+                phase=current_phase_key,
+            )
+            continue
+
         for container_info in phase_execution.containers:
             if container_info.status == ContainerStatus.RUNNING:
                 if container_info.container_id not in live_ids:
@@ -443,6 +486,105 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         )
 
     return recovered
+
+
+def _is_on_demand_in_flight(pipeline: Any, pipeline_id: str) -> bool:
+    """Return ``True`` when a no-live-pods pipeline is an on-demand in-flight
+    pipeline rather than a crashed one.
+
+    See the ``On-demand in-flight fall-through`` block above
+    (``reconcile_stale_containers``) for the cross-version revert
+    scenario that motivates this branch (#3023 slice-3 TASK-3-5). The
+    heuristic is intentionally permissive — any role whose BRC tracker
+    has at least one non-trivial event (a CONSENSUS_PROPOSE / ACK /
+    NACK in the message history, or a reconstructed-from-messages
+    tracker that already carries a proposal version > 0) is enough to
+    flag the pipeline as having genuinely moved through the on-demand
+    path. The expensive shape (asking the message store for the role's
+    history) is wrapped in a defensive try/except so a reconstruction
+    failure here cannot crash the whole startup-reconciliation loop;
+    on any unexpected exception the function returns ``False`` and the
+    pipeline falls through to the legacy marking-FAILED path, which is
+    the strictly safer behaviour for an undecidable cross-version state.
+
+    Args:
+        pipeline: Pipeline object whose current-phase role set we
+            inspect.
+        pipeline_id: Identifier used to look up the BRC tracker / message
+            store entries.
+
+    Returns:
+        ``True`` if at least one role of the pipeline's current phase
+        has a non-empty BRC event history, signalling on-demand in-flight;
+        ``False`` otherwise (either no events recorded, or the lookup
+        machinery is unavailable).
+    """
+    # Lazy imports inside the function so a missing peer_consensus /
+    # message_store dependency at startup-reconciliation import time
+    # cannot brick the whole reconciler — we just fall through to the
+    # legacy behaviour. ``peer_consensus`` is also the module that
+    # ``reconcile_stale_containers`` already imports below, so the soft
+    # ``ImportError`` swallow here mirrors that pattern.
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        return False
+
+    try:
+        from message_store import MessageType, get_message_store
+    except ImportError:
+        get_message_store = None  # type: ignore[assignment]
+        MessageType = None  # type: ignore[assignment]
+
+    # Tracker check first — cheaper than a message-store query, and
+    # covers the common case where the pipeline-level tracker has been
+    # reconstructed (or never lost) and already carries the in-flight
+    # state.
+    try:
+        tracker = get_peer_consensus_tracker(pipeline_id)
+    except Exception:
+        tracker = None
+    if tracker is not None:
+        try:
+            agents = tracker.evaluate().get("agents") or {}
+        except Exception:
+            agents = {}
+        for _role, state in agents.items():
+            # ``state.producer_phase`` is ``WORKING`` / ``PROPOSED`` /
+            # ``CONFIRMED``; ``reviewer_phase`` is ``REVIEWING`` /
+            # ``ACKED`` / ``NACKED``. Any non-``WORKING`` /
+            # non-``REVIEWING`` phase implies at least one BRC event has
+            # already been recorded for the role, i.e. the pipeline has
+            # genuinely moved past the initial spawn boundary.
+            producer_phase = (state or {}).get("producer_phase")
+            reviewer_phase = (state or {}).get("reviewer_phase")
+            if producer_phase and producer_phase != "WORKING":
+                return True
+            if reviewer_phase and reviewer_phase != "REVIEWING":
+                return True
+
+    # Message-store fallback: a tracker that hasn't been reconstructed
+    # yet (the typical state at startup before
+    # ``reconcile_stale_containers`` runs its reconstruction loop) won't
+    # answer ``evaluate`` usefully, but the persisted message history
+    # still names the events that flowed through the on-demand path.
+    if get_message_store is None or MessageType is None:
+        return False
+    try:
+        store = get_message_store()
+        messages = store.get_messages(pipeline_id=pipeline_id)
+    except Exception:
+        return False
+    for msg in messages or []:
+        mtype = getattr(msg, "message_type", None)
+        if mtype in (
+            MessageType.CONSENSUS_PROPOSE,
+            MessageType.CONSENSUS_ACK,
+            MessageType.CONSENSUS_NACK,
+            MessageType.CONSENSUS_CONFIRMED,
+        ):
+            return True
+    return False
 
 
 def _enumerate_contract_slices(pipeline: Any, store: Any) -> list[str]:

@@ -1,9 +1,10 @@
 """Tests for ``orchestrator/agent_model_resolution.py`` — slice-2 of #2769.
 
 The resolver decides, for a given agent role, which Claude-Code-facing
-model alias to pass to ``build_consensus_wrapped_command``, which
-upstream to register on the gateway session, and which upstream-side
-model name (if any) to put in ``session.upstream_model``.
+model alias to pass as ``--model`` to the on-demand ``python3 -m egg_agent``
+invocation (the pod entrypoint post-#3023 slice-3), which upstream to
+register on the gateway session, and which upstream-side model name
+(if any) to put in ``session.upstream_model``.
 
 Precedence (highest wins):
 
