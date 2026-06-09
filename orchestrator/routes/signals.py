@@ -1468,26 +1468,53 @@ def handle_consensus_propose_signal(
             # guard and let an architect / risk_analyst skip authoring.
             # Refuse with 503 instead and let the producer retry once state
             # is readable.
+            current_phase: str | None = None
+            phase_resolution_error: Exception | None = None
             if pipeline_state is not None:
-                current_phase = pipeline_state.current_phase.value
+                # The commit-on-branch block already loaded state for a
+                # propose that carries both ``commit_sha`` and
+                # ``no_changes_needed=true`` (Pydantic permits it;
+                # ``validate_commit_sha_present`` skips on no-op).  Reuse
+                # the cached state, but still fail closed if the loaded
+                # ``current_phase`` is None — same posture as the
+                # explicit-load branch below: never fall through to a
+                # default-implement assumption when phase is unreadable.
+                phase_attr = getattr(pipeline_state, "current_phase", None)
+                if phase_attr is not None:
+                    current_phase = phase_attr.value
             else:
                 try:
                     store_for_phase = get_state_store(repo_path)
-                    current_phase = store_for_phase.load_pipeline(pipeline_id).current_phase.value
+                    loaded = store_for_phase.load_pipeline(pipeline_id)
+                    phase_attr = getattr(loaded, "current_phase", None)
+                    if phase_attr is not None:
+                        current_phase = phase_attr.value
                 except Exception as exc:
-                    logger.error(
-                        "No-op propose rejected: pipeline phase resolution failed",
-                        pipeline_id=pipeline_id,
-                        role=agent_role,
-                        error=str(exc),
-                    )
-                    return make_error_response(
-                        f"Cannot resolve pipeline phase for no-op propose "
-                        f"({exc}). The phase guard fails closed rather than "
-                        "trust the default-implement fallback. Retry after "
-                        "pipeline state is readable.",
-                        503,
-                    )
+                    phase_resolution_error = exc
+            if current_phase is None:
+                # Both branches converge here: pipeline state is loaded but
+                # ``current_phase`` is None, or state-load itself raised.
+                # Either way the no-op guard cannot prove ``implement`` and
+                # must refuse rather than trust a default.  Log the raw
+                # error for ops; the response body deliberately omits it so
+                # file paths / DB connection strings / traceback fragments
+                # from arbitrary state-store backends don't leak through
+                # this internal API.
+                logger.error(
+                    "No-op propose rejected: pipeline phase resolution failed",
+                    pipeline_id=pipeline_id,
+                    role=agent_role,
+                    error=str(phase_resolution_error)
+                    if phase_resolution_error
+                    else "current_phase is None",
+                )
+                return make_error_response(
+                    "Cannot resolve pipeline phase for no-op propose. "
+                    "The phase guard fails closed rather than trust the "
+                    "default-implement fallback. Retry after pipeline "
+                    "state is readable.",
+                    503,
+                )
             if current_phase != "implement":
                 return make_error_response(
                     f"{agent_role} cannot submit a no-op propose in phase "
