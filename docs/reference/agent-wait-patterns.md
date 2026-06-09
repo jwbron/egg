@@ -1244,63 +1244,81 @@ the configured thread count, raise it.
 > tracked as a follow-up issue. The current Waitress server is sufficient
 > once the thread pool is sized correctly.
 
-## 10. BRC Consensus Wrapper (event-pump model)
+## 10. BRC On-Demand Agent Spawning
 
-> **Landed across slices 1–4 of [#2908](https://github.com/jwbron/egg/issues/2908).**
+> **Landed across [#2908](https://github.com/jwbron/egg/issues/2908) slices 1–4
+> (event-pump wrapper bash, agent-side heartbeat removal) and
+> [#3023](https://github.com/jwbron/egg/issues/3023) slices 1–3
+> (in-pod wrapper retirement, orchestrator-side ownership of wait /
+> heartbeat / session keep-alive / idle alert).**
 > This section is the wait-side companion to
-> [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper);
+> [Orchestrator Architecture — BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning);
 > the architecture doc covers the *why* and the cross-slice rollout
 > plan, this section covers the *wait* surface contract.
 >
-> The event-pump model is now the only path: slice-4 deleted the
-> legacy capped-restart wrapper template, the `_RECOVERY_SYSTEM_PROMPT`,
-> the SSE `consensus.reached` machinery, and the `MAX_CONSENSUS_RESTARTS`
-> cap, and removed the agent-side heartbeat + gateway-session keep-alive
-> from `sandbox/egg_agent_tools/handlers/message.py`. The wrapper holds
-> the BRC wait, dispatches the agent one-shot per actionable event, and
-> emits heartbeats / refreshes the gateway session from background
-> subshells inside the wrapper bash. The §1–§9 contracts above still
-> apply at the `egg-orch message wait-loop` call site itself; what
-> changed is *who calls it* (the wrapper, not the agent's
-> `message_wait_loop`). See [Rollback plan](../architecture/orchestrator.md#rollback-plan)
-> for the `git revert` regression path if production traffic ever
-> needs to fall back to the legacy capped-restart model.
+> Under #3023 the in-pod BRC wrapper bash is **deleted** in its
+> entirety. The orchestrator's per-phase tick holds the BRC wait
+> directly via in-process `_derive_next_action`, owns the per-
+> (pipeline, role) gateway session via `OrchestratorSessionKeepAlive`,
+> emits the phase-level idle / no-progress alert via
+> `PhaseIdleBudgetTimer`, and spawns one-shot `python3 -m egg_agent`
+> pods only when a role has an actionable event. The §1–§9 contracts
+> above still apply at the `egg-orch message wait-loop` call site
+> itself; what changed under #3023 is that this CLI surface is now
+> only consumed by tests and one-off operator probes — production
+> waits happen in-process inside the orchestrator. See
+> [Rollback plan — drain-then-revert (cq-4 big-bang)](../architecture/orchestrator.md#rollback-plan--drain-then-revert-cq-4-big-bang)
+> for the supported regression path back to the pre-#3023 wrapper
+> bash.
 
 ### 10.1 The shape in one diagram
 
 ```text
-PRE-#2908 (deleted in slice-4 task-4-2 — kept here for git-blame readers):
-    container ─► consensus_wrapper.sh
-                    └─ exec python3 -m egg_agent <full prompt>
-                          └─ AGENT holds wait-loop between BRC events
-                               (model-driven re-entry on each event)
-
-STEADY STATE (event-pump, the only path after slice-4):
-    container ─► consensus_wrapper.sh
-                    ├─ background subshell: wrapper-side heartbeat     ◄── §10.3
-                    │     (also keeps the gateway session alive — §10.4)
+PRE-#3023 (deleted in #3023 slice-3 — kept here for git-blame readers):
+    container ─► BRC wrapper bash
+                    ├─ background subshell: wrapper-side heartbeat
+                    │     (also keeps the gateway session alive)
                     └─ deterministic loop:
                          state    = $(egg-orch brc get-state --json)
                          if state.role_complete:
                              egg-orch consensus confirmed; exit 0
                          action   = $(egg-orch brc next-action --json)
                          case action.kind:
-                           WAIT:   egg-orch message wait-loop ${FILTERS}   ◄── §10.2
+                           WAIT:   egg-orch message wait-loop ${FILTERS}
                            INVOKE: python3 -m egg_agent <one-shot event>
+
+STEADY STATE (#3023 on-demand spawn, the only path after slice-3):
+    orchestrator per-phase tick (one blocking thread, all roles)
+        ├─ for role in phase.roles:
+        │     action = derive_next_action(tracker, role)         # in-process
+        │     case action.kind:
+        │       WAIT, COMPLETE: continue            # no spawn
+        │       PROPOSE|ACK|NACK|CONFIRM:
+        │         if (pipeline_id, role) in in_flight: continue  # coalesce
+        │         spawn `python3 -m egg_agent` one-shot          ◄── §10.2
+        │           container ─► `python3 -m egg_agent --model {alias} ...`
+        │                          └─ runs one event to completion, exits 0
+        ├─ session_keepalive.refresh_all(now)                    ◄── §10.4
+        └─ phase_idle_budget.check(now, pending_hitl_count)      ◄── §10.5
 ```
 
-The wait still happens — it just moves out of the agent and into the
-wrapper bash. The §1 idiom is what the wrapper runs; the agent no
-longer runs it directly. The model is invoked **once per actionable
-event**, so the seam where Claude / qwen3.7-max / future-LLM could
-decline to re-enter the wait (the #2906 fall-out) is gone — only the
-deterministic bash loop decides when to wait, when to invoke, and
-when to confirm.
+The wait still happens — it lives in the orchestrator's per-phase tick
+that consumes `derive_next_action` once per role per iteration. The §1
+idiom is what tests and one-off operator probes run against
+`egg-orch message wait-loop`; the orchestrator no longer has any
+process inside the pod that issues the wait. The agent is invoked
+**once per actionable event**, so the seam where Claude / qwen3.7-max /
+future-LLM could decline to re-enter the wait (the #2906 fall-out) is
+gone — only the deterministic orchestrator-side tick decides when to
+spawn, when to coalesce, and when to alert on idleness.
 
 ### 10.2 Wait-filter construction is conditional on `is_role_confirmed`
 
-The wrapper-built filter set is constructed conditionally so the
-self-deadlock from
+The orchestrator's `_derive_next_action` is the in-process equivalent
+of the pre-#3023 wrapper's `egg-orch brc next-action` HTTP call. It
+returns the same action envelope (`WAIT`, `PROPOSE`, `ACK`, `NACK`,
+`CONFIRM`, `COMPLETE`) and the same conditional filter set is enforced
+so the self-deadlock from
 [Anti-pattern 5](#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)
 cannot regress at the new emission site:
 
@@ -1311,43 +1329,48 @@ cannot regress at the new emission site:
 
 The pre-confirm filter is the same six-event set used by every
 producer's RESPOND-TO-REVIEWS step in §1; the post-confirm filter
-matches the STAY-ALIVE set. A snapshot test in
-`orchestrator/tests/test_consensus_wrapper.py` pins **both** filter
-sets and the conditional `CONSENSUS_CONFIRMED` inclusion so the
-HTTP 400 rejection at `/messages/wait` (see
+matches the STAY-ALIVE set. The unit tests pinning these filters live
+alongside `_derive_next_action` and the on-demand spawner — see
+`orchestrator/tests/test_consensus_route.py` for the conditional
+`CONSENSUS_CONFIRMED` inclusion contract — so the HTTP 400 rejection
+at `/messages/wait` (see
 [#2064](https://github.com/jwbron/egg/issues/2064),
 [#2482](https://github.com/jwbron/egg/issues/2482)) cannot land here
 silently.
 
-### 10.3 Heartbeat ownership lives in the wrapper (#2036 migration completed in slice-4)
+### 10.3 Heartbeat emission moved into the orchestrator (#3023 lift)
 
-The wrapper owns BRC heartbeating: a background subshell fires
-`egg-orch message heartbeat` every 30 s while the wrapper's own
-`egg-orch message wait-loop` call is blocking, in parallel with the
-wait. The pre-#2908 agent-side path — `message_wait_loop` in
+The pre-#3023 in-pod wrapper bash owned a background subshell that
+fired `egg-orch message heartbeat` every 30 s while the wrapper's own
+`egg-orch message wait-loop` call was blocking. Under #3023 the
+wait is held in the orchestrator's per-phase tick — there is no
+in-pod loop alive to emit BRC heartbeats between events — so the
+heartbeat-emission responsibility moved with it. The per-phase tick
+records phase activity directly, and the
+[`EGG_HEARTBEAT_RATE_LIMIT`](#5-egg_heartbeat_rate_limit--per-slicerole-heartbeat-cap)
+ceiling still applies to any heartbeat-style traffic from agent pods
+(per `(pipeline_id, slice_id, agent_role)` per minute) — the bucket
+math is unchanged from the #2908 era.
+
+The pre-#2908 agent-side path — `message_wait_loop` in
 `sandbox/egg_agent_tools/handlers/message.py` self-emitting
 `WAITING_FOR_EVENT` once on entry plus every 60 s while blocked
-(see §4 — "the wait primitive owns its lifecycle") — was **deleted
-in slice-4 task-4-2** alongside the legacy capped-restart wrapper
-template. The agent is now one-shot per actionable event, so there
-is no in-pod loop left to emit heartbeats between events; the
-wrapper is the only process alive across the full BRC cycle.
-
-The schema in §4 is unchanged across the #2036 migration; only the
-*emitter* moved. The
-[`EGG_HEARTBEAT_RATE_LIMIT`](#5-egg_heartbeat_rate_limit--per-slicerole-heartbeat-cap)
-ceiling still applies (per `(pipeline_id, slice_id, agent_role)` per
-minute) — the bucket math is unchanged.
+(see §4 — "the wait primitive owns its lifecycle") — was deleted in
+#2908 slice-4 task-4-2. The schema in §4 is unchanged across both
+migrations; only the *emitter* moved (from the agent → the wrapper
+in #2908, then from the wrapper → the orchestrator in #3023).
 
 #### The `slice_id` propagation invariant
 
-The wrapper-side heartbeat payload **must** include `slice_id`
-sourced from `EGG_SLICE_ID`. The propagation rule, with two cases:
+Per-phase activity records emitted by the orchestrator's tick **must**
+include `slice_id` sourced from the slice scope of the per-phase loop
+(equivalent to the per-slice spawn's `EGG_SLICE_ID`). The propagation
+rule, with two cases:
 
-| `EGG_SLICE_ID` in container env | Heartbeat payload `slice_id` |
-|---------------------------------|------------------------------|
-| Set (per-slice spawn) | The env value (e.g. `"slice-2"`). |
-| Unset (pipeline-level / refine / plan) | Explicit `null` **or** omitted entirely — **NEVER** the empty string `""`. |
+| Per-phase loop slice scope | Recorded `slice_id` |
+|---------------------------|----------------------|
+| Per-slice spawn (implement phase) | The slice id (e.g. `"slice-2"`). |
+| Pipeline-level (refine / plan) | Explicit `null` **or** omitted entirely — **NEVER** the empty string `""`. |
 
 Why empty-string is wrong: the rate-limit bucket in §5 is keyed by
 `(pipeline_id, slice_id, agent_role)`. An empty-string `slice_id` does
@@ -1356,39 +1379,62 @@ own bucket, distinct from both the canonical pipeline-level bucket
 and from any sibling slice's bucket. A regression that emitted `""`
 would silently back-pressure the wrong bucket and leave both the
 true pipeline-level bucket and the real per-slice buckets unaffected
-by what looked like heartbeat activity. The unit test pinned to this
+by what looked like activity. The unit test pinned to this
 invariant asserts directly on the request body so a wiring regression
 fails at the emission site, not later via skewed rate-limit logs.
 
-### 10.4 Gateway-session keep-alive lives in the wrapper (#2451 migration completed in slice-4)
+### 10.4 Gateway-session keep-alive moved into the orchestrator (#3023 cq-2)
 
-The wrapper-side heartbeat POST *is* the gateway-session keep-alive
-vehicle: **one subshell, two effects** (overseer liveness +
-gateway-session idle reset). The orchestrator's
-`/messages/<pipeline>/heartbeat` route at
-`orchestrator/routes/messages.py::post_heartbeat` fans every
-accepted-or-deduped heartbeat through `_refresh_gateway_session`
-(see the call sites in `post_heartbeat` and the helper itself), so
-the keep-alive effect rides for free on the heartbeat subshell
-registered in §10.3 — there is no separate "keep-alive subshell" in
-the bash, and a future maintainer who adds one would emit a
-redundant double-heartbeat. The pre-#2908 gateway-session keep-alive
-that lived inside `message_wait_loop` was **deleted in slice-4
-task-4-2** alongside the agent-side heartbeat.
+Under #3023 the gateway-session keep-alive is held by the
+orchestrator-side `OrchestratorSessionKeepAlive`
+(`orchestrator/session_keepalive.py`) as a
+`{(pipeline_id, role): SessionRecord(token, created_at,
+last_validated_at, idle_timeout_minutes)}` map. The per-phase tick
+calls `refresh_all(now)` once per iteration, which validates any
+record whose age exceeds `idle_timeout_minutes − 5` against the same
+gateway `validate_session` endpoint the pre-#3023 wrapper heartbeat
+hit. There are no new threads — this is a single multiplexed loop.
+Per-event spawns receive `EGG_SESSION_TOKEN` resolved via the per-role
+lookup and **never** call `register_session` themselves — the spawner
+short-circuits the register branch via a `precreated_session_token`
+kwarg. If the lookup returns `None` the spawn aborts with
+`SessionNotRegisteredError` and fires
+`OVERSEER_ALERT(anomaly="missing_session_token")`; there is no
+fresh-session fallback by design.
 
-### 10.5 Idle / no-progress safety budget
+The pre-#3023 keep-alive piggyback (where the in-pod wrapper's
+heartbeat subshell POST doubled as the session keep-alive vehicle via
+`orchestrator/routes/messages.py::post_heartbeat ➜ _refresh_gateway_session`)
+is **gone** along with the wrapper bash itself: there is no in-pod
+process left to emit the heartbeat that would piggyback. Operators
+that previously read the wrapper's heartbeat cadence to confirm
+gateway-session liveness now read `OrchestratorSessionKeepAlive`'s
+per-role validation cadence (one validation per `idle_timeout_minutes
+− 5` per role).
 
-Clean exit after an actionable event is expected in the event-pump
-model — the wrapper simply loops to the next event. There is no
-"agent failed; restart it" path to bound after slice-4 task-4-2
-deleted `MAX_CONSENSUS_RESTARTS = 3` and the `_RECOVERY_SYSTEM_PROMPT`
-recovery-restart cycle. Liveness is instead governed by an
-**idle / no-progress safety budget** controlled by
-`EGG_BRC_IDLE_BUDGET_MIN`:
+### 10.5 Idle / no-progress safety budget (orchestrator-side, #3023 cq-3)
+
+Clean exit after an actionable event is expected in the on-demand
+spawn model — the orchestrator's tick simply spawns the next pod when
+the next actionable event arrives. There is no "agent failed; restart
+it" path to bound after #2908 slice-4 task-4-2 deleted
+`MAX_CONSENSUS_RESTARTS = 3` and the `_RECOVERY_SYSTEM_PROMPT`
+recovery-restart cycle. Liveness is instead governed by a
+**phase-level idle / no-progress safety budget** controlled by
+`EGG_BRC_IDLE_BUDGET_MIN` and emitted by `PhaseIdleBudgetTimer`
+(`orchestrator/phase_idle_budget.py`):
 
 | `EGG_BRC_IDLE_BUDGET_MIN` | What happens at threshold |
 |---------------------------|---------------------------|
-| default `30` (minutes) | At budget threshold, wrapper emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `high`) and **continues blocking** (no `exit 1`, no FAILED transition). At `2 ×` budget the alert priority escalates and the wrapper still keeps blocking. Idleness is **not** a FAILED transition. |
+| default `30` (minutes) | At budget threshold, the orchestrator emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `medium`) and **continues the tick** (no `exit 1`, no FAILED transition). At `2 ×` budget the alert priority escalates and the tick keeps running. Idleness is **not** a FAILED transition. HITL-pending suppression (AC-R13): when `pending_hitl_count > 0` the 1× alert downgrades to `priority=low` with pending HITL IDs in `reason`; the 2× alert is suppressed. |
+
+The signal granularity changed under #3023: the pre-#3023 wrapper-side
+alert was **per-role** (one alert per role per threshold bucket); the
+orchestrator-side alert is **per-phase** (one alert per phase per
+threshold bucket, fired when no role has spawned for X minutes). The
+structured `per_role_state` payload (AC-R4) carried on every alert
+re-exposes per-role granularity for operator triage — see
+[Orchestrator Architecture — Phase-level idle-budget alert (cq-3)](../architecture/orchestrator.md#phase-level-idle-budget-alert-cq-3).
 
 The trade is deliberate: a long-but-legitimate quiet phase could
 exhaust restarts and FAIL a healthy pipeline under the pre-#2908
@@ -1401,82 +1447,100 @@ real BRC phases during WS7 empirical measurement (see the
 results), so a first overseer alert at the threshold is meaningful
 signal rather than noise.
 
-### 10.6 409 `stale_version` / aggregated-NACK are event-pump signals, not transient errors
+### 10.6 409 `stale_version` / aggregated-NACK are on-demand-spawn signals, not transient errors
 
 Two BRC responses that are legitimately `HTTP 409` — `stale_version`
 (see §1 "Stale-version verdict rejection") and the
 multi-reviewer aggregated-NACK barrier (see §1 "Multi-reviewer NACK
-aggregation barrier") — must be handled by the wrapper as
-**event-pump signals**, not as transient HTTP errors:
+aggregation barrier") — must be handled by the orchestrator as
+**on-demand-spawn signals**, not as transient HTTP errors:
 
 ```text
-egg-orch brc next-action --json
-# HTTP 409, body inlines current_proposal snapshot OR unresolved NACKs
+derive_next_action(tracker, role)        # in-process equivalent of `brc next-action`
+# HTTP 409 (when surfaced over HTTP), body inlines current_proposal snapshot OR unresolved NACKs
 
 WRONG: back off, retry the same call
-RIGHT: re-fetch state via `egg-orch brc get-state` and re-invoke
-       `egg-orch brc next-action` — the new action.kind tells the
-       wrapper what to do (re-review against the current version, or
+RIGHT: re-fetch state via `brc get-state` and re-invoke
+       `derive_next_action` — the new action.kind tells the
+       orchestrator what to do (re-review against the current version, or
        wait for the producer to address the aggregated NACKs, etc.).
 ```
 
-The wrapper does **not** apply transient-retry backoff on 409 — that
-would silently mask the producer's real obligation to read the
+The orchestrator does **not** apply transient-retry backoff on 409 —
+that would silently mask the producer's real obligation to read the
 inlined NACKs from the response envelope, aggregate the fixes, and
 re-propose. The exit-code contract in §3 (rc=3 permanent → exit 1)
-still applies to genuine 4xx misuse; 409 against `next-action` is a
-state transition, not misuse.
+still applies to genuine 4xx misuse on the surviving CLI surface; 409
+against `next-action` is a state transition, not misuse.
 
-### 10.7 Verification stance — unit-test-only, by design
+### 10.7 Verification stance — unit + integration
 
-The wrapper ships with **unit-test-only** verification of the
-event-pump template path. This is not a thoroughness gap — it is a
-deliberate boundary anchored in
-[#2474](https://github.com/jwbron/egg/issues/2474):
+The on-demand spawn path is covered at both the unit and integration
+levels (a tighter stance than the pre-#3023 unit-test-only contract
+inherited from #2908). The trust-boundary rationale from
+[#2474](https://github.com/jwbron/egg/issues/2474) still applies —
+no in-process test double can drive a deployed pod end-to-end:
 
-- `orchestrator/tests/test_consensus_wrapper.py` covers the snapshot
-  of the event-pump six-event wait-filter, conditional
-  `CONSENSUS_CONFIRMED` inclusion pre- vs post-confirm (§10.2),
-  wrapper-side heartbeat cadence + `slice_id` wiring (§10.3, direct
-  request-body assertion), wrapper-side keep-alive cadence (§10.4),
-  idle-budget overseer alert at threshold (§10.5), 409
-  `stale_version` re-fetch path (§10.6), and a defensive guard that
-  the wrapper does **not** also call `egg-orch progress complete`
-  (the architect-corrected pseudocode typo from the slice-2 design
-  review). The slice-2/-3 snapshot tests that pinned the byte-for-byte
-  `_CONSENSUS_WRAPPER_TEMPLATE` (flag-off) emission were retired in
-  slice-4 task-4-3 alongside the legacy template deletion; the
-  idle-budget test now serves as the canonical liveness coverage.
-- `integration_tests/regression/test_brc_*.py` runs against the
-  event-pump wrapper (the only emission path after slice-4 task-4-2)
-  and must stay green — it pins zero orchestrator-side regression on
-  the existing in-process `PeerConsensusTracker` path.
+- **Unit.** `PhaseIdleBudgetTimer`, `OnDemandSpawner` (mocked spawner +
+  tracker), `OrchestratorSessionKeepAlive` (mocked gateway),
+  `KubernetesSpawner.create_on_demand_spawn_fn` (mocked k8s API), and
+  the in-process / HTTP-route parity of `derive_next_action`. The
+  `_derive_next_action` filter contract (§10.2) is pinned in
+  `orchestrator/tests/test_consensus_route.py`; the per-phase idle
+  alert is pinned in
+  `orchestrator/tests/test_phase_idle_budget.py`; the on-demand spawn
+  loop is pinned in `orchestrator/tests/test_on_demand_spawner.py`.
+- **Integration.** The orchestrator run loop drives one full BRC cycle
+  (propose → ack → confirm) for a role, asserting exactly one spawn per
+  actionable event, zero spawns on wait, a bare
+  `python3 -m egg_agent` command (no `bash -c`), per-spawn log
+  retention, and the phase-level idle alert at 30 min of no spawns.
+  `integration_tests/regression/test_brc_*.py` runs against the
+  on-demand path and pins zero regression on the
+  `PeerConsensusTracker` semantics.
+- **Restart resilience.** Orchestrator restart mid-phase; the
+  reconstruct-from-messages fallback at
+  `routes/consensus.py:111-154` still works; the tick re-derives next
+  action and spawns whatever was actionable; session keep-alive is
+  re-populated by `record_phase_start` on resume.
+- **No BRC behaviour change.** The per-event prompt is byte-identical
+  to the pre-#3023 wrapper-rendered prompt for the same
+  `(role, event_payload)` pair; the prefix-cache hit rate is preserved
+  (validated against the LiteLLM cost/cache logger).
 - **End-to-end validation lives in `egg_stack`'s real-pod fixture.**
-  No in-process test double can drive a deployed pod end-to-end —
-  the pod-injection `ScriptedProvider` avenue was ruled out per
+  The pod-injection `ScriptedProvider` avenue was ruled out per
   #2474 (see `integration_tests/regression/conftest.py` and the
   comment block at the top of
   `integration_tests/regression/test_brc_concurrency.py`). The
   #2906 qwen3.7-max repro is exercised via the
   `egg_stack` real-pod fixture
   (`integration_tests/conftest.py::egg_stack`); this stance pinned
-  the slice-2 verification scope through the rollout window and now
-  defines the steady-state contract for the consensus wrapper.
+  the #2908 verification scope through the rollout window and now
+  defines the steady-state contract for the on-demand spawn path.
 
 See [docs/architecture/integration-test-trust-boundary.md](../architecture/integration-test-trust-boundary.md)
 for the trust-boundary rationale.
 
-### 10.8 Rollout completed in slice-4
+### 10.8 Rollout completed in #3023 slice-3
 
-The event-pump default flipped on in slice-4 of #2908 (task-4-1)
-and the legacy `_CONSENSUS_WRAPPER_TEMPLATE` emission was deleted
-in slice-4 task-4-2 alongside the agent-side `message_wait_loop`
-heartbeat / keep-alive code and the `EGG_BRC_EVENT_PUMP` env var
-itself — the orchestrator no longer reads it, so setting it has no
-effect on a post-slice-4 codebase. The supported regression path is
-`git revert` of slice-4 / slice-3 / slice-2 / slice-1 in
-reverse-merge order; see
-[Rollback plan](../architecture/orchestrator.md#rollback-plan).
+The on-demand spawn path landed across three #3023 slices that ship
+as a single PR (cq-4 big-bang, no feature flag): slice-1 added the
+orchestrator-side `PhaseIdleBudgetTimer` with a coexistence guard;
+slice-2 added the `OnDemandSpawner` and per-(pipeline, role) gateway
+session keep-alive while the still-spawned wrapper pod was made
+passive via `EGG_EVENT_LOOP_OWNER=orchestrator`; slice-3 deleted the
+in-pod wrapper bash in its entirety, collapsed the pod entrypoint to
+`python3 -m egg_agent --model {alias} --max-turns {N}` with the
+composed prompt on stdin, moved SIGTERM handling into
+`shared/egg_agent/__main__.py`, and shipped a tolerant pod-state
+reader so a cross-version `git revert` drains in-flight pipelines
+without crashing on a missing wrapper.
+
+The pre-#3023 `EGG_BRC_EVENT_PUMP` flag was already removed in
+#2908 slice-4 task-4-2 — the orchestrator no longer reads it, so
+setting it has no effect on a post-slice-4 codebase. The supported
+regression path is now the
+[drain-then-revert protocol](../architecture/orchestrator.md#rollback-plan--drain-then-revert-cq-4-big-bang).
 
 ### 10.9 BRC Per-Event Prompt Composer + Preamble Collapse
 
@@ -1628,11 +1692,12 @@ spec; prefer the `_build_brc_preamble` function name as the
 navigation anchor since these line numbers drift with surrounding
 edits) are unchanged by the collapse — only the preamble text shrinks,
 the call sites are byte-identical. **The collapse runs unconditionally**
-at every agent spawn: the event-pump wrapper is now the only
-consensus-wrapper path (see
-[BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper)),
-and the collapsed preamble is the only preamble the wrapper-driven
-agent sees. The snapshot regression test at
+at every agent spawn: under [#3023](https://github.com/jwbron/egg/issues/3023)
+the orchestrator's on-demand spawn loop is now the only path the
+preamble travels through (see
+[BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning)),
+and the collapsed preamble is the only preamble the agent sees on
+each per-event invocation. The snapshot regression test at
 `orchestrator/tests/test_brc_preamble_collapsed.py` (task-3-7) pins
 the absence of STAY-ALIVE / wait-loop / cursor strings, the
 presence of the agent roster, the presence of the phrase "Both must
@@ -1720,7 +1785,7 @@ implementation cites:
 - [Issue #1897](https://github.com/jwbron/egg/issues/1897) — original bug report with the four observed anti-patterns
 - [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (the MCP variant superseded by #2211)
 - [Issue #2211](https://github.com/jwbron/egg/issues/2211) — wake-storm fix: replace MCP wait tools with Bash CLI
-- [Orchestrator Architecture — BRC Consensus Wrapper](../architecture/orchestrator.md#brc-consensus-wrapper) — architecture-side companion to §10
+- [Orchestrator Architecture — BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning) — architecture-side companion to §10
 - [Orchestrator Architecture — BRC Per-Event Prompt Composer + Preamble Collapse](../architecture/orchestrator.md#brc-per-event-prompt-composer--preamble-collapse) — architecture-side companion to §10.9
 - [Architecture — BRC Memory Artifact](../architecture/brc-memory.md) — slice-1 of #2908; supplies the per-producer `last_reviewed_commit_sha` that slice-3's composer substitutes into the per-event git-log delta
 - [REVIEWER-SYNC — re-review diff command alignment](../../shared/prompts/REVIEWER-SYNC.md) — why the slice-3 composer emits the **full** per-producer `git log {last_reviewed_commit_sha}..HEAD --not origin/{base_branch} -p` instead of an orchestrator-`changed_artifacts` shortcut (the PR reviewer and SDLC reviewer share this contract)

@@ -111,7 +111,7 @@ The `brc_state` section mirrors `PeerConsensusTracker` state and enables agents 
 }
 ```
 
-The consensus wrapper (`consensus_wrapper.py`) automatically loads anchor data into its recovery prompt when `AGENT_ANCHOR_ID` is set, so agents resume BRC from the correct state.
+**Historical note.** Pre-#3023 the long-lived in-pod BRC wrapper bash automatically loaded anchor data into its recovery prompt when `AGENT_ANCHOR_ID` was set. Under [#3023](https://github.com/jwbron/egg/issues/3023) on-demand spawning that wrapper bash is gone — there is no in-pod recovery loop to assemble — and recovery context is built by the orchestrator before each on-demand spawn instead. See [Orchestrator Architecture — BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning).
 
 ## Conflict Resolution
 

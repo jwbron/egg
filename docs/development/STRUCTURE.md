@@ -106,7 +106,9 @@ orchestrator/
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
-├── consensus_wrapper.py    # Shell wrapper template: deterministic event-pump loop (sole path since slice-4; legacy capped-restart template and EGG_BRC_EVENT_PUMP flag deleted)
+├── on_demand_spawner.py    # On-demand per-event BRC agent spawner (#3023). Replaced the in-pod wrapper bash; spawns `python3 -m egg_agent` one-shot per actionable event with coalescing + per-role single-pod-in-flight precondition.
+├── phase_idle_budget.py    # Phase-level idle / no-progress safety budget timer (#3023 cq-3). Emits stuck-phase-transition OVERSEER_ALERT at threshold and at 2× threshold with structured per_role_state payload + HITL-pending suppression.
+├── session_keepalive.py    # Per-(pipeline, role) gateway-session keep-alive map (#3023 cq-2). Held by the orchestrator across per-event spawns so the pre-#3023 gateway-session reuse property is preserved without the in-pod wrapper.
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── events.py               # Event bus for pipeline events

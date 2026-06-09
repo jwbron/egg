@@ -740,15 +740,16 @@ POST /api/v1/pipelines/{pipeline_id}/signal
 > **[#3023](https://github.com/jwbron/egg/issues/3023) inverts the BRC
 > agent lifecycle.** Before #3023 the orchestrator spawned the full team
 > at phase start and each pod ran a long-lived in-pod event-pump bash
-> loop (`orchestrator/consensus_wrapper.py`) that long-polled the bus and
-> invoked the agent one-shot per event, staying alive (idle, heartbeating,
+> loop (the legacy BRC pod wrapper, deleted in slice 3) that long-polled
+> the bus and invoked the agent one-shot per event, staying alive
+> (idle, heartbeating,
 > holding a gateway session) for the whole phase. After #3023 the
 > orchestrator lifts the wait out of the pods into a single blocking
 > thread that covers every role: it derives per-role actionability with
 > `_derive_next_action` and spawns a one-shot pod **only when a role has
 > an actionable event**. The pod handles the event and exits. There are
 > no idle pods. The wait-side companion is
-> [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model).
+> [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-on-demand-agent-spawning).
 >
 > Per-phase reuse of the prompt-cache prefix, gateway session, and
 > worktree is **unchanged**: the orchestrator now holds a per-(pipeline,
@@ -791,7 +792,7 @@ dependent slices that ship as a single PR.
 |-------|-------|
 | 1 | Orchestrator-side phase-level idle-budget alert (`orchestrator/phase_idle_budget.py::PhaseIdleBudgetTimer`); wrapper coexistence guard so only one path emits the idle alert during slice-2 burn-in. |
 | 2 | `OnDemandSpawner` + the per-event spawn function in `KubernetesSpawner.create_on_demand_spawn_fn`; per-(pipeline, role) gateway-session keep-alive (`orchestrator/session_keepalive.py::OrchestratorSessionKeepAlive`); per-role worktree-PVC reuse across spawns; per-spawn pod-log capture; orphan-commit detector. The still-spawned wrapper pod is made passive via `EGG_EVENT_LOOP_OWNER=orchestrator` so exactly one path emits BRC verbs during slice-2 burn-in. |
-| 3 | `orchestrator/consensus_wrapper.py` retirement (entire file deleted); pod entrypoint collapses to `python3 -m egg_agent --model {alias} --max-turns {N}` with the composed prompt on stdin; SIGTERM handling moves into `shared/egg_agent/__main__.py`; tolerant pod-state reader so a cross-version `git revert` (cq-4 big-bang) drains in-flight pipelines without crashing on a missing wrapper. |
+| 3 | Legacy BRC pod wrapper retirement (the in-pod event-pump bash file is deleted in its entirety); pod entrypoint collapses to `python3 -m egg_agent --model {alias} --max-turns {N}` with the composed prompt on stdin; SIGTERM handling moves into `shared/egg_agent/__main__.py`; tolerant pod-state reader so a cross-version `git revert` (cq-4 big-bang) drains in-flight pipelines without crashing on a missing wrapper. |
 
 The architecture is conceptually simple: the orchestrator owns
 sequencing, lifecycle, and session state; the agent owns judgment
@@ -1053,7 +1054,7 @@ orchestrator-side phase-idle-budget threshold (cq-3 — same threshold,
 same anomaly tag, same priority semantics; per-role granularity is
 replaced by the structured `per_role_state` payload).
 
-The [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-consensus-wrapper-event-pump-model)
+The [agent-wait-patterns §10](../reference/agent-wait-patterns.md#10-brc-on-demand-agent-spawning)
 section remains the wait-side companion to this architecture
 description.
 
@@ -1399,7 +1400,7 @@ if is_orchestrator_mode():
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
-| `EGG_BRC_EVENT_PUMP` | **Removed in [#2908](https://github.com/jwbron/egg/issues/2908) slice-4 task-4-2.** During the slice-2/-3 rollout this flag selected between the legacy `_CONSENSUS_WRAPPER_TEMPLATE` (`false`) and the new `_EVENT_PUMP_WRAPPER_TEMPLATE` (`true`). Slice-4 deleted the legacy template, the surrounding selector logic, and the env var read itself — the orchestrator no longer consults this variable. The supported regression path is now [#3023](https://github.com/jwbron/egg/issues/3023)'s drain-then-revert protocol (see [Rollback plan — drain-then-revert (cq-4 big-bang)](#rollback-plan--drain-then-revert-cq-4-big-bang)); reverting #3023 restores the wrapper bash and the #2908 lineage on top of it. | n/a (removed) |
+| `EGG_BRC_EVENT_PUMP` | **Removed in [#2908](https://github.com/jwbron/egg/issues/2908) slice-4 task-4-2.** During the slice-2/-3 rollout this flag selected between the legacy capped-restart wrapper bash template (`false`) and the new event-pump wrapper bash template (`true`). Slice-4 deleted the legacy template, the surrounding selector logic, and the env var read itself — the orchestrator no longer consults this variable. The supported regression path is now [#3023](https://github.com/jwbron/egg/issues/3023)'s drain-then-revert protocol (see [Rollback plan — drain-then-revert (cq-4 big-bang)](#rollback-plan--drain-then-revert-cq-4-big-bang)); reverting #3023 restores the wrapper bash and the #2908 lineage on top of it. | n/a (removed) |
 | `EGG_BRC_IDLE_BUDGET_MIN` | Phase-level idle / no-progress safety budget in minutes ([#2908](https://github.com/jwbron/egg/issues/2908) introduced the wrapper-side timer at this threshold; [#3023](https://github.com/jwbron/egg/issues/3023) moved ownership to the orchestrator's `PhaseIdleBudgetTimer` with the same threshold and anomaly tag). At budget threshold the orchestrator emits `mcp__progress__overseer_alert` (anomaly `stuck-phase-transition`, priority `medium`); at `2 ×` budget the priority escalates. HITL-pending suppression (AC-R13): when `pending_hitl_count > 0` the 1× alert downgrades to `priority=low` with pending HITL IDs in `reason`, and the 2× alert is suppressed. The alert never transitions the pipeline to FAILED. Default 30 min is well above the WS7-observed 10–13 min idle ceiling on real BRC phases. See [Phase-level idle-budget alert (cq-3)](#phase-level-idle-budget-alert-cq-3). | `30` |
 | `EGG_PHASE_IDLE_BUDGET_OWNER` | [#3023](https://github.com/jwbron/egg/issues/3023) slice-1 coexistence guard. Set unconditionally to `orchestrator` by `concurrent_executor._spawn_agent` so the still-spawned wrapper pod's idle-alert emitter short-circuits and only the orchestrator-side `PhaseIdleBudgetTimer` fires. Dead code after slice 3 (the wrapper is deleted). Operators do not set this. | `orchestrator` |
 | `EGG_EVENT_LOOP_OWNER` | [#3023](https://github.com/jwbron/egg/issues/3023) slice-2 coexistence guard. Set unconditionally to `orchestrator` by `concurrent_executor._spawn_agent` so the still-spawned wrapper pod's event-pump loop turns into a passive heartbeat-only sleep (never calls `brc next-action`, never invokes the agent). This ensures exactly one path emits BRC verbs during burn-in. Dead code after slice 3. Operators do not set this. | `orchestrator` |

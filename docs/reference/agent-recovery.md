@@ -113,23 +113,60 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | `resolution_hint` | Human-readable guidance |
 | `detected_at` | Timestamp |
 
-## Consensus Wrapper: Exit-Code Classifiers (Preserved Helpers)
+## BRC Pod Exit Handling (on-demand spawn model)
 
-Source: `orchestrator/consensus_wrapper.py`
+> **[#3023](https://github.com/jwbron/egg/issues/3023) retired the in-pod BRC
+> wrapper bash entirely.** Source: `orchestrator/on_demand_spawner.py` +
+> `orchestrator/phase_idle_budget.py`.
 
-In concurrent (BRC) mode, all agents are wrapped with a shell script. The wrapper bash template defines three exit-code classifier helpers (`is_buffer_overflow`, `is_transient_crash`, `is_startup_failure`) that were the dispatch surface in the pre-#2908 capped-restart era. **Since slice-4 (#2908) these helpers are defined but not invoked by the `propose|ack|nack` arm** — every non-zero agent exit goes through the uniform `AGENT_FAIL_STREAK++` + idle-budget path described in [Crash Handling in the Event-Pump Wrapper](#crash-handling-in-the-event-pump-wrapper) below. The subsections that follow describe the original design intent of each helper and the SDK-level mechanics they were built around; treat them as background context for the named helpers rather than as a description of live wrapper behaviour.
+Under on-demand spawning each per-event pod is **one-shot**: the orchestrator's
+per-phase tick composes the event prompt, spawns `python3 -m egg_agent`, and
+the pod runs to completion of that single event and exits. There is no
+in-pod restart cap, no in-pod wrapper bash, and no `AGENT_FAIL_STREAK`
+counter — the pre-#3023 helpers (`is_buffer_overflow`, `is_transient_crash`,
+`is_startup_failure`) were deleted when the wrapper bash was deleted.
 
-The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades. (That fallback path is independent of the classifier helpers and is still live.)
+A non-zero exit from a per-event pod is **absorbed at the lifecycle level**:
+the orchestrator's next tick re-derives `derive_next_action` for the role;
+if the same event is still actionable a fresh one-shot pod is spawned, and
+the failure is fully recovered. Repeated failures inside the same phase are
+bounded by the **phase-level idle / no-progress safety budget**
+(`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min) emitted by `PhaseIdleBudgetTimer`:
+at threshold the orchestrator emits
+`OVERSEER_ALERT(anomaly="stuck-phase-transition")` carrying the structured
+`per_role_state` payload (AC-R4); at `2 ×` threshold the priority escalates.
+Idleness is **never** a FAILED pipeline transition. HITL-pending suppression
+(AC-R13) downgrades the 1× alert to `priority=low` and suppresses the 2× alert
+entirely when `pending_hitl_count > 0`.
 
-### Buffer Overflow Detection (helper definition — currently inert)
+The pre-#3023 stale-tracker fallback — where the wrapper checked the message
+bus for a `CONSENSUS_CONFIRMED` event even when the tracker showed the agent
+as not confirmed — was lifted into the orchestrator's tracker
+reconstruct-from-messages path (`routes/consensus.py:111-154`) and is still
+live on every per-phase tick; the failure mode it guarded against (false
+failure after a withdrawal/re-proposal cascade) is unchanged.
 
-The `is_buffer_overflow()` function greps the captured agent output log for the Claude Agent SDK's `CLIJSONDecodeError` marker (`"exceeded maximum buffer size"`). In the pre-#2908 capped-restart wrapper the marker triggered an immediate wrapper exit; in the post-slice-4 event-pump wrapper the helper is **defined but not called**, so the SDK 1 MiB JSON overflow exit takes the same `AGENT_FAIL_STREAK++` path as any other non-zero exit. The deterministic-failure framing below still applies — re-running the agent against the same oversized tool result reproduces the overflow each iteration — but the operator-visible escalation today is the idle-budget alert (`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min), not an immediate wrapper exit.
+See [Orchestrator Architecture — BRC On-Demand Agent Spawning](../architecture/orchestrator.md#brc-on-demand-agent-spawning)
+for the full lifecycle and [Per-spawn pod logs](../architecture/orchestrator.md#per-spawn-pod-logs)
+for the per-spawn `spawn-<N>.log` retention contract that replaces
+`kubectl exec` triage of the legacy wrapper's heartbeat subshell.
 
-The upstream Claude Agent SDK ships a 1 MiB JSON message-reader buffer; egg raises it to 32 MiB on this path (see the next section, [#2884](https://github.com/jwbron/egg/issues/2884)), so the cap that's actually in effect is much higher than the SDK default. A tool result that exceeds *the configured cap* — whatever it is — kills the agent with exit 255. This failure is **deterministic** — re-running the agent against the same codebase produces the same oversized payload and hits the same crash. Retrying it inside the same wrapper run is therefore wasteful; the post-slice-4 wrapper does not yet branch on this case, so the overflow recurs on each iteration until the idle budget escalates.
+### SDK Reader Buffer (the crash-prevention layer)
 
-The agent output is captured by piping stdout and stderr through `tee` into a temporary log file (`AGENT_OUTPUT_LOG`, created via `mktemp`). This log is truncated at the start of each agent run so old crash signatures don't bleed into subsequent runs.
-
-> **Note:** The buffer-overflow marker string is synchronized between the wrapper's `grep` and the `_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py`. If a future `claude-agent-sdk` release changes the wording, future classifier-gated fast-fail logic that relies on it would silently miss the marker. See [#2823](https://github.com/jwbron/egg/issues/2823) for the follow-up to pin this against the installed SDK. With the reader buffer raised (next section, [#2884](https://github.com/jwbron/egg/issues/2884)) the buffer overflow is now a rare backstop — it fires only if a single stream message exceeds the generous raised buffer — not the common path it was when the cap was 1 MiB.
+The buffer-overflow class of crash now manifests as a per-event pod exit
+(no in-pod retry, no marker grep). The pod's stdout/stderr — including the
+overflow marker if it fires — is captured to
+`.egg-state/agent-outputs/<role>/spawn-<EGG_SPAWN_INDEX>.log` on the
+per-role worktree PVC (retention
+`OnDemandSpawner.PER_ROLE_LOG_RETENTION = 20`); operators triaging an
+overflow read the log directly rather than parsing the wrapper bash's
+`mktemp`-rooted temp file. The deterministic-failure framing below still
+applies — re-running the same per-event spawn against the same oversized
+tool result reproduces the overflow — but operator-visible escalation is
+now the per-phase idle-budget alert, not an in-pod fast-fail. The
+`_BUFFER_OVERFLOW_MARKER` constant in `shared/egg_agent/client.py` is no
+longer wired to any classifier; a future per-role fast-fail can be added
+at the orchestrator tick level if needed.
 
 ### SDK Reader Buffer (the crash-prevention layer)
 
@@ -158,51 +195,31 @@ Current heuristics — predictive, so expect some false positives/negatives:
 
 The hook is **always-on** (excess model-bound output is wasteful on every route, including first-party Opus). Set `EGG_TOOL_OUTPUT_CAP=false` (or `0`/`no`/`off`) to disable; set `EGG_READ_CAP_BYTES` to tune the `Read` threshold (a set-but-invalid value — non-integer or non-positive — is logged and ignored in favour of the default).
 
-### Transient Exit Codes
+### Per-event pod exit handling (post-#3023)
 
-The `is_transient_crash()` function classifies these exit codes as transient:
+Under [#3023](https://github.com/jwbron/egg/issues/3023) on-demand spawning every
+per-event pod is one-shot. There is no in-pod exit-code classifier and no
+in-pod retry — the wrapper bash that hosted `is_transient_crash`,
+`is_startup_failure`, and `is_buffer_overflow` (added in
+[issue #1512](https://github.com/jwbron/egg/issues/1512), retained as inert
+helpers across the #2908 event-pump migration) was deleted alongside the
+wrapper itself. A non-zero pod exit is absorbed at the lifecycle level: the
+orchestrator's next per-phase tick re-derives `derive_next_action` for the
+role and spawns a fresh one-shot pod if the same event is still actionable.
 
-| Exit Code | Signal | Cause |
-|-----------|--------|-------|
-| 134 | SIGABRT | Assertion failure, `abort()` |
-| 136 | SIGFPE | Floating-point exception |
-| 137 | SIGKILL | OOM kill or external `kill -9` |
-| 139 | SIGSEGV | Segmentation fault |
-| 255 | *(Bun-specific)* | Bun runtime segfault (wraps the crash as exit 255) |
-
-### Startup Failure Detection
-
-The `is_startup_failure()` function handles a separate class of transient error: exit code 1 within the first `STARTUP_FAILURE_WINDOW_SECONDS` (default: 30 seconds) of agent lifetime. The Agent SDK surfaces API-level errors — network blips, socket closes, 5xx responses during the first few turns — as `success=False` + exit 1, which is indistinguishable from a prompt-level failure by exit code alone. Agents that exit 1 within the startup window have almost certainly not done meaningful work, so the retry cost is negligible.
-
-Agents that exit 1 after the startup window (i.e., after doing real work) are still treated as permanent failures. The window is configurable via the `startup_failure_window_seconds` parameter; set to `0` to disable the heuristic.
-
-All other non-zero exit codes (2, 3, 42, etc.) that are neither signal-transient nor exit 1 are treated as permanent failures with no restart.
-
-### Crash Handling in the Event-Pump Wrapper
-
-In the event-pump model (default since #2908 slice-4), the classifiers above
-are retained as named helpers in the wrapper bash template. A non-zero exit
-from the agent during a `propose|ack|nack` event invocation increments an
-internal consecutive-failure counter; the idle-budget escalation path
-(`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min) emits `OVERSEER_ALERT` when no
-actionable event arrives for the budget duration. The old `MAX_CONSENSUS_RESTARTS`
-restart cap and `_RECOVERY_SYSTEM_PROMPT` recovery loop were deleted in slice-4.
-
-### Crash exit-code classification (current behaviour)
-
-All non-zero exits from a `propose|ack|nack` agent invocation are handled identically in the current event-pump wrapper: increment `AGENT_FAIL_STREAK`, sleep 1 s, and resume the loop. The classifiers listed below remain as named helpers in the wrapper bash template but are **not invoked** by the `propose|ack|nack` arm — they are kept against a future need (e.g. a classifier-gated fast-fail) but produce no per-exit-code branching today.
-
-| Exit code | Named helper (currently inert) | Current event-pump handling |
-|-----------|-------------------------------|-----------------------------|
-| Segfault (exit 139/255) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
-| SDK buffer overflow (exit 255 + overflow marker) | `is_buffer_overflow` | Increments consecutive-failure counter; idle-budget escalation emits alert |
-| OOM kill (exit 137) | `is_transient_crash` | Increments consecutive-failure counter; idle-budget escalation emits alert |
-| API/network error at startup (exit 1, age &lt; 30s) | `is_startup_failure` | Increments consecutive-failure counter; idle-budget escalation emits alert |
-| Application error (exit 1, age &ge; 30s) | *(none)* | Increments consecutive-failure counter; idle-budget escalation emits alert |
-
-The exit-code classifiers were added in [issue #1512](https://github.com/jwbron/egg/issues/1512). In the capped-restart era they drove a restart-with-backoff path; since slice-4 (#2908) they are retained as named helpers but the event-pump's consecutive-failure counter + `EGG_BRC_IDLE_BUDGET_MIN` escalation is the primary (and currently sole) operator-visible signal — there is no per-exit-code branch on the `propose|ack|nack` path.
-
-**Buffer-overflow note:** the SDK 1 MiB JSON buffer overflow (exit 255 + overflow marker) is deterministic — re-running the same agent invocation against the same oversized tool result will reproduce the same overflow. Today the wrapper does not catch this case specially; the overflow recurs each iteration until `EGG_BRC_IDLE_BUDGET_MIN` (default 30 min) trips the operator alert. The classifier helper exists for a future fast-fail path but is not wired up yet — see the wrapper's L145–150 comment.
+The underlying SDK / signal exit codes are unchanged — the agent process
+still exits 139 on SIGSEGV, 137 on OOM, 255 on SDK reader-buffer overflow,
+1 on API/network errors at startup, etc. What changed is that the
+orchestrator does not branch on the exit code per pod; it treats every
+non-zero exit identically and lets the per-phase idle-budget alert
+(`EGG_BRC_IDLE_BUDGET_MIN`, default 30 min) escalate when repeated failures
+in the same phase produce no progress. The deterministic buffer-overflow
+class is still deterministic — re-running the same per-event spawn
+against the same oversized tool result reproduces the overflow — but the
+operator-visible signal is now the per-phase idle-budget alert and the
+captured `spawn-<EGG_SPAWN_INDEX>.log` on the per-role PVC, not an in-pod
+fast-fail. A future per-role fast-fail (e.g. a classifier-gated halt)
+would land at the orchestrator tick level, not in a wrapper bash.
 
 ## Agent-Level Restart
 
