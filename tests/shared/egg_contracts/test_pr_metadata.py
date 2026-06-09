@@ -446,7 +446,7 @@ class TestPRMetadataSchemaVersionMigration:
 
         Adversarial: the migration shim must be selective. A future
         ``2.0`` loading on the post-slice-2 binary should keep its
-        declared version, not get silently downgraded to ``1.2``.
+        declared version, not get silently downgraded to ``1.3``.
         """
         payload = _minimal_contract_payload(schema_version="2.0")
         contract = Contract.model_validate(payload)

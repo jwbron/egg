@@ -805,18 +805,19 @@ class Contract(EggContractBaseModel):
         default=None,
         description=(
             "Full, untruncated task/problem statement for the pipeline. "
-            "Populated from the pipeline ``prompt`` for free-text submits "
-            "(``submit_task`` with no ``issue_number`` / ``jira_ticket``), "
-            "where there is no GitHub issue or JIRA ticket the agent could "
-            "fetch the body from out-of-band. This is the authoritative "
-            "channel by which producer/reviewer agents recover the complete "
-            "task: in the BRC event-pump model the orchestrator-built spawn "
-            "prompt is not delivered to the agent, so the contract (read via "
-            "``egg-contract show`` / ``mcp__sdlc__show_contract``) is the "
-            "reliable source. ``None`` for issue/JIRA-driven pipelines, where "
-            "the agent recovers the body via ``gh issue view`` / the JIRA "
-            "API instead. Must NOT be truncated — ``issue.title`` is the "
-            "short label; this field is the full text (#3033)."
+            "Populated from the pipeline ``prompt`` for free-text **and "
+            "JIRA-driven** submits (any pipeline where ``issue_number is "
+            "None``). In the BRC event-pump model the orchestrator-built "
+            "spawn prompt is not delivered to the agent, so the contract "
+            "(read via ``egg-contract show`` / ``mcp__sdlc__show_contract``) "
+            "is the authoritative channel by which producer/reviewer agents "
+            "recover the complete task. For JIRA pipelines this is a "
+            "complementary, snapshotted copy of the description as submitted "
+            "— the agent can still fetch live ticket state via "
+            "``jira ticket get``. ``None`` for GitHub-issue pipelines, where "
+            "the agent recovers the body via ``gh issue view`` instead. "
+            "Must NOT be truncated — ``issue.title`` is the short label; "
+            "this field is the full text (#3033)."
         ),
     )
     pipeline_id: str | None = Field(

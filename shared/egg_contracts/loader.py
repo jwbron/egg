@@ -223,13 +223,17 @@ def create_contract(
         repo_root: Optional repository root path
         initial_phase: Initial pipeline phase
         task_description: Full, untruncated task/problem statement. Pass
-            the pipeline ``prompt`` for free-text submits so producer and
-            reviewer agents can recover the complete task from the contract
-            (``egg-contract show``); the event-pump model does not deliver
-            the orchestrator-built spawn prompt to the agent, and
-            ``issue.title`` is only a 100-char label. ``None`` for
-            issue/JIRA-driven pipelines (the agent fetches the body
-            out-of-band). See #3033.
+            the pipeline ``prompt`` for free-text **and JIRA-driven**
+            submits (any pipeline where ``issue_number is None``) so
+            producer and reviewer agents can recover the complete task
+            from the contract (``egg-contract show``); the event-pump
+            model does not deliver the orchestrator-built spawn prompt
+            to the agent, and ``issue.title`` is only a 100-char label.
+            For JIRA pipelines this is a complementary snapshot of the
+            description as submitted — the agent can still fetch live
+            ticket state via ``jira ticket get``. ``None`` for
+            GitHub-issue pipelines, where the agent fetches the body
+            out-of-band via ``gh issue view``. See #3033.
 
     Returns:
         The newly created Contract
