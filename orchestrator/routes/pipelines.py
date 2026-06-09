@@ -136,26 +136,40 @@ class ContextPrCreationError(Exception):
 
 
 class ForestValidationError(Exception):
-    """Raised by ``_populate_contract_from_plan`` when slice DAG is non-forest.
+    """Raised by ``_populate_contract_from_plan`` on slice-DAG structural rejection.
 
-    Added in #2137 (TASK-2-2). Any future Flask route that ingests a
-    plan in-band can catch this and ``return jsonify({"errors":
-    err.errors}), 422`` to surface the structured rejection per the
-    plan's acceptance criteria. Internal callers (``_populate_contract
-    _from_plan_safe`` and the pipeline run-loop helpers) catch this
-    exception and log a warning — the ``plan_review_feedback`` stash
-    placed on the contract by the populator is the durable signal
-    the plan reviewer prompt reads from to NACK the planner.
+    Added in #2137 (TASK-2-2) for the forest-shape violation (a slice
+    with >1 DAG parent). Generalised in #3046 to also signal the
+    file-overlap-ordering violation (two slices touching the same file
+    with no dependency edge between them — see
+    ``egg_contracts.validate_slice_file_overlap``). Both are slice-DAG
+    structural defects surfaced at plan ingestion with identical
+    handling: the slices are NOT written to the contract, the structured
+    errors are stashed on ``plan_review_feedback`` so the plan reviewer
+    NACKs the architect, and the exception is raised so HTTP callers can
+    return a 422.
+
+    The ``reason`` discriminator (``"forest_violation"`` or
+    ``"slice_overlap_violation"``) selects the operator-facing prose and
+    the :class:`PopulateOutcome` the safe wrapper maps to. Any future
+    Flask route that ingests a plan in-band can catch this and
+    ``return jsonify(*err.to_response())`` to surface the structured
+    rejection. Internal callers (``_populate_contract_from_plan_safe``
+    and the pipeline run-loop helpers) catch it and log a warning — the
+    ``plan_review_feedback`` stash is the durable NACK signal either way.
     """
 
-    def __init__(self, message: str, *, errors: list[str]) -> None:
+    def __init__(
+        self, message: str, *, errors: list[str], reason: str = "forest_violation"
+    ) -> None:
         super().__init__(message)
         self.errors: list[str] = list(errors)
+        self.reason: str = reason
         self.status_code: int = 422
 
     def to_response(self) -> tuple[dict[str, object], int]:
         """Serialise into a Flask-compatible (body, status) tuple."""
-        return ({"error": "forest_violation", "errors": self.errors}, 422)
+        return ({"error": self.reason, "errors": self.errors}, 422)
 
 
 # Add shared directory to path for egg_logging
@@ -4912,7 +4926,32 @@ def _get_plan_review_criteria() -> str:
         "schema migration that cannot be split safely) — in that "
         "case the architect should cite the override in the analysis "
         "and the reviewer can ACK once the rationale is on the "
-        "record.\n"
+        "record.\n\n"
+        "### 12. Slice File-Overlap Ordering (deterministic hard NACK — see #3046)\n"
+        "Complements §11. When slices are subdivided, any two that touch "
+        "the **same file** must be **ordered** along one dependency chain — "
+        "one a transitive ``dependencies`` ancestor of the other — never "
+        "left as parallel roots or siblings. The implement phase cuts each "
+        "slice's integration branch off its dependency parent (roots off "
+        "``work``), so two overlapping slices with no edge between them fork "
+        "independently off the shared base and their edits to the shared "
+        "file collide at integration (a guaranteed modify/delete conflict — "
+        "the #3023 incident, where three slices all touched "
+        "``consensus_wrapper.py``, one deleting it).\n"
+        "This is enforced **orchestrator-side at plan ingestion**: an "
+        "overlapping-but-unordered DAG is rejected before the slices are "
+        "written to the contract, surfacing as a ``slice_overlap_violation`` "
+        "discriminator (or a 'Plan ingestion REJECTED: slices touch "
+        "overlapping files' block on ``plan_review_feedback``). When you see "
+        "it, NACK the **architect** and quote the structured errors "
+        "verbatim; instruct it to serialise the overlapping cluster into one "
+        "linear ``dependencies`` chain — a slice that deletes/retires a file "
+        "depends on every slice that modifies it — or to merge the slices. "
+        "Disjoint slices stay parallel so they still run concurrently.\n"
+        "Belt-and-suspenders self-check: "
+        '`python3 -c "from egg_contracts.plan_parser import parse_plan_file, '
+        "validate_slice_file_overlap as v; r = parse_plan_file('<plan-path>'); "
+        "print('\\n'.join(v(r.to_contract_slices())))\"`.\n"
     )
 
 
@@ -11484,6 +11523,18 @@ def _build_phase_prompt(
                 "field. The list names the upstream slice IDs in their chosen "
                 "serialization order.",
                 "",
+                "**File-overlap rule (HARD, enforced at plan ingestion — "
+                "#3046)**: two slices that touch the SAME file must be ordered "
+                "on one dependency chain — one a transitive ``dependencies`` "
+                "ancestor of the other — never left as parallel roots or "
+                "siblings. The implement phase cuts each slice's branch off "
+                "its dependency parent, so an unordered overlapping pair forks "
+                "independently off the shared base and its edits to the shared "
+                "file collide at integration (a guaranteed modify/delete "
+                "conflict). Deletion/retirement slices are the classic trap: a "
+                "slice that removes a file must depend on every slice that "
+                "modifies it. Slices with disjoint file sets stay parallel.",
+                "",
                 "Worked example: if ``slice-3`` would naturally have "
                 "parents ``[slice-1, slice-2]``, instead emit:",
                 "",
@@ -12417,7 +12468,15 @@ def _build_reviewer_preparation(
                 "block), NACK the architect and cite the structured errors "
                 "verbatim. Instruct the architect to re-emit the slice "
                 "scaffold with ``serialized_chain_order`` populated on the "
-                "downstream slice. "
+                "downstream slice. The SAME NACK applies to a "
+                "``slice_overlap_violation`` rejection (#3046 — a 'Plan "
+                "ingestion REJECTED: slices touch overlapping files' block): "
+                "two or more slices touch the same file with no dependency "
+                "ordering, so their branches fork independently off the shared "
+                "base and collide at integration. Instruct the architect to "
+                "serialise the overlapping cluster into one linear "
+                "``dependencies`` chain (or merge the slices) so each later "
+                "slice's branch is cut from the earlier one. "
                 "(2) **Slice-sizing NACK (hard, judgment-based — #2809)**: "
                 "slice composition is owned by the **architect**, not the "
                 "task_planner. You ARE empowered and required to hard-NACK "
@@ -13413,6 +13472,17 @@ def _build_agent_prompt(
                 "chain and record the chosen ordering on the downstream "
                 "slice's ``serialized_chain_order`` field. See "
                 "``docs/architecture/slice-dag.md``.",
+                "- **File-overlap ⇒ dependency edge (HARD — #3046).** Any two "
+                "slices that touch the same file MUST be ordered on one "
+                "dependency chain (express the order in ``dependencies`` — a "
+                "single-parent id per slice — not just in "
+                "``serialized_chain_order``, which the scheduler does not read "
+                "for branch topology). Slices that edit a shared file but are "
+                "left as parallel roots/siblings fork independently off the "
+                "shared base and collide at integration — plan ingestion "
+                "hard-rejects this. A slice that deletes or retires a file "
+                "must depend on every slice that modifies it. Keep slices with "
+                "disjoint file sets parallel so they still run concurrently.",
                 "- **Sub-slicing.** When one slice would be too coarse, "
                 "subdivide it. Right-size slices for a single BRC cycle: "
                 "avoid bundling distinct file-category groups (e.g. "
@@ -13668,6 +13738,18 @@ def _build_agent_prompt(
                 "multi-parent slices and populating "
                 "``serialized_chain_order`` on the downstream slice. "
                 "Preserve that field verbatim from the scaffold.",
+                "",
+                "**File-overlap ⇒ ordering (HARD — #3046)**: you fill in each "
+                "slice's tasks and their ``files_affected``, so you see the "
+                "file sets first. If you find yourself assigning the SAME file "
+                "to two slices that the architect left unordered (parallel "
+                "roots or siblings), do NOT silently proceed — plan ingestion "
+                "hard-rejects overlapping slices with no dependency edge, "
+                "because their branches fork independently off the shared base "
+                "and collide at integration. Raise NACK pressure on the "
+                "architect (via the plan prose) to serialise the overlapping "
+                "cluster into one ``dependencies`` chain — or to merge the "
+                "slices. Do not re-shape the slice DAG yourself.",
                 "",
                 "Worked example: if ``slice-3`` would naturally have "
                 "parents ``[slice-1, slice-2]``, instead emit:",
@@ -18717,6 +18799,9 @@ class PopulateOutcome(StrEnum):
     CONTRACT_LOAD_FAILED = "contract_load_failed"
     EGG_CONTRACTS_UNAVAILABLE = "egg_contracts_unavailable"
     FOREST_VIOLATION = "forest_violation"
+    # #3046 — two slices touch overlapping files with no dependency edge
+    # between them; rejected at ingestion like a forest violation.
+    SLICE_OVERLAP_VIOLATION = "slice_overlap_violation"
     UNEXPECTED_EXCEPTION = "unexpected_exception"
 
 
@@ -18863,6 +18948,10 @@ _DIVERGENCE_LINE_BY_REASON: dict[str, str] = {
     "forest_violation": (
         "contract.slices is empty because the plan slice DAG was rejected as not a forest"
     ),
+    "slice_overlap_violation": (
+        "contract.slices is empty because the plan slice DAG was rejected: two or more "
+        "slices touch overlapping files with no dependency ordering between them (#3046)"
+    ),
     "contract_load_failed": (
         "contract.slices is empty because the parsed contract on disk failed to deserialize"
     ),
@@ -18964,6 +19053,28 @@ def _populate_outcome_to_hitl_reason(outcome: PopulateOutcome) -> str:
     if outcome == PopulateOutcome.POPULATED:
         return "populated_but_empty_slices"
     return outcome.value
+
+
+# Single source of truth for ForestValidationError.reason → PopulateOutcome
+# mapping. Both ``_populate_contract_from_plan_safe`` and the
+# ``start_phase=implement`` safety net translate a structural NACK into an
+# outcome the empty-contract HITL prose dispatcher (#3046) can key off, so
+# centralising the table here keeps the two catch sites from drifting if a
+# third reason is added to :class:`ForestValidationError` (forest-shape vs.
+# file-overlap-ordering today). Unknown reasons fall back to
+# ``FOREST_VIOLATION`` — that's the conservative choice because the operator
+# prose for forest violations names the slice DAG generally rather than the
+# specific defect, so a new reason without a dedicated outcome still routes
+# to actionable (if generic) HITL prose.
+_FOREST_REASON_TO_OUTCOME: dict[str, PopulateOutcome] = {
+    "slice_overlap_violation": PopulateOutcome.SLICE_OVERLAP_VIOLATION,
+    "forest_violation": PopulateOutcome.FOREST_VIOLATION,
+}
+
+
+def _forest_error_to_outcome(err: ForestValidationError) -> PopulateOutcome:
+    """Map a :class:`ForestValidationError` to the matching populate outcome."""
+    return _FOREST_REASON_TO_OUTCOME.get(err.reason, PopulateOutcome.FOREST_VIOLATION)
 
 
 def _empty_contract_hitl_reason(
@@ -19132,8 +19243,9 @@ def _auto_populate_contract_at_implement_start(
         )
     except ForestValidationError as _forest_err:
         logger.warning(
-            "Auto-populate contract failed: forest validation error",
+            "Auto-populate contract failed: slice-DAG validation error",
             pipeline_id=pipeline_id,
+            reason=_forest_err.reason,
             errors=_forest_err.errors,
         )
         return 0
@@ -19322,20 +19434,22 @@ def _populate_contract_from_plan_safe(
             current_phase=current_phase,
         )
     except ForestValidationError as forest_err:
-        # Forest-validation rejection is the expected #2137 NACK
-        # path — log structurally so the discriminator shows up in
+        # Slice-DAG structural rejection is the expected #2137 / #3046
+        # NACK path — log structurally so the discriminator shows up in
         # operator audit, but don't propagate to the wrapper's
         # caller (the populator already stashed the structured
         # errors on contract.plan_review_feedback so the plan
-        # reviewer prompt can NACK the planner).
+        # reviewer prompt can NACK the architect). The exception's
+        # ``reason`` selects the matching outcome so operators see an
+        # accurate discriminator (forest shape vs file-overlap order).
         logger.warning(
             "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
-            reason="forest_violation",
+            reason=forest_err.reason,
             source="safe_wrapper",
             errors=forest_err.errors,
         )
-        return PopulateResult(PopulateOutcome.FOREST_VIOLATION)
+        return PopulateResult(_forest_error_to_outcome(forest_err))
     except Exception as pop_err:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -19563,7 +19677,10 @@ def _populate_contract_from_plan(
             # failed; silently defaulting ``forest_errors = []`` would
             # let a broken-import multi-parent contract slip past the
             # gate (reviewer_code_holistic v2 finding #5).
-            from egg_contracts.plan_parser import validate_forest
+            from egg_contracts.plan_parser import (
+                validate_forest,
+                validate_slice_file_overlap,
+            )
 
             forest_errors = validate_forest(contract_slices)
 
@@ -19605,6 +19722,55 @@ def _populate_contract_from_plan(
                 # ``plan_review_feedback`` stash above is the durable
                 # signal the reviewer prompt picks up either way.
                 raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
+
+            # File-overlap ordering validation (#3046). The forest is
+            # valid (≤1 parent per slice), but the implement phase cuts
+            # each slice's integration branch off its dependency parent
+            # (roots off ``work``) — so two slices that touch the same
+            # file MUST be ordered along a dependency chain, or their
+            # branches fork independently off the shared base and their
+            # edits collide at integration (the guaranteed modify/delete
+            # conflict observed on #3023). Reject overlapping-but-unordered
+            # slices here, with the SAME NACK-the-architect handling as a
+            # forest violation: stash the structured errors on
+            # ``plan_review_feedback`` and leave ``contract.slices`` empty
+            # so the defect cannot silently leak into the implement phase.
+            overlap_errors = validate_slice_file_overlap(contract_slices)
+            if overlap_errors:
+                logger.warning(
+                    "contract_phases_ingest_failed",
+                    pipeline_id=pipeline_id,
+                    reason="slice_overlap_violation",
+                    errors=overlap_errors,
+                )
+                feedback_lines = [
+                    "Plan ingestion REJECTED: slices touch overlapping files "
+                    "without a dependency ordering.",
+                    "",
+                    "The implement phase cuts each slice's integration branch "
+                    "off its dependency parent (root slices off the ``work`` "
+                    "branch) and ships it as a stacked PR. Two slices that "
+                    "touch the same file must be ordered along a single "
+                    "dependency chain so the later slice's branch is forked "
+                    "from a base that already contains the earlier slice's "
+                    "commits — otherwise both branches fork independently off "
+                    "the shared base and their edits collide at integration "
+                    "(a guaranteed modify/delete conflict). The forest "
+                    "constraint means the fix is always to serialise the "
+                    "overlapping cluster into ONE linear ``dependencies`` "
+                    "chain (you cannot depend on two parents) — or merge the "
+                    "slices into one.",
+                    "",
+                    "Structured errors:",
+                ]
+                feedback_lines.extend(f"- {e}" for e in overlap_errors)
+                contract.plan_review_feedback = "\n".join(feedback_lines)
+                save_contract(contract, repo_path)
+                raise ForestValidationError(
+                    "slices share files without a dependency ordering",
+                    errors=overlap_errors,
+                    reason="slice_overlap_violation",
+                )
             # Preserve runtime slice/task progress across re-populates so
             # the safety-net populator (which fires on every
             # ``start_phase=implement`` restart) cannot reset COMPLETE
@@ -21252,14 +21418,18 @@ def _run_pipeline(
                         current_phase=pipeline.current_phase,
                     )
                 except ForestValidationError as forest_err:
+                    # #3046 — overlap violations map to their own outcome so
+                    # the empty-contract HITL prose matches the discriminator.
                     logger.warning(
                         "contract_phases_ingest_failed",
                         pipeline_id=pipeline_id,
-                        reason="forest_violation",
+                        reason=forest_err.reason,
                         source="safety_net",
                         errors=forest_err.errors,
                     )
-                    _safety_net_populate_result = PopulateResult(PopulateOutcome.FOREST_VIOLATION)
+                    _safety_net_populate_result = PopulateResult(
+                        _forest_error_to_outcome(forest_err)
+                    )
                 # #2627 follow-up: fail-fast whenever the safety-net populate
                 # did not produce a contract with tasks.  Without this guard
                 # the implement phase spawns into the same empty-contract

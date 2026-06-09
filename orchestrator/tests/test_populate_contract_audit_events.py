@@ -1369,11 +1369,17 @@ class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
             "safety-net inner call must catch ForestValidationError to land on "
             "the dedicated empty-contract HITL (#2627 review)"
         )
-        # And it must synthesize a FOREST_VIOLATION PopulateResult so the
-        # downstream _populate_result_is_empty_contract check routes it.
-        assert "PopulateOutcome.FOREST_VIOLATION" in source, (
-            "safety-net forest-violation catch must synthesize "
-            "PopulateResult(FOREST_VIOLATION) so the empty-contract check fires"
+        # And it must synthesize an outcome via _forest_error_to_outcome so the
+        # downstream _populate_result_is_empty_contract check routes it.  The
+        # helper centralises the reason→outcome mapping shared with the safe
+        # wrapper (#3046 review follow-up); the prior shape inlined the
+        # ternary at both catch sites, which was the drift surface this
+        # extraction removes.
+        assert "_forest_error_to_outcome(forest_err)" in source, (
+            "safety-net forest-violation catch must synthesize the populate "
+            "outcome via _forest_error_to_outcome(forest_err) so the empty-"
+            "contract check fires AND the reason→outcome mapping stays "
+            "shared with the safe-wrapper translation (#3046 review)"
         )
 
     def test_safety_net_uses_dedicated_logger_warning_source(self):

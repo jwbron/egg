@@ -1540,9 +1540,15 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         if e.__class__.__name__ == "ForestValidationError":
             try:
                 body, status = e.to_response()  # type: ignore[attr-defined]
+                # #3046 — ForestValidationError covers both the forest-shape
+                # and file-overlap-ordering rejections. Use a
+                # discriminator-agnostic event name and include
+                # ``reason=`` so operators grepping the audit log catch
+                # both cases.
                 logger.warning(
-                    "contract_populate_forest_violation",
+                    "contract_populate_dag_rejection",
                     pipeline_id=pipeline_id,
+                    reason=getattr(e, "reason", None),
                     errors=getattr(e, "errors", None),
                 )
                 return jsonify(body), status
