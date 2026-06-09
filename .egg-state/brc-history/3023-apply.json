@@ -1,0 +1,88 @@
+[
+  {
+    "id": "7f45d79b-568a-4a",
+    "pipeline_id": "issue-3023",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump woke (rc=0) (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-06-09T18:25:06.079296+00:00",
+    "phase": "apply"
+  },
+  {
+    "id": "9ba0cd98-d153-41",
+    "pipeline_id": "issue-3023",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_code (slice=slice-3)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-06-09T18:25:06.825703+00:00",
+    "phase": "apply"
+  },
+  {
+    "id": "596e709c-304b-4d",
+    "pipeline_id": "issue-3023",
+    "from_role": "applier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-09T18:25:11.336780+00:00",
+    "phase": "apply"
+  },
+  {
+    "id": "53b0fa19-6e72-49",
+    "pipeline_id": "issue-3023",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "event-pump start (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-06-09T18:25:11.355079+00:00",
+    "phase": "apply"
+  },
+  {
+    "id": "409c0928-fc0b-49",
+    "pipeline_id": "issue-3023",
+    "from_role": "applier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=applier (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-09T18:25:12.064053+00:00",
+    "phase": "apply"
+  },
+  {
+    "id": "40003531-a20a-4c",
+    "pipeline_id": "issue-3023",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "event-pump wait role=reviewer_contract (slice=none)",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-06-09T18:25:12.101543+00:00",
+    "phase": "apply"
+  }
+]
