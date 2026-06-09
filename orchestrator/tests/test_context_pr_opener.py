@@ -357,18 +357,17 @@ class TestOpenContextPrIdempotent:
 
 
 # ---------------------------------------------------------------------------
-# Hard-required raises — every failure mode raises ContextPrCreationError
+# Local mode — both repo and base_branch empty: returns None without raising
 # ---------------------------------------------------------------------------
 
 
-class TestOpenContextPrHardRequiredRaises:
-    """The legacy soft-fail ``return None`` swallow path is gone. Every
-    cq-4 failure mode raises a typed ``ContextPrCreationError`` with a
-    structured ``reason`` value."""
+class TestOpenContextPrLocalMode:
+    """The ONLY ``return None`` path: both ``repo`` and ``base_branch``
+    empty means a local pipeline with no remote target. The opener
+    short-circuits without raising — distinct from the hard-required
+    failure modes below, which all raise ``ContextPrCreationError``."""
 
     def test_local_mode_returns_none_without_raise(self, tmp_path):
-        """The ONLY ``return None`` survivor — both ``repo`` and
-        ``base_branch`` empty means local mode, no remote PR to open."""
         pipeline = _make_pipeline(repo="", base_branch="")
         with (
             patch(
@@ -378,6 +377,17 @@ class TestOpenContextPrHardRequiredRaises:
         ):
             result = _open_context_pr_at_implement_start(pipeline.id)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Hard-required raises — every failure mode raises ContextPrCreationError
+# ---------------------------------------------------------------------------
+
+
+class TestOpenContextPrHardRequiredRaises:
+    """The legacy soft-fail ``return None`` swallow path is gone. Every
+    cq-4 failure mode raises a typed ``ContextPrCreationError`` with a
+    structured ``reason`` value."""
 
     def test_base_branch_without_repo_raises_missing_repo(self, tmp_path):
         """A ``base_branch`` set with no ``repo`` is a genuine
