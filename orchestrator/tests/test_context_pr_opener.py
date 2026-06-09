@@ -23,8 +23,10 @@ This file pins the three paths task-3-8 calls out:
    that the legacy wrapper used is gone. Each of the cq-4 hard-required
    failure modes raises a typed :class:`ContextPrCreationError` with a
    structured ``reason`` value. The local-mode (no repo, no base_branch)
-   short-circuit is the ONLY ``return None`` path; the partial-config
-   asymmetric case (only one of ``repo`` / ``base_branch`` set) raises.
+   short-circuit is the ONLY ``return None`` path. A ``base_branch`` set
+   with no ``repo`` raises ``missing_repo``; but ``repo`` set with no
+   ``base_branch`` is the normal auto-detect state (#3031) and resolves
+   the default branch rather than raising.
 
 The naming follows the orchestrator-tests feature-split convention
 (``test_<feature>_<topic>.py``) — there is no monolithic
@@ -67,13 +69,14 @@ def _make_pipeline(
     pipeline_id: str = "issue-2777",
     repo: str = "owner/repo",
     branch: str = "egg/issue-2777/work",
-    base_branch: str = "main",
+    base_branch: str | None = "main",
     issue_number: int | None = 2777,
 ) -> Pipeline:
     """Build a Pipeline with the remote-mode fields set by default.
 
     Tests override ``repo`` / ``base_branch`` to exercise the local-mode
-    short-circuit and the partial-config asymmetric raise.
+    short-circuit, the ``base_branch=None`` default-branch resolution
+    (#3031), and the ``base_branch``-without-``repo`` misconfig raise.
     """
     return Pipeline(
         id=pipeline_id,
@@ -333,23 +336,16 @@ class TestOpenContextPrHardRequiredRaises:
             result = _open_context_pr_at_implement_start(pipeline.id)
         assert result is None
 
-    @pytest.mark.parametrize(
-        ("repo", "base_branch", "expected_reason"),
-        [
-            ("owner/repo", "", ContextPrCreationReason.MISSING_BASE_BRANCH.value),
-            ("", "main", ContextPrCreationReason.MISSING_REPO.value),
-        ],
-    )
-    def test_partial_remote_config_raises_typed_error(
-        self, tmp_path, repo, base_branch, expected_reason
-    ):
-        """A pipeline with ``repo`` set but no ``base_branch`` (or vice
-        versa) is a misconfiguration — the new opener raises rather than
-        silently skipping (the legacy wrapper would silently
-        ``return None`` and leave the slice stack stranded on /work).
-        Reviewer-blocker-3 of slice-1 reviewer_code_holistic pinned
-        this asymmetric-config raise."""
-        pipeline = _make_pipeline(repo=repo, base_branch=base_branch)
+    def test_base_branch_without_repo_raises_missing_repo(self, tmp_path):
+        """A ``base_branch`` set with no ``repo`` is a genuine
+        misconfiguration — there is no remote to open a PR against — so
+        the opener raises ``missing_repo`` rather than silently skipping.
+
+        Note the asymmetry: ``repo`` set with no ``base_branch`` is NOT
+        an error (see ``test_base_branch_unset_resolves_default_branch``)
+        — that is the normal auto-detect state #3031 fixes. Only the
+        ``base_branch``-without-``repo`` direction is a misconfig."""
+        pipeline = _make_pipeline(repo="", base_branch="main")
         with (
             patch(
                 "routes.get_state_store_for_pipeline",
@@ -358,7 +354,50 @@ class TestOpenContextPrHardRequiredRaises:
             pytest.raises(ContextPrCreationError) as exc_info,
         ):
             _open_context_pr_at_implement_start(pipeline.id)
-        assert exc_info.value.reason == expected_reason
+        assert exc_info.value.reason == ContextPrCreationReason.MISSING_REPO.value
+
+    def test_base_branch_unset_resolves_default_branch(self, tmp_path):
+        """``repo`` set + ``base_branch`` unset is the NORMAL state, not a
+        misconfig: ``Pipeline.base_branch`` defaults to ``None`` and the
+        standard ``submit_task`` path never populates it. #2777 cq-4
+        collapsed the resolving PR phase into this up-front opener but
+        dropped the default-branch resolution, so the opener hard-raised
+        ``missing_base_branch`` and stranded every standard pipeline's
+        slice stack on ``/work`` (#3031). The opener MUST instead resolve
+        the default branch via ``_detect_default_branch`` and open the PR
+        against it. A non-``main`` resolved value proves it is genuinely
+        detected (not hardcoded) and is threaded into both the
+        idempotency lookup and ``create_pr``."""
+        pipeline = _make_pipeline(base_branch=None)
+        contract = _make_contract()
+        spawner = MagicMock()
+        spawner.gateway.lookup_open_pr.return_value = None
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/555"
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(MagicMock(repo_path=tmp_path), pipeline),
+            ),
+            patch("routes.resolve_worktree_path", return_value=tmp_path),
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch(
+                "routes.pipelines._compute_gateway_mode",
+                return_value=("public", "public"),
+            ),
+            patch(
+                "routes.pipelines._detect_default_branch",
+                return_value="develop",
+            ) as detect,
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("routes.pipelines._persist_context_pr_number"),
+        ):
+            result = _open_context_pr_at_implement_start(pipeline.id)
+
+        assert result == 555
+        detect.assert_called_once_with(tmp_path)
+        assert spawner.gateway.lookup_open_pr.call_args.kwargs["base"] == "develop"
+        assert spawner.gateway.create_pr.call_args.kwargs["base"] == "develop"
 
     def test_missing_branch_raises(self, tmp_path):
         """A remote pipeline must have ``branch`` set; an empty branch
