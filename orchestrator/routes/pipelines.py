@@ -15057,6 +15057,11 @@ def _publish_phase_idle_budget_alert(
             )
         store_fn = _get_message_store()
         if store_fn is None:
+            # Distinguish "store unavailable" from a publish exception in the
+            # structured ``phase_idle_budget_tick`` log so an operator grepping
+            # that line sees *why* the publish was skipped without a second
+            # grep against the WARNING.
+            publish_error = "message store unavailable"
             logger.warning(
                 "Phase-idle-budget alert: message store unavailable",
                 pipeline_id=pipeline_id,
