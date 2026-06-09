@@ -468,6 +468,52 @@ class TestCheckConfirmGuardReviewer:
         assert stale[0]["nack_version"] == 1
         assert stale[0]["current_version"] == 2
 
+    def test_confirmed_producer_excluded_from_must_have_reviewed(self, graph, matrix):
+        """#3043: a producer that already CONFIRMED must not block a lagging
+        reviewer's own confirm, even if that reviewer never reviewed it.
+
+        A producer only reaches the confirmed set after its CRITICAL reviewers
+        ACK it, so its work is settled. A reviewer whose edge to it is advisory
+        (or stall-demoted) may never have reviewed it — without the exclusion it
+        would be stuck on the must_have_reviewed guard forever (the producer
+        will never re-propose to clear it), wedging the slice.
+        """
+        # coder is settled (confirmed via its critical reviewers); reviewer_code
+        # never reviewed it. reviewer_code's other producer (tester) is reviewed.
+        matrix.record_proposal("coder")
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard("reviewer_code", graph, matrix, confirmed={"coder"})
+        assert result.allowed is True
+
+    def test_confirmed_producer_excluded_from_unresolved_nack(self, graph, matrix):
+        """#3043 variant: a reviewer NACKed a producer that then CONFIRMED via an
+        advisory edge / stall-demotion without re-proposing. The unresolved-NACK
+        guard must not block the reviewer's own confirm once the producer settles.
+        """
+        version = matrix.record_proposal("coder")
+        matrix.record_nack("reviewer_code", "coder", version, reason="Bug found")
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard("reviewer_code", graph, matrix, confirmed={"coder"})
+        assert result.allowed is True
+
+    def test_unconfirmed_unreviewed_producer_still_blocks(self, graph, matrix):
+        """Negative control for #3043: the exclusion is scoped to CONFIRMED
+        producers only. An un-confirmed producer the reviewer hasn't reviewed
+        still blocks confirm via the must_have_reviewed guard.
+        """
+        matrix.record_proposal("coder")
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard("reviewer_code", graph, matrix, confirmed=set())
+        assert result.allowed is False
+        assert result.details["guard"] == "must_have_reviewed"
+        assert result.details["producer"] == "coder"
+
     def test_guard_priority_zero_proposal_before_stale_acks(self, graph, matrix):
         """Zero-proposal guard fires before stale_acks guard.
 
