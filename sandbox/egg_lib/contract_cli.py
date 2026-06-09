@@ -398,7 +398,14 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
     print(f"Phase: {contract.get('current_phase', 'unknown')}")
     print()
 
-    phases = contract.get("phases", [])
+    # Read ``slices`` first and fall back to the legacy ``phases`` key
+    # for any pre-#2137 / un-migrated raw JSON (same shape as the
+    # ``_tasks_for_role`` (#3029 r3) and ``task_mark_gap`` (#3029 r3)
+    # fixes).  The served contract shape is ``Contract.model_dump`` →
+    # ``slices``; reading *only* ``phases`` silently omitted the entire
+    # "Phases:" section from ``egg-contract show`` against every modern
+    # contract.
+    phases = contract.get("slices") or contract.get("phases") or []
     if phases:
         print("Phases:")
         for phase in phases:
