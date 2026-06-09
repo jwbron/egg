@@ -19032,6 +19032,28 @@ def _populate_outcome_to_hitl_reason(outcome: PopulateOutcome) -> str:
     return outcome.value
 
 
+# Single source of truth for ForestValidationError.reason → PopulateOutcome
+# mapping. Both ``_populate_contract_from_plan_safe`` and the
+# ``start_phase=implement`` safety net translate a structural NACK into an
+# outcome the empty-contract HITL prose dispatcher (#3046) can key off, so
+# centralising the table here keeps the two catch sites from drifting if a
+# third reason is added to :class:`ForestValidationError` (forest-shape vs.
+# file-overlap-ordering today). Unknown reasons fall back to
+# ``FOREST_VIOLATION`` — that's the conservative choice because the operator
+# prose for forest violations names the slice DAG generally rather than the
+# specific defect, so a new reason without a dedicated outcome still routes
+# to actionable (if generic) HITL prose.
+_FOREST_REASON_TO_OUTCOME: dict[str, PopulateOutcome] = {
+    "slice_overlap_violation": PopulateOutcome.SLICE_OVERLAP_VIOLATION,
+    "forest_violation": PopulateOutcome.FOREST_VIOLATION,
+}
+
+
+def _forest_error_to_outcome(err: ForestValidationError) -> PopulateOutcome:
+    """Map a :class:`ForestValidationError` to the matching populate outcome."""
+    return _FOREST_REASON_TO_OUTCOME.get(err.reason, PopulateOutcome.FOREST_VIOLATION)
+
+
 def _empty_contract_hitl_reason(
     err: PlanDraftMissingOnLocalError
     | PlanDraftMissingOnLocalAndOriginError
@@ -19397,11 +19419,6 @@ def _populate_contract_from_plan_safe(
         # reviewer prompt can NACK the architect). The exception's
         # ``reason`` selects the matching outcome so operators see an
         # accurate discriminator (forest shape vs file-overlap order).
-        _structural_outcome = (
-            PopulateOutcome.SLICE_OVERLAP_VIOLATION
-            if forest_err.reason == "slice_overlap_violation"
-            else PopulateOutcome.FOREST_VIOLATION
-        )
         logger.warning(
             "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
@@ -19409,7 +19426,7 @@ def _populate_contract_from_plan_safe(
             source="safe_wrapper",
             errors=forest_err.errors,
         )
-        return PopulateResult(_structural_outcome)
+        return PopulateResult(_forest_error_to_outcome(forest_err))
     except Exception as pop_err:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -21380,11 +21397,6 @@ def _run_pipeline(
                 except ForestValidationError as forest_err:
                     # #3046 — overlap violations map to their own outcome so
                     # the empty-contract HITL prose matches the discriminator.
-                    _safety_net_outcome = (
-                        PopulateOutcome.SLICE_OVERLAP_VIOLATION
-                        if forest_err.reason == "slice_overlap_violation"
-                        else PopulateOutcome.FOREST_VIOLATION
-                    )
                     logger.warning(
                         "contract_phases_ingest_failed",
                         pipeline_id=pipeline_id,
@@ -21392,7 +21404,9 @@ def _run_pipeline(
                         source="safety_net",
                         errors=forest_err.errors,
                     )
-                    _safety_net_populate_result = PopulateResult(_safety_net_outcome)
+                    _safety_net_populate_result = PopulateResult(
+                        _forest_error_to_outcome(forest_err)
+                    )
                 # #2627 follow-up: fail-fast whenever the safety-net populate
                 # did not produce a contract with tasks.  Without this guard
                 # the implement phase spawns into the same empty-contract

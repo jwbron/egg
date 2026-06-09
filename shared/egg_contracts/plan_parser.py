@@ -1628,8 +1628,21 @@ def validate_slice_file_overlap(slices: list[Slice]) -> list[str]:
         pair, in deterministic (declared-order) order. An empty list
         means no overlap-ordering violations.
     """
+
     # Deduplicate by id (duplicate ids are reported by validate_forest);
-    # preserve declared order for deterministic pair iteration.
+    # preserve declared order for deterministic pair iteration. Paths are
+    # canonicalised (``posixpath.normpath`` + strip ``./``) so two slices
+    # that name the same logical file in different surface forms — e.g.
+    # ``orchestrator/x.py`` vs ``./orchestrator/x.py`` vs
+    # ``a/b/../c.py`` vs ``a/c.py`` — collide as expected. Mirrors
+    # :func:`_is_file_blocked_for_role`'s normalisation so plan-time
+    # validation and the gateway's push-time check see the same paths.
+    def _normalize(p: str) -> str:
+        n = posixpath.normpath(p)
+        if n.startswith("./"):
+            n = n[2:]
+        return n
+
     ordered_ids: list[str] = []
     files_by_id: dict[str, set[str]] = {}
     deps_by_id: dict[str, list[str]] = {}
@@ -1639,7 +1652,8 @@ def validate_slice_file_overlap(slices: list[Slice]) -> list[str]:
         ordered_ids.append(slice_.id)
         files: set[str] = set()
         for task in slice_.tasks:
-            files.update(task.files_affected or [])
+            for f in task.files_affected or []:
+                files.add(_normalize(f))
         files_by_id[slice_.id] = files
         deps_by_id[slice_.id] = [d for d in (slice_.dependencies or []) if d]
 
@@ -1672,8 +1686,8 @@ def validate_slice_file_overlap(slices: list[Slice]) -> list[str]:
             if b in ancestors[a] or a in ancestors[b]:
                 continue
             errors.append(
-                f"Slices '{a}' and '{b}' both touch {sorted(shared)!r} but "
-                "neither depends on the other; the implement phase branches "
+                f"Slices '{a}' and '{b}' both touch {', '.join(sorted(shared))} "
+                "but neither depends on the other; the implement phase branches "
                 "each slice independently off the shared base, so their edits "
                 "to the shared file(s) collide at integration (e.g. a "
                 "modify/delete conflict). Order them along one dependency "
