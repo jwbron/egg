@@ -1459,11 +1459,35 @@ def handle_consensus_propose_signal(
         # in ``_build_brc_preamble`` stays in lockstep (it conditions the
         # no-op invitation on ``phase == "implement"`` for the same reason).
         if no_changes:
-            current_phase = (
-                pipeline_state.current_phase.value
-                if pipeline_state is not None
-                else _resolve_pipeline_phase(pipeline_id, repo_path)
-            )
+            # Resolve phase fail-CLOSED for the no-op gate.
+            # ``_resolve_pipeline_phase`` returns ``"implement"`` on any
+            # state-load exception — a sensible default for stamping
+            # ``Message.phase`` (drop a field rather than the message), but
+            # unsafe here: a transient FS error or partial state-store
+            # corruption during a plan-phase no-op would silently pass the
+            # guard and let an architect / risk_analyst skip authoring.
+            # Refuse with 503 instead and let the producer retry once state
+            # is readable.
+            if pipeline_state is not None:
+                current_phase = pipeline_state.current_phase.value
+            else:
+                try:
+                    store_for_phase = get_state_store(repo_path)
+                    current_phase = store_for_phase.load_pipeline(pipeline_id).current_phase.value
+                except Exception as exc:
+                    logger.error(
+                        "No-op propose rejected: pipeline phase resolution failed",
+                        pipeline_id=pipeline_id,
+                        role=agent_role,
+                        error=str(exc),
+                    )
+                    return make_error_response(
+                        f"Cannot resolve pipeline phase for no-op propose "
+                        f"({exc}). The phase guard fails closed rather than "
+                        "trust the default-implement fallback. Retry after "
+                        "pipeline state is readable.",
+                        503,
+                    )
             if current_phase != "implement":
                 return make_error_response(
                     f"{agent_role} cannot submit a no-op propose in phase "
