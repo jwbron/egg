@@ -317,12 +317,13 @@ Verifies that PR implementations match their SDLC pipeline contracts. This workf
 
 ### Trigger Conditions
 
-The workflow runs on pull requests when **either** of these conditions is met:
+The workflow runs on pull requests when **any** of these conditions is met:
 
 1. **Label-based trigger** — PR has the `sdlc:pr` label
 2. **Contract file detection** — PR adds a new file to `.egg-state/contracts/` (detected via the PR files diff API)
+3. **Slice-PR trigger** — the PR's head branch is a slice branch (`egg/<pipeline_id>/slice-<N>`) and the pipeline's work branch (`egg/<pipeline_id>/work`) carries a contract file
 
-This dual-trigger approach ensures contract verification runs even when the label is missing but a new contract file is being introduced by the PR.
+This multi-trigger approach ensures contract verification runs for both the work→main context PR (which *adds* the contract, condition 2) and every slice→work PR (condition 3). Slice PRs inherit the contract from the work branch rather than adding it, and they carry `agent:<role>` labels rather than `sdlc:pr`, so neither of the first two conditions fires for them (#3040). Detection keys off the slice-branch *topology* — not bare contract presence, since every PR inherits the contracts accumulated on the default branch (#1134) — so docs-only and other normal PRs are never matched.
 
 ### How It Works
 
@@ -331,6 +332,7 @@ This dual-trigger approach ensures contract verification runs even when the labe
    - Extracts issue number from branch name, PR body, or contract filename (used downstream for contract lookup)
    - For labeled PRs, runs immediately
    - For unlabeled PRs, queries the PR files API to check if any new file was added under `.egg-state/contracts/`
+   - For unlabeled slice PRs (head `egg/<pipeline_id>/slice-<N>`), derives the work branch and runs if a contract is present on it
 2. **Contract verification** — Uses the reusable review framework with a contract-specific prompt:
    - Reads the contract from `.egg-state/contracts/{issue_number}.json`
    - Compares implementation against contract tasks
