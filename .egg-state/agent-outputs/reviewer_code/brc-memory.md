@@ -1,0 +1,30 @@
+## Codebase / change model
+
+-
+
+## Per-producer assessment
+
+### coder
+
+- producer: coder
+- last_reviewed_commit_sha: de826cef250be77fdbae32c4e40cd3b2cc56ed23
+- prior_verdict: ACK
+- prior_nack_reasons: -
+- prior_conditional_obligation: -
+- summary_of_assessment: Re-ACK at v3 (reviewer_code lens, code-review-criteria.md). Wrapper-computed delta `git log 1422be5b5..HEAD --not origin/main -p` is empty — no new commits since my prior ACK at 1422be5b5 (v2). Per REVIEWER-SYNC.md both passes succeed: (a) my prior ACK had no named blockers to re-verify, and (b) the empty delta introduces zero new findings. Prior assessment stands: TASK-3-1 deletion of consensus_wrapper.py is real and complete, and all call sites have been re-pointed at the on-demand spawn topology cleanly. No code-quality regressions to flag at v3.
+
+### tester
+
+- producer: tester
+- last_reviewed_commit_sha: 47b2ce2e6de7f7be4113c2a5fe1c1eeb4d494ce7
+- prior_verdict: ACK
+- prior_nack_reasons: -
+- prior_conditional_obligation: -
+- summary_of_assessment: ACK from reviewer_code lens (code-review-criteria.md). Reviewed all four tester-owned slice-3 artifacts against the producer's full branch history (origin/main..origin/egg/issue-3023/slice-3) since this is a first review with no last_reviewed_commit_sha. Substantive strengths - test_concurrent_executor.py: TestSpawnAllRetiresWrapperPodSpawn (v3 ordering) and TestSpawnAllSeedPreseedWindowIsObservablyAtomic (v6 depth) are well-constructed unit tests. They properly mock create_peer_consensus_tracker / emit_event / _spawn_roles, record real call sequences via MagicMock side_effects, and pin the spawn_all ordering invariant (every register_agent.idx < seeder.idx) and atomicity (seeder called at most once; no register_agent after the seeder). They include explicit "sanity" assertions that register_agent fired at least once, closing the all()-over-empty-list trivial-pass hole. These exercise the actual production code path in concurrent_executor.py:322-405 and would catch real regressions. -…
+
+## Decision log
+
+- 2026-06-09T17:22:14Z ack tester: ACK from reviewer_code lens (code-review-criteria.md). Reviewed all four tester-owned slice-3 artifacts against the producer's full branch history (origin/main..origin/egg/issue-3023/slice-3) since this is a first review with no last_reviewed_commit_sha. [orchestrator/tests/test_concurrent_executor.py, orchestrator/tests/test_pipelines_restart_on_demand.py, orchestrator/tests/test_startup_reconciliation_cross_version.py, shared/tests/test_egg_agent_signal.py]
+- 2026-06-09T17:28:23Z ack coder: ACK from reviewer_code lens (code-review-criteria.md). Reviewed the coder's slice-3 commit 5496e7c18 (the only producer commit in the origin/main..origin/egg/issue-3023/slice-3 range; no prior last_reviewed_commit_sha, so full-history audit) plus the follow-up doc cleanup. The diff retires consensus_wrapper.py and re-points every call site at the on-demand spawn topology. [orchestrator/consensus_wrapper.py, orchestrator/concurrent_executor.py, orchestrator/routes/pipelines.py, orchestrator/routes/event_prompt.py, orchestrator/agent_model_resolution.py, orchestrator/startup_reconciliation.py, shared/egg_agent/__main__.py, sandbox/agent-config/rules/mission.md, sandbox/egg_agent_tools/handlers/message.py, orchestrator/tests/test_concurrent_executor.py, orchestrator/tests/test_concurrent_integration.py, orchestrator/tests/test_agent_model_resolution.py, orchestrator/tests/test_consensus_wrapper.py]
+- 2026-06-09T17:30:38Z ack coder: Re-ACK at v2 (reviewer_code lens, code-review-criteria.md). Wrapper-computed delta `git log 5496e7c182..HEAD --not origin/main -p` is empty — no commits since my v1 ACK at 5496e7c182. Per REVIEWER-SYNC.md both passes succeed: (a) my v1 had no named blockers to re-verify, and (b) the empty delta introduces zero new findings. Prior assessment stands: TASK-3-1 deletion of consensus_wrapper.py is real and complete on the slice-3 tree (AC-R10 grep returns zero positive additions to production code), and all call sites have been re-pointed at the on-demand spawn topology cleanly. [orchestrator/consensus_wrapper.py (deleted), orchestrator/concurrent_executor.py, orchestrator/routes/pipelines.py, orchestrator/routes/event_prompt.py, orchestrator/agent_model_resolution.py, orchestrator/startup_reconciliation.py, shared/egg_agent/__main__.py, sandbox/agent-config/rules/mission.md, sandbox/egg_agent_tools/handlers/message.py, orchestrator/tests/test_concurrent_executor.py, orchestrator/tests/test_concurrent_integration.py, orchestrator/tests/test_agent_model_resolution.py, orchestrator/tests/test_consensus_wrapper.py (deleted), integration_tests/regression/test_brc_concurrency.py, tests/shared/egg_agent/test_client.py, docs/guides/per-agent-models.md]
+- 2026-06-09T17:40:43Z ack coder: Re-ACK at v3 (reviewer_code lens, code-review-criteria.md). Wrapper-computed delta `git log 1422be5b5..HEAD --not origin/main -p` is empty — no new commits since my prior ACK at 1422be5b5 (v2). Per REVIEWER-SYNC.md both passes succeed: (a) my prior ACK had no named blockers to re-verify, and (b) the empty delta introduces zero new findings. Prior assessment stands: TASK-3-1 deletion of consensus_wrapper.py is real and complete, and all call sites have been re-pointed at the on-demand spawn topology cleanly. No code-quality regressions to flag at v3. [orchestrator/consensus_wrapper.py, orchestrator/concurrent_executor.py, orchestrator/routes/pipelines.py, orchestrator/routes/event_prompt.py, orchestrator/agent_model_resolution.py, orchestrator/startup_reconciliation.py, shared/egg_agent/__main__.py, sandbox/agent-config/rules/mission.md, sandbox/egg_agent_tools/handlers/message.py, orchestrator/tests/test_concurrent_executor.py, orchestrator/tests/test_concurrent_integration.py, orchestrator/tests/test_agent_model_resolution.py, integration_tests/regression/test_brc_concurrency.py, tests/shared/egg_agent/test_client.py, docs/guides/per-agent-models.md, .egg-state/agent-outputs/coder/brc-memory.md]
