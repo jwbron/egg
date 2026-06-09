@@ -586,7 +586,7 @@ Or via the MCP tool, pass `no_changes_needed=True` and `no_changes_reason="..."`
 
 **Applies to any producer role** — no per-role flag or orchestrator-side configuration needed.
 
-**Implement phase only.** The orchestrator's no-op propose guard (`orchestrator/routes/signals.py`) rejects `--no-changes-needed` in any phase other than `implement` with HTTP 400 ("the producer's draft is required for this phase"). Refine and task_planner producers must author and commit their draft — a no-op propose is not a substitute for the analysis or plan artifact.
+**Implement phase only.** The orchestrator's no-op propose guard (`orchestrator/routes/signals.py`) rejects `--no-changes-needed` in any phase other than `implement` with HTTP 400 ("the producer's draft is required for this phase"). Refine and plan-phase producers (architect, task_planner, risk_analyst) must author and commit their draft — a no-op propose is not a substitute for the analysis or plan artifact.
 
 **Tester edge case: mutually exclusive with `tests_execution_blocked`.** A tester proposal that combines `no_changes_needed=true` with `attestation.tests_execution_blocked=true` is rejected by `validate_no_changes_blocked_mutual_exclusion` (`orchestrator/attestation_schemas.py`). The two flags mean different things — "no changes needed" means the configured checks ran and there was nothing to author; "tests execution blocked" means the checks could not run at all. Pick one.
 
