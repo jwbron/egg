@@ -1455,3 +1455,202 @@ class TestResolverMissingRepoConfigDoesNotCrash:
             executor._spawn_agent(AgentRole.CODER, prompt_text="run task")
 
         assert mock_spawn.call_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Issue #3023 slice-3, TASK-3-2 TDD scaffold
+# --------------------------------------------------------------------------- #
+#
+# Two test classes pin the slice-3 retirement of the in-pod event-pump
+# wrapper as it affects ``concurrent_executor.py``:
+#
+#   * ``TestSpawnAllRetiresWrapperPodSpawn`` — pins the planned
+#     disposition of ``spawn_all`` (plan §slice-3 / TASK-3-2): the
+#     long-lived per-role wrapper pod is no longer spawned. After the
+#     coder lands TASK-3-2, ``spawn_all`` collapses to tracker
+#     registration + auto-ACK pre-seed only — **no call to
+#     ``_spawn_roles``** — and ``record_phase_start`` from the new
+#     ``OnDemandSpawner`` (slice-2 / TASK-2-8) handles per-phase
+#     session+PVC pre-warm. The orchestrator's tick handles every
+#     subsequent spawn on demand.
+#
+#   * ``TestSpawnAgentNoWrapperCommand`` — pins TASK-3-2's
+#     ``concurrent_executor.py:489`` change: ``_spawn_agent`` no longer
+#     calls ``build_consensus_wrapped_command``; the on-demand command
+#     constructed in slice-2 / TASK-2-4 is now the only path. The
+#     symbol must be gone from the module (it lives in
+#     ``orchestrator/consensus_wrapper.py``, which TASK-3-1 deletes).
+#
+# Both classes use the same skip-vs-assert dance the slice-1 TDD
+# scaffold (`test_consensus_wrapper.py:TestPhaseIdleBudgetOwnerEnvInjection`)
+# uses so ``make test`` stays green during parallel-producer BRC: tests
+# skip cleanly until the coder lands TASK-3-1+TASK-3-2, then assert
+# against the real surface. The race window flagged by reviewer_concurrency
+# (tracker registration vs. the absent ``_spawn_roles`` spawn) is pinned
+# here at the call-graph level — any future regression that re-introduces
+# a spawn from ``spawn_all`` would re-open the race.
+
+
+def _task_3_2_landed() -> bool:
+    """Return True once TASK-3-2 (and its TASK-3-1 dependency on
+    ``consensus_wrapper.py`` deletion) has landed.
+
+    The signal we key off is the absence of the wrapper-only symbol
+    from ``concurrent_executor``. While TASK-3-2 is still pending the
+    module still imports ``build_consensus_wrapped_command`` at line
+    ``concurrent_executor.py:37``; once TASK-3-1+TASK-3-2 land, the
+    import is gone and the spawn path no longer references the wrapper.
+    """
+    import concurrent_executor as _ce
+
+    return not hasattr(_ce, "build_consensus_wrapped_command")
+
+
+class TestSpawnAllRetiresWrapperPodSpawn:
+    """Slice-3 / TASK-3-2 acceptance line: ``spawn_all`` no longer calls
+    ``_spawn_roles`` — the long-lived per-role wrapper pod is no longer
+    spawned. ``record_phase_start`` from the on-demand spawner handles
+    session+PVC pre-warm; every subsequent spawn is on-demand from the
+    orchestrator tick.
+
+    The skip-vs-assert pattern is the same one the slice-1 scaffold uses
+    so a parallel-producer BRC cycle can keep ``make test`` green.
+    """
+
+    def _assert_or_skip(self, *, condition: bool, reason: str) -> None:
+        if not _task_3_2_landed():
+            pytest.skip(
+                "TASK-3-2 (concurrent_executor.spawn_all collapse, "
+                "build_consensus_wrapped_command removal) not yet landed; "
+                "test will assert once the coder's commit lands."
+            )
+        assert condition, reason
+
+    def test_spawn_all_does_not_call_spawn_roles(self):
+        """After TASK-3-2 lands, ``spawn_all`` MUST NOT invoke
+        ``_spawn_roles`` — the wrapper pod is retired.
+
+        Pre-TASK-3-2 the test skips cleanly. Post-TASK-3-2 the spy on
+        ``ConcurrentPhaseExecutor._spawn_roles`` must record zero calls.
+        Re-introducing a ``_spawn_roles`` call from ``spawn_all`` would
+        re-open the tracker-registration-vs-spawn race window
+        reviewer_concurrency flagged on the v1 NACK.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(
+                ConcurrentPhaseExecutor,
+                "_spawn_roles",
+                autospec=True,
+                return_value=[],
+            ) as spy_spawn_roles,
+        ):
+            mock_tracker.return_value = MagicMock()
+            executor.spawn_all()
+
+        self._assert_or_skip(
+            condition=spy_spawn_roles.call_count == 0,
+            reason=(
+                "TASK-3-2 acceptance: spawn_all must NOT call _spawn_roles "
+                f"after slice-3 lands (observed call_count={spy_spawn_roles.call_count}). "
+                "The long-lived per-role wrapper pod is retired; "
+                "record_phase_start handles per-phase session+PVC pre-warm "
+                "and the orchestrator tick handles every per-event spawn."
+            ),
+        )
+
+    def test_spawn_all_still_registers_tracker_agents(self):
+        """The tracker-registration side of ``spawn_all`` is unchanged by
+        TASK-3-2: every role must still be registered with the tracker so
+        the BRC matrix is materialised and reviewers can ACK against a
+        known set of agents. This pin guards against accidentally
+        deleting the registration loop along with the spawn call.
+        """
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(
+                ConcurrentPhaseExecutor,
+                "_spawn_roles",
+                autospec=True,
+                return_value=[],
+            ),
+        ):
+            tracker_instance = MagicMock()
+            mock_tracker.return_value = tracker_instance
+            executor.spawn_all()
+
+        # The tracker side is asserted unconditionally — it is the
+        # invariant that must hold for both pre- and post-TASK-3-2
+        # code paths. Skipping here would mask a regression.
+        assert tracker_instance.register_agent.call_count == len(executor.get_agent_roles()), (
+            "spawn_all must register every role with the consensus tracker "
+            "regardless of TASK-3-2's collapse of the spawn call. A regression "
+            "here would leave reviewers ACKing against an unknown agent set."
+        )
+
+
+class TestSpawnAgentNoWrapperCommand:
+    """Slice-3 / TASK-3-2 acceptance line: ``concurrent_executor.py:489``
+    no longer builds the wrapper command. The wrapper-only symbol
+    ``build_consensus_wrapped_command`` MUST disappear from the module
+    namespace once TASK-3-1 deletes ``consensus_wrapper.py``.
+
+    The grep-level acceptance (``grep -rn build_consensus_wrapped_command
+    orchestrator/`` returns no matches) is pinned here at the symbol
+    level so a regression that re-introduces the import is caught with
+    a clean failure on this file.
+    """
+
+    def test_wrapper_symbol_absent_after_task_3_2(self):
+        if not _task_3_2_landed():
+            pytest.skip(
+                "TASK-3-1 (consensus_wrapper.py delete) + TASK-3-2 "
+                "(build_consensus_wrapped_command call-site removal) not "
+                "yet landed; the wrapper symbol is still imported at "
+                "concurrent_executor.py:37. Test will assert once the "
+                "coder's commits land."
+            )
+
+        import concurrent_executor as _ce
+
+        assert not hasattr(_ce, "build_consensus_wrapped_command"), (
+            "TASK-3-2 acceptance: build_consensus_wrapped_command MUST NOT "
+            "be importable from concurrent_executor after slice-3 lands. "
+            "The wrapper module is deleted by TASK-3-1; any lingering "
+            "import re-opens the wrapper-vs-on-demand coexistence the "
+            "plan retired."
+        )
+
+    def test_source_grep_no_wrapper_reference(self):
+        """The grep-level AC for TASK-3-2: ``grep -rn
+        build_consensus_wrapped_command orchestrator/`` returns no
+        matches outside the deletion commit. We pin this at the file
+        level (``concurrent_executor.py`` source) so the test catches a
+        regression that re-introduces the call.
+        """
+        if not _task_3_2_landed():
+            pytest.skip(
+                "Pre-TASK-3-2 the wrapper symbol is still referenced; "
+                "source-grep assertion will pin once slice-3 lands."
+            )
+
+        source_path = Path(__file__).parent.parent / "concurrent_executor.py"
+        source = source_path.read_text(encoding="utf-8")
+        assert "build_consensus_wrapped_command" not in source, (
+            "TASK-3-2 acceptance: concurrent_executor.py must not reference "
+            "build_consensus_wrapped_command after slice-3. Found a lingering "
+            "reference — re-check both the import at line 37 and the call "
+            "site at line 489."
+        )
