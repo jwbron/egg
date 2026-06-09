@@ -2737,6 +2737,20 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     from egg_agent_tools.handlers import brc as _handlers
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
+    # Mutual-presence check for the no-op surface (#3027 review feedback):
+    # ``--no-changes-reason`` without ``--no-changes-needed`` was silently
+    # discarded, then the orchestrator bounced the propose with the generic
+    # "requires at least one artifact" error — opaque to the user. Catch it
+    # at the CLI with a clearer message before the handler runs.
+    if getattr(args, "no_changes_reason", None) and not getattr(args, "no_changes_needed", False):
+        print(
+            "--no-changes-reason requires --no-changes-needed. "
+            "If you have no work in this slice, pass both flags together; "
+            "otherwise drop --no-changes-reason and propose normally.",
+            file=sys.stderr,
+        )
+        return 2
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
 

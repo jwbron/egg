@@ -26,7 +26,7 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
-from action_guards import check_confirm_guard
+from action_guards import check_confirm_guard, check_nack_guard, validate_invariants
 from approval_matrix import ApprovalMatrix
 from attestation_schemas import ProposalPayload
 from peer_consensus import (
@@ -35,7 +35,7 @@ from peer_consensus import (
     _trackers_lock,
     reconstruct_tracker_from_messages,
 )
-from review_graph import get_default_implement_graph
+from review_graph import get_default_implement_graph, get_default_plan_graph
 
 # --- ProposalPayload validator exemptions ---------------------------------
 
@@ -211,3 +211,175 @@ class TestNoOpDurableAcrossReconstruction:
         assert tracker.matrix.is_no_changes_proposal("documenter") is True
         assert tracker.matrix.is_fully_acked("documenter") is True
         assert tracker.matrix.get_blocking_edges("documenter") == []
+
+    def test_no_op_replay_does_not_inject_sentinel_commit_sha(self):
+        """Review feedback (item 2): the RECONSTRUCTED_NO_SHA sentinel must
+        not land in a no-op producer's commit-sha history — a no-op carries
+        no commit by design and the sentinel would be misleading audit data.
+        """
+        graph = get_default_implement_graph()
+        messages = [
+            self._Msg(
+                "CONSENSUS_PROPOSE",
+                "documenter",
+                metadata={
+                    "payload": {
+                        "summary": "no doc surface in this slice at all",
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no documented surface impacted",
+                    },
+                    "version": 1,
+                },
+            ),
+        ]
+        store = self._Store(messages)
+        tracker = reconstruct_tracker_from_messages(
+            "test-3027-recon", graph, message_store=store, phase="implement"
+        )
+        assert tracker is not None
+        history = tracker._proposal_commit_sha_history.get("documenter", {})
+        assert "RECONSTRUCTED_NO_SHA" not in history.values()
+        # The current commit-sha for the producer is empty (no real propose).
+        assert tracker._proposal_commit_shas.get("documenter", "") == ""
+
+
+# --- Mutual exclusion: no_changes_needed + tests_execution_blocked --------
+
+
+class TestProposalPayloadMutualExclusion:
+    """Review feedback (item 7): folding the per-role
+    ``no_test_changes_needed`` into the proposal-level ``no_changes_needed``
+    dropped the mutual-exclusion check against ``tests_execution_blocked``.
+    Restore it at the proposal layer."""
+
+    def test_no_changes_with_tests_blocked_is_rejected(self):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            ProposalPayload(
+                summary="x" * 30,
+                no_changes_needed=True,
+                no_changes_reason="no work in this slice",
+                attestation={
+                    "tests_execution_blocked": True,
+                    "tests_execution_blocked_reason": "no network",
+                },
+            )
+
+    def test_tests_blocked_alone_is_fine(self):
+        # blocked-without-no-op is the original real-proposal path.
+        payload = ProposalPayload(
+            summary="x" * 30,
+            artifacts=["src/a.py"],
+            commit_sha="abc123",
+            attestation={
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "no network",
+            },
+        )
+        assert payload.no_changes_needed is False
+
+    def test_no_op_alone_is_fine(self):
+        # no-op-without-blocked is the new path.
+        payload = ProposalPayload(
+            summary="x" * 30,
+            no_changes_needed=True,
+            no_changes_reason="no work in this slice",
+        )
+        assert payload.no_changes_needed is True
+
+
+# --- Action guards: NACK against a no-op --------------------------------
+
+
+class TestNackGuardNoOp:
+    """Review feedback (item 4): a NACK against a no-op proposal must be
+    rejected — the matrix would silently mask it as the no-op is treated as
+    non-blocking, hiding what could be a real disagreement."""
+
+    def test_nack_against_no_op_is_rejected(self):
+        graph = get_default_implement_graph()
+        matrix = ApprovalMatrix(graph)
+        matrix.record_proposal("documenter", no_changes=True)
+
+        # reviewer_code has a (advisory) edge → documenter in the default
+        # implement graph; the guard must still reject the NACK.
+        result = check_nack_guard("reviewer_code", "documenter", graph, matrix=matrix)
+        assert result.allowed is False
+        assert result.details and result.details.get("guard") == "no_op_nack"
+        assert "no work" in result.reason or "no-op" in result.reason
+
+    def test_nack_against_real_proposal_is_allowed(self):
+        graph = get_default_implement_graph()
+        matrix = ApprovalMatrix(graph)
+        # Real proposal — flag stays False.
+        matrix.record_proposal("documenter", no_changes=False)
+        result = check_nack_guard(
+            "reviewer_code", "documenter", graph, matrix=matrix, nack_version=1
+        )
+        assert result.allowed is True
+
+
+# --- Invariants: no-op short-circuit ------------------------------------
+
+
+class TestValidateInvariantsNoOp:
+    """Review feedback (item 3): the fully_acked_consistency invariant must
+    short-circuit on a no-op producer the same way ``is_fully_acked`` and
+    ``get_blocking_edges`` do, or it flags every no-op as inconsistent.
+    """
+
+    def test_no_op_does_not_trigger_fully_acked_violation(self):
+        graph = get_default_implement_graph()
+        matrix = ApprovalMatrix(graph)
+        matrix.record_proposal("coder", no_changes=True)  # coder has CRITICAL reviewers
+        violations = validate_invariants(
+            graph,
+            matrix,
+            producer_phases={},
+            reviewer_phases={},
+            confirmed=set(),
+        )
+        fully_acked_violations = [v for v in violations if v.invariant == "fully_acked_consistency"]
+        assert fully_acked_violations == []
+
+
+# --- BRC preamble: no-op prose conditioned on phase ----------------------
+
+
+class TestBRCPreambleNoOpPhaseGating:
+    """Review feedback (items 1+6): the producer-lifecycle no-op invitation
+    text must appear only for implement-phase producers. In refine/plan the
+    producer's draft is mandatory and a no-op is explicitly rejected, so
+    surfacing the affordance there is misleading and lets an architect /
+    risk_analyst bypass plan-phase authoring.
+    """
+
+    def test_implement_producer_sees_no_op_prose(self):
+        from routes.pipelines import _build_brc_preamble
+
+        preamble = _build_brc_preamble("coder", phase="implement")
+        assert "no-changes-needed" in preamble
+        assert "Submit a no-op propose" in preamble
+
+    def test_plan_producer_does_not_see_no_op_prose(self):
+        from routes.pipelines import _build_brc_preamble
+
+        for role in ("architect", "task_planner", "risk_analyst"):
+            preamble = _build_brc_preamble(role, phase="plan")
+            assert "no-changes-needed" not in preamble, role
+            assert "Submit a no-op propose" not in preamble, role
+
+    def test_refine_producer_does_not_see_no_op_prose(self):
+        from routes.pipelines import _build_brc_preamble
+
+        preamble = _build_brc_preamble("refiner", phase="refine")
+        assert "no-changes-needed" not in preamble
+        assert "Submit a no-op propose" not in preamble
+
+    def test_plan_phase_graph_has_three_critical_producers(self):
+        """Sanity check the assumption behind item 1: architect /
+        task_planner / risk_analyst are all plan-phase producers, so the
+        signals-layer guard must cover all three (which the phase-based
+        gate does automatically)."""
+        graph = get_default_plan_graph()
+        producers = {r for r in graph.all_roles() if graph.is_producer(r)}
+        assert {"architect", "task_planner", "risk_analyst"}.issubset(producers)

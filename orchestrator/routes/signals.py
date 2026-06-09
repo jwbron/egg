@@ -1450,17 +1450,27 @@ def handle_consensus_propose_signal(
     try:
         # A no-op propose (#3027) is only meaningful in the implement phase,
         # where a producer (e.g. documenter) may have no work in a given
-        # slice. In refine/plan the sole producer's job IS to author the
-        # analysis/plan draft, so a no-op there would skip the deterministic
-        # input the gate reads — reject it explicitly rather than let it slip
-        # past the draft check (whose git-show needs a commit a no-op lacks).
-        if no_changes and agent_role in ("refiner", "task_planner"):
-            return make_error_response(
-                f"{agent_role} cannot submit a no-op propose: the "
-                f"{'analysis' if agent_role == 'refiner' else 'plan'} draft is "
-                f"required for this phase. Author and commit the draft, then propose.",
-                400,
+        # slice. In every other phase the producer's job IS to author the
+        # phase's deterministic input (analysis draft in refine; plan draft,
+        # architecture artifact, or risk register in plan), so a no-op there
+        # would silently skip the input the gate reads. Reject on phase, not
+        # on a hand-maintained role list — a future plan/refine producer added
+        # to the review graph picks up the guard automatically and the prose
+        # in ``_build_brc_preamble`` stays in lockstep (it conditions the
+        # no-op invitation on ``phase == "implement"`` for the same reason).
+        if no_changes:
+            current_phase = (
+                pipeline_state.current_phase.value
+                if pipeline_state is not None
+                else _resolve_pipeline_phase(pipeline_id, repo_path)
             )
+            if current_phase != "implement":
+                return make_error_response(
+                    f"{agent_role} cannot submit a no-op propose in phase "
+                    f"'{current_phase}': the producer's draft is required for "
+                    f"this phase. Author and commit the draft, then propose.",
+                    400,
+                )
         # Validate tester proposals cover all configured repo checks (#1459).
         # Must run BEFORE handle_propose to avoid mutating tracker state on
         # rejected proposals. Skipped for a no-op — the tester ran nothing.

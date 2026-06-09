@@ -280,6 +280,31 @@ def check_nack_guard(
                 },
             )
 
+        # No-op NACK rejection (#3027 review feedback): a generic no-op
+        # propose declares the producer has no work in this slice. The
+        # matrix treats it as non-blocking (``is_fully_acked`` is True,
+        # ``get_blocking_edges`` is empty) so a NACK against it would be
+        # silently masked — looking like a real disagreement that wasn't
+        # acted on. Reject explicitly: a reviewer that disagrees with the
+        # "no work" claim should register an open question, not NACK.
+        if matrix.is_no_changes_proposal(producer_role):
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"Cannot NACK producer {producer_role}: the producer "
+                    f"declared a generic no-op (no work in this slice, #3027). "
+                    f"Reviewers neither review nor NACK a no-op. If you "
+                    f"disagree the producer has no work — e.g. the diff "
+                    f"actually does touch a documented surface — register an "
+                    f"open question via `mcp__sdlc__register_open_question` "
+                    f"so the operator can adjudicate."
+                ),
+                details={
+                    "guard": "no_op_nack",
+                    "producer": producer_role,
+                },
+            )
+
         # Version-match guard: NACK version must match the producer's
         # current proposal version (#2142).  Forces reviewers whose verdict
         # was racing a producer's re-propose to re-review the new version.
@@ -808,6 +833,32 @@ def validate_invariants(
                             f"Producer {producer} reports fully_acked=True "
                             f"but has never proposed (version 0)"
                         ),
+                    )
+                )
+            continue
+
+        # A generic no-op proposal (#3027) is fully-acked by design — the
+        # producer declared no work and reviewers do not review it, so the
+        # "all critical reviewers ACKed at current_version" recomputation
+        # below would always disagree with ``is_fully_acked`` and flood
+        # this invariant with false positives. Mirror the matrix's no-op
+        # short-circuit so the invariant stays useful for defensive
+        # debugging of real proposals.
+        if matrix.is_no_changes_proposal(producer):
+            if not is_acked:
+                violations.append(
+                    InvariantViolation(
+                        invariant="fully_acked_consistency",
+                        agent=producer,
+                        description=(
+                            f"Producer {producer} is a no-op proposal but "
+                            f"is_fully_acked returned False"
+                        ),
+                        details={
+                            "is_fully_acked": is_acked,
+                            "no_changes": True,
+                            "current_version": current_version,
+                        },
                     )
                 )
             continue

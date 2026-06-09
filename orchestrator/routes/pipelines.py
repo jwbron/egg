@@ -11863,23 +11863,24 @@ def _build_brc_preamble(
 
     if is_producer:
         producer_lifecycle: list[str] = ["### Producer Lifecycle"]
-        producer_lifecycle.extend(
-            [
-                "1. **ORIENT**: Before starting work, "
-                + _build_producer_orientation(
-                    role_value,
-                    phase,
-                    reviewers,
-                    branch=branch,
-                ),
-                "2. **WORK**: Complete your assigned task (see Your Task below).",
-                "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
-                '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
-                '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
-                "The `--summary` must be ≥50 chars of substantive content describing what was "
-                "built, what was tested, and which contract tasks it satisfies. "
-                "Boilerplate like 'looks good' or 'approved' will be rejected.\n\n"
+        # The no-op propose path (#3027) is only valid in the implement
+        # phase. In refine/plan the producer's draft is mandatory and the
+        # orchestrator rejects no-op explicitly — so don't even surface the
+        # affordance to refine/plan producers (architect, refiner,
+        # task_planner, risk_analyst), keeping prose and enforcement in
+        # lockstep (review feedback on #3029).
+        propose_line = (
+            "3. **PROPOSE**: When done, run: "
+            '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
+            '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
+            '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
+            "The `--summary` must be ≥50 chars of substantive content describing what was "
+            "built, what was tested, and which contract tasks it satisfies. "
+            "Boilerplate like 'looks good' or 'approved' will be rejected."
+        )
+        if phase == "implement":
+            propose_line += (
+                "\n\n"
                 "   **No work for you in this slice? Submit a no-op propose (#3027).** "
                 "If after ORIENT you find your role has no assigned task here AND "
                 "nothing to contribute (e.g. a documenter on a code-only slice, a "
@@ -11891,7 +11892,19 @@ def _build_brc_preamble(
                 "you; reviewers accept it as a non-blocking no-op (they will not "
                 "NACK it). Then CONFIRM (step 5) as normal once peers have proposed. "
                 "Reach for a real propose instead the moment you do find work "
-                "(e.g. the coder's diff turns out to need docs).",
+                "(e.g. the coder's diff turns out to need docs)."
+            )
+        producer_lifecycle.extend(
+            [
+                "1. **ORIENT**: Before starting work, "
+                + _build_producer_orientation(
+                    role_value,
+                    phase,
+                    reviewers,
+                    branch=branch,
+                ),
+                "2. **WORK**: Complete your assigned task (see Your Task below).",
+                propose_line,
                 "4. **RESPOND TO REVIEWS**: When a reviewer NACKs your "
                 "proposal you will be re-invoked to address it. Read every "
                 "NACK in the event payload, fix all named blockers, and "

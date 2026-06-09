@@ -2123,7 +2123,14 @@ def reconstruct_tracker_from_messages(
                 # Historical messages may pre-date this requirement.
                 # Use an explicit sentinel so callers of
                 # get_proposal_commit_sha() can distinguish it from a real SHA.
-                if not payload.get("commit_sha"):
+                #
+                # Skipped for a no-op propose (#3027): a no-op carries no
+                # commit_sha by design — ``ProposalPayload.validate_commit_sha_present``
+                # is bypassed for it — so injecting the sentinel would write
+                # misleading audit data (``RECONSTRUCTED_NO_SHA`` against a
+                # producer that never had a commit to point at) into the
+                # commit-sha history. Leave it empty.
+                if not payload.get("commit_sha") and not payload.get("no_changes_needed"):
                     payload["commit_sha"] = "RECONSTRUCTED_NO_SHA"
 
                 # Debounce auto-re-propose messages during replay:

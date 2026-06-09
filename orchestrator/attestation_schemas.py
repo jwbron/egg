@@ -172,6 +172,32 @@ class ProposalPayload(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def validate_no_changes_blocked_mutual_exclusion(self) -> ProposalPayload:
+        """Reject ``no_changes_needed`` combined with ``tests_execution_blocked`` (#3027 follow-up).
+
+        The retired per-role ``no_test_changes_needed`` flag had a paired
+        mutual-exclusion check against ``tests_execution_blocked`` —
+        "blocked" means the configured checks could not run; "no changes
+        needed" means they ran and there was nothing to author. Folding
+        per-role flags into the proposal-level ``no_changes_needed``
+        dropped the check; restore it at the proposal layer so the
+        incoherent combination is rejected before the strict validator
+        is short-circuited by RELAXED mode.
+        """
+        if self.no_changes_needed and bool(self.attestation.get("tests_execution_blocked", False)):
+            raise ValueError(
+                "Proposal has both no_changes_needed=true and "
+                "attestation.tests_execution_blocked=true — these are "
+                "mutually exclusive. 'no_changes_needed' means the producer "
+                "has no work in this slice; 'tests_execution_blocked' means "
+                "the tester tried to run the configured checks and could not. "
+                "Pick one: if you have no work, drop tests_execution_blocked; "
+                "if your checks were blocked, drop no_changes_needed and "
+                "report the blocked-execution path."
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_commit_sha_present(self) -> ProposalPayload:
         """Require commit_sha so reviewers can verify pushed code (#1473).
 
