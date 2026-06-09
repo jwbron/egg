@@ -424,8 +424,9 @@ def check_confirm_guard(
 
     # --- Reviewer confirmation guards ---
     if is_reviewer:
-        # Exclude two classes of producer from the reviewer guards below
-        # (has-reviewed / zero-proposal / stale-verdict / unresolved-NACK):
+        # Exclude two classes of producer from the four reviewer guards
+        # below (has-reviewed / zero-proposal / stale-ACK / stale-NACK /
+        # unresolved-NACK):
         #
         #   * Generic no-op producers (#3027): the producer declared it has
         #     no work, so there is nothing for the reviewer to review and it
@@ -433,14 +434,19 @@ def check_confirm_guard(
         #   * Already-CONFIRMED producers (#3043): a producer only reaches
         #     the confirmed set after its CRITICAL reviewers have ACKed it,
         #     so its work is settled. A reviewer still carrying a missing
-        #     review or a NACK against an un-re-proposed version of that
-        #     producer (e.g. because this reviewer's edge was advisory or
-        #     stall-demoted) would otherwise be blocked from confirming
-        #     FOREVER — the producer will never re-propose to clear the
-        #     guard. The reviewer's verdict on a settled producer is moot,
-        #     so exclude it. This is the post-BRC "slice never closes"
-        #     deadlock: the lone holdout reviewer can never confirm, so
-        #     is_complete (all-confirmed) never trips and the slice hangs.
+        #     review, a stale ACK/NACK, or an unresolved NACK against an
+        #     un-re-proposed version of that producer (e.g. because this
+        #     reviewer's edge was advisory or stall-demoted) would otherwise
+        #     be blocked from confirming FOREVER — the producer will never
+        #     re-propose to clear the guard. The reviewer's verdict on a
+        #     settled producer is moot, so exclude it. This is the post-BRC
+        #     "slice never closes" deadlock: the lone holdout reviewer can
+        #     never confirm, so is_complete (all-confirmed) never trips and
+        #     the slice hangs. The recovery-path gaps that surfaced in the
+        #     same incident (overseer can-only-log / HITL 403,
+        #     advance_phase(force=true) tripping #2806) are tracked
+        #     separately in #3051; this filter is the tactical root-cause
+        #     fix only and intentionally does not patch the recovery path.
         producers = [
             p
             for p in graph.producers_for(agent_role)

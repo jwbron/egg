@@ -500,6 +500,45 @@ class TestCheckConfirmGuardReviewer:
         result = check_confirm_guard("reviewer_code", graph, matrix, confirmed={"coder"})
         assert result.allowed is True
 
+    def test_confirmed_producer_excluded_from_stale_acks(self, graph, matrix):
+        """#3043 variant: a reviewer's ACK is stale (producer re-proposed after the
+        ACK) but the producer then CONFIRMED via an advisory / stall-demoted edge
+        without the reviewer re-ACKing. The stale_acks guard must not block the
+        reviewer's own confirm once the producer settles.
+
+        Locks in stale_acks exclusion symmetry with must_have_reviewed /
+        unresolved_nacks — a future refactor that hoists the ``p not in confirmed``
+        check into individual guards must keep this case covered.
+        """
+        v1 = matrix.record_proposal("coder")
+        matrix.record_ack("reviewer_code", "coder", v1)
+        # coder re-proposes — reviewer_code's ACK is now stale at v1
+        matrix.record_proposal("coder")  # v2
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard("reviewer_code", graph, matrix, confirmed={"coder"})
+        assert result.allowed is True
+
+    def test_confirmed_producer_excluded_from_stale_nacks(self, graph, matrix):
+        """#3043 variant: a reviewer's NACK is stale (producer re-proposed after the
+        NACK) but the producer then CONFIRMED via an advisory / stall-demoted edge
+        without the reviewer re-reviewing. The stale_nacks guard must not block
+        the reviewer's own confirm once the producer settles.
+
+        Locks in stale_nacks exclusion symmetry — see
+        ``test_confirmed_producer_excluded_from_stale_acks`` for the rationale.
+        """
+        v1 = matrix.record_proposal("coder")
+        matrix.record_nack("reviewer_code", "coder", v1, reason="Bug found")
+        # coder re-proposes — reviewer_code's NACK is now stale at v1
+        matrix.record_proposal("coder")  # v2
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard("reviewer_code", graph, matrix, confirmed={"coder"})
+        assert result.allowed is True
+
     def test_unconfirmed_unreviewed_producer_still_blocks(self, graph, matrix):
         """Negative control for #3043: the exclusion is scoped to CONFIRMED
         producers only. An un-confirmed producer the reviewer hasn't reviewed
