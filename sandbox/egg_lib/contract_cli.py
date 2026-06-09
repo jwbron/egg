@@ -398,7 +398,9 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
     print(f"Phase: {contract.get('current_phase', 'unknown')}")
     print()
 
-    phases = contract.get("phases", [])
+    # Read modern ``slices``; fall back to legacy ``phases`` for un-migrated
+    # raw JSON. Same shape as ``_tasks_for_role`` / ``task_mark_gap`` (#3029).
+    phases = contract.get("slices") or contract.get("phases") or []
     if phases:
         print("Phases:")
         for phase in phases:

@@ -678,3 +678,74 @@ class TestTaskMarkGap:
         doc = task.task_mark_gap.__doc__ or ""
         lower = doc.lower()
         assert "no cli" in lower or "no-cli" in lower
+
+    def test_resolves_real_serialized_contract(self):
+        """Review feedback item C (#3029): cross the serialise→consume
+        seam with the *real* contract codec.
+
+        Mirrors ``test_resolves_real_serialized_contract`` for the
+        ``_tasks_for_role`` path in #3029: the orchestrator serves
+        contracts as ``Contract.model_dump`` → ``slices``, never
+        ``phases``.  Pre-fix this handler read ``contract.get("phases")``
+        and raised "Phase index out of range" for every mark-gap call
+        against a modern contract.  Feed a legacy ``phases`` input
+        through the codec so we also exercise the #2137 migration on the
+        way in, then assert the gap is appended at the correct field
+        path.  Tests that hand-key ``phases`` fixtures (every other test
+        in this class) mask the bug — only the real codec catches it.
+        """
+        from egg_contracts.loader import export_contract  # local import: shared deps
+        from egg_contracts.models import Contract
+
+        served = export_contract(
+            Contract.model_validate(
+                {
+                    "pipeline_id": "issue-3023",
+                    "phases": [
+                        {
+                            "id": "phase-1",
+                            "name": "code only",
+                            "tasks": [
+                                {
+                                    "id": "task-1-1",
+                                    "description": "implement the thing",
+                                    "status": "pending",
+                                    "acceptance_criteria": "it works",
+                                    "files_affected": ["foo.py"],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            include_audit_log=False,
+        )
+        assert "phases" not in served and "slices" in served
+
+        responses = [
+            {"success": True, "data": served},  # read returns the real shape
+            {"success": True, "data": {}},  # mutate succeeds
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.task.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            self._id(),
+            self._role("tester"),
+        ):
+            resp = task.task_mark_gap(
+                {
+                    "task": "task-1-1",
+                    "description": "missing edge-case test",
+                }
+            )
+
+        assert resp["ok"] is True
+        assert resp["task"] == "task-1-1"
+        # The mutate writes to ``phases.{...}`` regardless of read-side
+        # key (``Contract.phases`` is a ``@property`` alias for
+        # ``self.slices``; the orchestrator's mutate handler navigates
+        # via ``hasattr``).
+        mutate_call = gr.call_args_list[1].kwargs["data"]
+        assert mutate_call["field_path"] == "phases.0.tasks.0.gaps.0"

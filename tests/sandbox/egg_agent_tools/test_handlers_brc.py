@@ -298,81 +298,71 @@ class TestBrcProposeTesterAttestationPreFlight:
         with pytest.raises(HandlerError, match="must be strings"):
             self._propose_tester({"tests_run": 5, "checks_passed": [1, 2, 3]})
 
-    # --- No-op propose path for refactor / doc-only slices (#2431) ----
+    # --- Generic no-op propose path (#3027) ----------------------------
 
-    def test_no_test_changes_needed_with_reason_passes(self):
-        """no_test_changes_needed=true + reason + checks_passed is
-        accepted, even with tests_run=0. This is the no-op path that
-        unblocks BRC consensus for refactor / doc-only slices."""
-        resp = self._propose_tester(
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": (
-                    "slice-3 is a pure decomposition: symbol moves between "
-                    "submodules, no behavior change; existing test suite covers."
-                ),
-                "checks_passed": ["lint", "test"],
+    def _propose_no_op(self, *, role: str = "tester", **req_extra):
+        """Propose with the generic ``no_changes_needed`` flag set."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc1234",
+            ),
+        ):
+            req = {
+                "pipeline_id": "pipe-1",
+                "role": role,
+                "summary": "x" * 60,
+                "no_changes_needed": True,
             }
+            req.update(req_extra)
+            return brc.brc_propose(req)
+
+    def test_no_changes_needed_with_reason_passes(self):
+        """A generic no-op propose with a reason is accepted with no
+        attestation, artifacts, or commit_sha — and bypasses the strict
+        tester pre-flight entirely (#3027)."""
+        resp = self._propose_no_op(
+            no_changes_reason="slice is code-only; no test surface to author"
         )
         assert resp["ok"] is True
 
-    def test_no_test_changes_needed_without_reason_rejected(self):
-        with pytest.raises(HandlerError, match="no_test_changes_reason"):
-            self._propose_tester(
+    def test_no_changes_needed_without_reason_rejected(self):
+        with pytest.raises(HandlerError, match="no-changes-reason"):
+            self._propose_no_op()
+
+    def test_no_changes_needed_blank_reason_rejected(self):
+        with pytest.raises(HandlerError, match="no-changes-reason"):
+            self._propose_no_op(no_changes_reason="   ")
+
+    def test_no_changes_carries_no_commit_sha(self):
+        """A no-op propose skips the HEAD commit-sha fallback — there is
+        no commit to point at (#3027)."""
+        captured: dict = {}
+
+        def _capture(path, method="GET", data=None, **kw):
+            captured["data"] = data
+            return _ok_response()
+
+        with (
+            patch("egg_agent_tools.handlers.brc.orchestrator_request", side_effect=_capture),
+            patch("egg_agent_tools.handlers.brc._resolve_head_sha", return_value="abc1234"),
+        ):
+            brc.brc_propose(
                 {
-                    "no_test_changes_needed": True,
-                    "checks_passed": ["lint", "test"],
+                    "pipeline_id": "pipe-1",
+                    "role": "documenter",
+                    "summary": "x" * 60,
+                    "no_changes_needed": True,
+                    "no_changes_reason": "no documented surface impacted",
                 }
             )
-
-    def test_no_test_changes_needed_without_checks_passed_rejected(self):
-        """The no-op path still requires checks_passed — the tester
-        must have actually run the configured checks against the diff."""
-        with pytest.raises(HandlerError, match="checks_passed"):
-            self._propose_tester(
-                {
-                    "no_test_changes_needed": True,
-                    "no_test_changes_reason": "pure refactor; existing tests cover",
-                }
-            )
-
-    def test_no_test_changes_needed_blank_reason_rejected(self):
-        """Whitespace-only reason is treated as missing."""
-        with pytest.raises(HandlerError, match="no_test_changes_reason"):
-            self._propose_tester(
-                {
-                    "no_test_changes_needed": True,
-                    "no_test_changes_reason": "   ",
-                    "checks_passed": ["lint", "test"],
-                }
-            )
-
-    def test_no_test_changes_and_blocked_mutually_exclusive(self):
-        with pytest.raises(HandlerError, match="mutually exclusive"):
-            self._propose_tester(
-                {
-                    "tests_execution_blocked": True,
-                    "tests_execution_blocked_reason": "private network blocks deps",
-                    "no_test_changes_needed": True,
-                    "no_test_changes_reason": "pure refactor",
-                    "checks_passed": ["lint"],
-                }
-            )
-
-    def test_no_test_changes_with_tests_run_is_allowed(self):
-        """The no-op path lets a tester report running existing tests
-        (tests_run > 0) while still flagging no new tests authored.
-        Useful when the tester ran `make test` against the coder's
-        diff to verify the refactor preserved behavior."""
-        resp = self._propose_tester(
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "decomposition only; no behavior change",
-                "tests_run": 1432,
-                "checks_passed": ["lint", "test"],
-            }
-        )
-        assert resp["ok"] is True
+        payload = captured["data"]["payload"]
+        assert payload["no_changes_needed"] is True
+        assert payload["commit_sha"] == ""
 
 
 class TestPreFlightMirrorsOrchestrator:
@@ -506,63 +496,6 @@ class TestPreFlightMirrorsOrchestrator:
             # Mixed string + non-string items — pre-flight should still
             # reject (Pydantic does too).
             {"tests_run": 5, "checks_passed": ["lint", 42, "test"]},
-            # --- No-op propose path (#2431) ---------------------------
-            # Happy path: no_test_changes_needed=true + reason +
-            # checks_passed, tests_run can be 0.
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "pure refactor: symbol moves only",
-                "checks_passed": ["lint", "test"],
-            },
-            # Same with tests_run > 0 (tester ran existing suite) — both accept.
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "decomposition; existing tests cover",
-                "tests_run": 142,
-                "checks_passed": ["lint", "test"],
-            },
-            # Missing reason — both reject.
-            {
-                "no_test_changes_needed": True,
-                "checks_passed": ["lint", "test"],
-            },
-            # Whitespace-only reason — both reject.
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "   ",
-                "checks_passed": ["lint", "test"],
-            },
-            # Missing checks_passed — both reject (still required on no-op path).
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "pure refactor",
-            },
-            # Empty checks_passed — both reject.
-            {
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "pure refactor",
-                "checks_passed": [],
-            },
-            # Mutual exclusion with tests_execution_blocked — both reject.
-            {
-                "tests_execution_blocked": True,
-                "tests_execution_blocked_reason": "private net blocks deps",
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": "pure refactor",
-                "checks_passed": ["lint"],
-            },
-            # String "true" coercion — both accept the no-op happy shape.
-            {
-                "no_test_changes_needed": "true",
-                "no_test_changes_reason": "pure refactor",
-                "checks_passed": ["lint", "test"],
-            },
-            # String "false" — falls through to normal-path validation,
-            # which then rejects on missing tests_run.
-            {
-                "no_test_changes_needed": "false",
-                "checks_passed": ["lint", "test"],
-            },
         ],
     )
     def test_pre_flight_matches_orchestrator(self, attestation: dict):

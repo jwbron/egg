@@ -17,14 +17,19 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from egg_agent_tools.handlers import phase  # noqa: E402
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError  # noqa: E402
+from egg_contracts.loader import export_contract  # noqa: E402
+from egg_contracts.models import Contract  # noqa: E402
 
 
 def _fake_contract():
+    # Mirror the production serialised shape: contracts expose ``slices``
+    # (not the pre-#2137 ``phases``) and tasks carry ``acceptance_criteria``
+    # / ``files_affected`` (not ``acceptance`` / ``files``).
     return {
         "current_phase": "implement",
-        "phases": [
+        "slices": [
             {
-                "id": "phase-1",
+                "id": "slice-1",
                 "name": "Shared handlers",
                 "tasks": [
                     {
@@ -32,14 +37,14 @@ def _fake_contract():
                         "description": "handlers",
                         "status": "pending",
                         "role": "coder",
-                        "acceptance": "done",
+                        "acceptance_criteria": "done",
                     },
                     {
                         "id": "task-4-1",
                         "description": "tests",
                         "status": "pending",
                         "role": "tester",
-                        "acceptance": "ok",
+                        "acceptance_criteria": "ok",
                     },
                 ],
             }
@@ -101,7 +106,7 @@ class TestPhaseGetContext:
         """Tasks without an explicit role belong to the coder."""
         contract = {
             "current_phase": "implement",
-            "phases": [{"id": "p", "name": "x", "tasks": [{"id": "t1", "status": "p"}]}],
+            "slices": [{"id": "slice-1", "name": "x", "tasks": [{"id": "t1", "status": "p"}]}],
         }
         with (
             patch(
@@ -176,22 +181,22 @@ class TestPhaseGetAssignedTasks:
     def test_status_filter(self):
         contract = {
             "current_phase": "implement",
-            "phases": [
+            "slices": [
                 {
-                    "id": "p",
+                    "id": "slice-1",
                     "name": "x",
                     "tasks": [
                         {
                             "id": "t1",
                             "status": "complete",
                             "role": "tester",
-                            "acceptance": "",
+                            "acceptance_criteria": "",
                         },
                         {
                             "id": "t2",
                             "status": "pending",
                             "role": "tester",
-                            "acceptance": "",
+                            "acceptance_criteria": "",
                         },
                     ],
                 }
@@ -224,6 +229,95 @@ class TestPhaseGetAssignedTasks:
         with patch("egg_agent_tools.handlers.phase.get_contract_identifier", return_value=None):
             with pytest.raises(HandlerError):
                 phase.phase_get_assigned_tasks({})
+
+    def _assigned(self, contract, role):
+        with (
+            patch(
+                "egg_agent_tools.handlers.phase.gateway_request",
+                return_value={"success": True, "data": contract},
+            ),
+            patch("egg_agent_tools.handlers.phase.get_contract_identifier", return_value=1),
+            patch("egg_agent_tools.handlers.phase.get_agent_role", return_value=role),
+        ):
+            return phase.phase_get_assigned_tasks({})
+
+    def test_role_null_tasks_default_to_coder_only(self):
+        """The issue-3023 deadlock shape: a slice of unroled (``role: null``)
+        code tasks must resolve to the coder, and to no other producer — so
+        the coder produces and tester/documenter cleanly no-op.  Pre-fix the
+        handler read the absent ``phases`` key and returned ``[]`` for every
+        role, so even the coder believed it had no work."""
+        contract = {
+            "current_phase": "implement",
+            "slices": [
+                {
+                    "id": "slice-1",
+                    "name": "code only",
+                    "tasks": [
+                        {"id": "task-1-1", "description": "a", "status": "pending"},
+                        {"id": "task-1-2", "description": "b", "status": "pending"},
+                        {"id": "task-1-3", "description": "c", "status": "pending"},
+                    ],
+                }
+            ],
+        }
+        coder = self._assigned(contract, "coder")
+        assert [t["id"] for t in coder["tasks"]] == ["task-1-1", "task-1-2", "task-1-3"]
+        assert self._assigned(contract, "tester")["tasks"] == []
+        assert self._assigned(contract, "documenter")["tasks"] == []
+
+    def test_legacy_phases_key_still_resolves(self):
+        """Pre-#2137 raw JSON keyed on ``phases`` still resolves via the
+        backward-compat fallback."""
+        contract = {
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "x",
+                    "tasks": [{"id": "task-1-1", "status": "pending", "role": "coder"}],
+                }
+            ],
+        }
+        assert [t["id"] for t in self._assigned(contract, "coder")["tasks"]] == ["task-1-1"]
+
+    def test_resolves_real_serialized_contract(self):
+        """Cross the serialise→consume seam with the *real* contract codec:
+        whatever shape the contract is stored in, the orchestrator serves it
+        via ``export_contract`` (``Contract.model_dump`` → ``slices``).  The
+        handler must read that shape.  This is the test the original
+        ``phases``-only read lacked — it used hand-keyed ``phases`` fixtures
+        that masked the bug.  Feed a legacy ``phases`` input through the
+        codec so we also exercise the #2137 migration on the way in."""
+        served = export_contract(
+            Contract.model_validate(
+                {
+                    "pipeline_id": "issue-3023",
+                    "phases": [
+                        {
+                            "id": "phase-1",
+                            "name": "code only",
+                            "tasks": [
+                                {
+                                    "id": "task-1-1",
+                                    "description": "implement the thing",
+                                    "status": "pending",
+                                    "acceptance_criteria": "it works",
+                                    "files_affected": ["foo.py"],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            include_audit_log=False,
+        )
+        assert "phases" not in served and "slices" in served  # serve path emits slices
+        coder = self._assigned(served, "coder")
+        assert [t["id"] for t in coder["tasks"]] == ["task-1-1"]
+        # Canonical task fields flow through (pre-fix these were empty).
+        assert coder["tasks"][0]["acceptance"] == "it works"
+        assert coder["tasks"][0]["files"] == ["foo.py"]
+        assert self._assigned(served, "documenter")["tasks"] == []
 
 
 # ---------------------------------------------------------------------------

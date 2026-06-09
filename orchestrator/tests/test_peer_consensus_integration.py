@@ -527,71 +527,16 @@ class TestAttestationSchemas:
             is_producer=True,
         )
 
-    def test_tester_strict_allows_no_test_changes_needed_with_reason(self):
-        """Tester accepts tests_run=0 when no_test_changes_needed=true with a reason (#2431)."""
+    def test_tester_strict_rejects_zero_tests_run_points_to_no_op_propose(self):
+        """The per-role no_test_changes_needed escape is gone (#3027): a real
+        tester proposal still needs tests_run > 0, and the error now points to
+        the generic no-op propose for the genuinely-no-work case."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
-        # Should not raise — refactor / doc-only slice no-op propose path.
-        validate_attestation(
-            "tester",
-            {
-                "tests_run": 0,
-                "no_test_changes_needed": True,
-                "no_test_changes_reason": (
-                    "slice-3 is a pure decomposition: symbol moves, no behavior change"
-                ),
-                "checks_passed": ["lint", "test"],
-            },
-            AttestationStrictness.STRICT,
-            is_producer=True,
-        )
-
-    def test_tester_strict_rejects_no_test_changes_needed_without_reason(self):
-        """no_test_changes_needed=true without reason is rejected (#2431)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        with pytest.raises(ValueError, match="no_test_changes_reason"):
+        with pytest.raises(ValueError, match="no_changes_needed"):
             validate_attestation(
                 "tester",
-                {
-                    "tests_run": 0,
-                    "no_test_changes_needed": True,
-                    "checks_passed": ["lint", "test"],
-                },
-                AttestationStrictness.STRICT,
-                is_producer=True,
-            )
-
-    def test_tester_strict_rejects_no_test_changes_needed_without_checks_passed(self):
-        """The no-op path still requires checks_passed populated (#2431)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        with pytest.raises(ValueError, match="checks_passed"):
-            validate_attestation(
-                "tester",
-                {
-                    "tests_run": 0,
-                    "no_test_changes_needed": True,
-                    "no_test_changes_reason": "pure refactor; existing tests cover",
-                },
-                AttestationStrictness.STRICT,
-                is_producer=True,
-            )
-
-    def test_tester_strict_rejects_no_test_changes_and_blocked_together(self):
-        """no_test_changes_needed and tests_execution_blocked are mutually exclusive (#2431)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            validate_attestation(
-                "tester",
-                {
-                    "tests_execution_blocked": True,
-                    "tests_execution_blocked_reason": "private net blocks deps",
-                    "no_test_changes_needed": True,
-                    "no_test_changes_reason": "pure refactor",
-                    "checks_passed": ["lint"],
-                },
+                {"tests_run": 0, "checks_passed": ["lint", "test"]},
                 AttestationStrictness.STRICT,
                 is_producer=True,
             )
@@ -608,57 +553,20 @@ class TestAttestationSchemas:
             is_producer=True,
         )
 
-    def test_documenter_strict_allows_no_doc_changes_needed_with_reason(self):
-        """Documenter accepts empty sections_updated when no_doc_changes_needed=true with a reason (#2444)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        # Should not raise — refactor / test-only / no-doc-surface no-op propose path.
-        validate_attestation(
-            "documenter",
-            {
-                "no_doc_changes_needed": True,
-                "no_doc_changes_reason": (
-                    "slice-3 is a pure decomposition: symbol moves between "
-                    "submodules, no surfaced API change; no README / docs/ / "
-                    "docstring surface impacted"
-                ),
-            },
-            AttestationStrictness.STRICT,
-            is_producer=True,
-        )
-
-    def test_documenter_strict_rejects_no_doc_changes_needed_without_reason(self):
-        """no_doc_changes_needed=true without reason is rejected (#2444)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        with pytest.raises(ValueError, match="no_doc_changes_reason"):
-            validate_attestation(
-                "documenter",
-                {"no_doc_changes_needed": True},
-                AttestationStrictness.STRICT,
-                is_producer=True,
-            )
-
-    def test_documenter_strict_rejects_no_doc_changes_needed_with_blank_reason(self):
-        """no_doc_changes_reason whitespace-only is rejected (#2444)."""
-        from attestation_schemas import AttestationStrictness, validate_attestation
-
-        with pytest.raises(ValueError, match="no_doc_changes_reason"):
-            validate_attestation(
-                "documenter",
-                {
-                    "no_doc_changes_needed": True,
-                    "no_doc_changes_reason": "   \n\t  ",
-                },
-                AttestationStrictness.STRICT,
-                is_producer=True,
-            )
-
-    def test_documenter_strict_rejects_empty_sections_without_no_op_flag(self):
-        """Without no_doc_changes_needed, empty sections_updated is still rejected (#2444)."""
+    def test_documenter_strict_rejects_empty_sections_points_to_no_op_propose(self):
+        """The per-role no_doc_changes_needed escape is gone (#3027): a real
+        documenter proposal still needs sections_updated, and the error points
+        to the generic no-op propose for the genuinely-no-work case."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
         with pytest.raises(ValueError, match="section updated"):
+            validate_attestation(
+                "documenter",
+                {},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+        with pytest.raises(ValueError, match="no_changes_needed"):
             validate_attestation(
                 "documenter",
                 {},

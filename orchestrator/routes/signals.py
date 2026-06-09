@@ -1456,6 +1456,13 @@ def handle_consensus_propose_signal(
     if summary_error:
         return make_error_response(summary_error, 400)
 
+    # Generic no-op propose (#3027): producer has no work in this slice.
+    # A no-op carries no commit_sha and bypasses the producer pre-flight
+    # checks that assume real work (commit-on-branch, tester check coverage)
+    # — but it is NOT valid in refine/plan, where the producer's entire job
+    # is to author the analysis/plan draft (rejected below).
+    no_changes = bool(payload.get("no_changes_needed"))
+
     try:
         slice_id = _extract_slice_id(data)
     except ValueError as exc:
@@ -1527,10 +1534,84 @@ def handle_consensus_propose_signal(
             branch_verified = None
 
     try:
+        # A no-op propose (#3027) is only meaningful in the implement phase,
+        # where a producer (e.g. documenter) may have no work in a given
+        # slice. In every other phase the producer's job IS to author the
+        # phase's deterministic input (analysis draft in refine; plan draft,
+        # architecture artifact, or risk register in plan), so a no-op there
+        # would silently skip the input the gate reads. Reject on phase, not
+        # on a hand-maintained role list — a future plan/refine producer added
+        # to the review graph picks up the guard automatically and the prose
+        # in ``_build_brc_preamble`` stays in lockstep (it conditions the
+        # no-op invitation on ``phase == "implement"`` for the same reason).
+        if no_changes:
+            # Resolve phase fail-CLOSED for the no-op gate.
+            # ``_resolve_pipeline_phase`` returns ``"implement"`` on any
+            # state-load exception — a sensible default for stamping
+            # ``Message.phase`` (drop a field rather than the message), but
+            # unsafe here: a transient FS error or partial state-store
+            # corruption during a plan-phase no-op would silently pass the
+            # guard and let an architect / risk_analyst skip authoring.
+            # Refuse with 503 instead and let the producer retry once state
+            # is readable.
+            current_phase: str | None = None
+            phase_resolution_error: Exception | None = None
+            if pipeline_state is not None:
+                # The commit-on-branch block already loaded state for a
+                # propose that carries both ``commit_sha`` and
+                # ``no_changes_needed=true`` (Pydantic permits it;
+                # ``validate_commit_sha_present`` skips on no-op).  Reuse
+                # the cached state, but still fail closed if the loaded
+                # ``current_phase`` is None — same posture as the
+                # explicit-load branch below: never fall through to a
+                # default-implement assumption when phase is unreadable.
+                phase_attr = getattr(pipeline_state, "current_phase", None)
+                if phase_attr is not None:
+                    current_phase = phase_attr.value
+            else:
+                try:
+                    store_for_phase = get_state_store(repo_path)
+                    loaded = store_for_phase.load_pipeline(pipeline_id)
+                    phase_attr = getattr(loaded, "current_phase", None)
+                    if phase_attr is not None:
+                        current_phase = phase_attr.value
+                except Exception as exc:
+                    phase_resolution_error = exc
+            if current_phase is None:
+                # Both branches converge here: pipeline state is loaded but
+                # ``current_phase`` is None, or state-load itself raised.
+                # Either way the no-op guard cannot prove ``implement`` and
+                # must refuse rather than trust a default.  Log the raw
+                # error for ops; the response body deliberately omits it so
+                # file paths / DB connection strings / traceback fragments
+                # from arbitrary state-store backends don't leak through
+                # this internal API.
+                logger.error(
+                    "No-op propose rejected: pipeline phase resolution failed",
+                    pipeline_id=pipeline_id,
+                    role=agent_role,
+                    error=str(phase_resolution_error)
+                    if phase_resolution_error
+                    else "current_phase is None",
+                )
+                return make_error_response(
+                    "Cannot resolve pipeline phase for no-op propose. "
+                    "The phase guard fails closed rather than trust the "
+                    "default-implement fallback. Retry after pipeline "
+                    "state is readable.",
+                    503,
+                )
+            if current_phase != "implement":
+                return make_error_response(
+                    f"{agent_role} cannot submit a no-op propose in phase "
+                    f"'{current_phase}': the producer's draft is required for "
+                    f"this phase. Author and commit the draft, then propose.",
+                    400,
+                )
         # Validate tester proposals cover all configured repo checks (#1459).
         # Must run BEFORE handle_propose to avoid mutating tracker state on
-        # rejected proposals.
-        if agent_role == "tester":
+        # rejected proposals. Skipped for a no-op — the tester ran nothing.
+        if agent_role == "tester" and not no_changes:
             _validate_tester_check_coverage(pipeline_id, payload, repo_path)
         # Reject a refine producer whose analysis draft is missing at the
         # canonical path the gate reads — before handle_propose records it, so

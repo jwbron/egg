@@ -1044,3 +1044,311 @@ class TestPhasePropagationEdgeCases:
             )
 
         mock_resolve.assert_called_with("issue-99", Path("/tmp/my-repo"))
+
+
+# ---------------------------------------------------------------------------
+# No-op propose phase guard (#3027 / #3029 review feedback)
+# ---------------------------------------------------------------------------
+
+
+class TestNoOpProposePhaseGuard:
+    """``handle_consensus_propose_signal`` enforces the no-op phase gate.
+
+    The Pydantic layer accepts ``no_changes_needed=True`` for any role; the
+    phase-based gate in the handler is what stops an architect / refiner /
+    task_planner / risk_analyst from bypassing their phase's mandatory
+    draft.  These tests drive the handler entry point directly so a
+    refactor that breaks the gate (e.g. resolving the phase from the wrong
+    source or short-circuiting the check on a payload field) is caught,
+    not only the Pydantic-layer or prose-layer tests in
+    ``test_no_op_propose.py``.
+    """
+
+    def test_no_op_in_plan_phase_is_rejected(self, app, mock_pipeline):
+        """A plan-phase ``no_changes_needed`` propose returns 400 with a
+        message that names the rejected phase and tells the producer to
+        author their draft.  Matches review-feedback item-1 disposition
+        (#3029): every plan-phase critical producer is gated, not just the
+        two roles the original review listed."""
+        plan_pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = plan_pipeline
+
+        mock_tracker = MagicMock()
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "architect",
+                    "payload": {
+                        "summary": "architect declares no architecture needed for this slice",
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no architectural change needed",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert "architect" in body["message"]
+        assert "plan" in body["message"]
+        # The producer's tracker was never touched — rejection happens
+        # before ``handle_propose`` would mutate matrix state.
+        mock_tracker.handle_propose.assert_not_called()
+        mock_msg_store.add_message.assert_not_called()
+
+    def test_no_op_in_refine_phase_is_rejected(self, app):
+        """Symmetric to plan: a refiner cannot no-op out of authoring the
+        analysis draft."""
+        refine_pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = refine_pipeline
+
+        mock_tracker = MagicMock()
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "refiner",
+                    "payload": {
+                        "summary": "refiner declares no analysis needed for this issue",
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no analysis change needed",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        assert "refine" in response.get_json()["message"]
+        mock_tracker.handle_propose.assert_not_called()
+
+    def test_no_op_fails_closed_when_phase_resolution_errors(self, app):
+        """Review feedback item B (#3029): the no-op gate must NOT inherit
+        ``_resolve_pipeline_phase``'s fail-open ``"implement"`` default.
+
+        ``_resolve_pipeline_phase`` was designed for stamping
+        ``Message.phase`` (where dropping the field is worse than a
+        slightly-wrong default).  For the no-op guard the same default is
+        unsafe: a transient FS error during a plan-phase no-op would
+        silently pass the check.  The handler refuses with 503 instead so
+        the producer retries once pipeline state is readable.
+
+        Second-round review item B (#3029) also asks that the raw
+        exception text not be interpolated into the response body — a
+        state-store error can carry file paths or DB connection details.
+        The body uses a generic message; ``logger.error`` keeps the raw
+        ``error=`` field for ops.
+        """
+        secret_path_in_exc = "/var/secret/pipeline-state/issue-42.json"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.side_effect = RuntimeError(
+            f"transient FS error reading {secret_path_in_exc}"
+        )
+
+        mock_tracker = MagicMock()
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "architect",
+                    "payload": {
+                        "summary": "architect declares no architecture needed for this slice",
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no architectural change needed",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 503
+        body_message = response.get_json()["message"]
+        assert "phase" in body_message.lower()
+        # The raw exception text (and any path / DB / traceback fragment
+        # it carries) MUST NOT appear in the response body.  Ops still
+        # gets the full string via the structured logger.
+        assert secret_path_in_exc not in body_message
+        assert "transient FS error" not in body_message
+        # Tracker is untouched — phase resolution failure is rejected
+        # before the matrix could record an unsafe no-op acceptance.
+        mock_tracker.handle_propose.assert_not_called()
+        mock_msg_store.add_message.assert_not_called()
+
+    def test_no_op_with_commit_sha_in_plan_phase_is_rejected(self, app):
+        """Review feedback item A (#3029): the upper ``pipeline_state is
+        not None`` branch fires when the caller sends both ``commit_sha``
+        and ``no_changes_needed=true`` (Pydantic permits it; the no-op
+        ``validate_commit_sha_present`` skip lets the SHA ride through).
+
+        Without this case the four other ``TestNoOpProposePhaseGuard``
+        tests all exercise the ``pipeline_state is None`` branch (no
+        SHA, so the commit-on-branch block doesn't pre-load state).  A
+        refactor that breaks ``pipeline_state.current_phase.value`` in
+        the upper branch — or short-circuits the gate on the cached
+        state — wouldn't be caught.  This test sends both fields with a
+        PLAN-phase pipeline and asserts the rejection still fires.
+        """
+        plan_pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = plan_pipeline
+
+        mock_tracker = MagicMock()
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch(
+                "routes.signals._verify_commit_on_branch",
+                return_value=True,
+            ),
+            patch(
+                "routes.signals.resolve_worktree_path",
+                return_value=Path("/tmp/worktree"),
+            ),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "architect",
+                    "payload": {
+                        "summary": "architect declares no architecture needed for this slice",
+                        "commit_sha": "0" * 40,
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no architectural change needed",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert "architect" in body["message"]
+        assert "plan" in body["message"]
+        # State-store was loaded exactly once (by the upper branch); the
+        # gate did NOT re-load on the no-op path.  A regression that
+        # threads the no-op gate through a second load would trip this.
+        assert mock_store.load_pipeline.call_count == 1
+        mock_tracker.handle_propose.assert_not_called()
+        mock_msg_store.add_message.assert_not_called()
+
+    def test_no_op_with_commit_sha_fails_closed_on_none_current_phase(self, app):
+        """Review feedback item A continued (#3029): the upper branch
+        must fail closed when ``pipeline_state.current_phase`` is None.
+
+        ``_resolve_pipeline_phase`` already handles a None
+        ``current_phase`` for the stamping case (it falls back to
+        "implement", which is fail-open).  Until this fix, the no-op
+        gate's upper branch let an ``AttributeError`` propagate from
+        ``pipeline_state.current_phase.value`` to the outer catch,
+        returning 500 — inconsistent with the explicit 503 from the
+        lower branch, and *not* fail-closed in the safety-relevant
+        sense (the producer's no-op was still rejected, but only
+        accidentally, via a 500).  The fix lifts the same None check
+        into both branches and returns 503 consistently.
+        """
+        broken_pipeline = MagicMock()
+        broken_pipeline.branch = ""  # skip the commit-on-branch lookup
+        broken_pipeline.current_phase = None  # the safety-relevant case
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = broken_pipeline
+
+        mock_tracker = MagicMock()
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "architect",
+                    "payload": {
+                        "summary": "architect declares no architecture needed for this slice",
+                        "commit_sha": "0" * 40,
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no architectural change needed",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 503
+        mock_tracker.handle_propose.assert_not_called()
+        mock_msg_store.add_message.assert_not_called()
+
+    def test_no_op_in_implement_phase_is_accepted(self, app):
+        """Companion to the rejection cases: the implement-phase happy path
+        still works — the new fail-closed phase resolution doesn't break
+        the path the whole feature exists to enable."""
+        implement_pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = implement_pipeline
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "stale_reviewers": [],
+        }
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("routes.signals.get_state_store", return_value=mock_store),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "documenter",
+                    "payload": {
+                        "summary": "documenter has no work in this code-only slice at all",
+                        "no_changes_needed": True,
+                        "no_changes_reason": "no documented surface impacted",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        mock_tracker.handle_propose.assert_called_once()

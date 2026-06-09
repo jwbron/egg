@@ -227,6 +227,7 @@ class TestNextActionDerivationAdversarial:
         }
         mock_tracker.matrix.get_proposal_version.return_value = 1
         mock_tracker.matrix.get_entry.return_value = None
+        mock_tracker.matrix.is_no_changes_proposal.return_value = False
 
         has_pending, pending = _has_pending_peer_proposals(mock_tracker, "tester")
 
@@ -257,6 +258,7 @@ class TestNextActionDerivationAdversarial:
         }
         mock_tracker.matrix.get_proposal_version.return_value = 1
         mock_tracker.matrix.get_entry.return_value = None  # no prior vote
+        mock_tracker.matrix.is_no_changes_proposal.return_value = False
 
         has_pending, pending = _has_pending_peer_proposals(mock_tracker, "tester")
 

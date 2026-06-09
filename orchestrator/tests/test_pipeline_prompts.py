@@ -4259,14 +4259,14 @@ class TestReviewerPreparation:
         assert "**PREPARE**" in preamble
         assert "egg-contract show" in preamble
 
-    def test_code_reviewer_prep_callouts_documenter_no_op_implement(self):
-        """Implement-phase reviewer_code prep names the documenter no-op
-        path so a future refactor cannot silently drop the callout (#2444,
-        review feedback on #2458).
+    def test_code_reviewer_prep_callouts_no_op_propose_implement(self):
+        """Implement-phase reviewer_code prep names the generic no-op propose
+        path so reviewers know a no-op is a non-blocking proposal they do not
+        review or NACK (#3027).
         """
         prep = _build_reviewer_preparation("reviewer_code", "implement")
-        assert "no_doc_changes_needed" in prep
-        assert "#2444" in prep
+        assert "no_changes_needed" in prep
+        assert "#3027" in prep
 
 
 class TestProducerOrientation:
@@ -4344,12 +4344,12 @@ class TestProducerOrientation:
         assert "HANDOFF to coder" not in orient
 
     def test_tester_orientation_directs_no_op_propose_for_refactor(self):
-        """Tester orientation tells tester to use the no-op propose path on
-        slices that warrant no new tests, instead of heartbeating forever
-        and deadlocking BRC consensus (#2431).
+        """Tester orientation tells tester to use the generic no-op propose
+        path on slices that warrant no new tests, instead of heartbeating
+        forever and deadlocking BRC consensus (#3027).
         """
         orient = _build_producer_orientation("tester", "implement", [])
-        assert "no_test_changes_needed" in orient
+        assert "--no-changes-needed" in orient
         # Must explicitly tell the tester they MUST propose even on no-op
         # slices — silent waiting is the bug.
         assert "MUST propose" in orient
@@ -4361,13 +4361,12 @@ class TestProducerOrientation:
         assert "documentation" in orient.lower() or "doc" in orient.lower()
 
     def test_documenter_orientation_directs_no_op_propose_for_no_doc_surface(self):
-        """Documenter orientation tells the documenter to use the no-op
-        propose path on slices that warrant no doc updates, instead of
-        heartbeating forever and deadlocking BRC consensus (#2444, mirror
-        of #2431).
+        """Documenter orientation tells the documenter to use the generic
+        no-op propose path on slices that warrant no doc updates, instead of
+        heartbeating forever and deadlocking BRC consensus (#3027).
         """
         orient = _build_producer_orientation("documenter", "implement", [])
-        assert "no_doc_changes_needed" in orient
+        assert "--no-changes-needed" in orient
         # Must explicitly tell the documenter they MUST propose even on
         # no-op slices — silent waiting is the bug.
         assert "MUST propose" in orient
