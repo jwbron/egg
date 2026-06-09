@@ -280,6 +280,14 @@
       "repo": null,
       "role": "tester"
     },
+    "918d0b2478c9ab36a0b92c1e370c60b993b3a302": {
+      "branch": "egg/issue-3023/slice-2",
+      "patch_id": "8939c9229644ec7dbc16ea97b5364c3c007b8d9a",
+      "pipeline_id": "issue-3023",
+      "registered_at": "2026-06-09T05:52:11.461201+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "9af2257f42eaa6f377241ddec57009ce8fdb74b6": {
       "branch": "egg/issue-3023/slice-1",
       "patch_id": "89fa336c600aa32ffba811e3fb09d01564cfd184",
