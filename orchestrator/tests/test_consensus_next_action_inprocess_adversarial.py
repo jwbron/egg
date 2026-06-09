@@ -34,15 +34,12 @@ that branch:
 8. **stale-version re-review after re-propose v2** — reviewer who
    ACKed v1 sees v2 and is told to ``ack`` again (line 386-394 via
    ``_has_pending_peer_proposals``'s stale-version branch).
-9. **producer with single NACK on a WORKING-state version-0 view** —
-   exercises the WORKING-branch ``nacks`` enrichment path (line
-   340-344).
-10. **documented divergence: non-graph role** — in-process returns
-    ``("wait", None, "role not in review graph")``; HTTP route returns
-    400. The on-demand spawner's caller MUST validate membership
-    before calling ``derive_next_action`` and this test pins the
-    contract so that requirement does not silently regress.
-11. **role-complete short-circuit with ``is_complete=True``** —
+9. **documented divergence: non-graph role** — in-process returns
+   ``("wait", None, "role not in review graph")``; HTTP route returns
+   400. The on-demand spawner's caller MUST validate membership
+   before calling ``derive_next_action`` and this test pins the
+   contract so that requirement does not silently regress.
+10. **role-complete short-circuit with ``is_complete=True``** —
     confirmed role with global ``is_complete`` returns ``"complete"``
     with no payload (line 302-303). The happy-path
     ``test_parity_complete_after_full_convergence`` exercises the same
@@ -89,7 +86,7 @@ PIPELINE_ID = "issue-3023-slice-2-adversarial"
 
 @pytest.fixture
 def simple_graph():
-    """Single producer + two reviewers — covers cases 1, 2, 3, 4, 7, 8, 9, 11."""
+    """Single producer + two reviewers — covers cases 1, 2, 3, 4, 7, 8, 9, 10."""
     return ReviewGraph(
         [
             ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
