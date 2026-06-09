@@ -406,6 +406,25 @@ def _derive_next_action(
         return "wait", None, "role not in review graph"
 
 
+def derive_next_action(
+    tracker: PeerConsensusTracker, role: str
+) -> tuple[str, dict[str, Any] | None, str]:
+    """Module-level alias of :func:`_derive_next_action` (#3023 slice-2 TASK-2-1).
+
+    Lets the orchestrator's per-phase run loop call the BRC derivation
+    in-process without taking a TCP round-trip through the HTTP route.
+    Behaviour is byte-identical to the route handler — both call
+    ``_derive_next_action`` with the same arguments, so the return tuple
+    ``(action, event_payload, reason)`` is identical for any given
+    ``(tracker, role)`` snapshot.
+
+    Caller MUST validate that ``role`` is a participant in the review
+    graph (producer, reviewer, or both) — this is the same precondition
+    the HTTP route validates before delegating to ``_derive_next_action``.
+    """
+    return _derive_next_action(tracker, role)
+
+
 @consensus_bp.route("/<pipeline_id>/consensus/next-action", methods=["POST"])
 def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
     """Derive the next BRC action for the given role.
