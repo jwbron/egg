@@ -1253,13 +1253,20 @@
       "phase": "apply",
       "status": "running",
       "started_at": "2026-06-09T18:25:02.555719Z",
-      "work_started_at": "2026-06-09T18:25:02.555721Z",
+      "work_started_at": "2026-06-09T18:25:08.207790Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-06-09T18:25:08.207790Z",
+          "completed_at": null,
+          "commit_sha": "f83b12f96e732d11ecdaed7be11193d4e28b5506"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "operator_directives": [],
@@ -1461,7 +1468,7 @@
     }
   ],
   "created_at": "2026-06-08T22:09:41.142047Z",
-  "updated_at": "2026-06-09T18:25:02.558713Z",
+  "updated_at": "2026-06-09T18:25:08.212250Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1474,7 +1481,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-06-09T18:25:02.555722Z",
-  "version": 100,
+  "version": 101,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
