@@ -2809,6 +2809,13 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     if changed_artifacts:
         req["changed_artifacts"] = list(changed_artifacts)
 
+    # Generic no-op propose (#3027): producer has no work in this slice.
+    # Threaded into the shared handler payload for both the structured and
+    # ``--file`` paths; the handler skips the HEAD commit-sha fallback for it.
+    if getattr(args, "no_changes_needed", False):
+        req["no_changes_needed"] = True
+        req["no_changes_reason"] = getattr(args, "no_changes_reason", None) or ""
+
     try:
         resp = _handlers.brc_propose(req)
     except (GatewayError, HandlerError) as err:
@@ -4108,6 +4115,23 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run git push before sending the proposal (bundles push+propose "
         "so auto-repropose is suppressed)",
+    )
+    cons_propose.add_argument(
+        "--no-changes-needed",
+        dest="no_changes_needed",
+        action="store_true",
+        help=(
+            "Generic no-op propose (#3027): this producer has no work in this "
+            "slice (no assigned task / its domain is not impacted). Submittable "
+            "without --artifacts or --commit-sha; counts as proposing so "
+            "consensus is not blocked, and reviewers accept it as a non-blocking "
+            "no-op. Requires --no-changes-reason."
+        ),
+    )
+    cons_propose.add_argument(
+        "--no-changes-reason",
+        dest="no_changes_reason",
+        help="Why this producer has no work in this slice (required with --no-changes-needed).",
     )
     _add_json_flag(cons_propose)
     cons_propose.set_defaults(func=cmd_consensus_propose)

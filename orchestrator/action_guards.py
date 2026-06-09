@@ -399,7 +399,14 @@ def check_confirm_guard(
 
     # --- Reviewer confirmation guards ---
     if is_reviewer:
-        producers = graph.producers_for(agent_role)
+        # Exclude producers whose current proposal is a generic no-op
+        # (#3027): the reviewer is not expected to review a no-op (the
+        # producer declared it has no work), so it must not block this
+        # reviewer's confirm via the has-reviewed / zero-proposal /
+        # stale-verdict guards below.
+        producers = [
+            p for p in graph.producers_for(agent_role) if not matrix.is_no_changes_proposal(p)
+        ]
 
         # Guard 1: Must have reviewed all producers
         for producer in producers:

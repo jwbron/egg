@@ -176,6 +176,11 @@ def _has_pending_peer_proposals(
         # let a dual-role agent block on itself.
         if producer == reviewer:
             continue
+        # Skip a generic no-op proposal (#3027): the producer declared it
+        # has no work in this slice, so there is nothing to review and the
+        # reviewer must not NACK it (that was the empty-proposal deadlock).
+        if tracker.matrix.is_no_changes_proposal(producer):
+            continue
         producer_phase = tracker._producer_phases.get(producer, ConsensusPhase.WORKING)
         if producer_phase != ConsensusPhase.PROPOSED:
             continue

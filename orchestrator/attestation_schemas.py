@@ -42,25 +42,6 @@ class TesterAttestation(BaseModel):
     tests_execution_blocked_reason: str = Field(
         default="", description="Why tests could not be executed"
     )
-    no_test_changes_needed: bool = Field(
-        default=False,
-        description=(
-            "True if the slice/diff warrants no new tests — pure refactor "
-            "(symbol moves, no behavior change) or doc-only changes (#2431). "
-            "Distinct from tests_execution_blocked: the tester ran the "
-            "configured checks and they passed; there was simply nothing "
-            "new to author. Reviewers should verify the diff really is "
-            "behavior-preserving before ACKing this."
-        ),
-    )
-    no_test_changes_reason: str = Field(
-        default="",
-        description=(
-            "Why no new tests are warranted (e.g. 'pure refactor: symbol "
-            "moves between submodules, no behavior change; existing test "
-            "coverage applies'). Required when no_test_changes_needed=true."
-        ),
-    )
     coverage_delta: str = Field(default="", description="Coverage change")
     edge_cases: list[str] = Field(default_factory=list, description="Edge cases covered")
     concern_considered: str = Field(default="", description="One concern considered")
@@ -79,27 +60,6 @@ class DocumenterAttestation(BaseModel):
     sections_updated: list[str] = Field(default_factory=list, description="Doc sections updated")
     links_verified: list[str] = Field(default_factory=list, description="Links verified")
     concern_considered: str = Field(default="", description="One concern considered")
-    no_doc_changes_needed: bool = Field(
-        default=False,
-        description=(
-            "True if the slice/diff warrants no doc updates — pure refactor "
-            "(symbol moves, no surfaced API change), test-only changes, or "
-            "internal-only changes that don't touch any documented surface "
-            "(#2444, mirror of #2431). The documenter still walks the diff "
-            "and confirms there is no documented surface impacted; it just "
-            "did not author any doc changes. Reviewers should verify the "
-            "diff really has no doc impact before ACKing this."
-        ),
-    )
-    no_doc_changes_reason: str = Field(
-        default="",
-        description=(
-            "Why no doc updates are warranted (e.g. 'pure refactor: symbol "
-            "moves between submodules, no surfaced API or behavior change; "
-            "no README / docs/ / docstring surface impacted'). Required "
-            "when no_doc_changes_needed=true."
-        ),
-    )
 
 
 # --- Reviewer attestations ---
@@ -161,10 +121,40 @@ class ProposalPayload(BaseModel):
         default="",
         description="Commit SHA pushed to the remote branch before proposing (#1473)",
     )
+    no_changes_needed: bool = Field(
+        default=False,
+        description=(
+            "Generic no-op propose (#3027). True when this producer has no "
+            "work to contribute in this slice — it inspected the slice/diff "
+            "and either has no assigned task or its domain is not impacted. "
+            "A no-op proposal carries no artifacts and no commit_sha (the "
+            "``artifacts`` / ``commit_sha`` validators are skipped); it still "
+            "counts as 'proposed' so the global zero-proposal guard clears, "
+            "and reviewers treat it as a non-blocking no-op (they neither "
+            "review nor NACK it). Works for any producer role — no per-role "
+            "flag needed. Requires ``no_changes_reason``."
+        ),
+    )
+    no_changes_reason: str = Field(
+        default="",
+        description=(
+            "Why this producer has no work in this slice (e.g. 'no assigned "
+            "task in this slice; coder diff touches no documented surface'). "
+            "Required when ``no_changes_needed=true`` so the no-op is a "
+            "justified attestation, not a silent skip."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_artifacts_non_empty(self) -> ProposalPayload:
-        """Reject proposals with no artifact references."""
+        """Reject proposals with no artifact references.
+
+        Skipped for a no-op propose (#3027): a producer with no work has
+        nothing to reference. The no-op is justified by ``no_changes_reason``
+        instead (validated below).
+        """
+        if self.no_changes_needed:
+            return self
         if not self.artifacts:
             raise ValueError(
                 "Proposal must reference at least one artifact (file path, commit SHA, etc.)"
@@ -172,8 +162,23 @@ class ProposalPayload(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def validate_no_changes_reason(self) -> ProposalPayload:
+        """Require a reason for a no-op propose so it stays a justified attestation (#3027)."""
+        if self.no_changes_needed and not self.no_changes_reason.strip():
+            raise ValueError(
+                "no_changes_needed=true requires a non-empty no_changes_reason "
+                "explaining why this producer has no work in this slice."
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_commit_sha_present(self) -> ProposalPayload:
-        """Require commit_sha so reviewers can verify pushed code (#1473)."""
+        """Require commit_sha so reviewers can verify pushed code (#1473).
+
+        Skipped for a no-op propose (#3027): there is no commit to point at.
+        """
+        if self.no_changes_needed:
+            return self
         if not self.commit_sha:
             raise ValueError(
                 "Proposal must include commit_sha referencing a pushed commit. "
@@ -322,19 +327,11 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     "Coder attestation requires at least one changed file in strict mode"
                 )
         elif role == "tester" and isinstance(instance, TesterAttestation):
-            # Mutual exclusion (#2431): tests_execution_blocked and
-            # no_test_changes_needed describe different failure modes —
-            # the former means the tester couldn't run checks; the
-            # latter means it ran them and found nothing new to author.
-            # A proposal that asserts both is incoherent.
-            if instance.tests_execution_blocked and instance.no_test_changes_needed:
-                raise ValueError(
-                    "Tester attestation has both tests_execution_blocked=true and "
-                    "no_test_changes_needed=true — these are mutually exclusive. "
-                    "Pick one: 'blocked' means the configured checks could not run; "
-                    "'no_test_changes_needed' means they ran and passed but the slice "
-                    "warrants no new tests."
-                )
+            # Strict validation only runs for real proposals. A producer
+            # with no work in the slice does a generic no-op propose
+            # (``ProposalPayload.no_changes_needed=true``, #3027), which the
+            # caller validates in RELAXED mode — so we never reach here for
+            # a no-op and don't need a per-role no-op escape hatch.
             if instance.tests_execution_blocked:
                 if not instance.tests_execution_blocked_reason:
                     raise ValueError(
@@ -347,30 +344,18 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                         "tests_run > 0 — these are mutually exclusive. If some tests "
                         "ran, set tests_execution_blocked=false and report normally"
                     )
-            elif instance.no_test_changes_needed:
-                # No-op propose path for refactor / doc-only slices (#2431).
-                # The tester still ran the configured checks (checks_passed
-                # is required below); it just authored no new tests.
-                if not instance.no_test_changes_reason.strip():
-                    raise ValueError(
-                        "Tester attestation requires no_test_changes_reason "
-                        "when no_test_changes_needed is true. Explain why the "
-                        "slice warrants no new tests (e.g. 'pure refactor: "
-                        "symbol moves, no behavior change; existing test "
-                        "coverage applies')."
-                    )
             elif instance.tests_run == 0:
                 raise ValueError(
                     "Tester attestation requires tests_run > 0 in strict mode. "
-                    "If the slice is a pure refactor or doc-only change with no "
-                    "new tests warranted, set no_test_changes_needed=true and "
-                    "populate no_test_changes_reason instead."
+                    "If the slice warrants no new tests (pure refactor / doc-only / "
+                    "no behavior change), submit a no-op propose instead: set "
+                    "no_changes_needed=true with a non-empty no_changes_reason on "
+                    "the proposal."
                 )
-            # Require checks_passed to be populated when the tester ran
-            # the configured checks — covers both the normal path and
-            # the no_test_changes_needed path. Skip only when
-            # tests_execution_blocked since the tester may not have been
-            # able to run any checks (issues #1459, #1467, #2431).
+            # Require checks_passed when the tester ran the configured
+            # checks. Skip only when tests_execution_blocked since the
+            # tester may not have been able to run any checks (issues
+            # #1459, #1467).
             if not instance.tests_execution_blocked and not instance.checks_passed:
                 raise ValueError(
                     "Tester attestation requires checks_passed to list the checks that "
@@ -378,26 +363,17 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     "passed — do not include checks that failed."
                 )
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
-            # No-op propose path for refactor / test-only / no-doc-surface
-            # slices (#2444, mirror of #2431). The documenter still walks
-            # the diff to confirm there is no documented surface impacted;
-            # it just did not author any doc changes.
-            if instance.no_doc_changes_needed:
-                if not instance.no_doc_changes_reason.strip():
-                    raise ValueError(
-                        "Documenter attestation requires no_doc_changes_reason "
-                        "when no_doc_changes_needed is true. Explain why the "
-                        "slice warrants no doc updates (e.g. 'pure refactor: "
-                        "symbol moves, no surfaced API change; no README / "
-                        "docs/ / docstring surface impacted')."
-                    )
-            elif not instance.sections_updated:
+            # Strict validation only runs for real proposals; a documenter
+            # with no doc surface to touch submits a generic no-op propose
+            # (``ProposalPayload.no_changes_needed=true``, #3027) validated
+            # in RELAXED mode, so we never reach here for a no-op.
+            if not instance.sections_updated:
                 raise ValueError(
                     "Documenter attestation requires at least one section "
                     "updated in strict mode. If the slice warrants no doc "
                     "updates (pure refactor / test-only / no-doc-surface), "
-                    "set no_doc_changes_needed=true and populate "
-                    "no_doc_changes_reason instead."
+                    "submit a no-op propose instead: set no_changes_needed=true "
+                    "with a non-empty no_changes_reason on the proposal."
                 )
     else:
         if role == "reviewer_code" and isinstance(instance, ReviewerCodeAttestation):

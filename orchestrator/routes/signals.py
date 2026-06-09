@@ -1370,6 +1370,13 @@ def handle_consensus_propose_signal(
     if summary_error:
         return make_error_response(summary_error, 400)
 
+    # Generic no-op propose (#3027): producer has no work in this slice.
+    # A no-op carries no commit_sha and bypasses the producer pre-flight
+    # checks that assume real work (commit-on-branch, tester check coverage)
+    # — but it is NOT valid in refine/plan, where the producer's entire job
+    # is to author the analysis/plan draft (rejected below).
+    no_changes = bool(payload.get("no_changes_needed"))
+
     try:
         slice_id = _extract_slice_id(data)
     except ValueError as exc:
@@ -1441,10 +1448,23 @@ def handle_consensus_propose_signal(
             branch_verified = None
 
     try:
+        # A no-op propose (#3027) is only meaningful in the implement phase,
+        # where a producer (e.g. documenter) may have no work in a given
+        # slice. In refine/plan the sole producer's job IS to author the
+        # analysis/plan draft, so a no-op there would skip the deterministic
+        # input the gate reads — reject it explicitly rather than let it slip
+        # past the draft check (whose git-show needs a commit a no-op lacks).
+        if no_changes and agent_role in ("refiner", "task_planner"):
+            return make_error_response(
+                f"{agent_role} cannot submit a no-op propose: the "
+                f"{'analysis' if agent_role == 'refiner' else 'plan'} draft is "
+                f"required for this phase. Author and commit the draft, then propose.",
+                400,
+            )
         # Validate tester proposals cover all configured repo checks (#1459).
         # Must run BEFORE handle_propose to avoid mutating tracker state on
-        # rejected proposals.
-        if agent_role == "tester":
+        # rejected proposals. Skipped for a no-op — the tester ran nothing.
+        if agent_role == "tester" and not no_changes:
             _validate_tester_check_coverage(pipeline_id, payload, repo_path)
         # Reject a refine producer whose analysis draft is missing at the
         # canonical path the gate reads — before handle_propose records it, so
