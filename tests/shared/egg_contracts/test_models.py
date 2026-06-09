@@ -336,9 +336,11 @@ class TestContract:
         # ``pr.context_*`` fields), then 1.1 -> 1.2 in #2777 slice-2
         # (cq-2 hard-removed those three context framing fields and added
         # the load-time migration that strips them from legacy on-disk
-        # payloads). The canonical pin lives on
-        # ``test_pr_metadata.py::test_default_schemaversion_is_1_2``.
-        assert contract.schemaVersion == "1.2"
+        # payloads), then 1.2 -> 1.3 in #3033 (added the optional
+        # ``task_description`` field that persists the full free-text
+        # submit prompt). The canonical pin lives on
+        # ``test_pr_metadata.py::test_default_schemaversion_is_1_3``.
+        assert contract.schemaVersion == "1.3"
         assert contract.issue.number == 133
         assert contract.current_phase == PipelinePhase.REFINE
         assert contract.phases == []
