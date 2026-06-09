@@ -153,10 +153,11 @@ class ForestValidationError(Exception):
     ``"slice_overlap_violation"``) selects the operator-facing prose and
     the :class:`PopulateOutcome` the safe wrapper maps to. Any future
     Flask route that ingests a plan in-band can catch this and
-    ``return jsonify(*err.to_response())`` to surface the structured
-    rejection. Internal callers (``_populate_contract_from_plan_safe``
-    and the pipeline run-loop helpers) catch it and log a warning — the
-    ``plan_review_feedback`` stash is the durable NACK signal either way.
+    ``body, status = err.to_response(); return jsonify(body), status``
+    to surface the structured rejection. Internal callers
+    (``_populate_contract_from_plan_safe`` and the pipeline run-loop
+    helpers) catch it and log a warning — the ``plan_review_feedback``
+    stash is the durable NACK signal either way.
     """
 
     def __init__(
