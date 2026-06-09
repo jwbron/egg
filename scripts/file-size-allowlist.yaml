@@ -64,3 +64,8 @@ files:
   # entry follows the same pattern as the other slice-15 targets.
   orchestrator/routes/phases.py:
     issue: "2261"
+  # #3027 slice-4: the slices/phases fallback fix added a 7-line comment
+  # block that pushed the file from ~1,494 to 1,501 lines. Decompose in
+  # a follow-up PR.
+  sandbox/egg_lib/contract_cli.py:
+    issue: "3027"
