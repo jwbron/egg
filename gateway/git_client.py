@@ -1377,9 +1377,31 @@ def cleanup_credential_helper(path: str | None) -> None:
 
 # Matches a single git SHA line (7–64 lowercase hex). Used to reject
 # multi-line / garbled stdout from a misbehaving git wrapper before treating
-# the value as a commit identifier. Shared by both new-branch fallback paths
-# (``get_changed_files_in_push`` and ``_enumerate_push_commits``).
+# the value as a commit identifier. Shared by both ``get_changed_files_in_push``
+# and ``_enumerate_push_commits`` for fork-point and rev-list validation.
 _SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _parse_sha_lines(text: str) -> list[str] | None:
+    """Parse rev-list stdout into a list of SHAs, or ``None`` if any line is garbled.
+
+    Mirrors the validation in ``_enumerate_push_commits`` and applies it to
+    both fallback and primary rev-list output in ``get_changed_files_in_push``
+    so SHA-from-stdout discipline is uniform across every path that pipes a
+    line of git stdout into ``diff-tree``'s positional argv. A misbehaving
+    git wrapper that smuggled ``--ext-diff=…`` or another diff-tree flag as
+    a "SHA" would otherwise be passed through; failing closed on parse error
+    keeps the caller's fail-closed semantics for security checks intact.
+    """
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if not _SHA_LINE_RE.match(s):
+            return None
+        out.append(s)
+    return out
 
 
 def _fetch_base_branch_best_effort(
@@ -1526,15 +1548,29 @@ def get_changed_files_in_push(
             check=False,
         )
 
-        if rev_list_result.returncode == 0:
+        # Validate every rev-list line is a SHA before feeding it to diff-tree's
+        # positional argv (parity with _enumerate_push_commits, which goes through
+        # _parse_sha_lines on both its primary and fallback paths). On parse
+        # failure (garbled or multi-line stdout from a misbehaving git wrapper),
+        # treat the primary path as a miss and fall through to the merge-base
+        # fallback — same effect as a non-zero rev-list returncode.
+        primary_shas = (
+            _parse_sha_lines(rev_list_result.stdout) if rev_list_result.returncode == 0 else None
+        )
+        if primary_shas is None and rev_list_result.returncode == 0:
+            logger.error(
+                "rev-list stdout contained a non-SHA line - falling through to fallback",
+                repo_path=repo_path,
+                remote=remote,
+                branch=branch,
+            )
+
+        if primary_shas is not None:
             all_files: set[str] = set()
             commits_found = 0
             commits_inspected = 0
             diff_tree_errors: list[str] = []
-            for sha in rev_list_result.stdout.strip().split("\n"):
-                sha = sha.strip()
-                if not sha:
-                    continue
+            for sha in primary_shas:
                 commits_found += 1
                 # NOTE: On merge commits, `diff-tree -r` uses combined diff
                 # format, which only shows files differing from *all* parents
@@ -1624,14 +1660,19 @@ def get_changed_files_in_push(
             if log_result.returncode != 0:
                 continue
 
+            # Validate every SHA line before piping it to diff-tree argv.
+            # On parse failure, continue to the next candidate trunk — the
+            # caller's fail-closed loop still kicks in if every candidate
+            # fails (mirrors the per-line validation in _enumerate_push_commits).
+            fallback_shas = _parse_sha_lines(log_result.stdout)
+            if fallback_shas is None:
+                continue
+
             all_files = set()
             commits_found = 0
             commits_inspected = 0
             diff_tree_errors = []
-            for sha in log_result.stdout.strip().split("\n"):
-                sha = sha.strip()
-                if not sha:
-                    continue
+            for sha in fallback_shas:
                 commits_found += 1
                 dt_result = subprocess.run(
                     git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
@@ -1760,17 +1801,6 @@ def _enumerate_push_commits(
     except Exception:
         pass
 
-    def _parse_shas(text: str) -> list[str] | None:
-        out: list[str] = []
-        for line in (text or "").splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            if not _SHA_LINE_RE.match(s):
-                return None
-            out.append(s)
-        return out
-
     def _rev_list(base: str) -> list[str] | None:
         result = subprocess.run(
             git_cmd("rev-list", "--reverse", f"{base}..HEAD"),
@@ -1782,7 +1812,7 @@ def _enumerate_push_commits(
         )
         if result.returncode != 0:
             return None
-        return _parse_shas(result.stdout)
+        return _parse_sha_lines(result.stdout)
 
     primary = _rev_list(f"{remote}/{branch}")
     if primary is not None:

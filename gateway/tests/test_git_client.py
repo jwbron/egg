@@ -782,6 +782,15 @@ class TestGitHubClientExecuteEnvironment:
             assert found_ssh_protocol, "Missing URL rewrite for ssh://git@github.com/ format"
 
 
+# Realistic 40-char hex SHA fixtures. ``get_changed_files_in_push`` and
+# ``_enumerate_push_commits`` both validate rev-list / merge-base stdout via
+# ``_SHA_LINE_RE`` (7–64 lowercase hex) before passing the value to ``diff-tree``
+# argv, so test mocks must emit shapes that the production validator accepts.
+_FAKE_SHA_1 = "1" * 40
+_FAKE_SHA_2 = "2" * 40
+_FAKE_SHA_3 = "3" * 40
+
+
 class TestGetChangedFilesInPush:
     """Tests for getting changed files in a push."""
 
@@ -801,14 +810,14 @@ class TestGetChangedFilesInPush:
 
                 if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "sha1\nsha2\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n{_FAKE_SHA_2}\n"
                     return result
 
                 if "diff-tree" in cmd:
                     result.returncode = 0
-                    if "sha1" in cmd:
+                    if _FAKE_SHA_1 in cmd:
                         result.stdout = "file1.py\nfile2.py\n"
-                    elif "sha2" in cmd:
+                    elif _FAKE_SHA_2 in cmd:
                         result.stdout = "dir/file3.txt\n"
                     return result
 
@@ -898,7 +907,7 @@ class TestGetChangedFilesInPush:
                     return result
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n"
                     return result
                 if "diff-tree" in cmd:
                     result.returncode = 0
@@ -949,15 +958,15 @@ class TestGetChangedFilesInPush:
                 # Fallback rev-list returns two commits
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\nsha2\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n{_FAKE_SHA_2}\n"
                     return result
 
                 # diff-tree per commit
                 if "diff-tree" in cmd:
-                    if "sha1" in cmd:
+                    if _FAKE_SHA_1 in cmd:
                         result.returncode = 0
                         result.stdout = "src/auth.py\n"
-                    elif "sha2" in cmd:
+                    elif _FAKE_SHA_2 in cmd:
                         result.returncode = 0
                         result.stdout = "src/models.py\nsrc/auth.py\n"
                     return result
@@ -1006,7 +1015,7 @@ class TestGetChangedFilesInPush:
 
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n"
                     return result
 
                 if "diff-tree" in cmd:
@@ -1051,7 +1060,7 @@ class TestGetChangedFilesInPush:
 
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\nsha2\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n{_FAKE_SHA_2}\n"
                     return result
 
                 # All diff-tree calls fail
@@ -1107,7 +1116,7 @@ class TestGetChangedFilesInPush:
 
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\nsha2\nsha3\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n{_FAKE_SHA_2}\n{_FAKE_SHA_3}\n"
                     return result
 
                 # First diff-tree succeeds, rest fail
@@ -1202,7 +1211,7 @@ class TestGetChangedFilesInPush:
                 # Primary rev-list succeeds with 3 commits
                 if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 0
-                    result.stdout = "sha1\nsha2\nsha3\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n{_FAKE_SHA_2}\n{_FAKE_SHA_3}\n"
                     return result
 
                 # First diff-tree succeeds, rest fail — triggers fallback
@@ -1248,7 +1257,7 @@ class TestGetChangedFilesInPush:
                     return result
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n"
                     return result
                 if "diff-tree" in cmd:
                     result.returncode = 0
@@ -1304,7 +1313,7 @@ class TestGetChangedFilesInPush:
                 # Fallback rev-list
                 if "rev-list" in cmd:
                     result.returncode = 0
-                    result.stdout = "sha1\n"
+                    result.stdout = f"{_FAKE_SHA_1}\n"
                     return result
 
                 if "diff-tree" in cmd:
