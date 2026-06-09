@@ -270,3 +270,183 @@ class TestTickCallsCheckOncePerIteration:
             f"{len(candidates)}). A second call site risks double-emission "
             "on the 2× threshold. Found lines: {candidates!r}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# (5) Production-path: real ``_make_phase_idle_budget_emitter`` -> message store
+# --------------------------------------------------------------------------- #
+
+
+class TestProductionEmitterReachesMessageStore:
+    """Pin the end-to-end wiring of the real production emitter.
+
+    The earlier tests in this file substitute a ``MagicMock()`` directly
+    for the timer's ``alert_emitter``, which proves the timer-side
+    semantics but does NOT prove the production wiring (the closure
+    built by ``_make_phase_idle_budget_emitter`` + the publisher
+    ``_publish_phase_idle_budget_alert``) actually reaches the message
+    bus. A regression where the closure raises a ``TypeError`` (e.g.
+    forwarding ``pipeline_id`` both explicitly and via ``**kwargs``)
+    would silently swallow every ``stuck-phase-transition`` alert via
+    the surrounding ``except Exception`` in ``_run_concurrent_phase``;
+    this test catches that exact shape by asserting an
+    ``OVERSEER_ALERT`` ``Message`` lands in the store on the 1×
+    threshold cross.
+    """
+
+    def _build_pipeline(self):
+        """Construct a minimal Pipeline the publisher can read
+        ``current_phase`` from. Skips cleanly if ``models.Pipeline`` is
+        not importable in the test environment.
+        """
+        try:
+            from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
+        except ImportError:  # pragma: no cover - guardrail only
+            pytest.skip(
+                "orchestrator/models.py is not importable in this minimal "
+                "environment; the production-path test needs Pipeline to "
+                "construct the publisher's input."
+            )
+        return Pipeline(
+            id="issue-3023",
+            issue_number=3023,
+            repo="owner/repo",
+            branch="egg/issue-3023",
+            base_branch="main",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            config=PipelineConfig(),
+        )
+
+    def test_real_emitter_publishes_overseer_alert_on_1x_threshold(self):
+        """Wire the real ``_make_phase_idle_budget_emitter`` into the
+        timer and confirm the 1× threshold cross produces exactly one
+        ``OVERSEER_ALERT`` ``Message`` on the store.
+
+        Only the message-store boundary is mocked
+        (``routes.pipelines._get_message_store``); the closure +
+        publisher run unmodified. A regression where the closure
+        raises (the #3023 v1 ``pipeline_id`` collision shape) would
+        leave the mock with zero ``add_message`` calls and fail this
+        assertion immediately.
+        """
+        try:
+            from routes.pipelines import _make_phase_idle_budget_emitter
+        except ImportError:
+            pytest.skip(
+                "routes.pipelines is not importable in this minimal test "
+                "environment; the production-path test requires it."
+            )
+
+        from unittest.mock import patch
+
+        Cls = _resolve_class()
+        pipeline = self._build_pipeline()
+        msg_store = MagicMock()
+        store_factory = MagicMock(return_value=msg_store)
+
+        emitter = _make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id="issue-3023",
+            slice_id="slice-1",
+        )
+        timer = Cls(alert_emitter=emitter, budget_minutes=30, now=0.0)
+        timer.record_spawn(
+            pipeline_id="issue-3023",
+            phase="implement",
+            role="coder",
+            action="propose",
+            now=0.0,
+        )
+
+        # Force the publisher to find a mocked message store. We patch
+        # the ``_get_message_store`` lookup rather than the ``Message``
+        # / ``MessageType`` symbols so the publisher exercises its real
+        # try/except import branches as well.
+        with patch("routes.pipelines._get_message_store", return_value=store_factory):
+            # Cross past the 30-min budget exactly once.
+            timer.check(now=30 * 60 + 1, pending_hitl_count=0)
+
+        # One add_message call -> the alert reached the bus.
+        assert msg_store.add_message.call_count == 1, (
+            "The production wiring (real _make_phase_idle_budget_emitter "
+            "+ _publish_phase_idle_budget_alert) must land exactly one "
+            "OVERSEER_ALERT Message on the bus at the 1× threshold cross. "
+            f"Got {msg_store.add_message.call_count}. A 0 here indicates "
+            "the closure raised (e.g. the #3023 v1 'pipeline_id collision' "
+            "shape) and the alert was silently swallowed."
+        )
+        msg = msg_store.add_message.call_args.args[0]
+        # Anomaly tag is the operator-facing classifier.
+        assert getattr(msg, "subject", "").startswith("stuck-phase-transition"), (
+            "Subject must start with 'stuck-phase-transition' so the SDLC-"
+            "skill alert detection picks it up."
+        )
+        assert msg.metadata.get("anomaly_type") == "stuck-phase-transition"
+        assert msg.metadata.get("threshold_multiplier") == 1
+        assert msg.metadata.get("slice_id") == "slice-1"
+
+    def test_real_emitter_filters_synthetic_orchestrator_seed(self):
+        """The slice-1 wiring seeds the timer with
+        ``record_spawn(role="orchestrator", action="phase_start", ...)``
+        so the timer has a (pipeline_id, phase) binding to alert about
+        before slice-2 wires real per-event spawn recording. The
+        publisher must NOT surface that synthetic seed in the
+        operator-facing ``per_role_state`` payload — otherwise the
+        AC-R4 drill-down reads "orchestrator: phase_start", which
+        implies the orchestrator is the only role that has acted (the
+        opposite of the intended signal).
+
+        This test exercises the real publisher path and asserts the
+        synthetic seed is filtered both from the rendered body and the
+        metadata payload.
+        """
+        try:
+            from routes.pipelines import _make_phase_idle_budget_emitter
+        except ImportError:
+            pytest.skip(
+                "routes.pipelines is not importable in this minimal test "
+                "environment; the synthetic-seed-filter test requires it."
+            )
+
+        from unittest.mock import patch
+
+        Cls = _resolve_class()
+        pipeline = self._build_pipeline()
+        msg_store = MagicMock()
+        store_factory = MagicMock(return_value=msg_store)
+
+        emitter = _make_phase_idle_budget_emitter(
+            pipeline=pipeline,
+            pipeline_id="issue-3023",
+            slice_id="slice-1",
+        )
+        timer = Cls(alert_emitter=emitter, budget_minutes=30, now=0.0)
+        # Mimic the slice-1 wiring: a synthetic ``orchestrator/phase_start``
+        # seed plus no real per-role spawns yet.
+        timer.record_spawn(
+            pipeline_id="issue-3023",
+            phase="implement",
+            role="orchestrator",
+            action="phase_start",
+            now=0.0,
+        )
+
+        with patch("routes.pipelines._get_message_store", return_value=store_factory):
+            timer.check(now=30 * 60 + 1, pending_hitl_count=0)
+
+        assert msg_store.add_message.call_count == 1
+        msg = msg_store.add_message.call_args.args[0]
+        # Body must not advertise the orchestrator seed as a real
+        # operator-meaningful action.
+        assert "orchestrator: phase_start" not in msg.body, (
+            "Body must filter the synthetic 'orchestrator: phase_start' "
+            "seed (AC-R4 / NACK item 2) — surfacing it misleads operators "
+            "into thinking the orchestrator is the only acting role."
+        )
+        # Metadata's per_role_state must mirror that filtering so the
+        # SDLC-skill alert detection sees a clean per-role table.
+        assert msg.metadata.get("per_role_state") == {}, (
+            "Metadata per_role_state must drop the synthetic "
+            "'orchestrator/phase_start' seed (AC-R4 / NACK item 2)."
+        )

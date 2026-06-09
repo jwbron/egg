@@ -14972,7 +14972,6 @@ def _publish_phase_idle_budget_alert(
     threshold_multiplier: int,
     summary: str,
     reason: str,
-    **_extra: Any,
 ) -> None:
     """Publish a phase-level ``stuck-phase-transition`` OVERSEER_ALERT (#3023).
 
@@ -14987,11 +14986,13 @@ def _publish_phase_idle_budget_alert(
     free-text body, but it is also folded into the human-readable body
     for the SDLC-skill summary view.
 
-    The ``_extra`` catch-all keeps the signature forward-compatible:
-    the timer may add new fields in slice-2 / slice-3 without
-    requiring a lock-step edit here.
+    The signature is strict (no ``**_extra`` absorber): if the timer
+    grows a new kwarg in slice-2 / slice-3 we want the mismatch to
+    raise here at first call rather than be silently swallowed and
+    re-surface as a "missing field" UX puzzle later. The
+    coupling between the timer and this publisher is intentional —
+    they live in the same slice's surface area and ship together.
     """
-    del _extra  # forward-compat absorber
     # Pull phase value from the pipeline as the operator-displayed
     # source of truth; the ``phase`` arg the timer passes is the same
     # value but de-duped here in case the pipeline transitioned between
@@ -15008,12 +15009,32 @@ def _publish_phase_idle_budget_alert(
     # consensus-timeout fallback at ``_publish_consensus_timeout_alert``).
     subject = f"{anomaly}: {phase_value} [{priority}]"
 
-    if per_role_state:
+    # Filter the synthetic ``orchestrator`` seed (and any other synthetic
+    # ``phase_start`` action) out of the operator-facing per-role
+    # drill-down (AC-R4). The slice-1 wiring seeds the timer with
+    # ``record_spawn(role="orchestrator", action="phase_start", ...)``
+    # so ``check()`` has a (pipeline_id, phase) binding to alert about
+    # before slice-2 task-2-8 wires real per-event spawn recording. In
+    # the slice-1 → slice-2 window that seed would otherwise dominate
+    # the per-role drill-down with a single ``orchestrator: phase_start``
+    # line, actively misleading the operator into thinking the
+    # orchestrator is the only role that has acted. The seed is still
+    # important to the timer's internal binding; it is just not
+    # operator-meaningful for the alert payload itself.
+    _SYNTHETIC_ROLES = {"orchestrator"}
+    _SYNTHETIC_ACTIONS = {"phase_start"}
+    operator_per_role_state = {
+        role: action
+        for role, action in per_role_state.items()
+        if role not in _SYNTHETIC_ROLES and action not in _SYNTHETIC_ACTIONS
+    }
+
+    if operator_per_role_state:
         # Stable per-role rendering so a snapshot test can pin the
         # ordering. Sorted by role name; ``role -> last_action`` keeps
         # the body short while preserving the AC-R4 signal.
         per_role_render = "\n".join(
-            f"  {role}: {action}" for role, action in sorted(per_role_state.items())
+            f"  {role}: {action}" for role, action in sorted(operator_per_role_state.items())
         )
     else:
         per_role_render = "  (no spawns recorded for this phase yet)"
@@ -15031,7 +15052,7 @@ def _publish_phase_idle_budget_alert(
         "phase": phase_value,
         "priority": priority,
         "threshold_multiplier": threshold_multiplier,
-        "per_role_state": dict(per_role_state),
+        "per_role_state": dict(operator_per_role_state),
         "pending_hitl_ids": list(pending_hitl_ids),
         "summary": summary,
     }
@@ -15100,14 +15121,54 @@ def _make_phase_idle_budget_emitter(
 
     The returned callable matches the timer's ``alert_emitter``
     contract: keyword-only kwargs from the timer flow through, and the
-    bound pipeline / slice context is closed over so the timer does
-    not need to know about either.
+    bound pipeline / slice context (``pipeline`` + ``slice_id``) is
+    closed over so the timer does not need to know about either.
+
+    ``pipeline_id`` is intentionally NOT re-injected by the closure:
+    ``PhaseIdleBudgetTimer._emit_threshold`` already passes
+    ``pipeline_id=self.pipeline_id`` in its kwargs payload (the value
+    the timer was bound to via the first ``record_spawn``). Forwarding
+    a closure-scoped ``pipeline_id`` alongside ``**kwargs`` would raise
+    ``TypeError: got multiple values for keyword argument
+    'pipeline_id'`` at runtime and silently drop the alert (the
+    enclosing ``_run_concurrent_phase`` ``except Exception`` would log
+    a WARNING and continue, leaving the operator without the
+    stuck-phase-transition signal).
+
+    The function still *takes* ``pipeline_id`` as a parameter so the
+    binding side (the per-phase tick) keeps a single call site shape
+    and so an out-of-band invariant assertion is possible: when the
+    timer's bound ``pipeline_id`` reaches the publisher it must equal
+    the one the orchestrator passed in here. The closure asserts this
+    cheaply rather than silently letting a mismatched id through, and
+    falls back to the closure-scoped value if the timer's kwargs
+    omitted ``pipeline_id`` (defense in depth — the timer always
+    includes it today).
     """
 
+    bound_pipeline_id = pipeline_id
+
     def _emitter(**kwargs: Any) -> None:
+        # The timer's ``_emit_threshold`` always forwards
+        # ``pipeline_id=self.pipeline_id``; pop it (rather than letting
+        # ``**kwargs`` collide with an explicit kwarg) and cross-check
+        # against the closure-scoped value so a mis-binding would log
+        # a warning rather than silently mis-attribute the alert.
+        kwargs_pipeline_id = kwargs.pop("pipeline_id", None)
+        if kwargs_pipeline_id is None:
+            kwargs_pipeline_id = bound_pipeline_id
+        elif kwargs_pipeline_id != bound_pipeline_id:
+            logger.warning(
+                "Phase-idle-budget emitter: timer pipeline_id does not "
+                "match the closure-bound pipeline_id; using the timer's "
+                "value (the timer holds the authoritative binding for "
+                "the phase this alert is about).",
+                bound_pipeline_id=bound_pipeline_id,
+                timer_pipeline_id=kwargs_pipeline_id,
+            )
         _publish_phase_idle_budget_alert(
             pipeline=pipeline,
-            pipeline_id=pipeline_id,
+            pipeline_id=kwargs_pipeline_id,
             slice_id=slice_id,
             **kwargs,
         )
