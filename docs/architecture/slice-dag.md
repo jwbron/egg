@@ -116,7 +116,7 @@ class ForestValidationError(Exception):
 the `reason` discriminator (`"forest_violation"` for multi-parent DAGs,
 `"slice_overlap_violation"` for overlapping-but-unordered slices added in
 #3046). Any future route that ingests a plan in-band can catch it and return
-`jsonify(*err.to_response())`. The internal `_populate_contract_from_plan_safe`
+`body, status = err.to_response(); return jsonify(body), status`. The internal `_populate_contract_from_plan_safe`
 wrapper catches `ForestValidationError` with a dedicated structured warning
 (separate audit-log discriminator from the catch-all `except Exception`) and
 returns a `PopulateResult` mapped via `_forest_error_to_outcome` — the
