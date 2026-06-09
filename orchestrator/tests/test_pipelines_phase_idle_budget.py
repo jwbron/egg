@@ -459,7 +459,8 @@ class TestMakePhaseIdleBudgetEmitterClosure:
             timer.check(now=31 * 60, pending_hitl_count=0)
 
         tick_calls = [
-            c for c in mock_logger.info.call_args_list
+            c
+            for c in mock_logger.info.call_args_list
             if c.args and c.args[0] == "phase_idle_budget_tick"
         ]
         assert len(tick_calls) == 1, (
