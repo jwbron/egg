@@ -690,24 +690,26 @@ def _make_subprocess_result(
 
 
 class TestVerifyCommitOnBranch:
-    """Unit tests for _verify_commit_on_branch helper."""
+    """Unit tests for _verify_commit_on_branch helper.
 
+    The fetch leg goes through ``_gateway_fetch_tracking_ref`` (gateway-
+    authenticated, #3081) — patched here so only the local
+    ``git branch -r --contains`` read hits ``subprocess.run``.
+    """
+
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
-    def test_returns_none_when_branch_contains_fails(self, mock_run):
+    def test_returns_none_when_branch_contains_fails(self, mock_run, mock_fetch):
         """branch --contains failure returns None (non-blocking)."""
         from routes.signals import _verify_commit_on_branch
 
-        mock_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch ok
-            _make_subprocess_result(
-                returncode=128, stderr="not a valid commit"
-            ),  # branch --contains fails
-        ]
+        mock_run.return_value = _make_subprocess_result(returncode=128, stderr="not a valid commit")
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is None
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
-    def test_returns_none_on_unexpected_exception(self, mock_run):
+    def test_returns_none_on_unexpected_exception(self, mock_run, mock_fetch):
         """Unexpected exception returns None (non-blocking)."""
         from routes.signals import _verify_commit_on_branch
 
@@ -715,50 +717,122 @@ class TestVerifyCommitOnBranch:
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is None
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
-    def test_returns_true_when_multiple_branches_include_expected(self, mock_run):
+    def test_returns_true_when_multiple_branches_include_expected(self, mock_run, mock_fetch):
         """Returns True when expected branch is among multiple branches."""
         from routes.signals import _verify_commit_on_branch
 
-        mock_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch ok
-            _make_subprocess_result(stdout="  origin/egg/issue-42\n  origin/main\n"),
-        ]
+        mock_run.return_value = _make_subprocess_result(
+            stdout="  origin/egg/issue-42\n  origin/main\n"
+        )
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is True
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
-    def test_returns_false_when_branch_not_in_output(self, mock_run):
+    def test_returns_false_when_branch_not_in_output(self, mock_run, mock_fetch):
         """Returns False when commit exists but not on expected branch."""
         from routes.signals import _verify_commit_on_branch
 
-        mock_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch ok
-            _make_subprocess_result(stdout="  origin/egg/other-branch\n"),
-        ]
+        mock_run.return_value = _make_subprocess_result(stdout="  origin/egg/other-branch\n")
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is False
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
-    def test_returns_false_on_empty_branch_output(self, mock_run):
+    def test_returns_false_on_empty_branch_output(self, mock_run, mock_fetch):
         """Returns False when branch --contains returns empty output."""
         from routes.signals import _verify_commit_on_branch
 
-        mock_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch ok
-            _make_subprocess_result(stdout=""),  # empty - commit on no branches
-        ]
+        mock_run.return_value = _make_subprocess_result(stdout="")
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is False
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=False)
     @patch("routes.signals.subprocess.run")
-    def test_returns_none_on_fetch_timeout(self, mock_run):
-        """Fetch timeout returns None (non-blocking)."""
+    def test_returns_none_when_gateway_fetch_fails(self, mock_run, mock_fetch):
+        """Gateway fetch failure returns None without touching git (#3081).
+
+        This is the path that silently disabled all propose-time validation
+        when the (pre-#3081) raw ``git fetch`` failed on every call for lack
+        of credentials — now gateway-authenticated and alarmed via
+        OVERSEER_ALERT, but still non-blocking.
+        """
         from routes.signals import _verify_commit_on_branch
 
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is None
+        mock_run.assert_not_called()
+
+    @patch("routes.signals.subprocess.run")
+    def test_gateway_fetch_uses_explicit_tracking_refspec(self, mock_run):
+        """The fetch leg sends an explicit ``+refs/heads/X:refs/remotes/origin/X``
+        refspec through the gateway, so the contains-check below reads a fresh
+        tracking ref even on narrow-refspec mirrors (#3072 / #3075)."""
+        from routes.signals import _gateway_fetch_tracking_ref
+
+        mock_client = MagicMock()
+        mock_client.fetch_branch.return_value = True
+        mock_pipeline = MagicMock()
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch(
+                "routes.pipelines._compute_gateway_mode",
+                return_value=("private", "private"),
+            ),
+        ):
+            ok = _gateway_fetch_tracking_ref(
+                "pipe-1", "egg/issue-42", Path("/tmp/wt"), mock_pipeline
+            )
+
+        assert ok is True
+        mock_client.fetch_branch.assert_called_once_with(
+            "pipe-1",
+            "/tmp/wt",
+            args=["+refs/heads/egg/issue-42:refs/remotes/origin/egg/issue-42"],
+            mode="private",
+        )
+
+    def test_gateway_fetch_degrades_to_false_on_exception(self):
+        """Client construction / mode resolution failures degrade to False
+        (caller maps that to the non-blocking ``None`` tri-state)."""
+        from routes.signals import _gateway_fetch_tracking_ref
+
+        with patch(
+            "gateway_client.get_gateway_client",
+            side_effect=RuntimeError("no gateway"),
+        ):
+            ok = _gateway_fetch_tracking_ref("pipe-1", "egg/issue-42", Path("/tmp/wt"), None)
+        assert ok is False
+
+
+class TestCommitObjectResolvable:
+    """Unit tests for _commit_object_resolvable helper (#3081)."""
+
+    @patch("routes.signals.subprocess.run")
+    def test_true_when_cat_file_succeeds(self, mock_run):
+        from routes.signals import _commit_object_resolvable
+
+        mock_run.return_value = _make_subprocess_result(returncode=0)
+        assert _commit_object_resolvable(Path("/tmp/wt"), "abc123") is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[-2:] == ["-e", "abc123^{commit}"]
+
+    @patch("routes.signals.subprocess.run")
+    def test_false_when_object_absent(self, mock_run):
+        from routes.signals import _commit_object_resolvable
+
+        mock_run.return_value = _make_subprocess_result(returncode=1)
+        assert _commit_object_resolvable(Path("/tmp/wt"), "abc123") is False
+
+    @patch("routes.signals.subprocess.run")
+    def test_false_on_exception(self, mock_run):
+        from routes.signals import _commit_object_resolvable
+
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+        assert _commit_object_resolvable(Path("/tmp/wt"), "abc123") is False
 
 
 class TestCheckBranchProgress:
@@ -808,6 +882,7 @@ class TestCheckBranchProgress:
 class TestCompletionBranchVerification:
     """Verify commit location when agent signals completion with a commit SHA."""
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
@@ -822,6 +897,7 @@ class TestCompletionBranchVerification:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -834,10 +910,10 @@ class TestCompletionBranchVerification:
         mock_orch = _mock_contract_orchestrator(is_complete=False)
         mock_create_orchestrator.return_value = mock_orch
 
-        # subprocess.run calls: fetch succeeds, branch --contains returns origin/egg/issue-42
-        # (no rev-parse for progress check — mock_pipeline has no phase_start_sha)
+        # subprocess.run calls: branch --contains returns origin/egg/issue-42
+        # (fetch goes through the gateway — patched above; no rev-parse for
+        # progress check — mock_pipeline has no phase_start_sha)
         mock_subprocess_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch
             _make_subprocess_result(stdout="  origin/egg/issue-42\n"),  # branch --contains
         ]
 
@@ -852,6 +928,7 @@ class TestCompletionBranchVerification:
 
         assert status_code == 200
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
@@ -860,6 +937,7 @@ class TestCompletionBranchVerification:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -869,9 +947,8 @@ class TestCompletionBranchVerification:
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        # fetch succeeds, but branch --contains shows different branch
+        # gateway fetch succeeds, but branch --contains shows different branch
         mock_subprocess_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch
             _make_subprocess_result(stdout="  origin/egg/wrong-branch\n"),  # branch --contains
         ]
 
@@ -1104,6 +1181,7 @@ class TestCompletionBranchVerificationEdgeCases:
 class TestConsensusProposeBranchVerification:
     """Verify commit SHA on branch when agent sends CONSENSUS_PROPOSE (#1473)."""
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
@@ -1114,6 +1192,7 @@ class TestConsensusProposeBranchVerification:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -1126,9 +1205,8 @@ class TestConsensusProposeBranchVerification:
         mock_tracker = MagicMock()
         mock_get_tracker.return_value = mock_tracker
 
-        # fetch succeeds, branch --contains returns different branch
+        # gateway fetch succeeds, branch --contains returns different branch
         mock_subprocess_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch
             _make_subprocess_result(stdout="  origin/other-branch\n"),  # no match
         ]
 
@@ -1152,6 +1230,7 @@ class TestConsensusProposeBranchVerification:
         data = response.get_json()
         assert "not found on expected branch" in data.get("message", "")
 
+    @patch("routes.signals._gateway_fetch_tracking_ref", return_value=True)
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
@@ -1162,6 +1241,7 @@ class TestConsensusProposeBranchVerification:
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
+        mock_gateway_fetch,
         app,
         mock_pipeline,
     ):
@@ -1181,9 +1261,8 @@ class TestConsensusProposeBranchVerification:
         }
         mock_get_tracker.return_value = mock_tracker
 
-        # fetch succeeds, branch --contains returns correct branch
+        # gateway fetch succeeds, branch --contains returns correct branch
         mock_subprocess_run.side_effect = [
-            _make_subprocess_result(returncode=0),  # fetch
             _make_subprocess_result(stdout="  origin/egg/issue-42\n"),  # match
         ]
 

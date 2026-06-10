@@ -2392,16 +2392,18 @@ class TestPlanProposalValidation:
             with pytest.raises(ValueError, match="no plan draft found"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
 
-    def test_skips_when_branch_verified_is_none(self):
-        """``branch_verified=None`` (orchestrator-side fetch/contains glitch) →
-        graceful skip without touching git, so a transient fetch failure isn't
-        mis-blamed on the producer as a missing/unparseable draft.
+    def test_skips_when_branch_verified_none_and_commit_not_local(self):
+        """``branch_verified=None`` + commit object absent locally → graceful
+        skip, so a transient fetch failure isn't mis-blamed on the producer as
+        a missing/unparseable draft (a non-zero ``git show`` could mean
+        "commit unknown", not "path absent").
         """
         from routes.signals import _validate_plan_proposal
 
         with (
             self._patched_store(),
             self._patched_worktree(),
+            patch("routes.signals._commit_object_resolvable", return_value=False),
             patch("routes.signals.subprocess.run") as mock_run,
         ):
             _validate_plan_proposal(
@@ -2411,6 +2413,32 @@ class TestPlanProposalValidation:
                 branch_verified=None,
             )
             mock_run.assert_not_called()
+
+    def test_validates_when_branch_verified_none_but_commit_local(self):
+        """The #3081 regression: ``branch_verified=None`` must NOT skip
+        validation when the commit object is locally resolvable — with the
+        object present, a non-zero ``git show`` reliably means the canonical
+        draft is absent at the commit. In the incident, a persistent
+        (credential) fetch failure made every propose arrive with
+        ``branch_verified=None``, the validator skipped unconditionally, and a
+        full plan consensus completed with no canonical parseable draft
+        anywhere.
+        """
+        from routes.signals import _validate_plan_proposal
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals._commit_object_resolvable", return_value=True),
+            self._patched_subprocess("", returncode=128),  # path absent at commit
+            pytest.raises(ValueError, match="no plan draft found"),
+        ):
+            _validate_plan_proposal(
+                "issue-2527",
+                {"commit_sha": "abc1234"},
+                Path("/tmp/repo"),
+                branch_verified=None,
+            )
 
     def test_skips_when_git_show_errors(self):
         """An infra failure (timeout, not a clean non-zero exit) → graceful skip,
@@ -2473,15 +2501,13 @@ class TestPlanProposalValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # Three subprocess calls happen in this path (task_planner) — the
-        # consolidated ``_validate_plan_proposal`` reads the plan once, not
-        # twice as the former presence+alignment pair did:
-        #   1. _verify_commit_on_branch's git fetch
-        #   2. _verify_commit_on_branch's git branch --contains
-        #   3. _validate_plan_proposal's single git show — returns the
+        # Two subprocess calls happen in this path (task_planner) — the fetch
+        # leg now goes through the gateway (#3081), so only the local reads
+        # hit subprocess:
+        #   1. _verify_commit_on_branch's git branch --contains
+        #   2. _validate_plan_proposal's single git show — returns the
         #      misassigned plan, so the alignment check raises
         side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
@@ -2501,6 +2527,7 @@ class TestPlanProposalValidation:
             app.app_context(),
             self._patched_store(),
             self._patched_worktree(),
+            patch("routes.signals._gateway_fetch_tracking_ref", return_value=True),
             patch("routes.signals.subprocess.run", side_effect=side_effect),
             patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
         ):
@@ -2539,10 +2566,10 @@ class TestPlanProposalValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # 1. fetch, 2. branch --contains, 3. _validate_plan_proposal's git show
-        # (present but fence-less → parse fails → raise).
+        # 1. branch --contains, 2. _validate_plan_proposal's git show
+        # (present but fence-less → parse fails → raise). The fetch leg goes
+        # through the gateway (#3081), not subprocess.
         side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(
                 args=[], returncode=0, stdout="  origin/egg/issue-2527\n", stderr=""
             ),
@@ -2556,6 +2583,7 @@ class TestPlanProposalValidation:
             app.app_context(),
             self._patched_store(),
             self._patched_worktree(),
+            patch("routes.signals._gateway_fetch_tracking_ref", return_value=True),
             patch("routes.signals.subprocess.run", side_effect=side_effect),
             patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
         ):
@@ -2685,28 +2713,26 @@ class TestProducerDraftPresentValidation:
                 "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
             )
 
-    def test_skips_when_branch_verified_is_none(self):
-        """``branch_verified=None`` (orchestrator-side fetch/contains glitch) →
-        graceful skip.
+    def test_skips_when_branch_verified_none_and_commit_not_local(self):
+        """``branch_verified=None`` + commit object absent locally → graceful
+        skip.
 
-        Regression guard for the PR-1 review concern: when
-        ``_verify_commit_on_branch`` returns ``None`` (fetch failed, or
-        ``git branch -r --contains`` failed), the commit may not be in the
-        local object cache. A subsequent ``git show {commit}:{path}`` would
+        When ``_verify_commit_on_branch`` returns ``None`` (gateway fetch
+        failed, or ``git branch -r --contains`` failed) AND the commit isn't
+        in the local object store, a ``git show {commit}:{path}`` would
         return 128 with "bad revision" — *not* "path absent at commit" — so
-        running the presence check in that state would mis-blame the producer
-        for an orchestrator-side glitch. The handler threads the tri-state
-        through; we verify the validator honours it by skipping git access
-        entirely.
+        running the presence check would mis-blame the producer for an
+        orchestrator-side glitch.
         """
         from routes.signals import _validate_producer_draft_present
 
         with (
             self._patched_store(),
             self._patched_worktree(),
+            patch("routes.signals._commit_object_resolvable", return_value=False),
             patch("routes.signals.subprocess.run") as mock_run,
         ):
-            # Should not raise — and should not even reach git.
+            # Should not raise — and should not even reach git show.
             _validate_producer_draft_present(
                 "refine",
                 "issue-3016",
@@ -2715,6 +2741,29 @@ class TestProducerDraftPresentValidation:
                 branch_verified=None,
             )
             mock_run.assert_not_called()
+
+    def test_validates_when_branch_verified_none_but_commit_local(self):
+        """#3081: an inconclusive branch verification must not disable the
+        presence check when the commit object is locally resolvable — the
+        unconditional skip is how a persistent fetch failure turned the whole
+        propose-time validation layer off.
+        """
+        from routes.signals import _validate_producer_draft_present
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals._commit_object_resolvable", return_value=True),
+            self._patched_subprocess("", returncode=128),  # path absent at commit
+            pytest.raises(ValueError, match="no analysis draft found"),
+        ):
+            _validate_producer_draft_present(
+                "refine",
+                "issue-3016",
+                {"commit_sha": "abc1234"},
+                Path("/tmp/repo"),
+                branch_verified=None,
+            )
 
     def test_skips_when_git_show_errors(self):
         """A git/infra failure (not a clean non-zero exit) → graceful skip.
@@ -2758,9 +2807,10 @@ class TestProducerDraftPresentValidation:
         This locks the threading wired by the previous review item: the handler
         captures the tri-state from ``_verify_commit_on_branch``, threads it into
         ``_validate_producer_draft_present`` via ``branch_verified``, and the
-        validator short-circuits on ``None`` so a transient orchestrator-side fetch
-        failure isn't mis-blamed on the producer as a missing draft. Mirrors the
-        wiring guarantee that
+        validator short-circuits on ``None`` (when the commit object is not
+        locally resolvable either — #3081) so a transient orchestrator-side
+        fetch failure isn't mis-blamed on the producer as a missing draft.
+        Mirrors the wiring guarantee that
         ``test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker``
         provides for the rejection path.
         """
@@ -2770,19 +2820,18 @@ class TestProducerDraftPresentValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # Two subprocess calls happen and only the first one runs (fetch returns
-        # non-zero → ``_verify_commit_on_branch`` short-circuits to ``None``,
-        # then the presence validator skips git access entirely because
-        # ``branch_verified is None``):
-        #   1. _verify_commit_on_branch's git fetch — returncode=1 (fetch failed)
-        #   2. (would be) _verify_commit_on_branch's git branch --contains —
-        #      not reached because fetch failed
+        # One subprocess call runs (the gateway fetch — patched below — fails →
+        # ``_verify_commit_on_branch`` short-circuits to ``None``; the presence
+        # validator then probes the local object store and skips because the
+        # commit isn't resolvable there either):
+        #   1. _validate_producer_draft_present's git cat-file — returncode=1
+        #      (commit object absent locally)
         side_effect = [
             subprocess.CompletedProcess(
                 args=[],
                 returncode=1,
                 stdout="",
-                stderr="fatal: unable to access remote: connection reset",
+                stderr="",
             ),
         ]
 
@@ -2807,6 +2856,7 @@ class TestProducerDraftPresentValidation:
             app.app_context(),
             patch("routes.signals.get_state_store", return_value=mock_store),
             self._patched_worktree(),
+            patch("routes.signals._gateway_fetch_tracking_ref", return_value=False),
             patch("routes.signals.subprocess.run", side_effect=side_effect) as mock_run,
             patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
             patch("message_store.get_message_store", return_value=mock_message_store),
@@ -2830,8 +2880,10 @@ class TestProducerDraftPresentValidation:
             assert status_code == 200
             # The tracker WAS called — the proposal made it past both validators.
             mock_tracker.handle_propose.assert_called_once()
-            # Only the fetch ran — branch-contains and the presence ``git show``
-            # were skipped, which is the threading guarantee under test.
+            # Only the local cat-file probe ran — branch-contains never runs
+            # after a failed fetch, and the presence ``git show`` was skipped
+            # because the commit isn't locally resolvable. That pairing is the
+            # threading guarantee under test.
             assert mock_run.call_count == 1
 
     def test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker(self):
@@ -2845,12 +2897,11 @@ class TestProducerDraftPresentValidation:
         mock_tracker = MagicMock()
         mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
 
-        # Three subprocess calls in the refiner path:
-        #   1. _verify_commit_on_branch's git fetch
-        #   2. _verify_commit_on_branch's git branch --contains
-        #   3. _validate_producer_draft_present's git show — non-zero (absent)
+        # Two subprocess calls in the refiner path (the fetch leg goes through
+        # the gateway — patched below):
+        #   1. _verify_commit_on_branch's git branch --contains
+        #   2. _validate_producer_draft_present's git show — non-zero (absent)
         side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
             subprocess.CompletedProcess(
                 args=[], returncode=0, stdout="  origin/egg/issue-3016\n", stderr=""
             ),
@@ -2862,6 +2913,7 @@ class TestProducerDraftPresentValidation:
             app.app_context(),
             self._patched_store(),
             self._patched_worktree(),
+            patch("routes.signals._gateway_fetch_tracking_ref", return_value=True),
             patch("routes.signals.subprocess.run", side_effect=side_effect),
             patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
         ):

@@ -353,13 +353,109 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
     return handler(pipeline_id, data, repo_path)
 
 
+def _gateway_fetch_tracking_ref(
+    pipeline_id: str,
+    branch: str,
+    worktree_path: Path,
+    pipeline_state: Any | None,
+) -> bool:
+    """Fetch ``branch`` into ``refs/remotes/origin/<branch>`` via the gateway.
+
+    The orchestrator pod holds no GitHub credentials (only the gateway does),
+    so a raw ``git fetch origin`` from here fails on *every* call with
+    "could not read Username" — which made ``_verify_commit_on_branch``
+    return ``None`` on every propose and silently disabled the entire
+    propose-time validation layer (#1473 commit-on-branch, #3016 / #3026
+    draft presence + parseability) in the k8s deployment (#3081). Route the
+    fetch through the gateway's authenticated ``/api/v1/git/fetch`` instead —
+    the same plumbing ``_sync_worktree_with_remote`` already uses.
+
+    Uses an explicit tracking refspec so the ``git branch -r --contains``
+    read that follows sees a fresh ``origin/<branch>`` even on
+    narrow-refspec mirrors (#3072 / #3075) — a bare-name fetch updates only
+    ``FETCH_HEAD`` there, leaving the tracking ref stale and turning the
+    contains-check into a wrongful 409 for freshly-pushed commits.
+
+    Best-effort: returns ``False`` on any failure (caller degrades to the
+    tri-state ``None`` path).
+    """
+    try:
+        # Lazy imports: keep the ~2.4k-line gateway_client and ~24k-line
+        # routes.pipelines modules out of ``signals`` import time (matches
+        # the ``_get_draft_path`` pattern in the validators below).
+        try:
+            from gateway_client import get_gateway_client
+        except ImportError:
+            from ..gateway_client import get_gateway_client  # type: ignore[no-redef]
+
+        mode = "public"
+        if pipeline_state is not None:
+            try:
+                from routes.pipelines import _compute_gateway_mode
+            except ImportError:
+                from .pipelines import _compute_gateway_mode  # type: ignore[no-redef]
+            mode, _vis = _compute_gateway_mode(pipeline_state)
+
+        refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+        return get_gateway_client().fetch_branch(
+            pipeline_id,
+            str(worktree_path),
+            args=[refspec],
+            mode=mode,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Gateway tracking-ref fetch failed (non-blocking)",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            error=str(exc),
+        )
+        return False
+
+
+def _commit_object_resolvable(worktree_path: Path, commit_sha: str) -> bool:
+    """True when ``commit_sha`` resolves to a commit object locally.
+
+    Lets the draft validators keep checking when branch verification was
+    inconclusive: with the object present, a non-zero ``git show
+    {sha}:{path}`` reliably means "path absent at commit", not "commit
+    unknown". In the shared-object-store deployment (all agent worktrees
+    share the base repo's ``.git``) a producer's commit is locally visible
+    the moment it is created, no fetch required (#3081).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree_path),
+                "cat-file",
+                "-e",
+                f"{commit_sha}^{{commit}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _verify_commit_on_branch(
     commit: str,
     branch: str,
     worktree_path: Path,
     pipeline_id: str,
+    pipeline_state: Any | None = None,
 ) -> bool | None:
     """Check if a commit exists on the expected branch.
+
+    ``pipeline_state`` (when available at the call site) feeds
+    ``_compute_gateway_mode`` so the authenticated fetch uses the
+    pipeline's network mode; without it the fetch defaults to public and
+    private-repo fetches degrade to ``None``.
 
     Returns:
         True if commit is on the branch.
@@ -367,20 +463,21 @@ def _verify_commit_on_branch(
         None if verification failed (best-effort, non-blocking).
     """
     try:
-        # Fetch first to ensure we have the latest remote state
-        result = subprocess.run(
-            ["git", "-C", str(worktree_path), "fetch", "origin", "--", branch],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "Branch fetch failed during completion verification (non-blocking)",
+        # Authenticated fetch via the gateway, with an explicit tracking
+        # refspec (#3081 — see _gateway_fetch_tracking_ref). The OVERSEER_ALERT
+        # below is the visibility guard: when this fetch fails persistently,
+        # every downstream propose-time validator degrades to non-blocking,
+        # and that must not be silent again.
+        if not _gateway_fetch_tracking_ref(pipeline_id, branch, worktree_path, pipeline_state):
+            logger.error(
+                "OVERSEER_ALERT commit_verification_fetch_failed",
                 pipeline_id=pipeline_id,
                 branch=branch,
-                error=result.stderr.strip(),
+                note=(
+                    "gateway-authenticated fetch failed; commit-on-branch "
+                    "verification and propose-time draft validation degrade "
+                    "to non-blocking (#3081)"
+                ),
             )
             return None  # Can't verify — don't block
 
@@ -517,6 +614,7 @@ def handle_complete_signal(
                 pipeline.branch,
                 contract_path,
                 pipeline_id,
+                pipeline_state=pipeline,
             )
             if branch_verified is False:
                 # Hard-block: commit not found on expected branch.
@@ -1008,26 +1106,23 @@ def _validate_plan_proposal(
     directly (e.g. from unit tests).
 
     Graceful degradation: returns silently when the proposal carries no commit
-    SHA, branch verification was inconclusive (``branch_verified is None`` — an
-    orchestrator-side fetch glitch, not a producer fault; a non-zero ``git show``
-    could then mean "commit not in local cache" rather than "path absent"), the
-    pipeline has no branch / no resolvable draft path, ``git show`` errors for an
-    infrastructure reason (timeout / git failure), the parser raises, or
-    ``to_contract_slices`` raises (e.g. a future Pydantic field tightening). It
-    raises only when it can positively confirm — at a resolved, branch-verified
-    commit — that the draft is absent/empty, unparseable, or role-misassigned.
-    ``branch_verified`` defaults to ``True`` so direct callers (unit tests) that
-    don't run ``_verify_commit_on_branch`` still get the check.
+    SHA, the pipeline has no branch / no resolvable draft path, ``git show``
+    errors for an infrastructure reason (timeout / git failure), the parser
+    raises, or ``to_contract_slices`` raises (e.g. a future Pydantic field
+    tightening). Inconclusive branch verification (``branch_verified is None``
+    — an orchestrator-side fetch glitch, not a producer fault) skips the
+    checks only when the commit object is *also* absent locally
+    (``_commit_object_resolvable``); with the object present, a non-zero
+    ``git show`` reliably means "path absent at commit", so validation
+    proceeds — an unconditional skip-on-``None`` let a persistent fetch
+    failure disable this validator entirely (#3081). It raises only when it
+    can positively confirm — at a locally-resolved commit — that the draft is
+    absent/empty, unparseable, or role-misassigned. ``branch_verified``
+    defaults to ``True`` so direct callers (unit tests) that don't run
+    ``_verify_commit_on_branch`` still get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
-        return
-
-    # Orchestrator-side commit verification was inconclusive — a non-zero
-    # ``git show`` below could be "commit not in local object cache" rather than
-    # "path absent at commit", so skip rather than false-blame the producer (the
-    # same tri-state guard ``_validate_producer_draft_present`` uses, #3016).
-    if branch_verified is None:
         return
 
     if pipeline_state is None:
@@ -1058,6 +1153,23 @@ def _validate_plan_proposal(
 
     if worktree_path is None:
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+
+    # Orchestrator-side commit verification was inconclusive — a non-zero
+    # ``git show`` below could be "commit not in local object cache" rather
+    # than "path absent at commit". But that ambiguity only exists when the
+    # commit object is actually absent: when it resolves locally (always, in
+    # the shared-object-store deployment), the checks below stay sound, so
+    # keep validating. Skipping unconditionally on ``None`` is how #3081
+    # shipped a full consensus with no canonical draft — the fetch failure
+    # was persistent, so the "transient glitch" skip became "never validate".
+    if branch_verified is None and not _commit_object_resolvable(worktree_path, commit_sha):
+        logger.warning(
+            "plan proposal validation skipped: branch verification "
+            "inconclusive and commit not in local object store",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+        )
+        return
 
     # Read plan content as committed at the proposed SHA, not from the working
     # tree (which can lag HEAD — #2723). The preceding ``_verify_commit_on_branch``
@@ -1221,12 +1333,12 @@ def _validate_producer_draft_present(
     Graceful degradation: when the proposal carries no commit SHA, the pipeline has
     no branch, the draft path can't be derived, ``git show`` errors for an
     infrastructure reason (timeout / git failure), or branch verification was
-    inconclusive (``branch_verified is None`` — see below), this returns silently. It
-    raises only when it can positively confirm the draft is absent (or empty) at a
-    resolved, branch-verified commit — ``handle_consensus_propose_signal`` has
-    already run ``_verify_commit_on_branch`` (which fetches the commit), so a
-    non-zero ``git show`` here reliably means "path absent at commit", not "commit
-    unknown".
+    inconclusive *and* the commit object is not locally resolvable (see below),
+    this returns silently. It raises only when it can positively confirm the
+    draft is absent (or empty) at a locally-resolved commit — either
+    ``_verify_commit_on_branch`` fetched it, or it already exists in the shared
+    object store — so a non-zero ``git show`` here reliably means "path absent
+    at commit", not "commit unknown".
 
     ``pipeline_state`` / ``worktree_path`` are threaded in by
     ``handle_consensus_propose_signal`` to reuse the lookups it already performed for
@@ -1237,24 +1349,18 @@ def _validate_producer_draft_present(
     ``True`` (commit is on the branch — fetch + ``--contains`` succeeded), ``False``
     (commit is *not* on the branch — the caller already 409'd, so this is
     unreachable in practice), or ``None`` (verification was inconclusive because
-    ``git fetch`` or ``git branch -r --contains`` errored — orchestrator-side
-    glitch, not a producer fault). When ``None`` is passed, the presence check is
-    skipped because a non-zero ``git show`` could legitimately mean the commit
-    isn't in the local object cache rather than the path being absent — false-
-    rejecting in that case would burn a producer turn on an orchestrator glitch
-    (matches the existing "could not verify branch" non-blocking warning at the
-    handler level). Defaults to ``True`` so direct callers (unit tests) that
-    don't run ``_verify_commit_on_branch`` still get the check.
+    the gateway fetch or ``git branch -r --contains`` errored — orchestrator-side
+    glitch, not a producer fault). When ``None`` is passed, the presence check
+    is skipped only if the commit object is *also* absent locally
+    (``_commit_object_resolvable``) — with the object present, a non-zero
+    ``git show`` reliably means the path is absent at the commit, so the check
+    proceeds; an unconditional skip let a persistent fetch failure disable
+    this validator entirely (#3081). Defaults to ``True`` so direct callers
+    (unit tests) that don't run ``_verify_commit_on_branch`` still get the
+    check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
-        return
-
-    # Orchestrator-side verification of the commit was inconclusive (fetch or
-    # branch-contains errored). A non-zero ``git show`` below could legitimately
-    # be "commit not in local object cache" rather than "path absent at commit",
-    # so skip rather than risk a false 400.
-    if branch_verified is None:
         return
 
     if pipeline_state is None:
@@ -1286,6 +1392,21 @@ def _validate_producer_draft_present(
 
     if worktree_path is None:
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+
+    # Branch verification inconclusive (fetch or branch-contains errored).
+    # Skip only when the commit object is also absent locally — when it
+    # resolves, the ``git show`` below stays sound (see the same guard in
+    # ``_validate_plan_proposal``; unconditional skip-on-None is the #3081
+    # hole).
+    if branch_verified is None and not _commit_object_resolvable(worktree_path, commit_sha):
+        logger.warning(
+            "producer draft presence check skipped: branch verification "
+            "inconclusive and commit not in local object store",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            commit_sha=commit_sha,
+        )
+        return
 
     # Read the draft as committed at the proposed SHA, not from the working tree
     # (which can lag HEAD — see #2723). The preceding ``_verify_commit_on_branch``
@@ -1508,6 +1629,7 @@ def handle_consensus_propose_signal(
                     pipeline_state.branch,
                     worktree_path,
                     pipeline_id,
+                    pipeline_state=pipeline_state,
                 )
                 if branch_verified is False:
                     return make_error_response(
