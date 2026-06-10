@@ -94,7 +94,7 @@ class TestConcurrentAcks:
         n = 6
         graph = self._wide_graph(n)
         tracker = make_tracker(self.PIPELINE_ID, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         barrier = threading.Barrier(n)
 
@@ -130,7 +130,7 @@ class TestConcurrentAcks:
         with the recorded ACK versions).
         """
         tracker = make_tracker(self.PIPELINE_ID + "-interleave", two_reviewer_graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="v1"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="1111111"))
 
         # reviewer_code ACKs v1.
         tracker.handle_ack("reviewer_code", "coder", {"ack_version": 1, **ack_payload()})
@@ -141,7 +141,7 @@ class TestConcurrentAcks:
             barrier.wait(timeout=5)
             return tracker.handle_re_propose(
                 "coder",
-                propose_payload(commit_sha="v2"),
+                propose_payload(commit_sha="2222222"),
                 changed_artifacts=["a.py"],
             )
 
@@ -195,7 +195,7 @@ class TestOpenNackBarrier:
         been informed) is accepted.
         """
         tracker = make_tracker(self.PIPELINE_ID, two_reviewer_graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         barrier = threading.Barrier(2)
 
@@ -220,7 +220,7 @@ class TestOpenNackBarrier:
         # surfaced before the producer can advance.
         first = tracker.handle_re_propose(
             "coder",
-            propose_payload(commit_sha="def"),
+            propose_payload(commit_sha="def5678"),
             changed_artifacts=["a.py"],
         )
         assert first["status"] == "open_nacks_blocked"
@@ -230,7 +230,7 @@ class TestOpenNackBarrier:
         # Producer has now been informed — retry proceeds.
         second = tracker.handle_re_propose(
             "coder",
-            propose_payload(commit_sha="def"),
+            propose_payload(commit_sha="def5678"),
             changed_artifacts=["a.py"],
         )
         assert second["version"] == 2
@@ -252,7 +252,7 @@ class TestWithdrawCooldownAndLockout:
 
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = make_tracker(self.PIPELINE_ID, graph, cooldown_seconds=60)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         # Immediate withdraw — well within the 60s cooldown.
         with pytest.raises(ValueError, match="[Cc]ooldown"):
@@ -288,14 +288,14 @@ class TestWithdrawCooldownAndLockout:
         tracker.register_agent("reviewer_code")
 
         # Cycle 1: propose → withdraw → counter=1, allowed.
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         r1 = tracker.handle_withdraw("coder", reason="bug found")
         assert r1["status"] == "withdrawn"
 
         # Cycle 2: propose → withdraw → peek=2, 2 >= max=2, locked out.
         # The guard's peek is ``current + 1 >= max`` so with max=2 the
         # second withdraw is the one that gets locked out.
-        tracker.handle_propose("coder", propose_payload(commit_sha="def"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="def5678"))
         r2 = tracker.handle_withdraw("coder", reason="another bug")
         assert r2["status"] == "locked_out"
         assert r2["needs_escalation"] is True

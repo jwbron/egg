@@ -904,6 +904,33 @@ def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
     # The anti-phantom-NACK instruction is the point of the render.
     assert "Do NOT NACK" in delta
 
+    # A 40-char SHA must render identically — guards against the
+    # SHA-validation regex regressing to a fixed ``{7,7}`` width and
+    # silently dropping full-length commit SHAs (reviewer suggestion #4
+    # on #3078).
+    full_sha = "b521d7d0123456789abcdef0123456789abcdef0"
+    entries_full = _build_delta_entries(
+        action="ack",
+        role="risk_analyst",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text="",
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "architect",
+                    "current_version": 1,
+                    "artifact_refs": [".egg-state/drafts/p-plan.md"],
+                    "proposal_commit_sha": full_sha,
+                }
+            ]
+        },
+    )
+    assert len(entries_full) == 1
+    delta_full = entries_full[0]["delta"]
+    assert f"git show {full_sha}:.egg-state/drafts/p-plan.md" in delta_full
+    assert f"git log {full_sha} --not origin/main -p" in delta_full
+
 
 def test_build_delta_entries_first_review_sha_without_artifacts_still_renders() -> None:
     """A proposal SHA with an empty artifact list still yields an entry

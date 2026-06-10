@@ -195,11 +195,15 @@ def _render_producer_delta_section(
     """Render the per-producer ``git log`` re-review-scope block.
 
     Each entry is a dict with keys ``producer``, ``last_reviewed_commit_sha``,
-    and ``delta``. The command form is rendered verbatim so the agent
-    sees the exact scope (architect plan acceptance: "git-log delta
-    command is emitted verbatim with the per-producer
-    ``last_reviewed_commit_sha`` substituted in"); the rendered diff
-    follows so the agent can audit the full change as a fresh review.
+    ``proposal_commit_sha``, and ``delta``. The command form is rendered
+    verbatim so the agent sees the exact scope (architect plan
+    acceptance: "git-log delta command is emitted verbatim with the
+    per-producer ``last_reviewed_commit_sha`` substituted in"); the
+    rendered diff follows so the agent can audit the full change as a
+    fresh review. ``proposal_commit_sha`` is used as the range end-ref
+    (#3076) so the delta is scoped to the producer's pushed work
+    instead of the reviewer's own HEAD; legacy payloads without it fall
+    back to ``HEAD`` and the rendered caution.
 
     Returns ``(section_markdown, total_delta_bytes)`` so the caller can
     measure the delta separately from the envelope budget.

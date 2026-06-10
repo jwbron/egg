@@ -268,7 +268,7 @@ class TestProposePhasePropagation:
                     "agent_role": "coder",
                     "payload": {
                         "summary": "Implemented authentication module with JWT validation and session management",
-                        "commit_sha": "abc123",
+                        "commit_sha": "abc1234",
                     },
                 },
                 Path("/tmp/repo"),

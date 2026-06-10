@@ -31,7 +31,7 @@ from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
 # ---------------------------------------------------------------------------
 
 
-def make_proposal(summary="Test", artifacts=None, commit_sha="abc123"):
+def make_proposal(summary="Test", artifacts=None, commit_sha="abc1234"):
     return {
         "summary": summary,
         "artifacts": artifacts or ["src/main.py"],
@@ -130,7 +130,7 @@ class TestProducerPushAutoReproposeEnabled:
 
     def test_push_in_proposed_phase_auto_re_proposes(self, tracker):
         """Push at sha2 after propose at sha1 -> auto_re_propose=True, version 2."""
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         assert tracker.matrix.get_proposal_version("coder") == 1
 
         # ACK from all reviewers at v1
@@ -138,7 +138,7 @@ class TestProducerPushAutoReproposeEnabled:
         ack_producer(tracker, "reviewer_contract", "coder")
         ack_producer(tracker, "tester", "coder")
 
-        push_result = tracker.handle_producer_push("coder", "sha2")
+        push_result = tracker.handle_producer_push("coder", "2222222")
 
         assert push_result["auto_re_propose"] is True
         assert push_result["auto_trigger"] == "auto_push"
@@ -151,12 +151,12 @@ class TestProducerPushAutoReproposeEnabled:
         """Producer confirms (fully ACKed), then pushes -> auto re-propose."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
         tracker.handle_confirmed("coder")
         assert tracker._producer_phases["coder"] == ConsensusPhase.CONFIRMED
 
-        push_result = tracker.handle_producer_push("coder", "sha2")
+        push_result = tracker.handle_producer_push("coder", "2222222")
 
         assert push_result["auto_re_propose"] is True
         assert push_result["version"] == 2
@@ -166,7 +166,7 @@ class TestProducerPushAutoReproposeEnabled:
         """ACK with artifact_refs=["src/main.py"], push with same -> ACK invalidated."""
         tracker.handle_propose(
             "coder",
-            make_proposal(artifacts=["src/main.py", "src/utils.py"], commit_sha="sha1"),
+            make_proposal(artifacts=["src/main.py", "src/utils.py"], commit_sha="1111111"),
         )
 
         # reviewer_code ACKs referencing src/main.py
@@ -176,7 +176,9 @@ class TestProducerPushAutoReproposeEnabled:
         # tester ACKs referencing src/main.py
         tracker.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
 
-        push_result = tracker.handle_producer_push("coder", "sha2", changed_files=["src/main.py"])
+        push_result = tracker.handle_producer_push(
+            "coder", "2222222", changed_files=["src/main.py"]
+        )
 
         assert push_result["auto_re_propose"] is True
         invalidated = set(push_result["invalidated_reviewers"])
@@ -189,7 +191,7 @@ class TestProducerPushAutoReproposeEnabled:
         """ACK with artifact_refs=["src/main.py"], push changes ["test/foo.py"] -> no overlap."""
         tracker.handle_propose(
             "coder",
-            make_proposal(artifacts=["src/main.py"], commit_sha="sha1"),
+            make_proposal(artifacts=["src/main.py"], commit_sha="1111111"),
         )
 
         ack_producer(tracker, "reviewer_code", "coder", artifact_references=["src/main.py"])
@@ -205,7 +207,9 @@ class TestProducerPushAutoReproposeEnabled:
         # changed_files is test/foo.py, the overlap set is empty.
         # Then it checks ACK artifacts: src/main.py vs test/foo.py -> also empty.
         # So check_auto_repropose returns False -> push is "skipped".
-        push_result = tracker.handle_producer_push("coder", "sha2", changed_files=["test/foo.py"])
+        push_result = tracker.handle_producer_push(
+            "coder", "2222222", changed_files=["test/foo.py"]
+        )
 
         assert push_result["status"] == "skipped"
         assert push_result["auto_re_propose"] is False
@@ -214,13 +218,13 @@ class TestProducerPushAutoReproposeEnabled:
         """Push without changed_files -> ALL ACKs invalidated."""
         tracker.handle_propose(
             "coder",
-            make_proposal(artifacts=["src/auth.py"], commit_sha="sha1"),
+            make_proposal(artifacts=["src/auth.py"], commit_sha="1111111"),
         )
         ack_producer(tracker, "reviewer_code", "coder", artifact_references=["src/auth.py"])
         ack_producer(tracker, "reviewer_contract", "coder", artifact_references=["src/auth.py"])
         ack_producer(tracker, "tester", "coder", artifact_references=["src/auth.py"])
 
-        push_result = tracker.handle_producer_push("coder", "sha2")
+        push_result = tracker.handle_producer_push("coder", "2222222")
 
         assert push_result["auto_re_propose"] is True
         invalidated = set(push_result["invalidated_reviewers"])
@@ -232,14 +236,14 @@ class TestProducerPushAutoReproposeEnabled:
         """After push: producer -> PROPOSED, confirmed cleared, version incremented."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
         tracker.handle_confirmed("coder")
 
         assert "coder" in tracker._confirmed
         assert tracker._producer_phases["coder"] == ConsensusPhase.CONFIRMED
 
-        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "2222222")
 
         assert tracker._producer_phases["coder"] == ConsensusPhase.PROPOSED
         assert "coder" not in tracker._confirmed
@@ -249,16 +253,16 @@ class TestProducerPushAutoReproposeEnabled:
         """Each push with unique SHA increments version."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         assert tracker.matrix.get_proposal_version("coder") == 1
 
-        result1 = tracker.handle_producer_push("coder", "sha2")
+        result1 = tracker.handle_producer_push("coder", "2222222")
         assert result1["version"] == 2
 
-        result2 = tracker.handle_producer_push("coder", "sha3")
+        result2 = tracker.handle_producer_push("coder", "3333333")
         assert result2["version"] == 3
 
-        result3 = tracker.handle_producer_push("coder", "sha4")
+        result3 = tracker.handle_producer_push("coder", "4444444")
         assert result3["version"] == 4
 
         assert tracker.matrix.get_proposal_version("coder") == 4
@@ -274,7 +278,7 @@ class TestProducerPushNoOp:
 
     def test_push_in_working_phase_is_noop(self, tracker):
         """Producer in WORKING phase -> no-op."""
-        result = tracker.handle_producer_push("coder", "sha1")
+        result = tracker.handle_producer_push("coder", "1111111")
 
         assert result["status"] == "no_op"
         assert "WORKING" in result["reason"]
@@ -282,12 +286,12 @@ class TestProducerPushNoOp:
     def test_non_producer_push_raises(self, tracker):
         """Non-producer agent pushing raises ValueError."""
         with pytest.raises(ValueError, match="not a producer"):
-            tracker.handle_producer_push("reviewer_code", "sha1")
+            tracker.handle_producer_push("reviewer_code", "1111111")
 
     def test_unregistered_non_producer_raises(self, tracker):
         """Unknown agent that is not a producer raises ValueError."""
         with pytest.raises(ValueError):
-            tracker.handle_producer_push("random_agent", "sha1")
+            tracker.handle_producer_push("random_agent", "1111111")
 
 
 # ===========================================================================
@@ -302,9 +306,9 @@ class TestAutoReproposeSafety:
         """Propose at sha1, push at sha1 -> skipped, reason mentions unchanged."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
-        result = tracker.handle_producer_push("coder", "sha1")
+        result = tracker.handle_producer_push("coder", "1111111")
 
         assert result["status"] == "skipped"
         assert "unchanged" in result["reason"].lower()
@@ -323,10 +327,10 @@ class TestAutoReproposeSafety:
         tracker.register_agent("reviewer_code")
 
         # Explicit proposal sets _proposal_timestamps
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         # Push immediately after -> covered by the recent proposal
-        result = tracker.handle_producer_push("coder", "sha2")
+        result = tracker.handle_producer_push("coder", "2222222")
         assert result["status"] == "skipped"
         assert "explicit proposal" in result["reason"].lower()
 
@@ -344,7 +348,7 @@ class TestAutoReproposeSafety:
         tracker.register_agent("coder")
         tracker.register_agent("reviewer_code")
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         # Backdate explicit proposal timestamp to simulate time passage
         tracker._last_explicit_propose_timestamp["coder"] = datetime.now(UTC) - timedelta(
@@ -352,7 +356,7 @@ class TestAutoReproposeSafety:
         )
 
         # Push now -> proposal is stale, auto re-propose should fire
-        result = tracker.handle_producer_push("coder", "sha2")
+        result = tracker.handle_producer_push("coder", "2222222")
         assert result["auto_re_propose"] is True
 
     def test_debounce_window_active(self):
@@ -368,7 +372,7 @@ class TestAutoReproposeSafety:
         tracker.register_agent("coder")
         tracker.register_agent("reviewer_code")
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         # Backdate explicit proposal timestamp so the explicit-proposal
         # check doesn't suppress the first push (we're testing debounce here)
@@ -377,11 +381,11 @@ class TestAutoReproposeSafety:
         )
 
         # First push succeeds (no prior auto-repropose timestamp)
-        result1 = tracker.handle_producer_push("coder", "sha2")
+        result1 = tracker.handle_producer_push("coder", "2222222")
         assert result1["auto_re_propose"] is True
 
         # Second push within debounce window -> skipped
-        result2 = tracker.handle_producer_push("coder", "sha3")
+        result2 = tracker.handle_producer_push("coder", "3333333")
         assert result2["status"] == "skipped"
         assert "Debounce" in result2["reason"]
 
@@ -399,14 +403,14 @@ class TestAutoReproposeSafety:
         tracker.register_agent("coder")
         tracker.register_agent("reviewer_code")
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         # First push succeeds (count goes to 1)
-        result1 = tracker.handle_producer_push("coder", "sha2")
+        result1 = tracker.handle_producer_push("coder", "2222222")
         assert result1["auto_re_propose"] is True
 
         # Second push -> max exceeded (count=1 >= max=1)
-        result2 = tracker.handle_producer_push("coder", "sha3")
+        result2 = tracker.handle_producer_push("coder", "3333333")
         assert result2["status"] == "skipped"
         assert "Max" in result2["reason"]
 
@@ -417,12 +421,12 @@ class TestAutoReproposeSafety:
 
         tracker.handle_propose(
             "coder",
-            make_proposal(artifacts=["src/main.py"], commit_sha="sha1"),
+            make_proposal(artifacts=["src/main.py"], commit_sha="1111111"),
         )
         # No ACKs recorded, so no ACK artifact overlap either.
 
         result = tracker.handle_producer_push(
-            "coder", "sha2", changed_files=["totally_unrelated.py"]
+            "coder", "2222222", changed_files=["totally_unrelated.py"]
         )
 
         assert result["status"] == "skipped"
@@ -436,12 +440,12 @@ class TestAutoReproposeSafety:
 
         tracker.handle_propose(
             "coder",
-            make_proposal(artifacts=["src/main.py"], commit_sha="sha1"),
+            make_proposal(artifacts=["src/main.py"], commit_sha="1111111"),
         )
         # Reviewer ACKs referencing test.py (different from proposed artifacts)
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["test.py"]})
 
-        result = tracker.handle_producer_push("coder", "sha2", changed_files=["test.py"])
+        result = tracker.handle_producer_push("coder", "2222222", changed_files=["test.py"])
 
         # Should trigger because test.py overlaps with ACK artifact_refs
         assert result["auto_re_propose"] is True
@@ -460,10 +464,10 @@ class TestConfirmGuardAfterPush:
         """ACK at v1, push invalidates -> confirm rejected."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
 
-        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "2222222")
 
         # Reviewer tries to confirm without re-ACKing -> rejected
         with pytest.raises(ValueError, match="hasn't reviewed"):
@@ -473,10 +477,10 @@ class TestConfirmGuardAfterPush:
         """ACK at v1, push -> v2, reviewer re-ACKs at v2 -> confirm succeeds."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
 
-        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "2222222")
 
         ack_result = ack_producer(tracker, "reviewer_code", "coder")
         assert ack_result["version"] == 2
@@ -488,7 +492,7 @@ class TestConfirmGuardAfterPush:
         """NACK without re-propose -> confirm rejected."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         nack_producer(tracker, "reviewer_code", "coder", reason="bugs found")
 
         result = tracker.handle_confirmed("reviewer_code")
@@ -532,7 +536,7 @@ class TestExcuseProducer:
         # Tester proposes and gets ACKed
         tracker.handle_propose(
             "tester",
-            make_proposal(summary="Tests", artifacts=["tests/test.py"], commit_sha="tsha1"),
+            make_proposal(summary="Tests", artifacts=["tests/test.py"], commit_sha="a111111"),
         )
         ack_producer(tracker, "reviewer_code", "tester", artifact_references=["tests/test.py"])
 
@@ -546,9 +550,9 @@ class TestExcuseProducer:
     def test_excuse_clears_producer_state(self, tracker):
         """excuse_producer clears _producer_phases, _confirmed, _proposal_artifacts, etc."""
         # Setup: coder proposes and gets confirmed
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         # tester must also propose to pass global zero-proposal guard (#1648)
-        tracker.handle_propose("tester", make_proposal(commit_sha="sha2"))
+        tracker.handle_propose("tester", make_proposal(commit_sha="2222222"))
         ack_producer(tracker, "reviewer_code", "coder")
         ack_producer(tracker, "reviewer_contract", "coder")
         ack_producer(tracker, "tester", "coder")
@@ -579,7 +583,7 @@ class TestApprovalMatrixHelpers:
         """NACK a producer -> get_nack_entries_for returns [(reviewer, entry)]."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         nack_producer(tracker, "reviewer_code", "coder", reason="bad code")
 
         entries = tracker.matrix.get_nack_entries_for("coder")
@@ -593,7 +597,7 @@ class TestApprovalMatrixHelpers:
         """NACK at current version -> has_unresolved_nacks_as_producer returns True."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         nack_producer(tracker, "reviewer_code", "coder", reason="bugs")
 
         assert tracker.matrix.has_unresolved_nacks_as_producer("coder") is True
@@ -602,13 +606,13 @@ class TestApprovalMatrixHelpers:
         """NACK at v1, re-propose to v2 -> has_unresolved_nacks returns False."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         nack_producer(tracker, "reviewer_code", "coder", reason="bugs")
 
         # Re-propose at v2
         tracker.handle_re_propose(
             "coder",
-            make_proposal(summary="Fixed", commit_sha="sha2"),
+            make_proposal(summary="Fixed", commit_sha="2222222"),
             changed_artifacts=["src/main.py"],
         )
 
@@ -618,7 +622,7 @@ class TestApprovalMatrixHelpers:
     def test_get_latest_review_versions(self, tracker):
         """ACK at v2, NACK at v1 -> correct versions returned."""
         # Coder proposes v1
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         # reviewer_code NACKs coder at v1
         nack_producer(tracker, "reviewer_code", "coder", reason="bad")
@@ -626,7 +630,7 @@ class TestApprovalMatrixHelpers:
         # Tester proposes v1
         tracker.handle_propose(
             "tester",
-            make_proposal(summary="Tests", artifacts=["tests/t.py"], commit_sha="tsha1"),
+            make_proposal(summary="Tests", artifacts=["tests/t.py"], commit_sha="a111111"),
         )
 
         # reviewer_code ACKs tester at v1
@@ -635,7 +639,7 @@ class TestApprovalMatrixHelpers:
         # Coder re-proposes at v2
         tracker.handle_re_propose(
             "coder",
-            make_proposal(summary="Fixed", commit_sha="sha2"),
+            make_proposal(summary="Fixed", commit_sha="2222222"),
             changed_artifacts=["src/main.py"],
         )
 
@@ -650,7 +654,7 @@ class TestApprovalMatrixHelpers:
         """record_ack with commit_sha -> stored in entry.ack_commit_sha."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
 
         version = tracker.matrix.get_proposal_version("coder")
         entry = tracker.matrix.record_ack(
@@ -680,7 +684,7 @@ class TestInvariantsAfterProducerPush:
         """Push -> un-confirm stale -> invariants pass."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
         tracker.handle_confirmed("coder")
         tracker.handle_confirmed("reviewer_code")
@@ -688,7 +692,7 @@ class TestInvariantsAfterProducerPush:
         assert "reviewer_code" in tracker._confirmed
         assert "coder" in tracker._confirmed
 
-        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "2222222")
 
         violations = tracker.validate_invariants()
         assert len(violations) == 0, f"Unexpected violations: {violations}"
@@ -697,13 +701,13 @@ class TestInvariantsAfterProducerPush:
         """Push -> re-ACK -> confirm -> invariants hold."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
         tracker.handle_confirmed("coder")
         tracker.handle_confirmed("reviewer_code")
 
         # Push disrupts consensus
-        tracker.handle_producer_push("coder", "sha2")
+        tracker.handle_producer_push("coder", "2222222")
 
         # Recovery
         ack_producer(tracker, "reviewer_code", "coder")
@@ -727,11 +731,11 @@ class TestFullLifecycleWithPush:
         tracker = simple_tracker
 
         # v1: propose and ACK
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
 
         # Push disrupts -> v2
-        push_result = tracker.handle_producer_push("coder", "sha2")
+        push_result = tracker.handle_producer_push("coder", "2222222")
         assert push_result["version"] == 2
         assert push_result["auto_trigger"] == "auto_push"
 
@@ -749,13 +753,13 @@ class TestFullLifecycleWithPush:
         """Multiple version bumps, final ACK, confirm -> consensus."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         ack_producer(tracker, "reviewer_code", "coder")
 
         # Three sequential pushes
-        tracker.handle_producer_push("coder", "sha2")
-        tracker.handle_producer_push("coder", "sha3")
-        push_result = tracker.handle_producer_push("coder", "sha4")
+        tracker.handle_producer_push("coder", "2222222")
+        tracker.handle_producer_push("coder", "3333333")
+        push_result = tracker.handle_producer_push("coder", "4444444")
         assert push_result["version"] == 4
 
         # Reviewer only needs to ACK the latest version
@@ -787,22 +791,22 @@ class TestProposalCommitShaHistory:
         remain resolvable (unlike the single-slot ``_proposal_commit_shas``)."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
-        tracker.handle_producer_push("coder", "sha2")
-        tracker.handle_producer_push("coder", "sha3")
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
+        tracker.handle_producer_push("coder", "2222222")
+        tracker.handle_producer_push("coder", "3333333")
 
-        assert tracker.get_commit_sha_for_version("coder", 1) == "sha1"
-        assert tracker.get_commit_sha_for_version("coder", 2) == "sha2"
-        assert tracker.get_commit_sha_for_version("coder", 3) == "sha3"
+        assert tracker.get_commit_sha_for_version("coder", 1) == "1111111"
+        assert tracker.get_commit_sha_for_version("coder", 2) == "2222222"
+        assert tracker.get_commit_sha_for_version("coder", 3) == "3333333"
         # The current-only slot tracks only the latest.
-        assert tracker.get_proposal_commit_sha("coder") == "sha3"
+        assert tracker.get_proposal_commit_sha("coder") == "3333333"
 
     def test_unknown_version_returns_empty(self, simple_tracker):
         """A version with no pinned commit (e.g. version 0 / not yet
         proposed) resolves to "" so callers fall back to REVIEWER-SYNC."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         assert tracker.get_commit_sha_for_version("coder", 99) == ""
         assert tracker.get_commit_sha_for_version("unknown_producer", 1) == ""
 
@@ -812,11 +816,11 @@ class TestProposalCommitShaHistory:
         lookup the re-review delta range depends on (#2887)."""
         tracker = simple_tracker
 
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="1111111"))
         nack_producer(tracker, "reviewer_code", "coder", reason="v1 bug")
         # Producer re-proposes; reviewer's entry still points at v1.
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha2"))
+        tracker.handle_propose("coder", make_proposal(commit_sha="2222222"))
 
         entry = tracker.matrix.get_entry("reviewer_code", "coder")
         assert entry.version == 1
-        assert tracker.get_commit_sha_for_version("coder", entry.version) == "sha1"
+        assert tracker.get_commit_sha_for_version("coder", entry.version) == "1111111"

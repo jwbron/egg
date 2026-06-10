@@ -2179,7 +2179,7 @@ class TestResolveReviewerDeltaRange:
 
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "1111111"},
         )
         tracker.handle_nack(
             "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "x"}
@@ -2187,18 +2187,18 @@ class TestResolveReviewerDeltaRange:
         # Producer re-proposes at sha2; reviewer's entry still pins v1/sha1.
         tracker.handle_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "sha2"},
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "2222222"},
         )
 
-        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
-        assert rng == "sha1..sha2"
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "2222222")
+        assert rng == "1111111..2222222"
 
     def test_no_prior_verdict_returns_none(self, tracker):
         from routes.signals import _resolve_reviewer_delta_range
 
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "1111111"},
         )
         # Reviewer never verdicted (entry.version == 0).
         rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")

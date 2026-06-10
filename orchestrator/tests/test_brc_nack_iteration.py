@@ -67,7 +67,7 @@ class TestEvaluateWithNacks:
 
     def test_evaluate_reports_nack_after_nack(self, tracker):
         tracker.handle_propose(
-            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc1234"}
         )
         tracker.handle_nack(
             "reviewer_code",
@@ -87,7 +87,7 @@ class TestEvaluateWithNacks:
         """If all agents somehow end up in _confirmed but NACKs exist,
         is_complete must still be False."""
         tracker.handle_propose(
-            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc1234"}
         )
 
         # reviewer_code NACKs
@@ -116,7 +116,7 @@ class TestEvaluateWithNacks:
     def test_evaluate_clears_nack_after_re_propose_and_ack(self, tracker):
         """After producer re-proposes and gets ACKed, NACKs should be resolved."""
         tracker.handle_propose(
-            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc1234"}
         )
         tracker.handle_nack(
             "reviewer_code",
@@ -132,7 +132,7 @@ class TestEvaluateWithNacks:
         # Re-propose
         tracker.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"},
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc1234"},
             changed_artifacts=["a.py"],
         )
 

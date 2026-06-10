@@ -53,8 +53,10 @@ class TestDualRoleAgent:
         tracker = make_tracker(self.PIPELINE_ID, graph)
 
         # Both producers propose.
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
-        tracker.handle_propose("tester", propose_payload(commit_sha="def", artifacts=["test_x.py"]))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
+        tracker.handle_propose(
+            "tester", propose_payload(commit_sha="def5678", artifacts=["test_x.py"])
+        )
 
         # All cross-ACKs.
         tracker.handle_ack("reviewer_code", "coder", {"ack_version": 1, **ack_payload()})
@@ -119,7 +121,7 @@ class TestSliceAwareTrackerIsolation:
             tracker_2.register_agent(role)
 
         # slice-1: PROPOSE → NACK (consensus blocked).
-        tracker_1.handle_propose("coder", propose_payload(commit_sha="aaa"))
+        tracker_1.handle_propose("coder", propose_payload(commit_sha="aaa1111"))
         tracker_1.handle_nack(
             "reviewer_code",
             "coder",
@@ -127,7 +129,7 @@ class TestSliceAwareTrackerIsolation:
         )
 
         # slice-2: PROPOSE → ACK → CONFIRMED (consensus reached).
-        tracker_2.handle_propose("coder", propose_payload(commit_sha="bbb"))
+        tracker_2.handle_propose("coder", propose_payload(commit_sha="bbb2222"))
         tracker_2.handle_ack("reviewer_code", "coder", {"ack_version": 1, **ack_payload()})
         tracker_2.handle_confirmed("coder")
         tracker_2.handle_confirmed("reviewer_code")
@@ -171,7 +173,7 @@ class TestConditionalAckObligationResolution:
             ]
         )
         tracker = make_tracker(self.PIPELINE_ID, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         # Conditional ACK — reviewer says "I'd merge if you ran git mv X Y first".
         tracker.handle_ack(
@@ -223,7 +225,7 @@ class TestStaleVersionAckRejection:
     def test_acking_old_version_after_repropose_is_rejected(self, single_reviewer_graph) -> None:
         """A reviewer can't ACK v1 after the producer has re-proposed to v2."""
         tracker = make_tracker(self.PIPELINE_ID, single_reviewer_graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="v1"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="1111111"))
         # Reviewer NACKs v1.
         tracker.handle_nack(
             "reviewer_code",
@@ -233,7 +235,7 @@ class TestStaleVersionAckRejection:
         # Producer re-proposes (v2).
         tracker.handle_re_propose(
             "coder",
-            propose_payload(commit_sha="v2"),
+            propose_payload(commit_sha="2222222"),
             changed_artifacts=["a.py"],
         )
         # Reviewer mistakenly tries to ACK the old v1 — guard rejects.

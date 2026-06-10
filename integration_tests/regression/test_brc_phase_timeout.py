@@ -124,7 +124,7 @@ class TestPhaseAwareTimeoutPropagation:
         pipeline = _make_pipeline(pipeline_id, config, PipelinePhase.PLAN)
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = make_tracker(pipeline_id, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         tracker.handle_nack(
             "reviewer_code",
             "coder",
@@ -181,7 +181,7 @@ class TestPhaseAwareTimeoutPropagation:
         )
         graph = ReviewGraph([ReviewEdge("reviewer_contract", "coder", ReviewCriticality.ADVISORY)])
         tracker = make_tracker(pipeline_id, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         tracker.handle_nack(
             "reviewer_contract",
             "coder",
@@ -229,7 +229,7 @@ class TestPhaseAwareTimeoutPropagation:
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = make_tracker(pipeline_id, graph)
         # Producer proposes; reviewer never ACKs or NACKs.
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         capture, alerts = _capture_alerts()
         with capture:
@@ -271,7 +271,7 @@ class TestPhaseAwareTimeoutPropagation:
         )
         graph = ReviewGraph([ReviewEdge("reviewer_contract", "coder", ReviewCriticality.ADVISORY)])
         tracker = make_tracker(pipeline_id, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
 
         capture, alerts = _capture_alerts()
         with capture:
@@ -300,7 +300,7 @@ class TestPhaseAwareTimeoutPropagation:
         pipeline = _make_pipeline(pipeline_id, PipelineConfig(), PipelinePhase.PLAN)
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = make_tracker(pipeline_id, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         tracker.handle_ack("reviewer_code", "coder", {"ack_version": 1, **ack_payload()})
         tracker.handle_confirmed("coder")
         tracker.handle_confirmed("reviewer_code")
@@ -366,7 +366,7 @@ class TestPhaseAwareTimeoutResolutionPrecedence:
         # branch — that's the path that publishes an alert.
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         tracker = make_tracker(pipeline_id, graph)
-        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc1234"))
         tracker.handle_nack(
             "reviewer_code",
             "coder",
