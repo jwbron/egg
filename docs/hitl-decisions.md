@@ -68,6 +68,39 @@ comment, which the agent will parse.
 
 For open-ended questions, use a dedicated feedback comment (see next section).
 
+### Resolving contract HITL decisions before phase_gate (`provide_input` fallback)
+
+Agents register HITL decisions on the contract (id `cq-N`) via
+`mcp__sdlc__register_open_question` or the impasse-escalation router. Like
+`feedback-N`, these touch only the gateway-backed contract and are promoted
+into the orchestrator decision queue only **after the phase_gate is approved**,
+by the server-side bridge `_queue_and_await_contract_decisions` (see [Contract
+Decision Bridge](#contract-decision-bridge)).
+
+An agent that blocks on a `cq-N` decision *before proposing* never reaches
+the gate, so the bridge never runs. Before #3071:
+
+- the decision never appeared in `get_status(...).pending_decisions`;
+- `provide_input(decision_id="cq-1", ...)` returned **HTTP 404**;
+- the pipeline deadlocked (the overseer emits a `stuck-phase-transition` alert).
+
+The resolve endpoint (`POST .../decisions/<decision_id>/resolve`) now falls
+back to the contract when the id is not in the queue, writing the resolution
+directly so the blocked agent unblocks on its next contract poll. The operator
+calls `provide_input` with the `cq-N` id — no separate tool is needed:
+
+```
+provide_input(decision_id="cq-1", response="Redis")
+```
+
+**Post-gate guard.** If the bridge already mirrored `cq-N` to a queue-side
+`decision-M`, the endpoint returns HTTP 409 with a pointer to the mirror id;
+resolve that id instead so the bridge's `wait_for_decision` is also unblocked.
+
+> For `feedback-N` requests (open-ended, via `mcp__sdlc__request_feedback`),
+> use `answer_feedback` instead — see
+> [Answering contract feedback from the host](#answering-contract-feedback-from-the-host-answer_feedback).
+
 ## Feedback Comments
 
 Use feedback comments when you need free-form answers to open-ended questions.
@@ -348,7 +381,7 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 
 ## `/sdlc` Skill: Auto-Resolving Repeated Questions
 
-The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input` (orchestrator decisions) plus `answer_feedback` (contract-scoped pre-proposal feedback that never enters the decision queue — see [Answering contract feedback from the host](#answering-contract-feedback-from-the-host-answer_feedback)). Decisions surface in **two waves**: when a phase first reaches `awaiting_human`, `pending_decisions` contains only the `phase_gate`; after it is approved, the [server-side bridge](#contract-decision-bridge) promotes any deferred `choice`/`feedback` decisions into `pending_decisions` and the pipeline stays in `awaiting_human` until they are resolved (see [Two-wave surfacing](../skills/sdlc/SKILL.md#two-wave-surfacing)). Because the refiner commonly embeds those same questions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=cq-N -->` markers, the answers given during the phase_gate step would otherwise be re-asked in Wave 2.
+The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input` (orchestrator decisions, and contract-resident `cq-N` decisions via fallback — see [Resolving contract HITL decisions before phase_gate](#resolving-contract-hitl-decisions-before-phase_gate-provide_input-fallback)) plus `answer_feedback` (contract-scoped pre-proposal feedback — `feedback-N` — that never enters the decision queue — see [Answering contract feedback from the host](#answering-contract-feedback-from-the-host-answer_feedback)). Decisions surface in **two waves**: when a phase first reaches `awaiting_human`, `pending_decisions` contains only the `phase_gate`; after it is approved, the [server-side bridge](#contract-decision-bridge) promotes any deferred `choice`/`feedback` decisions into `pending_decisions` and the pipeline stays in `awaiting_human` until they are resolved (see [Two-wave surfacing](../skills/sdlc/SKILL.md#two-wave-surfacing)). Because the refiner commonly embeds those same questions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=cq-N -->` markers, the answers given during the phase_gate step would otherwise be re-asked in Wave 2.
 
 Without special handling the skill would re-prompt the user for every draft-embedded question a second time once those standalone decisions arrive — the user answers each question twice. Phase 4 of the skill avoids this via a session-scoped **`resolved_questions_map`**.
 
@@ -438,7 +471,7 @@ This recovery fires at three sites:
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
-- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve) and the operator `POST .../feedback/answer` route that answers contract-scoped feedback (`answer_feedback` MCP tool; #3007)
+- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve); the operator `POST .../feedback/answer` route that answers contract-scoped feedback (`answer_feedback` MCP tool; #3007); the `POST .../decisions/<id>/resolve` contract-decision fallback that resolves `cq-N` decisions before phase_gate when the id is absent from the orchestrator queue (#3071)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
