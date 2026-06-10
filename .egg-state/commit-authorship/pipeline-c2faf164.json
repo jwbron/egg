@@ -1,5 +1,21 @@
 {
   "entries": {
+    "81aad683d34002446226d5d063e9cdbc3e8207d2": {
+      "branch": "egg/pipeline-c2faf164/work",
+      "patch_id": "fbda80c1da261a3473135123e54b7729f86764fe",
+      "pipeline_id": "pipeline-c2faf164",
+      "registered_at": "2026-06-10T17:53:36.577679+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
+    "8bf8b9ebfa658bd7a8bfd971f982e39caa5781a0": {
+      "branch": "egg/pipeline-c2faf164/work",
+      "patch_id": "7deb4dbc60bc7564fdaf35094bc4cb464f5550f7",
+      "pipeline_id": "pipeline-c2faf164",
+      "registered_at": "2026-06-10T17:53:36.581997+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "9e8ea4ddbb474e5bacbbe3ec89a81847e81fa23f": {
       "branch": "egg/pipeline-c2faf164/work",
       "patch_id": "fbda80c1da261a3473135123e54b7729f86764fe",
