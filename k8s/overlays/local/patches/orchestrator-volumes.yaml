@@ -67,7 +67,15 @@ spec:
             # every in-flight prompt-driven pipeline (get_status 404) because
             # their records had never been committed. Same host dir the
             # gateway mounts for its session store; the two use disjoint
-            # subpaths (sessions/ vs pipeline-worktree*/).
+            # subpaths (sessions/ vs pipeline-worktree*/), so they don't
+            # collide. Cross-pod ownership note: the gateway's entrypoint
+            # chowns ``/home/egg/.egg-state`` to ``HOST_UID:HOST_GID`` on
+            # startup, which is what lets the orchestrator (``runAsUser:
+            # 1000``) write to the shared dir — local-dev convention is
+            # ``HOST_UID=1000``, so this aligns; a host deploying with
+            # ``HOST_UID != 1000`` would hit EACCES here. Cloud overlays
+            # moving to PVCs (the future intent rule 7 / rule 6 already
+            # accommodate) sidestep the chown coupling entirely.
             - name: egg-state
               mountPath: /home/egg/.egg-state
             - name: secrets

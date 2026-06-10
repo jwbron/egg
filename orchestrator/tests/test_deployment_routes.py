@@ -959,6 +959,82 @@ class TestValidateDeploymentDocsRules:
         fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
         assert fired == []
 
+    def test_pipeline_state_store_rule_clean_when_both_pvc_backed(self):
+        """PVC repos + PVC egg-state is clean (rule generalizes beyond hostPath).
+
+        Counterpart to ``test_session_store_rule_clean_when_both_pvc_backed``:
+        locks in that the rule expresses "pipeline-state store has at least the
+        same persistence class as repos" via emptyDir-checking, not via
+        hostPath-checking — so PVC / NFS / CSI futures work without a code
+        change. Both volumes survive pod recreation; no asymmetry; silent.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={
+                    "name": "repos",
+                    "persistentVolumeClaim": {"claimName": "repos-pvc"},
+                },
+                egg_state_vol={
+                    "name": "egg-state",
+                    "persistentVolumeClaim": {"claimName": "state-pvc"},
+                },
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert fired == []
+
+    def test_pipeline_state_store_rule_fires_when_pvc_repos_emptydir_state(self):
+        """PVC repos + emptyDir egg-state is the hypothetical cloud-overlay trap.
+
+        Counterpart to ``test_session_store_rule_fires_when_pvc_worktrees_emptydir_state``:
+        same #3070 failure mode as hostPath/emptyDir — repos survive a pod
+        recreation (PVC) but the pipeline-state worktree doesn't (emptyDir).
+        The rule must fire here too — that's the whole point of expressing the
+        check against emptyDir rather than against the specific hostPath
+        backing the local overlay uses today.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                repos_vol={
+                    "name": "repos",
+                    "persistentVolumeClaim": {"claimName": "repos-pvc"},
+                },
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["severity"] == "error"
+
+    def test_pipeline_state_store_rule_fires_on_orchestrator_dash_variant(self):
+        """An ``orchestrator-canary`` deployment IS an orchestrator variant and must match.
+
+        Counterpart to ``test_session_store_rule_fires_on_gateway_dash_variant``:
+        the exact-or-prefix scope is ``orchestrator`` exactly or
+        ``orchestrator-*``, so a canary / rollout variant still inherits the
+        invariant. Pairs with ``test_pipeline_state_store_rule_scoped_to_orchestrator``,
+        which pins that an unrelated ``litellm-orchestrator`` does NOT match.
+        """
+        from routes.deployment import _validate_deployment_docs
+
+        docs = [
+            self._orchestrator_doc(
+                name="orchestrator-canary",
+                repos_vol={"name": "repos", "hostPath": {"path": "/host/repos"}},
+                egg_state_vol={"name": "egg-state", "emptyDir": {}},
+            )
+        ]
+        warnings = _validate_deployment_docs(docs, is_k3s=True)
+        fired = [w for w in warnings if w.get("rule") == "pipeline-state-store-not-persistent"]
+        assert len(fired) == 1
+        assert fired[0]["resource"] == "Deployment/orchestrator-canary"
+
 
 # ---------------------------------------------------------------------------
 # prune_stale_worktrees
