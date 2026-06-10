@@ -2886,6 +2886,79 @@ class TestProducerDraftPresentValidation:
             # threading guarantee under test.
             assert mock_run.call_count == 1
 
+    def test_refiner_proposal_rejected_when_fetch_fails_but_commit_local(self):
+        """End-to-end #3081 regression: gateway fetch fails AND the commit is
+        in the shared object store AND the canonical draft is missing →
+        ``handle_consensus_propose_signal`` still returns 400 and does not
+        mutate the tracker.
+
+        This is the exact production-incident shape the unit tests cover at
+        the validator level (see
+        ``TestValidateProducerDraftPresent.test_validates_when_branch_verified_none_but_commit_local``):
+        a persistent (credential) gateway-fetch failure made every propose
+        arrive with ``branch_verified=None``, and the pre-#3081 unconditional
+        skip turned the presence check off. With #3081 in place, the
+        validator probes the local object store via
+        ``_commit_object_resolvable`` and proceeds when the object is
+        present, so a non-zero ``git show`` reliably means "path absent at
+        commit". This handler-level test locks the full threading
+        (handler → ``_verify_commit_on_branch`` returns ``None`` →
+        ``_validate_producer_draft_present`` receives that ``None`` →
+        ``_commit_object_resolvable`` returns ``True`` → ``git show`` runs
+        and 128s → 400) so a future refactor cannot re-introduce the
+        unconditional skip at the handler level instead of the validator
+        level.
+        """
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        # One subprocess call runs: the presence validator's ``git show``
+        # — non-zero (path absent at commit). Branch verification's
+        # ``git branch --contains`` is unreachable because the gateway
+        # fetch failed (``_verify_commit_on_branch`` short-circuits to
+        # ``None`` before running it), and ``_commit_object_resolvable``
+        # is patched to True so cat-file doesn't run either.
+        side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr=""),
+        ]
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals._gateway_fetch_tracking_ref", return_value=False),
+            patch("routes.signals._commit_object_resolvable", return_value=True),
+            patch("routes.signals.subprocess.run", side_effect=side_effect) as mock_run,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "refiner",
+                "payload": {
+                    "summary": (
+                        "Analysis v1: evaluated three options for the deterministic "
+                        "draft-path guard and recommended option A"
+                    ),
+                    "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
+                    "commit_sha": "abc1234",
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "issue-3016", data, Path("/tmp/repo")
+            )
+            assert status_code == 400
+            data_out = response.get_json()
+            assert "no analysis draft found" in data_out.get("message", "")
+            mock_tracker.handle_propose.assert_not_called()
+            # Exactly one subprocess call — the presence ``git show``.
+            # ``git branch --contains`` is unreachable past the gateway-fetch
+            # failure, and ``git cat-file`` is replaced by the patched
+            # ``_commit_object_resolvable``.
+            assert mock_run.call_count == 1
+
     def test_refiner_proposal_rejected_when_analysis_missing_does_not_mutate_tracker(self):
         """End-to-end: a refiner proposal whose analysis draft is missing at the
         proposed commit is rejected at ``handle_consensus_propose_signal`` with a

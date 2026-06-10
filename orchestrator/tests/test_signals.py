@@ -795,15 +795,24 @@ class TestVerifyCommitOnBranch:
             mode="private",
         )
 
-    def test_gateway_fetch_degrades_to_false_on_exception(self):
-        """Client construction / mode resolution failures degrade to False
-        (caller maps that to the non-blocking ``None`` tri-state)."""
+    def test_gateway_fetch_degrades_to_false_on_fetch_exception(self):
+        """A ``fetch_branch`` raise → False (caller maps that to the
+        non-blocking ``None`` tri-state).
+
+        Only the fetch call itself is wrapped in the function's try/except —
+        a deliberate narrowing so a lazy-import or ``_compute_gateway_mode``
+        failure does not mis-log "Gateway tracking-ref fetch failed" (and
+        through it, the upstream ``OVERSEER_ALERT``) when no fetch was
+        actually attempted. Those rarer failure modes propagate to the
+        outer ``_verify_commit_on_branch`` try/except, which still degrades
+        to ``None`` (same end-to-end posture, accurate logs).
+        """
         from routes.signals import _gateway_fetch_tracking_ref
 
-        with patch(
-            "gateway_client.get_gateway_client",
-            side_effect=RuntimeError("no gateway"),
-        ):
+        mock_client = MagicMock()
+        mock_client.fetch_branch.side_effect = RuntimeError("fetch boom")
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
             ok = _gateway_fetch_tracking_ref("pipe-1", "egg/issue-42", Path("/tmp/wt"), None)
         assert ok is False
 

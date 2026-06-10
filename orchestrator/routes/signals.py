@@ -378,25 +378,34 @@ def _gateway_fetch_tracking_ref(
 
     Best-effort: returns ``False`` on any failure (caller degrades to the
     tri-state ``None`` path).
+
+    On unset ``pipeline.network_mode``, ``_compute_gateway_mode`` issues a
+    synchronous gateway RTT (``get_repo_visibility``) — intentional
+    per-propose re-resolution. Most pipelines set ``network_mode`` at
+    submission time so this is a no-op; callers that want to elide the
+    roundtrip should set ``pipeline.network_mode`` upstream.
     """
+    # Lazy imports: keep the ~2.4k-line gateway_client and ~24k-line
+    # routes.pipelines modules out of ``signals`` import time (matches
+    # the ``_get_draft_path`` pattern in the validators below). Done
+    # outside the ``try`` so an import / mode-resolution failure does not
+    # masquerade as a fetch failure in the warning below (and the
+    # OVERSEER_ALERT it triggers in the caller).
     try:
-        # Lazy imports: keep the ~2.4k-line gateway_client and ~24k-line
-        # routes.pipelines modules out of ``signals`` import time (matches
-        # the ``_get_draft_path`` pattern in the validators below).
+        from gateway_client import get_gateway_client
+    except ImportError:
+        from ..gateway_client import get_gateway_client  # type: ignore[no-redef]
+
+    mode = "public"
+    if pipeline_state is not None:
         try:
-            from gateway_client import get_gateway_client
+            from routes.pipelines import _compute_gateway_mode
         except ImportError:
-            from ..gateway_client import get_gateway_client  # type: ignore[no-redef]
+            from .pipelines import _compute_gateway_mode  # type: ignore[no-redef]
+        mode, _vis = _compute_gateway_mode(pipeline_state)
 
-        mode = "public"
-        if pipeline_state is not None:
-            try:
-                from routes.pipelines import _compute_gateway_mode
-            except ImportError:
-                from .pipelines import _compute_gateway_mode  # type: ignore[no-redef]
-            mode, _vis = _compute_gateway_mode(pipeline_state)
-
-        refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+    refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+    try:
         return get_gateway_client().fetch_branch(
             pipeline_id,
             str(worktree_path),
@@ -468,6 +477,13 @@ def _verify_commit_on_branch(
         # below is the visibility guard: when this fetch fails persistently,
         # every downstream propose-time validator degrades to non-blocking,
         # and that must not be silent again.
+        #
+        # NOTE: this is a logger-only signal — intentionally not broadcast to
+        # agents via ``mcp__progress__overseer_alert``. Per-propose alerts on
+        # every signal handler would be both noisy on the consensus stream and
+        # the wrong granularity (a sustained-failure detector belongs in the
+        # overseer monitor). Operator-side dashboards filter on the prefixed
+        # log line; sustained-failure detection lives in the monitor.
         if not _gateway_fetch_tracking_ref(pipeline_id, branch, worktree_path, pipeline_state):
             logger.error(
                 "OVERSEER_ALERT commit_verification_fetch_failed",
@@ -1346,18 +1362,24 @@ def _validate_producer_draft_present(
     (e.g. from unit tests).
 
     ``branch_verified`` mirrors the tri-state from ``_verify_commit_on_branch``:
-    ``True`` (commit is on the branch — fetch + ``--contains`` succeeded), ``False``
-    (commit is *not* on the branch — the caller already 409'd, so this is
-    unreachable in practice), or ``None`` (verification was inconclusive because
-    the gateway fetch or ``git branch -r --contains`` errored — orchestrator-side
-    glitch, not a producer fault). When ``None`` is passed, the presence check
-    is skipped only if the commit object is *also* absent locally
+    ``True`` (commit is on the branch — fetch + ``--contains`` succeeded),
+    ``False`` (commit is *not* on the branch), or ``None`` (verification was
+    inconclusive because the gateway fetch or ``git branch -r --contains``
+    errored — orchestrator-side glitch, not a producer fault). The current
+    handler short-circuits with a 409 before calling this validator when it
+    sees ``False``, so the ``False`` path is unreachable from production
+    today; the function has no explicit guard and falls through to the
+    ``git show`` path, which is correct (a non-zero ``git show`` still
+    reliably means "path absent at commit"). Callers wiring this validator
+    in without that 409 short-circuit must short-circuit the ``False``
+    verdict themselves. When ``None`` is passed, the presence check is
+    skipped only if the commit object is *also* absent locally
     (``_commit_object_resolvable``) — with the object present, a non-zero
-    ``git show`` reliably means the path is absent at the commit, so the check
-    proceeds; an unconditional skip let a persistent fetch failure disable
-    this validator entirely (#3081). Defaults to ``True`` so direct callers
-    (unit tests) that don't run ``_verify_commit_on_branch`` still get the
-    check.
+    ``git show`` reliably means the path is absent at the commit, so the
+    check proceeds; an unconditional skip let a persistent fetch failure
+    disable this validator entirely (#3081). Defaults to ``True`` so direct
+    callers (unit tests) that don't run ``_verify_commit_on_branch`` still
+    get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
