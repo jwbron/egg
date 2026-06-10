@@ -105,7 +105,7 @@ class TestAgentModelDecisionShape:
     ``register_session(upstream=..., upstream_model=...)`` payload.
     """
 
-    def test_decision_has_three_named_fields(self):
+    def test_decision_has_four_named_fields(self):
         decision_cls = _decision_cls()
         d = decision_cls(
             claude_code_alias="opus",
@@ -115,6 +115,7 @@ class TestAgentModelDecisionShape:
         assert d.claude_code_alias == "opus"
         assert d.upstream == "anthropic"
         assert d.upstream_model is None
+        assert d.effort is None
 
     def test_decision_accepts_upstream_model_string(self):
         decision_cls = _decision_cls()
