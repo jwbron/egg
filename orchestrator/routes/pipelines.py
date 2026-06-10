@@ -23133,7 +23133,7 @@ def _run_pipeline(
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.status = PipelineStatus.COMPLETE
-                    store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
+                    store.save_pipeline(pipeline)
 
                 # Report pipeline completion to collaborator
                 report_pipeline_status(
@@ -23189,7 +23189,7 @@ def _run_pipeline(
                 pipeline.current_phase = next_phase
                 pipeline.run_epoch = datetime.now(UTC)
                 # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
-                store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
+                store.save_pipeline(pipeline)
 
             # Drop the previous phase's in-memory consensus tracker and
             # message-store entries (#2502).  The other phase-transition

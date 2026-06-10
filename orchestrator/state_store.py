@@ -675,18 +675,15 @@ class StateStore:
         commit: bool = True,
         message: str | None = None,
         expected_version: int | None = None,
-        force_commit: bool = False,
     ) -> Path:
         """Save pipeline state to disk with optimistic locking.
 
         Args:
             pipeline: Pipeline state to save
-            commit: Whether to commit the change (ignored for local pipelines unless force_commit=True)
+            commit: Whether to commit the change
             message: Commit message (auto-generated if not provided)
             expected_version: If provided, checks that current version matches
                               before saving (optimistic locking)
-            force_commit: If True, commit even for local pipelines. Use at phase
-                          boundaries to ensure state is persisted to git.
 
         Returns:
             Path to saved file
@@ -731,11 +728,12 @@ class StateStore:
                 pass
             raise
 
-        # For prompt-driven pipelines (no issue_number), only commit if force_commit
-        # is True (phase boundaries). For issue pipelines, always commit when commit=True.
-        is_prompt_driven = pipeline.issue_number is None
-        should_commit = commit and (not is_prompt_driven or force_commit)
-        if should_commit:
+        # Commit unconditionally: the on-disk file alone is not durable. The
+        # state worktree may sit on a pod-lifetime volume, so any save that
+        # skips the commit exists only until the next pod recreation — that is
+        # how prompt-driven pipelines parked at a HITL gate vanished in #3070
+        # (the old gate committed them only on phase advance/completion).
+        if commit:
             try:
                 self._commit_state(pipeline, message)
             except GitOperationError:
@@ -1093,15 +1091,13 @@ class StateStore:
         self,
         pipeline_id: str,
         commit: bool = True,
-        force_commit: bool = False,
         cleanup_lock: bool = True,
     ) -> None:
         """Delete a pipeline.
 
         Args:
             pipeline_id: Pipeline ID to delete
-            commit: Whether to commit the deletion (ignored for local unless force_commit)
-            force_commit: If True, commit deletion even for local pipelines
+            commit: Whether to commit the deletion
             cleanup_lock: Whether to release the per-pipeline state lock.
                 Set to False when called from within a lock (e.g. create_pipeline
                 replacing a terminal pipeline) to avoid removing the lock while
@@ -1121,11 +1117,10 @@ class StateStore:
         if cleanup_lock:
             release_pipeline_state_lock(pipeline_id)
 
-        # For local pipelines, only commit if force_commit is True
-        # For issue pipelines, always commit when commit=True
-        is_local = pipeline_id.startswith("local-")
-        should_commit = commit and (not is_local or force_commit)
-        if should_commit:
+        # Commit unconditionally (same durability invariant as save_pipeline,
+        # #3070): a deletion that only happens on disk resurrects the pipeline
+        # on the next pod recreation.
+        if commit:
             wt = self.worktree
             with self._git_op():
                 self._run_git("add", rel_path, cwd=wt)

@@ -926,6 +926,59 @@ def _validate_deployment_docs(docs: list[dict[str, Any]], *, is_k3s: bool) -> li
             ),
         )
 
+    # Rule 7: orchestrator pipeline-state store must share the repos'
+    # persistence lifetime (#3070). The orchestrator's StateStore keeps the
+    # ``egg/pipeline-state`` worktrees under
+    # /home/egg/.egg-state/pipeline-worktree* (the ``egg-state`` volume).
+    # The state branch's *commits* live in each repo's .git on the ``repos``
+    # volume, but the worktree's working files hold anything saved since the
+    # last commit. When an overlay gives ``repos`` a volume that survives pod
+    # recreation while ``egg-state`` is ephemeral (``emptyDir`` or absent —
+    # in which case /home/egg/.egg-state falls inside the ``home`` emptyDir),
+    # a pod recreation rebuilds each state worktree from the last committed
+    # branch tip and silently drops everything newer: in #3070 every
+    # in-flight pipeline whose record had no commit yet simply vanished
+    # (get_status 404, absent from list_tasks). Like rule 6, the check is
+    # expressed against ``emptyDir`` rather than ``hostPath`` so PVC/NFS/CSI
+    # backings satisfy it, and it self-gates on ``repos`` being persistent so
+    # it stays silent on all-emptyDir base/cloud deploys.
+    for dep in deployments:
+        name = dep.get("metadata", {}).get("name", "<unknown>")
+        if name != "orchestrator" and not name.startswith("orchestrator-"):
+            continue
+        vols = _deployment_volumes(dep)
+        repos_vol = next((v for v in vols if (v or {}).get("name") == "repos"), None)
+        if repos_vol is None or "emptyDir" in repos_vol:
+            continue
+        egg_state_vol = next((v for v in vols if (v or {}).get("name") == "egg-state"), None)
+        egg_state_persistent = egg_state_vol is not None and "emptyDir" not in egg_state_vol
+        if egg_state_persistent:
+            continue
+        if egg_state_vol is None:
+            detail = (
+                "orchestrator repos survive pod recreation but no "
+                "``egg-state`` volume is declared, so /home/egg/.egg-state "
+                "falls inside the ``home`` emptyDir and the pipeline-state "
+                "worktree is ephemeral"
+            )
+        else:
+            detail = (
+                "orchestrator repos survive pod recreation but its "
+                "pipeline-state store (egg-state volume, "
+                "/home/egg/.egg-state) is an emptyDir and does not"
+            )
+        _warn(
+            warnings,
+            rule="pipeline-state-store-not-persistent",
+            severity="error",
+            resource=f"Deployment/{name}",
+            message=(
+                f"{detail}; an orchestrator pod recreation will rebuild the "
+                "state worktree from the last committed branch tip and "
+                "silently lose any pipeline state saved since (#3070)"
+            ),
+        )
+
     return warnings
 
 

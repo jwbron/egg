@@ -163,10 +163,17 @@ spec:
             # emptyDir at /home/egg makes $HOME writable (needed for
             # .gitconfig, .egg-worktrees, sharing/notifications, etc.)
             # while keeping the rest of the rootfs read-only.
+            # No dedicated ``egg-state`` volume here: /home/egg/.egg-state
+            # falls inside the ``home`` emptyDir (same lifecycle), matching
+            # the gateway base. Overlays that host-persist ``repos`` must add
+            # a persistent ``egg-state`` volume or pipeline records saved
+            # since the last state-branch commit are lost on pod recreation —
+            # enforced by the ``pipeline-state-store-not-persistent``
+            # validation rule (#3070). Declaring it emptyDir here instead
+            # would break the overlay's strategic-merge add (emptyDir and
+            # hostPath would merge into one invalid two-type volume).
             - name: home
               mountPath: /home/egg
-            - name: egg-state
-              mountPath: /home/egg/.egg-state
             - name: tmp
               mountPath: /tmp
             # #2528: read-only mount of repositories.yaml so the
@@ -186,8 +193,6 @@ spec:
               memory: 1Gi
       volumes:
         - name: home
-          emptyDir: {}
-        - name: egg-state
           emptyDir: {}
         - name: tmp
           emptyDir: {}
