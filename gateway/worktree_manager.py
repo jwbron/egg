@@ -849,10 +849,18 @@ class WorktreeManager:
             ``origin/{assigned_branch}`` when the branch exists on origin
             (tracking ref freshly fetched), else ``None``.
         """
+        # ``_tracking_refspec`` requires a bare branch name; mirror the
+        # base-branch path's defensive strip in case a future caller drifts
+        # to passing ``origin/<name>`` (today's callers pass bare names).
+        fetch_ref = (
+            assigned_branch[len("origin/") :]
+            if assigned_branch.startswith("origin/")
+            else assigned_branch
+        )
         try:
             with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
                 fetch_result = subprocess.run(
-                    git_cmd("fetch", "origin", _tracking_refspec(assigned_branch)),
+                    git_cmd("fetch", "origin", _tracking_refspec(fetch_ref)),
                     cwd=main_repo,
                     capture_output=True,
                     text=True,
@@ -860,7 +868,12 @@ class WorktreeManager:
                     timeout=30,
                     env=fetch_env,
                 )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except Exception as exc:
+            # Best-effort: any failure (timeout, OSError, credential-helper
+            # error from _git_credential_env, etc.) falls back to the base
+            # branch.  A narrower catch would surface unexpected exception
+            # types as a hard spawn failure, which is the opposite of the
+            # "best-effort fallback" contract this helper advertises.
             logger.warning(
                 "Assigned-branch fetch before worktree create failed (falling back to base)",
                 container_id=container_id,
@@ -869,15 +882,28 @@ class WorktreeManager:
             )
             return None
         if fetch_result.returncode != 0:
-            logger.info(
-                "Assigned branch not on origin yet — forking worktree from base",
-                container_id=container_id,
-                assigned_branch=assigned_branch,
-                stderr=fetch_result.stderr.strip()[:200],
-            )
+            # git fetch on a missing branch emits "couldn't find remote ref"
+            # — that's the expected "not pushed yet" case and not an error.
+            # Anything else (transient 5xx, auth, network) is worth flagging
+            # at a higher level so an operator triaging "why didn't my seed
+            # reach the agent?" sees the real cause.
+            stderr = fetch_result.stderr.strip()
+            if "couldn't find remote ref" in stderr:
+                logger.info(
+                    "Assigned branch not on origin yet — forking worktree from base",
+                    container_id=container_id,
+                    assigned_branch=assigned_branch,
+                )
+            else:
+                logger.warning(
+                    "Assigned-branch fetch failed (falling back to base)",
+                    container_id=container_id,
+                    assigned_branch=assigned_branch,
+                    stderr=stderr[:200],
+                )
             return None
 
-        candidate = f"origin/{assigned_branch}"
+        candidate = f"origin/{fetch_ref}"
         verify = subprocess.run(
             git_cmd("rev-parse", "--verify", candidate),
             cwd=main_repo,

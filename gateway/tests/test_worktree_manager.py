@@ -1640,6 +1640,40 @@ class TestAssignedBranchForkPoint:
 
         assert result is None
 
+    def test_assigned_rev_parse_failure_falls_back_to_base(self, tmp_path):
+        """If the fetch succeeds but ``rev-parse --verify origin/<branch>``
+        fails (the tracking ref is somehow not resolvable post-fetch — a
+        theoretical narrow-refspec edge case), the helper returns None and
+        the caller falls back to the base branch rather than handing git a
+        bad fork point."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+
+        def mock_run(args, **kwargs):
+            if "fetch" in args:
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if "rev-parse" in args:
+                return subprocess.CompletedProcess(
+                    args=args,
+                    returncode=128,
+                    stdout="",
+                    stderr="fatal: Needed a single revision\n",
+                )
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                result = manager._resolve_assigned_fork_point(
+                    main_repo=tmp_path / "repos" / "test-repo",
+                    assigned_branch="egg/pipe-4/work",
+                    repo_slug="Khan/test-repo",
+                    container_id="pipe-4-coder",
+                )
+
+        assert result is None
+
 
 class TestFindWorktreeGitDir:
     """Tests for _find_worktree_git_dir admin dir resolution."""
