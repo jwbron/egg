@@ -149,6 +149,28 @@ def validate_branch_ref(value: str, name: str = "base_branch") -> None:
         raise ValueError(f"Invalid {name}: must be alphanumeric with ._-/ allowed")
 
 
+def _tracking_refspec(branch: str) -> str:
+    """Forced fetch refspec that pins ``refs/remotes/origin/<branch>``.
+
+    ``git fetch origin <branch>`` only updates the remote-tracking ref
+    opportunistically when the repo's *configured* fetch refspec covers
+    that branch.  Mirrors of large monorepos are commonly configured with
+    a narrow single-branch refspec (e.g.
+    ``+refs/heads/master:refs/remotes/origin/master``), under which a
+    bare-name fetch writes only ``FETCH_HEAD`` — the subsequent
+    ``origin/<branch>`` lookup then silently resolves a stale (or
+    missing) tracking ref and the worktree is created behind the real
+    remote tip (#3068).  Fetching with an explicit refspec updates the
+    tracking ref regardless of the repo's configuration.  The leading
+    ``+`` permits non-fast-forward tracking-ref moves (rebased or
+    force-pushed base branches).
+
+    ``branch`` must be a bare branch name (no ``origin/`` prefix);
+    callers strip the prefix before building the refspec.
+    """
+    return f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+
+
 class WorktreeManager:
     """
     Manages git worktrees for container isolation.
@@ -474,10 +496,15 @@ class WorktreeManager:
                     # (post-#3021) rather than just cold-cache misses, so keep
                     # it tight.  Mirrors the reuse-path fetch in
                     # ``_reset_reused_worktree_to_safe_ref``.
+                    #
+                    # The explicit refspec (rather than the bare branch name)
+                    # is what makes the ``origin/<fetch_ref>`` resolution
+                    # below see the fresh tip on narrow-refspec mirrors —
+                    # see ``_tracking_refspec`` (#3068).
                     with self._git_credential_env(repo_slug) as fetch_env:
                         try:
                             fetch_result = subprocess.run(
-                                git_cmd("fetch", "origin", fetch_ref),
+                                git_cmd("fetch", "origin", _tracking_refspec(fetch_ref)),
                                 cwd=main_repo,
                                 capture_output=True,
                                 text=True,
@@ -799,17 +826,36 @@ class WorktreeManager:
         # caps how long every other state-store commit / worktree
         # create on this repo can be blocked by a slow remote — keep
         # it tight.
+        #
+        # Each candidate branch is fetched with an explicit tracking
+        # refspec, one fetch per branch.  The previous bare ``git fetch
+        # origin`` honoured the repo's configured refspec — on
+        # narrow-refspec mirrors that refreshes only the configured
+        # branch, so the ``origin/{assigned}`` / ``origin/{base}``
+        # candidates below resolved stale tracking refs (#3068).
+        # Per-branch fetches also keep an absent assigned branch (fresh
+        # pipeline, first agent — nothing pushed yet) from failing the
+        # base-branch fetch, and are cheaper than a full all-refs fetch
+        # on large mirrors.
+        fetch_branches: list[str] = []
+        if assigned_branch:
+            fetch_branches.append(assigned_branch)
+        if base_branch and base_branch != "HEAD":
+            base_name = base_branch.removeprefix("origin/")
+            if base_name not in fetch_branches:
+                fetch_branches.append(base_name)
         try:
             with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
-                subprocess.run(
-                    git_cmd("fetch", "origin"),
-                    cwd=worktree_path,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=30,
-                    env=fetch_env,
-                )
+                for fetch_branch in fetch_branches:
+                    subprocess.run(
+                        git_cmd("fetch", "origin", _tracking_refspec(fetch_branch)),
+                        cwd=worktree_path,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                        env=fetch_env,
+                    )
         except (subprocess.TimeoutExpired, OSError) as exc:
             logger.warning(
                 "Fetch before worktree-reuse reset failed (continuing)",
