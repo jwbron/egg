@@ -36,6 +36,12 @@ def main() -> int:
     parser.add_argument("--max-turns", type=int, default=None, help="Max conversation turns.")
     parser.add_argument("--system-prompt", default=None, help="System prompt override.")
     parser.add_argument("--timeout", type=int, default=7200, help="Timeout in seconds.")
+    parser.add_argument(
+        "--effort",
+        default=None,
+        choices=["low", "medium", "high", "max"],
+        help=("Reasoning effort for the session. Omit to inherit Claude Code's per-model default."),
+    )
 
     args = parser.parse_args()
 
@@ -56,6 +62,7 @@ def main() -> int:
         system_prompt=args.system_prompt,
         timeout=args.timeout,
         on_output=_stream_to_stdout,
+        effort=args.effort,
     )
 
     if result.stderr:
