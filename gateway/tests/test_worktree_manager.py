@@ -1,5 +1,6 @@
 """Tests for worktree_manager.py."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -482,7 +483,7 @@ class TestWorktreeManagerDockerGitDir:
             capture_output=True,
             check=True,
             env={
-                **__import__("os").environ,
+                **os.environ,
                 "GIT_AUTHOR_NAME": "test",
                 "GIT_AUTHOR_EMAIL": "t@t",
                 "GIT_COMMITTER_NAME": "test",
@@ -675,7 +676,7 @@ class TestWorktreeManagerDockerGitDir:
         import subprocess as sp
 
         env = {
-            **__import__("os").environ,
+            **os.environ,
             "GIT_AUTHOR_NAME": "test",
             "GIT_AUTHOR_EMAIL": "t@t",
             "GIT_COMMITTER_NAME": "test",
@@ -889,7 +890,7 @@ class TestLookupWorktree:
             capture_output=True,
             check=True,
             env={
-                **__import__("os").environ,
+                **os.environ,
                 "GIT_AUTHOR_NAME": "test",
                 "GIT_AUTHOR_EMAIL": "t@t",
                 "GIT_COMMITTER_NAME": "test",
@@ -1373,7 +1374,7 @@ class TestNarrowRefspecMirror:
     """
 
     GIT_ENV = {
-        **__import__("os").environ,
+        **os.environ,
         "GIT_AUTHOR_NAME": "test",
         "GIT_AUTHOR_EMAIL": "t@t",
         "GIT_COMMITTER_NAME": "test",
@@ -1472,7 +1473,15 @@ class TestNarrowRefspecMirror:
     ):
         """Worktree reuse must reset to the assigned branch's real remote
         tip — the reuse-path bare ``git fetch origin`` honoured the narrow
-        refspec and left ``origin/<assigned>`` stale (#3068)."""
+        refspec and left ``origin/<assigned>`` stale (#3068).
+
+        Exercises the *primary* candidate (``origin/{assigned_branch}``):
+        ``side-branch`` exists on origin so the primary resolves and the
+        secondary (``origin/{base_branch}``) is never walked here.  The
+        sibling ``test_reuse_secondary_candidate_handles_origin_prefixed_base``
+        covers the secondary candidate path with the production-shape
+        ``base_branch="origin/main"``.
+        """
         manager, repo_dir, stale_tip, fresh_tip, seed = narrow_mirror
 
         # First creation binds the worktree to the (stale) assigned tip.
@@ -1503,6 +1512,76 @@ class TestNarrowRefspecMirror:
         assert head == fresh_tip, (
             f"reuse should reset HEAD to the fresh remote tip {fresh_tip}; "
             f"got {head} (stale tracking ref was {stale_tip})"
+        )
+
+    @patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", ""))
+    def test_reuse_secondary_candidate_handles_origin_prefixed_base(
+        self, _mock_get_token, narrow_mirror
+    ):
+        """Reuse must reset to ``origin/main`` when ``base_branch`` arrives
+        ``origin/``-prefixed (the production shape — ``gateway.py`` sets
+        ``worktree_base_branch = f"origin/{...}"`` and
+        ``resolve_default_branch`` returns ``"origin/main"``).
+
+        Exercises the *secondary* candidate path: the assigned branch is
+        absent from origin (fresh pipeline, first agent — nothing pushed
+        yet), so the primary ``origin/{assigned_branch}`` candidate fails
+        to resolve and the reset must fall through to
+        ``origin/{base_branch}``.  Without the candidate-side ``origin/``
+        strip, the candidate is built as ``origin/origin/main``, fails to
+        resolve, and the function silently no-ops to ``preserving HEAD``
+        — even though the fetch loop above did refresh ``origin/main``
+        with the targeted refspec.  This is the inconsistency the
+        candidate construction needs to mirror (#3068).
+        """
+        manager, repo_dir, _stale_tip, _fresh_tip, seed = narrow_mirror
+
+        # First creation: assigned branch is never on origin (mimics the
+        # first-agent spawn for a brand-new pipeline before any push).
+        # The worktree forks from origin's current ``main`` tip.
+        info1 = manager.create_worktree(
+            "test-repo",
+            "narrow-prod-c1",
+            base_branch="origin/main",
+            assigned_branch="egg/never-pushed/work",
+        )
+        initial_main_tip = subprocess.run(
+            ["git", "-C", str(info1.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        # Advance ``main`` on origin so the mirror's ``origin/main``
+        # tracking ref is stale until the next refspec fetch refreshes it.
+        subprocess.run(["git", "checkout", "main"], cwd=seed, check=True)
+        fresh_main_tip = self._commit(seed, "main2.md", "main tip 2")
+        subprocess.run(["git", "push", "origin", "main"], cwd=seed, check=True)
+        assert fresh_main_tip != initial_main_tip
+
+        # Reuse: same container_id.  ``origin/egg/never-pushed/work``
+        # still does not resolve, so the reset walks the secondary
+        # ``origin/{base}`` candidate.
+        info2 = manager.create_worktree(
+            "test-repo",
+            "narrow-prod-c1",
+            base_branch="origin/main",
+            assigned_branch="egg/never-pushed/work",
+        )
+        assert info2.worktree_path == info1.worktree_path
+
+        head = subprocess.run(
+            ["git", "-C", str(info2.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head == fresh_main_tip, (
+            f"reuse should reset HEAD via the ``origin/main`` secondary "
+            f"candidate to {fresh_main_tip}; got {head} (initial tip was "
+            f"{initial_main_tip}). If HEAD matches the initial tip, the "
+            f"candidate was built as ``origin/origin/main`` and the reset "
+            f"fell through to the no-op ``preserving HEAD`` branch."
         )
 
 
@@ -1697,7 +1776,7 @@ class TestWorktreeManagerConcurrency:
             capture_output=True,
             check=True,
             env={
-                **__import__("os").environ,
+                **os.environ,
                 "GIT_AUTHOR_NAME": "test",
                 "GIT_AUTHOR_EMAIL": "t@t",
                 "GIT_COMMITTER_NAME": "test",
@@ -2047,7 +2126,7 @@ class TestResolveDefaultBranch:
         if result.returncode != 0:
             pytest.skip(f"git init not available: {result.stderr.strip()}")
         git_env = {
-            **__import__("os").environ,
+            **os.environ,
             "GIT_AUTHOR_NAME": "test",
             "GIT_AUTHOR_EMAIL": "t@t",
             "GIT_COMMITTER_NAME": "test",

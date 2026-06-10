@@ -825,7 +825,8 @@ class WorktreeManager:
         # caller holds it across this whole method) so the timeout
         # caps how long every other state-store commit / worktree
         # create on this repo can be blocked by a slow remote — keep
-        # it tight.
+        # it tight.  Two candidate branches max (assigned + base) at
+        # 15s each preserves the prior ~30s cumulative ceiling.
         #
         # Each candidate branch is fetched with an explicit tracking
         # refspec, one fetch per branch.  The previous bare ``git fetch
@@ -837,9 +838,18 @@ class WorktreeManager:
         # pipeline, first agent — nothing pushed yet) from failing the
         # base-branch fetch, and are cheaper than a full all-refs fetch
         # on large mirrors.
+        #
+        # ``base_branch`` may arrive ``origin/``-prefixed in pipeline
+        # mode (``gateway.py`` sets ``worktree_base_branch =
+        # f"origin/{...}"`` and ``resolve_default_branch`` returns
+        # ``"origin/main"``).  Strip the prefix so the fetch refspec and
+        # the candidate-ref lookup below agree on the bare name —
+        # otherwise the secondary candidate is built as
+        # ``origin/origin/main`` and fails to resolve.
         fetch_branches: list[str] = []
         if assigned_branch:
             fetch_branches.append(assigned_branch)
+        base_name: str | None = None
         if base_branch and base_branch != "HEAD":
             base_name = base_branch.removeprefix("origin/")
             if base_name not in fetch_branches:
@@ -853,7 +863,7 @@ class WorktreeManager:
                         capture_output=True,
                         text=True,
                         check=False,
-                        timeout=30,
+                        timeout=15,
                         env=fetch_env,
                     )
         except (subprocess.TimeoutExpired, OSError) as exc:
@@ -868,8 +878,8 @@ class WorktreeManager:
         candidates: list[str] = []
         if assigned_branch:
             candidates.append(f"origin/{assigned_branch}")
-        if base_branch and base_branch != "HEAD":
-            candidates.append(f"origin/{base_branch}")
+        if base_name is not None:
+            candidates.append(f"origin/{base_name}")
         for candidate in candidates:
             verify = subprocess.run(
                 git_cmd("rev-parse", "--verify", candidate),
