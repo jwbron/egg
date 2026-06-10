@@ -14,7 +14,7 @@ for how to call egg's workflows from your own repositories.
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
 | [Address Review Feedback](#address-review-feedback) | Review posted on bot/authorized-user PR, or human @mention | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
-| [Contract Verification](#contract-verification) | PR with sdlc:pr label or new contract file added | Verifies implementation matches SDLC contract |
+| [Contract Verification](#contract-verification) | PR with sdlc:pr label, new contract file added, or slice PR with work-branch contract | Verifies implementation matches SDLC contract |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
 | [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
