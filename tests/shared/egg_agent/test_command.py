@@ -55,3 +55,18 @@ class TestBuildAgentCommand:
         """Test that prompt is last even with system prompt."""
         cmd = build_agent_command("my prompt", system_prompt="sys")
         assert cmd[-1] == "my prompt"
+
+    def test_effort_appends_flag(self):
+        """``effort`` threads ``--effort <level>`` into the command."""
+        cmd = build_agent_command("test", model="fable", effort="high")
+        assert "--effort" in cmd
+        idx = cmd.index("--effort")
+        assert cmd[idx + 1] == "high"
+        # Prompt remains last.
+        assert cmd[-1] == "test"
+
+    def test_no_effort_by_default(self):
+        """``--effort`` is omitted when ``effort`` is None so the spawned
+        CLI inherits Claude Code's per-model default."""
+        cmd = build_agent_command("test")
+        assert "--effort" not in cmd

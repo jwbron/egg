@@ -69,6 +69,14 @@ FABLE_DEFAULT_MODEL = "fable"
 # default (the way opus moved xhigh→high across 4.7→4.8). Every other
 # model gets ``effort=None`` and keeps inheriting Claude Code's
 # per-model default, so opus agents are byte-identical to today.
+#
+# The pin is keyed on the exact ``fable`` / ``fable[1m]`` aliases, NOT on
+# the versioned ``claude-fable-*`` family. An operator who configures
+# ``agent_models[role] = "claude-fable-5"`` matches the generic
+# ``^claude-`` regex in ``_is_claude_alias`` and gets ``effort=None`` —
+# i.e. the versioned name escapes the drift defense the alias was pinned
+# to provide. Use the bare ``fable`` alias (or add the versioned name to
+# ``_FABLE_ALIASES``) if you want the pin to apply.
 FABLE_EFFORT = "high"
 _FABLE_ALIASES = frozenset({"fable", "fable[1m]"})
 
