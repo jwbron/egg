@@ -106,6 +106,16 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
    (producers and reviewers, `_FABLE_DEFAULT_ROLES`), `"opus"` for
    everything else
 
+> **Minimum sandbox Claude Code version.** The `fable` / `fable[1m]`
+> aliases require Claude Code ≥ 2.1.170. The sandbox's
+> `CLAUDE_CODE_VERSION` build-arg in `sandbox/Dockerfile` defaults to
+> `stable`, which satisfies this on a fresh build. Deployments that
+> pin an older `CLAUDE_CODE_VERSION` will see refine/plan agent spawns
+> fail with an "unknown model" error from Claude Code — either bump
+> the pinned version or set a repo-level `default_agent_model: opus`
+> to opt back out of the fable default until the sandbox image is
+> rebuilt.
+
 The result is an `AgentModelDecision` dataclass with fields
 `(claude_code_alias: str, upstream: str, upstream_model: str | None)`.
 

@@ -431,9 +431,10 @@ class ConcurrentPhaseExecutor:
 
         # Per-agent model resolution (#2769 slice-2). The decision is a
         # pure function over (role, pipeline_config, repo); when no
-        # override is configured the resolver returns the built-in
-        # ``opus`` Anthropic decision so the wire shape stays identical
-        # to the pre-#2769 path.
+        # override is configured the resolver returns a built-in
+        # Anthropic decision — ``fable`` for the refine/plan phase
+        # roles (``_FABLE_DEFAULT_ROLES``), ``opus`` for every other
+        # role — so the wire shape stays Anthropic-only.
         #
         # Defensive wrap: a future regression in the resolver (e.g. a
         # broken lazy import for the repo-default tier) would otherwise
@@ -441,7 +442,10 @@ class ConcurrentPhaseExecutor:
         # path's ``classify_model(DEFAULT_AGENT_MODEL)`` fallback at
         # ``routes/pipelines.py:2683-2699`` so spawn degrades to the
         # built-in opus / anthropic decision and logs the resolver
-        # failure rather than crashing.
+        # failure rather than crashing. (The fallback stays on opus
+        # uniformly — refine/plan agents whose resolver call raised
+        # silently downgrade from fable to opus rather than failing
+        # to spawn at all.)
         try:
             decision: AgentModelDecision = resolve_agent_model(
                 role=role,
