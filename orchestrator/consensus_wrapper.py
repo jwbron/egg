@@ -457,6 +457,70 @@ invoke_agent_for_event() {{
     {agent_command_prefix} "$prompt"
 }}
 
+# Sync-to-proposal (#3076 / #3077 clause 2): before a review invocation
+# (ack/nack), merge each pending producer's proposed commit into this
+# reviewer's worktree so reviewers that must RUN the proposal (tester)
+# have a real checkout. This is deterministic wrapper bash replacing
+# the fetch/merge prose that previously lived in spawn prompts the
+# event pump provably discards (#3033). Fail-soft at every step: an
+# unresolvable SHA, a conflicting merge, or a dirty tree logs and
+# continues — the per-event prompt's `git show <sha>:<path>` reads
+# (#3078) work from the shared object store either way, so the agent
+# is never blocked on this sync succeeding.
+sync_to_proposals() {{
+    local event_payload="$1"
+    local repo="${{EGG_REPO_PATH:-$PWD}}"
+    local shas sha
+    # Extract pending_reviews[].proposal_commit_sha, strictly hex-
+    # validated (7-64 chars) before any git interpolation. The payload
+    # is orchestrator-composed, but the producer-supplied SHA rides
+    # through it, so revalidate at the consumer — same stance as
+    # event_prompt.py's _extract_proposal_sha_for_producer. The
+    # ProposalPayload writer-side check also admits non-hex sentinels
+    # like RECONSTRUCTED_NO_SHA; the hex requirement here filters those
+    # out (there is nothing to merge for a reconstructed proposal).
+    shas=$(printf '%s' "$event_payload" | python3 -c "
+import sys, json, re
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+pat = re.compile(r'[0-9a-fA-F]{{7,64}}')
+out = []
+for pr in (d.get('pending_reviews') or []):
+    if not isinstance(pr, dict):
+        continue
+    sha = str(pr.get('proposal_commit_sha') or '')
+    if pat.fullmatch(sha) and sha not in out:
+        out.append(sha)
+print('\n'.join(out))
+" 2>/dev/null)
+    [ -z "$shas" ] && return 0
+    while IFS= read -r sha; do
+        [ -z "$sha" ] && continue
+        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+            # Per-role worktrees share the host repo's object store, so
+            # the SHA normally resolves without network; a best-effort
+            # fetch covers split-object-store runtimes.
+            git -C "$repo" fetch --quiet origin >/dev/null 2>&1 || true
+        fi
+        if ! git -C "$repo" cat-file -e "$sha^{{commit}}" 2>/dev/null; then
+            cw_log "sync-to-proposal: $sha unresolvable in $repo; reviewer falls back to the prompt's git-show reads."
+            continue
+        fi
+        if git -C "$repo" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+            continue
+        fi
+        if git -C "$repo" merge --no-edit "$sha" >/dev/null 2>&1; then
+            cw_log "sync-to-proposal: merged proposal commit $sha into the worktree."
+        else
+            git -C "$repo" merge --abort >/dev/null 2>&1 || true
+            cw_log "sync-to-proposal: merge of $sha failed (conflict or dirty tree); aborted — reviewer reads via git show instead."
+        fi
+    done <<< "$shas"
+    return 0
+}}
+
 # Idle / no-progress safety budget (#2908 task-2-3). Replaces the
 # legacy capped-restart cap (deleted by task-4-2): if no actionable
 # event arrives for the configured idle budget we raise an
@@ -683,6 +747,9 @@ while true; do
             # PR removed the legacy 3-restart cap; this rc gate is the
             # equivalent ceiling on the action path.
             cw_log "Invoking agent (action=$ACTION)."
+            if [ "$ACTION" = "ack" ] || [ "$ACTION" = "nack" ]; then
+                sync_to_proposals "$EVENT_PAYLOAD"
+            fi
             invoke_agent_for_event "$ACTION" "$EVENT_PAYLOAD"
             agent_rc=$?
             if [ "$agent_rc" -eq 0 ]; then

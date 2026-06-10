@@ -20,7 +20,7 @@ if str(_orchestrator_path) not in sys.path:
 
 from message_store import Message, MessageStore, MessageType, reset_message_store
 from routes.messages import messages_bp
-from state_store import InvalidPipelineIdError
+from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 
 @pytest.fixture
@@ -3403,3 +3403,193 @@ class TestNonObjectJsonBodyReturns400:
         body = json.loads(resp.data)
         assert body["success"] is False
         assert "json object" in body["message"].lower(), body
+
+
+class TestBrcTranscript:
+    """Live BRC transcript route (#3076 / #3077 phase 1).
+
+    Serves the in-flight phase's BRC records straight from the message
+    store — the served-read counterpart of the on-disk brc-history
+    files, which are written only at phase COMPLETION and therefore
+    can never cover the current phase from an agent worktree.
+    """
+
+    def _msg(self, mt, from_role="coder", phase="plan", metadata=None, body="b"):
+        return Message(
+            pipeline_id="test-pipeline",
+            from_role=from_role,
+            to_role="all",
+            message_type=mt,
+            subject=f"{mt} from {from_role}",
+            body=body,
+            metadata=metadata or {},
+            phase=phase,
+        )
+
+    def _get(self, client, store, query):
+        with (
+            patch("routes.messages.get_message_store", return_value=store),
+            patch("routes.messages.get_state_store_for_pipeline") as mock_pipeline,
+        ):
+            mock_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+            resp = client.get(f"/api/v1/pipelines/test-pipeline/brc-transcript?{query}")
+        return resp, json.loads(resp.data)
+
+    def test_phase_required(self, client, app):
+        store = MessageStore()
+        resp, data = self._get(client, store, "")
+        assert resp.status_code == 400
+        assert "phase" in data["message"]
+
+    def test_invalid_phase_rejected(self, client, app):
+        store = MessageStore()
+        resp, data = self._get(client, store, "phase=bogus")
+        assert resp.status_code == 400
+
+    def test_invalid_slice_id_rejected(self, client, app):
+        store = MessageStore()
+        resp, data = self._get(client, store, "phase=implement&slice_id=../etc")
+        assert resp.status_code == 400
+        assert "slice_id" in data["message"]
+
+    def test_returns_brc_records_for_requested_phase_only(self, client, app):
+        store = MessageStore()
+        store.add_message(self._msg("CONSENSUS_PROPOSE", phase="plan"))
+        store.add_message(self._msg("CONSENSUS_ACK", from_role="risk_analyst", phase="refine"))
+        store.add_message(self._msg("PROGRESS", phase="plan"))  # non-BRC type
+        resp, data = self._get(client, store, "phase=plan")
+        assert resp.status_code == 200
+        records = data["data"]["records"]
+        assert len(records) == 1
+        assert records[0]["message_type"] == "CONSENSUS_PROPOSE"
+        assert records[0]["phase"] == "plan"
+        # Same serialized shape as the on-disk brc-history JSON
+        # (Message.to_dict()): the handler-side merge depends on it.
+        assert {"id", "from_role", "message_type", "timestamp"} <= set(records[0])
+
+    def test_mid_phase_propose_visible_immediately(self, client, app):
+        """The #3076 regression pin: a producer's CONSENSUS_PROPOSE is
+        served the moment it is in the store — no phase completion, no
+        file write, no spawn-fork dependency."""
+        store = MessageStore()
+        store.add_message(
+            self._msg(
+                "CONSENSUS_PROPOSE",
+                from_role="architect",
+                metadata={"payload": {"version": 1, "commit_sha": "b521d7d3918"}},
+            )
+        )
+        resp, data = self._get(client, store, "phase=plan")
+        assert data["data"]["count"] == 1
+        assert data["data"]["records"][0]["from_role"] == "architect"
+
+    def test_delphi_redaction_applies(self, client, app):
+        """The live route must not be a Delphi-blinding bypass: an
+        unreviewed reviewer sees the producer's PROPOSE redacted to
+        version + commit_sha, same as poll_messages."""
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        tracker = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "Implemented auth", "artifacts": ["src/auth.py"], "commit_sha": "abc1234"},
+        )
+
+        store = MessageStore()
+        store.add_message(
+            self._msg(
+                "CONSENSUS_PROPOSE",
+                body="Detailed self-assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Implemented auth",
+                        "artifacts": ["src/auth.py"],
+                        "version": 1,
+                        "commit_sha": "abc1234",
+                    }
+                },
+            )
+        )
+        with (
+            patch("routes.messages.get_message_store", return_value=store),
+            patch("routes.messages.get_state_store_for_pipeline") as mock_pipeline,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+        ):
+            mock_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+            resp = client.get(
+                "/api/v1/pipelines/test-pipeline/brc-transcript?phase=plan&role=reviewer_code"
+            )
+        data = json.loads(resp.data)
+        rec = data["data"]["records"][0]
+        assert rec["body"] == ""
+        assert rec["metadata"]["delphi_redacted"] is True
+        assert "summary" not in rec["metadata"]["payload"]
+        assert rec["metadata"]["payload"]["commit_sha"] == "abc1234"
+
+    def test_slice_attribution_mirrors_writer(self, client, app):
+        """Implement-phase slice scoping (#2548 parity): CONSENSUS_*
+        records need a matching canonical slice_id (missing one = writer
+        contract violation, dropped); non-consensus BRC types without
+        slice scope are the unattributed bucket."""
+        store = MessageStore()
+        store.add_message(
+            self._msg("CONSENSUS_PROPOSE", phase="implement", metadata={"slice_id": "slice-1"})
+        )
+        store.add_message(
+            self._msg("CONSENSUS_PROPOSE", phase="implement", metadata={"slice_id": "slice-2"})
+        )
+        store.add_message(self._msg("CONSENSUS_ACK", phase="implement"))  # no slice: dropped
+        store.add_message(self._msg("HEARTBEAT", phase="implement"))  # unattributed
+        resp, data = self._get(client, store, "phase=implement&slice_id=slice-1")
+        types = [r["message_type"] for r in data["data"]["records"]]
+        slice_ids = [r["metadata"].get("slice_id") for r in data["data"]["records"]]
+        assert "HEARTBEAT" in types
+        assert slice_ids.count("slice-2") == 0
+        assert types.count("CONSENSUS_PROPOSE") == 1
+        assert types.count("CONSENSUS_ACK") == 0
+
+        resp, data = self._get(
+            client, store, "phase=implement&slice_id=slice-1&include_unattributed=false"
+        )
+        types = [r["message_type"] for r in data["data"]["records"]]
+        assert "HEARTBEAT" not in types
+
+    def test_no_slice_filter_returns_all_implement_records(self, client, app):
+        store = MessageStore()
+        store.add_message(
+            self._msg("CONSENSUS_PROPOSE", phase="implement", metadata={"slice_id": "slice-1"})
+        )
+        store.add_message(self._msg("HEARTBEAT", phase="implement"))
+        resp, data = self._get(client, store, "phase=implement")
+        assert data["data"]["count"] == 2
+
+    def test_limit_keeps_most_recent_in_order(self, client, app):
+        store = MessageStore()
+        for i in range(5):
+            store.add_message(self._msg("CONSENSUS_PROPOSE", body=f"v{i}"))
+        resp, data = self._get(client, store, "phase=plan&limit=2")
+        records = data["data"]["records"]
+        assert data["data"]["truncated"] is True
+        assert [r["body"] for r in records] == ["v3", "v4"]
+
+    def test_invalid_limit_rejected(self, client, app):
+        store = MessageStore()
+        resp, data = self._get(client, store, "phase=plan&limit=abc")
+        assert resp.status_code == 400
+        resp, data = self._get(client, store, "phase=plan&limit=0")
+        assert resp.status_code == 400
+
+    def test_unknown_pipeline_returns_404(self, client, app):
+        with (
+            patch("routes.messages.get_message_store", return_value=MessageStore()),
+            patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=PipelineNotFoundError("nope"),
+            ),
+        ):
+            resp = client.get("/api/v1/pipelines/missing/brc-transcript?phase=plan")
+        assert resp.status_code == 404

@@ -399,6 +399,154 @@ def _apply_delphi_filter(
     return filtered_messages
 
 
+# Valid phase names for the live BRC transcript route. Mirrors the
+# sandbox handler's ``_VALID_PHASES`` (sandbox/egg_agent_tools/handlers/
+# brc.py) — the route and its only consumer must agree on the set.
+_BRC_TRANSCRIPT_PHASES: frozenset[str] = frozenset({"refine", "plan", "implement", "pr"})
+
+# Page-size bounds for the live BRC transcript route. The default is
+# deliberately high relative to poll_messages (a phase transcript is a
+# bounded audit log, not a live tail) and the cap matches the writer's
+# own retrieval bound in ``_write_brc_history`` (limit=10000).
+_BRC_TRANSCRIPT_DEFAULT_LIMIT = 1000
+_BRC_TRANSCRIPT_MAX_LIMIT = 10000
+
+
+@messages_bp.route("/<pipeline_id>/brc-transcript", methods=["GET"])
+def get_brc_transcript(pipeline_id: str) -> tuple[Response, int]:
+    """Serve the live BRC transcript for a phase from the message store.
+
+    This is the served-read counterpart of the on-disk
+    ``.egg-state/brc-history/`` files (#3076 / #3077 phase 1): those
+    files are written by ``pipelines._write_brc_history`` at phase
+    COMPLETION into the orchestrator's worktree, so for the phase
+    currently in flight they exist nowhere an agent can read. This
+    route serves the same records — ``Message.to_dict()`` dicts
+    filtered to ``BRC_HISTORY_TYPES`` — straight from the message
+    store, which holds exactly the in-flight phase's messages (the
+    store is cleared on phase transitions by
+    ``phases._clear_concurrent_state``).
+
+    Query params:
+        phase: required — one of refine/plan/implement/pr. Records are
+            matched on ``Message.phase``.
+        role: optional — the calling agent's role. Applied to the same
+            Delphi visibility filter as ``poll_messages`` so this route
+            is not a blinding bypass: a reviewer that has not yet
+            reviewed a producer sees that producer's CONSENSUS_PROPOSE
+            with the payload redacted to version + commit_sha.
+        slice_id: optional — canonical ``slice-<N>`` only. Mirrors the
+            writer's implement-phase attribution (#2548): CONSENSUS_*
+            records must carry a matching canonical
+            ``metadata.slice_id`` (missing/non-canonical ones are
+            dropped, writer parity); other BRC types without canonical
+            slice scope are the "unattributed" bucket.
+        include_unattributed: optional bool (default true) — include
+            the unattributed bucket when ``slice_id`` is given.
+        limit: optional page size (default 1000, max 10000). The most
+            recent ``limit`` records are returned in chronological
+            order.
+
+    Response data::
+
+        {"records": [...], "count": N, "phase": "plan",
+         "truncated": false}
+
+    Auth: agent-facing, same trust surface as ``poll_messages`` (the
+    gateway-enforced NetworkPolicy is the boundary; ``role`` is caller-
+    supplied there too).
+    """
+    try:
+        get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError as e:
+        return _make_error(str(e), 400)
+    except PipelineNotFoundError as e:
+        return _make_error(str(e), 404)
+
+    phase = (request.args.get("phase") or "").strip()
+    if phase not in _BRC_TRANSCRIPT_PHASES:
+        return _make_error(
+            f"'phase' must be one of {sorted(_BRC_TRANSCRIPT_PHASES)}; got {phase!r}"
+        )
+
+    role = request.args.get("role") or None
+
+    raw_slice_id = request.args.get("slice_id")
+    slice_id: str | None = None
+    if raw_slice_id:
+        try:
+            slice_id = _extract_slice_id({"slice_id": raw_slice_id})
+        except ValueError as exc:
+            return _make_error(f"Invalid slice_id: {exc}")
+
+    include_unattributed = (request.args.get("include_unattributed") or "true").lower() not in (
+        "false",
+        "0",
+        "no",
+    )
+
+    try:
+        limit = int(request.args.get("limit", str(_BRC_TRANSCRIPT_DEFAULT_LIMIT)))
+    except ValueError, TypeError:
+        return _make_error("Invalid limit parameter: must be an integer")
+    if limit <= 0:
+        return _make_error("Invalid limit parameter: must be > 0")
+    limit = min(limit, _BRC_TRANSCRIPT_MAX_LIMIT)
+
+    # Lazy import: ``routes.pipelines`` is the canonical owner of the
+    # BRC type sets (and is always loaded in a running app), but a
+    # module-level import here would be load-order sensitive and pull
+    # the 16k-line module into any test that imports this blueprint.
+    try:
+        from routes.pipelines import BRC_HISTORY_TYPES, CONSENSUS_BRC_TYPES
+    except ImportError:  # pragma: no cover - package-relative fallback
+        from .pipelines import (  # type: ignore[no-redef]
+            BRC_HISTORY_TYPES,
+            CONSENSUS_BRC_TYPES,
+        )
+    try:
+        from slice_id_validation import SLICE_ID_PATTERN
+    except ImportError:  # pragma: no cover - package-relative fallback
+        from ..slice_id_validation import SLICE_ID_PATTERN  # type: ignore[no-redef]
+
+    message_store = get_message_store()
+    messages = message_store.get_messages(pipeline_id, limit=_BRC_TRANSCRIPT_MAX_LIMIT)
+
+    records = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
+
+    if slice_id is not None:
+        # Mirror the writer's per-slice attribution (#2548): CONSENSUS_*
+        # without a canonical slice_id is a contract violation and is
+        # dropped; non-consensus BRC types without canonical slice scope
+        # form the cross-cutting "unattributed" bucket.
+        bucket: list[Message] = []
+        for m in records:
+            raw_sid = m.metadata.get("slice_id") if isinstance(m.metadata, dict) else None
+            canonical = isinstance(raw_sid, str) and bool(SLICE_ID_PATTERN.match(raw_sid))
+            if canonical:
+                if raw_sid == slice_id:
+                    bucket.append(m)
+            elif m.message_type not in CONSENSUS_BRC_TYPES and include_unattributed:
+                bucket.append(m)
+        records = bucket
+
+    records = _apply_delphi_filter(pipeline_id, role, records)
+
+    truncated = len(records) > limit
+    if truncated:
+        records = records[-limit:]
+
+    return _make_success(
+        "BRC transcript retrieved",
+        data={
+            "records": [m.to_dict() for m in records],
+            "count": len(records),
+            "phase": phase,
+            "truncated": truncated,
+        },
+    )
+
+
 # Message types that are produced *as a side effect* of a producer's
 # own confirm reaching global consensus. A producer in WORKING/PROPOSED
 # that waits on these would be waiting on itself — its own confirm is
