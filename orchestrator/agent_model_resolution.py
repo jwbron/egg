@@ -11,11 +11,13 @@ Precedence (highest first), matching #2769 task-2-3:
    :class:`AgentRole` at construction time.
 2. ``repositories.yaml`` ``default_agent_model`` — repository-level
    default surfaced via :func:`config.repo_config.get_default_agent_model`.
-3. Built-in ``"opus"`` default — preserves today's Claude-only behaviour.
+3. Built-in default — ``"fable"`` for the refine and plan phase roles
+   (:data:`_FABLE_DEFAULT_ROLES`), ``"opus"`` for everything else.
 
 Classifier: a model string matching one of the recognised Claude
 aliases (``opus``, ``opus[1m]``, ``sonnet``, ``sonnet[1m]``, ``haiku``,
-``claude-*``) routes through the Anthropic upstream — the agent's
+``fable``, ``fable[1m]``, ``claude-*``) routes through the Anthropic
+upstream — the agent's
 ``--model`` flag is set to that alias verbatim and the gateway
 forwards the request body byte-for-byte. Any other string is treated
 as a LiteLLM-side model name (#2832): the upstream is ``"litellm"``,
@@ -42,7 +44,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from egg_contracts.agent_roles import AgentRole
+from egg_contracts.agent_roles import EGG_REPO, AgentRole, get_roles_for_phase
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,25 @@ logger = logging.getLogger(__name__)
 # repository-level default_agent_model is set. Matches today's hardcoded
 # default in ``orchestrator/consensus_wrapper.py::build_consensus_wrapped_command``.
 DEFAULT_AGENT_MODEL = "opus"
+
+# Built-in default for the refine and plan phases. The drafting-heavy
+# upstream phases (analysis, slice DAG, contract shape) run on the
+# highest-capability tier; implement and downstream phases stay on
+# DEFAULT_AGENT_MODEL. Both pipeline-level ``agent_models`` and the
+# repo-level ``default_agent_model`` still override this (precedence
+# unchanged — this only splits the tier-3 built-in by role).
+FABLE_DEFAULT_MODEL = "fable"
+
+# Role values that pick up FABLE_DEFAULT_MODEL at tier 3. Derived from
+# the phase→role tables so new refine/plan roles inherit the default
+# without a parallel list here. ``repo=EGG_REPO`` includes the egg-only
+# reviewers (e.g. reviewer_agent_design) — membership is keyed by role
+# only, and roles that never spawn for a repo are simply never resolved.
+_FABLE_DEFAULT_ROLES: frozenset[str] = frozenset(
+    role.value
+    for phase in ("refine", "plan")
+    for role in get_roles_for_phase(phase, include_reviewers=True, repo=EGG_REPO)
+)
 
 # Upstream identifiers used by the gateway's UpstreamRegistry
 # (gateway/upstream_registry.py).
@@ -91,6 +112,8 @@ _CLAUDE_EXACT_ALIASES = frozenset(
         "sonnet",
         "sonnet[1m]",
         "haiku",
+        "fable",
+        "fable[1m]",
     }
 )
 _CLAUDE_VERSIONED_RE = re.compile(r"^claude-")
@@ -299,13 +322,17 @@ def resolve_agent_model(
         if repo_default:
             return classify_model(repo_default)
 
-    # Tier 3: built-in default.
+    # Tier 3: built-in default — refine/plan roles run the
+    # highest-capability tier, everything else stays on opus.
+    if role_value in _FABLE_DEFAULT_ROLES:
+        return classify_model(FABLE_DEFAULT_MODEL)
     return classify_model(DEFAULT_AGENT_MODEL)
 
 
 __all__ = [
     "AgentModelDecision",
     "DEFAULT_AGENT_MODEL",
+    "FABLE_DEFAULT_MODEL",
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",

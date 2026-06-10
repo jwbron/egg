@@ -920,7 +920,8 @@ class PipelineConfig(BaseModel):
             "such as overseer or autofixer are rejected at construction "
             "time because their spawn paths never consult the resolver. "
             "The value is the upstream-side model name: a Claude alias "
-            "(opus / opus[1m] / sonnet / sonnet[1m] / haiku / claude-*) "
+            "(opus / opus[1m] / sonnet / sonnet[1m] / haiku / fable / "
+            "fable[1m] / claude-*) "
             "routes through the Anthropic upstream, anything else routes "
             "through the in-cluster LiteLLM proxy with the "
             "ANTHROPIC_CUSTOM_MODEL_OPTION env-var registration set on "
@@ -929,7 +930,8 @@ class PipelineConfig(BaseModel):
             "recognized-alias mitigation). When a role is absent from "
             "this mapping the resolver falls back to the "
             "repository-level default_agent_model setting and then to the "
-            "built-in 'opus' default. See #2769."
+            "built-in default ('fable' for refine/plan phase roles, "
+            "'opus' otherwise). See #2769."
         ),
     )
 
