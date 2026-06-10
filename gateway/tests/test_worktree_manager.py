@@ -1769,7 +1769,7 @@ class TestAssignedBranchForkPoint:
 
         def mock_run(args, **kwargs):
             if "fetch" in args:
-                raise subprocess.TimeoutExpired(cmd=args, timeout=30)
+                raise subprocess.TimeoutExpired(cmd=args, timeout=15)
             raise AssertionError(f"unexpected subprocess call: {args}")
 
         with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "")):

@@ -874,7 +874,15 @@ class WorktreeManager:
                     capture_output=True,
                     text=True,
                     check=False,
-                    timeout=30,
+                    # Matches the reuse path's per-fetch budget at
+                    # ``_reset_reused_worktree_to_safe_ref`` (line 1013) so
+                    # the worst-case create-path latency under
+                    # ``_get_repo_lock`` is bounded by ``base (30s) +
+                    # assigned (15s) = 45s`` rather than 60s.  The base
+                    # fetch keeps its 30s budget because it hard-fails per
+                    # #3021; the assigned fetch is best-effort and falls
+                    # back to the base branch on timeout.
+                    timeout=15,
                     env=fetch_env,
                 )
         except Exception as exc:

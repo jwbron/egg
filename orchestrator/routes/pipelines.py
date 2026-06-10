@@ -3161,13 +3161,16 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     Preservation semantics (#3080): per-agent worktrees AND their local
     branches are deleted, so per-role branch tips do not survive a phase
     restart.  Unpushed commits are salvaged to ``egg/recovered/*`` refs
-    first (#2429); the respawned agents' fresh worktrees re-fork from the
-    shared work branch tip (``origin/<assigned_branch>``, base-branch
-    fallback when unpushed — see #3068).  Anything that lived only on a
-    per-role branch (e.g. a reviewer's merge history) is therefore
-    discarded from agent trees; only state pushed to the shared work
-    branch is re-materialised on respawn.  Operators needing per-worktree
-    retention should use ``restart_agent`` instead.
+    on a best-effort basis (#2429) — ``auto_salvage_pipeline``
+    re-enumerates worktrees with ``validate_git=True``, so worktrees
+    with a corrupted ``.git`` marker (the #1723 failure class) may be
+    skipped without salvage.  The respawned agents' fresh worktrees
+    re-fork from the shared work branch tip (``origin/<assigned_branch>``,
+    base-branch fallback when unpushed — see #3068).  Anything that
+    lived only on a per-role branch (e.g. a reviewer's merge history)
+    is therefore discarded from agent trees; only state pushed to the
+    shared work branch is re-materialised on respawn.  Operators needing
+    per-worktree retention should use ``restart_agent`` instead.
 
     URL params:
         pipeline_id: Pipeline ID
