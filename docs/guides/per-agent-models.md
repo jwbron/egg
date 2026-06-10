@@ -68,7 +68,8 @@ PipelineConfig(
 
 Default-constructed `PipelineConfig.agent_models` is `{}` — every
 existing pipeline continues to spawn every role on the built-in
-`"opus"` Claude default with `upstream="anthropic"`.
+Claude default with `upstream="anthropic"` (`"fable"` for the
+refine/plan phase roles, `"opus"` for everything else).
 
 ### Repository-level default — `default_agent_model`
 
@@ -101,8 +102,9 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
 1. `pipeline_config.agent_models.get(role.value)` — per-pipeline,
    per-role override
 2. `get_default_agent_model(repo)` — repository-level default
-3. Built-in `"opus"` — the historical default; preserves today's
-   behavior unchanged
+3. Built-in default — `"fable"` for the refine and plan phase roles
+   (producers and reviewers, `_FABLE_DEFAULT_ROLES`), `"opus"` for
+   everything else
 
 The result is an `AgentModelDecision` dataclass with fields
 `(claude_code_alias: str, upstream: str, upstream_model: str | None)`.
@@ -113,7 +115,7 @@ The resolver's classifier divides model strings into two camps:
 
 | Model string pattern | `upstream` | `claude_code_alias` | `upstream_model` |
 |----------------------|------------|---------------------|------------------|
-| `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | `"anthropic"` | the model string verbatim | `None` |
+| `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku`, `fable`, `fable[1m]` | `"anthropic"` | the model string verbatim | `None` |
 | `claude-*` (e.g. `claude-3-5-sonnet-20241022`) | `"anthropic"` | the model string verbatim | `None` |
 | Everything else with a real window ≥1M (e.g. `qwen3.7-max`, `deepseek-v4-*`) | `"litellm"` | `<model>[1m]` (the bare upstream name plus the 1M-context opt-in suffix) | the bare upstream name |
 | Sub-1M-window models (`_SUB_1M_CONTEXT_MODELS`: `kimi-k2.6` 256K, `glm-5.1` 202K) | `"litellm"` | `<model>` — bare, **no** `[1m]` (takes Claude Code's 200K default) | the bare upstream name |
@@ -524,7 +526,8 @@ optional `branch` override:
 
 Per-pipeline `agent_models` entries **override** the repo-level
 `default_agent_model`. Both can be unset — the resolver falls back to
-the built-in `"opus"`.
+the built-in default (`"fable"` for refine/plan roles, `"opus"`
+otherwise).
 
 ### 4. Run the pipeline and observe routing
 
@@ -602,7 +605,8 @@ invariant](../architecture/upstream-routing.md#no-op-by-default-invariant)):
 3. **`agent_models` default is empty.** Both
    `PipelineConfig.agent_models` and repo-level
    `default_agent_model` default to nothing — the resolver returns
-   the built-in `"opus"` Anthropic path.
+   the built-in Anthropic path (`"fable"` for refine/plan roles,
+   `"opus"` otherwise).
 
 Any single guard suffices. All three are independent; a
 misconfiguration on one does not silently activate the LiteLLM path.

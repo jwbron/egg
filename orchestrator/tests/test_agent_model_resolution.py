@@ -9,12 +9,14 @@ Precedence (highest wins):
 
     1. ``pipeline_config.agent_models.get(role.value)``  — per-pipeline
     2. ``get_default_agent_model(repo)``                 — per-repo
-    3. ``"opus"`` built-in default
+    3. Built-in default — ``"fable"`` for refine/plan phase roles,
+       ``"opus"`` for everything else
 
 Classifier (model string → upstream):
 
     * ``"opus"``, ``"opus[1m]"``, ``"sonnet"``, ``"sonnet[1m]"``,
-      ``"haiku"``, ``"claude-*"``  → ``upstream="anthropic"``,
+      ``"haiku"``, ``"fable"``, ``"fable[1m]"``, ``"claude-*"``
+      → ``upstream="anthropic"``,
       ``claude_code_alias=<the string>``, ``upstream_model=None``.
     * anything else → ``upstream="litellm"``,
       ``claude_code_alias="<model>[1m]"`` (#2832: the [1m] suffix
@@ -251,7 +253,7 @@ class TestAnthropicClassification:
 
     @pytest.mark.parametrize(
         "model",
-        ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"],
+        ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "fable", "fable[1m]"],
     )
     def test_short_claude_alias_is_anthropic(self, model):
         resolve_agent_model = _resolver()
@@ -750,10 +752,12 @@ class TestDualImportRepoConfig:
 
 class TestDefaultPathRegression:
     """With ``agent_models={}`` and no repo default, EVERY role resolves
-    to the Anthropic default — this is the slice-2 no-op invariant.
+    to an Anthropic-route built-in: ``fable`` for the refine/plan phase
+    roles, ``opus`` for everything else. ``upstream_model`` stays
+    ``None`` on every default path — the slice-2 no-op invariant.
     """
 
-    def test_every_assigned_role_defaults_to_anthropic_opus(self):
+    def test_implement_phase_roles_default_to_anthropic_opus(self):
         resolve_agent_model = _resolver()
         AgentRole = _agent_role()
         config = _pipeline_config()
@@ -763,10 +767,6 @@ class TestDefaultPathRegression:
                 AgentRole.CODER,
                 AgentRole.TESTER,
                 AgentRole.DOCUMENTER,
-                AgentRole.REFINER,
-                AgentRole.ARCHITECT,
-                AgentRole.TASK_PLANNER,
-                AgentRole.RISK_ANALYST,
                 AgentRole.REVIEWER_CODE,
                 AgentRole.REVIEWER_CONTRACT,
                 AgentRole.REVIEWER_CODE_HOLISTIC,
@@ -781,3 +781,44 @@ class TestDefaultPathRegression:
                     f"upstream_model={d.upstream_model!r} — slice-2 "
                     f"regression: default config must be Anthropic-only"
                 )
+
+    def test_refine_and_plan_roles_default_to_anthropic_fable(self):
+        """Refine/plan producers and reviewers pick up the built-in
+        ``fable`` default while staying on the Anthropic upstream."""
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config()
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            for role in (
+                AgentRole.REFINER,
+                AgentRole.REVIEWER_REFINE,
+                AgentRole.REVIEWER_AGENT_DESIGN,
+                AgentRole.ARCHITECT,
+                AgentRole.TASK_PLANNER,
+                AgentRole.RISK_ANALYST,
+                AgentRole.REVIEWER_PLAN,
+            ):
+                d = resolve_agent_model(role, config, "any/repo")
+                assert d.claude_code_alias == "fable", (
+                    f"{role.value} should default to fable, got {d.claude_code_alias!r}"
+                )
+                assert d.upstream == "anthropic"
+                assert d.upstream_model is None
+
+    def test_repo_default_overrides_fable_builtin(self):
+        """A repo-level ``default_agent_model`` still beats the built-in
+        fable default — precedence is unchanged, only tier 3 split."""
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config()
+
+        with patch(
+            "config.repo_config.get_default_agent_model",
+            return_value="sonnet",
+        ):
+            d = resolve_agent_model(AgentRole.REFINER, config, "owner/repo")
+
+        assert d.claude_code_alias == "sonnet"
+        assert d.upstream == "anthropic"
+        assert d.upstream_model is None
