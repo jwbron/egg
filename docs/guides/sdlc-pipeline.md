@@ -500,7 +500,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > keys before constructing `PRMetadata` and bumps `schemaVersion` to
 > `"1.2"`; the new value is persisted on the next save (see the
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
-
+>
 > **Schema 1.3 (#3033)**: The default `schemaVersion` is now `"1.3"`. An
 > optional `task_description` field was added at the top level. It holds
 > the full, untruncated pipeline prompt for free-text and JIRA-driven
