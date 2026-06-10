@@ -294,7 +294,12 @@ class WorktreeManager:
                 the sandbox's push client builds a refspec that targets the
                 assigned branch instead of the per-worktree local branch
                 (which the gateway would reject as push_denied_wrong_branch).
-                See #1809.
+                See #1809.  Also the preferred fork point for *fresh*
+                worktrees: when ``origin/{assigned_branch}`` exists, the
+                worktree forks from its tip (which carries the
+                orchestrator's contract-init commit and any seeded
+                drafts) rather than from ``base_branch`` — see #3068 and
+                :meth:`_resolve_assigned_fork_point`.
             repo_slug: Full ``owner/repo`` slug used to resolve the GitHub
                 token for the authenticated base-branch fetch (#3021).
                 Defaults to ``repo_name`` when omitted, which makes token
@@ -522,6 +527,28 @@ class WorktreeManager:
                             f"{fetch_result.stderr.strip()}"
                         )
                     effective_base = f"origin/{fetch_ref}"
+
+                # Prefer the assigned branch's remote tip over the base
+                # branch when it exists (#3068).  The orchestrator's
+                # contract-init commit (SDLC contract + any seeded
+                # analysis/plan drafts) lands on the assigned branch and is
+                # pushed before agents spawn; forking from the base left
+                # every fresh agent worktree behind that commit, so seeded
+                # artifacts never reached agents.  Mirrors the reuse path's
+                # candidate order (``origin/{assigned}`` -> ``origin/{base}``
+                # in ``_reset_reused_worktree_to_safe_ref``).  Best-effort:
+                # an assigned branch with nothing pushed yet falls back to
+                # the base branch (the prior behaviour); the base fetch
+                # above keeps its #3021 hard-fail semantics either way.
+                if assigned_branch:
+                    assigned_fork_point = self._resolve_assigned_fork_point(
+                        main_repo=main_repo,
+                        assigned_branch=assigned_branch,
+                        repo_slug=repo_slug,
+                        container_id=container_id,
+                    )
+                    if assigned_fork_point:
+                        effective_base = assigned_fork_point
 
                 # Create new branch from the freshly fetched remote tip
                 result = self._run_git_worktree_add(
@@ -785,6 +812,87 @@ class WorktreeManager:
             yield env
         finally:
             cleanup_credential_helper(cred_path)
+
+    def _resolve_assigned_fork_point(
+        self,
+        main_repo: Path,
+        assigned_branch: str,
+        repo_slug: str,
+        container_id: str,
+    ) -> str | None:
+        """Resolve ``origin/{assigned_branch}`` as the fork point, if pushed.
+
+        Fresh worktrees historically forked from ``origin/{base_branch}``
+        only — but the orchestrator commits pipeline state (the SDLC
+        contract plus any seeded analysis/plan drafts) to the assigned
+        branch and pushes it *before* agents spawn (the contract-init push
+        is mandatory; see "Worktree State Synchronization" in
+        ``docs/guides/sdlc-pipeline.md``).  Forking from the base left
+        every fresh agent worktree behind that commit, so seeded artifacts
+        never reached agent worktrees (#3068).
+
+        This mirrors the reuse path's candidate order in
+        :meth:`_reset_reused_worktree_to_safe_ref` (``origin/{assigned}``
+        first, ``origin/{base}`` as fallback) — and the same safety
+        argument carries over: the orchestrator's create-pipeline
+        stale-branch check (#2222 Phase 3a) refuses re-submits where
+        ``origin/{assigned}`` carries prior-pipeline commits.
+
+        Best-effort by design: a spawn can legitimately precede any push
+        of the assigned branch (e.g. a slice integration branch that the
+        first push creates), in which case the fetch finds nothing, this
+        returns ``None``, and the caller falls back to the base branch —
+        the pre-#3068 behaviour.  Contrast the base-branch fetch, which
+        hard-fails per #3021 because the base must exist on origin.
+
+        Returns:
+            ``origin/{assigned_branch}`` when the branch exists on origin
+            (tracking ref freshly fetched), else ``None``.
+        """
+        try:
+            with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
+                fetch_result = subprocess.run(
+                    git_cmd("fetch", "origin", _tracking_refspec(assigned_branch)),
+                    cwd=main_repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                    env=fetch_env,
+                )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "Assigned-branch fetch before worktree create failed (falling back to base)",
+                container_id=container_id,
+                assigned_branch=assigned_branch,
+                error=str(exc),
+            )
+            return None
+        if fetch_result.returncode != 0:
+            logger.info(
+                "Assigned branch not on origin yet — forking worktree from base",
+                container_id=container_id,
+                assigned_branch=assigned_branch,
+                stderr=fetch_result.stderr.strip()[:200],
+            )
+            return None
+
+        candidate = f"origin/{assigned_branch}"
+        verify = subprocess.run(
+            git_cmd("rev-parse", "--verify", candidate),
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if verify.returncode != 0:
+            return None
+        logger.info(
+            "Forking worktree from assigned branch tip",
+            container_id=container_id,
+            assigned_branch=assigned_branch,
+        )
+        return candidate
 
     def _reset_reused_worktree_to_safe_ref(
         self,
