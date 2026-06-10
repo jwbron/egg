@@ -729,6 +729,7 @@ def build_event_pump_wrapped_command(
     idle_budget_min: int = EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT,
     heartbeat_interval_secs: int = EVENT_PUMP_HEARTBEAT_INTERVAL_SECS_DEFAULT,
     wait_timeout_secs: int = EVENT_PUMP_WAIT_TIMEOUT_SECS_DEFAULT,
+    effort: str | None = None,
 ) -> list[str]:
     """Compose the event-pump wrapper bash command (#2908 task-2-1).
 
@@ -756,6 +757,10 @@ def build_event_pump_wrapped_command(
         "--max-turns",
         str(max_turns),
     ]
+    if effort is not None:
+        # Pin the reasoning effort instead of inheriting the installed
+        # Claude Code build's per-model default (AgentModelDecision.effort).
+        agent_prefix_parts.extend(["--effort", effort])
     agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
 
     script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
@@ -771,6 +776,7 @@ def build_consensus_wrapped_command(
     prompt_text: str,
     model: str = "opus",
     max_turns: int = 1000,
+    effort: str | None = None,
 ) -> list[str]:
     """Build a shell command that runs the agent under the BRC event-pump wrapper.
 
@@ -791,6 +797,9 @@ def build_consensus_wrapped_command(
         model: Agent model to use.
         max_turns: Maximum number of tool-call turns per agent
             invocation.
+        effort: Reasoning effort to pin via ``--effort`` (e.g.
+            ``"high"``), or ``None`` to inherit Claude Code's
+            per-model default.
 
     Returns:
         Command list suitable for container spawning (``bash -c "..."``).
@@ -799,4 +808,5 @@ def build_consensus_wrapped_command(
         prompt_text,
         model=model,
         max_turns=max_turns,
+        effort=effort,
     )

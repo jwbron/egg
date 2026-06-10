@@ -168,6 +168,7 @@ async def run_agent_async(
     on_output: Callable[[str], None] | None = None,
     env: dict[str, str] | None = None,
     intercept_tools: bool = True,
+    effort: str | None = None,
 ) -> AgentResult:
     """Run a Claude agent using the Agent SDK.
 
@@ -184,6 +185,10 @@ async def run_agent_async(
             calls that violate role-based file restrictions. Blocked tools
             return an error to the LLM instead of executing.
             Only active when EGG_AGENT_ROLE is set.
+        effort: Reasoning effort level (``low`` / ``medium`` / ``high`` /
+            ``max``), passed to the CLI as ``--effort``. ``None``
+            (default) omits the flag so the session inherits Claude
+            Code's per-model default.
 
     Returns:
         :class:`AgentResult` with response text and metadata.
@@ -295,6 +300,9 @@ async def run_agent_async(
         options.max_turns = max_turns
     if system_prompt is not None:
         options.system_prompt = system_prompt
+    if effort is not None:
+        # The SDK passes this to the spawned CLI as ``--effort <level>``.
+        options.effort = effort
 
     # --- Register in-process SDK MCP servers with egg's agent tools ---
     # Default-on since issue #1942.  Set ``EGG_MCP_TOOLS=false`` (or
@@ -484,6 +492,7 @@ async def run_agent_async(
         event_type="system",
         event_subtype="init",
         model=model,
+        effort=effort,
         cwd=effective_cwd,
         permission_mode="bypassPermissions",
         max_turns=max_turns,
