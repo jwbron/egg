@@ -210,7 +210,16 @@ PIPELINE_TOOLS = [
     },
     {
         "name": "provide_input",
-        "description": "Provide human input for a pipeline decision.",
+        "description": (
+            "Provide human input for a pipeline decision. Resolves "
+            "orchestrator-queued decisions (phase gates, overseer "
+            "escalations); when the id is not in the queue it falls back to "
+            "contract-resident HITL decisions (`cq-N`, registered by agents "
+            "via `register_open_question` or impasse escalation) and writes "
+            "the resolution onto the contract so the blocked agent unblocks "
+            "on its next poll (#3071). For contract `feedback-N` requests "
+            "use `answer_feedback` instead."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {

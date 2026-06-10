@@ -708,12 +708,16 @@ class TestResolveEmitsEvent:
         )
 
         assert response.status_code == 200
+        # ``scope: "queue"`` is added for parity with the contract
+        # fallback's ``scope: "contract"`` so consumers can distinguish
+        # which write path resolved the decision (#3071 review item 5).
         mock_emit.assert_called_once_with(
             EventType.DECISION_RESOLVED,
             pipeline_id="test-pipeline",
             data={
                 "decision_id": "decision-1",
                 "resolution": '{"action": "approve"}',
+                "scope": "queue",
             },
         )
 
@@ -924,6 +928,7 @@ class TestChoiceEnvelopeDispatchNormalization:
             data={
                 "decision_id": "decision-1",
                 "resolution": envelope,
+                "scope": "queue",
             },
         )
 
