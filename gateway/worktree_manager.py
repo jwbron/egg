@@ -992,9 +992,7 @@ class WorktreeManager:
         # the prefix on both so the fetch refspec and the candidate-ref
         # lookup below agree on the bare name — otherwise the secondary
         # candidate is built as ``origin/origin/main`` and fails to resolve.
-        assigned_name = (
-            assigned_branch.removeprefix("origin/") if assigned_branch else None
-        )
+        assigned_name = assigned_branch.removeprefix("origin/") if assigned_branch else None
         fetch_branches: list[str] = []
         if assigned_name:
             fetch_branches.append(assigned_name)
