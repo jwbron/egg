@@ -236,6 +236,23 @@ class ProposalPayload(BaseModel):
         ``RECONSTRUCTED_NO_SHA`` that downstream code keys on. Skipped
         for a no-op propose (#3027): ``commit_sha`` is empty by design
         there.
+
+        Asymmetric regex with
+        ``orchestrator/routes/event_prompt.py::_extract_proposal_sha_for_producer``
+        is intentional: the strict hex-only check there is the
+        shell-interpolation boundary (rejects sentinels before they
+        reach a rendered ``git`` command), while this loose
+        alphanumeric+underscore check is the writer-side baseline
+        (admits sentinels so they can round-trip through
+        ``_proposal_commit_shas`` to non-shell consumers). Do not
+        unify — tightening this regex breaks the sentinel round-trip;
+        loosening the reader regex re-opens the shell-injection gap.
+
+        Relies on ``validate_commit_sha_present`` running first
+        (pydantic ``model_validator(mode="after")`` honours definition
+        order) to reject empty non-no-op proposals before this check
+        sees them; the ``not self.commit_sha`` guard below is
+        defence-in-depth and unreachable in practice.
         """
         if self.no_changes_needed or not self.commit_sha:
             return self

@@ -850,6 +850,17 @@ def _extract_proposal_sha_for_producer(event_payload: Any, producer: str) -> str
     The value is sanitised to a hex-ish token before being embedded in
     rendered shell commands: anything that is not a 7-64 char hex
     string is discarded rather than interpolated.
+
+    Asymmetric regex with
+    ``orchestrator/attestation_schemas.py::ProposalPayload.validate_commit_sha_format``
+    is intentional: that writer-side validator uses a loose
+    ``[A-Za-z0-9_]{7,64}`` so reconstruction sentinels (e.g.
+    ``RECONSTRUCTED_NO_SHA``) round-trip through
+    ``_proposal_commit_shas`` to non-shell consumers; this reader-side
+    check is the strict hex-only shell-interpolation boundary that
+    rejects those sentinels before any rendered ``git`` command sees
+    them. Do not unify — tightening the writer breaks the sentinel
+    round-trip; loosening this reader re-opens the shell-injection gap.
     """
     if not isinstance(event_payload, dict) or not isinstance(producer, str):
         return ""

@@ -2201,7 +2201,7 @@ class TestResolveReviewerDeltaRange:
             {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "1111111"},
         )
         # Reviewer never verdicted (entry.version == 0).
-        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "sha2")
+        rng = _resolve_reviewer_delta_range(tracker, "coder", "reviewer_code", "2222222")
         assert rng is None
 
     def test_empty_head_returns_none(self, tracker):
