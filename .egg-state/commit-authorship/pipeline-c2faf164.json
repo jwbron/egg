@@ -71,6 +71,14 @@
       "registered_at": "2026-06-10T17:53:25.211932+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "f16d1da2ecb954ead83be004560a26f3cd81ff26": {
+      "branch": "egg/pipeline-c2faf164/work",
+      "patch_id": "38936ab9e407d044e0c0f62548f20928f4019fbb",
+      "pipeline_id": "pipeline-c2faf164",
+      "registered_at": "2026-06-10T18:27:17.711579+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     }
   },
   "version": 2
