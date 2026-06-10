@@ -1694,6 +1694,70 @@ class TestAssignedBranchForkPoint:
             f"unpushed assigned branch should fall back to base tip {main_tip}; got {head}"
         )
 
+    @patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", ""))
+    def test_restart_recreated_worktree_forks_from_advanced_assigned_tip(
+        self, _mock_get_token, pipeline_remote
+    ):
+        """``restart_phase`` deletes per-agent worktrees *and* their local
+        branches, then respawns through the fresh-create path (#3080).  The
+        re-created worktree must fork from the assigned branch tip — which
+        carries the drafts the agents pushed during the phase — not from
+        base, or every respawned producer is stranded from its own prior
+        work and reviewers re-arm the phantom-NACK loop (#3076)."""
+        manager, seed, main_tip = pipeline_remote
+
+        # First spawn: nothing pushed to the assigned branch yet, so the
+        # worktree forks at base (the documented fallback).
+        info = manager.create_worktree(
+            "test-repo",
+            "pipe-3-architect",
+            base_branch="main",
+            assigned_branch="egg/pipe-3/work",
+        )
+        head = subprocess.run(
+            ["git", "-C", str(info.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head == main_tip
+
+        # During the phase, producer pushes advance the assigned branch
+        # with committed drafts (agents' default push upstream targets it).
+        subprocess.run(["git", "checkout", "-b", "egg/pipe-3/work"], cwd=seed, check=True)
+        draft_tip = self._commit(
+            seed, ".egg-state/drafts/pipe-3-plan.md", "architect plan draft v7"
+        )
+        subprocess.run(["git", "push", "origin", "egg/pipe-3/work"], cwd=seed, check=True)
+
+        # restart_phase: delete_worktrees(force=True) → remove_worktree with
+        # the default delete_branch=True, so the local per-agent branch dies
+        # with the worktree and re-creation cannot take the branch-reuse path.
+        removal = manager.remove_worktree(
+            container_id="pipe-3-architect", repo_name="test-repo", force=True
+        )
+        assert removal.success
+        assert removal.branch_deleted
+
+        # Respawn: the fresh worktree must materialise the preserved drafts.
+        info2 = manager.create_worktree(
+            "test-repo",
+            "pipe-3-architect",
+            base_branch="main",
+            assigned_branch="egg/pipe-3/work",
+        )
+        head2 = subprocess.run(
+            ["git", "-C", str(info2.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head2 == draft_tip, (
+            f"restart-recreated worktree should fork from the advanced assigned "
+            f"tip {draft_tip}; got {head2}"
+        )
+        assert (info2.worktree_path / ".egg-state" / "drafts" / "pipe-3-plan.md").exists()
+
     def test_assigned_fetch_timeout_falls_back_to_base(self, tmp_path):
         """A timeout on the assigned-branch fetch is best-effort: the
         helper returns None (caller falls back to base) instead of raising
