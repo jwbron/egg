@@ -443,19 +443,22 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 
 ```json
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "issue": {
     "number": 123,
     "title": "Add feature X",
     "url": "https://github.com/org/repo/issues/123"
   },
+  "task_description": null,
   "current_phase": "implement",
-  "phases": [
+  "slices": [
     {
-      "id": "phase-1",
+      "id": "slice-1",
       "name": "Core Implementation",
       "status": "in_progress",
       "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
       "tasks": [
         {
           "id": "task-1-1",
@@ -468,10 +471,12 @@ The local orchestrator handles concurrent contract updates through `orchestrator
       "review_feedback": []
     },
     {
-      "id": "phase-2",
+      "id": "slice-2",
       "name": "Integration",
       "status": "pending",
-      "dependencies": ["phase-1"],
+      "dependencies": ["slice-1"],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
       "tasks": [],
       "review_feedback": []
     }
@@ -495,6 +500,18 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > keys before constructing `PRMetadata` and bumps `schemaVersion` to
 > `"1.2"`; the new value is persisted on the next save (see the
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
+>
+> **Schema 1.3 (#3033)**: `schemaVersion` bumped from `"1.2"` to `"1.3"`.
+> An optional `task_description` field was added to `Contract` to persist
+> the full, untruncated pipeline prompt for free-text and JIRA-driven
+> pipelines (where `pipeline.issue_number is None`). Under the BRC
+> event-pump model the orchestrator-built spawn prompt is not delivered to
+> agents; `task_description` becomes the authoritative channel for
+> recovering the complete task from the contract. For GitHub-issue
+> pipelines, `task_description` is `null` — the agent fetches the body
+> out-of-band via `gh issue view`. The migration is purely additive:
+> `Contract._migrate_schema_version_to_1_3` (a `mode="after"` validator)
+> promotes pre-1.3 contracts to `"1.3"` on load; no fields are removed.
 
 ### Role-Based Field Ownership
 

@@ -83,8 +83,9 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "issue": { "number": 133, "title": "...", "url": "..." },
+  "task_description": null,
   "current_phase": "implement",
   "slices": [{
     "id": "slice-1",
@@ -101,6 +102,23 @@ The contract is a JSON document tracking the complete state of an issue through 
       "review_cycles": 1
     }]
   }],
+  "workflow_owner": "my-org",
+  "audit_log": [...]
+}
+```
+
+For a free-text or JIRA-driven pipeline (no GitHub issue), `issue` is
+`null` and `task_description` carries the full, untruncated prompt that
+the agent reads to recover the task:
+
+```json
+{
+  "schemaVersion": "1.3",
+  "issue": null,
+  "pipeline_id": "KORE-1234",
+  "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
+  "current_phase": "implement",
+  "slices": [...],
   "workflow_owner": "my-org",
   "audit_log": [...]
 }
@@ -138,6 +156,17 @@ The contract is a JSON document tracking the complete state of an issue through 
 > removed keys before Pydantic constructs `PRMetadata` and bumps
 > `schemaVersion` to `"1.2"`; the new value is persisted on the next
 > save. See [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
+>
+> **Schema 1.3 (#3033)**: `schemaVersion` bumped from `1.2` to `1.3`.
+> An optional `task_description: str | None` field was added to `Contract`
+> to persist the full pipeline prompt for free-text and JIRA-driven pipelines
+> (where `pipeline.issue_number is None`). Under the BRC event-pump model the
+> orchestrator-built spawn prompt is not delivered to agents;
+> `task_description` becomes the authoritative recovery path for the complete
+> task. For GitHub-issue pipelines the field is `null` — the agent fetches the
+> body out-of-band via `gh issue view`. The migration is purely additive:
+> `Contract._migrate_schema_version_to_1_3` (`mode="after"`) promotes
+> pre-1.3 contracts on every load; no fields are removed.
 >
 > **Context-PR mechanism (#2777 collapse).** The context PR is opened
 > **up-front at the plan→implement boundary**, **hard-required** and
