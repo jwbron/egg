@@ -1767,9 +1767,12 @@ class TestAssignedBranchForkPoint:
             repos_base=tmp_path / "repos",
         )
 
+        observed_timeouts: list[int | None] = []
+
         def mock_run(args, **kwargs):
             if "fetch" in args:
-                raise subprocess.TimeoutExpired(cmd=args, timeout=15)
+                observed_timeouts.append(kwargs.get("timeout"))
+                raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs.get("timeout"))
             raise AssertionError(f"unexpected subprocess call: {args}")
 
         with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "")):
@@ -1782,6 +1785,14 @@ class TestAssignedBranchForkPoint:
                 )
 
         assert result is None
+        # The assigned-branch fetch budget must match the reuse path's
+        # 15s per-fetch budget in ``_reset_reused_worktree_to_safe_ref``
+        # — pin the literal so a regression of the production timeout
+        # is caught by this test rather than slipping through silently.
+        assert observed_timeouts == [15], (
+            f"expected assigned-fetch to use a 15s timeout (matching the "
+            f"reuse path); observed {observed_timeouts}"
+        )
 
     def test_assigned_rev_parse_failure_falls_back_to_base(self, tmp_path):
         """If the fetch succeeds but ``rev-parse --verify origin/<branch>``
