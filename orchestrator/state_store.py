@@ -123,10 +123,9 @@ class StateStore:
 
     PIPELINES_DIR = ".egg-state/pipelines"
 
-    # -- remote sync state -------------------------------------------------
-    _push_in_flight: ClassVar[bool] = False
-    _push_pending: ClassVar[bool] = False
-    _push_lock: ClassVar[threading.Lock] = threading.Lock()
+    # Consecutive sync_to_remote failures before an OVERSEER_ALERT fires
+    # (#3088 — a dead remote backstop must not stay invisible).
+    _SYNC_ALERT_THRESHOLD: ClassVar[int] = 5
 
     def __init__(
         self,
@@ -143,6 +142,18 @@ class StateStore:
         self.repo_path = repo_path
         self._worktree_dir = worktree_dir or _DEFAULT_WORKTREE_DIR
         self._worktree: Path | None = None  # lazily initialised
+
+        # -- remote sync state (per instance, i.e. per repo) -----------------
+        # These were ClassVars until #3088: with the debounce shared across
+        # all stores, a push for repo B arriving while repo A's push was in
+        # flight collapsed into A's pending flag — and the retry closure
+        # re-pushed A, silently dropping B's sync.  Pushes to different
+        # remotes have no reason to serialise.
+        self._push_in_flight = False
+        self._push_pending = False
+        self._push_lock = threading.Lock()
+        self._sync_consecutive_failures = 0
+        self._sync_last_error: str | None = None
 
     # -- cross-process locking ---------------------------------------------
 
@@ -862,6 +873,12 @@ class StateStore:
         and the state branch's commits and ref live in its ``.git/``
         object DB, so the push only needs the main repo path (see #1808).
 
+        A non-fast-forward rejection is reconciled via
+        :meth:`_reconcile_diverged_remote` (#3088) instead of failing
+        forever — without that, a single out-of-band write to the remote
+        state branch permanently kills this backstop.  Persistent failure
+        of any kind escalates through :meth:`_record_sync_outcome`.
+
         Returns:
             True on success, False on failure (logged, never raises)
         """
@@ -869,50 +886,196 @@ class StateStore:
             from gateway_client import get_gateway_client
 
             client = get_gateway_client()
-            return bool(
-                client.push_worktree_branch(
-                    pipeline_id="state-sync",
-                    repo_path=str(self.repo_path),
-                    branch=STATE_BRANCH,
-                    mode=self._detect_gateway_mode(),
-                    ref=STATE_BRANCH,
-                )
+            mode = self._detect_gateway_mode()
+            result = client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path=str(self.repo_path),
+                branch=STATE_BRANCH,
+                mode=mode,
+                ref=STATE_BRANCH,
             )
+            if result:
+                self._record_sync_outcome(ok=True)
+                return True
+
+            if getattr(result, "category", None) == "non_fast_forward":
+                ok = self._reconcile_diverged_remote(client, mode)
+                self._record_sync_outcome(
+                    ok=ok, detail=None if ok else "non_fast_forward: reconcile declined or failed"
+                )
+                return ok
+
+            self._record_sync_outcome(
+                ok=False,
+                detail=f"{getattr(result, 'category', 'unknown')}: {getattr(result, 'detail', '')}",
+            )
+            return False
         except Exception as e:
             logger.warning(
                 "Failed to sync state branch to remote: %s",
                 e,
             )
+            self._record_sync_outcome(ok=False, detail=str(e))
             return False
+
+    def _reconcile_diverged_remote(self, client: Any, mode: Literal["public", "private"]) -> bool:
+        """Heal a non-fast-forward state-branch push (#3088).
+
+        The state branch is single-writer by design — this orchestrator is
+        the only legitimate author — so divergence means an out-of-band
+        write landed on the remote (e.g. a manual plan edit pushed from an
+        isolated clone, the #3088 incident).  The local line has evolved
+        past that write and is authoritative: overwrite the remote with
+        ``--force-with-lease``.
+
+        Two shapes are never forced, only escalated:
+
+        * **Unrelated histories** (no merge-base): the local-wipe
+          signature (#3070) — the local branch was recreated as a fresh
+          orphan and the remote may hold the only surviving backup.
+        * **Remote strictly ahead** (local tip is the merge-base): the
+          remote is a superset of local — a local rollback.  Forcing
+          would delete records from the backup.
+
+        The lease checks the remote tip against the tracking ref the
+        explicit-refspec fetch below just updated; a bare-name fetch
+        would leave that ref stale on narrow-refspec mirrors (#3072) and
+        the lease would reject spuriously.
+
+        Returns:
+            True if the remote was reconciled (force-with-lease push
+            succeeded), False otherwise.
+        """
+        tracking_ref = f"refs/remotes/origin/{STATE_BRANCH}"
+        if not client.fetch_branch(
+            pipeline_id="state-sync",
+            repo_path=str(self.repo_path),
+            args=[f"+refs/heads/{STATE_BRANCH}:{tracking_ref}"],
+            mode=mode,
+        ):
+            logger.warning(
+                "State-branch reconcile aborted — could not fetch remote tip (repo=%s)",
+                self.repo_path,
+            )
+            return False
+
+        local = self._run_git(
+            "rev-parse", f"refs/heads/{STATE_BRANCH}", cwd=self.repo_path, check=False
+        )
+        remote = self._run_git("rev-parse", tracking_ref, cwd=self.repo_path, check=False)
+        if local.returncode != 0 or remote.returncode != 0:
+            logger.warning(
+                "State-branch reconcile aborted — could not resolve tips (repo=%s)",
+                self.repo_path,
+            )
+            return False
+        local_sha = local.stdout.strip()
+        remote_sha = remote.stdout.strip()
+
+        merge_base = self._run_git(
+            "merge-base", local_sha, remote_sha, cwd=self.repo_path, check=False
+        )
+        if merge_base.returncode != 0:
+            logger.error(
+                "OVERSEER_ALERT state_sync_unrelated_histories: local and remote "
+                "state branches share no history (repo=%s local=%s remote=%s) — "
+                "local-wipe signature (#3070); refusing to force-push over what "
+                "may be the only surviving backup",
+                self.repo_path,
+                local_sha,
+                remote_sha,
+            )
+            return False
+        if merge_base.stdout.strip() == local_sha:
+            logger.error(
+                "OVERSEER_ALERT state_sync_remote_ahead: remote state branch is "
+                "strictly ahead of local (repo=%s local=%s remote=%s) — local "
+                "rollback signature; refusing to force-push records away",
+                self.repo_path,
+                local_sha,
+                remote_sha,
+            )
+            return False
+
+        logger.info(
+            "State branch diverged from remote — overwriting out-of-band remote "
+            "write with force-with-lease (repo=%s local=%s remote=%s)",
+            self.repo_path,
+            local_sha,
+            remote_sha,
+        )
+        return bool(
+            client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path=str(self.repo_path),
+                branch=STATE_BRANCH,
+                mode=mode,
+                ref=STATE_BRANCH,
+                force_with_lease=True,
+            )
+        )
+
+    def _record_sync_outcome(self, ok: bool, detail: str | None = None) -> None:
+        """Track consecutive sync failures and escalate persistent ones (#3088).
+
+        Fires an ``OVERSEER_ALERT`` at ``_SYNC_ALERT_THRESHOLD`` consecutive
+        failures, then re-fires every 50th so a long outage stays visible
+        without per-attempt spam.  The #3088 incident ran 8 days / hundreds
+        of failed pushes with only per-attempt WARNINGs.
+        """
+        if ok:
+            if self._sync_consecutive_failures >= self._SYNC_ALERT_THRESHOLD:
+                logger.info(
+                    "State-branch remote sync recovered after %d consecutive failures (repo=%s)",
+                    self._sync_consecutive_failures,
+                    self.repo_path,
+                )
+            self._sync_consecutive_failures = 0
+            self._sync_last_error = None
+            return
+
+        self._sync_consecutive_failures += 1
+        self._sync_last_error = detail
+        n = self._sync_consecutive_failures
+        if n == self._SYNC_ALERT_THRESHOLD or n % 50 == 0:
+            logger.error(
+                "OVERSEER_ALERT state_sync_push_failing: %d consecutive state-branch "
+                "push failures (repo=%s last_error=%s) — the remote durability "
+                "backstop for this repo is dead until this is resolved",
+                n,
+                self.repo_path,
+                (detail or "")[:300],
+            )
 
     _MAX_PUSH_RETRIES: ClassVar[int] = 3
 
     def _sync_to_remote_async(self, _retry_depth: int = 0) -> None:
         """Push the state branch to remote in a daemon thread.
 
-        Debounces: if a push is already in flight, marks a pending flag so
-        the in-flight thread re-pushes after completing.  This ensures the
-        latest committed state always reaches the remote.
+        Debounces per instance (per repo, #3088): if this store's push is
+        already in flight, marks a pending flag so the in-flight thread
+        re-pushes after completing.  This ensures the latest committed
+        state always reaches the remote.
 
         Retries are capped at ``_MAX_PUSH_RETRIES`` to prevent unbounded
         recursion if commits arrive faster than pushes complete.
         """
-        with StateStore._push_lock:
-            if StateStore._push_in_flight:
-                StateStore._push_pending = True
+        with self._push_lock:
+            if self._push_in_flight:
+                self._push_pending = True
                 logger.debug("Push already in flight — marked pending for retry")
                 return
-            StateStore._push_in_flight = True
+            self._push_in_flight = True
 
         def _push() -> None:
             try:
                 self.sync_to_remote()
             finally:
                 retry = False
-                with StateStore._push_lock:
-                    StateStore._push_in_flight = False
-                    if StateStore._push_pending:
-                        StateStore._push_pending = False
+                with self._push_lock:
+                    self._push_in_flight = False
+                    if self._push_pending:
+                        self._push_pending = False
                         retry = True
                 if retry:
                     next_depth = _retry_depth + 1

@@ -4,6 +4,7 @@ Tests for state store.
 Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
+import logging
 import os
 import shutil
 import subprocess
@@ -1295,15 +1296,151 @@ class TestRemoteSync:
 
         assert result is False
 
+    # -- non-fast-forward reconcile (#3088) ---------------------------------
+
+    @staticmethod
+    def _reconcile_run_git(local_sha, remote_sha, merge_base_sha, merge_base_rc=0):
+        """Build a _run_git side_effect for the reconcile git calls."""
+
+        def fake_run_git(*args, cwd=None, check=True):
+            if args[0] == "rev-parse" and args[1].startswith("refs/heads/"):
+                return MagicMock(returncode=0, stdout=f"{local_sha}\n")
+            if args[0] == "rev-parse" and args[1].startswith("refs/remotes/"):
+                return MagicMock(returncode=0, stdout=f"{remote_sha}\n")
+            if args[0] == "merge-base":
+                return MagicMock(returncode=merge_base_rc, stdout=f"{merge_base_sha}\n")
+            raise AssertionError(f"unexpected git call: {args}")
+
+        return fake_run_git
+
+    def test_non_fast_forward_reconciles_with_force_with_lease(self, state_store):
+        """Diverged-with-shared-history overwrites the out-of-band remote write.
+
+        The state branch is single-writer; a merge-base that is neither tip
+        means an out-of-band write landed on the remote and local evolved
+        past it — local wins via force-with-lease (#3088).
+        """
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.side_effect = [
+            PushResult(ok=False, category="non_fast_forward", detail="! [rejected]"),
+            PushResult(ok=True),
+        ]
+        mock_client.fetch_branch.return_value = True
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(
+                state_store,
+                "_run_git",
+                side_effect=self._reconcile_run_git("aaa111", "bbb222", "ccc000"),
+            ),
+        ):
+            result = state_store.sync_to_remote()
+
+        assert result is True
+        mock_client.fetch_branch.assert_called_once_with(
+            pipeline_id="state-sync",
+            repo_path=str(state_store.repo_path),
+            args=["+refs/heads/egg/pipeline-state:refs/remotes/origin/egg/pipeline-state"],
+            mode="public",
+        )
+        assert mock_client.push_worktree_branch.call_count == 2
+        retry_kwargs = mock_client.push_worktree_branch.call_args_list[1].kwargs
+        assert retry_kwargs["force_with_lease"] is True
+        assert retry_kwargs["ref"] == "egg/pipeline-state"
+        assert state_store._sync_consecutive_failures == 0
+
+    def test_reconcile_refuses_unrelated_histories(self, state_store, caplog):
+        """No merge-base = local-wipe signature (#3070): never force, escalate."""
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = PushResult(
+            ok=False, category="non_fast_forward", detail="! [rejected]"
+        )
+        mock_client.fetch_branch.return_value = True
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(
+                state_store,
+                "_run_git",
+                side_effect=self._reconcile_run_git("aaa111", "bbb222", "", merge_base_rc=1),
+            ),
+            caplog.at_level(logging.ERROR, logger="orchestrator.state_store"),
+        ):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+        # No force push attempted — only the initial rejected push.
+        assert mock_client.push_worktree_branch.call_count == 1
+        assert "state_sync_unrelated_histories" in caplog.text
+
+    def test_reconcile_refuses_remote_strictly_ahead(self, state_store, caplog):
+        """Remote superset of local = local rollback: never force, escalate."""
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = PushResult(
+            ok=False, category="non_fast_forward", detail="! [rejected]"
+        )
+        mock_client.fetch_branch.return_value = True
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(
+                state_store,
+                "_run_git",
+                # merge-base == local tip → remote is strictly ahead
+                side_effect=self._reconcile_run_git("aaa111", "bbb222", "aaa111"),
+            ),
+            caplog.at_level(logging.ERROR, logger="orchestrator.state_store"),
+        ):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+        assert mock_client.push_worktree_branch.call_count == 1
+        assert "state_sync_remote_ahead" in caplog.text
+
+    def test_reconcile_aborts_when_fetch_fails(self, state_store):
+        """Reconcile cannot verify divergence without the remote tip — no force."""
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = PushResult(
+            ok=False, category="non_fast_forward", detail="! [rejected]"
+        )
+        mock_client.fetch_branch.return_value = False
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+        assert mock_client.push_worktree_branch.call_count == 1
+
+    # -- persistent-failure escalation (#3088) -------------------------------
+
+    def test_persistent_sync_failure_fires_overseer_alert(self, state_store, caplog):
+        """The Nth consecutive failure escalates beyond per-attempt WARNINGs."""
+        with caplog.at_level(logging.ERROR, logger="orchestrator.state_store"):
+            for _ in range(StateStore._SYNC_ALERT_THRESHOLD - 1):
+                state_store._record_sync_outcome(ok=False, detail="auth_failed: nope")
+            assert "OVERSEER_ALERT state_sync_push_failing" not in caplog.text
+
+            state_store._record_sync_outcome(ok=False, detail="auth_failed: nope")
+            assert "OVERSEER_ALERT state_sync_push_failing" in caplog.text
+
+    def test_sync_success_resets_failure_counter(self, state_store, caplog):
+        """A successful push resets the streak and logs recovery."""
+        for _ in range(StateStore._SYNC_ALERT_THRESHOLD):
+            state_store._record_sync_outcome(ok=False, detail="boom")
+
+        with caplog.at_level(logging.INFO, logger="orchestrator.state_store"):
+            state_store._record_sync_outcome(ok=True)
+
+        assert state_store._sync_consecutive_failures == 0
+        assert state_store._sync_last_error is None
+        assert "recovered" in caplog.text
+
     def test_sync_to_remote_async_debounces_and_retries(self, state_store):
         """_sync_to_remote_async retries after in-flight push when pending flag is set."""
         import time
 
         call_count = 0
-        original_in_flight = StateStore._push_in_flight
-        original_pending = StateStore._push_pending
-        StateStore._push_in_flight = False
-        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count
@@ -1311,32 +1448,24 @@ class TestRemoteSync:
             time.sleep(0.1)
             return True
 
-        try:
-            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
-                # First call starts the thread
-                state_store._sync_to_remote_async()
-                # Small delay to ensure thread starts and sets flag
-                time.sleep(0.02)
-                # Second call should set _push_pending (not start a new thread)
-                state_store._sync_to_remote_async()
-                # Wait for both pushes to complete (initial + retry)
-                time.sleep(0.4)
+        with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+            # First call starts the thread
+            state_store._sync_to_remote_async()
+            # Small delay to ensure thread starts and sets flag
+            time.sleep(0.02)
+            # Second call should set _push_pending (not start a new thread)
+            state_store._sync_to_remote_async()
+            # Wait for both pushes to complete (initial + retry)
+            time.sleep(0.4)
 
-            # Two pushes: original + retry triggered by pending flag
-            assert call_count == 2
-        finally:
-            StateStore._push_in_flight = original_in_flight
-            StateStore._push_pending = original_pending
+        # Two pushes: original + retry triggered by pending flag
+        assert call_count == 2
 
     def test_sync_to_remote_async_no_retry_without_pending(self, state_store):
         """_sync_to_remote_async does not retry when no pending commits arrived."""
         import time
 
         call_count = 0
-        original_in_flight = StateStore._push_in_flight
-        original_pending = StateStore._push_pending
-        StateStore._push_in_flight = False
-        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count
@@ -1344,18 +1473,43 @@ class TestRemoteSync:
             time.sleep(0.05)
             return True
 
-        try:
-            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
-                # Single call with no concurrent calls
-                state_store._sync_to_remote_async()
-                # Wait for push to complete
-                time.sleep(0.2)
+        with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+            # Single call with no concurrent calls
+            state_store._sync_to_remote_async()
+            # Wait for push to complete
+            time.sleep(0.2)
 
-            # Only one push — no pending flag was set
-            assert call_count == 1
-        finally:
-            StateStore._push_in_flight = original_in_flight
-            StateStore._push_pending = original_pending
+        # Only one push — no pending flag was set
+        assert call_count == 1
+
+    def test_push_debounce_is_per_instance(self, state_store, tmp_path):
+        """One repo's in-flight push must not swallow another repo's sync (#3088).
+
+        With the pre-#3088 ClassVar flags, repo B's push arriving while
+        repo A's was in flight collapsed into A's pending flag and the
+        retry re-pushed A — B's sync was silently dropped.
+        """
+        import time
+
+        other_repo = tmp_path / "other-repo"
+        other_repo.mkdir()
+        other_store = StateStore(other_repo, worktree_dir=other_repo)
+        other_store._worktree = other_repo
+
+        # Simulate repo A's push being in flight.
+        state_store._push_in_flight = True
+
+        called = threading.Event()
+        with patch.object(other_store, "sync_to_remote", side_effect=lambda: called.set()):
+            other_store._sync_to_remote_async()
+            assert called.wait(timeout=2), (
+                "repo B's push never ran — debounce state leaked across instances"
+            )
+        time.sleep(0.05)  # let the worker thread clear its own flags
+
+        # And repo A's flags are untouched by repo B's push.
+        assert state_store._push_in_flight is True
+        assert other_store._push_in_flight is False
 
     def test_restore_from_remote_when_branch_exists(self, state_store):
         """_restore_from_remote fetches when remote branch exists."""
@@ -1464,31 +1618,23 @@ class TestRemoteSync:
         import time
 
         call_count = 0
-        original_in_flight = StateStore._push_in_flight
-        original_pending = StateStore._push_pending
-        StateStore._push_in_flight = False
-        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count
             call_count += 1
             time.sleep(0.05)
             # Simulate another commit arriving during every push
-            with StateStore._push_lock:
-                StateStore._push_pending = True
+            with state_store._push_lock:
+                state_store._push_pending = True
             return True
 
-        try:
-            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
-                state_store._sync_to_remote_async()
-                # Wait for the full retry chain to complete
-                time.sleep(0.5)
+        with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+            state_store._sync_to_remote_async()
+            # Wait for the full retry chain to complete
+            time.sleep(0.5)
 
-            # Should be capped at _MAX_PUSH_RETRIES (3): initial + 2 retries
-            assert call_count == StateStore._MAX_PUSH_RETRIES
-        finally:
-            StateStore._push_in_flight = original_in_flight
-            StateStore._push_pending = original_pending
+        # Should be capped at _MAX_PUSH_RETRIES (3): initial + 2 retries
+        assert call_count == StateStore._MAX_PUSH_RETRIES
 
     def test_delete_pipeline_triggers_remote_sync(self, state_store, mock_git):
         """delete_pipeline syncs to remote after committing deletion."""

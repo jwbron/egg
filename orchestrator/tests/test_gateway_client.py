@@ -1281,6 +1281,32 @@ class TestPushWorktreeBranch:
             assert len(push_calls) == 1
             push_data = push_calls[0].kwargs["data"]
             assert push_data["force"] is False
+            assert push_data["force_with_lease"] is False
+
+    def test_push_worktree_branch_force_with_lease_propagates(
+        self, gateway_client, mock_gateway_server
+    ):
+        """``force_with_lease=True`` must reach the ``/api/v1/git/push`` body.
+
+        The state-branch divergence reconciler (#3088) relies on this —
+        without it, the gateway never sees ``--force-with-lease`` and the
+        heal push hits the same non-fast-forward rejection it is healing.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path="/some/path",
+                branch="egg/pipeline-state",
+                ref="egg/pipeline-state",
+                force_with_lease=True,
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["force_with_lease"] is True
+            assert push_data["force"] is False
 
 
 class TestDeleteRemoteBranch:
