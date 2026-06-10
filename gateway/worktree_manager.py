@@ -1616,10 +1616,25 @@ class WorktreeManager:
 
         return results
 
+    @staticmethod
+    def _is_pipeline_anchored(container_id: str, active_pipeline_ids: set[str]) -> bool:
+        """True when *container_id* belongs to an active pipeline.
+
+        Worktree dir names are either the pipeline ID itself (the
+        pipeline-level worktree) or ``{pipeline_id}-{suffix}`` (per-agent
+        worktrees, e.g. ``pipeline-c978dac3-refiner``,
+        ``issue-3023-slice-1-coder``). The delimiter anchor prevents
+        ``issue-302`` from matching ``issue-3023-*``.
+        """
+        return any(
+            container_id == pid or container_id.startswith(f"{pid}-") for pid in active_pipeline_ids
+        )
+
     def cleanup_orphaned_worktrees(
         self,
         active_containers: set[str],
         session_manager: Any | None = None,
+        active_pipeline_ids: set[str] | None = None,
     ) -> int:
         """
         Remove worktrees for containers that no longer exist.
@@ -1633,6 +1648,13 @@ class WorktreeManager:
         Args:
             active_containers: Set of currently active container IDs
             session_manager: Optional SessionManager for session auto-commit on cleanup
+            active_pipeline_ids: IDs of non-terminal pipelines per the
+                orchestrator. Worktrees anchored to them are preserved even
+                with no live container — a pipeline parked at a HITL gate or
+                between phases has no containers and no sessions, but its
+                worktree holds the contract and any un-pushed work (#3070).
+                ``None`` means liveness could not be verified; callers must
+                not invoke this sweep in that case (see ``startup_cleanup``).
 
         Returns:
             Number of worktrees removed
@@ -1650,6 +1672,12 @@ class WorktreeManager:
 
             # Skip active containers
             if container_id in active_containers:
+                continue
+
+            # Skip worktrees belonging to a live pipeline, container or not.
+            if active_pipeline_ids and self._is_pipeline_anchored(
+                container_id, active_pipeline_ids
+            ):
                 continue
 
             # Skip worktrees that this process just created.  create_worktree
@@ -1685,10 +1713,17 @@ class WorktreeManager:
                         error=str(e),
                     )
 
-            # Remove each worktree
+            # Remove each worktree. Never delete branches here: an orphan
+            # sweep cannot know whether the work they point at was pushed,
+            # and deleting them turns a recoverable mistake into data loss —
+            # in #3070 this left an operator-approved analysis reachable only
+            # as a dangling commit. Branch deletion stays with the explicit
+            # per-container teardown paths.
             for worktree in list(container_dir.iterdir()):
                 if worktree.is_dir():
-                    result = self.remove_worktree(container_id, worktree.name, force=True)
+                    result = self.remove_worktree(
+                        container_id, worktree.name, force=True, delete_branch=False
+                    )
                     if result.success:
                         removed += 1
                     else:
@@ -1842,12 +1877,18 @@ class WorktreeManager:
                 result[repo_name] = paths
         return result
 
-    def list_orphan_worktree_dirs(self, active_containers: set[str]) -> list[str]:
+    def list_orphan_worktree_dirs(
+        self,
+        active_containers: set[str],
+        active_pipeline_ids: set[str] | None = None,
+    ) -> list[str]:
         """Return absolute paths of container dirs considered orphaned.
 
         A container dir under ``worktree_base`` is considered orphaned
-        when its name is not in *active_containers*.  Each returned path
-        is first validated via :func:`Path.resolve` +
+        when its name is not in *active_containers* and it is not anchored
+        to an active pipeline (mirrors ``cleanup_orphaned_worktrees`` so
+        dry-run output matches what the sweep would do).  Each returned
+        path is first validated via :func:`Path.resolve` +
         ``is_relative_to(self.worktree_base)`` to protect against
         symlink-based traversal.
         """
@@ -1878,6 +1919,8 @@ class WorktreeManager:
                 if not str(resolved).startswith(str(base_resolved) + os.sep):
                     continue
             if child.name in active_containers:
+                continue
+            if active_pipeline_ids and self._is_pipeline_anchored(child.name, active_pipeline_ids):
                 continue
             # Mirror the _active_worktrees guard from cleanup_orphaned_worktrees
             # so dry-run output accurately reflects what cleanup would skip.
@@ -2195,6 +2238,7 @@ def get_active_docker_containers() -> set[str]:
 def startup_cleanup(
     active_containers: set[str] | None = None,
     session_manager: Any | None = None,
+    active_pipeline_ids: set[str] | None = None,
 ) -> int:
     """
     Clean up orphaned worktrees on gateway startup.
@@ -2208,6 +2252,15 @@ def startup_cleanup(
             None, falls back to querying Docker (which may not be available
             inside the gateway container).
         session_manager: Optional SessionManager for session auto-commit on cleanup
+        active_pipeline_ids: IDs of non-terminal pipelines per the
+            orchestrator (``orchestrator_pipelines.fetch_active_pipeline_ids``).
+            ``None`` means pipeline liveness could not be verified — the
+            orphan sweep is SKIPPED entirely rather than run blind, because
+            container liveness alone cannot distinguish a crashed leftover
+            from a pipeline parked at a HITL gate (#3070; a redeploy swept
+            every worktree, contract included, with ``active_containers=0``).
+            Pass an empty set only when the orchestrator confirmed nothing
+            is active.
 
     Returns:
         Number of orphaned worktrees removed
@@ -2216,12 +2269,25 @@ def startup_cleanup(
     if active_containers is None:
         active_containers = get_active_docker_containers()
 
-    logger.info(
-        "Running startup worktree cleanup",
-        active_containers=len(active_containers),
-    )
-
-    removed = manager.cleanup_orphaned_worktrees(active_containers, session_manager)
+    if active_pipeline_ids is None:
+        logger.error(
+            "Skipping orphaned-worktree sweep: pipeline liveness unknown "
+            "(orchestrator unreachable?); stale worktrees will accumulate "
+            "until the next startup or an operator-run prune",
+            active_containers=len(active_containers),
+        )
+        removed = 0
+    else:
+        logger.info(
+            "Running startup worktree cleanup",
+            active_containers=len(active_containers),
+            active_pipelines=len(active_pipeline_ids),
+        )
+        removed = manager.cleanup_orphaned_worktrees(
+            active_containers,
+            session_manager,
+            active_pipeline_ids=active_pipeline_ids,
+        )
 
     if removed > 0:
         logger.info(f"Cleaned up {removed} orphaned worktree(s)")
