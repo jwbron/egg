@@ -536,6 +536,10 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 
 **Note:** `GATEWAY_TRUSTED_USERS` is read from the process environment, which is fixed at container start time. Changing trusted users requires a container restart — SIGHUP will re-read the same environment value.
 
+## Local Development
+
+On gateway startup the background worktree-cleanup thread polls the orchestrator at `EGG_ORCHESTRATOR_URL` (default `http://egg-orchestrator:9849`) for the active-pipeline set before sweeping; if the orchestrator never answers it waits up to `EGG_CLEANUP_ORCHESTRATOR_WAIT_SECONDS` (default `600`s — sized for a redeploy where both pods boot together) before logging at ERROR and skipping the sweep (#3070). Running the gateway against a non-existent orchestrator (developer laptop, isolated test container) therefore spins for the full 10 minutes by default — set `EGG_CLEANUP_ORCHESTRATOR_WAIT_SECONDS=0` to disable the wait (single attempt; sweep is then skipped immediately on first failure, which is the right behavior for local dev where there's nothing to preserve).
+
 ## Design Decisions
 
 1. **No merge capability**: Gateway does not expose a merge endpoint. Human must merge via GitHub UI. This maintains the existing safety model.

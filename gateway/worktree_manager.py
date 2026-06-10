@@ -1625,6 +1625,13 @@ class WorktreeManager:
         worktrees, e.g. ``pipeline-c978dac3-refiner``,
         ``issue-3023-slice-1-coder``). The delimiter anchor prevents
         ``issue-302`` from matching ``issue-3023-*``.
+
+        Intentionally looser than ``list_worktrees_for_pipeline``'s
+        ``{pid}-[a-z_]+`` regex (#1865): slice-scoped suffixes like
+        ``issue-3023-slice-1-coder`` contain digits and would be
+        falsely orphaned by the stricter pattern. Over-preserving on
+        one-active-pipeline-ID-prefixes-another is the right side of
+        the fail-safe principle here (#3070).
         """
         return any(
             container_id == pid or container_id.startswith(f"{pid}-") for pid in active_pipeline_ids
@@ -2107,7 +2114,10 @@ class WorktreeManager:
         return removal.success
 
     def cleanup_stale_pipeline_worktrees(
-        self, max_age_hours: int = 48, active_containers: set[str] | None = None
+        self,
+        max_age_hours: int = 48,
+        active_containers: set[str] | None = None,
+        active_pipeline_ids: set[str] | None = None,
     ) -> int:
         """Remove worktrees older than max_age_hours regardless of state.
 
@@ -2116,12 +2126,24 @@ class WorktreeManager:
 
         TODO: Wire this into the orchestrator's maintenance loop. Currently
         only called from tests — not yet connected to production scheduling.
+        Whoever wires this up must pass ``active_pipeline_ids`` from
+        ``orchestrator_pipelines.fetch_active_pipeline_ids`` — otherwise a
+        long-parked HITL pipeline whose mtimes have aged past ``max_age_hours``
+        becomes the next #3070 (an idle parked pipeline has no container and
+        no session activity; only the orchestrator-derived set distinguishes
+        it from a crashed leftover).
 
         Args:
             max_age_hours: Worktrees inactive for longer than this are removed.
             active_containers: Set of running container IDs. Worktrees with
                 active containers are never deleted. If None, fetched via
                 ``get_active_docker_containers()``.
+            active_pipeline_ids: IDs of non-terminal pipelines per the
+                orchestrator. Worktrees anchored to them are preserved even
+                when their mtimes look stale — mirrors
+                ``cleanup_orphaned_worktrees`` (#3070). ``None`` means
+                "skip the anchor check"; pass a verified set when wiring this
+                into production scheduling.
 
         Returns:
             Number of worktrees removed.
@@ -2140,6 +2162,11 @@ class WorktreeManager:
                 continue
             # Skip worktrees whose containers are still running.
             if entry.name in active_containers:
+                continue
+            # Skip worktrees anchored to an active pipeline — a parked HITL
+            # pipeline has no container, so age-based deletion would strand
+            # its contract and un-pushed work (#3070).
+            if active_pipeline_ids and self._is_pipeline_anchored(entry.name, active_pipeline_ids):
                 continue
             try:
                 # Use .git/index (updated on every commit/checkout) as the
@@ -2183,8 +2210,15 @@ class WorktreeManager:
                 if newest_mtime < cutoff:
                     for repo_dir in entry.iterdir():
                         if repo_dir.is_dir():
+                            # Never delete branches in a periodic age sweep:
+                            # the sweep can't know whether the work they
+                            # point at was pushed, and deleting them turns a
+                            # recoverable mistake into data loss. Branch
+                            # deletion stays with explicit per-container
+                            # teardown paths (mirrors
+                            # ``cleanup_orphaned_worktrees``; #3070).
                             removal_result = self.remove_worktree(
-                                entry.name, repo_dir.name, force=True, delete_branch=True
+                                entry.name, repo_dir.name, force=True, delete_branch=False
                             )
                             if removal_result.success:
                                 removed += 1

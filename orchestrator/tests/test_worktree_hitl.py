@@ -228,8 +228,11 @@ class TestCleanupStalePipelineWorktrees:
             )
 
         assert removed == 1
+        # delete_branch=False: an age-based sweep cannot tell whether the
+        # branch the worktree points at was pushed, so deleting it would
+        # strand reachable-only-as-dangling commits (#3070).
         mock_remove.assert_called_once_with(
-            "old-container", "myrepo", force=True, delete_branch=True
+            "old-container", "myrepo", force=True, delete_branch=False
         )
 
     def test_preserves_recent_worktrees(self, tmp_path):
@@ -317,3 +320,73 @@ class TestCleanupStalePipelineWorktrees:
         manager = self._make_manager(tmp_path)
         removed = manager.cleanup_stale_pipeline_worktrees(active_containers=set())
         assert removed == 0
+
+    def test_preserves_active_pipeline_worktrees(self, tmp_path):
+        """Should NOT remove worktrees anchored to an active pipeline, even when stale.
+
+        A pipeline parked at a HITL gate has no container and no recent
+        mtime activity — only the orchestrator-derived active-pipeline
+        set distinguishes it from a crashed leftover (#3070).
+        """
+        manager = self._make_manager(tmp_path)
+
+        # Pipeline-level worktree (e.g. ``pipeline-c978dac3``)
+        pipeline_id = "pipeline-c978dac3"
+        container_dir = manager.worktree_base / pipeline_id
+        repo_dir = container_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+
+        git_admin_dir = tmp_path / "git-admin" / "worktrees" / pipeline_id
+        git_admin_dir.mkdir(parents=True)
+        (repo_dir / ".git").write_text(f"gitdir: {git_admin_dir}\n")
+        (git_admin_dir / "index").touch()
+        (git_admin_dir / "HEAD").write_text("ref: refs/heads/egg/parked/work\n")
+
+        # Set mtime to 72 hours ago — would normally be deleted
+        old_time = time.time() - (72 * 3600)
+        os.utime(str(container_dir), (old_time, old_time))
+        os.utime(str(git_admin_dir / "index"), (old_time, old_time))
+        os.utime(str(git_admin_dir / "HEAD"), (old_time, old_time))
+
+        with patch.object(manager, "remove_worktree") as mock_remove:
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48,
+                active_containers=set(),
+                active_pipeline_ids={pipeline_id},
+            )
+
+        assert removed == 0
+        mock_remove.assert_not_called()
+
+    def test_preserves_per_agent_active_pipeline_worktrees(self, tmp_path):
+        """Per-agent worktrees (``{pid}-{role}``) anchored to an active pipeline are preserved."""
+        manager = self._make_manager(tmp_path)
+
+        pipeline_id = "issue-3023"
+        # Per-agent worktree shape
+        per_agent_name = f"{pipeline_id}-coder"
+        container_dir = manager.worktree_base / per_agent_name
+        repo_dir = container_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+
+        git_admin_dir = tmp_path / "git-admin" / "worktrees" / per_agent_name
+        git_admin_dir.mkdir(parents=True)
+        (repo_dir / ".git").write_text(f"gitdir: {git_admin_dir}\n")
+        (git_admin_dir / "index").touch()
+        (git_admin_dir / "HEAD").write_text("ref: refs/heads/egg/coder/work\n")
+
+        # Stale mtimes
+        old_time = time.time() - (72 * 3600)
+        os.utime(str(container_dir), (old_time, old_time))
+        os.utime(str(git_admin_dir / "index"), (old_time, old_time))
+        os.utime(str(git_admin_dir / "HEAD"), (old_time, old_time))
+
+        with patch.object(manager, "remove_worktree") as mock_remove:
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48,
+                active_containers=set(),
+                active_pipeline_ids={pipeline_id},
+            )
+
+        assert removed == 0
+        mock_remove.assert_not_called()

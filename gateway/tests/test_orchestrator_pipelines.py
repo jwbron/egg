@@ -18,11 +18,21 @@ from orchestrator_pipelines import (
 )
 
 
-def _response(payload: dict) -> io.BytesIO:
-    body = io.BytesIO(json.dumps(payload).encode("utf-8"))
+def _raw_response(body_bytes: bytes) -> io.BytesIO:
+    """Build a stub urlopen response from the raw bytes the server would return.
+
+    Mirrors the ``with urlopen(...) as resp: resp.read().decode("utf-8")``
+    chain the client uses: the context-manager protocol is satisfied,
+    and ``read()`` returns the same bytes the network would.
+    """
+    body = io.BytesIO(body_bytes)
     body.__enter__ = lambda *a: body  # type: ignore[method-assign]
     body.__exit__ = lambda *a: False  # type: ignore[method-assign]
     return body
+
+
+def _response(payload: dict) -> io.BytesIO:
+    return _raw_response(json.dumps(payload).encode("utf-8"))
 
 
 class TestFetchActivePipelineIds:
@@ -53,10 +63,10 @@ class TestFetchActivePipelineIds:
             assert fetch_active_pipeline_ids() is None
 
     def test_returns_none_on_malformed_body(self):
-        body = io.BytesIO(b"not json")
-        body.__enter__ = lambda *a: body  # type: ignore[method-assign]
-        body.__exit__ = lambda *a: False  # type: ignore[method-assign]
-        with patch("orchestrator_pipelines.urlopen", return_value=body):
+        # Use the same response-shape helper as the success path so the
+        # full read()/decode() chain is exercised — only the *bytes* the
+        # server returns differ.
+        with patch("orchestrator_pipelines.urlopen", return_value=_raw_response(b"not json")):
             assert fetch_active_pipeline_ids() is None
 
     def test_returns_none_on_missing_data_key(self):

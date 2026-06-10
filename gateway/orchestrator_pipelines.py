@@ -17,23 +17,12 @@ verify" and fail safe by skipping deletion entirely.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-try:
-    from egg_logging import get_logger
-except ImportError:  # pragma: no cover - fall back to stdlib logger
-
-    def get_logger(  # type: ignore[misc]
-        name: str,
-        level: int | str = logging.INFO,
-        component: str | None = None,
-    ) -> logging.Logger:
-        return logging.getLogger(name)
-
+from egg_logging import get_logger
 
 logger = get_logger("gateway.orchestrator_pipelines")
 
