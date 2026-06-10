@@ -14,6 +14,7 @@ def build_agent_command(
     model: str = "opus",
     max_turns: int = 200,
     system_prompt: str | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     """Build a container command list for running a Claude agent.
 
@@ -27,6 +28,13 @@ def build_agent_command(
         model: Model alias or ID (default: ``"opus"``).
         max_turns: Maximum conversation turns (default: 200).
         system_prompt: Optional system prompt override.
+        effort: Reasoning effort to pin via ``--effort`` (e.g.
+            ``"high"``), or ``None`` to inherit Claude Code's
+            per-model default. Mirrors the ``effort`` plumbing in
+            ``build_consensus_wrapped_command`` so the overseer Job
+            and other ``build_agent_command`` callers honour
+            ``AgentModelDecision.effort`` when the model is
+            fable-routed.
 
     Returns:
         Command list suitable for container execution.
@@ -40,6 +48,8 @@ def build_agent_command(
         "--max-turns",
         str(max_turns),
     ]
+    if effort is not None:
+        cmd.extend(["--effort", effort])
     if system_prompt is not None:
         cmd.extend(["--system-prompt", system_prompt])
     cmd.append(prompt)

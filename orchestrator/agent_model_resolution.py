@@ -61,6 +61,25 @@ DEFAULT_AGENT_MODEL = "opus"
 # unchanged — this only splits the tier-3 built-in by role).
 FABLE_DEFAULT_MODEL = "fable"
 
+# Effort level pinned on fable-routed agents (threaded to ``--effort``
+# on the ``python3 -m egg_agent`` command). Claude Code's built-in
+# default for fable is currently also "high", but that table is whatever
+# the image's installed Claude Code build says at build time — pinning
+# keeps token spend deliberate if a future stable release changes the
+# default (the way opus moved xhigh→high across 4.7→4.8). Every other
+# model gets ``effort=None`` and keeps inheriting Claude Code's
+# per-model default, so opus agents are byte-identical to today.
+#
+# The pin is keyed on the exact ``fable`` / ``fable[1m]`` aliases, NOT on
+# the versioned ``claude-fable-*`` family. An operator who configures
+# ``agent_models[role] = "claude-fable-5"`` matches the generic
+# ``^claude-`` regex in ``_is_claude_alias`` and gets ``effort=None`` —
+# i.e. the versioned name escapes the drift defense the alias was pinned
+# to provide. Use the bare ``fable`` alias (or add the versioned name to
+# ``_FABLE_ALIASES``) if you want the pin to apply.
+FABLE_EFFORT = "high"
+_FABLE_ALIASES = frozenset({"fable", "fable[1m]"})
+
 # Role values that pick up FABLE_DEFAULT_MODEL at tier 3. Derived from
 # the phase→role tables so new refine/plan roles inherit the default
 # without a parallel list here. ``repo=EGG_REPO`` includes the egg-only
@@ -140,11 +159,16 @@ class AgentModelDecision:
             not rewrite the request body — Claude Code already sends the
             bare name once the ``[1m]`` suffix is stripped — so this is
             now an audit field rather than a routing input.
+        effort: Effort level passed to the agent command as ``--effort``,
+            or ``None`` to omit the flag and inherit Claude Code's
+            per-model default. Currently :data:`FABLE_EFFORT` for
+            fable-routed decisions and ``None`` for everything else.
     """
 
     claude_code_alias: str
     upstream: str
     upstream_model: str | None
+    effort: str | None = None
 
     def env_vars(self) -> dict[str, str]:
         """Env vars to inject into the agent's sandbox for this decision.
@@ -228,6 +252,7 @@ def classify_model(model: str) -> AgentModelDecision:
             claude_code_alias=model,
             upstream=UPSTREAM_ANTHROPIC,
             upstream_model=None,
+            effort=FABLE_EFFORT if model in _FABLE_ALIASES else None,
         )
     # LiteLLM path (#2832): the operator may pass the bare upstream name
     # (e.g. ``qwen3-coder-30b``) or pre-suffix it (``qwen3-coder-30b[1m]``).
@@ -333,6 +358,7 @@ __all__ = [
     "AgentModelDecision",
     "DEFAULT_AGENT_MODEL",
     "FABLE_DEFAULT_MODEL",
+    "FABLE_EFFORT",
     "UPSTREAM_ANTHROPIC",
     "UPSTREAM_LITELLM",
     "classify_model",

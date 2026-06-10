@@ -1297,3 +1297,23 @@ class TestEventPumpInvokesComposer:
     # and ``invoke_agent_for_event``. See
     # ``test_invokes_event_prompt_composer_script`` (above) for the
     # post-deletion positive invariant.
+
+
+class TestEffortFlag:
+    """``effort`` threads into the agent command prefix as ``--effort``.
+
+    The decision's effort (AgentModelDecision.effort — currently pinned
+    only for fable-routed agents) must reach the ``python3 -m egg_agent``
+    invocation; omitting it must leave the flag off entirely so every
+    other model keeps inheriting Claude Code's per-model default.
+    """
+
+    def test_effort_appends_flag_to_agent_prefix(self):
+        cmd = build_consensus_wrapped_command("Prompt", model="fable", effort="high")
+        script = cmd[2]
+        assert "--model fable --max-turns 1000 --effort high" in script
+
+    def test_no_effort_omits_flag(self):
+        cmd = build_consensus_wrapped_command("Prompt", model="opus")
+        script = cmd[2]
+        assert "--effort" not in script
