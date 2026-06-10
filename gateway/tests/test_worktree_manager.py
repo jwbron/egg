@@ -1585,6 +1585,175 @@ class TestNarrowRefspecMirror:
         )
 
 
+class TestAssignedBranchForkPoint:
+    """Fresh worktrees fork from the assigned branch's remote tip (#3068).
+
+    The orchestrator's contract-init commit (SDLC contract + seeded
+    analysis/plan drafts) lands on the assigned branch and is pushed
+    before agents spawn.  Forking fresh worktrees from the base branch
+    left agents one-plus commits behind that tip, so seeded artifacts
+    never reached agent worktrees.  Fresh creation now mirrors the reuse
+    path's candidate order: ``origin/{assigned}`` first, base as
+    fallback.
+    """
+
+    GIT_ENV = TestNarrowRefspecMirror.GIT_ENV
+
+    def _commit(self, repo: Path, filename: str, message: str) -> str:
+        (repo / filename).parent.mkdir(parents=True, exist_ok=True)
+        (repo / filename).write_text(f"{message}\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", message], cwd=repo, check=True, env=self.GIT_ENV)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    @pytest.fixture
+    def pipeline_remote(self, tmp_path):
+        """Bare origin (main) + seed pusher + mirror clone under repos_base."""
+        origin = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=seed, check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=seed, check=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=seed, check=True)
+        subprocess.run(["git", "config", "user.name", "test"], cwd=seed, check=True)
+        main_tip = self._commit(seed, "README.md", "init")
+        subprocess.run(["git", "push", "origin", "main"], cwd=seed, check=True)
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        subprocess.run(["git", "clone", str(origin), str(repo_dir)], check=True)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        return manager, seed, main_tip
+
+    @patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", ""))
+    def test_fresh_worktree_forks_from_assigned_tip(self, _mock_get_token, pipeline_remote):
+        """When ``origin/{assigned}`` exists (contract-init pushed), a fresh
+        worktree forks from its tip and the seeded artifact is present —
+        even when the tip moved after the mirror's last fetch."""
+        manager, seed, _main_tip = pipeline_remote
+
+        # Simulate the orchestrator: contract-init commit on the pipeline
+        # work branch, pushed to origin AFTER the mirror's clone-time fetch.
+        subprocess.run(["git", "checkout", "-b", "egg/pipe-1/work"], cwd=seed, check=True)
+        assigned_tip = self._commit(
+            seed, ".egg-state/drafts/pipe-1-analysis.md", "Initialize SDLC contract"
+        )
+        subprocess.run(["git", "push", "origin", "egg/pipe-1/work"], cwd=seed, check=True)
+
+        info = manager.create_worktree(
+            "test-repo",
+            "pipe-1-architect",
+            base_branch="main",
+            assigned_branch="egg/pipe-1/work",
+        )
+
+        head = subprocess.run(
+            ["git", "-C", str(info.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head == assigned_tip, (
+            f"fresh worktree should fork from the assigned tip {assigned_tip}; got {head}"
+        )
+        # The seeded artifact is what the fork point is for — assert it
+        # materialised in the agent's checkout.
+        assert (info.worktree_path / ".egg-state" / "drafts" / "pipe-1-analysis.md").exists()
+        # The per-worktree local branch is unchanged by the fork point.
+        assert info.branch == "egg/pipe-1-architect/work"
+
+    @patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", ""))
+    def test_fresh_worktree_falls_back_to_base_when_assigned_unpushed(
+        self, _mock_get_token, pipeline_remote
+    ):
+        """An assigned branch with nothing pushed yet (fresh pipeline /
+        slice integration branch) must not block creation — fall back to
+        the base branch, the pre-#3068 behaviour."""
+        manager, _seed, main_tip = pipeline_remote
+
+        info = manager.create_worktree(
+            "test-repo",
+            "pipe-2-coder",
+            base_branch="main",
+            assigned_branch="egg/pipe-2/work",
+        )
+
+        head = subprocess.run(
+            ["git", "-C", str(info.worktree_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head == main_tip, (
+            f"unpushed assigned branch should fall back to base tip {main_tip}; got {head}"
+        )
+
+    def test_assigned_fetch_timeout_falls_back_to_base(self, tmp_path):
+        """A timeout on the assigned-branch fetch is best-effort: the
+        helper returns None (caller falls back to base) instead of raising
+        — unlike the base-branch fetch, which hard-fails per #3021."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+
+        def mock_run(args, **kwargs):
+            if "fetch" in args:
+                raise subprocess.TimeoutExpired(cmd=args, timeout=30)
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                result = manager._resolve_assigned_fork_point(
+                    main_repo=tmp_path / "repos" / "test-repo",
+                    assigned_branch="egg/pipe-3/work",
+                    repo_slug="Khan/test-repo",
+                    container_id="pipe-3-coder",
+                )
+
+        assert result is None
+
+    def test_assigned_rev_parse_failure_falls_back_to_base(self, tmp_path):
+        """If the fetch succeeds but ``rev-parse --verify origin/<branch>``
+        fails (the tracking ref is somehow not resolvable post-fetch — a
+        theoretical narrow-refspec edge case), the helper returns None and
+        the caller falls back to the base branch rather than handing git a
+        bad fork point."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+
+        def mock_run(args, **kwargs):
+            if "fetch" in args:
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if "rev-parse" in args:
+                return subprocess.CompletedProcess(
+                    args=args,
+                    returncode=128,
+                    stdout="",
+                    stderr="fatal: Needed a single revision\n",
+                )
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        with patch("worktree_manager.get_token_for_repo", return_value=(None, "bot", "")):
+            with patch("subprocess.run", side_effect=mock_run):
+                result = manager._resolve_assigned_fork_point(
+                    main_repo=tmp_path / "repos" / "test-repo",
+                    assigned_branch="egg/pipe-4/work",
+                    repo_slug="Khan/test-repo",
+                    container_id="pipe-4-coder",
+                )
+
+        assert result is None
+
+
 class TestFindWorktreeGitDir:
     """Tests for _find_worktree_git_dir admin dir resolution."""
 
