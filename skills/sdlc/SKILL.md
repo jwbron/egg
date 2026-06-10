@@ -468,7 +468,7 @@ Handle each response:
 - **Acknowledge** → Resume monitoring. Track acknowledged alerts to avoid re-prompting for the same alert.
 - **Cancel pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`.
 
-**Before offering the generic options above**, if the alert subject is `stuck-phase-transition` (or its body otherwise says a HITL gate is awaiting operator input / names an unanswered `feedback-N` / `Q<n>`), first check for **unanswered contract feedback** per [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback) below — that is usually the actionable resolution, and neither "Check agent logs" nor "Acknowledge" will clear it.
+**Before offering the generic options above**, if the alert subject is `stuck-phase-transition` (or its body otherwise says a HITL gate is awaiting operator input / names an unanswered `feedback-N` / `Q<n>` or an unresolved `cq-N`), first check for **unanswered contract decisions or feedback** — either an unresolved `cq-N` HITL decision (see [Answering pre-proposal contract HITL decisions](#answering-pre-proposal-contract-hitl-decisions)) or an unanswered `feedback-N` (see [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback)) — that is usually the actionable resolution, and neither "Check agent logs" nor "Acknowledge" will clear it.
 
 **Deduplication** — Maintain a set of seen alert message `id` values (UUIDs from the `Message` model) across poll cycles. Only prompt the user for alerts not previously seen or acknowledged. Do not use subject strings for deduplication — distinct alerts may share the same anomaly type, role, and priority.
 
@@ -500,6 +500,44 @@ An agent can register an open-ended **feedback request** on the SDLC contract be
 
    `answer_feedback` writes the answers into the contract and marks the feedback submitted, so the blocked agent unblocks on its next contract poll and proceeds to produce its proposal. A partial answer set is allowed — the feedback is still marked submitted, so don't leave a question blank unless the user intends to skip it.
 4. Resume monitoring (Phase 3). Re-arm the Monitor, stopping the prior one first per [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) — the agent producing its proposal will emit the next `phase.*` event.
+
+### Answering pre-proposal contract HITL decisions
+
+An agent can register a multiple-choice **HITL decision** on the contract (id `cq-N`) before
+producing any draft — most commonly a coder or planner blocked on a scope question, or the
+impasse-escalation router escalating a stalled agent via `mcp__sdlc__register_open_question`.
+Like `feedback-N`, these decisions only enter the orchestrator queue after a phase_gate is
+approved; an agent blocked pre-proposal never reaches the gate.
+
+**Before #3071**, `provide_input(decision_id="cq-N", ...)` returned **HTTP 404** and the pipeline
+deadlocked. **As of #3071**, the `provide_input` tool falls back to the contract and resolves the
+decision directly.
+
+**Detection.** When a `stuck-phase-transition` alert fires (or a pipeline sits blocked with an
+empty `pending_decisions`), call `get_contract(task_id)` and inspect the `decisions` array. If
+any entry has `resolved: false`, its `id`, `question`, and `options` are awaiting the operator.
+
+**Answer it via `provide_input`:**
+
+1. Display the question and options to the user via `AskUserQuestion`.
+2. Call `provide_input` with the `cq-N` id and the chosen option label:
+
+   ```
+   Tool: provide_input
+   Arguments:
+     task_id: <task_id>
+     decision_id: <contract decision id, e.g. "cq-1">
+     response: "<chosen option label>"
+   ```
+
+3. Resume monitoring (Phase 3). Re-arm the Monitor, stopping the prior one first per
+   [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first).
+
+> If `provide_input` returns HTTP 409 with a pointer to a mirror id (e.g. `decision-M`), the
+> bridge already promoted `cq-N` into the queue. Resolve the queue id instead.
+>
+> For open-ended `feedback-N`, use `answer_feedback` instead — see
+> [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback).
 
 ### Host detector migration (issue #1962)
 
@@ -1077,8 +1115,8 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 | `submit_task` | Submit a new pipeline task |
 | `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
 | `${CLAUDE_SKILL_DIR}/bin/wait-status` (via Monitor) | Long-poll for status changes; emits JSON-lines on stdout — Monitor surfaces each line as its own notification, so the LLM wakes on every event. Self-contained stdlib client (no egg checkout; only `EGG_ORCHESTRATOR_URL` needed). Replaces the prior `wait_for_status_change` MCP tool (#2211). Bash is a fallback only (events batch at exit). |
-| `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
-| `answer_feedback` | Answer pre-proposal contract feedback (`feedback-N`) that never enters the decision queue — see [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback). Use instead of `provide_input`, which 404s on it |
+| `provide_input` | Respond to HITL decisions (serialize JSON payload as string); also resolves contract-resident `cq-N` decisions pre-gate via fallback (#3071) — see [Answering pre-proposal contract HITL decisions](#answering-pre-proposal-contract-hitl-decisions) |
+| `answer_feedback` | Answer pre-proposal contract feedback (`feedback-N`) that never enters the decision queue — see [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback). Use for `feedback-N`; `provide_input` handles `cq-N` directly |
 | `list_tasks` | List tasks for a repository |
 | `cancel_task` | Cancel a running task |
 | `check_health` | Verify orchestrator + gateway health |
