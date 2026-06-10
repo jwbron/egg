@@ -501,17 +501,22 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 > `"1.2"`; the new value is persisted on the next save (see the
 > [v1.1 → v1.2 migration note](../architecture/sdlc-pipeline.md#schema-v11--v12-migration-note-2777)).
 >
-> **Schema 1.3 (#3033)**: `schemaVersion` bumped from `"1.2"` to `"1.3"`.
-> An optional `task_description` field was added to `Contract` to persist
+> **Schema 1.3 (#3033)**: The default `schemaVersion` is now `"1.3"`. An
+> optional `task_description` field was added at the top level. It holds
 > the full, untruncated pipeline prompt for free-text and JIRA-driven
-> pipelines (where `pipeline.issue_number is None`). Under the BRC
-> event-pump model the orchestrator-built spawn prompt is not delivered to
-> agents; `task_description` becomes the authoritative channel for
-> recovering the complete task from the contract. For GitHub-issue
-> pipelines, `task_description` is `null` — the agent fetches the body
-> out-of-band via `gh issue view`. The migration is purely additive:
-> `Contract._migrate_schema_version_to_1_3` (a `mode="after"` validator)
-> promotes pre-1.3 contracts to `"1.3"` on load; no fields are removed.
+> submits (any pipeline where `issue_number is None`). Under the BRC
+> event-pump model the orchestrator-built spawn prompt is not delivered
+> to agents, so the contract becomes the authoritative channel for
+> recovering the complete task. `task_description` is `null` for
+> GitHub-issue pipelines, where agents fetch the body via
+> `gh issue view`. The bump is purely additive — pre-1.3 contracts load
+> cleanly and reach `"1.3"` via the migration chain: pre-1.2 contracts
+> are first promoted to `"1.2"` by the wrap-mode
+> `_migrate_schema_version_to_1_2` validator, and any contract at
+> `"1.2"` is then stamped to `"1.3"` by the `mode="after"`
+> `Contract._migrate_schema_version_to_1_3` validator on every load. See
+> [Recovering the task — `task_description`](../reference/sdlc-contract.md#recovering-the-task--task_description)
+> for the full recovery matrix.
 
 ### Role-Based Field Ownership
 

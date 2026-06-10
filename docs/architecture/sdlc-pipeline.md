@@ -115,8 +115,8 @@ the agent reads to recover the task:
 {
   "schemaVersion": "1.3",
   "issue": null,
-  "pipeline_id": "KORE-1234",
   "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
+  "pipeline_id": "KORE-1234",
   "current_phase": "implement",
   "slices": [...],
   "workflow_owner": "my-org",
@@ -157,16 +157,19 @@ the agent reads to recover the task:
 > `schemaVersion` to `"1.2"`; the new value is persisted on the next
 > save. See [v1.1 → v1.2 schema migration note](#schema-v11--v12-migration-note-2777).
 >
-> **Schema 1.3 (#3033)**: `schemaVersion` bumped from `1.2` to `1.3`.
-> An optional `task_description: str | None` field was added to `Contract`
-> to persist the full pipeline prompt for free-text and JIRA-driven pipelines
-> (where `pipeline.issue_number is None`). Under the BRC event-pump model the
-> orchestrator-built spawn prompt is not delivered to agents;
-> `task_description` becomes the authoritative recovery path for the complete
-> task. For GitHub-issue pipelines the field is `null` — the agent fetches the
-> body out-of-band via `gh issue view`. The migration is purely additive:
-> `Contract._migrate_schema_version_to_1_3` (`mode="after"`) promotes
-> pre-1.3 contracts on every load; no fields are removed.
+> **Schema 1.3 (#3033)**: `schemaVersion` was bumped from `1.2` to `1.3`
+> to document the addition of an optional top-level `task_description`
+> field. The field holds the full, untruncated pipeline `prompt` for
+> free-text and JIRA-driven submits (`pipeline.issue_number is None`),
+> giving producer and reviewer agents a reliable channel to recover the
+> complete task from the contract — the BRC event-pump model does not
+> deliver the orchestrator-built spawn prompt to the agent, and the 100-
+> character `issue.title` is only a label. The field is `None` for
+> GitHub-issue pipelines (agent fetches body via `gh issue view`). The
+> bump is purely additive: a `model_validator(mode="after")`
+> (`Contract._migrate_schema_version_to_1_3`) promotes any `1.2` contract
+> to `1.3` at load time; the new value is persisted on the next save.
+> See [v1.2 → v1.3 migration note](#schema-v12--v13-migration-note-3033).
 >
 > **Context-PR mechanism (#2777 collapse).** The context PR is opened
 > **up-front at the plan→implement boundary**, **hard-required** and
@@ -210,6 +213,31 @@ Operational impact:
   `GatewayClient.lookup_open_pr` primitive, #2777 cq-8 / #2934). The
   legacy `_should_skip_pr_phase_auto_pr` skip gate and the PR-phase
   route/runner were removed.
+
+### Schema v1.2 → v1.3 migration note (#3033)
+
+`Contract` gained one new optional field in v1.3:
+
+| Added field | Purpose |
+|-------------|---------|
+| `task_description` | Full, untruncated pipeline prompt for free-text and JIRA-driven submits. `None` for GitHub-issue pipelines. |
+
+Operational impact:
+
+- **In-flight contracts on disk** that omit `task_description` load
+  cleanly — Pydantic defaults the field to `None`. The
+  `Contract._migrate_schema_version_to_1_3` `mode="after"` validator
+  stamps `schemaVersion` from `"1.2"` to `"1.3"` on every load;
+  the new value is persisted on the next save.
+- **`task_description` is owned by `SYSTEM`** via the `DEFAULT_OWNER`
+  fallback in `shared/egg_contracts/roles.py` (not explicitly listed in
+  `FIELD_OWNERSHIP`) — agents must not mutate it. Both `egg-contract
+  show` and `mcp__sdlc__show_contract` surface the field.
+- **Agent task recovery**: under the BRC event-pump the spawn prompt is
+  not delivered to agents. Agents on free-text or JIRA pipelines should
+  read `task_description` from the contract rather than inferring the
+  task from `issue.title` (100-char label only). See
+  [Recovering the task](../reference/sdlc-contract.md#recovering-the-task--task_description).
 
 ## HITL (Human-in-the-Loop) Mechanism
 
