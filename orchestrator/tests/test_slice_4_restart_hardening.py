@@ -416,7 +416,7 @@ class TestRestartPhaseClearsPerSliceTrackers:
             t.register_agent("tester")
             t.handle_propose(
                 "coder",
-                {"summary": "s", "artifacts": ["a.py"], "commit_sha": f"sha{sid}"},
+                {"summary": "s", "artifacts": ["a.py"], "commit_sha": f"sha_{sid.replace('-', '_')}"},
             )
 
         slices = [
