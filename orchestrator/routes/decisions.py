@@ -888,12 +888,174 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         )
 
     except DecisionNotFoundError:
-        return make_error_response(
-            f"Decision {decision_id} not found",
-            status_code=404,
+        # Not in the orchestrator queue — fall back to contract-resident
+        # decisions (#3071).  Agents register HITL questions on the SDLC
+        # contract (``cq-N``, via ``register_open_question`` or the
+        # impasse-escalation router); those reach this queue only through
+        # the post-gate bridge (``_queue_and_await_contract_decisions``),
+        # which runs after phase_gate approval.  A producer blocked
+        # *pre-propose* therefore deadlocked with no operator channel:
+        # this endpoint 404'd and ``answer_feedback`` covers only
+        # ``contract.feedback`` (#3007).  Mirror ``answer_feedback``'s
+        # direct contract write-back so the blocked agent unblocks on its
+        # next contract poll.
+        return _resolve_contract_decision(
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            resolution=resolution,
+            pipeline=_pipeline,
         )
     except DecisionAlreadyResolvedError as e:
         return make_error_response(str(e), status_code=409)
+
+
+def _resolve_contract_decision(
+    pipeline_id: str,
+    decision_id: str,
+    resolution: str,
+    pipeline: Any,
+) -> tuple[Response, int]:
+    """Resolve a contract-resident HITL decision (``cq-N``) directly (#3071).
+
+    Contract decisions are registered by agents
+    (``mcp__sdlc__register_open_question``) or by the orchestrator's
+    impasse-escalation router (:func:`impasse_routing.route_impasses`);
+    they live only in ``.egg-state/contracts/{identifier}.json`` and are
+    bridged into the orchestrator decision queue only *after* phase_gate
+    approval.  An agent blocked on such a decision before proposing never
+    reaches the gate, so the bridge never runs and the operator had no
+    resolution channel — the producer respawn loop burned cost with no
+    pause (#3071, observed on pipeline-c2faf164).
+
+    This fallback gives the operator a first-class path for that pre-gate
+    window, mirroring :func:`answer_feedback` (#3007): write the
+    resolution fields straight onto the contract decision so the blocked
+    agent unblocks on its next contract poll.  The write-back shape
+    (``resolved_by="human"``, raw resolution string) matches the
+    post-gate bridge's, so downstream consumers see one format.  The
+    caller's route decorator is lifecycle-secret guarded, so an agent
+    cannot resolve its own question (parity with queue decisions, #1769).
+    """
+    # Lazy imports — same seam and rationale as ``answer_feedback``:
+    # ``contract_store`` / ``routes.pipelines`` pull in heavy state-store
+    # dependencies that must not bind at module import time.
+    import contract_store
+
+    try:
+        from egg_contracts import (
+            ContractNotFoundError,
+            ContractValidationError,
+            load_contract,
+            save_contract,
+        )
+    except ImportError as exc:
+        logger.error(
+            "egg_contracts not available; cannot resolve contract decision",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            error=str(exc),
+        )
+        return make_error_response(
+            "Contract subsystem (egg_contracts) is not available on this host",
+            status_code=500,
+        )
+    from routes.pipelines import _pipeline_identifier
+
+    worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
+    if worktree is None:
+        return make_error_response(
+            f"Decision {decision_id} not found (not in the orchestrator "
+            f"queue, and no pipeline worktree exists to check the contract)",
+            status_code=404,
+        )
+
+    identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+
+    with contract_store.lock_for(identifier):
+        try:
+            contract = load_contract(identifier, worktree)
+        except ContractNotFoundError:
+            return make_error_response(
+                f"Decision {decision_id} not found (not in the orchestrator "
+                f"queue; no contract exists for {pipeline_id})",
+                status_code=404,
+            )
+        except ContractValidationError as exc:
+            return make_error_response(
+                f"Contract validation failed: {exc}",
+                status_code=500,
+            )
+
+        decision = next((d for d in (contract.decisions or []) if d.id == decision_id), None)
+        if decision is None:
+            return make_error_response(
+                f"Decision {decision_id} not found (neither in the "
+                f"orchestrator queue nor on the contract)",
+                status_code=404,
+            )
+        if decision.resolved:
+            return make_error_response(
+                f"Decision {decision_id} has already been resolved",
+                status_code=409,
+            )
+
+        resolved_at = datetime.now(UTC)
+        decision.resolved = True
+        decision.resolution = resolution
+        decision.resolved_by = "human"
+        decision.resolved_at = resolved_at
+
+        try:
+            save_contract(contract, worktree)
+        except Exception as exc:
+            logger.error(
+                "Failed to save contract after resolving contract decision",
+                pipeline_id=pipeline_id,
+                decision_id=decision_id,
+                error=str(exc),
+            )
+            return make_error_response(
+                f"Failed to save contract: {exc}",
+                status_code=500,
+            )
+
+    logger.info(
+        "Contract decision resolved by operator",
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        source=getattr(request, "egg_source", "unknown"),
+    )
+
+    try:
+        emit_event(
+            EventType.DECISION_RESOLVED,
+            pipeline_id=pipeline_id,
+            data={
+                "decision_id": decision_id,
+                "resolution": resolution,
+                "scope": "contract",
+            },
+        )
+    except Exception:
+        logger.warning(
+            "Failed to emit DECISION_RESOLVED event",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+
+    return make_success_response(
+        "Decision resolved",
+        data={
+            "decision": {
+                "id": decision_id,
+                "status": "resolved",
+                "resolution": resolution,
+                "resolved_at": resolved_at.isoformat(),
+                "scope": "contract",
+            }
+        },
+    )
 
 
 @decisions_bp.route("/<pipeline_id>/decisions/<decision_id>/cancel", methods=["POST"])
