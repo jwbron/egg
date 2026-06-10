@@ -27,14 +27,55 @@ PYTHON = $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 # Falls back to "latest" outside a git checkout.
 EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo latest)
 
+# Local image registry for the k3s deploy flow (issue #2999). When set,
+# `make redeploy` publishes images by `docker push`-ing here and lets the
+# cluster pull them back — both sides are layer-aware, so a typical
+# code-only rebuild moves tens of MB instead of the full ~multi-GB sandbox
+# image that `docker save` + `ctr import` always re-serialize. One-time
+# host setup: `make registry-setup`. Set EGG_IMAGE_REGISTRY= (empty) to
+# fall back to the save+import flow (`make k3s-import`) — CI does this so
+# its inline import path keeps working without a registry.
+EGG_IMAGE_REGISTRY ?= localhost:5000
+# "localhost:5000/" or "" — spliced ahead of image names in build tags and
+# in the manifest rewrites in `deploy`.
+EGG_IMAGE_PREFIX := $(if $(EGG_IMAGE_REGISTRY),$(EGG_IMAGE_REGISTRY)/,)
+
+# The full egg image set, and the subset published via the registry. The
+# sandbox image is EXCLUDED from the registry subset by default: it bakes in
+# private repo content (node_modules/.venv/anything repositories.yaml
+# build_commands produce), so it never goes near a registry — even the
+# loopback-only local one — unless the operator opts in by adding
+# egg-sandbox to EGG_REGISTRY_IMAGES. Excluded images publish through the
+# save+import path instead (slower for the big sandbox image, but entirely
+# store-to-store on this host). push-egg-images.sh independently refuses any
+# non-loopback registry, so opting in still cannot publish off-host.
+EGG_ALL_IMAGES := egg-gateway egg-orchestrator egg-sandbox egg-litellm
+EGG_REGISTRY_IMAGES ?= egg-gateway egg-orchestrator egg-litellm
+# Images the registry path does NOT cover (imported via k3s-import instead).
+EGG_IMPORT_IMAGES := $(filter-out $(EGG_REGISTRY_IMAGES),$(EGG_ALL_IMAGES))
+# Per-image manifest prefix: registry-qualified only when registry mode is on
+# AND the image is in the registry subset.
+reg_prefix = $(if $(filter $(1),$(EGG_REGISTRY_IMAGES)),$(EGG_IMAGE_PREFIX),)
+
+# Parallel image builds (issue #2999): the four images are independent, so
+# build them concurrently. BUILD_JOBS=1 restores sequential builds — CI sets
+# this because hosted runners build every stage cold, and four concurrent
+# heavyweight builds risk memory/disk flake there. --output-sync (buffer
+# each sub-build's output so the BuildKit progress UIs don't interleave)
+# needs GNU make 4+; on 3.x (stock macOS make) output interleaves but the
+# builds still work.
+BUILD_JOBS ?= 4
+BUILD_OUTPUT_SYNC := $(if $(filter 3.%,$(MAKE_VERSION)),,--output-sync=target)
+
 .PHONY: help \
         setup deps venv sync-venv-if-uv sandbox-deps install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test test-all test-record-good security \
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
-        build \
-        k3s-setup k3s-secrets litellm-config routing-policy deploy redeploy k3s-teardown k3s-import sudo-keepalive \
+        build build-gateway build-orchestrator build-sandbox build-litellm \
+        k3s-setup k3s-secrets litellm-config routing-policy deploy redeploy k3s-teardown \
+        k3s-import k3s-push k3s-publish registry-setup btrfs-reclaim sudo-keepalive \
         check-egg-images-present
 
 # Default target
@@ -76,9 +117,12 @@ help:
 	@echo ""
 	@echo "Kubernetes (k3s):"
 	@echo "  make k3s-setup          - Install k3s with Cilium CNI"
+	@echo "  make registry-setup     - One-time: local image registry + k3s registries.yaml"
 	@echo "  make deploy             - Deploy egg to k3s"
-	@echo "  make redeploy           - Rebuild, re-import, and redeploy in one step"
-	@echo "  make k3s-import         - Import built images into k3s"
+	@echo "  make redeploy           - Rebuild, publish images, and redeploy in one step"
+	@echo "  make k3s-push           - Push built images to the local registry"
+	@echo "  make k3s-import         - Import built images into k3s (no-registry fallback)"
+	@echo "  make btrfs-reclaim      - Reclaim btrfs over-allocated chunks (issue #2999)"
 	@echo "  make k3s-teardown       - Remove k3s"
 
 # ============================================================================
@@ -460,18 +504,37 @@ lint-yaml-fix: sync-venv-if-uv
 # Build
 # ============================================================================
 
+# Tag set for one image: bare names always (k3s-import + local tooling),
+# registry-qualified names only when registry mode is on AND the image is in
+# the registry subset (what `k3s-push` pushes and `deploy` rewrites the
+# manifests to). Non-subset images (the sandbox, by default) never even get
+# a registry-qualified tag.
+define image_tags
+-t $(1):latest -t $(1):$(EGG_IMAGE_TAG) $(if $(call reg_prefix,$(1)),-t $(call reg_prefix,$(1))$(1):latest -t $(call reg_prefix,$(1))$(1):$(EGG_IMAGE_TAG))
+endef
+
 build: sync-venv-if-uv
 	@echo "==> Preparing sandbox build context from repositories.yaml..."
 	@$(PYTHON) scripts/prepare-sandbox-build-context.py repo-deps
-	@echo "==> Building images with tag $(EGG_IMAGE_TAG)..."
-	@echo "==> Building gateway container..."
-	docker build -t egg-gateway:latest -t egg-gateway:$(EGG_IMAGE_TAG) -f gateway/Dockerfile .
-	@echo "==> Building orchestrator container..."
-	docker build -t egg-orchestrator:latest -t egg-orchestrator:$(EGG_IMAGE_TAG) -f orchestrator/Dockerfile .
-	@echo "==> Building sandbox container..."
-	docker build -t egg-sandbox:latest -t egg-sandbox:$(EGG_IMAGE_TAG) -f sandbox/Dockerfile .
-	@echo "==> Building litellm container (stock LiteLLM + egg cache patches)..."
-	docker build -t egg-litellm:latest -t egg-litellm:$(EGG_IMAGE_TAG) -f config/litellm/Dockerfile config/litellm
+	@echo "==> Building images with tag $(EGG_IMAGE_TAG) ($(BUILD_JOBS) parallel jobs)..."
+	@$(MAKE) --no-print-directory -j$(BUILD_JOBS) $(BUILD_OUTPUT_SYNC) \
+		build-gateway build-orchestrator build-sandbox build-litellm
+
+# Per-image sub-targets so `build` can run them under -j. They assume the
+# repo-deps/ build context has been prepared (the `build` target does that
+# first, sequentially) — run `build`, not these, unless you know repo-deps/
+# is fresh.
+build-gateway:
+	docker build $(call image_tags,egg-gateway) -f gateway/Dockerfile .
+
+build-orchestrator:
+	docker build $(call image_tags,egg-orchestrator) -f orchestrator/Dockerfile .
+
+build-sandbox:
+	docker build $(call image_tags,egg-sandbox) -f sandbox/Dockerfile .
+
+build-litellm:
+	docker build $(call image_tags,egg-litellm) -f config/litellm/Dockerfile config/litellm
 
 # ============================================================================
 # Kubernetes (k3s) targets
@@ -497,6 +560,9 @@ k3s-setup:  ## Install k3s with Cilium CNI
 	echo "Waiting for k3s node to be ready..." && \
 	kubectl wait --for=condition=Ready node --all --timeout=120s && \
 	scripts/install-metrics-server.sh
+	@if [ -n "$(EGG_IMAGE_REGISTRY)" ]; then \
+		$(MAKE) --no-print-directory registry-setup; \
+	fi
 	@echo "k3s cluster ready"
 
 k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
@@ -593,7 +659,7 @@ routing-policy:  ## Apply host-side gateway routing policy from ~/.config/egg/ro
 	@echo "    running gateway pod in ~60s; the gateway re-reads it on the next request."
 
 check-egg-images-present:
-	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)"
+	@scripts/check-egg-images-present.sh "$(EGG_IMAGE_TAG)" "$(EGG_IMAGE_REGISTRY)" $(EGG_REGISTRY_IMAGES)
 
 # Cluster-mutating steps (k3s-secrets, kubectl apply) are invoked from the
 # recipe body so the ordering survives `make -j`: two prerequisites of the
@@ -625,19 +691,21 @@ deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 	kubectl kustomize k8s/overlays/local/ | \
 		envsubst '$$EGG_HOST_HOME $$EGG_HOST_REPO_MAP' | \
 		sed -E "/name: EGG_HOST_REPO_MAP$$/{N;s|^(\s*- name: EGG_HOST_REPO_MAP\s*\n\s*value: )(\{.*\})$$|\1'\2'|}" | \
-		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
-		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
-		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" \
-		    -e "s|egg-litellm:latest|egg-litellm:$(EGG_IMAGE_TAG)|g" | \
+		sed -e "s|egg-orchestrator:latest|$(call reg_prefix,egg-orchestrator)egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-gateway:latest|$(call reg_prefix,egg-gateway)egg-gateway:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-sandbox:latest|$(call reg_prefix,egg-sandbox)egg-sandbox:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-litellm:latest|$(call reg_prefix,egg-litellm)egg-litellm:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
 	scripts/clear-stuck-egg-pods.sh && \
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
-	@# Rollout confirmed on $(EGG_IMAGE_TAG): drop older egg image tags from
-	@# containerd so it does not accumulate a ~12 GB sandbox image per deployed
-	@# commit and push the root fs over kubelet's image-GC threshold (which would
-	@# evict the next redeploy's freshly-imported, not-yet-referenced images
-	@# mid-run). Best-effort -- a reap hiccup must not fail an otherwise-green deploy.
-	@scripts/reap-stale-egg-images.sh "$(EGG_IMAGE_TAG)" || true
+	@# Rollout confirmed on $(EGG_IMAGE_TAG): reap stale egg images from
+	@# containerd, the docker store/BuildKit cache, and the local registry so
+	@# none of them accumulates a ~10 GB sandbox image per deployed commit and
+	@# pushes the root fs over kubelet's image-GC threshold. On btrfs hosts it
+	@# also warns/auto-balances when chunk over-allocation runs the unallocated
+	@# pool low (issue #2999). Best-effort -- a reap hiccup must not fail an
+	@# otherwise-green deploy.
+	@scripts/reap-stale-egg-images.sh "$(EGG_IMAGE_TAG)" "$(EGG_IMAGE_REGISTRY)" $(EGG_REGISTRY_IMAGES) || true
 	@# routing-policy.yaml (issue #2987) was already bundled by the
 	@# k3s-secrets call at the top of this target; no separate apply needed
 	@# here. `make routing-policy` is the standalone hot-reload path between
@@ -645,7 +713,38 @@ deploy: sudo-keepalive check-egg-images-present  ## Deploy egg to k3s
 	@$(MAKE) --no-print-directory litellm-config
 	@echo "Deployment complete"
 
-redeploy: sudo-keepalive build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
+redeploy: sudo-keepalive build k3s-publish deploy  ## Rebuild, publish images, and redeploy in one step
+
+# Publish dispatch (issue #2999): in registry mode, push the registry subset
+# (layer-incremental — the fast path) and save+import the rest (the sandbox,
+# unless opted in via EGG_REGISTRY_IMAGES); without a registry, save+import
+# everything.
+k3s-publish: sudo-keepalive
+	@if [ -n "$(EGG_IMAGE_REGISTRY)" ]; then \
+		$(MAKE) --no-print-directory k3s-push; \
+		if [ -n "$(strip $(EGG_IMPORT_IMAGES))" ]; then \
+			$(MAKE) --no-print-directory k3s-import K3S_IMPORT_IMAGES="$(EGG_IMPORT_IMAGES)"; \
+		fi; \
+	else \
+		$(MAKE) --no-print-directory k3s-import; \
+	fi
+
+# Push the registry-subset images to the local registry, then pre-pull them
+# into k3s's containerd. The pre-pull (sudo, hence the sudo-keepalive
+# prerequisite) keeps pod starts instant and lets reap-stale-egg-images.sh's
+# safety gate see the new refs before anything references them.
+k3s-push: sudo-keepalive  ## Push registry-subset images to the local registry
+	@scripts/push-egg-images.sh "$(EGG_IMAGE_TAG)" "$(EGG_IMAGE_REGISTRY)" $(EGG_REGISTRY_IMAGES)
+
+registry-setup:  ## One-time: run the local image registry + point k3s at it
+	@scripts/setup-local-registry.sh "$(EGG_IMAGE_REGISTRY)"
+
+# Manual escape hatch for #2999's root disease: btrfs data-chunk
+# over-allocation from image churn. The post-deploy reap warns when this is
+# needed and auto-runs it when critically low; run it by hand any time
+# DiskPressure / "images not in k3s" shows up while `df -h` claims space.
+btrfs-reclaim:  ## Reclaim btrfs over-allocated data chunks (issue #2999)
+	@scripts/btrfs-reclaim.sh
 
 # Prompt for the sudo password immediately so `make redeploy` can be left
 # unattended through the long `build` step. A detached background loop refreshes
@@ -691,8 +790,17 @@ sudo-keepalive:
 # non-egg content -- no tool in this repo does so, and an out-of-band retag
 # would only mismatch if :$(EGG_IMAGE_TAG) is also absent (the inner grep
 # guard skips when it is already present).
+# NOTE (#2999): k3s-import is the save+import publish path. The default
+# `make redeploy` flow uses it only for the images excluded from the registry
+# subset (the sandbox, which must not be pushed to any registry by default —
+# see EGG_REGISTRY_IMAGES above); with EGG_IMAGE_REGISTRY= (empty) it covers
+# everything, e.g. for CI. K3S_IMPORT_IMAGES narrows the image set
+# (k3s-publish passes the registry-subset complement). It deals in BARE
+# image names (egg-sandbox:<tag>), matching what `deploy` writes into the
+# manifests for non-registry images.
+K3S_IMPORT_IMAGES ?= $(EGG_ALL_IMAGES)
 k3s-import: SHELL := /bin/bash
-k3s-import: sudo-keepalive  ## Import built images into k3s
+k3s-import: sudo-keepalive  ## Import built images into k3s (registry-excluded set)
 	@set -euo pipefail; \
 	tmp=$$(mktemp -d -p /var/tmp egg-k3s-import.XXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
@@ -700,7 +808,7 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 	if [ "$(EGG_IMAGE_TAG)" != "latest" ]; then tags="$$tags $(EGG_IMAGE_TAG)"; fi; \
 	id_dir="$${XDG_CACHE_HOME:-$$HOME/.cache}/egg/k3s-import-ids"; \
 	mkdir -p "$$id_dir"; \
-	for image in egg-gateway egg-orchestrator egg-sandbox egg-litellm; do \
+	for image in $(K3S_IMPORT_IMAGES); do \
 		cur_id=$$(docker image inspect "$$image:$(EGG_IMAGE_TAG)" --format '{{.Id}}'); \
 		marker="$$id_dir/$$image.id"; \
 		prev_id=$$(cat "$$marker" 2>/dev/null || true); \
@@ -715,14 +823,13 @@ k3s-import: sudo-keepalive  ## Import built images into k3s
 				fi; \
 			done; \
 		else \
-			for tag in $$tags; do \
-				img="$$image:$$tag"; \
-				f="$$tmp/$${img//[:\/]/_}.tar"; \
-				echo ">>> importing $$img"; \
-				docker save "$$img" -o "$$f"; \
-				sudo k3s ctr images import "$$f"; \
-				rm -f "$$f"; \
-			done; \
+			refs=""; \
+			for tag in $$tags; do refs="$$refs $$image:$$tag"; done; \
+			f="$$tmp/$$image.tar"; \
+			echo ">>> importing$$refs (one tarball: tags share all layers)"; \
+			docker save $$refs -o "$$f"; \
+			sudo k3s ctr images import "$$f"; \
+			rm -f "$$f"; \
 			printf '%s\n' "$$cur_id" > "$$marker.tmp" && mv -f "$$marker.tmp" "$$marker"; \
 			present=$$(sudo k3s ctr images list -q); \
 		fi; \

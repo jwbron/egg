@@ -1005,8 +1005,8 @@ class TestPersistSystemDirs:
         result = get_build_commands(config)
         assert result[0]["persist_system_dirs"] == []
 
-    def test_persist_system_dirs_copies_to_prebuilt(self, tmp_path, capsys):
-        """persist_system_dirs copies absolute-path directories to _system_ subdir."""
+    def test_persist_system_dirs_copies_to_system_base(self, tmp_path, capsys):
+        """persist_system_dirs copies absolute-path directories under system_base."""
         from docker_setup import persist_build_dirs
 
         # Simulate a system-level Go installation
@@ -1016,6 +1016,7 @@ class TestPersistSystemDirs:
         (go_dir.parent / "src").mkdir()
 
         prebuilt = tmp_path / "prebuilt-deps"
+        system_base = tmp_path / "egg-system-dirs"
         repo_deps = tmp_path / "repo-deps"
         (repo_deps / "org--app").mkdir(parents=True)
 
@@ -1033,10 +1034,11 @@ class TestPersistSystemDirs:
             ],
             repo_deps_base=repo_deps,
             prebuilt_base=prebuilt,
+            system_base=system_base,
         )
 
-        # Should be stored under __egg_system_dirs__/<stripped_path>
-        dest = prebuilt / "__egg_system_dirs__" / sys_dir.lstrip("/")
+        # Should be stored under <system_base>/<stripped_path>
+        dest = system_base / sys_dir.lstrip("/")
         assert dest.is_dir()
         assert (dest / "bin" / "go").exists()
 
@@ -1150,6 +1152,7 @@ class TestPersistSystemDirs:
         (go_dir / "go").write_text("#!/bin/sh\necho go")
 
         prebuilt = tmp_path / "prebuilt-deps"
+        system_base = tmp_path / "egg-system-dirs"
         repo_deps = tmp_path / "repo-deps"
         (repo_deps / "org--app1").mkdir(parents=True)
         (repo_deps / "org--app2").mkdir(parents=True)
@@ -1174,10 +1177,11 @@ class TestPersistSystemDirs:
             ],
             repo_deps_base=repo_deps,
             prebuilt_base=prebuilt,
+            system_base=system_base,
         )
 
         # Both should succeed (dirs_exist_ok=True merges)
-        dest = prebuilt / "__egg_system_dirs__" / sys_dir.lstrip("/")
+        dest = system_base / sys_dir.lstrip("/")
         assert dest.is_dir()
         assert (dest / "bin" / "go").exists()
 
@@ -1210,6 +1214,7 @@ class TestPersistSystemDirs:
         (repo_deps / "org--app-a").mkdir(parents=True)
         (repo_deps / "org--app-b").mkdir(parents=True)
         prebuilt = tmp_path / "prebuilt"
+        system_base = tmp_path / "egg-system-dirs"
 
         # First persist call writes repo-A's content.
         persist_build_dirs(
@@ -1223,6 +1228,7 @@ class TestPersistSystemDirs:
             ],
             repo_deps_base=repo_deps,
             prebuilt_base=prebuilt,
+            system_base=system_base,
         )
 
         # Now mutate the source so repo-B "would" install a different version
@@ -1242,9 +1248,10 @@ class TestPersistSystemDirs:
             ],
             repo_deps_base=repo_deps,
             prebuilt_base=prebuilt,
+            system_base=system_base,
         )
 
-        dest = prebuilt / "__egg_system_dirs__" / str(bin_dir).lstrip("/")
+        dest = system_base / str(bin_dir).lstrip("/")
         # Shared file: first writer wins (repo-A's content survived).
         assert (dest / "shared").read_text() == "repo-A version"
         # Both repo-only files coexist (idempotent merge).

@@ -1245,7 +1245,7 @@ event-handler contract (task-3-4) only reaches the agent pod after:
 
 ```bash
 make build        # rebuild egg-sandbox / egg-orchestrator / egg-gateway / egg-litellm
-make k3s-import   # import rebuilt images into k3s
+make k3s-push     # publish rebuilt images (or k3s-import without the local registry)
 make deploy       # roll out deployments in egg-system
 ```
 

@@ -17,6 +17,16 @@ jobs:
     # whether this workflow is invoked via `uses:` or via
     # `workflow_dispatch`.
     timeout-minutes: 30
+    env:
+      # Keep CI on the docker-save/ctr-import publish path (the inline
+      # "Import images into k3s" step below). The localhost registry +
+      # registries.yaml flow is a local-dev optimization (issue #2999) and
+      # would be pure setup overhead on an ephemeral runner. Empty value =
+      # bare image names in `make build` tags and `make deploy` rewrites.
+      EGG_IMAGE_REGISTRY: ""
+      # Sequential image builds: the hosted runner builds every stage cold,
+      # and four concurrent heavyweight builds risk memory/disk flake.
+      BUILD_JOBS: "1"
     steps:
       - uses: actions/checkout@v4
 

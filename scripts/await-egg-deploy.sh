@@ -80,10 +80,12 @@ while :; do
     fi
   done
   if [ "$egg_image_pull_failed" -eq 1 ]; then
-    echo "ERROR: egg-system pods cannot pull image tag '${TAG}' — it is not in k3s." >&2
-    echo "       A commit, pull, or rebase since your last build moved EGG_IMAGE_TAG." >&2
-    echo "       'make deploy' alone only deploys; run 'make redeploy' to rebuild +" >&2
-    echo "       re-import + deploy on the current tag." >&2
+    echo "ERROR: egg-system pods cannot pull image tag '${TAG}'." >&2
+    echo "       Usual cause: a commit, pull, or rebase since your last build moved" >&2
+    echo "       EGG_IMAGE_TAG. 'make deploy' alone only deploys; run 'make redeploy'" >&2
+    echo "       to rebuild + publish + deploy on the current tag." >&2
+    echo "       If the pod events show 'server gave HTTP response to HTTPS client'," >&2
+    echo "       k3s was never pointed at the local registry: run 'make registry-setup'." >&2
     exit 1
   fi
 

@@ -4,6 +4,20 @@
 .git
 **/.git/
 
+# Claude Code worktrees and egg session state (issue #2999). Multi-GB on a
+# live dev checkout, and `sandbox/Dockerfile` Stage 3 does
+# `COPY . /opt/egg-runtime/` — without these exclusions every source edit
+# re-ingests gigabytes of worktree/session content into a fresh image layer,
+# which then churns through the docker store, the k3s transfer, and containerd.
+.claude/
+.egg-state/
+
+# Tool caches — same `COPY . /opt/egg-runtime/` bloat as above
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.hypothesis/
+
 # Mobile app dependencies and build artifacts
 **/mobile/app/ios/Pods/
 **/mobile/app/ios/build/
