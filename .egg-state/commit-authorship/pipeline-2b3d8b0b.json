@@ -7,6 +7,14 @@
       "registered_at": "2026-06-10T19:02:43.449109+00:00",
       "repo": null,
       "role": "risk_analyst"
+    },
+    "75c4ad1cb5e7865c276a5ca86b5dcf9eeb0de26a": {
+      "branch": "egg/pipeline-2b3d8b0b/work",
+      "patch_id": "7aa2082c78c9478a1f17ef7d3c6aa06c6041a95c",
+      "pipeline_id": "pipeline-2b3d8b0b",
+      "registered_at": "2026-06-10T19:03:46.430401+00:00",
+      "repo": null,
+      "role": "task_planner"
     }
   },
   "version": 2
