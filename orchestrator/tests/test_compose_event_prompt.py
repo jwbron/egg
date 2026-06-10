@@ -794,6 +794,205 @@ def test_build_delta_entries_prefers_real_sha_over_fallback() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #3076: the re-review delta must end at the producer's PROPOSAL SHA, not
+# the reviewer's own HEAD (which never contains the producer's commits —
+# per-role worktrees), and the first-review fallback must render concrete
+# `git show <sha>:<path>` reads instead of a directionless instruction.
+# ---------------------------------------------------------------------------
+
+_COD_MEMORY_WITH_SHA = (
+    "## Per-producer assessment\n\n"
+    "### coder\n\n"
+    "- producer: coder\n"
+    "- last_reviewed_commit_sha: 0123abc\n"
+    "- prior_verdict: NACK\n"
+    "- prior_nack_reasons: missing tests\n"
+    "- prior_conditional_obligation: -\n"
+    "- summary_of_assessment: needs revision.\n"
+)
+
+
+def test_build_delta_entries_scopes_delta_to_proposal_sha() -> None:
+    """When pending_reviews carries the producer's proposal_commit_sha,
+    the re-review delta runs ``{last_reviewed}..{proposal_sha}`` — NOT
+    ``..HEAD``. ``{sha}..HEAD`` in the REVIEWER's worktree is empty even
+    after the producer revises (the "re-review delta is empty" phantom
+    NACK on pipeline-2b3d8b0b, #3076)."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    with patch("orchestrator.routes.event_prompt._run_git_log", return_value="(diff)") as mock_log:
+        entries = _build_delta_entries(
+            action="nack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=_COD_MEMORY_WITH_SHA,
+            event_payload={
+                "pending_reviews": [
+                    {
+                        "producer": "coder",
+                        "current_version": 2,
+                        "artifact_refs": ["src/x.py"],
+                        "proposal_commit_sha": "def5678",
+                    }
+                ]
+            },
+        )
+    assert len(entries) == 1
+    assert entries[0]["proposal_commit_sha"] == "def5678"
+    mock_log.assert_called_once()
+    assert mock_log.call_args.kwargs.get("end_ref") == "def5678", (
+        f"delta must end at the proposal SHA, not HEAD — call was {mock_log.call_args!r}"
+    )
+
+
+def test_build_delta_entries_legacy_payload_keeps_head_endpoint() -> None:
+    """Payloads without proposal_commit_sha keep the pre-#3076 HEAD
+    endpoint — backward compatibility for legacy / synthetic callers."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    with patch("orchestrator.routes.event_prompt._run_git_log", return_value="(diff)") as mock_log:
+        _build_delta_entries(
+            action="ack",
+            role="reviewer_code",
+            base_branch="main",
+            repo_path=Path("/tmp"),
+            memory_text=_COD_MEMORY_WITH_SHA,
+            event_payload={"pending_reviews": [{"producer": "coder", "current_version": 1}]},
+        )
+    assert mock_log.call_args.kwargs.get("end_ref") == "HEAD"
+
+
+def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
+    """First review (no stored SHA) with a proposal SHA renders concrete,
+    working read commands — the producer's work is not in the reviewer's
+    working tree, and a plain Read of the path is expected to fail."""
+    from pathlib import Path
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    entries = _build_delta_entries(
+        action="ack",
+        role="risk_analyst",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text="",
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "architect",
+                    "current_version": 1,
+                    "artifact_refs": [".egg-state/drafts/p-plan.md"],
+                    "proposal_commit_sha": "b521d7d",
+                }
+            ]
+        },
+    )
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["proposal_commit_sha"] == "b521d7d"
+    delta = entry["delta"]
+    assert "git show b521d7d:.egg-state/drafts/p-plan.md" in delta
+    assert "git log b521d7d --not origin/main -p" in delta
+    assert "NOT in your working tree" in delta
+    # The anti-phantom-NACK instruction is the point of the render.
+    assert "Do NOT NACK" in delta
+
+
+def test_build_delta_entries_first_review_sha_without_artifacts_still_renders() -> None:
+    """A proposal SHA with an empty artifact list still yields an entry
+    (the full-change git log command) — pre-#3076 the empty artifact
+    list silently dropped the producer from the section."""
+    from pathlib import Path
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    entries = _build_delta_entries(
+        action="ack",
+        role="reviewer_code",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text="",
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "coder",
+                    "current_version": 1,
+                    "artifact_refs": [],
+                    "proposal_commit_sha": "abc1234",
+                }
+            ]
+        },
+    )
+    assert len(entries) == 1
+    assert "git log abc1234 --not origin/main -p" in entries[0]["delta"]
+
+
+def test_extract_proposal_sha_rejects_non_hex_tokens() -> None:
+    """The SHA is interpolated into rendered shell commands — anything
+    that is not a 7-64 char hex token must be discarded, falling back to
+    the legacy degraded-baseline path."""
+    from orchestrator.routes.event_prompt import _extract_proposal_sha_for_producer
+
+    def payload(sha):
+        return {"pending_reviews": [{"producer": "coder", "proposal_commit_sha": sha}]}
+
+    assert _extract_proposal_sha_for_producer(payload("abc1234"), "coder") == "abc1234"
+    assert _extract_proposal_sha_for_producer(payload("ABC1234DEF"), "coder") == "ABC1234DEF"
+    for bad in ("$(rm -rf /)", "HEAD", "abc123", "abc1234..def5678", "", None, 42):
+        assert _extract_proposal_sha_for_producer(payload(bad), "coder") == "", (
+            f"non-hex token {bad!r} must be discarded"
+        )
+
+
+def test_render_delta_section_shows_proposal_sha_and_cautions_on_head() -> None:
+    """The rendered section substitutes the proposal SHA into the verbatim
+    command and only trusts an empty range when it was proposal-scoped;
+    an empty HEAD-scoped range gets an explicit caution instead of the
+    "re-review is a no-op" verdict."""
+    from orchestrator.routes.event_prompt import _render_producer_delta_section
+
+    # Proposal-scoped: empty range is a trustworthy no-op.
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "def5678",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    assert "git log 0123abc..def5678 --not origin/main -p" in section
+    assert "proposal_commit_sha: `def5678`" in section
+    assert "re-review is a no-op" in section
+    assert "CAUTION" not in section
+
+    # HEAD-scoped (legacy): empty range is NOT evidence — caution required.
+    section, _ = _render_producer_delta_section(
+        [
+            {
+                "producer": "coder",
+                "last_reviewed_commit_sha": "0123abc",
+                "proposal_commit_sha": "",
+                "delta": "",
+            }
+        ],
+        "main",
+    )
+    assert "git log 0123abc..HEAD --not origin/main -p" in section
+    assert "CAUTION" in section
+    assert "NOT evidence" in section
+
+
+# ---------------------------------------------------------------------------
 # CLI tests: the wrapper-bash entry-point (NACK #2 from reviewer_contract —
 # plan TASK-3-2 acceptance "snapshot test verifies both branches" for
 # EGG_BRC_MEMORY={full,write-only,off}).
@@ -1462,10 +1661,36 @@ def test_producer_delta_empty_string_renders_no_commits_sentinel() -> None:
 
     This is the real production state when a producer ACKs a confirmed
     proposal and re-confirms without any new commits between the
-    ``last_reviewed_commit_sha`` and HEAD. The agent must see the
-    sentinel so they know the re-review is a no-op rather than
+    ``last_reviewed_commit_sha`` and the proposal SHA. The agent must
+    see the sentinel so they know the re-review is a no-op rather than
     silently reading a blank diff block.
+
+    #3076: the trustworthy no-op verdict requires the range to have
+    been scoped to the producer's ``proposal_commit_sha``. An empty
+    HEAD-scoped range (legacy payloads) gets an explicit caution
+    instead — the reviewer's own HEAD never contains the producer's
+    commits, so emptiness there is NOT evidence of no revision (the
+    "re-review delta is empty" phantom NACK).
     """
+    deltas = [
+        {
+            "producer": "coder",
+            "last_reviewed_commit_sha": "abc1234",
+            "proposal_commit_sha": "def5678",
+            "delta": "   \n\n",
+        },
+    ]
+    prompt = compose_event_prompt(
+        "reviewer_code",
+        {"action": "ack"},
+        "",
+        [],
+        deltas,
+        "main",
+    )
+    assert "(no commits in range — re-review is a no-op)" in prompt
+
+    # Legacy HEAD-scoped empty range: caution, not a no-op verdict.
     deltas = [
         {"producer": "coder", "last_reviewed_commit_sha": "abc1234", "delta": "   \n\n"},
     ]
@@ -1477,7 +1702,8 @@ def test_producer_delta_empty_string_renders_no_commits_sentinel() -> None:
         deltas,
         "main",
     )
-    assert "(no commits in range — re-review is a no-op)" in prompt
+    assert "re-review is a no-op" not in prompt
+    assert "CAUTION" in prompt
 
 
 def test_producer_delta_missing_keys_renders_defensive_defaults() -> None:

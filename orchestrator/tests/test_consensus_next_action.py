@@ -664,3 +664,28 @@ def test_next_action_reviewer_pending_reviews_includes_artifact_refs(client, sim
         f"artifact_refs must mirror the producer's current proposal "
         f"artifacts (a.py from _propose) — got {entry['artifact_refs']!r}"
     )
+
+
+def test_next_action_reviewer_pending_reviews_includes_proposal_commit_sha(client, simple_tracker):
+    """Reviewer-side pending_reviews entries must surface the producer's
+    proposed commit SHA (#3076).
+
+    The composer scopes the re-review delta to
+    ``{last_reviewed}..{proposal_commit_sha}`` and renders
+    ``git show <sha>:<path>`` reads from it — ``{sha}..HEAD`` against
+    the REVIEWER's own HEAD never contains the producer's commits
+    (per-role worktrees), which produced the "re-review delta is empty"
+    phantom NACK on pipeline-2b3d8b0b.
+    """
+    _propose(simple_tracker, "coder")
+    resp = _post_next_action(client, "reviewer_code", tracker=simple_tracker)
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    payload = data.get("data", data)
+    pending = (payload.get("event_payload") or {}).get("pending_reviews") or []
+    assert len(pending) >= 1
+    entry = pending[0]
+    assert entry.get("proposal_commit_sha") == "abc1234", (
+        f"pending_reviews entry must carry the producer's proposed commit "
+        f"SHA (abc1234 from _propose) — entry={entry!r}"
+    )

@@ -225,25 +225,50 @@ def _render_producer_delta_section(
     for entry in git_log_delta:
         producer = str(entry.get("producer") or "(unknown)").strip()
         sha = str(entry.get("last_reviewed_commit_sha") or "").strip()
+        proposal_sha = str(entry.get("proposal_commit_sha") or "").strip()
         delta = entry.get("delta") or ""
         if not isinstance(delta, str):
             delta = str(delta)
         # Command is emitted verbatim — the per-producer
-        # ``last_reviewed_commit_sha`` substituted in so the agent can
-        # cross-check the scope against the orchestrator's stored value.
+        # ``last_reviewed_commit_sha`` and the proposal endpoint
+        # substituted in so the agent can cross-check the scope against
+        # the orchestrator's stored values. ``end_ref`` is the
+        # producer's proposed commit when the payload carries one
+        # (#3076); ``HEAD`` only on legacy payloads.
         cmd_sha = sha if sha else "<no prior review — full branch history>"
-        cmd = f"git log {cmd_sha}..HEAD --not origin/{base_branch} -p"
+        end_ref = proposal_sha or "HEAD"
+        cmd = f"git log {cmd_sha}..{end_ref} --not origin/{base_branch} -p"
+        if delta.strip():
+            delta_rendered = delta
+        elif proposal_sha:
+            delta_rendered = "(no commits in range — re-review is a no-op)"
+        else:
+            # Empty delta against the reviewer's own HEAD is NOT
+            # evidence the producer didn't revise: per-role worktrees
+            # mean the reviewer's HEAD never contains the producer's
+            # commits (#3076 — the "re-review delta is empty" phantom
+            # NACK). Only trust an empty range when it was scoped to
+            # the producer's proposal SHA.
+            delta_rendered = (
+                "(no commits in range — CAUTION: this range ended at YOUR "
+                "worktree's HEAD, which does not contain the producer's "
+                "commits. An empty delta here is NOT evidence the producer "
+                "didn't revise. Read the producer's branch directly, e.g. "
+                "`git log <producer-branch-or-sha> --not "
+                f"origin/{base_branch} -p`, before issuing a verdict.)"
+            )
         lines.extend(
             [
                 f"### Producer: ``{producer}``",
                 "",
                 f"- last_reviewed_commit_sha: `{sha or '-'}`",
+                f"- proposal_commit_sha: `{proposal_sha or '-'}`",
                 "- Re-review scope (executed by the wrapper):",
                 f"  `{cmd}`",
                 "",
                 "Delta:",
                 "```diff",
-                delta if delta.strip() else "(no commits in range — re-review is a no-op)",
+                delta_rendered,
                 "```",
                 "",
             ]
@@ -529,19 +554,29 @@ def _run_git_log(
     sha: str,
     base_branch: str,
     repo_path: Path,
+    end_ref: str = "HEAD",
 ) -> str:
-    """Render ``git log {sha}..HEAD --not origin/{base_branch} -p``.
+    """Render ``git log {sha}..{end_ref} --not origin/{base_branch} -p``.
 
     Runs the subprocess in ``repo_path``. The gateway allows
     ``git log`` with ``-p`` / ``--patch`` and ``--not`` flags (see
     ``gateway`` allow-list; #2905). On non-zero rc or timeout we
     return a sentinel string so the agent can audit the failure
     explicitly rather than silently reviewing an empty diff.
+
+    ``end_ref`` defaults to ``HEAD`` for legacy payloads, but callers
+    should pass the producer's ``proposal_commit_sha`` when the event
+    payload carries one (#3076): the reviewer's own HEAD does not
+    contain the producer's commits (per-role worktrees), so a
+    ``{sha}..HEAD`` range in the reviewer's worktree is empty even
+    when the producer revised — the "re-review delta is empty"
+    phantom-NACK. The proposal SHA resolves from any agent worktree
+    because all per-role worktrees share the host repo's object store.
     """
     cmd = [
         "git",
         "log",
-        f"{sha}..HEAD",
+        f"{sha}..{end_ref}",
         "--not",
         f"origin/{base_branch}",
         "-p",
@@ -556,7 +591,7 @@ def _run_git_log(
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return f"(git log timed out after {_GIT_LOG_TIMEOUT_SECS}s for {sha}..HEAD)"
+        return f"(git log timed out after {_GIT_LOG_TIMEOUT_SECS}s for {sha}..{end_ref})"
     except OSError as exc:  # pragma: no cover — defensive
         return f"(git log failed: {exc})"
 
@@ -651,12 +686,26 @@ def _build_delta_entries(
     out: list[dict[str, Any]] = []
     for producer in scoped_producers:
         sha = per_producer_sha.get(producer, "")
+        # The producer's proposed commit SHA from pending_reviews
+        # (#3076). When present it is BOTH the delta endpoint (the
+        # reviewer's own HEAD never contains the producer's commits —
+        # per-role worktrees — so ``{sha}..HEAD`` was empty even after
+        # a revision) and the anchor for ``git show <sha>:<path>``
+        # artifact reads, which resolve from any agent worktree via
+        # the shared host object store.
+        proposal_sha = _extract_proposal_sha_for_producer(event_payload, producer)
         if sha:
-            delta = _run_git_log(sha, base_branch, repo_path)
+            delta = _run_git_log(
+                sha,
+                base_branch,
+                repo_path,
+                end_ref=proposal_sha or "HEAD",
+            )
             out.append(
                 {
                     "producer": producer,
                     "last_reviewed_commit_sha": sha,
+                    "proposal_commit_sha": proposal_sha,
                     "delta": delta,
                 }
             )
@@ -666,22 +715,47 @@ def _build_delta_entries(
         # Prefer per-producer artifact_refs from pending_reviews; fall
         # back to the legacy top-level changed_artifacts key.
         artifacts = _extract_artifacts_for_producer(event_payload, producer)
-        if not artifacts:
+        if not artifacts and not proposal_sha:
             continue
         refs_text = "\n".join(f"- `{a}`" for a in artifacts)
-        fallback_delta = (
-            "(No `last_reviewed_commit_sha` recorded yet for this "
-            "producer — falling back to the orchestrator's signal-level "
-            "`changed_artifacts` list as a degraded baseline. This is "
-            "NOT the adversarial-re-review path; if your role demands a "
-            "full audit, fetch and read the actual file diffs yourself "
-            "before issuing a verdict.)\n\n"
-            f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
-        )
+        if proposal_sha:
+            # First review with a known proposal SHA: render concrete,
+            # working read commands instead of the directionless "fetch
+            # and read the diffs yourself" (#3076 — reviewers NACKed
+            # plans they could not find because nothing said WHERE the
+            # producer's work lives; their worktree does not contain
+            # it, but the shared object store resolves the SHA).
+            show_cmds = "\n".join(f"- `git show {proposal_sha}:{a}`" for a in artifacts)
+            fallback_delta = (
+                "(No `last_reviewed_commit_sha` recorded yet for this "
+                "producer — this is your FIRST review of this proposal. "
+                "The producer's work is NOT in your working tree; per-"
+                "role worktrees are isolated. Read it via the proposed "
+                f"commit `{proposal_sha}`, which resolves from your "
+                "worktree through the shared object store:)\n\n"
+                + (f"Proposed artifacts:\n{show_cmds}\n\n" if artifacts else "")
+                + "Full proposed change:\n"
+                f"- `git log {proposal_sha} --not origin/{base_branch} -p`\n\n"
+                "Do NOT NACK for a missing file before reading it via "
+                "these commands — a plain `Read` of the path in your own "
+                "worktree is expected to fail and is not evidence the "
+                "artifact does not exist.\n"
+            )
+        else:
+            fallback_delta = (
+                "(No `last_reviewed_commit_sha` recorded yet for this "
+                "producer — falling back to the orchestrator's signal-level "
+                "`changed_artifacts` list as a degraded baseline. This is "
+                "NOT the adversarial-re-review path; if your role demands a "
+                "full audit, fetch and read the actual file diffs yourself "
+                "before issuing a verdict.)\n\n"
+                f"Artifacts the orchestrator flagged as changed:\n{refs_text}\n"
+            )
         out.append(
             {
                 "producer": producer,
                 "last_reviewed_commit_sha": "",
+                "proposal_commit_sha": proposal_sha,
                 "delta": fallback_delta,
             }
         )
@@ -755,6 +829,45 @@ def _extract_current_producers(event_payload: Any) -> list[str]:
             seen.append(raw.strip())
 
     return seen
+
+
+def _extract_proposal_sha_for_producer(event_payload: Any, producer: str) -> str:
+    """Pull the producer's proposed commit SHA from the event payload.
+
+    Reads ``pending_reviews[i].proposal_commit_sha`` for the entry whose
+    ``producer`` matches (#3076) — the enrichment added by the
+    next-action route from
+    ``PeerConsensusTracker.get_current_proposal_snapshot``. Returns
+    ``""`` when the payload carries no SHA for the named producer
+    (legacy payloads, synthetic test paths), in which case callers fall
+    back to the pre-#3076 behaviour (``HEAD`` delta endpoint / the
+    degraded artifact-list fallback).
+
+    The value is sanitised to a hex-ish token before being embedded in
+    rendered shell commands: anything that is not a 7-64 char hex
+    string is discarded rather than interpolated.
+    """
+    if not isinstance(event_payload, dict) or not isinstance(producer, str):
+        return ""
+    producer = producer.strip()
+    if not producer:
+        return ""
+    pending = event_payload.get("pending_reviews")
+    if not isinstance(pending, list):
+        return ""
+    for entry in pending:
+        if not isinstance(entry, dict):
+            continue
+        entry_producer = entry.get("producer") or entry.get("producer_role")
+        if not isinstance(entry_producer, str) or entry_producer.strip() != producer:
+            continue
+        raw = entry.get("proposal_commit_sha")
+        if isinstance(raw, str):
+            candidate = raw.strip()
+            if re.fullmatch(r"[0-9a-fA-F]{7,64}", candidate):
+                return candidate
+        return ""
+    return ""
 
 
 def _extract_artifacts_for_producer(event_payload: Any, producer: str) -> list[str]:

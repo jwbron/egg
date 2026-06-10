@@ -1040,7 +1040,14 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, phase: str, items: [...], next_cursor: str|None,
-          total_available: int, skipped_malformed: int }
+          total_available: int, skipped_malformed: int, hint?: str }
+
+    ``hint`` is present only when no history file exists on disk —
+    the expected state for the phase currently in flight (#3076):
+    brc-history is written at phase COMPLETION and reaches an agent
+    worktree only via the spawn fork point, so an empty result for
+    the current phase is structural, not evidence that peers have
+    not proposed.
 
     ``skipped_malformed`` counts brc-history records that were
     silently skipped because they failed isinstance-dict parsing; the
@@ -1160,6 +1167,14 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
         records.extend(chunk)
 
     if not any_existed:
+        # No history file on disk. This is the EXPECTED state for the
+        # phase currently in flight (#3076): brc-history files are
+        # written by the orchestrator at phase COMPLETION, into the
+        # pipeline work branch — they reach an agent worktree only via
+        # the spawn fork point, i.e. only for phases that completed
+        # before this agent spawned. Say so explicitly: a bare empty
+        # result here reads as "peers produced nothing" and has driven
+        # reviewers to NACK proposals they simply could not see.
         return {
             "ok": True,
             "phase": phase,
@@ -1167,6 +1182,18 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             "next_cursor": None,
             "total_available": 0,
             "skipped_malformed": prior_skipped,
+            "hint": (
+                "No brc-history file exists in this worktree for phase "
+                f"{phase!r}. brc-history is written at phase COMPLETION; "
+                "for the phase currently in flight this tool is always "
+                "empty and that is NOT evidence that peers have not "
+                "proposed. Live proposals arrive via your event payload "
+                "(pending_reviews carries each producer's "
+                "proposal_commit_sha and artifact_refs); read a peer's "
+                "proposed artifact with `git show "
+                "<proposal_commit_sha>:<path>` — the SHA resolves from "
+                "your worktree via the shared object store."
+            ),
         }
 
     filtered: list[dict[str, Any]] = []
