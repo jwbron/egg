@@ -100,6 +100,31 @@ def dual_tracker(dual_role_graph):
 
 
 @pytest.fixture
+def advisory_holdout_graph():
+    """#3043 shape: coder's only CRITICAL reviewer is reviewer_security, with
+    reviewer_code ADVISORY on coder (e.g. a stall-demoted edge). reviewer_code
+    also CRITICALLY reviews tester. coder can therefore confirm on
+    reviewer_security's ACK alone, leaving reviewer_code as a lagging holdout
+    that never reviewed coder.
+    """
+    return ReviewGraph(
+        [
+            ReviewEdge("reviewer_security", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.ADVISORY),
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+        ]
+    )
+
+
+@pytest.fixture
+def advisory_holdout_tracker(advisory_holdout_graph):
+    t = PeerConsensusTracker(PIPELINE_ID, advisory_holdout_graph, cooldown_seconds=0)
+    for role in ("coder", "tester", "reviewer_security", "reviewer_code"):
+        t.register_agent(role)
+    return t
+
+
+@pytest.fixture
 def app():
     """Flask app with the next-action route blueprint.
 
@@ -531,6 +556,40 @@ def test_next_action_role_complete(client, simple_tracker):
     simple_tracker.handle_confirmed("reviewer_security")
     resp = _post_next_action(client, "coder", tracker=simple_tracker)
     _assert_action(resp, "complete")
+
+
+def test_advisory_reviewer_can_confirm_after_producer_confirmed(client, advisory_holdout_tracker):
+    """#3043 regression: a lagging advisory reviewer must be routed to
+    ``confirm`` once the producer it never reviewed has CONFIRMED.
+
+    Field repro (issue-3023 slice-3): coder confirmed via its critical
+    reviewers while reviewer_code (advisory on coder) was the lone holdout.
+    Because ``_has_pending_peer_proposals`` skips a CONFIRMED producer,
+    reviewer_code was never routed back to ``ack`` coder; and ``check_confirm_guard``
+    blocked its ``confirm`` on the must_have_reviewed guard. Result: a permanent
+    ``wait`` → ``is_complete`` (all-confirmed) never trips → the slice never
+    closes. The fix excludes already-CONFIRMED producers from the reviewer
+    guards, so the holdout can confirm and consensus completes.
+    """
+    t = advisory_holdout_tracker
+    _propose(t, "coder")
+    _propose(t, "tester")
+    # coder's CRITICAL reviewer ACKs; reviewer_code (advisory) never reviews coder.
+    _ack(t, "reviewer_security", "coder", version=1)
+    # reviewer_code reviews its CRITICAL producer (tester).
+    _ack(t, "reviewer_code", "tester", version=1)
+    # Producers + the fully-reviewed pure reviewer confirm, leaving reviewer_code.
+    t.handle_confirmed("coder")
+    t.handle_confirmed("tester")
+    t.handle_confirmed("reviewer_security")
+
+    # The lone holdout: its next action must be ``confirm``, not a terminal ``wait``.
+    resp = _post_next_action(client, "reviewer_code", tracker=t)
+    _assert_action(resp, "confirm")
+
+    # Confirming it completes global consensus — the slice can now close.
+    t.handle_confirmed("reviewer_code")
+    assert t.evaluate()["is_complete"] is True
 
 
 # ---------------------------------------------------------------------------

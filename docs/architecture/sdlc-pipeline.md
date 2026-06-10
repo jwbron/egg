@@ -83,8 +83,9 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "issue": { "number": 133, "title": "...", "url": "..." },
+  "task_description": null,
   "current_phase": "implement",
   "slices": [{
     "id": "slice-1",
@@ -101,6 +102,23 @@ The contract is a JSON document tracking the complete state of an issue through 
       "review_cycles": 1
     }]
   }],
+  "workflow_owner": "my-org",
+  "audit_log": [...]
+}
+```
+
+For a free-text or JIRA-driven pipeline (no GitHub issue), `issue` is
+`null` and `task_description` carries the full, untruncated prompt that
+the agent reads to recover the task:
+
+```json
+{
+  "schemaVersion": "1.3",
+  "issue": null,
+  "pipeline_id": "KORE-1234",
+  "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
+  "current_phase": "implement",
+  "slices": [...],
   "workflow_owner": "my-org",
   "audit_log": [...]
 }

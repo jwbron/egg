@@ -497,6 +497,11 @@ crashing, or refusing requests for some other reason, and had to shell
 into the cluster (`kubectl logs -n egg-system deploy/gateway`) to
 self-serve.
 
+[#3032](https://github.com/jwbron/egg/issues/3032) added server-side
+filtering (`pipeline_id`, `level`, `pattern`) applied **before** truncation,
+so a targeted query returns the relevant lines instead of a raw tail that is
+mostly health-check noise.
+
 **HTTP route**: `GET /api/v1/deployment/logs`
 
 **Input schema**:
@@ -505,7 +510,10 @@ self-serve.
 {
   "service": "gateway",
   "lines": 100,
-  "since_seconds": 600
+  "since_seconds": 600,
+  "pipeline_id": "issue-1234-v1",
+  "level": "WARNING",
+  "pattern": "Connection refused"
 }
 ```
 
@@ -514,12 +522,30 @@ self-serve.
   exposed through `get_container_logs`; keeping this endpoint bounded
   avoids it turning into a generic kubectl-logs proxy.
 - `lines` defaults to 100 and is capped at 10 000 — enough for real
-  diagnostic scrollback without unbounded response sizes.
+  diagnostic scrollback without unbounded response sizes. When any filter
+  is active, `lines` caps the **matching** lines returned rather than the
+  raw tail.
 - `since_seconds` (optional) scopes the read to "logs newer than N
   seconds ago" — useful for "logs around when my pipeline failed at
-  HH:MM."
+  HH:MM." When filters are active this bounds the per-pod scan window;
+  the backing fetch is widened to 10 000 lines so the filter has
+  material to match.
+- `pipeline_id` (optional) — keep only lines emitted for this
+  pipeline/task id. Checked against `context.task_id`,
+  `extra.pipeline_id`, and `extra.task_id` (in that order) — production
+  call sites use `pipeline_id=...`, which the `JsonFormatter` lands in
+  `extra` rather than the context-allowlisted `task_id` slot.
+- `level` (optional) — minimum severity (`DEBUG` | `INFO` | `WARNING` |
+  `ERROR` | `CRITICAL`); drops lower-severity and unstructured lines.
+  Case-sensitive on the HTTP route (matches the MCP schema enum).
+- `pattern` (optional) — Python regex applied via `re.search`; a plain
+  substring is a valid pattern. Matches against the raw line, so it can
+  keep non-JSON / unstructured lines too (unlike `level`, which drops
+  them); combine with `level` if you want JSON-only matches.
 
-**Output shape**:
+Filters are ANDed: a line must pass every active filter to be kept.
+
+**Output shape** (no filters active):
 
 ```json
 {
@@ -539,6 +565,23 @@ self-serve.
 }
 ```
 
+**Output shape** (with filters active — adds a `filter` summary block):
+
+```json
+{
+  "service": "gateway",
+  "namespace": "egg-system",
+  "pods": [...],
+  "filter": {
+    "pipeline_id": "issue-1234-v1",
+    "level": "WARNING",
+    "pattern": null,
+    "returned_line_cap": 100,
+    "scanned_line_budget": 10000
+  }
+}
+```
+
 Replicas >1 are each returned as their own `{pod, logs}` entry so the
 operator can tell which chunk came from where. Pods that encounter a
 transient non-404 failure (kubelet timeout, `CrashLoopBackOff` with no
@@ -548,6 +591,7 @@ listing and the log read is skipped entirely.
 
 **Error shapes**:
 
+- `400` — invalid `level` value or malformed `pattern` regex.
 - `404` — the Deployment is not present in `egg-system`, or the
   selector returned zero pods (fresh rollout still coming up).
 - `500` — Kubernetes API failure (selector missing, apiserver
@@ -559,6 +603,25 @@ listing and the log read is skipped entirely.
 {"error": "not_available_on_runtime", "runtime": "docker"}
 ```
 
+**Example MCP call** — scope a noisy pod tail to WARNING+ for one pipeline
+in the last 5 minutes (the motivating case from #3032):
+
+```python
+logs = await mcp.call_tool("get_service_logs", {
+    "service": "gateway",
+    "lines": 50,
+    "since_seconds": 300,
+    "pipeline_id": "issue-1234-v1",
+    "level": "WARNING",
+})
+for chunk in logs["pods"]:
+    print(chunk["pod"])
+    if "error" in chunk:
+        print(f"  [error] {chunk['error']}")
+    else:
+        print(chunk["logs"])
+```
+
 **Example MCP call** — the concrete miss from #1853, cross-referencing
 gateway logs when multiple agents hit "Connection refused" during spawn:
 
@@ -567,6 +630,7 @@ logs = await mcp.call_tool("get_service_logs", {
     "service": "gateway",
     "lines": 200,
     "since_seconds": 300,
+    "pattern": "Connection refused",
 })
 for chunk in logs["pods"]:
     print(chunk["pod"])
