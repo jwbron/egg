@@ -523,8 +523,9 @@ endpoint exists has three independent guards:
 3. **`agent_models` default is empty.** Slice 2's
    `PipelineConfig.agent_models` field defaults to `{}`, and the
    repository-level `default_agent_model` defaults to `None`.
-   Without operator action, every spawn resolves to the built-in
-   `"opus"` Claude path with `upstream="anthropic"`.
+   Without operator action, refine/plan phase spawns resolve to the
+   built-in `"fable"` Claude path; every other spawn resolves to
+   `"opus"`. Both use `upstream="anthropic"`.
 
 Any one of the three suffices to keep the LiteLLM client cold on a
 given deployment. All three are independent: a misconfiguration on
