@@ -471,7 +471,8 @@ def get_service_logs() -> tuple[Response, int]:
         since_seconds: only return logs newer than this many seconds. When
             filters are active this is the only knob that bounds the
             per-pod scan window — the backing fetch is widened to
-            ``_MAX_LOG_LINES`` so the filter has material to match.
+            10 000 lines (``_MAX_LOG_LINES``) so the filter has material
+            to match.
         pipeline_id: keep only lines whose pipeline/task id matches; checks
             ``context.task_id`` and the ``extra.pipeline_id`` /
             ``extra.task_id`` fallbacks the JsonFormatter lands kwargs in
@@ -491,9 +492,10 @@ def get_service_logs() -> tuple[Response, int]:
     Filters are applied server-side **before** truncation, so a targeted query
     returns the relevant lines instead of a raw tail that's mostly health-check
     noise. When any filter is set, the backing pod is scanned over a wider
-    window (``_MAX_LOG_LINES``, still bounded by ``since_seconds``) so the
-    filter has material to match, and ``lines`` caps the matches returned —
-    use ``since_seconds`` to keep the per-pod scan cost bounded.
+    window (10 000 lines / ``_MAX_LOG_LINES``, still bounded by
+    ``since_seconds``) so the filter has material to match, and ``lines``
+    caps the matches returned — use ``since_seconds`` to keep the per-pod
+    scan cost bounded.
     """
     if _current_runtime() != "kubernetes":
         return _not_available_on_runtime()
