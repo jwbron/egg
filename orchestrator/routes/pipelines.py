@@ -2942,7 +2942,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     from consensus_wrapper import build_consensus_wrapped_command
 
                     command = build_consensus_wrapped_command(
-                        prompt_text, model=_model_decision.claude_code_alias
+                        prompt_text,
+                        model=_model_decision.claude_code_alias,
+                        effort=_model_decision.effort,
                     )
             except Exception as prompt_err:
                 logger.warning(

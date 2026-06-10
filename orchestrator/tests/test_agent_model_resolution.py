@@ -98,14 +98,17 @@ def _pipeline_config(**overrides):
 
 
 class TestAgentModelDecisionShape:
-    """The decision triple is the resolver's contract.
+    """The decision tuple is the resolver's contract.
 
-    Downstream callers (``concurrent_executor`` / ``routes.pipelines``)
-    unpack it into ``--model`` (Claude-Code-facing) and the
-    ``register_session(upstream=..., upstream_model=...)`` payload.
+    Four named fields: ``claude_code_alias``, ``upstream``,
+    ``upstream_model``, ``effort``. Downstream callers
+    (``concurrent_executor`` / ``routes.pipelines``) unpack it into
+    ``--model`` (Claude-Code-facing), the
+    ``register_session(upstream=..., upstream_model=...)`` payload, and
+    the ``--effort`` flag on the spawned agent.
     """
 
-    def test_decision_has_three_named_fields(self):
+    def test_decision_has_four_named_fields(self):
         decision_cls = _decision_cls()
         d = decision_cls(
             claude_code_alias="opus",
@@ -115,6 +118,7 @@ class TestAgentModelDecisionShape:
         assert d.claude_code_alias == "opus"
         assert d.upstream == "anthropic"
         assert d.upstream_model is None
+        assert d.effort is None
 
     def test_decision_accepts_upstream_model_string(self):
         decision_cls = _decision_cls()
@@ -822,3 +826,52 @@ class TestDefaultPathRegression:
         assert d.claude_code_alias == "sonnet"
         assert d.upstream == "anthropic"
         assert d.upstream_model is None
+
+
+# =============================================================================
+# Effort pinning: fable decisions carry effort="high", everything else None
+# =============================================================================
+
+
+class TestEffortPinning:
+    """Fable-routed decisions pin ``effort="high"`` (FABLE_EFFORT); every
+    other decision carries ``effort=None`` so the agent inherits Claude
+    Code's per-model default (notably opus stays on its existing
+    default-effort baseline).
+    """
+
+    @pytest.mark.parametrize("model", ["fable", "fable[1m]"])
+    def test_fable_aliases_pin_high_effort(self, model):
+        from agent_model_resolution import classify_model
+
+        d = classify_model(model)
+        assert d.effort == "high"
+        assert d.upstream == "anthropic"
+
+    @pytest.mark.parametrize(
+        "model",
+        ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "claude-sonnet-4-5"],
+    )
+    def test_other_claude_aliases_inherit_default_effort(self, model):
+        from agent_model_resolution import classify_model
+
+        assert classify_model(model).effort is None
+
+    def test_litellm_models_inherit_default_effort(self):
+        from agent_model_resolution import classify_model
+
+        assert classify_model("qwen3-max").effort is None
+
+    def test_refine_plan_default_decision_carries_high_effort(self):
+        """The built-in fable default for refine/plan roles flows through
+        ``resolve_agent_model`` with the pinned effort attached."""
+        resolve_agent_model = _resolver()
+        AgentRole = _agent_role()
+        config = _pipeline_config()
+
+        with patch("config.repo_config.get_default_agent_model", return_value=None):
+            refiner = resolve_agent_model(AgentRole.REFINER, config, "any/repo")
+            coder = resolve_agent_model(AgentRole.CODER, config, "any/repo")
+
+        assert refiner.effort == "high"
+        assert coder.effort is None

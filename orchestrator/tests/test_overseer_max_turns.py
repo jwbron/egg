@@ -314,6 +314,46 @@ class TestSpawnOverseerMaxTurns:
         assert command[max_turns_idx + 1] == "100"
 
 
+class TestSpawnOverseerEffort:
+    """Verify spawn_overseer_container threads ``AgentModelDecision.effort``
+    into the agent command — fable-routed overseers get ``--effort high``
+    so they share the refine/plan drift defense; every other model omits
+    the flag and inherits Claude Code's per-model default.
+    """
+
+    def test_default_sonnet_omits_effort_flag(self, spawner, mock_docker_client):
+        """Default ``decision_model='sonnet'`` carries ``effort=None``,
+        which must NOT add ``--effort`` to the command — the overseer
+        keeps inheriting Claude Code's per-model default exactly as
+        before this change."""
+        spawner.spawn_overseer_container(
+            pipeline_id="issue-1562-sonnet",
+            issue_number=1562,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        command = create_call.kwargs.get("command", [])
+        assert "--effort" not in command, (
+            "sonnet-routed overseer must inherit Claude Code's default effort"
+        )
+
+    def test_fable_decision_model_pins_high_effort(self, spawner, mock_docker_client):
+        """An operator who sets ``overseer_decision_maker_model='fable'``
+        gets ``--effort high`` threaded through, matching the refine/plan
+        path's drift defense."""
+        spawner.spawn_overseer_container(
+            pipeline_id="issue-1562-fable",
+            issue_number=1562,
+            decision_model="fable",
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        command = create_call.kwargs.get("command", [])
+        assert "--effort" in command, "fable-routed overseer must pin --effort high"
+        effort_idx = command.index("--effort")
+        assert command[effort_idx + 1] == "high"
+
+
 # ---------------------------------------------------------------------------
 # Scenario 3: _check_and_respawn_overseer passes max_turns from config
 # ---------------------------------------------------------------------------

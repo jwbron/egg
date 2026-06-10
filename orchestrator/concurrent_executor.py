@@ -463,7 +463,9 @@ class ConcurrentPhaseExecutor:
 
         command: list[str] | None = None
         if prompt_text:
-            command = build_consensus_wrapped_command(prompt_text, model=decision.claude_code_alias)
+            command = build_consensus_wrapped_command(
+                prompt_text, model=decision.claude_code_alias, effort=decision.effort
+            )
 
         # On the LiteLLM path Claude Code needs the ANTHROPIC_CUSTOM_MODEL_OPTION
         # env vars to opt into 1M-context compaction math (#2832). The decision's

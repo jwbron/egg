@@ -1725,7 +1725,14 @@ class KubernetesSpawner:
         Returns:
             SpawnedContainer with overseer Job and session info.
         """
+        # Classify the overseer's decision model so that ``AgentModelDecision.effort``
+        # threads to ``--effort`` for fable-routed overseers — same drift defense as
+        # the refine/plan path. Default ``sonnet`` yields ``effort=None`` (no behavior
+        # change); only ``overseer_decision_maker_model=fable`` flips the pin on.
+        from agent_model_resolution import classify_model
         from egg_agent import build_agent_command
+
+        overseer_decision = classify_model(decision_model)
 
         extra_env = {
             "EGG_OVERSEER_MODE": "true",
@@ -1759,6 +1766,7 @@ class KubernetesSpawner:
             prompt=overseer_prompt,
             model=decision_model,
             max_turns=max_turns,
+            effort=overseer_decision.effort,
         )
 
         return self.spawn_agent_job(

@@ -117,7 +117,12 @@ in `orchestrator/agent_model_resolution.py` walks the chain:
 > rebuilt.
 
 The result is an `AgentModelDecision` dataclass with fields
-`(claude_code_alias: str, upstream: str, upstream_model: str | None)`.
+`(claude_code_alias: str, upstream: str, upstream_model: str | None,
+effort: str | None)`. `effort` is pinned to `"high"` for fable-routed
+decisions and threaded to the agent command as `--effort high`
+(via `ClaudeAgentOptions.effort` in `egg_agent`); it is `None` for
+every other model, which omits the flag so the session inherits
+Claude Code's per-model default effort.
 
 ### Classifier — Claude alias vs. LiteLLM upstream
 
