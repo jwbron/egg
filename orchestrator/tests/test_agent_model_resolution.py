@@ -98,11 +98,14 @@ def _pipeline_config(**overrides):
 
 
 class TestAgentModelDecisionShape:
-    """The decision triple is the resolver's contract.
+    """The decision tuple is the resolver's contract.
 
-    Downstream callers (``concurrent_executor`` / ``routes.pipelines``)
-    unpack it into ``--model`` (Claude-Code-facing) and the
-    ``register_session(upstream=..., upstream_model=...)`` payload.
+    Four named fields: ``claude_code_alias``, ``upstream``,
+    ``upstream_model``, ``effort``. Downstream callers
+    (``concurrent_executor`` / ``routes.pipelines``) unpack it into
+    ``--model`` (Claude-Code-facing), the
+    ``register_session(upstream=..., upstream_model=...)`` payload, and
+    the ``--effort`` flag on the spawned agent.
     """
 
     def test_decision_has_four_named_fields(self):
