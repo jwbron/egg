@@ -809,6 +809,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                 data={
                     "decision_id": decision_id,
                     "resolution": decision.resolution,
+                    "scope": "queue",
                 },
             )
         except Exception:
@@ -883,6 +884,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                     "resolved_at": decision.resolved_at.isoformat()
                     if decision.resolved_at
                     else None,
+                    "scope": "queue",
                 }
             },
         )
@@ -904,6 +906,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             decision_id=decision_id,
             resolution=resolution,
             pipeline=_pipeline,
+            queue=queue,
         )
     except DecisionAlreadyResolvedError as e:
         return make_error_response(str(e), status_code=409)
@@ -914,6 +917,7 @@ def _resolve_contract_decision(
     decision_id: str,
     resolution: str,
     pipeline: Any,
+    queue: Any,
 ) -> tuple[Response, int]:
     """Resolve a contract-resident HITL decision (``cq-N``) directly (#3071).
 
@@ -931,10 +935,22 @@ def _resolve_contract_decision(
     window, mirroring :func:`answer_feedback` (#3007): write the
     resolution fields straight onto the contract decision so the blocked
     agent unblocks on its next contract poll.  The write-back shape
-    (``resolved_by="human"``, raw resolution string) matches the
-    post-gate bridge's, so downstream consumers see one format.  The
-    caller's route decorator is lifecycle-secret guarded, so an agent
-    cannot resolve its own question (parity with queue decisions, #1769).
+    (``resolved_by="human"``, stripped resolution string) matches the
+    post-gate bridge's (``_queue_and_await_contract_decisions``), so
+    downstream consumers see one format.  The caller's route decorator is
+    lifecycle-secret guarded, so an agent cannot resolve its own question
+    (parity with queue decisions, #1769).
+
+    **Post-gate guard.** Once the bridge has mirrored ``cq-N`` to a fresh
+    ``decision-M``, the pipeline thread is blocked on
+    ``wait_for_decision(decision-M)`` (no timeout — see
+    ``orchestrator/decision_queue.py``).  Resolving the contract ``cq-N``
+    here would unblock the agent on its next poll but strand the bridge
+    thread indefinitely.  Before falling back, scan pending queue
+    decisions for the bridge's context-string fingerprint
+    (``"Open contract question {cq-id},"``) and 409 with a pointer to
+    the mirror id so the operator resolves the queue-side decision
+    instead.
     """
     # Lazy imports — same seam and rationale as ``answer_feedback``:
     # ``contract_store`` / ``routes.pipelines`` pull in heavy state-store
@@ -948,6 +964,7 @@ def _resolve_contract_decision(
             load_contract,
             save_contract,
         )
+        from egg_contracts.models import DecisionType
     except ImportError as exc:
         logger.error(
             "egg_contracts not available; cannot resolve contract decision",
@@ -961,6 +978,31 @@ def _resolve_contract_decision(
         )
     from routes.pipelines import _pipeline_identifier
 
+    # Post-gate guard: if the bridge has already mirrored this ``cq-N`` into
+    # the orchestrator queue, resolving the contract side here would leave
+    # the bridge's ``wait_for_decision`` polling indefinitely (no timeout,
+    # no automatic recovery on DECISION_RESOLVED).  Detect the mirror via
+    # the bridge's context-string fingerprint and steer the operator to
+    # the queue id instead.
+    bridge_context_prefix = f"Open contract question {decision_id},"
+    try:
+        for pending in queue.get_pending_decisions():
+            if pending.context and pending.context.startswith(bridge_context_prefix):
+                return make_error_response(
+                    f"Decision {decision_id} has been bridged into the "
+                    f"orchestrator queue as {pending.id}; resolve that id "
+                    f"instead so the pipeline thread blocked on the bridge's "
+                    f"wait_for_decision is also unblocked.",
+                    status_code=409,
+                )
+    except Exception:
+        logger.warning(
+            "Failed to scan queue for bridged contract decision; proceeding with fallback",
+            pipeline_id=pipeline_id,
+            decision_id=decision_id,
+            exc_info=True,
+        )
+
     worktree = contract_store.resolve_pipeline_worktree(pipeline_id)
     if worktree is None:
         return make_error_response(
@@ -970,6 +1012,12 @@ def _resolve_contract_decision(
         )
 
     identifier = _pipeline_identifier(getattr(pipeline, "issue_number", None), pipeline_id)
+
+    # Normalize for one-format parity with the post-gate bridge's
+    # ``(resolved.resolution or "").strip()`` (#3071 review): with
+    # free-form ``Other (explain in reply)``-style answers, an unstripped
+    # write here would diverge from the bridge's on-disk shape.
+    resolution = resolution.strip()
 
     with contract_store.lock_for(identifier):
         try:
@@ -997,6 +1045,18 @@ def _resolve_contract_decision(
             return make_error_response(
                 f"Decision {decision_id} has already been resolved",
                 status_code=409,
+            )
+        # Defense-in-depth: only HITL decisions are operator-resolvable
+        # (#3071 review).  ``AUTO`` decisions are auto-resolved by the
+        # orchestrator; nothing creates them outside the orchestrator
+        # today, but reject explicitly so a future code path that does
+        # cannot accidentally let the operator overwrite the auto-resolution.
+        if decision.type != DecisionType.HITL:
+            return make_error_response(
+                f"Decision {decision_id} is not operator-resolvable "
+                f"(type={getattr(decision.type, 'value', decision.type)}; "
+                f"only HITL decisions can be resolved via this endpoint)",
+                status_code=400,
             )
 
         resolved_at = datetime.now(UTC)
