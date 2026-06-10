@@ -850,7 +850,15 @@ class TestEffortPinning:
 
     @pytest.mark.parametrize(
         "model",
-        ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku", "claude-sonnet-4-5"],
+        [
+            "opus",
+            "opus[1m]",
+            "sonnet",
+            "sonnet[1m]",
+            "haiku",
+            "claude-sonnet-4-5",
+            "claude-fable-5",
+        ],
     )
     def test_other_claude_aliases_inherit_default_effort(self, model):
         from agent_model_resolution import classify_model
