@@ -846,8 +846,9 @@ class WorktreeManager:
         hard-fails per #3021 because the base must exist on origin.
 
         Returns:
-            ``origin/{assigned_branch}`` when the branch exists on origin
-            (tracking ref freshly fetched), else ``None``.
+            ``origin/{fetch_ref}`` (the input with any ``origin/`` prefix
+            stripped) when the branch exists on origin (tracking ref
+            freshly fetched), else ``None``.
         """
         # ``_tracking_refspec`` requires a bare branch name; mirror the
         # base-branch path's defensive strip in case a future caller drifts
@@ -859,6 +860,14 @@ class WorktreeManager:
         )
         try:
             with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
+                # Force C locale so the "couldn't find remote ref" stderr
+                # heuristic below isn't translated by gettext under e.g.
+                # ``LANG=de_DE.UTF-8``.  Without this, a translated error
+                # would misclassify the "branch not pushed yet" case as a
+                # transient failure (the WARNING branch).  Fallback
+                # behaviour is correct either way; only log level/message
+                # changes.
+                fetch_env = {**fetch_env, "LC_ALL": "C"}
                 fetch_result = subprocess.run(
                     git_cmd("fetch", "origin", _tracking_refspec(fetch_ref)),
                     cwd=main_repo,
@@ -971,9 +980,16 @@ class WorktreeManager:
         # pipeline, first agent — nothing pushed yet) from failing the
         # base-branch fetch, and are cheaper than a full all-refs fetch
         # on large mirrors.
+        # ``_tracking_refspec`` requires a bare branch name; mirror the
+        # base-branch and create-path defensive strips for drift-resistance
+        # against future callers passing ``origin/<name>`` (today's callers
+        # pass bare names).
+        assigned_name = (
+            assigned_branch.removeprefix("origin/") if assigned_branch else None
+        )
         fetch_branches: list[str] = []
-        if assigned_branch:
-            fetch_branches.append(assigned_branch)
+        if assigned_name:
+            fetch_branches.append(assigned_name)
         if base_branch and base_branch != "HEAD":
             base_name = base_branch.removeprefix("origin/")
             if base_name not in fetch_branches:
@@ -990,7 +1006,14 @@ class WorktreeManager:
                         timeout=30,
                         env=fetch_env,
                     )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except Exception as exc:
+            # Best-effort: any failure (timeout, OSError, credential-helper
+            # error from ``_git_credential_env``, etc.) is logged and we
+            # still attempt the reset against whatever local state we have.
+            # A narrower catch would surface unexpected exception types as
+            # a hard worktree-reuse failure, contradicting this helper's
+            # best-effort contract — mirrors the create-path's catch in
+            # ``_resolve_assigned_fork_point``.
             logger.warning(
                 "Fetch before worktree-reuse reset failed (continuing)",
                 container_id=container_id,
@@ -1000,8 +1023,8 @@ class WorktreeManager:
 
         target_ref: str | None = None
         candidates: list[str] = []
-        if assigned_branch:
-            candidates.append(f"origin/{assigned_branch}")
+        if assigned_name:
+            candidates.append(f"origin/{assigned_name}")
         if base_branch and base_branch != "HEAD":
             candidates.append(f"origin/{base_branch}")
         for candidate in candidates:
