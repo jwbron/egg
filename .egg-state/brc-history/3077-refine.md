@@ -1,0 +1,1145 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-06-11T21:00:26Z
+Pipeline: issue-3077
+
+### [2026-06-11T20:48:25Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: 11a1c080-2ef1-48
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:48:25Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: 4ebd2cc9-55e0-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:48:25Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump start (slice=none)
+
+````yaml
+id: 12dd62c8-64f1-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:48:26Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: d7aa607d-7423-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:48:26Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 62ba2319-1b7d-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:48:56Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 3c601f0f-80d3-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:48:56Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: a8556cfb-a57c-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:27Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f7d07e22-d5ab-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:27Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: b229a43c-a529-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:27Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: bc95a971-2e9f-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:49:27Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: ca67c3c2-89f9-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:49:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: a9a6c958-6a1b-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 124cd27a-6b10-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:58Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: d7c0fcd2-74b9-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:49:58Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 8e6f4e3c-1910-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:50:29Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: ad111a46-1dea-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:50:29Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 0110c510-baf1-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:50:29Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: cb5c96ea-4825-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:50:29Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 0ec9d52e-538d-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:50:30Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 920f66f1-883c-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:50:30Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 4d75f549-3be9-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:00Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 5c327998-313d-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:00Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: f4476f02-5b70-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:31Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f83b7fd5-adcb-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:31Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 0b72f58d-c43c-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:31Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 299ce6a3-9daf-48
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:51:31Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 0465d5da-ca00-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:51:32Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 421d5c97-957e-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:51:32Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 574df951-8b1c-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:02Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: c0a6370a-2eed-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:02Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 98b7c753-bcf5-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:33Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 7f22f8fa-787b-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:33Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 0ac7c6fe-a8f1-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:33Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 411f1db8-5251-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:52:33Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 2d644e3c-df3d-41
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:52:34Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: cb07c847-78b2-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:52:34Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: b30774f9-5b07-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:04Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 3b883e37-68b3-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:04Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 16c329cd-00eb-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:35Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f019af60-5be4-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:35Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: cb87cadb-ae05-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:35Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 555216a1-1666-46
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:53:35Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 2f642b17-8fb0-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:53:36Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: be5a8f9c-72e3-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:53:36Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: d75c6f2a-48db-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:54:06Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 8ddb398b-87ac-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:54:06Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: eeb4823c-a1e8-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:54:29Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine analysis for #3077 at .egg-state/drafts/3077-analysis.md. Phase 1 (PR #3078/#3083) verified landed; remaining scope mapped to code facts: R1 silent-skip in sync_to_proposals (consensus_wrapper.py:487-539) never surfaces into event_prompt.py rendering; canonical artifact-path knowledge scattered across phase_filter.py:605-627, signals.py:1162-1166, event_prompt.py:447/1186, phase_patterns.py and prompt prose; no gateway artifact-read endpoint exists (blocking prereq of #3002); message store has Redis/memory backends with no fail-loud on memory (message_store.py:589-633); _clear_concurrent_state() named in the issue no longer exists. Scope options A/B/C with recommendation C (residual + phase-2 spec/validation/endpoint + phase-3 cleanup/ratchet + bounded fail-loud durability). HITL decisions registered: cq-1 (scope), cq-2 (durability bar). Non-goals restated from issue (no new git distribution machinery, no shared worktree, prompts stay lossy).
+
+````yaml
+id: 3b5c95b8-c991-41
+phase: refine
+metadata:
+  payload:
+    summary: 'Refine analysis for #3077 at .egg-state/drafts/3077-analysis.md. Phase
+      1 (PR #3078/#3083) verified landed; remaining scope mapped to code facts: R1
+      silent-skip in sync_to_proposals (consensus_wrapper.py:487-539) never surfaces
+      into event_prompt.py rendering; canonical artifact-path knowledge scattered
+      across phase_filter.py:605-627, signals.py:1162-1166, event_prompt.py:447/1186,
+      phase_patterns.py and prompt prose; no gateway artifact-read endpoint exists
+      (blocking prereq of #3002); message store has Redis/memory backends with no
+      fail-loud on memory (message_store.py:589-633); _clear_concurrent_state() named
+      in the issue no longer exists. Scope options A/B/C with recommendation C (residual
+      + phase-2 spec/validation/endpoint + phase-3 cleanup/ratchet + bounded fail-loud
+      durability). HITL decisions registered: cq-1 (scope), cq-2 (durability bar).
+      Non-goals restated from issue (no new git distribution machinery, no shared
+      worktree, prompts stay lossy).'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/3077-analysis.md
+    risk_considered: 'Spec becoming a fourth replica of path knowledge if hardcodings
+      aren''t derived/asserted against it; gateway artifact endpoint as new policy
+      surface (mitigate: spec-registered names + committed refs only); phase-3 prose
+      deletion sequenced after served-read tasks land; durability bounded to fail-loud
+      to avoid open-ended re-architecture.'
+    commit_sha: 275fe4f1e8541244a5963b2bbfb89cba05153d3a
+    files_changed:
+    - .egg-state/drafts/3077-analysis.md
+    - .egg-state/agent-outputs/refiner/brc-memory.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 275fe4f1e8541244a5963b2bbfb89cba05153d3a
+````
+
+### [2026-06-11T20:54:37Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: fe8db413-d481-4b
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:54:37Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: dcc64cf8-5d19-41
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:54:51Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 4eb41ea7-186f-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:55:21Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 12723988-d578-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:55:52Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 876b138d-e836-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:55:52Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 796299d6-781d-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:55:53Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 9e4e93ac-0239-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:55:58Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+ACK v1 of 3077-analysis.md (commit 275fe4f). Verified code claims against the tree: sync_to_proposals() fail-soft (consensus_wrapper.py ~487-539), plan-only propose validation with refine on _validate_producer_draft_present (signals.py), hardcoded draft patterns (phase_filter.py:606-627), message-store backend selection/reset (message_store.py:610/636), REVIEWER-SYNC fetch prose (L110) — all accurate. Analysis covers the full remaining scope of #3077 (R1 residual, phase 2 spec+endpoint unblocking #3002, phase 3 cleanup+ratchet, bounded durability), restates non-goals/trade-offs faithfully, and offers grounded A/B/C scope options. HITL decisions cq-1 (scope) and cq-2 (durability bar) registered. Minor non-blocking: cq-1 text cites issue-3077-analysis.md vs actual 3077-analysis.md (cosmetic).
+
+````yaml
+id: bc1d3d8b-0a5d-4d
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/3077-analysis.md
+    reason: "ACK v1 of 3077-analysis.md (commit 275fe4f). Verified code claims against\
+      \ the tree: sync_to_proposals() fail-soft (consensus_wrapper.py ~487-539), plan-only\
+      \ propose validation with refine on _validate_producer_draft_present (signals.py),\
+      \ hardcoded draft patterns (phase_filter.py:606-627), message-store backend\
+      \ selection/reset (message_store.py:610/636), REVIEWER-SYNC fetch prose (L110)\
+      \ \u2014 all accurate. Analysis covers the full remaining scope of #3077 (R1\
+      \ residual, phase 2 spec+endpoint unblocking #3002, phase 3 cleanup+ratchet,\
+      \ bounded durability), restates non-goals/trade-offs faithfully, and offers\
+      \ grounded A/B/C scope options. HITL decisions cq-1 (scope) and cq-2 (durability\
+      \ bar) registered. Minor non-blocking: cq-1 text cites issue-3077-analysis.md\
+      \ vs actual 3077-analysis.md (cosmetic)."
+    ack_version: 1
+  version: 1
+````
+
+### [2026-06-11T20:56:08Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: f04dbec1-f6d3-49
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-06-11T20:56:09Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: d681b03d-0817-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:56:23Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 28a4ca00-3f41-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:56:24Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 7daa2e80-1324-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:56:39Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f3cd64df-faa6-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:56:39Z] reviewer_agent_design → refiner (CONSENSUS_NACK): NACK from reviewer_agent_design for refiner
+
+One blocking factual error; everything else verified clean against the working tree and issue #3077 body. BLOCKER: the "Message-store durability" section claims "The `_clear_concurrent_state()` symbol named in the issue body no longer exists; the nearest analogue is `reset_message_store()`" — both halves are false. (a) The symbol exists and is load-bearing: defined at orchestrator/routes/phases.py:113, called at phases.py:719/1194/1615 and ~6 sites in routes/pipelines.py (23978, 24230, 25061, 25095); it performs the INTENTIONAL message-store wipe at phase transitions. (b) The issue body does not mention the symbol. This matters downstream: work-breakdown task 6 (restart-semantics test for the Redis path) must distinguish designed phase-boundary wipes (done by this very function) from accidental mid-phase restart loss — a planner told the function is gone would misdesign that test. `reset_message_store()` is a test-only singleton reset, not an analogue. FIX: correct the sentence to state the symbol exists at routes/phases.py:113 and note its phase-boundary-wipe role in the task-6 durability framing. Verified-clean items (no change needed): R1 sync_to_proposals fail-soft cites (consensus_wrapper.py:487-539, log-only at 525-526/534-535); plan-only propose validation in signals.py + _get_draft_path; phase_filter.py:600-630 hardcoded dicts; message_store.py backend selection/warning-only fallback; scope options, non-goals, HITL questions, and the prose-deletion sequencing risk are all sound.
+
+````yaml
+id: f428ea7a-e869-45
+phase: refine
+metadata:
+  payload:
+    reason: "One blocking factual error; everything else verified clean against the\
+      \ working tree and issue #3077 body. BLOCKER: the \"Message-store durability\"\
+      \ section claims \"The `_clear_concurrent_state()` symbol named in the issue\
+      \ body no longer exists; the nearest analogue is `reset_message_store()`\" \u2014\
+      \ both halves are false. (a) The symbol exists and is load-bearing: defined\
+      \ at orchestrator/routes/phases.py:113, called at phases.py:719/1194/1615 and\
+      \ ~6 sites in routes/pipelines.py (23978, 24230, 25061, 25095); it performs\
+      \ the INTENTIONAL message-store wipe at phase transitions. (b) The issue body\
+      \ does not mention the symbol. This matters downstream: work-breakdown task\
+      \ 6 (restart-semantics test for the Redis path) must distinguish designed phase-boundary\
+      \ wipes (done by this very function) from accidental mid-phase restart loss\
+      \ \u2014 a planner told the function is gone would misdesign that test. `reset_message_store()`\
+      \ is a test-only singleton reset, not an analogue. FIX: correct the sentence\
+      \ to state the symbol exists at routes/phases.py:113 and note its phase-boundary-wipe\
+      \ role in the task-6 durability framing. Verified-clean items (no change needed):\
+      \ R1 sync_to_proposals fail-soft cites (consensus_wrapper.py:487-539, log-only\
+      \ at 525-526/534-535); plan-only propose validation in signals.py + _get_draft_path;\
+      \ phase_filter.py:600-630 hardcoded dicts; message_store.py backend selection/warning-only\
+      \ fallback; scope options, non-goals, HITL questions, and the prose-deletion\
+      \ sequencing risk are all sound."
+    artifact_references:
+    - .egg-state/drafts/3077-analysis.md
+    nack_version: 1
+  reason: "One blocking factual error; everything else verified clean against the\
+    \ working tree and issue #3077 body. BLOCKER: the \"Message-store durability\"\
+    \ section claims \"The `_clear_concurrent_state()` symbol named in the issue body\
+    \ no longer exists; the nearest analogue is `reset_message_store()`\" \u2014 both\
+    \ halves are false. (a) The symbol exists and is load-bearing: defined at orchestrator/routes/phases.py:113,\
+    \ called at phases.py:719/1194/1615 and ~6 sites in routes/pipelines.py (23978,\
+    \ 24230, 25061, 25095); it performs the INTENTIONAL message-store wipe at phase\
+    \ transitions. (b) The issue body does not mention the symbol. This matters downstream:\
+    \ work-breakdown task 6 (restart-semantics test for the Redis path) must distinguish\
+    \ designed phase-boundary wipes (done by this very function) from accidental mid-phase\
+    \ restart loss \u2014 a planner told the function is gone would misdesign that\
+    \ test. `reset_message_store()` is a test-only singleton reset, not an analogue.\
+    \ FIX: correct the sentence to state the symbol exists at routes/phases.py:113\
+    \ and note its phase-boundary-wipe role in the task-6 durability framing. Verified-clean\
+    \ items (no change needed): R1 sync_to_proposals fail-soft cites (consensus_wrapper.py:487-539,\
+    \ log-only at 525-526/534-535); plan-only propose validation in signals.py + _get_draft_path;\
+    \ phase_filter.py:600-630 hardcoded dicts; message_store.py backend selection/warning-only\
+    \ fallback; scope options, non-goals, HITL questions, and the prose-deletion sequencing\
+    \ risk are all sound."
+  revision_count: 1
+````
+
+### [2026-06-11T20:56:49Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 99472d99-f27c-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:56:54Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: da00e2a2-fa45-43
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:57:09Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 78b5b016-2437-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:57:10Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 9747789b-1cd4-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:57:11Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: f9644ea2-db81-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:57:19Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 8bb67731-4158-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:57:41Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_refine (slice=none)
+
+````yaml
+id: 701f7876-2a8e-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:57:50Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: f2747f7b-5f6b-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:58:09Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose v2 addressing reviewer_agent_design NACK (sole open NACK on v1). Fixed the blocking factual error in the Message-store durability section: _clear_concurrent_state() DOES exist (orchestrator/routes/phases.py:113, called at phases.py:719/1194/1615 and routes/pipelines.py ~23978/24230/25061/25095) and performs the intentional phase-boundary wipe of message store + BRC tracker; removed the false claim that it was gone and that the issue body named it. reset_message_store() is now correctly described as a test-only singleton reset, not an analogue. Threaded the designed-wipe vs accidental-mid-phase-restart-loss distinction into work-breakdown task 6 so the planner designs the Redis restart-semantics test correctly. All reviewer-verified-clean items left untouched: scope options A/B/C, non-goals, HITL questions, R1 cites, phase_filter/signals/message_store cites, prose-deletion sequencing risk.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: bf85caa0-ef1e-41
+phase: refine
+metadata:
+  payload:
+    summary: 'Re-propose v2 addressing reviewer_agent_design NACK (sole open NACK
+      on v1). Fixed the blocking factual error in the Message-store durability section:
+      _clear_concurrent_state() DOES exist (orchestrator/routes/phases.py:113, called
+      at phases.py:719/1194/1615 and routes/pipelines.py ~23978/24230/25061/25095)
+      and performs the intentional phase-boundary wipe of message store + BRC tracker;
+      removed the false claim that it was gone and that the issue body named it. reset_message_store()
+      is now correctly described as a test-only singleton reset, not an analogue.
+      Threaded the designed-wipe vs accidental-mid-phase-restart-loss distinction
+      into work-breakdown task 6 so the planner designs the Redis restart-semantics
+      test correctly. All reviewer-verified-clean items left untouched: scope options
+      A/B/C, non-goals, HITL questions, R1 cites, phase_filter/signals/message_store
+      cites, prose-deletion sequencing risk.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/3077-analysis.md
+    risk_considered: Reviewer-identified factual error corrected against the working
+      tree (grep + read of phases.py:113-138 confirms the symbol and its phase-boundary-wipe
+      role); no scope or recommendation changes, so prior verified-clean review findings
+      remain valid.
+    commit_sha: 2c731e38ed9f010330ccf33c747a5ad1495e2a0d
+    files_changed:
+    - .egg-state/drafts/3077-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: 2c731e38ed9f010330ccf33c747a5ad1495e2a0d
+````
+
+### [2026-06-11T20:58:09Z] orchestrator → reviewer_refine (CONSENSUS_RE_REVIEW): Re-review required: refiner submitted new proposal v2
+
+Producer refiner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 275fe4f1e8541244a5963b2bbfb89cba05153d3a..2c731e38ed9f010330ccf33c747a5ad1495e2a0d --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`275fe4f1e8541244a5963b2bbfb89cba05153d3a..2c731e38ed9f010330ccf33c747a5ad1495e2a0d`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`275fe4f1e8541244a5963b2bbfb89cba05153d3a..2c731e38ed9f010330ccf33c747a5ad1495e2a0d`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 589ce709-7825-4b
+phase: refine
+metadata:
+  producer_role: refiner
+  version: 2
+````
+
+### [2026-06-11T20:58:11Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 710760c9-e1a1-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:58:21Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=1) (slice=none)
+
+````yaml
+id: 9d03522c-9439-4b
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T20:59:20Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+Re-review of delta 275fe4f1..2c731e38: the v1 named blocker is fully addressed. The durability section now correctly states `_clear_concurrent_state()` exists (verified: defined orchestrator/routes/phases.py:113; called phases.py:719/1194/1615 and routes/pipelines.py:23978/24230/25061/25095), describes its designed phase-boundary wipe role, and correctly demotes `reset_message_store()` (message_store.py:636-639) to a test-only singleton reset. New claims introduced by the delta also verified clean: the wipe runs after `_persist_phase_brc_history` captures the transcript (phases.py:706-719, per #1827), so 'loss by construction, after brc-history persistence' is accurate; the designed-wipe vs accidental-mid-phase-restart-loss distinction is sound and correctly threaded into work-breakdown task 6 (the restart-semantics test must preserve the phase-boundary wipe). No new findings. All previously verified-clean items unchanged by the delta.
+
+````yaml
+id: 4a9f0e9f-83f8-44
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/3077-analysis.md
+    reason: 'Re-review of delta 275fe4f1..2c731e38: the v1 named blocker is fully
+      addressed. The durability section now correctly states `_clear_concurrent_state()`
+      exists (verified: defined orchestrator/routes/phases.py:113; called phases.py:719/1194/1615
+      and routes/pipelines.py:23978/24230/25061/25095), describes its designed phase-boundary
+      wipe role, and correctly demotes `reset_message_store()` (message_store.py:636-639)
+      to a test-only singleton reset. New claims introduced by the delta also verified
+      clean: the wipe runs after `_persist_phase_brc_history` captures the transcript
+      (phases.py:706-719, per #1827), so ''loss by construction, after brc-history
+      persistence'' is accurate; the designed-wipe vs accidental-mid-phase-restart-loss
+      distinction is sound and correctly threaded into work-breakdown task 6 (the
+      restart-semantics test must preserve the phase-boundary wipe). No new findings.
+      All previously verified-clean items unchanged by the delta.'
+    ack_version: 2
+  version: 2
+````
+
+### [2026-06-11T20:59:48Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 9a33fc64-381e-48
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-06-11T20:59:49Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 087b22b7-03d6-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T20:59:54Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 1a3737fe-ba29-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T21:00:15Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+ACK v2 of 3077-analysis.md (commit 2c731e3). Mandate 1 (verify named blocker fixed — reviewer_agent_design's v1 NACK on the false '_clear_concurrent_state no longer exists' claim): fixed and verified against the tree. _clear_concurrent_state exists at orchestrator/routes/phases.py:113 and wipes exactly what v2 claims (message store clear at L120, BRC tracker removal at L128); all cited call sites confirmed (phases.py:719/1194/1615; pipelines.py:23978/24230/25061/25095); the 'after brc-history persistence' ordering claim verified at phases.py:1184-1194 (_persist_phase_brc_history runs before the wipe, per #1827); reset_message_store() at message_store.py:636-639 is indeed a test-only singleton reset. Mandate 2 (fresh audit of the delta 275fe4f..2c731e3): checked every new factual claim against source (symbol existence, line refs, call sites, wipe semantics, persistence ordering) — all accurate; checked for newly-introduced conflations or misleading guidance for downstream phases — none: the designed-wipe vs accidental-mid-phase-loss distinction is correct and the task-6 amendment (durability test must not flag the designed phase-boundary wipe) is the right constraint; checked internal consistency between the durability section and the work-breakdown — consistent; no executability/copy-paste hazards (analysis doc, no code snippets changed). Non-blocking note: pipelines.py line refs (~24k) will drift when #2261 slice-15 decomposes that file, but the doc uses ≈ markers and the refs are correct today.
+
+````yaml
+id: f7477f59-b52c-41
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/3077-analysis.md
+    - orchestrator/routes/phases.py
+    - orchestrator/routes/pipelines.py
+    - orchestrator/message_store.py
+    reason: "ACK v2 of 3077-analysis.md (commit 2c731e3). Mandate 1 (verify named\
+      \ blocker fixed \u2014 reviewer_agent_design's v1 NACK on the false '_clear_concurrent_state\
+      \ no longer exists' claim): fixed and verified against the tree. _clear_concurrent_state\
+      \ exists at orchestrator/routes/phases.py:113 and wipes exactly what v2 claims\
+      \ (message store clear at L120, BRC tracker removal at L128); all cited call\
+      \ sites confirmed (phases.py:719/1194/1615; pipelines.py:23978/24230/25061/25095);\
+      \ the 'after brc-history persistence' ordering claim verified at phases.py:1184-1194\
+      \ (_persist_phase_brc_history runs before the wipe, per #1827); reset_message_store()\
+      \ at message_store.py:636-639 is indeed a test-only singleton reset. Mandate\
+      \ 2 (fresh audit of the delta 275fe4f..2c731e3): checked every new factual claim\
+      \ against source (symbol existence, line refs, call sites, wipe semantics, persistence\
+      \ ordering) \u2014 all accurate; checked for newly-introduced conflations or\
+      \ misleading guidance for downstream phases \u2014 none: the designed-wipe vs\
+      \ accidental-mid-phase-loss distinction is correct and the task-6 amendment\
+      \ (durability test must not flag the designed phase-boundary wipe) is the right\
+      \ constraint; checked internal consistency between the durability section and\
+      \ the work-breakdown \u2014 consistent; no executability/copy-paste hazards\
+      \ (analysis doc, no code snippets changed). Non-blocking note: pipelines.py\
+      \ line refs (~24k) will drift when #2261 slice-15 decomposes that file, but\
+      \ the doc uses \u2248 markers and the refs are correct today."
+    ack_version: 2
+  version: 2
+````
+
+### [2026-06-11T21:00:15Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 94e39768-e369-47
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 2
+````
+
+### [2026-06-11T21:00:19Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: 75941808-5ce4-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T21:00:20Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=reviewer_agent_design (slice=none)
+
+````yaml
+id: 5f1b9d38-290a-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-06-11T21:00:24Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+event-pump woke (rc=0) (slice=none)
+
+````yaml
+id: a56e84b3-909a-43
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-06-11T21:00:25Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 6fbcbb4f-8fc1-4a
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-06-11T21:00:26Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+event-pump wait role=refiner (slice=none)
+
+````yaml
+id: 874d045c-ede3-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
