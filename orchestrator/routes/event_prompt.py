@@ -721,6 +721,14 @@ def _build_delta_entries(
         artifacts = _extract_artifacts_for_producer(event_payload, producer)
         if not artifacts and not proposal_sha:
             continue
+        # Strip backticks from artifact paths before interpolation. The
+        # paths are producer-supplied through ``snapshot["artifacts"]``;
+        # ``proposal_sha`` is hex-validated upstream, but ``a`` is not.
+        # The agent (not bash) is the consumer here so this is not a
+        # shell-injection vector, but a stray backtick in a path would
+        # break the markdown code span the agent renders. Defensive
+        # belt-and-braces rather than trusting producer payloads.
+        artifacts = [a.replace("`", "") for a in artifacts]
         refs_text = "\n".join(f"- `{a}`" for a in artifacts)
         if proposal_sha:
             # First review with a known proposal SHA: render concrete,

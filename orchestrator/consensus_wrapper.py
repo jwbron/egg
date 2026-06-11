@@ -467,6 +467,21 @@ invoke_agent_for_event() {{
 # continues — the per-event prompt's `git show <sha>:<path>` reads
 # (#3078) work from the shared object store either way, so the agent
 # is never blocked on this sync succeeding.
+#
+# NB: ``git merge --no-edit`` produces a real merge commit (or fast-
+# forwards) — HEAD advances and is NOT reset between events. Two
+# durable side effects follow:
+#   - Dual-role agents (e.g. tester acting as producer-then-reviewer-
+#     then-producer): a subsequent producer turn commits on top of an
+#     ancestry that contains peer proposal commits. The producer arm
+#     (R11a, see the dispatcher below) intentionally skips the sync,
+#     but it does NOT un-merge syncs from prior reviewer arms.
+#   - Multiple producers per event: SHAs are merged sequentially. A
+#     conflict on the second SHA aborts that merge but leaves the
+#     first merge intact on HEAD.
+# Neither is wrong — the per-event-prompt ``git show <sha>:<path>``
+# fallback covers the failure path either way — but this is durable
+# HEAD mutation, not transient enrichment.
 sync_to_proposals() {{
     local event_payload="$1"
     local repo="${{EGG_REPO_PATH:-$PWD}}"

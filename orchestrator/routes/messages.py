@@ -452,6 +452,19 @@ def get_brc_transcript(pipeline_id: str) -> tuple[Response, int]:
         {"records": [...], "count": N, "phase": "plan",
          "truncated": false}
 
+    ``truncated`` reflects post-filter trimming only: it is true iff
+    the phase-filtered record set exceeded ``limit`` and was clipped
+    to the most recent ``limit`` records. It does **not** report
+    upstream message-store overflow. The route reads up to
+    ``_BRC_TRANSCRIPT_MAX_LIMIT`` (10000) raw messages from the store
+    before phase filtering, which matches ``_write_brc_history``'s own
+    retrieval bound — so in steady state both sides see the same
+    window and ``truncated`` is the only loss signal that matters. A
+    pipeline that holds >10000 messages and never transitions phase
+    cleanly could in principle lose the oldest BRC records to the
+    upstream cap; if you need to detect that case, cross-reference
+    ``count`` with the message store's own metrics.
+
     Auth: agent-facing, same trust surface as ``poll_messages`` (the
     gateway-enforced NetworkPolicy is the boundary; ``role`` is caller-
     supplied there too).
