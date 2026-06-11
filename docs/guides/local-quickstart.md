@@ -102,7 +102,7 @@ With no arguments, this starts a **prompt-driven pipeline**. The agent will:
 3. Create a pipeline in the orchestrator
 4. Run through refine → plan → implement phases (the context PR opens up-front at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777))
 
-During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. At the plan→implement boundary, the orchestrator auto-creates the context PR (`egg/<id>/work → main`) using metadata from the plan, commit log, and diff stats — no agent is spawned and the open is idempotent (`GatewayClient.lookup_open_pr` pre-flight with a server-side head+base filter). The legacy terminal "PR phase" as a separate pipeline stage was deleted in #2777.
+During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. At the plan→implement boundary, the orchestrator auto-creates the context PR (`egg/<id>/work → main`) — title from `contract.pr.title` and body composed by `_compose_context_pr_body` (#3115) from `pr.description`, `## Test Plan` / `## Manual Steps` sections derived from `pr.test_plan` / `pr.manual_steps`, and a generated `## Pipeline context` footer with the pipeline id, originating issue, slice table, and absolute-URL links to the refine/plan drafts and per-phase BRC transcripts. No agent is spawned and the open is idempotent (`GatewayClient.lookup_open_pr` pre-flight with a server-side head+base filter). The legacy terminal "PR phase" as a separate pipeline stage was deleted in #2777.
 
 **Pipeline phases:**
 

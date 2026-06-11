@@ -135,9 +135,10 @@ slices:
 > boundary (hard-required, idempotent). It uses `pr.title` for the PR
 > title; the body is composed from `pr.description`, then rendered
 > `## Test Plan` / `## Manual Steps` sections from `pr.test_plan` /
-> `pr.manual_steps`, then a generated `## Pipeline context` footer
-> (pipeline id, issue, slice table, analysis/plan draft links, BRC
-> transcript links). The legacy
+> `pr.manual_steps`, then a generated `## Pipeline context` footer —
+> see the canonical [composer description in `docs/guides/sdlc-pipeline.md`](../guides/sdlc-pipeline.md#plan-pre-flight-on-implement-start-resumes)
+> for the full footer contents and the bare-pipeline-id header
+> suppression rule. The legacy
 > v1.1 `pr.context_title`, `pr.context_description`, and
 > `pr.context_branch` keys were **hard-removed** in schema v1.2 (#2777);
 > emitting them is a parse error. The only orchestrator-populated
