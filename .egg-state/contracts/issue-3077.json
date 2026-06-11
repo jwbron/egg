@@ -38,10 +38,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C \u2014 full remaining scope (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:05:09.196216Z",
       "debounce_until": null
     },
     {
@@ -71,10 +71,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Fail-loud warning/health signal on memory backend (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:05:09.209029Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Q1 \u2014 Scope (Option A / B / C):** Option C \u2014 full remaining scope: R1 non-silent sync residual + artifact spec module + spec-derived propose validation for all producers + gateway artifact-read endpoint (strict) + Phase-3 prose cleanup, docs/architecture invariant entry, and ratchet test + bounded durability.\n\n**Q2 \u2014 Endpoint resolution surface:** Strict \u2014 the gateway artifact-read endpoint accepts only spec-registered artifact names (no raw repo-path escape hatch). Path-guessing is the disease this issue retires; keep the gateway policy surface small.\n\n**Q3 \u2014 Durability bar:** Fail-loud is sufficient for this pipeline \u2014 a prominent startup warning/health signal when BRC consensus runs on the in-memory message-store backend, plus a restart-semantics test for the Redis Streams path (distinguishing the designed _clear_concurrent_state() phase-boundary wipe from accidental mid-phase restart loss). Do NOT change `auto` to refuse BRC without Redis; deeper durability work stays in the #3070 lineage.",
+      "resolved_by": "human",
+      "resolved_at": "2026-06-11T21:04:25.592314Z",
       "debounce_until": null
     }
   ],
