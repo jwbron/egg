@@ -294,7 +294,12 @@ class WorktreeManager:
                 the sandbox's push client builds a refspec that targets the
                 assigned branch instead of the per-worktree local branch
                 (which the gateway would reject as push_denied_wrong_branch).
-                See #1809.
+                See #1809.  Also the preferred fork point for *fresh*
+                worktrees: when ``origin/{assigned_branch}`` exists, the
+                worktree forks from its tip (which carries the
+                orchestrator's contract-init commit and any seeded
+                drafts) rather than from ``base_branch`` — see #3068 and
+                :meth:`_resolve_assigned_fork_point`.
             repo_slug: Full ``owner/repo`` slug used to resolve the GitHub
                 token for the authenticated base-branch fetch (#3021).
                 Defaults to ``repo_name`` when omitted, which makes token
@@ -522,6 +527,28 @@ class WorktreeManager:
                             f"{fetch_result.stderr.strip()}"
                         )
                     effective_base = f"origin/{fetch_ref}"
+
+                # Prefer the assigned branch's remote tip over the base
+                # branch when it exists (#3068).  The orchestrator's
+                # contract-init commit (SDLC contract + any seeded
+                # analysis/plan drafts) lands on the assigned branch and is
+                # pushed before agents spawn; forking from the base left
+                # every fresh agent worktree behind that commit, so seeded
+                # artifacts never reached agents.  Mirrors the reuse path's
+                # candidate order (``origin/{assigned}`` -> ``origin/{base}``
+                # in ``_reset_reused_worktree_to_safe_ref``).  Best-effort:
+                # an assigned branch with nothing pushed yet falls back to
+                # the base branch (the prior behaviour); the base fetch
+                # above keeps its #3021 hard-fail semantics either way.
+                if assigned_branch:
+                    assigned_fork_point = self._resolve_assigned_fork_point(
+                        main_repo=main_repo,
+                        assigned_branch=assigned_branch,
+                        repo_slug=repo_slug,
+                        container_id=container_id,
+                    )
+                    if assigned_fork_point:
+                        effective_base = assigned_fork_point
 
                 # Create new branch from the freshly fetched remote tip
                 result = self._run_git_worktree_add(
@@ -786,6 +813,130 @@ class WorktreeManager:
         finally:
             cleanup_credential_helper(cred_path)
 
+    def _resolve_assigned_fork_point(
+        self,
+        main_repo: Path,
+        assigned_branch: str,
+        repo_slug: str,
+        container_id: str,
+    ) -> str | None:
+        """Resolve ``origin/{assigned_branch}`` as the fork point, if pushed.
+
+        Fresh worktrees historically forked from ``origin/{base_branch}``
+        only — but the orchestrator commits pipeline state (the SDLC
+        contract plus any seeded analysis/plan drafts) to the assigned
+        branch and pushes it *before* agents spawn (the contract-init push
+        is mandatory; see "Worktree State Synchronization" in
+        ``docs/guides/sdlc-pipeline.md``).  Forking from the base left
+        every fresh agent worktree behind that commit, so seeded artifacts
+        never reached agent worktrees (#3068).
+
+        This mirrors the reuse path's candidate order in
+        :meth:`_reset_reused_worktree_to_safe_ref` (``origin/{assigned}``
+        first, ``origin/{base}`` as fallback) — and the same safety
+        argument carries over: the orchestrator's create-pipeline
+        stale-branch check (#2222 Phase 3a) refuses re-submits where
+        ``origin/{assigned}`` carries prior-pipeline commits.
+
+        Best-effort by design: a spawn can legitimately precede any push
+        of the assigned branch (e.g. a slice integration branch that the
+        first push creates), in which case the fetch finds nothing, this
+        returns ``None``, and the caller falls back to the base branch —
+        the pre-#3068 behaviour.  Contrast the base-branch fetch, which
+        hard-fails per #3021 because the base must exist on origin.
+
+        Returns:
+            ``origin/{fetch_ref}`` (the input with any ``origin/`` prefix
+            stripped) when the branch exists on origin (tracking ref
+            freshly fetched), else ``None``.
+        """
+        # ``_tracking_refspec`` requires a bare branch name; mirror the
+        # base-branch path's defensive strip in case a future caller drifts
+        # to passing ``origin/<name>`` (today's callers pass bare names).
+        fetch_ref = (
+            assigned_branch[len("origin/") :]
+            if assigned_branch.startswith("origin/")
+            else assigned_branch
+        )
+        try:
+            with self._git_credential_env(repo_slug, best_effort=True) as fetch_env:
+                # Force C locale so the "couldn't find remote ref" stderr
+                # heuristic below isn't translated by gettext under e.g.
+                # ``LANG=de_DE.UTF-8``.  Without this, a translated error
+                # would misclassify the "branch not pushed yet" case as a
+                # transient failure (the WARNING branch).  Fallback
+                # behaviour is correct either way; only log level/message
+                # changes.
+                fetch_env = {**fetch_env, "LC_ALL": "C"}
+                fetch_result = subprocess.run(
+                    git_cmd("fetch", "origin", _tracking_refspec(fetch_ref)),
+                    cwd=main_repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    # Matches the reuse path's per-fetch budget in
+                    # ``_reset_reused_worktree_to_safe_ref`` so the
+                    # worst-case create-path latency under
+                    # ``_get_repo_lock`` is bounded by ``base (30s) +
+                    # assigned (15s) = 45s`` rather than 60s.  The base
+                    # fetch keeps its 30s budget because it hard-fails per
+                    # #3021; the assigned fetch is best-effort and falls
+                    # back to the base branch on timeout.
+                    timeout=15,
+                    env=fetch_env,
+                )
+        except Exception as exc:
+            # Best-effort: any failure (timeout, OSError, credential-helper
+            # error from _git_credential_env, etc.) falls back to the base
+            # branch.  A narrower catch would surface unexpected exception
+            # types as a hard spawn failure, which is the opposite of the
+            # "best-effort fallback" contract this helper advertises.
+            logger.warning(
+                "Assigned-branch fetch before worktree create failed (falling back to base)",
+                container_id=container_id,
+                assigned_branch=assigned_branch,
+                error=str(exc),
+            )
+            return None
+        if fetch_result.returncode != 0:
+            # git fetch on a missing branch emits "couldn't find remote ref"
+            # — that's the expected "not pushed yet" case and not an error.
+            # Anything else (transient 5xx, auth, network) is worth flagging
+            # at a higher level so an operator triaging "why didn't my seed
+            # reach the agent?" sees the real cause.
+            stderr = fetch_result.stderr.strip()
+            if "couldn't find remote ref" in stderr:
+                logger.info(
+                    "Assigned branch not on origin yet — forking worktree from base",
+                    container_id=container_id,
+                    assigned_branch=assigned_branch,
+                )
+            else:
+                logger.warning(
+                    "Assigned-branch fetch failed (falling back to base)",
+                    container_id=container_id,
+                    assigned_branch=assigned_branch,
+                    stderr=stderr[:200],
+                )
+            return None
+
+        candidate = f"origin/{fetch_ref}"
+        verify = subprocess.run(
+            git_cmd("rev-parse", "--verify", candidate),
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if verify.returncode != 0:
+            return None
+        logger.info(
+            "Forking worktree from assigned branch tip",
+            container_id=container_id,
+            assigned_branch=assigned_branch,
+        )
+        return candidate
+
     def _reset_reused_worktree_to_safe_ref(
         self,
         worktree_path: Path,
@@ -839,16 +990,20 @@ class WorktreeManager:
         # base-branch fetch, and are cheaper than a full all-refs fetch
         # on large mirrors.
         #
-        # ``base_branch`` may arrive ``origin/``-prefixed in pipeline
-        # mode (``gateway.py`` sets ``worktree_base_branch =
-        # f"origin/{...}"`` and ``resolve_default_branch`` returns
-        # ``"origin/main"``).  Strip the prefix so the fetch refspec and
-        # the candidate-ref lookup below agree on the bare name —
-        # otherwise the secondary candidate is built as
-        # ``origin/origin/main`` and fails to resolve.
+        # ``_tracking_refspec`` requires a bare branch name; mirror the
+        # base-branch and create-path defensive strips for drift-resistance
+        # against future callers passing ``origin/<name>`` (today's callers
+        # pass bare names).  ``base_branch`` may also arrive
+        # ``origin/``-prefixed in pipeline mode (``gateway.py`` sets
+        # ``worktree_base_branch = f"origin/{...}"`` and
+        # ``resolve_default_branch`` returns ``"origin/main"``).  Strip
+        # the prefix on both so the fetch refspec and the candidate-ref
+        # lookup below agree on the bare name — otherwise the secondary
+        # candidate is built as ``origin/origin/main`` and fails to resolve.
+        assigned_name = assigned_branch.removeprefix("origin/") if assigned_branch else None
         fetch_branches: list[str] = []
-        if assigned_branch:
-            fetch_branches.append(assigned_branch)
+        if assigned_name:
+            fetch_branches.append(assigned_name)
         base_name: str | None = None
         if base_branch and base_branch != "HEAD":
             base_name = base_branch.removeprefix("origin/")
@@ -866,7 +1021,14 @@ class WorktreeManager:
                         timeout=15,
                         env=fetch_env,
                     )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except Exception as exc:
+            # Best-effort: any failure (timeout, OSError, credential-helper
+            # error from ``_git_credential_env``, etc.) is logged and we
+            # still attempt the reset against whatever local state we have.
+            # A narrower catch would surface unexpected exception types as
+            # a hard worktree-reuse failure, contradicting this helper's
+            # best-effort contract — mirrors the create-path's catch in
+            # ``_resolve_assigned_fork_point``.
             logger.warning(
                 "Fetch before worktree-reuse reset failed (continuing)",
                 container_id=container_id,
@@ -876,8 +1038,8 @@ class WorktreeManager:
 
         target_ref: str | None = None
         candidates: list[str] = []
-        if assigned_branch:
-            candidates.append(f"origin/{assigned_branch}")
+        if assigned_name:
+            candidates.append(f"origin/{assigned_name}")
         if base_name is not None:
             candidates.append(f"origin/{base_name}")
         for candidate in candidates:

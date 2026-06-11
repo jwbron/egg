@@ -537,10 +537,17 @@ PIPELINE_TOOLS = [
         "name": "restart_phase",
         "description": (
             "Restart all agents in a pipeline phase. Stops all phase containers, "
-            "resets consensus and review cycle state, and respawns all agents. "
-            "Prior phase artifacts are preserved. Works on pipelines in running, "
-            "awaiting-human, failed, or cancelled state (cancelled pipelines come "
-            "from cancel_task with cleanup=false)."
+            "resets consensus and review cycle state, deletes every per-agent "
+            "worktree (best-effort salvage of unpushed commits to "
+            "egg/recovered/* first; worktrees with a corrupted .git marker "
+            "may be skipped without salvage), and respawns all agents. "
+            "Per-role branch tips are NOT preserved: fresh worktrees re-fork "
+            "from the shared work branch tip (origin/<assigned_branch>), so "
+            "only artifacts that were pushed there survive into the "
+            "respawned agents' trees (#3080). Contrast restart_agent, which "
+            "keeps the agent's worktree intact. Works on pipelines in "
+            "running, awaiting-human, failed, or cancelled state (cancelled "
+            "pipelines come from cancel_task with cleanup=false)."
         ),
         "inputSchema": {
             "type": "object",
