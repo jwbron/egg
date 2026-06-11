@@ -10666,6 +10666,113 @@ def _escalate_blocked_slice_to_hitl(
     )
 
 
+def _check_slice_evidence_reachability(
+    pipeline_id: str,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    slice_id: str,
+    integration_branch: str,
+    *,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> str | None:
+    """Verify the slice's cited evidence commits reached the integration branch (#3125).
+
+    The integration branch only advances when a producer pushes
+    (``consensus_push`` at propose time). A commit recorded by
+    ``egg-contract complete-task --commit <sha>`` *after* that producer
+    confirmed — the prescribed HITL unblock flow for a post-confirmation
+    task reassignment (#3124) — lives only on the agent's local worktree
+    branch, so the slice would otherwise close and open its PR without
+    the deliverable while the contract task record points at a commit
+    nothing retains.
+
+    Runs after slice consensus and before any close side effects (BRC
+    transcript commit, slice PR). Returns ``None`` when the slice may
+    close, or a human-readable failure string listing every task row
+    whose cited commit is not an ancestor of the integration branch tip
+    — the caller records the slice failure with it, which routes
+    through the existing cascade + HITL escalation machinery instead of
+    closing silently.
+
+    Failure posture mirrors the other completeness checks (#3081 /
+    #3114): the gate degrades to ``None`` (close proceeds, warning
+    logged) when the contract cannot be read, the slice id does not
+    resolve, or the gateway reachability probe cannot be evaluated.
+    Only a definitive "this cited commit is not on the branch" verdict
+    fails the close. ``EGG_EVIDENCE_REACHABILITY_GATE`` is the operator
+    kill switch.
+    """
+    try:
+        import contract_completeness as cc
+    except ImportError:
+        from .. import contract_completeness as cc  # type: ignore[no-redef]
+
+    if not cc.evidence_gate_enabled():
+        logger.info(
+            "Evidence-reachability gate disabled by kill switch (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return None
+
+    from egg_contracts.loader import load_contract as _load_contract
+
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract = _load_contract(pipeline_id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        logger.warning(
+            "Evidence-reachability gate skipped: contract load failed (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(load_err),
+        )
+        return None
+
+    rows = cc.evidence_commits(contract, slice_id)
+    if rows is None:
+        logger.warning(
+            "Evidence-reachability gate skipped: slice not found in contract (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return None
+    if not rows:
+        return None
+
+    unreachable_shas = spawner.gateway.find_unreachable_evidence_commits(
+        pipeline_id,
+        str(worktree_repo_path),
+        commit_shas=[r["commit"] for r in rows],
+        integration_branch=integration_branch,
+        mode=gateway_mode,
+    )
+    if unreachable_shas is None:
+        # The probe itself could not be evaluated (gateway/network).
+        # find_unreachable_evidence_commits already logged the cause.
+        return None
+    if not unreachable_shas:
+        return None
+
+    lost = [r for r in rows if r["commit"] in set(unreachable_shas)]
+    summary = cc.format_evidence_rows(lost)
+    logger.error(
+        "Slice close blocked: task records cite commits unreachable from "
+        "the integration branch (#3125)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        integration_branch=integration_branch,
+        unreachable=summary,
+    )
+    return (
+        f"slice {slice_id}: evidence-reachability gate failed — contract task "
+        f"records cite commits that are not on integration branch "
+        f"{integration_branch}: {summary}. Cherry-pick (or push) the cited "
+        f"commits onto {integration_branch}, then re-run the slice close; "
+        f"set {cc.EVIDENCE_GATE_ENV_VAR}=off to bypass."
+    )
+
+
 def _commit_slice_brc_history_to_integration_branch(
     pipeline,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -16590,6 +16697,27 @@ def _run_implement_phase_slices(
                         exit_code=exit_code_inner,
                     )
                     return exit_code_inner, logs_inner
+
+                # #3125 — evidence-reachability gate: every commit SHA
+                # cited by this slice's contract task records must be
+                # an ancestor of the integration branch tip, or the
+                # slice PR would ship without a deliverable the task
+                # record claims is done (the post-confirmation
+                # ``complete-task --commit`` unblock flow, #3124).
+                # Fails the slice BEFORE any close side effect so the
+                # cascade + HITL machinery surfaces the gap loudly.
+                if pipeline.repo:
+                    evidence_failure = _check_slice_evidence_reachability(
+                        pipeline_id,
+                        spawner,
+                        worktree_repo_path,
+                        slice_id,
+                        integration_branch,
+                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    )
+                    if evidence_failure is not None:
+                        scheduler.record_failure(slice_id)
+                        return 1, evidence_failure
 
                 # Slice consensus reached — snapshot the slice's PR
                 # data under the per-pipeline state lock, then RELEASE

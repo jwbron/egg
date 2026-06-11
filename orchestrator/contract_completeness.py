@@ -28,6 +28,11 @@ refine consensus run against contracts whose task rows are *expected*
 to be pending, and the apply phase (#1557) tracks per-task lifecycle in
 ``jira_action_status`` instead.
 
+#3125 extends the module with the slice-close evidence-reachability
+helpers (``evidence_commits`` / ``evidence_gate_enabled``): commit SHAs
+cited by task records are only an integrity contract if the close path
+verifies they actually reached the integration branch.
+
 Failure posture: the gate degrades gracefully (returns ``None`` /
 skips) when the contract cannot be loaded or the slice id does not
 resolve — an orchestrator-side infrastructure failure must not deadlock
@@ -56,12 +61,22 @@ logger = get_logger("orchestrator.contract_completeness")
 # "off" (or 0/false/no) to disable enforcement without a redeploy.
 GATE_ENV_VAR = "EGG_CONTRACT_ACK_GATE"
 
+# Operator kill switch for the slice-close evidence-reachability gate
+# (#3125). Separate from the ACK/CONFIRM gate so each can be toggled
+# independently during an incident.
+EVIDENCE_GATE_ENV_VAR = "EGG_EVIDENCE_REACHABILITY_GATE"
+
 _DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 
 def gate_enabled() -> bool:
     """Return True unless the operator kill switch disables the gate."""
     return os.environ.get(GATE_ENV_VAR, "on").strip().lower() not in _DISABLED_VALUES
+
+
+def evidence_gate_enabled() -> bool:
+    """Return True unless the evidence-reachability kill switch is set."""
+    return os.environ.get(EVIDENCE_GATE_ENV_VAR, "on").strip().lower() not in _DISABLED_VALUES
 
 
 def load_live_contract(
@@ -180,4 +195,43 @@ def format_incomplete_rows(rows: list[dict[str, Any]]) -> str:
     """One-line-per-row summary for rejection messages."""
     return "; ".join(
         f"{r['id']} (role={r['role'] or 'unassigned'}, status={r['status']})" for r in rows
+    )
+
+
+def evidence_commits(
+    contract: Contract,
+    slice_id: str | None = None,
+) -> list[dict[str, Any]] | None:
+    """List the task rows in scope that cite a commit SHA as evidence.
+
+    The slice close-merge gate (#3125) checks every cited SHA for
+    reachability from the integration branch tip before the slice may
+    close — a task record pointing at a commit the slice PR does not
+    contain means the prescribed ``complete-task --commit`` unblock
+    flow silently dropped a deliverable.
+
+    Rows are included regardless of ``status``: a row can carry a
+    commit while still pending (the completion CLI links the commit
+    before flipping status), and a cited-but-unreachable commit is a
+    gap worth failing on either way.
+
+    Returns one dict per row (``id`` / ``role`` / ``commit``), empty
+    list when no row cites a commit, or ``None`` when ``slice_id`` was
+    given but no such slice exists (caller skips the gate).
+    """
+    slices = _slices_in_scope(contract, slice_id)
+    if slices is None:
+        return None
+    return [
+        {"id": task.id, "role": task.role, "commit": task.commit}
+        for sl in slices
+        for task in sl.tasks or []
+        if task.commit
+    ]
+
+
+def format_evidence_rows(rows: list[dict[str, Any]]) -> str:
+    """One-line-per-row summary for evidence-reachability messages."""
+    return "; ".join(
+        f"{r['id']} (role={r['role'] or 'unassigned'}, commit={r['commit']})" for r in rows
     )
