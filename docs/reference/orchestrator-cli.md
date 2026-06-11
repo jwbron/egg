@@ -385,6 +385,60 @@ Two MCP tools recover unpushed agent commits before `cleanup_pipeline` deletes t
 
 After salvage, recover the work with `git ls-remote origin 'refs/heads/egg/recovered/<pipeline-id>/*'`, then `git fetch` + `git cherry-pick`.
 
+## Operator Contract Actions (#3124)
+
+REST-only endpoints for operator-grade contract mutations. Not proxied by the gateway —
+call directly against the orchestrator. All require `Authorization: Bearer $EGG_LIFECYCLE_SECRET`.
+
+### Mark a contract task complete
+
+```bash
+POST /api/v1/contracts/<identifier>/tasks/<task-id>/complete
+```
+
+Marks a contract task complete as an audited operator action under `Role.HUMAN`,
+bypassing the implementer/reviewer field-ownership restriction. Replaces the
+`kubectl exec + EGG_AGENT_ROLE=<role> egg-contract complete-task` impersonation
+workaround.
+
+**Path params:**
+- `identifier` — pipeline id (preferred) or issue number
+- `task-id` — contract task id (e.g. `TASK-2-3`)
+
+**Body (all optional):**
+```json
+{"commit": "<sha evidence>", "reason": "<why operator is attesting completion>"}
+```
+
+**Primary use case:** A task is (re)assigned to a producer that already CONFIRMED.
+The `#3114` completeness gate holds the slice open over the undelivered row while the
+confirmed producer cannot re-enter WORKING. Marking the task complete here releases
+the gate over that row and lets the slice finalize without the producer re-entering
+WORKING — the producer stays CONFIRMED. (A separate auto-reopen mechanism in
+`_maybe_reopen_confirmed_producer` covers a different case — *reassigning* a task to
+a confirmed producer — and does not fire after this operator-completion path; see
+[Executable Task-Completion Resolution](../hitl-decisions.md#executable-task-completion-resolution-3124).)
+
+Alternatively, resolve a HITL decision with "Mark task `<task-id>` complete" text —
+`routes/decisions.py` dispatches to the same `complete_task_as_operator` function
+(see [Executable Task-Completion Resolution](../hitl-decisions.md#executable-task-completion-resolution-3124)).
+
+**Example:**
+```bash
+curl -X POST http://egg-orchestrator:9849/api/v1/contracts/<pipeline-id>/tasks/TASK-1-2/complete \
+  -H "Authorization: Bearer $EGG_LIFECYCLE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"commit": "abc1234", "reason": "task reassigned post-confirm"}'
+```
+
+**Error codes:**
+
+| HTTP | Meaning |
+|------|---------|
+| 404 | Pipeline worktree, contract, or task id not found |
+| 400 | Mutation rejected by the contract validator, or malformed request body / unresolvable pipeline id |
+| 500 | Contract save failed |
+
 ## BRC Consensus Protocol
 
 The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution for multi-agent consensus. All protocol actions are gated by formal **action guards** defined in `orchestrator/action_guards.py` — see [Concurrent Execution — Action Guards](../guides/concurrent-execution.md#action-guards) for the complete guard table.
