@@ -165,9 +165,9 @@ quietly trade one for the other.
 
 | Mechanism | Module / path | Clause it enforces |
 |-----------|---------------|--------------------|
-| `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | `sandbox/egg_agent_tools/tools/brc.py`, `orchestrator/routes/brc_transcript.py` | Clause 1 |
+| `mcp__brc__read_peer_artifact` (live store + on-disk merge, `live` flag) | `sandbox/egg_agent_tools/tools/brc.py`, `orchestrator/routes/messages.py` (`get_brc_transcript`) | Clause 1 |
 | Wrapper `sync_to_proposals()` with per-SHA outcome recording | `orchestrator/consensus_wrapper.py` | Clause 2 |
-| "Worktree NOT synced" banner in the event prompt | `orchestrator/routes/event_prompt.py` | Clause 2 |
+| "Worktree NOT synced" banner in the event prompt | `orchestrator/consensus_wrapper.py` (`SYNC_FAILURE_BANNERS`), `orchestrator/routes/event_prompt.py` (cross-reference text) | Clause 2 |
 | Artifact spec registry | `shared/egg_contracts/artifact_spec.py` | Clause 3 |
 | Spec consistency tests (gates, mirror, helper, literals) | `shared/egg_contracts/tests/test_artifact_spec.py` | Clause 3 |
 | Spec-derived propose validation (all producers) | `orchestrator/routes/signals.py` `handle_consensus_propose_signal` | Clause 3 |
