@@ -1292,6 +1292,189 @@ class TestSliceMergedDetection:
         spawner.gateway.create_slice_pr.assert_called_once()
 
 
+class TestSliceBoundaryStatefileCommit:
+    """#3117 — slice completion must commit+push statefiles to the work branch.
+
+    Contract task-record mutations and ``slice.status`` flips land on
+    the shared pipeline worktree's disk copy only; without a
+    slice-boundary commit the work branch's contract file stays frozen
+    at the init-time "Initialize SDLC contract" commit for the whole
+    implement phase (live repro: ``pipeline-2d9cc50d``, every task row
+    pending forever on the branch copy).
+    """
+
+    WORK_BRANCH_KW = "branch"
+
+    def _make_spawner(self) -> MagicMock:
+        spawner = MagicMock()
+        spawner.gateway = MagicMock()
+        spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
+        return spawner
+
+    def _run(
+        self,
+        pipeline: Pipeline,
+        contract: Contract,
+        spawner: MagicMock,
+        commit_mock: MagicMock,
+        store: MagicMock | None = None,
+    ) -> tuple[int, str]:
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+            patch("routes.pipelines._commit_statefiles_to_worktree", commit_mock),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            return _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=store if store is not None else MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+    @staticmethod
+    def _slice_commit_calls(commit_mock: MagicMock) -> list[Any]:
+        """Slice-boundary commit calls (positional arg 1 is the message)."""
+        return [
+            c for c in commit_mock.call_args_list if "Persist contract after slice" in c.args[1]
+        ]
+
+    @staticmethod
+    def _bootstrap_commit_calls(commit_mock: MagicMock) -> list[Any]:
+        return [c for c in commit_mock.call_args_list if "bootstrap reconciliation" in c.args[1]]
+
+    def _work_branch_pushes(self, spawner: MagicMock, pipeline: Pipeline) -> list[Any]:
+        """Pushes targeting the work branch (the per-slice BRC hook
+        pushes integration branches through the same gateway method)."""
+        return [
+            c
+            for c in spawner.gateway.push_worktree_branch.call_args_list
+            if c.kwargs.get(self.WORK_BRANCH_KW) == pipeline.branch
+        ]
+
+    def test_slice_close_commits_and_pushes_contract(self) -> None:
+        """Successful slice close → contract committed to the work
+        branch (scoped to this pipeline) and pushed via launcher-auth."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+        commit_mock = MagicMock(return_value=True)
+        spawner = self._make_spawner()
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        slice_commits = self._slice_commit_calls(commit_mock)
+        assert len(slice_commits) == 1, (
+            "slice close must commit statefiles to the work branch exactly once"
+        )
+        call = slice_commits[0]
+        assert call.args[0] == Path("/tmp/x")
+        assert "slice-1" in call.args[1]
+        assert call.kwargs["pipeline_id"] == pipeline.id, (
+            "commit must be scoped with pipeline_id so the contract file "
+            "(keyed by pipeline id, not issue number) matches the glob (#1829)"
+        )
+        pushes = self._work_branch_pushes(spawner, pipeline)
+        assert len(pushes) == 1, "committed statefiles must be pushed to origin"
+        assert pushes[0].kwargs["repo_path"] == "/tmp/x"
+
+    def test_no_push_when_commit_is_noop(self) -> None:
+        """``_commit_statefiles_to_worktree`` returning False (nothing
+        staged) must skip the push — no no-op fast-forward round-trip."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+        commit_mock = MagicMock(return_value=False)
+        spawner = self._make_spawner()
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        assert len(self._slice_commit_calls(commit_mock)) == 1
+        assert self._work_branch_pushes(spawner, pipeline) == []
+
+    def test_commit_failure_does_not_block_slice_completion(self) -> None:
+        """Statefile durability is best-effort: a git failure in the
+        commit helper must not fail the slice or skip its COMPLETE
+        status."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+        commit_mock = MagicMock(side_effect=RuntimeError("git transient"))
+        spawner = self._make_spawner()
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        assert slice1.status == SliceStatus.COMPLETE
+        assert self._work_branch_pushes(spawner, pipeline) == []
+
+    def test_push_failure_does_not_block_slice_completion(self) -> None:
+        """A gateway push failure is logged and swallowed — the commit
+        is already on the local work branch and the next boundary's
+        push carries it."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+        commit_mock = MagicMock(return_value=True)
+        spawner = self._make_spawner()
+        spawner.gateway.push_worktree_branch.side_effect = RuntimeError("gateway transient")
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        assert slice1.status == SliceStatus.COMPLETE
+
+    def test_no_push_when_worktree_is_main_repo(self) -> None:
+        """Mirror of the phase-boundary guard: never push when the
+        'worktree' is actually the main repo checkout."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+        commit_mock = MagicMock(return_value=True)
+        spawner = self._make_spawner()
+        store = MagicMock()
+        store.repo_path = "/tmp/x"  # same path passed as worktree_repo_path
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock, store=store)
+
+        assert exit_code == 0
+        assert self._work_branch_pushes(spawner, pipeline) == []
+
+    def test_bootstrap_reconciliation_batches_single_commit(self) -> None:
+        """Bootstrap merged-detection marking N slices complete must
+        produce ONE batched commit, not one per slice — and no
+        per-slice-close commits (nothing ran)."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice2 = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
+        commit_mock = MagicMock(return_value=True)
+        spawner = self._make_spawner()
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = True
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        assert self._slice_commit_calls(commit_mock) == []
+        bootstrap_commits = self._bootstrap_commit_calls(commit_mock)
+        assert len(bootstrap_commits) == 1, (
+            "bootstrap passes must batch one commit for all reconciled slices"
+        )
+        assert len(self._work_branch_pushes(spawner, pipeline)) == 1
+
+
 # ---------------------------------------------------------------------------
 # #2914 — restart_phase resume guard: bootstrap must verify pods are alive
 # before mark_spawned, or the pipeline wedges with no agents running.
