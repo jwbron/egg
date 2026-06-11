@@ -502,10 +502,9 @@ class TestAckGate:
             sig_logger.setLevel(prior_level)
 
         assert result is None
-        assert any(
-            "empty producer_role" in record.getMessage()
-            for record in caplog.records
-        ), caplog.text
+        assert any("empty producer_role" in record.getMessage() for record in caplog.records), (
+            caplog.text
+        )
 
 
 class TestKillSwitchAllChecks:
