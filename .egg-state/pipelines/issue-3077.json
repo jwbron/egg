@@ -74,11 +74,30 @@
       "task_planner": "claude-fable-5"
     }
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-06-11T20:48:20.095834Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "operator_directives": [],
+      "iteration_history": [],
+      "phase_start_sha": "c4b6e936be6596c420cb85cd4c9d1762abeac4fd",
+      "agent_exits": []
+    }
+  },
   "decisions": [],
   "created_at": "2026-06-11T20:48:15.005064Z",
-  "updated_at": "2026-06-11T20:48:15.117584Z",
-  "contract_synced": false,
+  "updated_at": "2026-06-11T20:48:20.099643Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -90,7 +109,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3,
+  "version": 5,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
