@@ -970,6 +970,48 @@ def test_build_delta_entries_first_review_strips_backticks_from_artifact_paths()
     assert "`evil`" not in delta
 
 
+def test_build_delta_entries_first_review_no_sha_strips_backticks_from_refs_text() -> None:
+    """Parallel to the ``if proposal_sha:`` strip test above, but covers
+    the ``else`` (no-SHA) branch at ``event_prompt.py``. The strip is one
+    list comp upstream of both branches (line 731), so this is a
+    belt-and-braces pin on the shared upstream — a regression that
+    re-introduces unescaped backticks in either rendered path would
+    surface in both tests."""
+    from pathlib import Path
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    entries = _build_delta_entries(
+        action="ack",
+        role="reviewer_code",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text="",
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "coder",
+                    "current_version": 1,
+                    "artifact_refs": ["src/`evil`.py", "src/ok.py"],
+                    # No proposal_commit_sha -> drives the else branch
+                    # (degraded-baseline ``refs_text`` rendering).
+                }
+            ]
+        },
+    )
+    assert len(entries) == 1
+    delta = entries[0]["delta"]
+    # ``refs_text`` interpolates each artifact in a backtick-wrapped code
+    # span (``- `{a}` ``). With the strip applied, ``evil`` lands without
+    # surrounding raw backticks; without it, the inner backticks would
+    # terminate the markdown code span early.
+    assert "- `src/evil.py`" in delta
+    assert "- `src/ok.py`" in delta
+    assert "`evil`" not in delta
+    # Sanity: this is the no-SHA branch, no ``git show`` command rendered.
+    assert "git show" not in delta
+
+
 def test_build_delta_entries_first_review_sha_without_artifacts_still_renders() -> None:
     """A proposal SHA with an empty artifact list still yields an entry
     (the full-change git log command) — pre-#3076 the empty artifact
