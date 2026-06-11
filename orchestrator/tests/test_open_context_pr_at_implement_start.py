@@ -54,6 +54,7 @@ from routes.pipelines import (  # noqa: E402
     _compose_context_pr_body,
     _open_context_pr_at_implement_start,
     _persist_context_pr_number,
+    _refresh_context_pr_body,
 )
 
 # ----------------------------------------------------------------------
@@ -376,6 +377,169 @@ class TestComposeContextPrBody:
         )
         assert "1. Foundation (`phase-1`)" in body
         assert "phase-1. Foundation" not in body
+
+    def test_slice_with_pr_number_renders_link(self, tmp_path):
+        """#3122: once a slice PR opens its number is persisted on the
+        contract and the slice-table entry gains a ``— #N`` autolink."""
+        from egg_contracts.models import Slice
+
+        body = _compose_context_pr_body(
+            contract=self._contract(
+                slices=[
+                    Slice(id="slice-1", name="Foundation", tasks=[], pr_number=4243),
+                    Slice(id="slice-2", name="Rollout", tasks=[]),
+                ],
+            ),
+            pipeline=_make_pipeline(),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert "1. Foundation (`slice-1`) — #4243" in body
+        assert "2. Rollout (`slice-2`)" in body
+        assert "2. Rollout (`slice-2`) — #" not in body
+
+    def test_soft_breaks_unwrapped_in_prose_fields(self, tmp_path):
+        """#3122: YAML block-scalar hard wraps in description /
+        test_plan / manual_steps are joined back into paragraphs;
+        markdown structure (lists) survives."""
+        from egg_contracts.models import Contract, IssueInfo, PRMetadata
+
+        contract = Contract(
+            issue=IssueInfo(number=2777, title="t", url=""),
+            pipeline_id="issue-2777",
+            pr=PRMetadata(
+                title="Add feature X",
+                description=(
+                    "This paragraph was wrapped\nat an arbitrary column by\n"
+                    "the YAML block scalar.\n\nSecond paragraph stays\nseparate."
+                ),
+                test_plan="- run make test\n- check the rendered\n  body manually",
+                manual_steps="Redeploy the orchestrator\nafter merge.",
+            ),
+        )
+        body = _compose_context_pr_body(
+            contract=contract,
+            pipeline=_make_pipeline(),
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert "This paragraph was wrapped at an arbitrary column by the YAML block scalar." in body
+        assert "Second paragraph stays separate." in body
+        # List structure preserved; wrapped list-item tail joined.
+        assert "- run make test\n- check the rendered body manually" in body
+        assert "Redeploy the orchestrator after merge." in body
+
+
+class TestRefreshContextPrBody:
+    """#3122: best-effort context-PR body refresh after a slice PR opens."""
+
+    def _contract(self, *, context_pr_number=4242, slices=()):
+        from egg_contracts.models import Contract, IssueInfo, PRMetadata
+
+        return Contract(
+            issue=IssueInfo(number=2777, title="t", url=""),
+            pipeline_id="issue-2777",
+            pr=PRMetadata(
+                title="Add feature X",
+                description="The narrative.",
+                context_pr_number=context_pr_number,
+            ),
+            slices=list(slices),
+        )
+
+    def test_happy_path_pushes_recomposed_body(self, tmp_path, spawner_factory):
+        from egg_contracts.models import Slice
+
+        spawner = spawner_factory()
+        spawner.gateway.update_pr_body.return_value = True
+        contract = self._contract(
+            slices=[Slice(id="slice-1", name="Foundation", tasks=[], pr_number=4243)]
+        )
+        from egg_contracts import loader
+
+        with patch.object(loader, "load_contract", return_value=contract):
+            ok = _refresh_context_pr_body(
+                "issue-2777",
+                pipeline=_make_pipeline(),
+                spawner=spawner,
+                worktree_repo_path=tmp_path,
+                identifier=2777,
+                gateway_mode="public",
+            )
+        assert ok is True
+        kwargs = spawner.gateway.update_pr_body.call_args.kwargs
+        assert kwargs["pr_number"] == 4242
+        assert "1. Foundation (`slice-1`) — #4243" in kwargs["body"]
+        # The gateway audit log attributes the action to ``orchestrator``,
+        # matching sibling orchestrator-driven PR mutations
+        # (create_slice_pr, rebase_onto) — review feedback on #3128.
+        assert kwargs["agent_role"] == "orchestrator"
+
+    def test_no_context_pr_number_skips(self, tmp_path, spawner_factory):
+        spawner = spawner_factory()
+        contract = self._contract(context_pr_number=None)
+        pipeline = _make_pipeline()
+        pipeline.pr_number = None
+        from egg_contracts import loader
+
+        with patch.object(loader, "load_contract", return_value=contract):
+            ok = _refresh_context_pr_body(
+                "issue-2777",
+                pipeline=pipeline,
+                spawner=spawner,
+                worktree_repo_path=tmp_path,
+                identifier=2777,
+            )
+        assert ok is False
+        spawner.gateway.update_pr_body.assert_not_called()
+
+    def test_pipeline_pr_number_fallback(self, tmp_path, spawner_factory):
+        """#3100-degraded contracts: linkage missing on the contract but
+        mirrored on the pipeline — the refresh still targets the PR."""
+        spawner = spawner_factory()
+        spawner.gateway.update_pr_body.return_value = True
+        contract = self._contract(context_pr_number=None)
+        pipeline = _make_pipeline()
+        pipeline.pr_number = 4242
+        from egg_contracts import loader
+
+        with patch.object(loader, "load_contract", return_value=contract):
+            ok = _refresh_context_pr_body(
+                "issue-2777",
+                pipeline=pipeline,
+                spawner=spawner,
+                worktree_repo_path=tmp_path,
+                identifier=2777,
+            )
+        assert ok is True
+        assert spawner.gateway.update_pr_body.call_args.kwargs["pr_number"] == 4242
+
+    def test_contract_load_failure_returns_false(self, tmp_path, spawner_factory):
+        spawner = spawner_factory()
+        from egg_contracts import loader
+
+        with patch.object(loader, "load_contract", side_effect=OSError("disk gone")):
+            ok = _refresh_context_pr_body(
+                "issue-2777",
+                pipeline=_make_pipeline(),
+                spawner=spawner,
+                worktree_repo_path=tmp_path,
+                identifier=2777,
+            )
+        assert ok is False
+        spawner.gateway.update_pr_body.assert_not_called()
+
+    def test_no_repo_skips(self, tmp_path, spawner_factory):
+        spawner = spawner_factory()
+        ok = _refresh_context_pr_body(
+            "issue-2777",
+            pipeline=_make_pipeline(repo=""),
+            spawner=spawner,
+            worktree_repo_path=tmp_path,
+            identifier=2777,
+        )
+        assert ok is False
+        spawner.gateway.update_pr_body.assert_not_called()
 
 
 class TestOpenContextPRAtImplementStartTypedErrors:

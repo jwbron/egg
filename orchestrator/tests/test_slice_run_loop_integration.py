@@ -532,6 +532,91 @@ class TestRunImplementPhaseSlices:
         assert pr_kwargs["head"] == f"egg/{pipeline.id}/slice-1"
         assert pr_kwargs["slice_id"] == "slice-1"
 
+    def test_slice_pr_linkage_persisted_and_context_pr_body_refreshed(self) -> None:
+        """#3122: the run loop records the opened slice PR's number/URL on
+        the contract slice (same write as status=COMPLETE) and then
+        refreshes the context PR body so its slice table links the PR."""
+        from egg_contracts.models import PRMetadata
+
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+        contract.pr = PRMetadata(
+            title="Add feature X",
+            description="The narrative.",
+            context_pr_number=4242,
+        )
+        load_mock, save_mock = self._make_loader_save_pair(contract)
+
+        with (
+            patch("egg_contracts.loader.load_contract", load_mock),
+            patch("egg_contracts.loader.save_contract", save_mock),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.create_slice_pr.return_value = "https://github.com/owner/repo/pull/4243"
+            spawner.gateway.update_pr_body.return_value = True
+            exit_code, _logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # PR linkage persisted on the contract slice (#3122).
+        assert slice_obj.pr_number == 4243
+        assert slice_obj.pr_url == "https://github.com/owner/repo/pull/4243"
+        # Context PR body refreshed with the slice link.
+        spawner.gateway.update_pr_body.assert_called_once()
+        refresh_kwargs = spawner.gateway.update_pr_body.call_args.kwargs
+        assert refresh_kwargs["pr_number"] == 4242
+        assert "1. Slice slice-1 (`slice-1`) — #4243" in refresh_kwargs["body"]
+
+    def test_unparseable_slice_pr_url_skips_linkage_and_refresh(self) -> None:
+        """#3122: a slice PR URL without ``/pull/<n>`` (e.g. a stub) means
+        no linkage is recorded and no body refresh fires — the slice
+        still completes normally."""
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+        load_mock, save_mock = self._make_loader_save_pair(contract)
+
+        with (
+            patch("egg_contracts.loader.load_contract", load_mock),
+            patch("egg_contracts.loader.save_contract", save_mock),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()  # returns "https://example/pr/1"
+            exit_code, _logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        assert slice_obj.pr_number is None
+        assert slice_obj.pr_url is None
+        spawner.gateway.update_pr_body.assert_not_called()
+        assert slice_obj.status == SliceStatus.COMPLETE
+
     def test_child_slice_targets_parent_integration_branch(self) -> None:
         pipeline = _make_pipeline()
         root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])

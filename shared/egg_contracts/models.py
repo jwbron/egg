@@ -412,6 +412,26 @@ class Slice(EggContractBaseModel):
         pattern=r"^[a-f0-9]{7,40}$",
         description="Git commit SHA linked to this slice",
     )
+    pr_number: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "GitHub PR number of this slice's stacked PR (#3122). "
+            "Recorded by the run loop when ``create_slice_pr`` returns "
+            "(including the idempotent already-open hit), so the context "
+            "PR body can be regenerated with a link to each slice PR as "
+            "it opens. ``None`` until the slice PR exists, and for "
+            "contracts written before the field existed."
+        ),
+    )
+    pr_url: str | None = Field(
+        default=None,
+        description=(
+            "Canonical URL of this slice's PR (#3122). Written together "
+            "with ``pr_number``; kept separately so consumers don't have "
+            "to re-derive the repo to build a link."
+        ),
+    )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
     )
