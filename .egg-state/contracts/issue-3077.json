@@ -10,9 +10,163 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Scope for issue #3077 pipeline: phase 1 already landed (PR #3078/#3083). Which remaining scope should this pipeline deliver? Option A = phase-1 residual (non-silent sync_to_proposals) + ratchet only; Option B = residual + phase 2 (artifact spec, spec-derived propose validation, gateway artifact-read endpoint unblocking #3002); Option C (recommended) = B + phase 3 cleanup (delete REVIEWER-SYNC fetch prose, docs invariant, no-sync-mechanics-in-prompts ratchet test) + bounded durability (fail-loud when BRC runs on the in-memory message-store backend). See .egg-state/drafts/issue-3077-analysis.md \"Scope Options\".",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option C \u2014 full remaining scope (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 residual + phase 2 only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option A \u2014 residual + ratchet only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Durability bar for the BRC message store (clause-1 prerequisite, issue #3077): is a fail-loud signal sufficient when EGG_MESSAGE_STORE_BACKEND resolves to the in-memory backend while BRC phases run (recommended \u2014 bounded), or should 'auto' refuse to run BRC phases without Redis Streams (stricter, but breaks dev setups without Redis)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fail-loud warning/health signal on memory backend (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Refuse to run BRC phases without Redis",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer durability entirely to the #3070 lineage",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-06-11T20:53:23.944479Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Scope for issue #3077 pipeline: phase 1 already landed (PR #3078/#3083). Which remaining scope should this pipeline deliver? Option A = phase-1 residual (non-silent sync_to_proposals) + ratchet only; Option B = residual + phase 2 (artifact spec, spec-derived propose validation, gateway artifact-read endpoint unblocking #3002); Option C (recommended) = B + phase 3 cleanup (delete REVIEWER-SYNC fetch prose, docs invariant, no-sync-mechanics-in-prompts ratchet test) + bounded durability (fail-loud when BRC runs on the in-memory message-store backend). See .egg-state/drafts/issue-3077-analysis.md \"Scope Options\".",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option C \u2014 full remaining scope (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 residual + phase 2 only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option A \u2014 residual + ratchet only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Scope for issue #3077 pipeline: phase 1 already la...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-06-11T20:53:24.003699Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Durability bar for the BRC message store (clause-1 prerequisite, issue #3077): is a fail-loud signal sufficient when EGG_MESSAGE_STORE_BACKEND resolves to the in-memory backend while BRC phases run (recommended \u2014 bounded), or should 'auto' refuse to run BRC phases without Redis Streams (stricter, but breaks dev setups without Redis)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Fail-loud warning/health signal on memory backend (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Refuse to run BRC phases without Redis",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer durability entirely to the #3070 lineage",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Durability bar for the BRC message store (clause-1...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
