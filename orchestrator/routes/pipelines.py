@@ -15655,19 +15655,34 @@ def _run_implement_phase_slices(
         on the shared pipeline worktree's disk copy only. Without a
         slice-boundary commit, the work branch's contract file stays
         frozen at the init-time "Initialize SDLC contract" commit for
-        the entire implement phase: per-agent worktrees forked from the
-        branch see an all-pending snapshot, and a mid-phase crash or
-        worktree prune loses every task record (#3117). The
-        phase-boundary commit at the end of the run loop is too coarse
-        for multi-slice phases.
+        the entire implement phase, and a mid-phase orchestrator crash
+        or worktree prune loses every accumulated task record (#3117).
+        The phase-boundary commit at the end of the run loop is too
+        coarse for multi-slice phases.
+
+        Scope (per #3117): this closes durability for the post-prune
+        audit record, operator/PR-side review of mid-phase contract
+        state, and orchestrator-restart resume at slice granularity.
+        It is deliberately NOT the read path for live agents — agents
+        read the contract via ``mcp__sdlc__show_contract`` against the
+        orchestrator's in-memory state, never from their checkout's
+        ``.egg-state/contracts/`` file (#3077).
 
         Best-effort: slice completion must not block on statefile
         durability; failures are logged and the next boundary (later
         slice close or phase completion) carries the writes. The commit
         runs under the per-pipeline state lock to serialise concurrent
         slice-close threads against the shared worktree's git index;
-        the push (gateway HTTP, with built-in non-fast-forward
-        reconcile) runs outside the lock.
+        the push runs outside the lock. The expected case is a linear
+        fast-forward (lock-serialised commits stack), and a no-op FF
+        of the same SHA from two threads is harmless. The residual
+        hazard is ``_reconcile_and_retry_push`` on a non-FF rejection
+        (``gateway_client.py:1361``): two threads both fetching+rebasing
+        in the shared worktree can interleave ``.git/index.lock``.
+        Within the implement phase no other writer pushes to
+        ``pipeline.branch`` so non-FF shouldn't fire in normal
+        operation; an external push (operator hand-fix, stale
+        concurrent orchestrator) is the only known trigger.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):
@@ -15687,7 +15702,7 @@ def _run_implement_phase_slices(
                 error=str(commit_err),
             )
             return
-        if not committed or not pipeline.branch or str(worktree_repo_path) == str(store.repo_path):
+        if not committed or not pipeline.branch or worktree_repo_path == store.repo_path:
             return
         try:
             spawner.gateway.push_worktree_branch(
@@ -15725,6 +15740,15 @@ def _run_implement_phase_slices(
         copy tracks the live one (#3117). The bootstrap reconciliation
         passes set it to ``False`` and batch a single commit after the
         loop instead of one per reconciled slice.
+
+        Called only after a slice successfully closes (BRC consensus
+        reached + PR opened, or merged-skip / bootstrap-COMPLETE
+        reconciliation). Failed slices — ``exit_code_inner != 0``
+        (#16410) or ``pr_created == False`` (#16588) — return early
+        without calling this helper, so their accumulated task-record
+        mutations remain uncommitted in the worktree until the next
+        successful slice's commit (the pipeline-scoped glob picks them
+        up) or the phase-boundary commit, whichever fires first.
         """
         try:
             with get_pipeline_state_lock(pipeline_id):

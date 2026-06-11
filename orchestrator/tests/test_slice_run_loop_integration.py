@@ -1445,7 +1445,12 @@ class TestSliceBoundaryStatefileCommit:
         commit_mock = MagicMock(return_value=True)
         spawner = self._make_spawner()
         store = MagicMock()
-        store.repo_path = "/tmp/x"  # same path passed as worktree_repo_path
+        # ``StateStore.repo_path`` is a Path in production
+        # (``get_state_store(repo_path: Path | str)`` accepts both but
+        # the orchestrator constructs with Path); the slice-loop guard
+        # compares Paths directly (matching the phase-boundary guard
+        # style, pipelines.py:22926).
+        store.repo_path = Path("/tmp/x")  # same path passed as worktree_repo_path
 
         exit_code, _ = self._run(pipeline, contract, spawner, commit_mock, store=store)
 
@@ -1473,6 +1478,43 @@ class TestSliceBoundaryStatefileCommit:
             "bootstrap passes must batch one commit for all reconciled slices"
         )
         assert len(self._work_branch_pushes(spawner, pipeline)) == 1
+
+    def test_concurrent_wave_serialises_commits_and_collapses_noop(self) -> None:
+        """Two independent slices in the same ready batch run through
+        ``_run_one_slice`` concurrently and both hit
+        ``_persist_slice_status_complete``. The per-pipeline state lock
+        serialises the two commits; the second commit sees no staged
+        changes (the first already swept the pipeline-scoped glob) and
+        ``_commit_statefiles_to_worktree`` returns False, so the second
+        push is correctly elided. This exercises the lock-serialisation
+        + no-op-collapse path that single-slice tests can't reach."""
+        pipeline = _make_pipeline()
+        # No deps between slices → both READY in the first wave →
+        # ThreadPoolExecutor dispatches both into ``_run_one_slice``
+        # concurrently.
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice2 = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
+        # First slice's commit succeeds (sweeps the contract + any
+        # task-record mutations); second slice's commit is a no-op
+        # because the glob has nothing new to stage.
+        commit_mock = MagicMock(side_effect=[True, False])
+        spawner = self._make_spawner()
+
+        exit_code, _ = self._run(pipeline, contract, spawner, commit_mock)
+
+        assert exit_code == 0
+        slice_commits = self._slice_commit_calls(commit_mock)
+        assert len(slice_commits) == 2, (
+            "both successful slices must call _commit_and_push_slice_statefiles"
+        )
+        # The no-op commit (second call → returned False) must NOT
+        # trigger a push; only the first slice's push hits the gateway.
+        pushes = self._work_branch_pushes(spawner, pipeline)
+        assert len(pushes) == 1, (
+            "second slice's no-op commit must collapse to zero pushes "
+            "(no FF round-trip of the same SHA)"
+        )
 
 
 # ---------------------------------------------------------------------------
