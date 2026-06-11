@@ -6,12 +6,14 @@ requires-python = ">=3.14"
 dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31.0",
-    # Pin claude-agent-sdk to a bounded pre-1.0 range. create_sdk_mcp_server
-    # and @tool are confirmed on 0.1.65 — see sandbox/egg_agent_tools/. A
-    # 0.2 bump must be validated manually; see
+    # Pin claude-agent-sdk to a bounded pre-1.0 range. The full surface egg
+    # uses (create_sdk_mcp_server, @tool, query, ClaudeAgentOptions fields,
+    # CLIJSONDecodeError hierarchy + the #2804 buffer-overflow marker) is
+    # confirmed on 0.2.97 — see sandbox/egg_agent_tools/. A 0.3 bump must be
+    # validated manually; see
     # tests/sandbox/egg_agent_tools/test_sdk_surface.py for the import-time
-    # smoke test that will fail CI loudly on API drift. See #1765.
-    "claude-agent-sdk>=0.1.65,<0.2",
+    # smoke test that will fail CI loudly on API drift. See #1765, #3136.
+    "claude-agent-sdk>=0.2.97,<0.3",
     "cryptography>=41.0.0",
     "PyJWT>=2.8.0",
 ]
