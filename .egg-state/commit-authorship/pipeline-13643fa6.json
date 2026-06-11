@@ -391,6 +391,14 @@
       "registered_at": "2026-06-11T10:24:56.878498+00:00",
       "repo": null,
       "role": "documenter"
+    },
+    "fd2fed56f1100f376a0a1c8fd4cad5d6d728f478": {
+      "branch": "egg/pipeline-13643fa6/slice-5",
+      "patch_id": "2cc725a4b4eb04965eab13d15b10529f5d39e5f7",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T11:37:06.216664+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
