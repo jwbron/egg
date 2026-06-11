@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from http.client import HTTPException
@@ -2548,6 +2548,155 @@ class GatewayClient:
                 error=str(exc),
             )
             return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def find_unreachable_evidence_commits(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        commit_shas: Sequence[str],
+        integration_branch: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> list[str] | None:
+        """Return the subset of ``commit_shas`` NOT reachable from the
+        integration branch's tip on origin (#3125).
+
+        The slice close path uses this to verify that every commit SHA
+        cited by a contract task record actually landed on the
+        integration branch before the slice PR is opened. A producer's
+        post-confirmation commit (the prescribed ``complete-task
+        --commit`` unblock flow) lives only on that agent's local
+        worktree branch unless something pushed it — this check is what
+        turns that silent loss into a hard stop.
+
+        Tri-state per SHA, derived from ``git merge-base --is-ancestor
+        <sha> <tip>`` through ``/api/v1/git/execute``:
+
+        * exit 0 — reachable;
+        * exit 1 — the commit object exists locally but is not an
+          ancestor of the tip → unreachable;
+        * exit 128 — the SHA does not resolve to an object at all
+          (never pushed and the worktree odb was pruned, or an
+          abbreviated SHA that no longer resolves) → unreachable. This
+          is the fully-lost variant of the same gap, so it must fail
+          the gate, not skip it.
+
+        Returns ``None`` (caller skips the gate with a warning) when
+        the check cannot be evaluated at all — branch tip unresolvable
+        on origin, fetch failure, or a gateway/network error on the
+        merge-base call itself. A transient infrastructure failure must
+        not fail the slice; the conservative posture matches the other
+        completeness checks (#3081 / #3114).
+
+        Transport mirrors :meth:`is_slice_branch_merged_into_parent`:
+        one synthetic launcher-authenticated session shared across the
+        ls-remote, the fetch, and every merge-base call.
+        """
+        if not commit_shas:
+            return []
+        if not integration_branch:
+            # No branch to probe means we cannot evaluate reachability.
+            # Skip the gate rather than silently approve — matches the
+            # other "cannot evaluate" paths in this method (#3125 review).
+            return None
+
+        temp_container_id = (
+            f"{pipeline_id}-evidence-reachability-{integration_branch.replace('/', '-')}"
+        )
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            tip_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{integration_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not tip_sha:
+                logger.warning(
+                    "Evidence-reachability check skipped: integration branch "
+                    "tip unresolvable on origin (#3125)",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                )
+                return None
+
+            # The tip's objects must be locally reachable for merge-base
+            # to evaluate. Unlike the ancestor probes elsewhere, a failed
+            # fetch here must SKIP the gate rather than degrade — with no
+            # tip objects every merge-base would exit 128 and every cited
+            # commit would be falsely flagged unreachable, failing the
+            # slice on a network blip.
+            fetched = self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not fetched:
+                logger.warning(
+                    "Evidence-reachability check skipped: integration branch fetch failed (#3125)",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                )
+                return None
+
+            unreachable: list[str] = []
+            for sha in commit_shas:
+                try:
+                    self._make_request(
+                        "/api/v1/git/execute",
+                        method="POST",
+                        data={
+                            "repo_path": repo_path,
+                            "operation": "merge-base",
+                            "args": ["--is-ancestor", sha, tip_sha],
+                        },
+                        bearer_token=session_token,
+                    )
+                except GatewayError as exc:
+                    details = exc.details or {}
+                    returncode = details.get("returncode")
+                    if returncode in (1, 128):
+                        # 1 — object present, not an ancestor.
+                        # 128 — SHA unresolvable in the odb (fully lost).
+                        unreachable.append(sha)
+                        continue
+                    logger.warning(
+                        "Evidence-reachability check skipped: merge-base "
+                        "failed unexpectedly (#3125)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        commit_sha=sha,
+                        returncode=returncode,
+                        error=str(exc),
+                    )
+                    return None
+            return unreachable
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Evidence-reachability check skipped: gateway request failed (#3125)",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                error=str(exc),
+            )
+            return None
         finally:
             if session_token:
                 try:
