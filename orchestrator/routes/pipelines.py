@@ -15599,8 +15599,8 @@ def _run_implement_phase_slices(
     except ContextPrCreationError as ctx_err:
         logger.warning(
             "Context PR opener: slice-loop entry safety net failed "
-            "(continuing — the canonical advance_phase call enforces "
-            "hard-required) (#2777)",
+            "(continuing — hard-require enforced at advance_phase and "
+            "the implement-start plan pre-flight gate) (#2777, #3100)",
             pipeline_id=pipeline_id,
             reason=ctx_err.reason,
             error=str(ctx_err),
@@ -19107,6 +19107,162 @@ def _forest_error_to_outcome(err: ForestValidationError) -> PopulateOutcome:
     return _FOREST_REASON_TO_OUTCOME.get(err.reason, PopulateOutcome.FOREST_VIOLATION)
 
 
+# Recovery options offered by the dedicated plan-preflight HITL emitted
+# from the ``start_phase=implement`` safety net (#3100).  Plain "Retry
+# phase" would respawn into the same metadata-less state; each option
+# maps to a concrete operator action that actually changes state.
+_PLAN_PREFLIGHT_HITL_OPTIONS = [
+    "Fix the plan draft's pr: block and restart implement",
+    "Restart plan phase",
+    "Abort pipeline",
+]
+
+
+def _plan_preflight_hitl_question(
+    *,
+    missing_fields: list[str],
+    plan_draft_rel: str,
+) -> str:
+    """Build the HITL question for an implement-start pre-flight rejection (#3100).
+
+    Names the missing plan-draft fields inline and maps each recovery
+    option to its concrete operator action, mirroring
+    :func:`_empty_contract_hitl_question`'s shape so operators see the
+    same actionable-decision pattern at both implement-start gates.
+    """
+    fields = ", ".join(missing_fields)
+    return (
+        f"Pipeline blocked at start_phase_implement_plan_preflight: the "
+        f"plan draft ({plan_draft_rel}) is missing required field(s) "
+        f"{fields}. The context-PR opener reads contract.pr metadata "
+        f"from the plan's top-level ``pr:`` block; without it the "
+        f"work-branch context PR can never open — both runner-side "
+        f"openers soft-fail with missing_pr_metadata on every slice, "
+        f"and no advance_phase call runs on the implement-start path "
+        f"to enforce the #2777 hard-require (#3100). How to proceed?\n"
+        f"- 'Fix the plan draft's pr: block and restart implement' — add "
+        f"a top-level ``pr:`` block (title, description, test_plan, "
+        f"manual_steps) to the draft's ``# yaml-tasks`` fence on the "
+        f"work branch, then restart_phase implement.\n"
+        f"- 'Restart plan phase' — restart_phase plan to regenerate the "
+        f"draft from scratch.\n"
+        f"- 'Abort pipeline' — cancel_task."
+    )
+
+
+def _enforce_implement_start_plan_preflight(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    store: StateStore,
+    worktree_repo_path: Path,
+    plan_draft_rel: str,
+) -> bool:
+    """Enforce the #2777 plan pre-flight at the implement-start boundary (#3100).
+
+    The natural plan→implement path runs
+    :func:`egg_contracts.plan_parser.validate_plan_preflight` at the
+    ``advance_phase`` REST/MCP site (``routes/phases.py``) and rejects
+    with a typed 422 when the plan draft lacks the ``pr:`` metadata the
+    context-PR opener needs.  ``start_phase=implement`` submits never
+    traverse ``advance_phase``, so before #3100 a draft without a
+    ``pr:`` block sailed straight into the implement phase: every
+    runner-side opener backstop soft-failed with
+    ``missing_pr_metadata`` at WARNING level, the slice stack ran with
+    no context PR, and the operator discovered the gap only by noticing
+    the PR was absent (observed on pipeline-da68d70c and
+    pipeline-2d9cc50d, Khan/webapp).
+
+    Runs AFTER the empty-contract gate at the call site, so the
+    established empty-contract HITL routing (#2627) is unchanged — this
+    gate fires only when the populate succeeded but the draft lacks the
+    PR metadata.
+
+    Scope:
+
+    * Remote pipelines only (``pipeline.repo`` or ``pipeline.base_branch``
+      set).  Local-mode pipelines never open a context PR (the opener's
+      own local-mode skip in
+      :func:`_open_context_pr_at_implement_start`), so requiring ``pr:``
+      metadata there would fail test pipelines over a PR that would
+      never exist.
+    * Infra failures (parser import, draft read) log a WARNING and
+      return False — the gate must not add a new hard-fail mode for
+      transient errors, and the populate path's own outcomes already
+      cover an unreadable draft.
+
+    Returns True when the pipeline was marked FAILED (the caller must
+    return without spawning implement-phase agents), False when the
+    pre-flight passed or was legitimately skipped.
+    """
+    if not (pipeline.repo or pipeline.base_branch):
+        return False
+
+    try:
+        from egg_contracts.plan_parser import (
+            PlanPreflightError,
+            validate_plan_preflight,
+        )
+    except ImportError as imp_err:
+        logger.warning(
+            "Implement-start plan pre-flight: plan_parser import failed "
+            "(continuing without the gate) (#3100)",
+            pipeline_id=pipeline_id,
+            error=str(imp_err),
+        )
+        return False
+
+    try:
+        plan_text = (worktree_repo_path / plan_draft_rel).read_text()
+    except OSError as read_err:
+        logger.warning(
+            "Implement-start plan pre-flight: failed to read plan draft "
+            "(continuing without the gate) (#3100)",
+            pipeline_id=pipeline_id,
+            error=str(read_err),
+        )
+        return False
+
+    try:
+        validate_plan_preflight(plan_text)
+        return False
+    except PlanPreflightError as preflight_err:
+        error_msg = (
+            "start_phase=implement plan pre-flight failed — plan draft is "
+            f"missing required field(s) "
+            f"{', '.join(preflight_err.missing_fields)}: refusing to run "
+            "the implement phase with no openable context PR (#2777 "
+            "pre-flight, #3100 implement-start enforcement)"
+        )
+        logger.error(
+            "OVERSEER_ALERT start_phase_implement_plan_preflight_failed",
+            pipeline_id=pipeline_id,
+            missing_fields=preflight_err.missing_fields,
+        )
+        with get_pipeline_state_lock(pipeline_id):
+            disk_pipeline = store.load_pipeline(pipeline_id)
+            disk_pipeline.status = PipelineStatus.FAILED
+            disk_pipeline.error = error_msg
+            store.save_pipeline(disk_pipeline)
+        _persist_hitl_decision(
+            pipeline_id,
+            disk_pipeline,
+            store,
+            question=_plan_preflight_hitl_question(
+                missing_fields=preflight_err.missing_fields,
+                plan_draft_rel=plan_draft_rel,
+            ),
+            options=list(_PLAN_PREFLIGHT_HITL_OPTIONS),
+            phase=disk_pipeline.current_phase,
+        )
+        report_pipeline_status(
+            disk_pipeline,
+            event_type="pipeline.failed",
+            message=f"Pipeline failed: {error_msg[:100]}",
+        )
+        _emit_pipeline_event(disk_pipeline, "pipeline.failed")
+        return True
+
+
 def _empty_contract_hitl_reason(
     err: PlanDraftMissingOnLocalError
     | PlanDraftMissingOnLocalAndOriginError
@@ -21549,6 +21705,24 @@ def _run_pipeline(
                     _emit_pipeline_event(pipeline, "pipeline.failed")
                     return
 
+                # #3100: the natural plan→implement path enforces the
+                # #2777 plan pre-flight (``validate_plan_preflight``) at
+                # the advance_phase site; implement-start submits skip
+                # that site entirely, so a plan draft without a ``pr:``
+                # block previously entered the implement phase and every
+                # context-PR opener backstop soft-failed with
+                # ``missing_pr_metadata`` forever.  Enforce the same
+                # validator here — after the empty-contract gate so the
+                # #2627 HITL routing above is unchanged.
+                if _enforce_implement_start_plan_preflight(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    worktree_repo_path,
+                    plan_draft_rel,
+                ):
+                    return
+
         # Operator directives + prior iteration history are persisted on
         # ``PhaseExecution`` and accumulate across HITL kickbacks (#2795).
         # They are read directly off the phase below each loop iteration —
@@ -21761,8 +21935,9 @@ def _run_pipeline(
                     except ContextPrCreationError as ctx_err:
                         logger.warning(
                             "Context PR opener: implement-entry backstop "
-                            "failed (continuing — advance_phase enforces "
-                            "hard-required) (#2777)",
+                            "failed (continuing — hard-require enforced at "
+                            "advance_phase and the implement-start plan "
+                            "pre-flight gate) (#2777, #3100)",
                             pipeline_id=pipeline_id,
                             reason=ctx_err.reason,
                             error=str(ctx_err),
