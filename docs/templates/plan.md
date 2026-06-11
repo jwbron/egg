@@ -129,11 +129,15 @@ slices:
 > the task's files — see [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment)
 > for the file-to-role mapping. Tasks without a `role` default to the coder.
 
-> **Context-PR framing (#2777)**: There is no longer a separate
+> **Context-PR framing (#2777, #3115)**: There is no longer a separate
 > `pr.context_title` / `pr.context_description` pair. The context PR is
 > `egg/<pipeline_id>/work → main`, opened up-front at the plan→implement
-> boundary (hard-required, idempotent), and uses the standard `pr.title`
-> / `pr.description` fields above for its title and body. The legacy
+> boundary (hard-required, idempotent). It uses `pr.title` for the PR
+> title; the body is composed from `pr.description`, then rendered
+> `## Test Plan` / `## Manual Steps` sections from `pr.test_plan` /
+> `pr.manual_steps`, then a generated `## Pipeline context` footer
+> (pipeline id, issue, slice table, analysis/plan draft links, BRC
+> transcript links). The legacy
 > v1.1 `pr.context_title`, `pr.context_description`, and
 > `pr.context_branch` keys were **hard-removed** in schema v1.2 (#2777);
 > emitting them is a parse error. The only orchestrator-populated
