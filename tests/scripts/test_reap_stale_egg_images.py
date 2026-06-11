@@ -33,10 +33,13 @@ def _extract_awk_program() -> str:
     run instead of letting a stale hardcoded copy mask a regression.
     """
     src = SCRIPT.read_text()
-    # The script invokes awk with two -v flags: `keep="$KEEP_TAG"` and
-    # `image_re="$IMAGE_RE"` (the latter is built from IMAGES via IFS join).
+    # The script feeds KEEP_TAG / IMAGE_RE / PREFIX_ALT_RE / AUTH_REG_RE /
+    # AUTH_BARE_RE to awk via the environment (NOT -v: gawk escape-processes
+    # -v values, and the `\.` in "docker\.io/library/" would both warn and
+    # lose its backslash). Anchor on AUTH_BARE_RE so we pick the containerd
+    # reap block specifically, not the later docker-store awk.
     m = re.search(
-        r"awk -v keep=\"\$KEEP_TAG\" -v image_re=\"\$IMAGE_RE\" '(.+?)'\s*<<<",
+        r"AUTH_BARE_RE=\"\$AUTH_BARE_RE\"\s+awk\s+'(.+?)'\s*<<<",
         src,
         re.DOTALL,
     )
@@ -58,16 +61,35 @@ def _extract_images() -> list[str]:
 
 
 def _run_awk(listing: str, keep: str) -> list[str]:
-    """Run the script's awk block against a synthetic listing."""
+    """Run the script's awk block against a synthetic listing.
+
+    Mirrors the no-registry case (REGISTRY=""): the registry-subset is
+    empty, every egg image is on the legacy docker.io/library/ prefix,
+    and the registry-authority branch is the never-matching '^$'
+    placeholder the script uses when no registry images are configured.
+    """
     awk = shutil.which("awk")
     assert awk, "awk binary not on PATH"
-    image_re = "|".join(_extract_images())
+    images = _extract_images()
+    image_re = "|".join(images)
+    prefix_alt_re = r"docker\.io/library/"
+    auth_reg_re = "^$"
+    auth_bare_re = f"^{prefix_alt_re}({image_re}):"
+    env = {
+        "KEEP_TAG": keep,
+        "IMAGE_RE": image_re,
+        "PREFIX_ALT_RE": prefix_alt_re,
+        "AUTH_REG_RE": auth_reg_re,
+        "AUTH_BARE_RE": auth_bare_re,
+        "PATH": "/usr/bin:/bin",
+    }
     result = subprocess.run(
-        [awk, "-v", f"keep={keep}", "-v", f"image_re={image_re}", _extract_awk_program()],
+        [awk, _extract_awk_program()],
         input=listing,
         capture_output=True,
         text=True,
         check=True,
+        env=env,
     )
     return [line for line in result.stdout.splitlines() if line]
 
