@@ -149,6 +149,20 @@ _ACK_SCHEMA: dict[str, Any] = {
                 "alongside a non-empty `pre_merge_condition`."
             ),
         },
+        "attestation": {
+            "type": "object",
+            "description": (
+                "Role-specific reviewer attestation (#3114). For "
+                "reviewer_contract this is REQUIRED on ACK and must carry "
+                "tasks_verified: the contract task ids (e.g. ['task-2-1', "
+                "'task-2-2']) you verified against the implementation for "
+                "this producer in this slice — the orchestrator rejects the "
+                "ACK (status 'attestation_required'/'attestation_mismatch') "
+                "if the list is absent or does not cover the producer's "
+                "rows. Other reviewers may attest per their schema "
+                "(reviewer_code: files_reviewed/issues_found...)."
+            ),
+        },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },

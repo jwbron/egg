@@ -1580,6 +1580,225 @@ def _stale_version_rejection(
     )
 
 
+def _contract_completeness_rejection(
+    *,
+    pipeline_id: str,
+    repo_path: Path,
+    slice_id: str | None,
+    check: str,
+    enforcer_role: str | None = None,
+    producer_role: str | None = None,
+    payload: dict[str, Any] | None = None,
+    current_phase: str | None = None,
+) -> tuple[Response, int] | None:
+    """Contract-task completeness gate for consensus signals (#3114).
+
+    Returns a structured rejection response, or ``None`` when the signal
+    may proceed. Three checks share the same contract read:
+
+    * ``check="ack"`` — an enforcer reviewer (see
+      ``CONTRACT_ENFORCER_ROLE_NAMES``) may not ACK ``producer_role``
+      while that producer owns non-``complete`` task rows in the active
+      slice; when the rows are complete, the ACK must carry an
+      ``attestation.tasks_verified`` list covering every owned row.
+    * ``check="confirm"`` — an enforcer may not CONFIRM while *any* row
+      in the active slice is incomplete (covers role-less rows and
+      producers whose no-op proposal made ``is_fully_acked`` vacuous).
+    * ``check="noop_propose"`` — ``producer_role`` may not submit a
+      ``no_changes_needed`` proposal while owning incomplete rows in the
+      active slice (a no-op needs no review, so it would bypass the
+      per-producer ACK gate entirely).
+
+    Scope: implement phase only. Plan/refine consensus runs against
+    contracts whose rows are expected to be pending, and the apply phase
+    (#1557) tracks lifecycle in ``jira_action_status``.
+
+    Failure posture: fail-OPEN on orchestrator-side read failures (state
+    store, worktree, contract load, unknown slice id) — an
+    infrastructure glitch must not deadlock every consensus in flight;
+    the gate logs and skips, and the existing reviewers remain the
+    backstop (#3081 posture). The deliberate exception is the no-op
+    phase guard upstream of the ``noop_propose`` call, which stays
+    fail-closed for the reasons documented there. The
+    ``EGG_CONTRACT_ACK_GATE`` env var is the operator kill switch.
+    """
+    try:
+        import contract_completeness as cc
+    except ImportError:
+        from .. import contract_completeness as cc  # type: ignore[no-redef]
+    from egg_contracts.agent_roles import CONTRACT_ENFORCER_ROLE_NAMES
+
+    if not cc.gate_enabled():
+        return None
+    if check in ("ack", "confirm") and enforcer_role not in CONTRACT_ENFORCER_ROLE_NAMES:
+        return None
+
+    issue_number: int | None = None
+    if current_phase is None:
+        try:
+            pipeline_state = get_state_store(repo_path).load_pipeline(pipeline_id)
+            phase_attr = getattr(pipeline_state, "current_phase", None)
+            current_phase = phase_attr.value if phase_attr is not None else None
+            issue_number = getattr(pipeline_state, "issue_number", None)
+        except Exception as exc:
+            logger.warning(
+                "Contract completeness gate skipped: pipeline state unreadable",
+                pipeline_id=pipeline_id,
+                check=check,
+                error=str(exc),
+            )
+            return None
+    if current_phase != "implement":
+        return None
+
+    try:
+        worktree = resolve_worktree_path(pipeline_id, repo_path)
+    except Exception as exc:
+        logger.warning(
+            "Contract completeness gate skipped: worktree unresolvable",
+            pipeline_id=pipeline_id,
+            check=check,
+            error=str(exc),
+        )
+        return None
+
+    identifiers: list[int | str] = [pipeline_id]
+    if issue_number:
+        identifiers.append(issue_number)
+    contract = cc.load_live_contract(worktree, identifiers)
+    if contract is None:
+        logger.warning(
+            "Contract completeness gate skipped: contract not loadable",
+            pipeline_id=pipeline_id,
+            check=check,
+            slice_id=slice_id,
+        )
+        return None
+
+    row_role = None if check == "confirm" else producer_role
+    rows = cc.incomplete_tasks(contract, slice_id, role=row_role)
+    if rows is None:
+        logger.warning(
+            "Contract completeness gate skipped: slice not found in contract",
+            pipeline_id=pipeline_id,
+            check=check,
+            slice_id=slice_id,
+        )
+        return None
+
+    scope = f"slice {slice_id}" if slice_id else "the contract"
+    if rows:
+        summary = cc.format_incomplete_rows(rows)
+        if check == "ack":
+            return make_error_response(
+                f"ACK rejected: {producer_role} owns {len(rows)} incomplete "
+                f"contract task(s) in {scope}: {summary}. The contract is not "
+                f"satisfied until every owned row is status=complete. NACK "
+                f"{producer_role} citing these task ids so it delivers the "
+                f"work (or marks finished work complete via mcp__task__complete).",
+                status_code=409,
+                details={
+                    "status": "contract_incomplete",
+                    "producer": producer_role,
+                    "slice_id": slice_id,
+                    "incomplete_tasks": rows,
+                },
+            )
+        if check == "confirm":
+            return make_error_response(
+                f"CONFIRM rejected: {len(rows)} contract task(s) in {scope} "
+                f"are incomplete: {summary}. Consensus cannot close over an "
+                f"undelivered contract. NACK the owning producer(s), or — if "
+                f"a row genuinely cannot be delivered in this slice — "
+                f"escalate for a human decision instead of confirming.",
+                status_code=409,
+                details={
+                    "status": "contract_incomplete",
+                    "slice_id": slice_id,
+                    "incomplete_tasks": rows,
+                },
+            )
+        # noop_propose
+        return make_error_response(
+            f"No-op propose rejected: {producer_role} owns {len(rows)} "
+            f"incomplete contract task(s) in {scope}: {summary}. A "
+            f"no_changes_needed proposal asserts you have no work in this "
+            f"slice, but these rows are assigned to you. Deliver them and "
+            f"mark them complete (mcp__task__complete), or escalate for a "
+            f"human decision if they cannot be done in this slice.",
+            status_code=400,
+            details={
+                "status": "contract_incomplete",
+                "producer": producer_role,
+                "slice_id": slice_id,
+                "incomplete_tasks": rows,
+            },
+        )
+
+    if check == "ack":
+        # Defensive: a missing/empty producer_role at this point would
+        # silently no-op the attestation check (``task_ids_for_role``
+        # filters on ``task.role == ""`` and matches nothing). Signal-handler
+        # validation prevents this upstream; log and skip so an upstream
+        # regression is visible rather than degrading the gate.
+        if not producer_role:
+            logger.warning(
+                "Contract completeness gate: empty producer_role on ACK check; "
+                "attestation check skipped",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
+            return None
+        owned = cc.task_ids_for_role(contract, slice_id, producer_role)
+        if owned:
+            # ``attestation`` is structured input; if a caller (operator
+            # probe, future internal signal, dev/test traffic) sends a
+            # truthy non-dict, ``.get(...)`` would raise AttributeError →
+            # 500. Coerce non-dicts to {} and non-lists to [] so the gate
+            # surfaces a clean ``attestation_required`` instead.
+            raw_attestation = (payload or {}).get("attestation")
+            attestation = raw_attestation if isinstance(raw_attestation, dict) else {}
+            raw_verified = attestation.get("tasks_verified")
+            if not isinstance(raw_verified, list):
+                raw_verified = []
+            verified = {v for v in raw_verified if isinstance(v, str) and v}
+            if not verified:
+                return make_error_response(
+                    f"ACK rejected: contract-enforcer ACKs must carry an "
+                    f"attestation with tasks_verified listing every task id "
+                    f"you verified for {producer_role} in {scope}: "
+                    f"{', '.join(sorted(owned))}. Re-send the ACK with "
+                    f'attestation={{"tasks_verified": [...]}}.',
+                    status_code=409,
+                    details={
+                        "status": "attestation_required",
+                        "producer": producer_role,
+                        "slice_id": slice_id,
+                        "expected_tasks": sorted(owned),
+                    },
+                )
+            missing = owned - verified
+            known = cc.all_task_ids(contract, slice_id) or set()
+            unknown = verified - known
+            if missing or unknown:
+                return make_error_response(
+                    f"ACK rejected: attestation.tasks_verified does not match "
+                    f"{producer_role}'s contract rows in {scope}. "
+                    f"Missing: {sorted(missing) or 'none'}; unknown ids: "
+                    f"{sorted(unknown) or 'none'}. Verify each owned row "
+                    f"against the implementation and re-send.",
+                    status_code=409,
+                    details={
+                        "status": "attestation_mismatch",
+                        "producer": producer_role,
+                        "slice_id": slice_id,
+                        "missing_tasks": sorted(missing),
+                        "unknown_tasks": sorted(unknown),
+                    },
+                )
+    return None
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1752,6 +1971,22 @@ def handle_consensus_propose_signal(
                     f"this phase. Author and commit the draft, then propose.",
                     400,
                 )
+            # Contract-task completeness gate (#3114): a no-op proposal
+            # needs no review (``is_fully_acked`` is vacuously true), so a
+            # producer that still owns incomplete contract rows in this
+            # slice would bypass the enforcer's per-producer ACK gate by
+            # no-op proposing. Reject it here; the producer either delivers
+            # the rows or escalates for a human decision.
+            gate_rejection = _contract_completeness_rejection(
+                pipeline_id=pipeline_id,
+                repo_path=repo_path,
+                slice_id=slice_id,
+                check="noop_propose",
+                producer_role=agent_role,
+                current_phase=current_phase,
+            )
+            if gate_rejection is not None:
+                return gate_rejection
         # Validate tester proposals cover all configured repo checks (#1459).
         # Must run BEFORE handle_propose to avoid mutating tracker state on
         # rejected proposals. Skipped for a no-op — the tester ran nothing.
@@ -1985,6 +2220,22 @@ def handle_consensus_ack_signal(
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
+
+    # Contract-task completeness gate (#3114): an enforcer reviewer may
+    # not ACK a producer whose contract rows in this slice are incomplete,
+    # and a passing ACK must attest the rows it verified. Runs BEFORE
+    # handle_ack so a rejected ACK never lands in the approval matrix.
+    gate_rejection = _contract_completeness_rejection(
+        pipeline_id=pipeline_id,
+        repo_path=repo_path,
+        slice_id=slice_id,
+        check="ack",
+        enforcer_role=reviewer_role,
+        producer_role=producer_role,
+        payload=payload,
+    )
+    if gate_rejection is not None:
+        return gate_rejection
 
     try:
         try:
@@ -2377,6 +2628,18 @@ def handle_consensus_confirmed_signal(
         if not tracker:
             # Message-bus authoritative fallback: if all expected roles have
             # CONSENSUS_CONFIRMED messages, accept the confirmation directly.
+            #
+            # Contract-completeness gate carve-out (#3114): the
+            # ``_contract_completeness_rejection`` CONFIRM check is on the
+            # tracker path below and is BYPASSED here. The fallback only
+            # fires when (a) the tracker is gone and (b) every role has
+            # already emitted CONSENSUS_CONFIRMED via stored messages —
+            # i.e. consensus is being replayed, not decided. The enforcer
+            # CONFIRM that originally closed the slice has already passed
+            # through the gate; this path simply re-acknowledges the
+            # replayed state, so re-running the gate here would block a
+            # legitimate idempotent recovery (a stale incomplete row that
+            # has since been delivered would still hold consensus open).
             try:
                 from message_store import Message, MessageType, get_message_store
                 from review_graph import get_review_graph_for_phase
@@ -2440,6 +2703,20 @@ def handle_consensus_confirmed_signal(
 
             scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
             return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
+
+    # Contract-task completeness gate (#3114): an enforcer's CONFIRM is
+    # the closing act of a slice consensus — reject it while ANY task row
+    # in the slice is incomplete (role-scoped ACK gates cover owned rows;
+    # this catches role-less rows and no-op-proposal bypasses).
+    gate_rejection = _contract_completeness_rejection(
+        pipeline_id=pipeline_id,
+        repo_path=repo_path,
+        slice_id=slice_id,
+        check="confirm",
+        enforcer_role=agent_role,
+    )
+    if gate_rejection is not None:
+        return gate_rejection
 
     try:
         result = tracker.handle_confirmed(agent_role)

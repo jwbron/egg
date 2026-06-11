@@ -12060,6 +12060,19 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
+def _contract_enforcer_role_names() -> frozenset[str]:
+    """Roles whose ACK/CONFIRM is gated on contract-task completeness (#3114).
+
+    Lazy wrapper so the preamble builder keys its enforcer-specific
+    instructions off the same capability set the orchestrator's signal
+    gate enforces (``egg_contracts.agent_roles.CONTRACT_ENFORCER_ROLES``)
+    — prose and enforcement stay in lockstep.
+    """
+    from egg_contracts.agent_roles import CONTRACT_ENFORCER_ROLE_NAMES
+
+    return CONTRACT_ENFORCER_ROLE_NAMES
+
+
 def _build_brc_preamble(
     role_value: str,
     phase: str,
@@ -12237,6 +12250,16 @@ def _build_brc_preamble(
         if phase == "implement":
             propose_line += (
                 "\n\n"
+                "   **Mark your contract tasks complete (#3114).** Record each "
+                "delivered task with `mcp__task__complete` (link the commit) — "
+                "the contract reviewer's ACK is gated on your rows being "
+                "`complete`, so finished-but-unrecorded work blocks the slice. "
+                "A task waiting on a peer's work: note it in your proposal and "
+                "deliver after the dependency lands; the gate holds the slice "
+                "open until then."
+            )
+            propose_line += (
+                "\n\n"
                 "   **No work for you in this slice? Submit a no-op propose (#3027).** "
                 "If after ORIENT you find your role has no assigned task here AND "
                 "nothing to contribute (e.g. a documenter on a code-only slice, a "
@@ -12248,7 +12271,8 @@ def _build_brc_preamble(
                 "you; reviewers accept it as a non-blocking no-op (they will not "
                 "NACK it). Then CONFIRM (step 5) as normal once peers have proposed. "
                 "Reach for a real propose instead the moment you do find work "
-                "(e.g. the coder's diff turns out to need docs)."
+                "(e.g. the coder's diff turns out to need docs). Rejected while "
+                "you still own incomplete contract tasks here (#3114)."
             )
         producer_lifecycle.extend(
             [
@@ -12433,7 +12457,34 @@ def _build_brc_preamble(
                 "NACK is rejected with HTTP 409 inlining the current "
                 "proposal snapshot (version, artifacts, commit_sha). "
                 "`git fetch && git merge`, re-review against the new "
-                "commit, and re-submit — don't retry the same payload.",
+                "commit, and re-submit — don't retry the same payload."
+                + (
+                    "\n\n"
+                    "   **Contract-enforcer gate (#3114) — applies to you.** "
+                    "Your ACK of a producer is structurally gated on the "
+                    "contract: the orchestrator REJECTS it (409 "
+                    "`contract_incomplete`) while any task row owned by that "
+                    "producer in this slice is not `status=complete`. Read "
+                    "the live task records with `mcp__sdlc__show_contract` — "
+                    "the `.egg-state/contracts/` copy in your checkout is an "
+                    "init-time snapshot; do not trust it. When rows are "
+                    "incomplete, NACK the producer citing the exact task "
+                    "ids: either the work is missing (it must deliver) or it "
+                    "landed unrecorded (it must run `mcp__task__complete`). "
+                    "When all rows are complete, your ACK MUST carry "
+                    '`attestation={"tasks_verified": ["task-…", …]}` on '
+                    "`mcp__brc__ack`, covering every task id the producer "
+                    "owns in this slice — absent or non-covering lists are "
+                    "rejected (`attestation_required` / "
+                    "`attestation_mismatch`). Your CONFIRM is likewise "
+                    "rejected while ANY row in the slice is incomplete. A "
+                    "producer's declared deferral (\"will land in later "
+                    'proposals") is an open obligation, not an end-state — '
+                    "hold consensus open until the rows are delivered or a "
+                    "human descopes them."
+                    if phase == "implement" and role_value in _contract_enforcer_role_names()
+                    else ""
+                ),
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **HANDLE RE-REVIEW**: When you are re-invoked with a "
