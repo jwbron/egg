@@ -160,6 +160,14 @@
       "repo": null,
       "role": "coder"
     },
+    "ef3d7f133c8b5255654e048697523029158cec51": {
+      "branch": "egg/issue-3077/slice-3",
+      "patch_id": "c5fcb958ae4524af3cd8d046343c9782a14d93a1",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T23:26:15.034447+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "f975c4dd98ecb698a7edaa0492e7ab731d631862": {
       "branch": "egg/issue-3077/work",
       "patch_id": null,
