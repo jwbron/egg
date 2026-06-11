@@ -553,7 +553,7 @@ print('\n'.join(out))
             # ``unresolvable`` failure: append a NOT-synced banner so
             # the agent treats its local diff as unreliable for this
             # SHA and falls back to the rendered ``git show`` commands.
-            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`unresolvable\`); treat your local diff as unreliable — use the \`git show\` commands below."$'\n\n'
+            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`unresolvable\`); treat your local diff as unreliable — use the rendered \`git log\` / \`git show\` fallback commands in this prompt instead."$'\n\n'
             continue
         fi
         if git -C "$repo" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
@@ -571,7 +571,7 @@ print('\n'.join(out))
             # ``unresolvable`` so the agent learns NOT to trust the
             # local diff and falls back to ``git show``. The merge
             # was already aborted above so wrapper state is clean.
-            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`merge-failed\`); treat your local diff as unreliable — use the \`git show\` commands below."$'\n\n'
+            SYNC_FAILURE_BANNERS+="> **WARNING:** worktree NOT synced to \`$sha\` (\`merge-failed\`); treat your local diff as unreliable — use the rendered \`git log\` / \`git show\` fallback commands in this prompt instead."$'\n\n'
         fi
     done <<< "$shas"
     return 0

@@ -1504,10 +1504,10 @@ class TestSyncOutcomesAndBanner:
     records a per-SHA outcome (one of ``merged``, ``already-ancestor``,
     ``unresolvable``, ``merge-failed``) and the wrapper prepends a
     "worktree NOT synced to <sha> (<reason>); treat your local diff as
-    unreliable — use the ``git show`` commands below." banner to the
-    fetched event prompt BEFORE the agent is invoked, on any failure
-    outcome. Successful sync paths leave the agent-visible prompt
-    byte-identical.
+    unreliable — use the rendered ``git log`` / ``git show`` fallback
+    commands in this prompt instead." banner to the fetched event
+    prompt BEFORE the agent is invoked, on any failure outcome.
+    Successful sync paths leave the agent-visible prompt byte-identical.
 
     Sync semantics (fail-soft, exit 0, merge --abort on conflict) are
     unchanged — only reporting is new. These tests pin the new R1
@@ -1528,7 +1528,12 @@ class TestSyncOutcomesAndBanner:
     _OUTCOMES = ("merged", "already-ancestor", "unresolvable", "merge-failed")
 
     def _script(self, monkeypatch) -> str:
-        monkeypatch.setenv("EGG_BRC_EVENT_PUMP", "true")
+        # ``EGG_BRC_EVENT_PUMP`` was deleted by slice-4 task-4-2 and is
+        # silently inert (see ``TestEventPumpTemplateSelection``); the
+        # event-pump is the only template. ``monkeypatch`` is kept on
+        # the signature so a future template-selection toggle can be
+        # added back without changing every call site.
+        del monkeypatch
         return build_consensus_wrapped_command("Prompt")[2]
 
     def test_template_records_all_four_outcomes(self, monkeypatch):
@@ -1550,9 +1555,11 @@ class TestSyncOutcomesAndBanner:
 
     def test_template_emits_not_synced_banner_text(self, monkeypatch):
         """The banner string the agent sees on a failure outcome is
-        pinned to the architect's wording ("worktree NOT synced ...").
-        A future regression that downgrades the banner to a log-only
-        line would re-introduce the silence R1 is closing.
+        pinned to the architect's wording ("worktree NOT synced ...")
+        AND wired into the ``SYNC_FAILURE_BANNERS`` accumulator. The
+        substring presence alone would survive a refactor that
+        downgrades the banner to a dead comment; pinning the
+        ``SYNC_FAILURE_BANNERS+=`` append site catches that too.
         """
         script = self._script(monkeypatch)
         assert "NOT synced" in script, (
@@ -1560,8 +1567,38 @@ class TestSyncOutcomesAndBanner:
             "banner so a reviewer whose sync silently failed cannot "
             "trust a stale local diff. Plan slice-1 banner wording: "
             "'worktree NOT synced to `<sha>` (`<reason>`); treat your "
-            "local diff as unreliable — use the `git show` commands "
-            "below.'"
+            "local diff as unreliable — use the rendered `git log` / "
+            "`git show` fallback commands in this prompt instead.'"
+        )
+        # The banner must be appended to the per-event accumulator the
+        # invoke arm consumes, not just mentioned in a comment block.
+        # A `SYNC_FAILURE_BANNERS+=` line carrying the literal banner
+        # text is the load-bearing append site; the accumulator is
+        # what reaches ``invoke_agent_for_event``'s prompt prepend.
+        import re as _re
+
+        append_sites = _re.findall(
+            r'SYNC_FAILURE_BANNERS\+="[^"]*NOT synced[^"]*"',
+            script,
+        )
+        assert append_sites, (
+            "Banner text must be appended to the ``SYNC_FAILURE_BANNERS`` "
+            'accumulator via ``SYNC_FAILURE_BANNERS+="...NOT synced..."`` '
+            "— that is the wire from sync_to_proposals() to the prompt "
+            "prepend in invoke_agent_for_event(). A bare 'NOT synced' "
+            "string anywhere else in the script is decorative."
+        )
+        # Both failure branches (unresolvable + merge-failed) must wire
+        # in — the four-outcome contract requires both reach the agent.
+        assert any("unresolvable" in s for s in append_sites), (
+            "``unresolvable`` outcome must append its banner to "
+            "SYNC_FAILURE_BANNERS. Found append sites: "
+            f"{append_sites}"
+        )
+        assert any("merge-failed" in s for s in append_sites), (
+            "``merge-failed`` outcome must append its banner to "
+            "SYNC_FAILURE_BANNERS. Found append sites: "
+            f"{append_sites}"
         )
 
     def test_template_references_git_show_fallback_in_banner(self, monkeypatch):
@@ -1709,7 +1746,6 @@ class TestSyncOutcomesAndBanner:
 
     def _run_harness(self, tmp_path, monkeypatch, payload, capture, stub):
         script = self._script(monkeypatch)
-        repo, _ = (None, None) if not (tmp_path / "repo").exists() else (tmp_path / "repo", None)
         harness = self._build_harness(script, str(tmp_path / "repo"), payload, str(capture), stub)
         result = subprocess.run(
             ["bash", "-c", harness, "harness", payload],
