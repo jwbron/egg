@@ -762,6 +762,12 @@ while true; do
             # PR removed the legacy 3-restart cap; this rc gate is the
             # equivalent ceiling on the action path.
             cw_log "Invoking agent (action=$ACTION)."
+            # R11a (sync_to_proposals docstring anchor): the ``propose`` arm
+            # intentionally falls through this gate without syncing -- a
+            # producer's own commits are already on HEAD in its worktree,
+            # and merging peer proposal commits onto a producer turn is
+            # exactly the dual-role bleed-through the sync is designed to
+            # avoid. Only ``ack`` / ``nack`` (reviewer arms) sync.
             if [ "$ACTION" = "ack" ] || [ "$ACTION" = "nack" ]; then
                 sync_to_proposals "$EVENT_PAYLOAD"
             fi

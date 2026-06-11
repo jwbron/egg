@@ -932,6 +932,44 @@ def test_build_delta_entries_first_review_renders_git_show_commands() -> None:
     assert f"git log {full_sha} --not origin/main -p" in delta_full
 
 
+def test_build_delta_entries_first_review_strips_backticks_from_artifact_paths() -> None:
+    """Producer-supplied artifact paths containing a backtick would otherwise
+    break the markdown code span the agent renders. The first-review
+    fallback strips backticks before interpolation; ``proposal_sha`` is
+    hex-validated upstream so it is not the attack surface. Belt-and-
+    braces only -- the agent (not bash) is the consumer, so this is not
+    a shell-injection vector."""
+    from pathlib import Path
+
+    from orchestrator.routes.event_prompt import _build_delta_entries
+
+    entries = _build_delta_entries(
+        action="ack",
+        role="reviewer_code",
+        base_branch="main",
+        repo_path=Path("/tmp"),
+        memory_text="",
+        event_payload={
+            "pending_reviews": [
+                {
+                    "producer": "coder",
+                    "current_version": 1,
+                    "artifact_refs": ["src/`evil`.py", "src/ok.py"],
+                    "proposal_commit_sha": "abc1234",
+                }
+            ]
+        },
+    )
+    assert len(entries) == 1
+    delta = entries[0]["delta"]
+    # The stripped path is what gets interpolated; no raw backtick from
+    # the artifact value reaches the rendered ``git show`` command, which
+    # would otherwise terminate the surrounding markdown code span.
+    assert "git show abc1234:src/evil.py" in delta
+    assert "git show abc1234:src/ok.py" in delta
+    assert "`evil`" not in delta
+
+
 def test_build_delta_entries_first_review_sha_without_artifacts_still_renders() -> None:
     """A proposal SHA with an empty artifact list still yields an entry
     (the full-change git log command) — pre-#3076 the empty artifact
