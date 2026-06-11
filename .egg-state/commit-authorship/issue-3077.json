@@ -8,6 +8,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "05397a6689b8bc69aa7dbe0b5ac9e76da49589fa": {
+      "branch": "egg/issue-3077/slice-1",
+      "patch_id": "2d7c1014d369b13b464411e8c3d96b7894d4a74b",
+      "pipeline_id": "issue-3077",
+      "registered_at": "2026-06-11T21:31:57.807559+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "1065dd03ccb159402b35306e2bb5ed443c842c56": {
       "branch": "egg/issue-3077/work",
       "patch_id": "85eb18994c556308e1930eab059fc748747d5940",
