@@ -2471,8 +2471,13 @@ class GatewayClient:
         one synthetic launcher-authenticated session shared across the
         ls-remote, the fetch, and every merge-base call.
         """
-        if not integration_branch or not commit_shas:
+        if not commit_shas:
             return []
+        if not integration_branch:
+            # No branch to probe means we cannot evaluate reachability.
+            # Skip the gate rather than silently approve — matches the
+            # other "cannot evaluate" paths in this method (#3125 review).
+            return None
 
         temp_container_id = (
             f"{pipeline_id}-evidence-reachability-{integration_branch.replace('/', '-')}"

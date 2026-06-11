@@ -218,6 +218,11 @@ def evidence_commits(
     Returns one dict per row (``id`` / ``role`` / ``commit``), empty
     list when no row cites a commit, or ``None`` when ``slice_id`` was
     given but no such slice exists (caller skips the gate).
+
+    Row ordering is intentional: slice-declaration order outermost,
+    task-declaration order within each slice. Callers (the close-merge
+    gate, the failure-string formatter) rely on this for deterministic
+    operator-facing output.
     """
     slices = _slices_in_scope(contract, slice_id)
     if slices is None:

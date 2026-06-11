@@ -10674,6 +10674,7 @@ def _check_slice_evidence_reachability(
     integration_branch: str,
     *,
     gateway_mode: Literal["public", "private"] = "public",
+    contract: Any | None = None,
 ) -> str | None:
     """Verify the slice's cited evidence commits reached the integration branch (#3125).
 
@@ -10701,6 +10702,13 @@ def _check_slice_evidence_reachability(
     Only a definitive "this cited commit is not on the branch" verdict
     fails the close. ``EGG_EVIDENCE_REACHABILITY_GATE`` is the operator
     kill switch.
+
+    ``contract`` is an optional pre-loaded contract: the close path
+    already needs the contract one stretch later for the slice PR data
+    snapshot, so threading the same load through saves one file read
+    and one ``get_pipeline_state_lock`` acquisition. When ``None``
+    (the default — keeps the gate self-contained for tests), the gate
+    loads the contract itself under the lock.
     """
     try:
         import contract_completeness as cc
@@ -10715,19 +10723,20 @@ def _check_slice_evidence_reachability(
         )
         return None
 
-    from egg_contracts.loader import load_contract as _load_contract
+    if contract is None:
+        from egg_contracts.loader import load_contract as _load_contract
 
-    try:
-        with get_pipeline_state_lock(pipeline_id):
-            contract = _load_contract(pipeline_id, worktree_repo_path)
-    except Exception as load_err:  # noqa: BLE001
-        logger.warning(
-            "Evidence-reachability gate skipped: contract load failed (#3125)",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            error=str(load_err),
-        )
-        return None
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                contract = _load_contract(pipeline_id, worktree_repo_path)
+        except Exception as load_err:  # noqa: BLE001
+            logger.warning(
+                "Evidence-reachability gate skipped: contract load failed (#3125)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(load_err),
+            )
+            return None
 
     rows = cc.evidence_commits(contract, slice_id)
     if rows is None:
@@ -10740,10 +10749,16 @@ def _check_slice_evidence_reachability(
     if not rows:
         return None
 
+    # De-duplicate while preserving first-seen order: multiple task rows
+    # can cite the same commit (the prescribed unblock flow #3124 often
+    # links one commit across two adjacent rows). Each duplicate would
+    # otherwise burn one merge-base round-trip per dupe. The membership
+    # join below re-attaches the verdict to every row that cites it.
+    probe_shas = list(dict.fromkeys(r["commit"] for r in rows))
     unreachable_shas = spawner.gateway.find_unreachable_evidence_commits(
         pipeline_id,
         str(worktree_repo_path),
-        commit_shas=[r["commit"] for r in rows],
+        commit_shas=probe_shas,
         integration_branch=integration_branch,
         mode=gateway_mode,
     )
@@ -16698,6 +16713,31 @@ def _run_implement_phase_slices(
                     )
                     return exit_code_inner, logs_inner
 
+                # Slice consensus reached — load the contract ONCE
+                # under the per-pipeline state lock and reuse the same
+                # snapshot for the #3125 evidence-reachability gate
+                # AND the slice's PR data snapshot below. Both readers
+                # previously took the lock independently; collapsing
+                # them eliminates one file read + lock acquire per
+                # slice close (#3125 review).
+                #
+                # The slice_pr_data block below originally documented
+                # the lock as covering only the contract read so the
+                # gateway HTTP round-trip wouldn't serialise other
+                # writers — the same posture applies here: we release
+                # the lock before the gateway call inside the gate.
+                contract_post: Any | None = None
+                try:
+                    with get_pipeline_state_lock(pipeline_id):
+                        contract_post = load_contract(pipeline_id, worktree_repo_path)
+                except Exception as load_err:  # noqa: BLE001
+                    logger.warning(
+                        "Slice close: contract load failed (continuing) (#3125)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        error=str(load_err),
+                    )
+
                 # #3125 — evidence-reachability gate: every commit SHA
                 # cited by this slice's contract task records must be
                 # an ancestor of the integration branch tip, or the
@@ -16706,6 +16746,9 @@ def _run_implement_phase_slices(
                 # ``complete-task --commit`` unblock flow, #3124).
                 # Fails the slice BEFORE any close side effect so the
                 # cascade + HITL machinery surfaces the gap loudly.
+                # ``contract_post`` may be None if the load above
+                # raised — the gate falls back to its own load in that
+                # case (and skips gracefully if that fails too).
                 if pipeline.repo:
                     evidence_failure = _check_slice_evidence_reachability(
                         pipeline_id,
@@ -16714,21 +16757,18 @@ def _run_implement_phase_slices(
                         slice_id,
                         integration_branch,
                         gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                        contract=contract_post,
                     )
                     if evidence_failure is not None:
                         scheduler.record_failure(slice_id)
                         return 1, evidence_failure
 
-                # Slice consensus reached — snapshot the slice's PR
-                # data under the per-pipeline state lock, then RELEASE
-                # the lock before the gateway HTTP round-trip so we
-                # don't serialise other contract writers for the
-                # gateway timeout (~30 s). The lock only needs to
-                # cover the contract read.
+                # Snapshot the slice's PR data from the same loaded
+                # contract — no second lock acquire, no second file
+                # read.
                 slice_pr_data: dict[str, Any] | None = None
                 try:
-                    with get_pipeline_state_lock(pipeline_id):
-                        contract_post = load_contract(pipeline_id, worktree_repo_path)
+                    if contract_post is not None:
                         slice_obj = next(
                             (s for s in contract_post.slices if s.id == slice_id),
                             None,

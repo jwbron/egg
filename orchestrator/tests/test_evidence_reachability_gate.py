@@ -257,6 +257,22 @@ class TestFindUnreachableEvidenceCommits:
         assert result == []
         mock_register.assert_not_called()
 
+    def test_empty_integration_branch_skips(self, gateway_client: GatewayClient) -> None:
+        # An empty branch means we cannot probe reachability at all; skip
+        # the gate rather than silently approve. The caller's
+        # ``pipeline.repo`` guard makes this unreachable in production,
+        # but the defensive default matters if a future caller passes
+        # through with an empty branch.
+        with patch.object(gateway_client, "register_session") as mock_register:
+            result = gateway_client.find_unreachable_evidence_commits(
+                PIPELINE_ID,
+                "/repo",
+                commit_shas=[PUSHED_SHA],
+                integration_branch="",
+            )
+        assert result is None
+        mock_register.assert_not_called()
+
     def test_all_reachable(self, gateway_client: GatewayClient) -> None:
         stubs = _stub_helpers(gateway_client)
         with (
@@ -440,7 +456,10 @@ class TestCheckSliceEvidenceReachability:
         )
         assert result is None
         call_kwargs = spawner.gateway.find_unreachable_evidence_commits.call_args.kwargs
-        assert call_kwargs["commit_shas"] == [PUSHED_SHA, LATE_SHA, LATE_SHA]
+        # task-2-2 and task-2-3 cite the same LATE_SHA — the probe input
+        # is de-duplicated so each unique SHA is round-tripped once.
+        # Order is first-seen by slice-task iteration.
+        assert call_kwargs["commit_shas"] == [PUSHED_SHA, LATE_SHA]
         assert call_kwargs["integration_branch"] == INTEGRATION_BRANCH
 
     def test_probe_failure_skips(self, tmp_path: Path, gate_env) -> None:
@@ -463,3 +482,30 @@ class TestCheckSliceEvidenceReachability:
         assert LATE_SHA in result
         assert INTEGRATION_BRANCH in result
         assert cc.EVIDENCE_GATE_ENV_VAR in result
+
+    def test_pre_loaded_contract_skips_internal_load(self, tmp_path: Path, gate_env) -> None:
+        """When the caller pre-loads the contract (the close-path
+        does this to reuse one load for both the gate and the slice
+        PR data snapshot — #3125 review), the gate uses the supplied
+        contract and does NOT re-read from disk.
+        """
+        # Write contract to disk so the on-disk fallback would also
+        # work; we then load it ourselves to simulate the caller
+        # pre-loading. The gate's internal load is monkey-patched to
+        # raise so we can be sure the pre-loaded path is taken.
+        _write_contract(tmp_path)
+        preloaded = _load(tmp_path)
+
+        with patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=RuntimeError("internal load should not run"),
+        ):
+            result = _check_slice_evidence_reachability(
+                PIPELINE_ID,
+                _spawner([]),
+                tmp_path,
+                "slice-2",
+                INTEGRATION_BRANCH,
+                contract=preloaded,
+            )
+        assert result is None
