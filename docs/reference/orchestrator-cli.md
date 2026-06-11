@@ -411,9 +411,13 @@ workaround.
 ```
 
 **Primary use case:** A task is (re)assigned to a producer that already CONFIRMED.
-The completeness gate holds the slice open over the undelivered row while the confirmed
-producer cannot re-enter WORKING. Mark it complete here, then the producer's
-participation is reopened automatically on its next `next-action` poll.
+The `#3114` completeness gate holds the slice open over the undelivered row while the
+confirmed producer cannot re-enter WORKING. Marking the task complete here releases
+the gate over that row and lets the slice finalize without the producer re-entering
+WORKING — the producer stays CONFIRMED. (A separate auto-reopen mechanism in
+`_maybe_reopen_confirmed_producer` covers a different case — *reassigning* a task to
+a confirmed producer — and does not fire after this operator-completion path; see
+[Executable Task-Completion Resolution](../hitl-decisions.md#executable-task-completion-resolution-3124).)
 
 Alternatively, resolve a HITL decision with "Mark task `<task-id>` complete" text —
 `routes/decisions.py` dispatches to the same `complete_task_as_operator` function
