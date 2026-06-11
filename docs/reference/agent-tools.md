@@ -30,8 +30,8 @@ read-only vs. the four Jira write routes, CQL/JQL scope extraction,
 response redaction, the `private_mode_required` gate) stays enforced at
 the gateway. They exist so the routes are visible in the agent's tool
 manifest every turn instead of being prose in `environment.md` the agent
-has to recall — the motivating discovery failure in
-[Khan/webapp#39894](https://github.com/Khan/webapp/pull/39894), where an
+has to recall — the motivating discovery failure was an external-repo
+pipeline where an
 agent saw no `mcp__confluence__*` in its manifest and *guessed* a space
 list rather than calling `confluence space list`. Naming matches the
 host MCP namespaces (which are deliberately **not** exposed to the

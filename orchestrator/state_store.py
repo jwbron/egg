@@ -39,7 +39,7 @@ logger = logging.getLogger("orchestrator.state_store")
 
 # Valid pipeline ID formats:
 #   issue-{number}[-qualifier[-...]]  — GitHub issue-driven
-#   {LETTERS}-{digits}[-qualifier[-...]] — JIRA ticket-driven (e.g. KORE-1234, KORE-1234-v2-hotfix)
+#   {LETTERS}-{digits}[-qualifier[-...]] — JIRA ticket-driven (e.g. PROJ-1234, PROJ-1234-v2-hotfix)
 #   local-{8 hex chars}         — local dev
 #   pipeline-{8 hex chars}      — auto-generated
 PIPELINE_ID_PATTERN = re.compile(

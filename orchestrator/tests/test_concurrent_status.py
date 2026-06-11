@@ -569,7 +569,7 @@ class TestJiraPipelineConcurrentStatus:
 
     def test_jira_pipeline_message_store_returns_counts(self):
         """_get_concurrent_status should return message counts for JIRA pipelines."""
-        pipeline = _make_concurrent_pipeline(pipeline_id="KORE-1234")
+        pipeline = _make_concurrent_pipeline(pipeline_id="PROJ-1234")
 
         with (
             patch("concurrent_executor.is_concurrent_execution", return_value=True),
@@ -587,11 +587,11 @@ class TestJiraPipelineConcurrentStatus:
         assert result is not None
         assert result["messages"]["total"] == 15
         assert result["messages"]["by_type"]["CONSENSUS_PROPOSE"] == 5
-        mock_store.get_status.assert_called_once_with("KORE-1234")
+        mock_store.get_status.assert_called_once_with("PROJ-1234")
 
     def test_jira_pipeline_consensus_state_returned(self):
         """_get_concurrent_status should return consensus state for JIRA pipelines."""
-        pipeline = _make_concurrent_pipeline(pipeline_id="KORE-1234")
+        pipeline = _make_concurrent_pipeline(pipeline_id="PROJ-1234")
 
         mock_tracker = MagicMock()
         mock_tracker.get_state.return_value = {

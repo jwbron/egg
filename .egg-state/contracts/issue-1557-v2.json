@@ -802,7 +802,7 @@
     },
     {
       "id": "decision-12",
-      "question": "**Epic-children JQL discovery: project-scope requirement.** `gateway/jira_search.py` (the conservative JQL extractor) requires every search to have a top-level `project = X` or `project IN (...)` clause; queries like bare `\"Epic Link\" = ENG-1` are **rejected** at the gateway. The reassess sweep therefore needs to enumerate children with **both** clauses ANDed. Options for handling cross-project child tickets (rare but possible \u2014 e.g. an ENG epic with KORE child stories):",
+      "question": "**Epic-children JQL discovery: project-scope requirement.** `gateway/jira_search.py` (the conservative JQL extractor) requires every search to have a top-level `project = X` or `project IN (...)` clause; queries like bare `\"Epic Link\" = ENG-1` are **rejected** at the gateway. The reassess sweep therefore needs to enumerate children with **both** clauses ANDed. Options for handling cross-project child tickets (rare but possible \u2014 e.g. an ENG epic with child stories in another project):",
       "type": "hitl",
       "phase": "refine",
       "options": [

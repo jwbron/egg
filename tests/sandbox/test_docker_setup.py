@@ -1193,7 +1193,7 @@ class TestPersistSystemDirs:
 
         Reproduces the realistic scenario where two repos install different
         binaries into the same system dir (e.g. jwbron/egg's ``uv`` and
-        Khan/webapp's ``node`` both landing in ``/usr/local/bin``). The
+        acme/webapp's ``node`` both landing in ``/usr/local/bin``). The
         ``_copy_skip_existing`` callback in ``persist_build_dirs`` must not
         clobber repo-A's file with repo-B's.
         """

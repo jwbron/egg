@@ -3991,7 +3991,7 @@ Reviewed commit 3164df186 (v1) against the 23 contract tasks in `.egg-state/draf
 
 - **`SliceScheduler` env-vars are NOT auto-wired.** `env_config.py` exposes `get_max_parallel_slices`, `get_slice_local_max_cycles`, `get_slice_global_max_cycles`, `get_slice_failure_grace_seconds`, `get_stacked_pr_reconciler_interval_seconds` (✓), but `SliceScheduler.__init__` takes raw int/float args; nothing in the codebase calls these helpers to populate them. This is consistent with the deferred run-loop wire-up but worth noting — when TASK-4-4 lands, the constructor call site MUST consume them, otherwise the documented operator knobs are inert.
 
-- **`stacked_pr_reconciler.py:114-117` issue branch derivation is fragile.** When `contract.issue` is `None` it falls back to `f"egg/{pipeline_id}"` which yields `egg/issue-2137` for `pipeline_id="issue-2137"` (correct) but `egg/KORE-1234` for a JIRA pipeline (probably wrong). Cross-check with `concurrent_executor.get_slice_integration_branch` which uses `self.pipeline.branch or f"egg/issue-{issue}"` — they should agree. Use a single helper.
+- **`stacked_pr_reconciler.py:114-117` issue branch derivation is fragile.** When `contract.issue` is `None` it falls back to `f"egg/{pipeline_id}"` which yields `egg/issue-2137` for `pipeline_id="issue-2137"` (correct) but `egg/PROJ-1234` for a JIRA pipeline (probably wrong). Cross-check with `concurrent_executor.get_slice_integration_branch` which uses `self.pipeline.branch or f"egg/issue-{issue}"` — they should agree. Use a single helper.
 
 - **`Slice.id` regex change broadens schema unexpectedly.** Existing JSON-schema validators outside Pydantic (e.g. the JSON schema file at `.egg/schemas/contract.schema.json` if present) may still enforce `^phase-[0-9]+$` and now diverge from the model. Audit the JSON schema files and align.
 
@@ -4123,7 +4123,7 @@ metadata:
       \ knobs are inert.\n\n- **`stacked_pr_reconciler.py:114-117` issue branch derivation\
       \ is fragile.** When `contract.issue` is `None` it falls back to `f\"egg/{pipeline_id}\"\
       ` which yields `egg/issue-2137` for `pipeline_id=\"issue-2137\"` (correct) but\
-      \ `egg/KORE-1234` for a JIRA pipeline (probably wrong). Cross-check with `concurrent_executor.get_slice_integration_branch`\
+      \ `egg/PROJ-1234` for a JIRA pipeline (probably wrong). Cross-check with `concurrent_executor.get_slice_integration_branch`\
       \ which uses `self.pipeline.branch or f\"egg/issue-{issue}\"` \u2014 they should\
       \ agree. Use a single helper.\n\n- **`Slice.id` regex change broadens schema\
       \ unexpectedly.** Existing JSON-schema validators outside Pydantic (e.g. the\
@@ -4263,7 +4263,7 @@ metadata:
     \ call site MUST consume them, otherwise the documented operator knobs are inert.\n\
     \n- **`stacked_pr_reconciler.py:114-117` issue branch derivation is fragile.**\
     \ When `contract.issue` is `None` it falls back to `f\"egg/{pipeline_id}\"` which\
-    \ yields `egg/issue-2137` for `pipeline_id=\"issue-2137\"` (correct) but `egg/KORE-1234`\
+    \ yields `egg/issue-2137` for `pipeline_id=\"issue-2137\"` (correct) but `egg/PROJ-1234`\
     \ for a JIRA pipeline (probably wrong). Cross-check with `concurrent_executor.get_slice_integration_branch`\
     \ which uses `self.pipeline.branch or f\"egg/issue-{issue}\"` \u2014 they should\
     \ agree. Use a single helper.\n\n- **`Slice.id` regex change broadens schema unexpectedly.**\
@@ -8121,7 +8121,7 @@ Either resolution path is fine. The current proposal cannot be ACKed against the
 ### Non-blocking observations
 
 - `import re` inside `get_worktree_branch` / `get_slice_integration_branch` — move to module top to avoid the per-call import overhead and to keep the linter happy in the long run. Minor.
-- `stacked_pr_reconciler.py:114-117` issue-branch derivation is still fragile for non-issue pipelines (JIRA-style `pipeline_id="KORE-1234"` would yield `egg/KORE-1234`). Cross-check with `concurrent_executor.get_slice_integration_branch` and use a single helper. Surfaces only when TASK-4-2 lands and an actual JIRA pipeline runs through slicing.
+- `stacked_pr_reconciler.py:114-117` issue-branch derivation is still fragile for non-issue pipelines (JIRA-style `pipeline_id="PROJ-1234"` would yield `egg/PROJ-1234`). Cross-check with `concurrent_executor.get_slice_integration_branch` and use a single helper. Surfaces only when TASK-4-2 lands and an actual JIRA pipeline runs through slicing.
 - `Slice.id` regex still accepts both `slice-N` and `phase-N`. The migration shim makes this safe for legacy on-disk JSON, but new contracts written today should canonicalise on `slice-N`. Tighten the regex once the migration's coverage is confirmed in real ticket loads.
 
 
@@ -8225,7 +8225,7 @@ metadata:
       \ \u2014 move to module top to avoid the per-call import overhead and to keep\
       \ the linter happy in the long run. Minor.\n- `stacked_pr_reconciler.py:114-117`\
       \ issue-branch derivation is still fragile for non-issue pipelines (JIRA-style\
-      \ `pipeline_id=\"KORE-1234\"` would yield `egg/KORE-1234`). Cross-check with\
+      \ `pipeline_id=\"PROJ-1234\"` would yield `egg/PROJ-1234`). Cross-check with\
       \ `concurrent_executor.get_slice_integration_branch` and use a single helper.\
       \ Surfaces only when TASK-4-2 lands and an actual JIRA pipeline runs through\
       \ slicing.\n- `Slice.id` regex still accepts both `slice-N` and `phase-N`. The\
@@ -8334,7 +8334,7 @@ metadata:
     \ \u2014 move to module top to avoid the per-call import overhead and to keep\
     \ the linter happy in the long run. Minor.\n- `stacked_pr_reconciler.py:114-117`\
     \ issue-branch derivation is still fragile for non-issue pipelines (JIRA-style\
-    \ `pipeline_id=\"KORE-1234\"` would yield `egg/KORE-1234`). Cross-check with `concurrent_executor.get_slice_integration_branch`\
+    \ `pipeline_id=\"PROJ-1234\"` would yield `egg/PROJ-1234`). Cross-check with `concurrent_executor.get_slice_integration_branch`\
     \ and use a single helper. Surfaces only when TASK-4-2 lands and an actual JIRA\
     \ pipeline runs through slicing.\n- `Slice.id` regex still accepts both `slice-N`\
     \ and `phase-N`. The migration shim makes this safe for legacy on-disk JSON, but\
@@ -13282,7 +13282,7 @@ metadata:
 
 **Operator has explicitly resolved decision-20 to opt-2: complete the run-loop wire-up in this PR.**
 
-The operator (jameswiesebron@khanacademy.org) made this choice via /sdlc HITL just now — no fabrication; this is direct guidance.
+The operator made this choice via /sdlc HITL just now — no fabrication; this is direct guidance.
 
 Rationale (already established earlier in the pipeline, now reaffirmed):
 

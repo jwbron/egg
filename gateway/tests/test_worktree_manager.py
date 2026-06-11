@@ -908,7 +908,7 @@ class TestWorktreeManagerDockerGitDir:
                     container_id="egg-coder",
                     assigned_branch="egg/issue-99",
                     base_branch="main",
-                    repo_slug="Khan/test-repo",
+                    repo_slug="acme/test-repo",
                 )
 
         # One targeted explicit-refspec fetch per candidate branch
@@ -1124,7 +1124,7 @@ class TestWorktreeManagerRemoteBranchFetch:
                                 "test-repo",
                                 "issue-1495-coder",
                                 base_branch="egg/issue-1495",
-                                repo_slug="Khan/test-repo",
+                                repo_slug="acme/test-repo",
                             )
 
         assert info.container_id == "issue-1495-coder"

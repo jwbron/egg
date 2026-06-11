@@ -490,7 +490,7 @@ def persist_build_dirs(
             print(f"  Persisting system dir {abs_dir_clean} ({repo}) -> {dest_dir}")
 
             # Multiple repos may persist overlapping system dirs (e.g. both
-            # jwbron/egg's uv and Khan/webapp's node land in /usr/local/bin).
+            # jwbron/egg's uv and acme/webapp's node land in /usr/local/bin).
             # Skip files an earlier repo's persist already placed — first
             # writer wins. Mirrors entrypoint.py:restore_prebuilt_deps.
             #

@@ -1197,7 +1197,7 @@ class TestSubmitTaskErrorPropagation:
 
         result = handler.handle_tool_call(
             "submit_task",
-            {"description": "Test task", "repo": "owner/repo", "jira_ticket": "KORE-1234"},
+            {"description": "Test task", "repo": "owner/repo", "jira_ticket": "PROJ-1234"},
         )
 
         assert "error" in result

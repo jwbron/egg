@@ -348,7 +348,7 @@ class TestCreatePipelineMultiRepo:
             "/api/v1/pipelines",
             json={
                 "issue_number": 42,
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-42",
             },
         )
@@ -376,7 +376,7 @@ class TestCreatePipelineMultiRepo:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "prompt": "Fix the login bug",
             },
         )
@@ -394,7 +394,7 @@ class TestCreatePipelineMultiRepo:
                 "/api/v1/pipelines",
                 json={
                     "issue_number": 42,
-                    "repo": "Khan/webapp",
+                    "repo": "acme/webapp",
                     "branch": "egg/issue-42",
                 },
             )
@@ -438,7 +438,7 @@ class TestCreatePipelineBaseBranchPersistence:
             "/api/v1/pipelines",
             json={
                 "issue_number": 42,
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-42",
             },
         )
@@ -468,7 +468,7 @@ class TestCreatePipelineBaseBranchPersistence:
             "/api/v1/pipelines",
             json={
                 "issue_number": 42,
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-42",
                 "base_branch": "release-1",
             },
@@ -648,8 +648,8 @@ class TestCreatePipelineJiraAndQualifier:
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
-        mock_pipeline.id = "KORE-1234"
-        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_pipeline.id = "PROJ-1234"
+        mock_pipeline.model_dump.return_value = {"id": "PROJ-1234"}
         mock_store.create_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_gw = MagicMock()
@@ -659,18 +659,18 @@ class TestCreatePipelineJiraAndQualifier:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234",
-                "repo": "Khan/webapp",
-                "branch": "egg/KORE-1234",
+                "pipeline_id": "PROJ-1234",
+                "repo": "acme/webapp",
+                "branch": "egg/PROJ-1234",
                 "prompt": "Fix the login bug",
             },
         )
         assert response.status_code == 200
         call_kwargs = mock_store.create_pipeline.call_args[1]
-        assert call_kwargs["pipeline_id"] == "KORE-1234"
+        assert call_kwargs["pipeline_id"] == "PROJ-1234"
         # #2399 — the pipeline tip is normalised to ``<branch>/work`` so slice
         # integration branches at ``<branch>/slice-N`` can coexist as siblings.
-        assert call_kwargs["branch"] == "egg/KORE-1234/work"
+        assert call_kwargs["branch"] == "egg/PROJ-1234/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -682,8 +682,8 @@ class TestCreatePipelineJiraAndQualifier:
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
-        mock_pipeline.id = "KORE-1234-backend"
-        mock_pipeline.model_dump.return_value = {"id": "KORE-1234-backend"}
+        mock_pipeline.id = "PROJ-1234-backend"
+        mock_pipeline.model_dump.return_value = {"id": "PROJ-1234-backend"}
         mock_store.create_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_gw = MagicMock()
@@ -693,17 +693,17 @@ class TestCreatePipelineJiraAndQualifier:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234-backend",
-                "repo": "Khan/webapp",
-                "branch": "egg/KORE-1234-backend",
+                "pipeline_id": "PROJ-1234-backend",
+                "repo": "acme/webapp",
+                "branch": "egg/PROJ-1234-backend",
                 "prompt": "Fix the backend login bug",
             },
         )
         assert response.status_code == 200
         call_kwargs = mock_store.create_pipeline.call_args[1]
-        assert call_kwargs["pipeline_id"] == "KORE-1234-backend"
+        assert call_kwargs["pipeline_id"] == "PROJ-1234-backend"
         # #2399 — pipeline tip normalised to ``<branch>/work``.
-        assert call_kwargs["branch"] == "egg/KORE-1234-backend/work"
+        assert call_kwargs["branch"] == "egg/PROJ-1234-backend/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -722,8 +722,8 @@ class TestCreatePipelineJiraAndQualifier:
         mock_store = MagicMock()
         mock_store.pipeline_exists.return_value = True
         existing = Pipeline(
-            id="KORE-1234",
-            repo="Khan/webapp",
+            id="PROJ-1234",
+            repo="acme/webapp",
             status=PipelineStatus.RUNNING,
         )
         mock_store.load_pipeline.return_value = existing
@@ -732,9 +732,9 @@ class TestCreatePipelineJiraAndQualifier:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234",
-                "repo": "Khan/webapp",
-                "branch": "egg/KORE-1234",
+                "pipeline_id": "PROJ-1234",
+                "repo": "acme/webapp",
+                "branch": "egg/PROJ-1234",
                 "prompt": "Fix the login bug",
             },
         )
@@ -745,7 +745,7 @@ class TestCreatePipelineJiraAndQualifier:
         assert body["details"]["reason"] == "branch_exists"
         # #2399 — pipeline tip normalised to ``<branch>/work`` before the
         # branch-existence check, so the error surfaces the /work shape.
-        assert body["details"]["branch"] == "egg/KORE-1234/work"
+        assert body["details"]["branch"] == "egg/PROJ-1234/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -775,7 +775,7 @@ class TestCreatePipelineJiraAndQualifier:
         mock_store.pipeline_exists.return_value = True
         existing = Pipeline(
             id="issue-2137",
-            repo="Khan/webapp",
+            repo="acme/webapp",
             status=PipelineStatus.CANCELLED,
         )
         mock_store.load_pipeline.return_value = existing
@@ -785,7 +785,7 @@ class TestCreatePipelineJiraAndQualifier:
             "/api/v1/pipelines",
             json={
                 "pipeline_id": "issue-2137",
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-2137",
                 "base_branch": "main",
                 "issue_number": 2137,
@@ -821,7 +821,7 @@ class TestCreatePipelineJiraAndQualifier:
         mock_store.pipeline_exists.return_value = True
         existing = Pipeline(
             id="issue-2137",
-            repo="Khan/webapp",
+            repo="acme/webapp",
             status=PipelineStatus.COMPLETE,
         )
         mock_store.load_pipeline.return_value = existing
@@ -835,7 +835,7 @@ class TestCreatePipelineJiraAndQualifier:
             "/api/v1/pipelines",
             json={
                 "pipeline_id": "issue-2137",
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-2137",
                 "base_branch": "main",
                 "issue_number": 2137,
@@ -858,8 +858,8 @@ class TestCreatePipelineJiraAndQualifier:
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
-        mock_pipeline.id = "KORE-1234"
-        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_pipeline.id = "PROJ-1234"
+        mock_pipeline.model_dump.return_value = {"id": "PROJ-1234"}
         mock_store.create_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_gw = MagicMock()
@@ -869,9 +869,9 @@ class TestCreatePipelineJiraAndQualifier:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234",
-                "repo": "Khan/webapp",
-                "branch": "egg/KORE-1234",
+                "pipeline_id": "PROJ-1234",
+                "repo": "acme/webapp",
+                "branch": "egg/PROJ-1234",
                 "prompt": "Fix the login bug",
             },
         )
@@ -900,7 +900,7 @@ class TestCreatePipelineJiraAndQualifier:
             json={
                 "pipeline_id": "issue-42-frontend",
                 "issue_number": 42,
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-42-frontend",
             },
         )
@@ -919,8 +919,8 @@ class TestCreatePipelineJiraAndQualifier:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234",
-                "repo": "Khan/webapp",
+                "pipeline_id": "PROJ-1234",
+                "repo": "acme/webapp",
                 "prompt": "Fix the bug",
             },
         )
@@ -947,7 +947,7 @@ class TestCreatePipelineErrorHandling:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "prompt": "Fix the bug",
                 "base_branch": "develop",
             },
@@ -973,9 +973,9 @@ class TestCreatePipelineErrorHandling:
         response = client.post(
             "/api/v1/pipelines",
             json={
-                "pipeline_id": "KORE-1234",
-                "repo": "Khan/webapp",
-                "branch": "egg/KORE-1234",
+                "pipeline_id": "PROJ-1234",
+                "repo": "acme/webapp",
+                "branch": "egg/PROJ-1234",
                 "prompt": "Fix the bug",
             },
         )
@@ -989,22 +989,22 @@ class TestPipelineIdValidation:
     """Tests that PIPELINE_ID_PATTERN accepts new JIRA and qualifier formats."""
 
     def test_validate_jira_ticket_id(self):
-        """JIRA ticket IDs like KORE-1234 are accepted."""
+        """JIRA ticket IDs like PROJ-1234 are accepted."""
         from state_store import _validate_pipeline_id
 
-        _validate_pipeline_id("KORE-1234")
+        _validate_pipeline_id("PROJ-1234")
 
     def test_validate_jira_ticket_with_qualifier(self):
-        """JIRA ticket IDs with qualifier like KORE-1234-backend are accepted."""
+        """JIRA ticket IDs with qualifier like PROJ-1234-backend are accepted."""
         from state_store import _validate_pipeline_id
 
-        _validate_pipeline_id("KORE-1234-backend")
+        _validate_pipeline_id("PROJ-1234-backend")
 
     def test_validate_jira_ticket_with_hyphenated_qualifier(self):
-        """JIRA ticket IDs with multi-segment qualifier like KORE-1234-v2-hotfix are accepted."""
+        """JIRA ticket IDs with multi-segment qualifier like PROJ-1234-v2-hotfix are accepted."""
         from state_store import _validate_pipeline_id
 
-        _validate_pipeline_id("KORE-1234-v2-hotfix")
+        _validate_pipeline_id("PROJ-1234-v2-hotfix")
 
     def test_validate_issue_with_hyphenated_qualifier(self):
         """Issue IDs with multi-segment qualifier like issue-42-v2-hotfix are accepted."""
@@ -1041,7 +1041,7 @@ class TestPipelineIdValidation:
         from state_store import InvalidPipelineIdError, _validate_pipeline_id
 
         with pytest.raises(InvalidPipelineIdError):
-            _validate_pipeline_id("KORE-1234-backend-")
+            _validate_pipeline_id("PROJ-1234-backend-")
 
     def test_reject_path_traversal(self):
         """Path traversal attempts are rejected."""
@@ -1163,7 +1163,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
                 "/api/v1/pipelines",
                 json={
                     "issue_number": 1965,
-                    "repo": "Khan/webapp",
+                    "repo": "acme/webapp",
                     "branch": "egg/issue-1965",
                 },
             )
@@ -1255,7 +1255,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
             "/api/v1/pipelines",
             json={
                 "issue_number": 1965,
-                "repo": "Khan/webapp",
+                "repo": "acme/webapp",
                 "branch": "egg/issue-1965",
             },
         )
@@ -1431,16 +1431,16 @@ class TestEpicModeNonEpicRejection:
         mock_gw_client.return_value = mock_gw
         with patch(
             "jira_epic.resolve_epic_mode",
-            return_value=(False, None, ["ticket KORE-1234 is not an Epic"]),
+            return_value=(False, None, ["ticket PROJ-1234 is not an Epic"]),
         ):
             response = client.post(
                 "/api/v1/pipelines",
                 json={
-                    "pipeline_id": "KORE-1234",
-                    "repo": "Khan/webapp",
-                    "branch": "egg/KORE-1234",
+                    "pipeline_id": "PROJ-1234",
+                    "repo": "acme/webapp",
+                    "branch": "egg/PROJ-1234",
                     "prompt": "Drive the epic",
-                    "jira_ticket": "KORE-1234",
+                    "jira_ticket": "PROJ-1234",
                     "epic_mode": "reassess",
                 },
             )
@@ -1467,16 +1467,16 @@ class TestEpicModeNonEpicRejection:
         mock_gw_client.return_value = mock_gw
         with patch(
             "jira_epic.resolve_epic_mode",
-            return_value=(False, None, ["ticket KORE-1234 is not an Epic"]),
+            return_value=(False, None, ["ticket PROJ-1234 is not an Epic"]),
         ):
             response = client.post(
                 "/api/v1/pipelines",
                 json={
-                    "pipeline_id": "KORE-1234",
-                    "repo": "Khan/webapp",
-                    "branch": "egg/KORE-1234",
+                    "pipeline_id": "PROJ-1234",
+                    "repo": "acme/webapp",
+                    "branch": "egg/PROJ-1234",
                     "prompt": "Drive the epic",
-                    "jira_ticket": "KORE-1234",
+                    "jira_ticket": "PROJ-1234",
                     "epic_mode": "fresh",
                 },
             )
@@ -1495,8 +1495,8 @@ class TestEpicModeNonEpicRejection:
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
-        mock_pipeline.id = "KORE-1234"
-        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_pipeline.id = "PROJ-1234"
+        mock_pipeline.model_dump.return_value = {"id": "PROJ-1234"}
         mock_store.create_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_gw = MagicMock()
@@ -1509,11 +1509,11 @@ class TestEpicModeNonEpicRejection:
             response = client.post(
                 "/api/v1/pipelines",
                 json={
-                    "pipeline_id": "KORE-1234",
-                    "repo": "Khan/webapp",
-                    "branch": "egg/KORE-1234",
+                    "pipeline_id": "PROJ-1234",
+                    "repo": "acme/webapp",
+                    "branch": "egg/PROJ-1234",
                     "prompt": "Drive the epic",
-                    "jira_ticket": "KORE-1234",
+                    "jira_ticket": "PROJ-1234",
                     "epic_mode": "auto",
                 },
             )

@@ -826,7 +826,7 @@ class Contract(EggContractBaseModel):
             "Canonical pipeline identifier — the on-disk contract key. "
             "For issue-driven pipelines this is ``issue-<N>`` (optionally "
             "``issue-<N>-<qualifier>``); for JIRA-ticket pipelines this is "
-            "the ticket ID (e.g., ``KORE-1234``). Optional only for legacy "
+            "the ticket ID (e.g., ``PROJ-1234``). Optional only for legacy "
             "contracts that predate the key unification."
         ),
     )

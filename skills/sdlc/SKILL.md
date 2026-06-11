@@ -19,7 +19,7 @@ Parse the arguments provided after `/sdlc`. Check for the `--short` flag first:
 
 ### JIRA Ticket Detection
 
-Any argument matching the pattern `<LETTER><ALPHANUMERIC>-<DIGITS>` (e.g., `KORE-1234`, `ENG-42`, `PLAT-999`) is a **JIRA ticket identifier**. This applies to both the Full Flow and Short Flow. When detected:
+Any argument matching the pattern `<LETTER><ALPHANUMERIC>-<DIGITS>` (e.g., `PROJ-1234`, `ENG-42`, `PLAT-999`) is a **JIRA ticket identifier**. This applies to both the Full Flow and Short Flow. When detected:
 
 1. The ticket ID is extracted and stored as `jira_ticket_id`
 2. JIRA and Confluence context is fetched automatically (see [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) below)
@@ -55,12 +55,12 @@ If the user provided arguments after `/sdlc`, parse them:
 |-------|---------------|
 | `/sdlc 1059` | Issue number (bare integer) |
 | `/sdlc #1059` | Issue number (with hash) |
-| `/sdlc KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
+| `/sdlc PROJ-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc Add retry logic for API calls` | Free-text task description |
 | `/sdlc --repo owner/repo 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
-| `/sdlc --repo owner/repo KORE-1234` | Repo override + JIRA ticket |
-| `/sdlc KORE-1234 --qualifier backend` | JIRA ticket + qualifier (pipeline: `KORE-1234-backend`, branch: `egg/KORE-1234-backend`) |
+| `/sdlc --repo owner/repo PROJ-1234` | Repo override + JIRA ticket |
+| `/sdlc PROJ-1234 --qualifier backend` | JIRA ticket + qualifier (pipeline: `PROJ-1234-backend`, branch: `egg/PROJ-1234-backend`) |
 | `/sdlc 1059 --qualifier frontend` | Issue number + qualifier (pipeline: `issue-1059-frontend`, branch: `egg/issue-1059-frontend`) |
 
 When `--qualifier <name>` is provided, it is appended to the pipeline ID and branch name. This allows multiple pipelines for the same ticket or issue. Store the qualifier value as `pipeline_qualifier` for use in Phase 2 (Submit).
@@ -75,7 +75,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 If the user ran `/sdlc` with no arguments, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What should the pipeline work on? Type an issue number, JIRA ticket (e.g. KORE-1234), or task description below, or browse recent issues."
+- **Question**: "What should the pipeline work on? Type an issue number, JIRA ticket (e.g. PROJ-1234), or task description below, or browse recent issues."
 - **Header**: "Task"
 - **Options**:
   - **"Browse recent issues"** — description: "List recent open issues to pick from"
@@ -95,7 +95,7 @@ Handle each response:
 
 ## JIRA & Confluence Context Gathering
 
-When a JIRA ticket ID is detected (e.g., `KORE-1234`), gather context from JIRA and Confluence before proceeding. This runs automatically — no user interaction needed.
+When a JIRA ticket ID is detected (e.g., `PROJ-1234`), gather context from JIRA and Confluence before proceeding. This runs automatically — no user interaction needed.
 
 ### Step 1: Fetch the JIRA ticket
 
@@ -289,7 +289,7 @@ Arguments:
 
 When a JIRA ticket was the source, the `description` field should contain the full enriched description built in [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) Step 3 (including the JIRA ticket details, comments, linked issues, and any Confluence context). This ensures the pipeline agents have full context without needing JIRA access themselves.
 
-The `jira_ticket` field drives pipeline naming: the pipeline ID and branch are derived from the ticket ID (e.g., `KORE-1234` → pipeline `KORE-1234`, branch `egg/KORE-1234`). When a `qualifier` is provided, it is appended (e.g., `KORE-1234-backend` / `egg/KORE-1234-backend`). The same qualifier logic applies to issue-driven pipelines (e.g., `issue-123-backend` / `egg/issue-123-backend`).
+The `jira_ticket` field drives pipeline naming: the pipeline ID and branch are derived from the ticket ID (e.g., `PROJ-1234` → pipeline `PROJ-1234`, branch `egg/PROJ-1234`). When a `qualifier` is provided, it is appended (e.g., `PROJ-1234-backend` / `egg/PROJ-1234-backend`). The same qualifier logic applies to issue-driven pipelines (e.g., `issue-123-backend` / `egg/issue-123-backend`).
 
 ### Branch conflict handling
 
@@ -1169,9 +1169,9 @@ After stripping the `--short` flag, parse remaining arguments:
 |-------|---------------|
 | `/sdlc --short Add retry logic to the API client` | Free-text task description |
 | `/sdlc --short --repo owner/repo Fix flaky test` | Repo override + task description |
-| `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
+| `/sdlc --short PROJ-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc --short --repo owner/repo ENG-42` | Repo override + JIRA ticket |
-| `/sdlc --short KORE-1234 --qualifier backend` | JIRA ticket + qualifier |
+| `/sdlc --short PROJ-1234 --qualifier backend` | JIRA ticket + qualifier |
 
 When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. If `--qualifier` is provided, store it as `pipeline_qualifier`. Proceed directly to Phase S2.
 
@@ -1181,7 +1181,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 If no task description was provided, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What task should the agent implement? Enter a JIRA ticket (e.g. KORE-1234) or describe the task."
+- **Question**: "What task should the agent implement? Enter a JIRA ticket (e.g. PROJ-1234) or describe the task."
 - **Header**: "Task"
 - **Options**:
   - **"Help me scope the task"** — description: "Ask clarifying questions about requirements before submitting"

@@ -3011,7 +3011,7 @@ class TestUnresolvedNackGuard:
 class TestJiraPipelineConsensus:
     """Test consensus lifecycle with JIRA-format pipeline IDs (#1615).
 
-    JIRA-ticket pipelines use pipeline IDs like 'KORE-1234' instead of
+    JIRA-ticket pipelines use pipeline IDs like 'PROJ-1234' instead of
     'issue-123'. This verifies the consensus tracker works correctly
     with these IDs.
     """
@@ -3019,7 +3019,7 @@ class TestJiraPipelineConsensus:
     @pytest.fixture
     def jira_tracker(self, simple_graph):
         """Tracker with a JIRA-format pipeline ID."""
-        t = PeerConsensusTracker("KORE-1234", simple_graph, cooldown_seconds=0)
+        t = PeerConsensusTracker("PROJ-1234", simple_graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("tester")
         t.register_agent("reviewer_code")
@@ -3029,7 +3029,7 @@ class TestJiraPipelineConsensus:
     def test_jira_pipeline_full_lifecycle(self, jira_tracker):
         """Full BRC lifecycle completes with a JIRA-format pipeline ID."""
         t = jira_tracker
-        assert t.pipeline_id == "KORE-1234"
+        assert t.pipeline_id == "PROJ-1234"
 
         # Coder proposes
         result = t.handle_propose(
@@ -3132,11 +3132,11 @@ class TestJiraPipelineConsensus:
         )
 
         try:
-            t = create_peer_consensus_tracker("KORE-5678", simple_graph)
-            found = get_peer_consensus_tracker("KORE-5678")
+            t = create_peer_consensus_tracker("PROJ-5678", simple_graph)
+            found = get_peer_consensus_tracker("PROJ-5678")
             assert found is t
         finally:
-            remove_peer_consensus_tracker("KORE-5678")
+            remove_peer_consensus_tracker("PROJ-5678")
 
     def test_pending_acks_returns_blocking_details(self, jira_tracker):
         """handle_confirmed returns pending_acks with details before full ACKs.

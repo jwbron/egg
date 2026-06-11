@@ -777,31 +777,31 @@ class TestRestorePrebuiltDeps:
     def test_restores_deps_into_repo(self, temp_dir, capsys):
         """Copies prebuilt deps into the mounted repo directory."""
         # Set up prebuilt deps
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
-        nm = prebuilt / "services" / "perseus" / "node_modules" / "express"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
+        nm = prebuilt / "services" / "widgets" / "node_modules" / "express"
         nm.mkdir(parents=True)
         (nm / "index.js").write_text("module.exports = {}")
 
         # Set up mounted repos
         repos_dir = temp_dir / "repos"
         webapp = repos_dir / "webapp"
-        (webapp / "services" / "perseus").mkdir(parents=True)
+        (webapp / "services" / "widgets").mkdir(parents=True)
 
         config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
 
-        assert (webapp / "services" / "perseus" / "node_modules" / "express" / "index.js").exists()
+        assert (webapp / "services" / "widgets" / "node_modules" / "express" / "index.js").exists()
         assert (
-            webapp / "services" / "perseus" / "node_modules" / "express" / "index.js"
+            webapp / "services" / "widgets" / "node_modules" / "express" / "index.js"
         ).read_text() == "module.exports = {}"
         captured = capsys.readouterr()
         assert "Restored" in captured.out
 
     def test_skips_existing_files(self, temp_dir):
         """Does not overwrite files that already exist in the repo."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         nm = prebuilt / "node_modules"
         nm.mkdir(parents=True)
         (nm / "pkg.json").write_text("prebuilt")
@@ -821,10 +821,10 @@ class TestRestorePrebuiltDeps:
         assert (webapp_nm / "pkg.json").read_text() == "existing"
 
     def test_matches_repo_by_suffix(self, temp_dir, capsys):
-        """Matches prebuilt repo dir Khan--webapp to mounted dir webapp."""
+        """Matches prebuilt repo dir acme--webapp to mounted dir webapp."""
         prebuilt = temp_dir / "prebuilt-deps"
-        (prebuilt / "Khan--webapp").mkdir(parents=True)
-        (prebuilt / "Khan--webapp" / "test.txt").write_text("hello")
+        (prebuilt / "acme--webapp").mkdir(parents=True)
+        (prebuilt / "acme--webapp" / "test.txt").write_text("hello")
 
         repos_dir = temp_dir / "repos"
         (repos_dir / "webapp").mkdir(parents=True)
@@ -860,8 +860,8 @@ class TestRestorePrebuiltDeps:
     def test_warns_on_unmatched_repo(self, temp_dir, capsys):
         """Warns when no mounted repo matches the prebuilt dir name."""
         prebuilt = temp_dir / "prebuilt-deps"
-        (prebuilt / "Khan--unknown").mkdir(parents=True)
-        (prebuilt / "Khan--unknown" / "file.txt").write_text("data")
+        (prebuilt / "acme--unknown").mkdir(parents=True)
+        (prebuilt / "acme--unknown" / "file.txt").write_text("data")
 
         repos_dir = temp_dir / "repos"
         repos_dir.mkdir(parents=True)
@@ -876,7 +876,7 @@ class TestRestorePrebuiltDeps:
 
     def test_preserves_file_symlinks(self, temp_dir):
         """File symlinks survive the restore and point to the correct target."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         nm = prebuilt / "node_modules"
         nm.mkdir(parents=True)
         (nm / "real.js").write_text("content")
@@ -897,7 +897,7 @@ class TestRestorePrebuiltDeps:
 
     def test_restore_is_idempotent(self, temp_dir):
         """Calling restore twice does not raise errors or overwrite files."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         nm = prebuilt / "node_modules"
         nm.mkdir(parents=True)
         (nm / "pkg.js").write_text("original")
@@ -919,7 +919,7 @@ class TestRestorePrebuiltDeps:
 
     def test_chowns_restored_dirs(self, temp_dir):
         """Restored directories are chowned to the runtime user."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         (prebuilt / "node_modules" / "pkg").mkdir(parents=True)
         (prebuilt / "node_modules" / "pkg" / "index.js").write_text("x")
         (prebuilt / ".venv" / "bin").mkdir(parents=True)
@@ -945,7 +945,7 @@ class TestRestorePrebuiltDeps:
 
     def test_chown_failure_does_not_crash(self, temp_dir, capsys):
         """A chown failure logs a warning but does not crash the entrypoint."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         (prebuilt / ".venv" / "bin").mkdir(parents=True)
         (prebuilt / ".venv" / "bin" / "python3").write_text("x")
 
@@ -966,7 +966,7 @@ class TestRestorePrebuiltDeps:
 
     def test_skips_non_directory_entries(self, temp_dir):
         """Top-level files in the prebuilt snapshot are not chowned."""
-        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        prebuilt = temp_dir / "prebuilt-deps" / "acme--webapp"
         (prebuilt / ".venv" / "bin").mkdir(parents=True)
         (prebuilt / ".venv" / "bin" / "python3").write_text("x")
         # Add a top-level file in the prebuilt snapshot

@@ -624,7 +624,7 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         # Create a tracker that says consensus is NOT complete
@@ -634,7 +634,7 @@ class TestCheckConsensusMessageBusFallback:
         )
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
             # Don't call handle_propose/ack/confirmed — tracker thinks incomplete
@@ -642,14 +642,14 @@ class TestCheckConsensusMessageBusFallback:
             # But the message store has CONFIRMED messages for all roles
             confirmed_messages = [
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="coder",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
                     subject="Confirmed by coder",
                 ),
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="reviewer_code",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -666,7 +666,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is True
             assert result.get("fallback") == "message_bus"
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
     def test_fallback_does_not_fire_when_roles_missing(self):
         """Message-bus fallback should not fire when not all roles confirmed."""
@@ -680,20 +680,20 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
 
             # Only one role confirmed in messages
             confirmed_messages = [
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="coder",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -710,7 +710,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is False
             assert "fallback" not in result
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
     def test_fallback_excludes_pending_acks_messages(self):
         """Message-bus fallback must not count pending_acks messages as genuine confirmations."""
@@ -724,20 +724,20 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
 
             # All roles have CONSENSUS_CONFIRMED messages, but all have pending_acks=True
             pending_messages = [
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="coder",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -745,7 +745,7 @@ class TestCheckConsensusMessageBusFallback:
                     metadata={"pending_acks": True},
                 ),
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="reviewer_code",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -764,7 +764,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is False
             assert "fallback" not in result
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
     def test_tracker_confirmed_safety_net_preempts_message_bus(self):
         """When all roles are in confirmed_roles, the tracker safety net fires before message-bus fallback (#1671)."""
@@ -778,13 +778,13 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
 
@@ -807,7 +807,7 @@ class TestCheckConsensusMessageBusFallback:
 
             pending_messages = [
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="coder",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -815,7 +815,7 @@ class TestCheckConsensusMessageBusFallback:
                     metadata={"pending_acks": True},
                 ),
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="reviewer_code",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -835,7 +835,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is True
             assert result.get("fallback") == "tracker_confirmed"
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
     def test_tracker_confirmed_overrides_stale_nacks(self):
         """All roles in confirmed_roles but evaluate() says False due to stale NACKs → override (#1671)."""
@@ -848,13 +848,13 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
 
@@ -879,7 +879,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is True
             assert result["fallback"] == "tracker_confirmed"
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
     def test_message_bus_fallback_with_mixed_pending_and_clean(self):
         """Fallback counts roles with clean messages even when others have pending_acks only."""
@@ -893,13 +893,13 @@ class TestCheckConsensusMessageBusFallback:
             ]
         )
 
-        pipeline = _make_pipeline("KORE-1234")
+        pipeline = _make_pipeline("PROJ-1234")
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
 
         from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
 
         try:
-            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker = create_peer_consensus_tracker("PROJ-1234", graph)
             tracker.register_agent("coder")
             tracker.register_agent("reviewer_code")
 
@@ -919,7 +919,7 @@ class TestCheckConsensusMessageBusFallback:
             # Coder has pending_acks only (but tracker confirmed), reviewer has clean message
             messages = [
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="coder",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -927,7 +927,7 @@ class TestCheckConsensusMessageBusFallback:
                     metadata={"pending_acks": True},
                 ),
                 Message(
-                    pipeline_id="KORE-1234",
+                    pipeline_id="PROJ-1234",
                     from_role="reviewer_code",
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
@@ -944,7 +944,7 @@ class TestCheckConsensusMessageBusFallback:
             assert result["is_complete"] is True
             assert result["fallback"] == "message_bus"
         finally:
-            remove_peer_consensus_tracker("KORE-1234")
+            remove_peer_consensus_tracker("PROJ-1234")
 
 
 # =============================================================================

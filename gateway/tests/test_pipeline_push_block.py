@@ -832,8 +832,8 @@ class TestSliceIntegrationBranchExemption:
             assert response.status_code == 200
 
     def test_synthetic_session_jira_slice_branch_push_allowed(self, client):
-        """JIRA-driven branches — ``egg/KORE-1234/slice-M`` — pass."""
-        session = _make_session(synthetic=True, assigned_branch="egg/KORE-1234/slice-3")
+        """JIRA-driven branches — ``egg/PROJ-1234/slice-M`` — pass."""
+        session = _make_session(synthetic=True, assigned_branch="egg/PROJ-1234/slice-3")
         patches = _push_context(session)
         with (
             patches[0],
@@ -846,7 +846,7 @@ class TestSliceIntegrationBranchExemption:
         ):
             response = _do_push(
                 client,
-                refspec="egg/KORE-1234:refs/heads/egg/KORE-1234/slice-3",
+                refspec="egg/PROJ-1234:refs/heads/egg/PROJ-1234/slice-3",
             )
             assert response.status_code == 200
 

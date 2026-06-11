@@ -145,16 +145,16 @@ class TestArgumentParsing:
     def test_pipeline_id_argument(self):
         """Test parsing --pipeline-id flag."""
         parser = create_parser()
-        args = parser.parse_args(["--pipeline-id", "KORE-1191-full", "show"])
-        assert args.pipeline_id == "KORE-1191-full"
+        args = parser.parse_args(["--pipeline-id", "PROJ-1191-full", "show"])
+        assert args.pipeline_id == "PROJ-1191-full"
         assert args.issue is None
 
     def test_both_issue_and_pipeline_id(self):
         """Test parsing both --issue and --pipeline-id flags."""
         parser = create_parser()
-        args = parser.parse_args(["--issue", "42", "--pipeline-id", "KORE-1191", "show"])
+        args = parser.parse_args(["--issue", "42", "--pipeline-id", "PROJ-1191", "show"])
         assert args.issue == 42
-        assert args.pipeline_id == "KORE-1191"
+        assert args.pipeline_id == "PROJ-1191"
 
 
 class TestEnvironmentHelpers:
@@ -233,8 +233,8 @@ class TestGetPipelineId:
 
     def test_returns_pipeline_id_from_env(self):
         """Returns EGG_PIPELINE_ID value."""
-        with patch.dict("os.environ", {"EGG_PIPELINE_ID": "KORE-1191-full"}):
-            assert get_pipeline_id() == "KORE-1191-full"
+        with patch.dict("os.environ", {"EGG_PIPELINE_ID": "PROJ-1191-full"}):
+            assert get_pipeline_id() == "PROJ-1191-full"
 
     def test_returns_none_for_empty_string(self):
         """Returns None when EGG_PIPELINE_ID is empty."""
@@ -253,15 +253,15 @@ class TestGetContractIdentifier:
 
     def test_issue_flag_takes_priority(self):
         """--issue flag overrides everything."""
-        args = self._make_args(issue=42, pipeline_id="KORE-123")
+        args = self._make_args(issue=42, pipeline_id="PROJ-123")
         with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99", "EGG_PIPELINE_ID": "OTHER"}):
             assert get_contract_identifier(args) == 42
 
     def test_pipeline_id_flag_second_priority(self):
         """--pipeline-id flag used when --issue not set."""
-        args = self._make_args(pipeline_id="KORE-123")
+        args = self._make_args(pipeline_id="PROJ-123")
         with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99"}):
-            assert get_contract_identifier(args) == "KORE-123"
+            assert get_contract_identifier(args) == "PROJ-123"
 
     def test_env_pipeline_id_third(self):
         """EGG_PIPELINE_ID beats EGG_ISSUE_NUMBER when no flags are set.
@@ -272,8 +272,8 @@ class TestGetContractIdentifier:
         having to pass ``--pipeline-id`` on every invocation.
         """
         args = self._make_args()
-        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99", "EGG_PIPELINE_ID": "KORE-1"}):
-            assert get_contract_identifier(args) == "KORE-1"
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99", "EGG_PIPELINE_ID": "PROJ-1"}):
+            assert get_contract_identifier(args) == "PROJ-1"
 
     def test_env_issue_number_last(self):
         """EGG_ISSUE_NUMBER is used as the final fallback."""
@@ -654,10 +654,10 @@ class TestWithMockGateway:
     def test_show_command_with_pipeline_id_env(self, mock_gateway_factory, capsys):
         """Test show command with pipeline ID from environment."""
         responses = {
-            ("GET", "/api/v1/contract/KORE-1191-full"): {
+            ("GET", "/api/v1/contract/PROJ-1191-full"): {
                 "success": True,
                 "data": {
-                    "pipeline_id": "KORE-1191-full",
+                    "pipeline_id": "PROJ-1191-full",
                     "current_phase": "implement",
                     "phases": [],
                     "decisions": [],
@@ -668,22 +668,22 @@ class TestWithMockGateway:
 
         with patch.dict(
             "os.environ",
-            {"GATEWAY_URL": mock_gateway, "EGG_PIPELINE_ID": "KORE-1191-full", "CONTAINER_ID": ""},
+            {"GATEWAY_URL": mock_gateway, "EGG_PIPELINE_ID": "PROJ-1191-full", "CONTAINER_ID": ""},
             clear=True,
         ):
             result = main(["show"])
 
         assert result == 0
         captured = capsys.readouterr()
-        assert "KORE-1191-full" in captured.out
+        assert "PROJ-1191-full" in captured.out
 
     def test_show_command_with_pipeline_id_flag(self, mock_gateway_factory, capsys):
         """Test show command with --pipeline-id flag."""
         responses = {
-            ("GET", "/api/v1/contract/KORE-1191-full"): {
+            ("GET", "/api/v1/contract/PROJ-1191-full"): {
                 "success": True,
                 "data": {
-                    "pipeline_id": "KORE-1191-full",
+                    "pipeline_id": "PROJ-1191-full",
                     "current_phase": "refine",
                     "phases": [],
                     "decisions": [],
@@ -693,11 +693,11 @@ class TestWithMockGateway:
         mock_gateway = mock_gateway_factory(responses)
 
         with patch.dict("os.environ", {"GATEWAY_URL": mock_gateway, "CONTAINER_ID": ""}):
-            result = main(["--pipeline-id", "KORE-1191-full", "show"])
+            result = main(["--pipeline-id", "PROJ-1191-full", "show"])
 
         assert result == 0
         captured = capsys.readouterr()
-        assert "KORE-1191-full" in captured.out
+        assert "PROJ-1191-full" in captured.out
 
     def test_add_commit_with_pipeline_id(self, mock_gateway_factory, capsys):
         """Test add-commit uses pipeline ID from environment."""
@@ -711,7 +711,7 @@ class TestWithMockGateway:
 
         with patch.dict(
             "os.environ",
-            {"GATEWAY_URL": mock_gateway, "EGG_PIPELINE_ID": "KORE-1191-full", "CONTAINER_ID": ""},
+            {"GATEWAY_URL": mock_gateway, "EGG_PIPELINE_ID": "PROJ-1191-full", "CONTAINER_ID": ""},
             clear=True,
         ):
             result = main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])

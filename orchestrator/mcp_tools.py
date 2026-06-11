@@ -141,7 +141,7 @@ PIPELINE_TOOLS = [
                 },
                 "jira_ticket": {
                     "type": "string",
-                    "description": "JIRA ticket ID (e.g. KORE-1234). Used as the pipeline ID and branch name.",
+                    "description": "JIRA ticket ID (e.g. PROJ-1234). Used as the pipeline ID and branch name.",
                 },
                 "mode": {
                     "type": "string",
@@ -1260,7 +1260,7 @@ class PipelineToolHandler:
             ticket_raw = args["jira_ticket"].strip()
             if not re.match(r"^[A-Za-z][A-Za-z0-9]+-[0-9]+$", ticket_raw):
                 return {
-                    "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. KORE-1234"
+                    "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. PROJ-1234"
                 }
 
         # Issue #1557: validate the new ``mode`` arg up front. Only

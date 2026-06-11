@@ -116,7 +116,7 @@ the agent reads to recover the task:
   "schemaVersion": "1.3",
   "issue": null,
   "task_description": "Add a /healthz endpoint that returns 200 once the DB pool is warm and Redis is reachable. …",
-  "pipeline_id": "KORE-1234",
+  "pipeline_id": "PROJ-1234",
   "current_phase": "implement",
   "slices": [...],
   "workflow_owner": "my-org",

@@ -4,7 +4,7 @@
 
 ## Problem Statement
 
-The BRC (Broadcast-Review-Converge) consensus protocol in `orchestrator/peer_consensus.py` has accumulated individual fixes for specific deadlock scenarios (#1405, #1576, #1411, #1598), but lacks a formal specification of **when each agent action is valid** given the current protocol state. This leads to subtle bugs where legal-but-problematic action sequences create deadlocks — most recently observed in production pipelines `KORE-1191-complete` and `issue-1536` where agents entered terminal polling loops after being fully ACKed but never confirming.
+The BRC (Broadcast-Review-Converge) consensus protocol in `orchestrator/peer_consensus.py` has accumulated individual fixes for specific deadlock scenarios (#1405, #1576, #1411, #1598), but lacks a formal specification of **when each agent action is valid** given the current protocol state. This leads to subtle bugs where legal-but-problematic action sequences create deadlocks — most recently observed in production pipelines `PROJ-1191-complete` and `issue-1536` where agents entered terminal polling loops after being fully ACKed but never confirming.
 
 **Current state**: The protocol has grown organically with ad-hoc guards added reactively as deadlocks were discovered. Guards are scattered across `handle_confirmed()`, `_handle_propose_inner()`, and the signal handlers in `routes/signals.py`, making it difficult to verify completeness or reason about correctness.
 
@@ -73,7 +73,7 @@ WORKING → REVIEWING → CONFIRMED
 
 ### Known Gaps (from issue and reproduction comments)
 
-1. **"ACKed but never confirms" failure mode** (KORE-1191-complete, issue-1536): Agents lose track of their BRC state and enter infinite heartbeat/poll loops. Nothing in the protocol enforces the ACKed → CONFIRMED transition — it relies entirely on agent behavior.
+1. **"ACKed but never confirms" failure mode** (PROJ-1191-complete, issue-1536): Agents lose track of their BRC state and enter infinite heartbeat/poll loops. Nothing in the protocol enforces the ACKed → CONFIRMED transition — it relies entirely on agent behavior.
 
 2. **No auto-repropose on push/commit**: When a producer pushes new commits after proposing, existing reviews become stale. Currently, there is no mechanism to automatically invalidate reviews and trigger re-review. Reviewers can confirm based on outdated code.
 
@@ -164,7 +164,7 @@ This approach directly addresses the root cause identified in the issue: the pro
 
 The key insight from the production failures is that **the protocol is correct on paper but incorrect in implementation** — the guards that exist are individually correct, but there are gaps between them that allow agents to reach states from which no valid transition exists. A formal state machine with a complete transition table makes these gaps visible and testable.
 
-Option B (incremental guards) is the lower-risk path but doesn't solve the structural problem. The protocol will continue to accumulate patches for deadlocks as new edge cases emerge. The KORE-1191 and issue-1536 failures demonstrate that guard additions alone don't prevent agent-side behavioral failures.
+Option B (incremental guards) is the lower-risk path but doesn't solve the structural problem. The protocol will continue to accumulate patches for deadlocks as new edge cases emerge. The PROJ-1191 and issue-1536 failures demonstrate that guard additions alone don't prevent agent-side behavioral failures.
 
 The recommended implementation should:
 1. Define a formal `ProducerState` and `ReviewerState` enum with all valid states

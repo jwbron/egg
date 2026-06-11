@@ -21,7 +21,7 @@ Desired outcome: a single `submit_task <EPIC-KEY>` from the operator's Claude Co
 
 `orchestrator/mcp_tools.py:67-127` defines the `submit_task` tool schema; `orchestrator/mcp_tools.py:1272-1381` handles invocation.
 
-- Jira ticket format validation (`mcp_tools.py:1287-1292`): regex `^[A-Za-z][A-Za-z0-9]+-[0-9]+$` (e.g. `KORE-1234`).
+- Jira ticket format validation (`mcp_tools.py:1287-1292`): regex `^[A-Za-z][A-Za-z0-9]+-[0-9]+$` (e.g. `PROJ-1234`).
 - Pipeline ID derivation (`mcp_tools.py:1301-1307`): `pipeline_id = TICKET.upper()` (or `TICKET-qualifier`); branch = `egg/{pipeline_id}`.
 - No upfront Jira fetch — the ticket key is **purely an identifier**; description / type / status are not read at `submit_task` time. The orchestrator exports `EGG_JIRA_TICKET` (and `EGG_JIRA_PROJECT` derived by splitting on `-`) into the sandbox env; that is the only Jira-related signal the agents get at spawn.
 - Pipeline creation then dispatches to `POST /api/v1/pipelines` followed by `POST /api/v1/pipelines/{id}/start` (`mcp_tools.py:1333-1380`).

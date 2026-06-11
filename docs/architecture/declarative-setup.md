@@ -39,7 +39,7 @@ github_username: ""
 writable_repos:
   - "${github_username}/egg"
 readable_repos:
-  - "khan/webapp"
+  - "acme/webapp"
 
 slack_channel: ""
 allowed_users:

@@ -29,16 +29,16 @@ class TestParseOwnerRepo:
     @pytest.mark.parametrize(
         "url,expected",
         [
-            ("git@github.com:Khan/webapp.git", "Khan/webapp"),
-            ("git@github.com:Khan/webapp", "Khan/webapp"),
+            ("git@github.com:acme/webapp.git", "acme/webapp"),
+            ("git@github.com:acme/webapp", "acme/webapp"),
             ("git@gitlab.internal:team/repo.git", "team/repo"),
-            ("ssh://git@github.com/Khan/webapp.git", "Khan/webapp"),
-            ("ssh://git@github.com:22/Khan/webapp.git", "Khan/webapp"),
-            ("https://github.com/Khan/webapp.git", "Khan/webapp"),
-            ("https://github.com/Khan/webapp", "Khan/webapp"),
+            ("ssh://git@github.com/acme/webapp.git", "acme/webapp"),
+            ("ssh://git@github.com:22/acme/webapp.git", "acme/webapp"),
+            ("https://github.com/acme/webapp.git", "acme/webapp"),
+            ("https://github.com/acme/webapp", "acme/webapp"),
             ("http://example.com/o/r.git", "o/r"),
-            ("https://github.com/Khan/webapp/", "Khan/webapp"),
-            ("  git@github.com:Khan/webapp.git\n", "Khan/webapp"),
+            ("https://github.com/acme/webapp/", "acme/webapp"),
+            ("  git@github.com:acme/webapp.git\n", "acme/webapp"),
         ],
     )
     def test_parses_common_forms(self, url, expected):
@@ -68,7 +68,7 @@ class TestBuildMap:
     def test_builds_map_from_configured_paths(self, tmp_path):
         repo_a = tmp_path / "webapp"
         repo_b = tmp_path / "egg"
-        _init_repo_with_remote(repo_a, "git@github.com:Khan/webapp.git")
+        _init_repo_with_remote(repo_a, "git@github.com:acme/webapp.git")
         _init_repo_with_remote(repo_b, "ssh://git@github.com/owner/egg.git")
 
         config_path = tmp_path / "repositories.yaml"
@@ -77,7 +77,7 @@ class TestBuildMap:
         result = build_host_repo_map.build_map(config_path)
 
         assert result == {
-            "Khan/webapp": str(repo_a),
+            "acme/webapp": str(repo_a),
             "owner/egg": str(repo_b),
         }
 

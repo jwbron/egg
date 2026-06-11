@@ -34,7 +34,7 @@ Example output format:
 ## Context Sources
 Available:
 - confluence/ENG
-- jira/WEBAPP
+- jira/PROJ
 
 ## Recent Notifications
 - 3 notifications sent
