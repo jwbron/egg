@@ -1064,163 +1064,43 @@ def _validate_tester_check_coverage(
         )
 
 
-def _validate_plan_proposal(
-    pipeline_id: str,
-    payload: dict[str, Any],
-    repo_path: Path,
+def _validate_plan_extensions(
     *,
-    pipeline_state: Any | None = None,
-    worktree_path: Path | None = None,
-    branch_verified: bool | None = True,
+    pipeline_id: str,
+    commit_sha: str,
+    plan_text: str,
+    plan_rel: str,
+    pipeline_state: Any,
 ) -> None:
-    """Validate a ``task_planner`` proposal at propose-time (#3016 / #3026 / #2527).
+    """Plan-draft-specific extensions on top of the spec-driven presence check.
 
-    A single ``git show`` + a single ``parse_plan`` of the plan draft at the
-    proposed commit, feeding three checks that the populate / gate / push paths
-    would otherwise enforce only later and far more expensively:
+    The generalized ``_validate_producer_artifacts`` performs the #3016
+    presence check for every registered artifact; for ``plan-draft`` we
+    additionally need:
 
-    1. **Presence** (#3016): the canonical plan draft exists and is non-empty at
-       the proposed commit. The operator gate, contract populator, and resume
-       path all read the plan from ``_get_draft_path("plan", …)``; a draft
-       committed off-path (or not at all) is invisible to them.
-    2. **Parseability** (#3026): the draft parses via the *same* ``parse_plan``
+    1. **Parseability** (#3026): the draft parses via the *same* ``parse_plan``
        the contract populator runs. A draft that is complete in prose but omits
        the machine-readable ``# yaml-tasks`` appendix parses to ``success=False``
        — it passes BRC consensus and phase completion on content grounds, then
        fails the *whole pipeline* at ``populate_contract`` (``parse_failed`` /
-       ``empty_result``) ~40 min later, after the plan HITL gate, surfacing an
-       expensive recovery decision. Using the same parser means the propose-time
-       check and the populate check cannot diverge **on parse failures**
-       (``_populate_result_is_empty_contract``'s ``not success`` branch); other
-       populate-time outcomes — ``FOREST_VIOLATION`` for a cyclic ``depends_on``
-       DAG, ``UNEXPECTED_EXCEPTION`` for downstream contract-build failures —
-       are still caught only at populate, by design (this guard is for the
-       fence-less / unparseable case #3026 names). Catching that here is one
-       cheap NACK→re-propose cycle. (``parse_plan`` itself guarantees
-       ``success=True`` ⇒ ≥1 phase ⇒ ≥1 slice via ``to_contract_slices`` — the
-       per-phase placeholder-task injection sees to it — so a separate
+       ``empty_result``) ~40 min later, after the plan HITL gate. Using the
+       same parser means the propose-time check and the populate check cannot
+       diverge on parse failures. (``parse_plan`` itself guarantees
+       ``success=True`` ⇒ ≥1 phase ⇒ ≥1 slice via ``to_contract_slices`` —
+       the per-phase placeholder-task injection sees to it — so a separate
        ``slice_count == 0`` check would be dead code here.)
-    3. **Role↔files alignment** (#2527 / #2528): no task is assigned to a role
+    2. **Role↔files alignment** (#2527 / #2528): no task is assigned to a role
        whose blocklist forbids its files (would 403 at push time per
        ``gateway/phase_filter.py::FileRestriction.is_file_blocked`` /
        ``shared/egg_restrictions/patterns.py``).
 
-    All three run BEFORE ``handle_propose`` records the proposal, so a rejection
-    costs the still-alive planner one re-propose and never mutates the tracker;
-    the caller's ``except`` maps the raised ``ValueError`` to a 400.
-
-    Consolidates the former ``_validate_producer_draft_present("plan", …)`` +
-    ``_validate_planner_role_alignment`` pair, which each ``git show``-ed the
-    same draft at the same commit and disagreed on how to treat a missing one.
-    A single read now feeds every check. (Refine still uses
-    ``_validate_producer_draft_present`` — analysis drafts have no parseable
-    appendix, so existence-only is the right check there.)
-
-    ``pipeline_state`` / ``worktree_path`` are threaded in by
-    ``handle_consensus_propose_signal`` to reuse the lookups it already performed
-    for ``_verify_commit_on_branch``; the function loads them itself when called
-    directly (e.g. from unit tests).
-
-    Graceful degradation: returns silently when the proposal carries no commit
-    SHA, the pipeline has no branch / no resolvable draft path, ``git show``
-    errors for an infrastructure reason (timeout / git failure), the parser
-    raises, or ``to_contract_slices`` raises (e.g. a future Pydantic field
-    tightening). Inconclusive branch verification (``branch_verified is None``
-    — an orchestrator-side fetch glitch, not a producer fault) skips the
-    checks only when the commit object is *also* absent locally
-    (``_commit_object_resolvable``); with the object present, a non-zero
-    ``git show`` reliably means "path absent at commit", so validation
-    proceeds — an unconditional skip-on-``None`` let a persistent fetch
-    failure disable this validator entirely (#3081). It raises only when it
-    can positively confirm — at a locally-resolved commit — that the draft is
-    absent/empty, unparseable, or role-misassigned. ``branch_verified``
-    defaults to ``True`` so direct callers (unit tests) that don't run
-    ``_verify_commit_on_branch`` still get the check.
+    Called by ``_validate_producer_artifacts`` only for the ``plan-draft``
+    artifact, after the presence check has confirmed the draft is committed
+    and non-empty.  Graceful degradation: returns silently when the parser
+    or ``to_contract_slices`` raises (e.g. a future Pydantic field
+    tightening) or when the role-alignment validator raises; only raises
+    when it can positively confirm an unparseable plan or a misassigned task.
     """
-    commit_sha = (payload.get("commit_sha") or "").strip()
-    if not commit_sha:
-        return
-
-    if pipeline_state is None:
-        try:
-            pipeline_state = get_state_store(repo_path).load_pipeline(pipeline_id)
-        except StateStoreError:
-            return
-
-    if not pipeline_state.branch:
-        return
-
-    # Build the plan draft path. Imported lazily to avoid pulling the
-    # ~24k-line ``routes.pipelines`` module into ``signals`` import time.
-    try:
-        from routes.pipelines import _get_draft_path
-    except ImportError:
-        try:
-            from .pipelines import _get_draft_path  # type: ignore[no-redef]
-        except ImportError:
-            return
-    plan_rel = _get_draft_path(
-        "plan",
-        issue_number=pipeline_state.issue_number,
-        pipeline_id=pipeline_id,
-    )
-    if not plan_rel:
-        return
-
-    if worktree_path is None:
-        worktree_path = resolve_worktree_path(pipeline_id, repo_path)
-
-    # Orchestrator-side commit verification was inconclusive — a non-zero
-    # ``git show`` below could be "commit not in local object cache" rather
-    # than "path absent at commit". But that ambiguity only exists when the
-    # commit object is actually absent: when it resolves locally (always, in
-    # the shared-object-store deployment), the checks below stay sound, so
-    # keep validating. Skipping unconditionally on ``None`` is how #3081
-    # shipped a full consensus with no canonical draft — the fetch failure
-    # was persistent, so the "transient glitch" skip became "never validate".
-    if branch_verified is None and not _commit_object_resolvable(worktree_path, commit_sha):
-        logger.warning(
-            "plan proposal validation skipped: branch verification "
-            "inconclusive and commit not in local object store",
-            pipeline_id=pipeline_id,
-            commit_sha=commit_sha,
-        )
-        return
-
-    # Read plan content as committed at the proposed SHA, not from the working
-    # tree (which can lag HEAD — #2723). The preceding ``_verify_commit_on_branch``
-    # call has already done a ``git fetch``, making the commit reachable.
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(worktree_path), "show", f"{commit_sha}:{plan_rel}"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except Exception as exc:
-        logger.warning(
-            "plan proposal validation: git show failed (non-blocking)",
-            pipeline_id=pipeline_id,
-            commit_sha=commit_sha,
-            error=str(exc),
-        )
-        return
-
-    # (1) Presence — absent or empty at the proposed commit. (Previously a
-    # separate ``_validate_producer_draft_present("plan", …)`` call; folded in
-    # here so the same read serves all three checks.)
-    if result.returncode != 0 or not result.stdout.strip():
-        raise ValueError(
-            f"Plan proposal rejected: no plan draft found at `{plan_rel}` in the "
-            f"proposed commit ({commit_sha[:8]}). The phase gate, contract "
-            f"population, and resume all read the plan from this exact path — a "
-            f"draft committed to a different path (or an empty one) is invisible "
-            f"to them. Write your plan to `{plan_rel}`, commit and push it, then "
-            f"re-propose."
-        )
-    plan_text = result.stdout
-
     try:
         from egg_contracts.plan_parser import (
             parse_plan,
@@ -1240,7 +1120,7 @@ def _validate_plan_proposal(
         )
         return
 
-    # (2) Parseability — the #3026 fix. Reuses the contract populator's parser
+    # (1) Parseability — the #3026 fix. Reuses the contract populator's parser
     # so a draft that would later populate an empty contract on the
     # ``not parsed.success`` branch of ``_populate_result_is_empty_contract`` is
     # NACKed now instead. (``success=True`` already guarantees ``phases`` is
@@ -1304,85 +1184,110 @@ def _validate_plan_proposal(
     )
 
 
-def _validate_producer_draft_present(
-    phase: str,
+_ARTIFACT_HUMAN_LABEL: dict[str, str] = {
+    "analysis-draft": "analysis draft",
+    "plan-draft": "plan draft",
+    "architect-output": "architect-output artifact",
+    "architect-slices": "architect-slices scaffold",
+    "risk-analyst-output": "risk-analyst-output artifact",
+}
+
+
+def _artifact_human_label(spec_name: str) -> str:
+    """Return a human-readable label for ``spec_name`` for error messages.
+
+    Falls back to the bare ``spec_name`` if a new spec row is added without
+    a corresponding label entry — the error stays clean (no KeyError) while
+    surfacing the unknown name verbatim so it can be added to the table.
+    """
+    return _ARTIFACT_HUMAN_LABEL.get(spec_name, spec_name)
+
+
+def _validate_producer_artifacts(
     pipeline_id: str,
     payload: dict[str, Any],
     repo_path: Path,
     *,
+    agent_role: str,
+    phase: str | None = None,
     pipeline_state: Any | None = None,
     worktree_path: Path | None = None,
     branch_verified: bool | None = True,
 ) -> None:
-    """Reject a producer proposal whose canonical phase draft is absent at the
-    proposed commit (#3016).
+    """Spec-driven propose-time validation for every registered producer (#3077 slice-3).
 
-    Used for the **refine** phase. (Plan goes through ``_validate_plan_proposal``,
-    which folds this presence check together with parseability and role-alignment
-    into a single read — a plan draft that parses to ≥1 slice is necessarily
-    present and non-empty, so a separate existence-only pass would be redundant.
-    The ``phase`` parameter is kept generic so the function remains a phase-neutral
-    presence guard for any future producer whose artifact is *not* parsed.)
+    Generalises the per-role ``_validate_producer_draft_present`` (refine) /
+    ``_validate_plan_proposal`` (plan) dispatch that #3077 slices 1–2 inherited
+    into a single helper: for every CONSENSUS_PROPOSE carrying a ``commit_sha``,
+    resolve ``specs_for(phase, producer_role)`` against the
+    :mod:`egg_contracts.artifact_spec` registry (slice-2) and run the existing
+    server-side ``git show`` presence check per registered artifact. Plan-draft
+    extensions (parseability #3026, role↔files alignment #2527/#2528) layer on
+    top via :func:`_validate_plan_extensions` for the ``plan-draft`` artifact
+    only — other producers have no parseable appendix or role-alignment data,
+    so existence-only is the right check there.
 
-    The refine operator gate, the contract populator, and the resume path all read
-    the phase artifact from the canonical
-    ``.egg-state/drafts/{prefix}-{analysis|plan}.md`` path (``_get_draft_path``). A
-    producer that commits its draft to some other path — or not at all — still
-    reaches BRC consensus and completes the phase; only later does the gate report
-    "No <analysis> draft was found on the work branch", a silent
-    deterministic-input failure. (Observed: a refiner that committed
-    ``.egg-state/agent-outputs/refiner-refine.md`` — a path no code reads — instead
-    of ``.egg-state/drafts/<n>-analysis.md``.)
+    Roles with no registered artifact (e.g. ``coder``, ``tester``, every
+    reviewer role) validate nothing — :func:`specs_for` returns an empty tuple
+    and the function falls through cleanly. ``no_changes_needed`` proposes
+    skip validation upstream in ``handle_consensus_propose_signal`` (the
+    producer asserts they have no work in this slice, so there is no artifact
+    to present).
 
-    refine is always concurrent, so the producer always issues
-    ``consensus_propose``. Validating here — before ``handle_propose`` records the
-    proposal — turns a missing draft into a 400 the producer (still alive) can fix by
-    re-proposing with the draft at the right path, instead of the failure surfacing a
-    phase later. The caller's ``except`` block maps the raised ``ValueError`` to a
-    400, so no reviewer cycle is wasted on a structurally-broken proposal.
-
-    Existence-only by design. Format/template conformance is intentionally *not*
-    enforced here — that would risk false-rejecting a legitimate-but-differently-
-    structured analysis draft (see #3016 / #3017); the gate and reviewers remain the
-    content backstop.
-
-    Graceful degradation: when the proposal carries no commit SHA, the pipeline has
-    no branch, the draft path can't be derived, ``git show`` errors for an
-    infrastructure reason (timeout / git failure), or branch verification was
-    inconclusive *and* the commit object is not locally resolvable (see below),
-    this returns silently. It raises only when it can positively confirm the
-    draft is absent (or empty) at a locally-resolved commit — either
-    ``_verify_commit_on_branch`` fetched it, or it already exists in the shared
-    object store — so a non-zero ``git show`` here reliably means "path absent
-    at commit", not "commit unknown".
+    Why presence per artifact, not per phase: refine has one producer with one
+    artifact (analysis-draft); plan has three producers (task_planner →
+    plan-draft; architect → architect-output + architect-slices; risk_analyst
+    → risk-analyst-output). Iterating ``specs_for(phase, agent_role)`` covers
+    every (phase, role)-bound artifact uniformly. Adding a future row in
+    :mod:`egg_contracts.artifact_spec` automatically grows the validator
+    surface — that's the slice-2 ratchet's whole point.
 
     ``pipeline_state`` / ``worktree_path`` are threaded in by
-    ``handle_consensus_propose_signal`` to reuse the lookups it already performed for
-    ``_verify_commit_on_branch``; the function loads them itself when called directly
-    (e.g. from unit tests).
+    :func:`handle_consensus_propose_signal` to reuse the lookups it already
+    performed for ``_verify_commit_on_branch``; the function loads them
+    itself when called directly (e.g. from unit tests). ``phase`` may be
+    passed explicitly (the wrapper :func:`_validate_plan_proposal` and unit
+    tests do this) or omitted to resolve it from ``pipeline_state.current_phase``.
 
-    ``branch_verified`` mirrors the tri-state from ``_verify_commit_on_branch``:
-    ``True`` (commit is on the branch — fetch + ``--contains`` succeeded),
-    ``False`` (commit is *not* on the branch), or ``None`` (verification was
-    inconclusive because the gateway fetch or ``git branch -r --contains``
-    errored — orchestrator-side glitch, not a producer fault). The current
-    handler short-circuits with a 409 before calling this validator when it
-    sees ``False``, so the ``False`` path is unreachable from production
-    today; the function has no explicit guard and falls through to the
-    ``git show`` path, which is correct (a non-zero ``git show`` still
-    reliably means "path absent at commit"). Callers wiring this validator
-    in without that 409 short-circuit must short-circuit the ``False``
-    verdict themselves. When ``None`` is passed, the presence check is
-    skipped only if the commit object is *also* absent locally
-    (``_commit_object_resolvable``) — with the object present, a non-zero
-    ``git show`` reliably means the path is absent at the commit, so the
-    check proceeds; an unconditional skip let a persistent fetch failure
-    disable this validator entirely (#3081). Defaults to ``True`` so direct
+    Graceful degradation mirrors the original validators': returns silently
+    when the proposal carries no commit SHA, the pipeline has no branch,
+    ``specs_for`` resolves to an empty tuple, ``git show`` errors for an
+    infrastructure reason (timeout / git failure), the plan parser raises,
+    or ``to_contract_slices`` raises (a future Pydantic field tightening).
+    Inconclusive branch verification (``branch_verified is None`` — an
+    orchestrator-side fetch glitch, not a producer fault) skips the checks
+    only when the commit object is *also* absent locally
+    (:func:`_commit_object_resolvable`); with the object present, a non-zero
+    ``git show`` reliably means "path absent at commit", so validation
+    proceeds — an unconditional skip-on-``None`` let a persistent fetch
+    failure disable the predecessor validator entirely (#3081). The checks
+    raise only when they can positively confirm — at a locally-resolved
+    commit — that an artifact is absent/empty, unparseable, or
+    role-misassigned. ``branch_verified`` defaults to ``True`` so direct
     callers (unit tests) that don't run ``_verify_commit_on_branch`` still
     get the check.
     """
     commit_sha = (payload.get("commit_sha") or "").strip()
     if not commit_sha:
+        return
+
+    # Early bail-out for roles with no registered artifacts in *any* phase
+    # (coder, tester, documenter, every reviewer). This both saves the
+    # pipeline-state lookup and — more importantly — keeps us out of the
+    # state-store failure path the original per-role dispatch never
+    # reached for these roles. A future spec row that adds a producer
+    # outside the current set automatically opts that role into
+    # validation, so the ratchet still expands as the registry grows.
+    # Lazy import so the spec module's pure-Python invariant (no
+    # orchestrator / gateway deps — see
+    # ``shared/egg_contracts/artifact_spec.py``) stays symmetric: signals.py
+    # imports the spec rather than the spec importing us.
+    try:
+        from egg_contracts.artifact_spec import all_specs, specs_for
+    except ImportError:
+        return
+
+    if agent_role not in {spec.producer_role for spec in all_specs()}:
         return
 
     if pipeline_state is None:
@@ -1394,74 +1299,159 @@ def _validate_producer_draft_present(
     if not pipeline_state.branch:
         return
 
-    # Lazy import to avoid pulling the ~24k-line ``routes.pipelines`` module into
-    # ``signals`` import time (matches ``_validate_plan_proposal``).
-    try:
-        from routes.pipelines import _get_draft_path
-    except ImportError:
-        try:
-            from .pipelines import _get_draft_path  # type: ignore[no-redef]
-        except ImportError:
-            return
+    # Resolve phase. Callers in production
+    # (``handle_consensus_propose_signal``) and the back-compat plan
+    # wrapper pass ``phase`` explicitly; the direct-from-tests path leaves
+    # it ``None`` and we fall back first to ``pipeline_state.current_phase``,
+    # then — when that isn't a usable string (test ``MagicMock`` that
+    # doesn't set ``current_phase.value``, a pipeline whose state is
+    # partially loaded) — to the spec registry itself. The registry
+    # locks each producer role to exactly one phase, so iterating
+    # ``all_specs()`` is unambiguous: pick the phase of the matching
+    # producer_role row, if any. Roles with no registered artifact still
+    # fall through cleanly via the ``specs_for`` empty-tuple below.
+    if phase is None:
+        phase_attr = getattr(pipeline_state, "current_phase", None)
+        if phase_attr is not None:
+            candidate = phase_attr.value if hasattr(phase_attr, "value") else phase_attr
+            if isinstance(candidate, str):
+                phase = candidate
+    if phase is None:
+        for spec in all_specs():
+            if spec.producer_role == agent_role:
+                phase = spec.phase
+                break
 
-    draft_rel = _get_draft_path(
-        phase,
-        issue_number=pipeline_state.issue_number,
-        pipeline_id=pipeline_id,
-    )
-    if not draft_rel:
+    if phase is None:
+        return
+
+    specs = specs_for(phase, agent_role)
+    if not specs:
         return
 
     if worktree_path is None:
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
 
-    # Branch verification inconclusive (fetch or branch-contains errored).
-    # Skip only when the commit object is also absent locally — when it
-    # resolves, the ``git show`` below stays sound (see the same guard in
-    # ``_validate_plan_proposal``; unconditional skip-on-None is the #3081
-    # hole).
+    # Orchestrator-side commit verification was inconclusive — a non-zero
+    # ``git show`` below could be "commit not in local object cache" rather
+    # than "path absent at commit". But that ambiguity only exists when the
+    # commit object is actually absent: when it resolves locally (always, in
+    # the shared-object-store deployment), the checks below stay sound, so
+    # keep validating. Skipping unconditionally on ``None`` is how #3081
+    # shipped a full consensus with no canonical draft — the fetch failure
+    # was persistent, so the "transient glitch" skip became "never validate".
     if branch_verified is None and not _commit_object_resolvable(worktree_path, commit_sha):
         logger.warning(
-            "producer draft presence check skipped: branch verification "
+            "producer artifact presence check skipped: branch verification "
             "inconclusive and commit not in local object store",
             pipeline_id=pipeline_id,
+            role=agent_role,
             phase=phase,
             commit_sha=commit_sha,
         )
         return
 
-    # Read the draft as committed at the proposed SHA, not from the working tree
-    # (which can lag HEAD — see #2723). The preceding ``_verify_commit_on_branch``
-    # already fetched the commit, so it is reachable in the worktree.
+    # Resolve the identifier the spec path-template renders against.  The
+    # registry expects whatever ``_pipeline_identifier`` returns — an integer
+    # issue number for the bare ``issue-<N>`` form, the qualified pipeline id
+    # for re-runs (``issue-<N>-<suffix>`` — #3068). Imported lazily so we
+    # don't pull the ~24k-line ``routes.pipelines`` module into ``signals``
+    # import time.
     try:
-        result = subprocess.run(
-            ["git", "-C", str(worktree_path), "show", f"{commit_sha}:{draft_rel}"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except Exception as exc:
-        logger.warning(
-            "producer draft presence check: git show failed (non-blocking)",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            commit_sha=commit_sha,
-            error=str(exc),
-        )
-        return
+        from routes.pipelines import _pipeline_identifier
+    except ImportError:
+        try:
+            from .pipelines import _pipeline_identifier  # type: ignore[no-redef]
+        except ImportError:
+            return
 
-    if result.returncode == 0 and result.stdout.strip():
-        return  # Draft present and non-empty — nothing to reject.
+    identifier = _pipeline_identifier(pipeline_state.issue_number, pipeline_id)
 
-    label = "analysis" if phase == "refine" else phase
-    raise ValueError(
-        f"{phase.capitalize()} proposal rejected: no {label} draft found at "
-        f"`{draft_rel}` in the proposed commit ({commit_sha[:8]}). The phase gate, "
-        f"contract population, and resume all read the {label} from this exact path "
-        f"— a draft committed to a different path (or an empty one) is invisible to "
-        f"them. Write your {label} to `{draft_rel}`, commit and push it, then "
-        f"re-propose."
+    for spec in specs:
+        artifact_rel = spec.resolve_path(identifier)
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(worktree_path), "show", f"{commit_sha}:{artifact_rel}"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "producer artifact presence check: git show failed (non-blocking)",
+                pipeline_id=pipeline_id,
+                role=agent_role,
+                phase=phase,
+                artifact=spec.name,
+                commit_sha=commit_sha,
+                error=str(exc),
+            )
+            # Infrastructure failure on one artifact must not poison the
+            # remaining rows (a transient git timeout shouldn't mask a
+            # second-artifact absence). Continue to the next spec; existing
+            # graceful-degradation semantics for the per-spec ``git show``
+            # are preserved.
+            continue
+
+        if result.returncode == 0 and result.stdout.strip():
+            # Plan-draft additionally checks parseability (#3026) and
+            # role↔files alignment (#2527/#2528). All other artifacts are
+            # existence-only by design — see ``task-3-1`` description and
+            # the slice-2 spec note that the registry rows are deliberately
+            # parse-free.
+            if spec.name == "plan-draft":
+                _validate_plan_extensions(
+                    pipeline_id=pipeline_id,
+                    commit_sha=commit_sha,
+                    plan_text=result.stdout,
+                    plan_rel=artifact_rel,
+                    pipeline_state=pipeline_state,
+                )
+            continue
+
+        label = _artifact_human_label(spec.name)
+        raise ValueError(
+            f"{agent_role} proposal rejected: no {label} found at "
+            f"`{artifact_rel}` in the proposed commit ({commit_sha[:8]}). "
+            f"The phase gate, contract population, and resume all read the "
+            f"{label} from this exact path — an artifact committed to a "
+            f"different path (or an empty one) is invisible to them. Write "
+            f"your {label} to `{artifact_rel}`, commit and push it, then "
+            f"re-propose."
+        )
+
+
+def _validate_plan_proposal(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    repo_path: Path,
+    *,
+    pipeline_state: Any | None = None,
+    worktree_path: Path | None = None,
+    branch_verified: bool | None = True,
+) -> None:
+    """Back-compat wrapper around :func:`_validate_producer_artifacts` (#3077 slice-3).
+
+    Pre-slice-3 this function carried the bespoke plan-only presence +
+    parseability + role-alignment logic. Slice-3 generalised the presence
+    check via the artifact spec; the plan extensions (parseability #3026,
+    role↔files alignment #2527/#2528) now live in
+    :func:`_validate_plan_extensions` and are layered on the ``plan-draft``
+    artifact by :func:`_validate_producer_artifacts`. This wrapper preserves
+    the historical signature (and the unit-test surface that pins it) by
+    delegating with ``agent_role="task_planner"`` and ``phase="plan"`` —
+    pre-existing plan tests stay green without modification.
+    """
+    _validate_producer_artifacts(
+        pipeline_id,
+        payload,
+        repo_path,
+        agent_role="task_planner",
+        phase="plan",
+        pipeline_state=pipeline_state,
+        worktree_path=worktree_path,
+        branch_verified=branch_verified,
     )
 
 
@@ -1845,8 +1835,8 @@ def handle_consensus_propose_signal(
     # completion handler — graceful degradation on network errors (None).
     #
     # ``pipeline_state`` and ``worktree_path`` are loaded once here and
-    # threaded into the producer validators below (``_validate_plan_proposal`` /
-    # ``_validate_producer_draft_present``) so their dependency on this block is
+    # threaded into the producer validator below
+    # (``_validate_producer_artifacts``) so its dependency on this block is
     # explicit and the state-store + worktree lookups aren't duplicated.
     commit_sha = payload.get("commit_sha", "")
     pipeline_state = None
@@ -1992,30 +1982,26 @@ def handle_consensus_propose_signal(
         # rejected proposals. Skipped for a no-op — the tester ran nothing.
         if agent_role == "tester" and not no_changes:
             _validate_tester_check_coverage(pipeline_id, payload, repo_path)
-        # Reject a refine producer whose analysis draft is missing at the
-        # canonical path the gate reads — before handle_propose records it, so
-        # the gate can't later false-negative on a draft committed off-path
-        # (#3016). Same placement rule: BEFORE handle_propose.
-        elif agent_role == "refiner":
-            _validate_producer_draft_present(
-                "refine",
+        # Spec-driven producer-artifact presence validation (#3077 slice-3).
+        # Generalises the per-role refine / plan dispatch this block used to
+        # carry: ``_validate_producer_artifacts`` resolves
+        # ``specs_for(phase, agent_role)`` against the artifact registry and
+        # runs a single ``git show`` presence check per registered artifact,
+        # then layers the plan-draft parseability (#3026) and role↔files
+        # alignment (#2527/#2528) extensions on the ``plan-draft`` row only.
+        # Roles with no registered artifact (every reviewer, ``coder``,
+        # ``tester``, ``documenter``) fall through cleanly via an empty
+        # ``specs_for`` tuple. Runs BEFORE handle_propose so the tracker
+        # isn't mutated on a rejected proposal, and is skipped for
+        # ``no_changes_needed`` proposes (the producer asserted no work in
+        # this slice; the no-op phase gate above already rejected the case
+        # where refine/plan attempt this).
+        if not no_changes:
+            _validate_producer_artifacts(
                 pipeline_id,
                 payload,
                 repo_path,
-                pipeline_state=pipeline_state,
-                worktree_path=worktree_path,
-                branch_verified=branch_verified,
-            )
-        # Validate task_planner proposals in one pass: the plan draft is present
-        # at the canonical path (#3016), parses into ≥1 slice via the same parser
-        # the contract populator runs (#3026), and assigns no task to a role whose
-        # blocklist forbids its files (#2527). Runs BEFORE handle_propose so the
-        # tracker isn't mutated on a rejected proposal.
-        elif agent_role == "task_planner":
-            _validate_plan_proposal(
-                pipeline_id,
-                payload,
-                repo_path,
+                agent_role=agent_role,
                 pipeline_state=pipeline_state,
                 worktree_path=worktree_path,
                 branch_verified=branch_verified,

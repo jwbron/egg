@@ -2219,6 +2219,15 @@ class TestPlanProposalValidation:
     contract populator runs (#3026), and no task is assigned to a role whose
     blocklist forbids its files (#2527).
 
+    Post-#3077 slice-3: ``_validate_plan_proposal`` is a thin back-compat
+    wrapper around the spec-driven
+    :func:`routes.signals._validate_producer_artifacts` (presence) +
+    :func:`routes.signals._validate_plan_extensions` (parseability +
+    role-alignment) pair. The tests below exercise the wrapper, which
+    preserves the pre-#3077 signature and behaviour byte-for-byte —
+    a plan presence/parse/role-alignment rejection still raises with the
+    same error messages.
+
     Runs at ``CONSENSUS_PROPOSE`` — by that point the planner has pushed the plan
     to origin and the orchestrator reads it via ``git show <commit>:<plan_path>``.
     A prompt-time validator could never fire on the first cycle (in concurrent BRC
@@ -2608,18 +2617,20 @@ class TestPlanProposalValidation:
 
 
 class TestProducerDraftPresentValidation:
-    """Tests for ``_validate_producer_draft_present`` in ``signals.py`` (#3016).
+    """End-to-end refine-producer presence tests through ``handle_consensus_propose_signal``.
 
-    Now the **refine** presence guard. (Plan presence is checked inside
-    ``_validate_plan_proposal`` — see ``TestPlanProposalValidation`` — which folds
-    presence, parseability, and role-alignment into a single read.) A refiner that
-    commits its analysis draft to a non-canonical path (or not at all) used to
-    reach BRC consensus and complete the phase, after which the operator gate —
-    which reads ``.egg-state/drafts/{prefix}-analysis.md`` via ``_get_draft_path``
-    — reported "No analysis draft was found". This validator runs at
-    ``CONSENSUS_PROPOSE`` (always issued in concurrent refine), reads the draft at
-    the proposed commit via ``git show``, and rejects (400) when it is absent so
-    the still-alive refiner re-proposes with the draft at the right path.
+    Pre-#3077 slice-3 these were unit tests for the role-specific
+    ``_validate_producer_draft_present`` helper. Slice-3 subsumed that
+    helper into the spec-driven
+    :func:`routes.signals._validate_producer_artifacts` validator, so
+    direct-call unit coverage moved to ``orchestrator/tests/test_signals.py``
+    (task-3-2). The remaining tests in this class lock the handler-level
+    threading guarantee: a refiner whose analysis draft is missing at the
+    proposed commit is 400'd at ``handle_consensus_propose_signal`` BEFORE
+    the tracker mutates (mirrors the planner #2527 guarantee), and the
+    #3081 fetch-glitch regression — an inconclusive
+    ``_verify_commit_on_branch`` plus an unresolvable commit must NOT
+    blame the producer.
     """
 
     @staticmethod
@@ -2633,171 +2644,8 @@ class TestProducerDraftPresentValidation:
         return patch("routes.signals.get_state_store", return_value=mock_store)
 
     @staticmethod
-    def _patched_subprocess(stdout: str, returncode: int = 0):
-        result = subprocess.CompletedProcess(
-            args=[], returncode=returncode, stdout=stdout, stderr=""
-        )
-        return patch("routes.signals.subprocess.run", return_value=result)
-
-    @staticmethod
     def _patched_worktree():
         return patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
-
-    def test_skips_when_commit_sha_missing(self):
-        """No commit SHA on payload → nothing to validate against."""
-        from routes.signals import _validate_producer_draft_present
-
-        # No other patches needed — the bail-out happens before any git access.
-        _validate_producer_draft_present("refine", "issue-3016", {}, Path("/tmp"))
-        _validate_producer_draft_present("refine", "issue-3016", {"commit_sha": ""}, Path("/tmp"))
-
-    def test_accepts_when_refine_draft_present(self):
-        """Analysis draft present and non-empty at the proposed commit → no raise."""
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            self._patched_subprocess("# Analysis: something real\n\n## Problem\n..."),
-        ):
-            _validate_producer_draft_present(
-                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-            )
-
-    def test_rejects_when_refine_draft_absent(self):
-        """``git show`` non-zero (analysis draft absent at commit) → raises."""
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            self._patched_subprocess("", returncode=128),
-        ):
-            with pytest.raises(ValueError, match="no analysis draft found"):
-                _validate_producer_draft_present(
-                    "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-                )
-
-    def test_rejects_when_refine_draft_empty(self):
-        """Draft exists but is empty/whitespace-only → still rejected."""
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            self._patched_subprocess("   \n  \n"),
-        ):
-            with pytest.raises(ValueError, match="no analysis draft found"):
-                _validate_producer_draft_present(
-                    "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-                )
-
-    def test_skips_when_pipeline_lookup_fails(self):
-        """State store load failure → graceful skip.
-
-        Covers the ``except StateStoreError: return`` branch — an orchestrator-
-        side glitch loading the pipeline shouldn't blame the producer.
-        """
-        from routes.signals import _validate_producer_draft_present
-        from state_store import StateValidationError
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.side_effect = StateValidationError("corrupt state")
-
-        with (
-            patch("routes.signals.get_state_store", return_value=mock_store),
-            self._patched_worktree(),
-        ):
-            # Should not raise — graceful degradation.
-            _validate_producer_draft_present(
-                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-            )
-
-    def test_skips_when_branch_verified_none_and_commit_not_local(self):
-        """``branch_verified=None`` + commit object absent locally → graceful
-        skip.
-
-        When ``_verify_commit_on_branch`` returns ``None`` (gateway fetch
-        failed, or ``git branch -r --contains`` failed) AND the commit isn't
-        in the local object store, a ``git show {commit}:{path}`` would
-        return 128 with "bad revision" — *not* "path absent at commit" — so
-        running the presence check would mis-blame the producer for an
-        orchestrator-side glitch.
-        """
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            patch("routes.signals._commit_object_resolvable", return_value=False),
-            patch("routes.signals.subprocess.run") as mock_run,
-        ):
-            # Should not raise — and should not even reach git show.
-            _validate_producer_draft_present(
-                "refine",
-                "issue-3016",
-                {"commit_sha": "abc1234"},
-                Path("/tmp/repo"),
-                branch_verified=None,
-            )
-            mock_run.assert_not_called()
-
-    def test_validates_when_branch_verified_none_but_commit_local(self):
-        """#3081: an inconclusive branch verification must not disable the
-        presence check when the commit object is locally resolvable — the
-        unconditional skip is how a persistent fetch failure turned the whole
-        propose-time validation layer off.
-        """
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            patch("routes.signals._commit_object_resolvable", return_value=True),
-            self._patched_subprocess("", returncode=128),  # path absent at commit
-            pytest.raises(ValueError, match="no analysis draft found"),
-        ):
-            _validate_producer_draft_present(
-                "refine",
-                "issue-3016",
-                {"commit_sha": "abc1234"},
-                Path("/tmp/repo"),
-                branch_verified=None,
-            )
-
-    def test_skips_when_git_show_errors(self):
-        """A git/infra failure (not a clean non-zero exit) → graceful skip.
-
-        Distinguishes infrastructure failure (don't false-reject) from a
-        definitive absent-at-commit signal (a clean non-zero return, which the
-        ``test_rejects_*`` cases cover).
-        """
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(),
-            self._patched_worktree(),
-            patch(
-                "routes.signals.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="git", timeout=15),
-            ),
-        ):
-            # Should not raise — infra failures degrade gracefully.
-            _validate_producer_draft_present(
-                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-            )
-
-    def test_skips_when_pipeline_has_no_branch(self):
-        """A pipeline with ``branch=None`` → graceful skip (no git context)."""
-        from routes.signals import _validate_producer_draft_present
-
-        with (
-            self._patched_store(branch=None),
-            self._patched_worktree(),
-        ):
-            _validate_producer_draft_present(
-                "refine", "issue-3016", {"commit_sha": "abc1234"}, Path("/tmp/repo")
-            )
 
     def test_refiner_proposal_accepted_when_branch_verification_inconclusive(self):
         """End-to-end: a refiner proposal whose ``_verify_commit_on_branch`` glitch
@@ -2806,7 +2654,8 @@ class TestProducerDraftPresentValidation:
 
         This locks the threading wired by the previous review item: the handler
         captures the tri-state from ``_verify_commit_on_branch``, threads it into
-        ``_validate_producer_draft_present`` via ``branch_verified``, and the
+        ``_validate_producer_artifacts`` (#3077 slice-3 — the spec-driven validator
+        that subsumed the old per-role helper) via ``branch_verified``, and the
         validator short-circuits on ``None`` (when the commit object is not
         locally resolvable either — #3081) so a transient orchestrator-side
         fetch failure isn't mis-blamed on the producer as a missing draft.
@@ -2824,7 +2673,7 @@ class TestProducerDraftPresentValidation:
         # ``_verify_commit_on_branch`` short-circuits to ``None``; the presence
         # validator then probes the local object store and skips because the
         # commit isn't resolvable there either):
-        #   1. _validate_producer_draft_present's git cat-file — returncode=1
+        #   1. _validate_producer_artifacts's git cat-file — returncode=1
         #      (commit object absent locally)
         side_effect = [
             subprocess.CompletedProcess(
@@ -2892,9 +2741,9 @@ class TestProducerDraftPresentValidation:
         ``handle_consensus_propose_signal`` still returns 400 and does not
         mutate the tracker.
 
-        This is the exact production-incident shape the unit tests cover at
-        the validator level (see
-        ``TestValidateProducerDraftPresent.test_validates_when_branch_verified_none_but_commit_local``):
+        This is the exact production-incident shape the spec-driven validator's
+        unit tests cover at the function level (post-#3077 slice-3, those live
+        in ``orchestrator/tests/test_signals.py``):
         a persistent (credential) gateway-fetch failure made every propose
         arrive with ``branch_verified=None``, and the pre-#3081 unconditional
         skip turned the presence check off. With #3081 in place, the
@@ -2903,7 +2752,7 @@ class TestProducerDraftPresentValidation:
         present, so a non-zero ``git show`` reliably means "path absent at
         commit". This handler-level test locks the full threading
         (handler → ``_verify_commit_on_branch`` returns ``None`` →
-        ``_validate_producer_draft_present`` receives that ``None`` →
+        ``_validate_producer_artifacts`` receives that ``None`` →
         ``_commit_object_resolvable`` returns ``True`` → ``git show`` runs
         and 128s → 400) so a future refactor cannot re-introduce the
         unconditional skip at the handler level instead of the validator
@@ -2973,7 +2822,7 @@ class TestProducerDraftPresentValidation:
         # Two subprocess calls in the refiner path (the fetch leg goes through
         # the gateway — patched below):
         #   1. _verify_commit_on_branch's git branch --contains
-        #   2. _validate_producer_draft_present's git show — non-zero (absent)
+        #   2. _validate_producer_artifacts's git show — non-zero (absent)
         side_effect = [
             subprocess.CompletedProcess(
                 args=[], returncode=0, stdout="  origin/egg/issue-3016\n", stderr=""
