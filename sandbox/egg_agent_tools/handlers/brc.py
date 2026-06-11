@@ -553,6 +553,23 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
                 "message": exc.message,
                 "rejection": exc.details,
             }
+        # Contract-completeness rejection on no-op propose (#3114): the
+        # producer still owns incomplete contract rows in this slice, so
+        # ``no_changes_needed`` is not an exit. Surface the rows as
+        # structured data so the agent NACKs/delivers without parsing
+        # stderr (mirrors the ACK / CONFIRM unwrap paths).
+        if (
+            getattr(exc, "status_code", None) == 400
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "contract_incomplete"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": "contract_incomplete",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
         raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))
@@ -704,22 +721,15 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError("'reason' is required")
     nack_version = _require_version_int(req, "nack_version")
 
-    nack_payload: dict[str, Any] = {
-        "reason": reason,
-        "artifact_references": list(req.get("files_reviewed") or []),
-        "nack_version": nack_version,
-    }
-    # Optional reviewer attestation (#3114) — same threading as brc_ack.
-    attestation = req.get("attestation")
-    if attestation:
-        if not isinstance(attestation, dict):
-            raise HandlerError("'attestation' must be an object")
-        nack_payload["attestation"] = attestation
     data = {
         "signal_type": "consensus_nack",
         "agent_role": role,
         "producer_role": producer_role,
-        "payload": nack_payload,
+        "payload": {
+            "reason": reason,
+            "artifact_references": list(req.get("files_reviewed") or []),
+            "nack_version": nack_version,
+        },
     }
     _maybe_attach_slice_id(req, data)
     try:

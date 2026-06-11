@@ -192,12 +192,6 @@ _NACK_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
         },
-        "attestation": {
-            "type": "object",
-            "description": (
-                "Optional role-specific reviewer attestation (#3114), same shape as on ack."
-            ),
-        },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },

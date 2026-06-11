@@ -427,6 +427,161 @@ class TestAckGate:
             is None
         )
 
+    @pytest.mark.parametrize(
+        "non_dict_payload",
+        [
+            {"attestation": "task-2-1,task-2-2"},  # string
+            {"attestation": ["task-2-1", "task-2-2"]},  # list
+            {"attestation": 42},  # number
+            {"attestation": True},  # bool
+        ],
+    )
+    def test_non_dict_attestation_does_not_crash(
+        self, signals_module, app, gate_env, non_dict_payload
+    ) -> None:
+        """A non-dict attestation must not raise AttributeError → 500.
+
+        Sandbox callers validate ``isinstance(attestation, dict)`` at the
+        MCP boundary, but the orchestrator must not assume every caller
+        goes through it (operator probes, future internal signals,
+        dev/test traffic). Coerce to {} so the gate cleanly surfaces an
+        ``attestation_required`` rejection.
+        """
+        _write_contract(gate_env, slice2_complete=True)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="ack",
+            enforcer_role="reviewer_contract",
+            producer_role="coder",
+            payload=non_dict_payload,
+        )
+        # No AttributeError → 500; rejected as attestation_required.
+        assert status == 409
+        assert body["details"]["status"] == "attestation_required"
+
+    def test_empty_producer_role_skipped_with_warning(
+        self,
+        signals_module,
+        app,
+        gate_env,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """An empty/missing producer_role on the ACK check is logged and skipped.
+
+        Upstream signal-handler validation prevents this; defensive
+        behavior here makes a future regression visible rather than
+        silently degrading (``task_ids_for_role`` would otherwise filter
+        ``task.role == ""`` and skip the attestation check).
+
+        ``EggLogger`` disables propagation to the root logger, so caplog
+        cannot observe it — assert against captured stderr instead.
+        """
+        _write_contract(gate_env, slice2_complete=True)
+        result = _reject(
+            signals_module,
+            app,
+            check="ack",
+            enforcer_role="reviewer_contract",
+            producer_role="",
+        )
+        assert result is None
+        captured = capsys.readouterr()
+        assert "empty producer_role" in captured.err
+
+
+class TestKillSwitchAllChecks:
+    """The kill switch must short-circuit every check (#3114)."""
+
+    def test_confirm_skipped(
+        self, signals_module, app, gate_env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(cc.GATE_ENV_VAR, "off")
+        _write_contract(gate_env)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="confirm",
+                enforcer_role="reviewer_contract",
+            )
+            is None
+        )
+
+    def test_noop_propose_skipped(
+        self, signals_module, app, gate_env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(cc.GATE_ENV_VAR, "off")
+        _write_contract(gate_env)
+        assert (
+            _reject(
+                signals_module,
+                app,
+                check="noop_propose",
+                producer_role="documenter",
+                current_phase="implement",
+            )
+            is None
+        )
+
+
+class TestSliceless:
+    """End-to-end gate behavior for non-sliced (slice_id=None) contracts.
+
+    ``incomplete_tasks(slice_id=None)`` is unit-tested directly; this
+    pins the integration with ``_contract_completeness_rejection`` for
+    pipeline-level contracts (no slice tag on the signal).
+    """
+
+    def test_confirm_aggregates_all_slices(self, signals_module, app, gate_env) -> None:
+        _write_contract(gate_env)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="confirm",
+            enforcer_role="reviewer_contract",
+            slice_id=None,
+        )
+        assert status == 409
+        assert body["details"]["status"] == "contract_incomplete"
+        assert body["details"]["slice_id"] is None
+        # slice-1 is fully complete; slice-2 has three incomplete rows.
+        assert {r["id"] for r in body["details"]["incomplete_tasks"]} == {
+            "task-2-2",
+            "task-2-3",
+            "task-2-4",
+        }
+
+    def test_ack_aggregates_owned_rows_across_slices(self, signals_module, app, gate_env) -> None:
+        _write_contract(gate_env)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="ack",
+            enforcer_role="reviewer_contract",
+            producer_role="coder",
+            slice_id=None,
+        )
+        assert status == 409
+        assert body["details"]["status"] == "contract_incomplete"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-2"]
+
+    def test_noop_propose_aggregates_owned_rows_across_slices(
+        self, signals_module, app, gate_env
+    ) -> None:
+        _write_contract(gate_env)
+        status, body = _reject(
+            signals_module,
+            app,
+            check="noop_propose",
+            producer_role="documenter",
+            slice_id=None,
+            current_phase="implement",
+        )
+        assert status == 400
+        assert body["details"]["status"] == "contract_incomplete"
+        assert [r["id"] for r in body["details"]["incomplete_tasks"]] == ["task-2-3"]
+
 
 class TestConfirmGate:
     def test_any_incomplete_row_rejects_confirm(self, signals_module, app, gate_env) -> None:

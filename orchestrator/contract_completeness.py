@@ -37,7 +37,6 @@ consensus (same posture as the propose-time validators, #3081). The
 
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import Sequence
 from pathlib import Path
@@ -50,7 +49,16 @@ from egg_contracts.loader import (
 )
 from egg_contracts.models import Contract, TaskStatus
 
-logger = logging.getLogger("orchestrator.contract_completeness")
+try:
+    from egg_logging import get_logger
+except ImportError:  # pragma: no cover — stdlib fallback for stripped-down envs
+    import logging
+
+    def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
+        return logging.getLogger(name)
+
+
+logger = get_logger("orchestrator.contract_completeness")
 
 # Operator kill switch for the completeness gate. Default on; set to
 # "off" (or 0/false/no) to disable enforcement without a redeploy.
@@ -86,13 +94,15 @@ def load_live_contract(
         except ContractValidationError as exc:
             logger.warning(
                 "Contract completeness gate: contract failed validation; gate skipped",
-                extra={"identifier": str(identifier), "error": str(exc)},
+                identifier=str(identifier),
+                error=str(exc),
             )
             return None
         except Exception as exc:  # pragma: no cover — defensive
             logger.warning(
                 "Contract completeness gate: contract load failed; gate skipped",
-                extra={"identifier": str(identifier), "error": str(exc)},
+                identifier=str(identifier),
+                error=str(exc),
             )
             return None
     return None

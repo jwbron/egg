@@ -1727,13 +1727,40 @@ def _contract_completeness_rejection(
             f"mark them complete (mcp__task__complete), or escalate for a "
             f"human decision if they cannot be done in this slice.",
             status_code=400,
+            details={
+                "status": "contract_incomplete",
+                "producer": producer_role,
+                "slice_id": slice_id,
+                "incomplete_tasks": rows,
+            },
         )
 
     if check == "ack":
-        owned = cc.task_ids_for_role(contract, slice_id, producer_role or "")
+        # Defensive: a missing/empty producer_role at this point would
+        # silently no-op the attestation check (``task_ids_for_role``
+        # filters on ``task.role == ""`` and matches nothing). Signal-handler
+        # validation prevents this upstream; log and skip so an upstream
+        # regression is visible rather than degrading the gate.
+        if not producer_role:
+            logger.warning(
+                "Contract completeness gate: empty producer_role on ACK check; "
+                "attestation check skipped",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+            )
+            return None
+        owned = cc.task_ids_for_role(contract, slice_id, producer_role)
         if owned:
-            attestation = (payload or {}).get("attestation") or {}
-            raw_verified = attestation.get("tasks_verified") or []
+            # ``attestation`` is structured input; if a caller (operator
+            # probe, future internal signal, dev/test traffic) sends a
+            # truthy non-dict, ``.get(...)`` would raise AttributeError →
+            # 500. Coerce non-dicts to {} and non-lists to [] so the gate
+            # surfaces a clean ``attestation_required`` instead.
+            raw_attestation = (payload or {}).get("attestation")
+            attestation = raw_attestation if isinstance(raw_attestation, dict) else {}
+            raw_verified = attestation.get("tasks_verified")
+            if not isinstance(raw_verified, list):
+                raw_verified = []
             verified = {v for v in raw_verified if isinstance(v, str) and v}
             if not verified:
                 return make_error_response(
@@ -2601,6 +2628,18 @@ def handle_consensus_confirmed_signal(
         if not tracker:
             # Message-bus authoritative fallback: if all expected roles have
             # CONSENSUS_CONFIRMED messages, accept the confirmation directly.
+            #
+            # Contract-completeness gate carve-out (#3114): the
+            # ``_contract_completeness_rejection`` CONFIRM check is on the
+            # tracker path below and is BYPASSED here. The fallback only
+            # fires when (a) the tracker is gone and (b) every role has
+            # already emitted CONSENSUS_CONFIRMED via stored messages —
+            # i.e. consensus is being replayed, not decided. The enforcer
+            # CONFIRM that originally closed the slice has already passed
+            # through the gate; this path simply re-acknowledges the
+            # replayed state, so re-running the gate here would block a
+            # legitimate idempotent recovery (a stale incomplete row that
+            # has since been delivered would still hold consensus open).
             try:
                 from message_store import Message, MessageType, get_message_store
                 from review_graph import get_review_graph_for_phase

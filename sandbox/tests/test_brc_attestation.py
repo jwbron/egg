@@ -40,7 +40,6 @@ _NACK_REQ = {
     "reason": "task-2-3 and task-2-8 are still pending — deliver or mark complete",
     "files_reviewed": ["docs/x.md"],
     "nack_version": 1,
-    "attestation": _ATTESTATION,
 }
 
 
@@ -79,7 +78,14 @@ class TestAttestationThreading:
         with pytest.raises(HandlerError, match="attestation"):
             handlers.brc_ack(req)
 
-    def test_nack_threads_attestation(self):
+    def test_nack_payload_excludes_attestation(self):
+        """NACK does not thread attestation (#3114 review).
+
+        The gate only consults ``attestation`` on enforcer ACKs; the
+        NACK channel never read it, so it is no longer accepted at the
+        MCP boundary — keeps the schema honest about what reaches the
+        orchestrator.
+        """
         from egg_agent_tools.handlers import brc as handlers
 
         with patch(
@@ -87,7 +93,7 @@ class TestAttestationThreading:
             return_value={"success": True, "data": {}},
         ) as mock_request:
             handlers.brc_nack(dict(_NACK_REQ))
-        assert _captured_payload(mock_request)["attestation"] == _ATTESTATION
+        assert "attestation" not in _captured_payload(mock_request)
 
 
 class TestStructuredGateRejections:
@@ -152,3 +158,43 @@ class TestStructuredGateRejections:
         ):
             with pytest.raises(GatewayError):
                 handlers.brc_confirm({"pipeline_id": "pipeline-3114", "role": "reviewer_contract"})
+
+    def test_propose_surfaces_contract_incomplete(self):
+        """No-op propose's 400 ``contract_incomplete`` surfaces as data (#3114).
+
+        Parallels the ACK/CONFIRM unwrap paths — the gate returns 400
+        (not 409) because a no-op propose with open rows is a malformed
+        signal, but the agent still needs the structured row list so it
+        can act without parsing stderr.
+        """
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import GatewayError
+
+        err = GatewayError(
+            "no-op propose rejected",
+            status_code=400,
+            details={
+                "status": "contract_incomplete",
+                "producer": "documenter",
+                "slice_id": "slice-2",
+                "incomplete_tasks": [{"id": "task-2-3", "role": "documenter"}],
+            },
+        )
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=err,
+        ):
+            result = handlers.brc_propose(
+                {
+                    "pipeline_id": "pipeline-3114",
+                    "role": "documenter",
+                    "summary": "no documenter work in this slice (no-op propose)",
+                    "commit_sha": "0" * 40,
+                    "no_changes_needed": True,
+                    "no_changes_reason": "no documenter work in this slice",
+                }
+            )
+        assert result["ok"] is False
+        assert result["status"] == "contract_incomplete"
+        assert result["rejection"]["incomplete_tasks"] == [{"id": "task-2-3", "role": "documenter"}]

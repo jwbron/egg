@@ -87,6 +87,17 @@ def validate_mutation(
     # may claim completion. Without this, the contract-completeness gate
     # that blocks an enforcer's ACK on incomplete rows could be satisfied
     # by the enforcer itself flipping the rows to complete.
+    #
+    # Scope note: this is broader than just the enforcer (`reviewer_contract`).
+    # ``FIELD_OWNERSHIP["phases.*.tasks.*.status"] = {IMPLEMENTER, REVIEWER}``
+    # grants every Role.REVIEWER caller — reviewer_code, reviewer_code_holistic,
+    # reviewer_security, reviewer_concurrency, reviewer_agent_design,
+    # reviewer_contract — write access to task status. Restricting the demote
+    # to the enforcer alone would leave every other reviewer as a viable side
+    # channel for "satisfy the gate by flipping the row"; this belt-and-braces
+    # check closes the family. No production code paths currently set
+    # ``status=complete`` from a non-enforcer reviewer (audited via
+    # ``Role.REVIEWER … COMPLETE`` grep), so no live regression is expected.
     if (
         role == Role.REVIEWER
         and normalize_path(field_path) == "phases.*.tasks.*.status"
