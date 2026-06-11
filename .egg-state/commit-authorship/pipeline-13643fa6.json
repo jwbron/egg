@@ -120,6 +120,14 @@
       "repo": null,
       "role": "coder"
     },
+    "f0f1798ddbd043fdee0ab0276bddc77af8fa7691": {
+      "branch": "egg/pipeline-13643fa6/slice-2",
+      "patch_id": "ffe7578881cd438d89c4881d5fb03dbe248ee970",
+      "pipeline_id": "pipeline-13643fa6",
+      "registered_at": "2026-06-11T10:19:26.770473+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "f14bf34883ba7f89aa4cd49a42bb01c176d84cba": {
       "branch": "egg/pipeline-13643fa6/slice-2",
       "patch_id": "ec8b47db6dd071ad492ff4ba79351d1f66457831",
